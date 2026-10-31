@@ -446,3 +446,181 @@ stdout. `observed_at=null`, отсутствие отдельного positive i
 
 Итоговое дополнение перечитано. Изменён только reviewer report; старые результаты
 и историю уточнений он сохраняет. Финальные байты отчёта хешируются после записи.
+
+
+## Дополнение: исходники и пять native-испытаний — узкая приёмка документации
+
+Запрос исполнителя F273/T113/#7804, сообщённый HEAD
+`14f934e3204f2bbac49b0a53cc33b102e07ff252`, та же ветка. Прочитан новый diff
+четырёх Markdown-документов (+94 строки), оба новых receipt и все сохранённые
+применимые excerpts. Недостающая из первого усечённого вывода часть
+`debsystem.cc`/`update.cc` прочитана отдельно целиком по сохранённым диапазонам.
+Полные vendor архивы не восстанавливались; новые серверные пробы не делались.
+Применимые основания операций/конституции/product-gates сверены по прежним
+хешам в рамках исключения F273; прежние L1–L6 и их источники сохраняются.
+
+**SCOPED DOCS/EVIDENCE PASS: новых CRITICAL/HIGH/P1/P2=0.**
+Это независимая проверка точности записанных фактов и пределов выводов,
+без личного повторения SSH/загрузки/gpgv/native эксперимента. Полный L1,
+P1a/P1b, J1 и117 checklist items не получают нового DESIGN/runtime PASS.
+Заявление «независимая приёмка новых фактов ещё не проведена» в docs описывает
+состояние до этого отчёта; его нельзя понимать как снятие общего J1 HOLD.
+
+### Что подтверждает сохранённая evidence
+
+Source receipt имеет signature_exit0 и тот же Ubuntu fingerprint/Release hash,
+Sources.xz by-hash URL/SHA256/581380 bytes, точные apt/dpkg versions, URL,
+размеры/хеши архивов, file hashes/пронумерованные excerpts и cleanup=true.
+Цифры и хеши в новых docs совпадают. Зафиксирована аутентификация поставки
+выбранных исходников; отсутствие reproducible build/полного installed-library/
+dpkg proof оговорено верно. Сама эта JSON-запись остаётся metadata наблюдения
+исполнителя, не повторно проверенной подписью reviewer.
+
+Выбранные исходники обосновывают ровно указанные выводы:
+
+- apt `fileutl.cc250–334`: O_NOFOLLOW, F_SETLK/F_WRLCK, SEEK_SET/start0/len0;
+  EROFS/ENOLCK возвращают surrogate FD без настоящей блокировки. `acquire.cc`
+  и `debsystem.cc` явно показывают Debug::NoLocking bypass.
+- `debsystem.cc80–240`: paths выводятся из parent effective status; frontend
+  перед backend, отдельный UnLockInner и сохранение frontend. Это не полный
+  вызов install/upgrade всех clients.
+- **Путь ListUpdate→AcquireUpdate**, `update.cc25–151`, берёт lists lock до
+  Pre-Invoke; Fetcher из ListUpdate живёт через возврат AcquireUpdate с
+  Post-Invoke. Сам AcquireUpdate принимает готовый Fetcher: произвольный другой
+  caller не получает доказанную блокировку только из имени этой функции.
+  Ограничение docs на проверенный путь и внешний inventory это сохраняет.
+- `private-install.cc142–180/380–468`: Install Pre-Invoke до archives lock,
+  UnLockInner перед DoInstall; outer caller/frontend window ещё не доказано.
+- dpkg frontend-api1–30/dbmodify219–305/file142–153,214–250: whole-file POSIX
+  frontend→backend; DPKG_FRONTEND_LOCKED пропускает frontend, не backend.
+  dbmodify отдельно предупреждает о release при close другого FD того же inode.
+
+Experiment receipt содержит четыре случая baseline0→held100→released0 с
+exact-lock-error=true, отдельное preinvoke_ran_while_held=false для lists и
+пятый native flock held1→released0, daily_script_executed=false. Fixture config,
+system_status_unchanged и cleanup отмечены true. Это соответствует таблице
+нового design-раздела, включая отсутствие заявления о запуске daily script.
+Для flock не заявлен отсутствующий baseline; retained summaries не выдают
+четыре APT команды за полный прогон install/upgrade/dpkg. Проверены causal
+результаты, записанные исполнителем; raw полные argv/stdout/harness этим JSON
+не воспроизводятся и личный повторный runtime PASS не утверждается.
+
+Относительные ссылки ведут в существующий полный design-документ; новый anchor
+соответствует заголовку L1. Отмеченный пункт organic plan касается исследования
+scratch native механизмов, не реализации оператора, запуска аналитики, трафика
+или продаж. Чекбоксы T113/приёмка J1 не закрыты.
+
+### Минимальный конечный остаток L1–L6
+
+Ниже разделены **решения до кода** и **испытания будущей реализации**. Требовать
+готовый полный operator runtime PASS до написания оператора не нужно.
+
+| Область | Уже достаточно установлено для этого узкого шага | Действительно нужно дописать до кода | Что возможно без sudo; что остаётся приёмкой реализации |
+| --- | --- | --- | --- |
+| L1 | Примитив и четыре выбранных APT domains, frontend/backend protocol, verified default paths и ListUpdate→AcquireUpdate window. Перепроверять пять тех же scratch случаев ради документации не нужно | Закончить конечную карту **фактических автоматических entries** → effective argv/env/APT_CONFIG/dpkg admindir/overrides → native lock windows. Сохранить relevant daily_lock/flock lifetime из точного apt.systemd.daily; установить outer install/upgrade caller/frontend window и запреты NoLocking/unsupported fallback. Не расширять это до всего будущего кода Ubuntu | Чтение уже аутентифицированных доступных scripts/config/units/excerpts, public native docs и harmless config/path probes возможно обычным пользователем. Нечитаемый root остаётся unknown, не «пусто». Фактическое удержание всего production lock набора и проверки overrides/ошибок — последующая runtime-приёмка |
+| L2 | Known POSIX semantics и dpkg close warning достаточны; новых исследований механизмов передачи FD не нужно | Назвать один реальный owner PID/процесс в текущем bootstrap→runtime пути; порядок приобретения, сохранение FD/inode, запрет потери record locks через fork/close/exec, busy/error partial cleanup и момент release. Это может быть существующий живой parent, не новый сервис | До кода можно прочитать свой bootstrap и написать точный порядок. Future tests owner death/fork/open-close/partial acquisition/cancel нужны на изолированных собственных files, sudo для них не обязателен |
+| L3 | Lists Pre-Invoke причинно расположен после lock для проверенного update пути; Post-Invoke в пределах жизни Fetcher. Повторное сомнение в этом пути не нужно | Для конечного фактического hook набора указать held-window либо outside/deferred delegate, его accepted vendor role/local config и влияние. Для ранее queued опасного действия выбрать точный результат HOLD/штатную сериализацию; один list-jobs не служит барьером | Обычный пользователь может читать доступные hook configs/units/scripts и read-only native job metadata. Для root-only parts нужна разрешённая полнота доступа; при её отсутствии зависимый precode вывод не PASS. Запуск опасных hooks/прямого рабочего dpkg не требуется |
+| L4 | APT locks не покрывают отдельный Snap/D-Bus/deferred executor; это ограничение уже установлено | Классифицировать только actual установленные внешние executors с путём к GRAF/его runtime/критическим зависимостям. За accepted vendor boundary достаточно конечного разбора local config/доступа/роли. Для harmless delegate закончить выводом noninterference; для опасного — конкретный native exclusion либо HOLD. Не требовать аудит всех будущих Snap исходников | Read-only inventory/доступные unit/env/config/snap metadata возможны без sudo. Недоступное не обходится догадкой; не нужен рабочий refresh/restart. Negative cases выбранного режима — после кода в изоляции |
+| L5 | Прежние durable revoke/in_progress/completed-last/recovery и finite600с остаются принятыми design основаниями | Привязать новые platform locks к существующему owner/children/reap/SQL-resolution/terminal point. Явно описать release при смерти PID и unknown-outcome recovery без ложного ready/второго stop; нового вечного lock обещать нельзя | Для design достаточно согласованного порядка со старым recovery. После кода проверить сигналы/отмену/неизвестный child outcome на изолированных своих процессах и native locks; не на рабочем продукте |
+| L6 | Receipt age<26ч не заменяет актуальность platform состояния; after-completed drift не превращает сам backup в failed | Задать точный минимальный generation состав из **принятой конечной policy**: версии/provenance, relevant config/entrypoints/roles и current runtime binding; назвать существующих writers/readers и точки до freeze/stop, перед ready/resume, ordinary verify/admission. Не добавлять новую DB/сервис, не хешировать весь диск | Можно проектировать и читать собственный source без sudo. Проверки drift/частичного чтения/потери receipt/перехода версии — после реализации на изолированной модели; рабочий admission требует фактического доступа и прежних общих gates |
+
+P1a по-прежнему требует ровно выбранную policy/роли/источники/текущее
+происхождение релевантных bytes, не весь дистрибутив. Source provenance и
+scratch domains уже дают основание продолжать этот конечный дизайн.
+Недоступные root trees/UID1003/ресурсы не исчезли, но не создают обязанности
+повторять доказанные безопасные scratch эксперименты или читать всю ОС.
+Перед high-risk кодом остаются обновление применимых design/contracts,
+независимый checklist review/scoped analyze по прежнему порядку. После кода —
+причинные тесты выбранного оператора и отдельные фактические product gates.
+
+### Снимок проверенных входов
+
+| Вход | SHA-256 |
+| --- | --- |
+| source excerpts receipt | `3404b797b2ac9976ff2def0102ac48b4173da5790e72443936517b95020f6fa0` |
+| native experiment receipt | `784b733aeb8b7ec8d474fc871ea6cd2f4e6a4ca0b7aaf4077128a68e88fd22c8` |
+| full-operator | `e473f90e823a1ebe6acf53ae3e7aefc9e139661583b3d1883410aef70cdd7d76` |
+| plan | `8c28d1697bc7c1f97985a35e58435f7ef938c609654564711a7b5824d8bf9ae8` |
+| tasks | `414366c144ee3c93faa229a9d032a31cd91067d17846f17e3c8c872a7f69e6a2` |
+| organic-growth-plan | `4ce2bbe394556df39831dcaef809f0499b88972307b00eb7491ed2cd29121fec` |
+
+Изменён только этот reviewer report, прежние результаты сохранены. Код,
+требования, чужие docs, checklist marks, Git/GitHub и сервер не менялись.
+Личных тестов/SSH/sudo/Docker/Dev/новых платформенных исследований:0.
+
+
+### Уточнение по owner runtime-child и L6 admission
+
+Ответ на дополнительный узкий вопрос исполнителя; это оценка следующего
+**проектного шага без sudo**, не утверждение уже существующего кода.
+Выбор владельцем native locks уже существующего pinned runtime child
+`activation_operator`, который сам получает record locks и после этого не
+делает exec, **устраняет проблему fork-передачи POSIX locks**. Bootstrap может
+подготовить зависимости до этого и сохранить deployment flock; runtime
+проверяет переданный canonical deployment FD и сам держит platform locks.
+Его обычные CLI children не получают descriptors (`close_fds`, без pass_fds
+для native locks); унаследовать владение POSIX locks они всё равно не могут.
+Новый supervisor/service/IPC для такого выбора не требуется.
+
+**Один следующий конечный шаг:** дописать L2/L5 контракт именно этого owner:
+bootstrap preparation под deployment lock не является proof/ready и не
+меняет продукт; child проверяет inherited deployment FD → получает весь
+native набор NB → повторно проверяет prepared source/package/dependencies,
+собственное running runtime binding и текущую platform generation → только
+после этого filesystem EX/revoke/attempt/stop. Child сохраняет locks через
+существующие CLI/DB cleanup до safe resume/последней durable attempt; parent
+не удаляет prepared environment до child/reap. Общий deadline не начинается
+заново. Busy/error/identity drift до stop даёт HOLD и partial cleanup.
+Этот договор можно написать и проверить по локальному коду без sudo.
+
+Это уточняет более раннюю слишком жёсткую последовательность «locks до любой
+подготовки зависимостей» в данном отчёте: сама безопасная подготовка может
+предшествовать locks, если её результат **заново связан с текущим проверенным
+состоянием под locks до критических действий**. Не достаточно повторить лишь
+хеш собственного Python-файла: надо учитывать relevant действующие runtime
+и native зависимости, включая начатое/завершившееся обновление между preparation
+и lock acquisition. Не нужен аудит всей ОС или воспроизводимая сборка всех
+библиотек; требуется выбранная конечная trusted runtime boundary.
+
+Прочитаны локальные `_prepare/_runtime/_owned_run` bootstrap и
+`activation_operator._runtime_main`. Текущий код пока запускает только
+runtime-preflight, требует root и не реализует proposed inherited deployment
+FD/native lock lifetime. Значит это подходящее уточнение проекта, не runtime
+PASS. `close_fds` само по себе не решает crash/reap: смерть owner снимает
+locks, а unknown child outcome остаётся incident/HOLD по прежнему L5.
+
+**L6 текущим проектом полностью не решён.** В `activation_fence.read_ready`
+строки119–170 сверяются trusted receipt, source/image/cluster/DB/schema,
+initial/lock identity и freshness; current host platform generation там
+не вычисляется. Подписанный или закрытый root receipt сам по себе не замечает
+изменения платформы после его записи. Полнота root-only scheduler/config
+roots при ordinary unprivileged admission не возникает от хеша этого receipt.
+
+Привилегии не являются математически обязательными для всякой возможной L6:
+если все достаточные текущие входы принятой модели доступны consumer и их
+согласованность доказана, проверка может быть непривилегированной. Но **для
+нынешних недоступных root-only входов тот же полный непосредственный readback
+без соответствующих прав невозможен**. До кода нужно назвать достаточный
+current signal/его consumer и способ своевременного закрытия допуска при
+изменении, либо оставить analytics HOLD. Просто прочитать root receipt
+раз в день/проверить age/добавить generation field не закрывает это условие.
+Не следует автоматически добавлять новую службу, запускать root из API или
+выдавать API чтение секретов. Дальнейший выбор ограниченной наблюдаемой
+модели/invalidation остаётся узким проектным решением L6, а не новым общим
+аудитом ОС. Полный DESIGN HOLD этим owner-выбором не снимается.
+
+Хеши прочитанных code оснований: bootstrap
+`e11efddb4001602014977be3dff5e86550978cf81bfe67f23d7ae60a0bdfbfb5`,
+activation_operator
+`b086459d5f3a2a16571041cc96c7120543a6ebfed3dd1ae4887a0a7405ea4ced`,
+activation_fence
+`142fcacf6f5a43c9fc2358b197245e7ef312ed57b0c3dd4dd2ad1f6da17e902b`.
+
+После косметического исправления пробелов исполнителем перечитаны изменённые
+новые строки. Семантика/anchor и оба receipt прежние; SCOPED DOCS PASS сохраняется.
+Финальные docs hashes обновлены: full-operator
+`82b8064760bcbe362d4ae254423bf3e578c66af7a54ea40630251f7e87da4eb0`,
+plan `8c28d1697bc7c1f97985a35e58435f7ef938c609654564711a7b5824d8bf9ae8`,
+tasks `2cbccb7f0323afff54c4ed381b399cb85952884969d4ba519830abe050b0b40d`,
+growth `4ce2bbe394556df39831dcaef809f0499b88972307b00eb7491ed2cd29121fec`.
+Изменён только этот отчёт. Новых серверных проб, тестов или мутаций Git нет.

@@ -696,3 +696,76 @@ owner и потребителей generation ещё надо согласова�
 Оба общих HOLD, недоступные административные roots, UID1003, запас ресурсов,
 полный верхний цикл/T112, выпуск и рабочий T0 остаются открытыми. Ни эта
 проверка происхождения, ни допустимость lock-модели не дают разрешения ready.
+
+### L1: аутентифицированные исходники и пять native-проверок — 31.10.2026
+
+Продолжение исследования на HEAD 14f934e3204f2bbac49b0a53cc33b102e07ff252,
+без изменения продуктового кода или рабочих настроек. Это новые наблюдения
+исполнителя; независимая приёмка новых фактов ещё не проведена. Полный L1,
+P1a/P1b и J1 не закрываются.
+
+В 13:23:53 UTC отдельная read-only проверка повторно сверила установленные
+apt 2.8.3 / dpkg 1.22.6ubuntu6.6. Официальный независимый Ubuntu keyring подтвердил
+noble-updates InRelease; из его SHA256/size получен immutable Sources.xz
+через by-hash. Размер 581380 байт, SHA256
+`9b0f24530c8695c79617d3ae44b3e433d6dc79a557831c82224b118d2a8175ef`.
+Из этого индекса выбраны точные source records; затем проверены size/SHA256
+двух native source archives:
+
+| Архив | Размер | SHA256 |
+| --- | --- | --- |
+| apt_2.8.3.tar.xz | 2354680 | `088522b3613b28fdbcfa61f1f7e476bf6dc6b0120a8f74409e9527580c9f9d3b` |
+| dpkg_1.22.6ubuntu6.6.tar.xz | 5548716 | `7048ee31e30066ae123cdcb891cfa1ad55b2f42a4e04fca2c5db41607ae25196` |
+
+Читались выбранные функции без сборки, установки и запуска maintainer scripts.
+Сохранены metadata/file hashes/пронумерованные excerpts, SHA256 receipt
+`3404b797b2ac9976ff2def0102ac48b4173da5790e72443936517b95020f6fa0`.
+Это provenance vendor source, не воспроизводимая сборка и не полный proof
+установленных библиотек/dpkg. Временные каталоги загрузок удалены.
+
+Точные выводы из выбранных функций:
+
+- `fileutl.cc:GetLock` использует O_NOFOLLOW и POSIX F_SETLK/F_WRLCK,
+  SEEK_SET/start0/len0. При EROFS/ENOLCK есть fallback без настоящего lock;
+  факт получения FD нельзя сам по себе выдать за сериализацию. Debug::NoLocking
+  также отключает блокировки. Неизвестные overrides остаются HOLD.
+- `debsystem.cc:Lock/LockInner` выводит frontend/backend paths из parent
+  фактического status; frontend берётся первым. Backend может отпускаться
+  при сохранённом frontend, поэтому это разные необходимые роли.
+- `update.cc:ListUpdate/AcquireUpdate` получает lists lock до Pre-Invoke и
+  выполняет Post-Invoke до освобождения Fetcher.LockFD. Native apt-get update
+  ниже подтверждает порядок для проверенного пути; это не весь inventory
+  иных автоматических клиентов и не запрет ранее запущенного async delegate.
+- `private-install.cc` вызывает Install Pre-Invoke до archives lock и
+  отпускает backend перед PM::DoInstall. Из приведённых excerpts не следует
+  полный outer caller lock window для всех install/upgrade entries.
+- dpkg frontend-api/dbmodify/file подтверждают whole-file POSIX frontend→backend;
+  DPKG_FRONTEND_LOCKED пропускает frontend, но не backend. Прямой configure/
+  repair/trigger рабочего dpkg ради этой проверки не запускался.
+
+В 13:28:23 UTC выполнен отдельный Linux native эксперимент с пустой временной
+базой status, пустыми sources и cache. До команд проверены фиксированный
+APT_CONFIG, пути state/cache/status/log/etc и отсутствие чужих hooks.
+Единственный учебный Pre-Invoke пишет собственный marker в том же временном
+каталоге. Системные lockfiles не открывались для получения блокировки.
+
+| Проверяемый scratch lock | Настоящая команда | Свободно → занято → освобождено |
+| --- | --- | --- |
+| dpkg frontend | apt-get check | 0 → 100 → 0; ошибка называет exact held path |
+| dpkg backend | apt-get check | 0 → 100 → 0; ошибка называет exact held path |
+| APT lists | apt-get update без источников | 0 → 100 → 0; при busy marker отсутствует, после release создаётся |
+| APT archives | apt-get clean пустого cache | 0 → 100 → 0; ошибка называет exact held path |
+| daily_lock, flock domain | native flock --nonblock … true | busy 1 → released 0; apt.systemd.daily не запускался |
+
+Все 5 причинных случаев прошли. Версии и SHA256 системного dpkg/status до/после
+совпали, temporary cleanup=true. Metadata receipt SHA256
+`784b733aeb8b7ec8d474fc871ea6cd2f4e6a4ca0b7aaf4077128a68e88fd22c8`.
+Это проверка native primitive на синтетической базе, не захват рабочих locks,
+не полноценный operator test и не запуск обновлений на общем сервере.
+
+Следующий допуск по-прежнему требует полного охвата действующих entrypoints/
+overrides и L2–L6: одного owner, отложенных hooks, Snap, crash/recovery и
+generation/admission. Ранее запущенные apt-news/esm-cache/D-Bus действия могут
+пережить release родительского lock; пять проверок не объявляют их безопасными.
+Старые общие HOLD, административный доступ, ресурсы/T112, выпуск и рабочий T0
+сохраняются. Новый helper/service/parser или отключение обновлений не вводились.
