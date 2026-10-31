@@ -1470,10 +1470,13 @@ PR #7850 и затем готовую T106 последовательно. В T1
   обратным splice. Node RED/GREEN и67 прежних проверок0skips PASS;
   negative destruct и closed-page controls PASS. Independent requirements5/0,
   implementation/converge P1/P2/HIGH0.
-- [ ] Принять [PR #7857](https://github.com/yshishenya/graf/pull/7857):
+- [x] Принять [PR #7857](https://github.com/yshishenya/graf/pull/7857):
   source66e705ec22f5346f6b42befffac94d18d864c36d,
   base638cf598269a717258e77140d7e28801257b06d0;
-  три GitHub checks и общий validator ещё ожидаются. Окно слияний согласовано.
+  governance-fast41249428787, macos-pr41249428785, metadata41249429009 PASS.
+  Общий validator до/после merge PASS. Merge
+  ca02e2cf9bb4d761cc1d24bde230a8071c078361,31.10 22:50:55UTC.
+  Окно слияний освобождено; #7696/T106 остаются открытыми.
 
 Публичный tag.js с Mac вернул404; с рабочего сервера тот же адрес200.
 Причина различия не установлена, общий сбой SDK не объявляется.
