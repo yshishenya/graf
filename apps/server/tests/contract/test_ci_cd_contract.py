@@ -26,7 +26,7 @@ SIGNING_CUSTODY_TEST = ROOT / "apps/macos/Installer/Scripts/test-release-signing
 
 def test_macos_workflows_cache_swift_build_without_gating_validation() -> None:
     expected_key = (
-        "swift-${{ runner.os }}-${{ runner.arch }}-spm6.0.3-xcode16.2-"
+        "swift-macos15-${{ runner.os }}-${{ runner.arch }}-spm6.0.3-xcode16.2-"
         "${{ hashFiles('apps/macos/Package.resolved') }}-"
         "${{ hashFiles('apps/macos/**/*.swift', 'apps/macos/Package.swift') }}-v2"
     )
@@ -38,6 +38,7 @@ def test_macos_workflows_cache_swift_build_without_gating_validation() -> None:
         assert "~/.cache/org.swift.swiftpm" in text
         assert "~/Library/Caches/org.swift.swiftpm" in text
         assert expected_key in text
+        assert "restore-keys: |\n            swift-macos15-${{ runner.os }}-${{ runner.arch }}-spm6.0.3-xcode16.2-\n" in text
         assert "Select installed Swift 6.0.3" in text
         # A cache hit must never replace or skip a validation step; it only
         # refreshes timestamps so llbuild can honor incremental state.
@@ -1414,7 +1415,7 @@ def test_macos_diagnostic_workflow_is_exact_sha_and_non_authoritative() -> None:
     assert '[[ "$REQUESTED_SHA" =~ ^[0-9a-f]{40}$ ]]' in workflow
     assert '[[ "$checkout_sha" == "$REQUESTED_SHA" ]]' in workflow
     assert not re.search(r"\$\{[^}\n]*,,[^}\n]*\}", workflow)
-    assert "runs-on: macos-14" in workflow
+    assert "runs-on: macos-15" in workflow
     assert 'Select installed Swift 6.0.3' in workflow
     assert "bash apps/macos/Scripts/run-swift-tests.sh" in workflow
     assert "run_local_postgres_tests.sh" not in workflow

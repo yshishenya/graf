@@ -267,7 +267,7 @@ Release engineer получает один авторитетный резуль
 
 Уточнение доверия: текущий public personal repository сохраняет доверие владельцу/admin, имеющему право менять protection и workflow. Перенос в организацию, новый GitHub App и новые credentials не нужны. Доверенный metadata-validator защищён от изменения внутри обычного PR; не заявляется защита от владельца, намеренно изменяющего всю политику. Нативная merge queue для personal repo недоступна; последовательный release train сохраняется, существующий code merge_group путь не удаляется, живая приёмка очереди не выдумывается.
 
-- **FR-038**: PR получает `macos-pr` на точном head/base. Успех означает успешный консервативный выбор области и либо реальные Swift build/tests/ContractValidation на macos-14/Swift 6.0.3, либо доказанную незатронутость macOS. Failed/missing scope, required+skipped, cancelled/neutral не разрешают merge. Изменения macOS, общего/неизвестного кода, кабинета/моста/API требуют macOS; чистые документы и явно независимые server-only paths могут его не запускать. Rename/delete рассматривают обе стороны. Кэш компиляции не заменяет вызов компилятора и тестов.
+- **FR-038**: PR получает `macos-pr` на точном head/base. Успех означает успешный консервативный выбор области и либо реальные Swift build/tests/ContractValidation на поддерживаемом macos-15/Swift 6.0.3 (Xcode 16.2), либо доказанную незатронутость macOS. Failed/missing scope, required+skipped, cancelled/neutral не разрешают merge. Изменения macOS, общего/неизвестного кода, кабинета/моста/API требуют macOS; чистые документы и явно независимые server-only paths могут его не запускать. Rename/delete рассматривают обе стороны. Кэш компиляции не заменяет вызов компилятора и тестов.
 - **FR-039**: Metadata workflow выполняется через pull_request_target из закреплённого trusted workflow SHA; код PR не checkout/исполняется, PR head/base доступны лишь как Git objects для diff. Python запускается isolated mode. Два API-снимка до/после проверки должны совпасть по repo, PR number, open state, head/base/ref, title/body hash. API/JSON/identity/policy failure закрывает проверку без возврата к старому event body. Сохранённый локальный CLI совместим. Артефакт содержит только identity/digests/status, без body/credentials.
 - **FR-040**: Только подтверждённое изменение title/body (точно известная форма changes) не запускает повтор кода/macOS и не отменяет выполняющийся code run. Каждый workflow сохраняет исполняемую итоговую проверку с постоянным required именем `governance-fast` или `macos-pr`. Для текстового события её PASS допускается только после проверки существующего успешного исходного результата соответствующего компонента на точных repository/PR/head/checked base/workflow/event/run/attempt. Retarget, неизвестный/пустой changes и всякая смена кода запускают применимые проверки. Failed/cancelled/running исходный результат нельзя заменить skipped/зелёным текстовым результатом; новый текстовый PASS сам не является доказательством исполнения кода/native.
 - **FR-041**: Активация двухэтапная: сначала подготовить trusted metadata/macOS и получить checks, затем добавить required contexts к governance-fast с сохранением strict/base/linear history. Только после read-back protection убирать прежний metadata gate и дорогие text-only исполнения. Closeout и freeze новых PR проверяют полный актуальный набор и текущее описание; исторические combined PR сохраняют свою политику по явно закреплённой границе включения. После merge base сверяется с сохранённой проверкой/историей слияния, не с движущимся сегодняшним master.
@@ -656,3 +656,124 @@ Clarify28.10.2026: Full на cea421dd0e26e33426574fe88b64937b2900888c
   подготовки, все шесть настоящих Temporal случаев и реальный strict DB-профиль;
   независимые review/converge, exact PR checks, затем новый frozen Full.
   Неуспешный прежний кандидат не допускает deploy/publication.
+
+
+## A14 — поддерживаемый образ macOS для CI (2026-10-31)
+
+Срез T105/T106, #7834. Полоса — `active Spec Kit slice`, только CI.
+Официальное решение GitHub actions/runner-images#13518 отключает macos-14
+02.11.2026; 31.10 отменён native job PR7833. Это отказ инфраструктуры,
+а не результат продуктовых тестов. Прежние доказательства не переписываются.
+
+Уточнение перед реализацией: обновляется только образ исполнителя. Swift
+6.0.3 и Xcode16.2 остаются; pinned README runner-images на
+`4da2307112a0fad2fd2ecaca8ba7d08683b8c581` подтверждает Xcode16.2/SDK15.2
+на macos15 arm64 при default Xcode16.4. Нового продуктового решения нет.
+
+- **FR-059**: `macos-pr`, macOS-компонент `release-full` и
+  `macos-diagnostic` MUST использовать поддерживаемый `macos-15`, Apple Silicon
+  и единый job-level `DEVELOPER_DIR` Xcode16.2. До изменения PATH проверяются
+  архитектура, actual developer path, принадлежность SDK тому же Xcode и точные
+  версии обоих swift/swiftc и SDK15.2. Ошибка, отсутствие или смена среды дают отказ.
+  Нельзя менять системный xcode-select, устанавливать новый compiler или
+  выбирать незакреплённый latest. Команды build/tests/ContractValidation,
+  required names, права, exact-SHA и release evidence остаются прежними.
+- **FR-060**: Оба кэша MUST иметь одинаковый primary key с macos15,
+  Xcode16.2, Swift6.0.3, архитектурой и хешами lock/исходников. Их одинаковый
+  restore prefix содержит macos15, Xcode16.2, Swift6.0.3 и архитектуру;
+  хеши lock/исходников в prefix не входят. Восстановление кэша другой ОС
+  не допускается; miss не пропускает проверки.
+- **SC-026**: Исполняемые проверки actual YAML shell покрывают успешную среду,
+  неправильную архитектуру/developer/SDK, отсутствие/версию/ошибку compiler и
+  смену среды. Контракты трёх workflow, Full validator/self-test и actionlint
+  проходят. Настоящий PR native job на macos15 исполняет Swift build, XCTest
+  и ContractValidation; три обязательных exact-SHA/base проверки и общий
+  валидатор проходят до защищённого merge. Full для будущего замороженного
+  выпуска сохраняется обязательным, но новый выпуск в T105/T106 не входит.
+
+Другие открытые задачи F211, скорость F269/T031, установленная приёмка,
+production, подпись/нотаризация и Windows не изменяются.
+
+### A14: уточнение по настоящему отказу SDK15.2
+
+Первый native run41215353665 на SHA45f783a5a6789db03e3530194be92453c0a86974
+подтвердил среду, но отказал при компиляции WebKit. Две существующие группы
+typealias выбирают callback без MainActor/Sendable по `swift(<6.1)`, хотя
+SDK15.2 требует эти атрибуты уже со Swift6.0.3. Три protocol conformances
+не принимаются: recording settings, notification settings и download delegate.
+Это доказанный дефект выбора типа, а не основание менять compiler или SDK.
+
+- **FR-061**: В двух существующих файлах
+  `EmbeddedCabinetRecordingSettingsBridge.swift` и `EmbeddedCabinetWebView.swift`
+  MUST удалить неверный выбор старых callback типов по версии языка и оставить
+  существующие MainActor/Sendable typealias, соответствующие закреплённому
+  SDK15.2. Сохранить все тела методов, callback/async поведение, проверку
+  origin/nonce/access, навигацию, загрузки и пользовательские настройки.
+  Новые адаптеры, fallback или изменение разрешений запрещены.
+  Компиляция и существующие тесты на закреплённом CI обязательны; поддержка
+  сборки со старым SDK14 не требуется. Deployment target macOS14 не меняется.
+
+T107 выполняется после независимой повторной проверки требований и до T106.
+Предыдущее ограничение «только CI» дополнено этими двумя объявлениями типов;
+продуктовое поведение и правила публичного выпуска не меняются.
+
+
+### A14: подготовка настоящих UI-тестов на небольшом экране
+
+Run41216963828 на source7af2fb8fb14b217d6baa100ef5bf78484d579d4f
+успешно собрал WebKit и исполнил1296 XCTest, затем отказал: 12 assertions
+в четырёх тестах, 9 прежних skip. Локальный повтор этих9 тестов на новой
+среде прошёл; это не доказательство pinned CI. Настоящий отказ сохраняется.
+
+Уточнение T108: меняется только подготовка/наблюдение двух существующих
+тестов, не продуктовый код или критерии Stop/подтверждения. На небольшом
+экране первоначальная карточка уже пересекалась с исходным окном, поэтому
+сохранённая рамка не являлась свободным якорем; последующий вертикальный
+перенос мог оставить недостаточно места. После resize рамка native host
+обновляется раньше виртуальных AX-элементов SwiftUI. Проверка confirm
+также не ждёт didFinish и завершения закрытия предыдущего sheet.
+
+- **FR-062**: `DesktopNotificationProtectedConsumerTests.swift` MUST
+  явно подтвердить отсутствие исходного пересечения, создать реальное
+  пересечение горизонтальным перемещением существующего окна при достаточной
+  высоте, дождаться нового AX Stop после resize и сохранить проверки полного
+  покрытия реальных indicator/Stop, коллизии, отступа8pt, того же panel/deadline,
+  однократного настоящего Stop, переключения inspector и удаления regions/HUD.
+  Малый viewport внутри настоящего экрана проверяется на всех исполнителях;
+  прямой передачи препятствий или вызова reposition вместо наблюдения нет.
+- **FR-063**: `EmbeddedCabinetJavaScriptConfirmTests.swift` MUST дождаться
+  настоящего завершённого документа и отсутствия предыдущего sheet перед
+  каждым JavaScript confirm. Ограниченное ожидание не заменяется sleep;
+  Return/Escape по-прежнему должны показать реальный native alert, вернуть
+  false и не выполнить защищённое действие. Не менять fail-closed guards,
+  trust boundary, timeout-to-pass, skip или число исполненных сценариев.
+
+T108 проходит независимое requirements review до изменения тестов, причинный
+проверяемый сценарий исходных предпосылок, профильные XCTest, независимое code
+review и полный pinned native. При выявленном дефекте продукта этот срез
+останавливает зависимую правку и отдельно определяет владение/требования.
+
+
+### A14/T109: настоящий метод подтверждения WebKit
+
+Run41222159260 на9b3edf7351b1421bac821db04b061a71891057c8
+воспроизвёл selector=false и отсутствие настоящего confirm. Компилятор
+сообщил nearly-matches: SDK15.2 ожидает @Sendable(Bool), текущий alias
+требует @MainActor @Sendable(Bool). Необязательный WKUIDelegate метод
+поэтому не зарегистрирован. Это продуктовый дефект объявления, T108
+не исправляется ослаблением теста.
+
+- **FR-064**: В существующем Coordinator MUST использовать объявленный
+  WKUIDelegate async метод `webView(_:runJavaScriptConfirmPanelWithMessage:initiatedByFrame:) async -> Bool`
+  вместо callback-overload с несовместимым alias. Удалить ставший неиспользуемым
+  EmbeddedCabinetConfirmCompletionHandler; внутри через стандартный
+  withCheckedContinuation передать тот же requestJavaScriptConfirmation.
+  Сохранить MainActor, все trust/lifecycle guards, однократное разрешение,
+  Return/Escape=false и явный Continue=true. Новых адаптеров, условных SDK
+  ветвей, делегатов, подмены alert или изменения времени ожидания нет.
+  Прежняя проверка настоящего selector и все1296 случаев остаются обязательными
+  на закреплённом Swift6.0.3/SDK15.2 и в локальной поддерживаемой среде.
+
+Это отдельно определённое владение и требование после product failure;
+T109 проходит requirements review/analyze до кода и implementation review
+после проверок. T106 зависит также от T109. Установка/выпуск не входят.

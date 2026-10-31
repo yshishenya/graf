@@ -18,9 +18,10 @@ concurrency:
 jobs:
   macos-diagnostic:
     name: macOS diagnostic (non-authoritative)
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 45
     env:
+      DEVELOPER_DIR: /Applications/Xcode_16.2.app/Contents/Developer
       REQUESTED_SHA: ${{ inputs.requested_sha }}
     steps:
       - name: Checkout exact SHA
@@ -44,9 +45,15 @@ jobs:
         run: |
           set -euo pipefail
           toolchain_bin=/Applications/Xcode_16.2.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin
+          [[ "${DEVELOPER_DIR:-}" == /Applications/Xcode_16.2.app/Contents/Developer ]]
+          architecture="$(uname -m)"
+          [[ "$architecture" == arm64 ]]
           developer_before="$(/usr/bin/xcode-select -p)"
           sdk_before="$(/usr/bin/xcrun --sdk macosx --show-sdk-path)"
-          [[ -n "$developer_before" && -n "$sdk_before" ]]
+          sdk_version_before="$(/usr/bin/xcrun --sdk macosx --show-sdk-version)"
+          [[ "$developer_before" == "$DEVELOPER_DIR" ]]
+          [[ "$sdk_before" == "$DEVELOPER_DIR"/Platforms/MacOSX.platform/Developer/SDKs/* ]]
+          [[ "$sdk_version_before" == 15.2 ]]
           for tool in swift swiftc; do
             [[ -x "$toolchain_bin/$tool" ]]
             tool_version="$("$toolchain_bin/$tool" --version)"
@@ -58,7 +65,9 @@ jobs:
           [[ "$(command -v swiftc)" == "$toolchain_bin/swiftc" ]]
           developer_after="$(/usr/bin/xcode-select -p)"
           sdk_after="$(/usr/bin/xcrun --sdk macosx --show-sdk-path)"
+          sdk_version_after="$(/usr/bin/xcrun --sdk macosx --show-sdk-version)"
           [[ "$developer_before" == "$developer_after" && "$sdk_before" == "$sdk_after" ]]
+          [[ "$sdk_version_before" == "$sdk_version_after" ]]
           printf 'developer=%s\nsdk=%s\n' "$developer_after" "$sdk_after"
           printf '%s\n' "$toolchain_bin" >> "$GITHUB_PATH"
 

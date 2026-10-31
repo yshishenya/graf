@@ -65,8 +65,10 @@ jobs:
       # Only a real code/base check can cancel another native execution.
       group: graf-macos-code-${{ github.event.pull_request.number }}
       cancel-in-progress: true
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 30
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.2.app/Contents/Developer
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -78,9 +80,15 @@ jobs:
         run: |
           set -euo pipefail
           toolchain_bin=/Applications/Xcode_16.2.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin
+          [[ "${DEVELOPER_DIR:-}" == /Applications/Xcode_16.2.app/Contents/Developer ]]
+          architecture="$(uname -m)"
+          [[ "$architecture" == arm64 ]]
           developer_before="$(/usr/bin/xcode-select -p)"
           sdk_before="$(/usr/bin/xcrun --sdk macosx --show-sdk-path)"
-          [[ -n "$developer_before" && -n "$sdk_before" ]]
+          sdk_version_before="$(/usr/bin/xcrun --sdk macosx --show-sdk-version)"
+          [[ "$developer_before" == "$DEVELOPER_DIR" ]]
+          [[ "$sdk_before" == "$DEVELOPER_DIR"/Platforms/MacOSX.platform/Developer/SDKs/* ]]
+          [[ "$sdk_version_before" == 15.2 ]]
           for tool in swift swiftc; do
             [[ -x "$toolchain_bin/$tool" ]]
             tool_version="$("$toolchain_bin/$tool" --version)"
@@ -92,7 +100,9 @@ jobs:
           [[ "$(command -v swiftc)" == "$toolchain_bin/swiftc" ]]
           developer_after="$(/usr/bin/xcode-select -p)"
           sdk_after="$(/usr/bin/xcrun --sdk macosx --show-sdk-path)"
+          sdk_version_after="$(/usr/bin/xcrun --sdk macosx --show-sdk-version)"
           [[ "$developer_before" == "$developer_after" && "$sdk_before" == "$sdk_after" ]]
+          [[ "$sdk_version_before" == "$sdk_version_after" ]]
           printf 'developer=%s\nsdk=%s\n' "$developer_after" "$sdk_after"
           printf '%s\n' "$toolchain_bin" >> "$GITHUB_PATH"
       - name: Cache Swift build
@@ -106,9 +116,9 @@ jobs:
           # The .build tree holds compiled outputs for repository sources, so the
           # key must change with them; caches are immutable, so a key based on the
           # dependency lockfile alone kept restoring a stale build state.
-          key: swift-${{ runner.os }}-${{ runner.arch }}-spm6.0.3-xcode16.2-${{ hashFiles('apps/macos/Package.resolved') }}-${{ hashFiles('apps/macos/**/*.swift', 'apps/macos/Package.swift') }}-v2
+          key: swift-macos15-${{ runner.os }}-${{ runner.arch }}-spm6.0.3-xcode16.2-${{ hashFiles('apps/macos/Package.resolved') }}-${{ hashFiles('apps/macos/**/*.swift', 'apps/macos/Package.swift') }}-v2
           restore-keys: |
-            swift-${{ runner.os }}-${{ runner.arch }}-spm6.0.3-xcode16.2-
+            swift-macos15-${{ runner.os }}-${{ runner.arch }}-spm6.0.3-xcode16.2-
       - name: Refresh restored build timestamps
         if: steps.swift-cache.outputs.cache-hit == 'true'
         shell: bash

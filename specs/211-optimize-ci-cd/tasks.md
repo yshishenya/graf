@@ -321,3 +321,22 @@ dry-run/backup/CD/public readback и publication attestation PASS.
 
 - [X] T103 Исправить подтверждённые Full40613955028 ошибки подготовки в существующих `apps/server/tests/fixtures/test_resources.py`, `apps/server/tests/unit/test_processing_temporal_workflow.py` и `tests/governance/test_test_resources.py`: strict по fixture closure и ограниченный retry только SDK download429 до env. Пройти requirements review, analyze/issue sync до кода; причинный red/green, реальные focused DB/Temporal, independent code review/converge и фрагмент F211. (FR034/035/055/058) (Issue #7789)
 - [X] T104 После T103 принять exact-SHA/base PR checks/merge, затем новую согласованную основу, train/candidate и один успешный authoritative Full; штатные dry-run/backup/CD/publication остаются отдельными воротами. Сохранить failed candidate40613955028 и не переиспользовать его. Общая F211 и коммерческие AC открыты. (depends T103) (Issue #7789)
+
+
+## Phase30 — A14: поддерживаемый исполнитель macOS
+
+Владелец T105/T106 — агент уборки репозитория; issue #7834.
+Prerequisite: независимый `checklists/runner-image.md` PASS и ограниченный
+analyze FR038/059/060/SC026 → T105/T106. Сначала проверка, затем код.
+Исходные ID, описания и отметки всех прежних задач сохранены.
+
+- [X] T105 [US9] Перенести `.github/workflows/macos-pr.yml`, `release-full.yml`, `macos-diagnostic.yml` на macos15 с закреплённым Xcode16.2/Swift6.0.3 и job-level DEVELOPER_DIR; проверить arm64, actual developer/SDK, согласовать namespace обоих caches, `scripts/validate-full-ci-workflow.py`, `tests/governance/test_governance_workflow.py` и `apps/server/tests/contract/test_ci_cd_contract.py`. Сохранить прежние отрицательные ожидания, выполнить причинный red/green, actionlint и независимое ревью/converge. (FR038/059/060, SC026; Issue #7834)
+- [ ] T106 [US9] На точном SHA T105 подтвердить три обязательных GitHub проверки и настоящее исполнение Swift build/XCTest/ContractValidation на macos15; выполнить общий validator до/после защищённого merge, сохранить границы в `specs/211-optimize-ci-cd/validation-runner-image-20261031.md` и закрыть только #7834 после live closeout. Выпуск и production не входят. (SC026; depends T105; Issue #7834)
+
+- [X] T107 [US9] После requirements review/analyze исправить подтверждённый run41215353665 выбор WebKit callback types в `apps/macos/RecApp/Sources/Cabinet/EmbeddedCabinetRecordingSettingsBridge.swift` и `EmbeddedCabinetWebView.swift`: удалить старые typealias branches по swift(<6.1), сохранить MainActor/Sendable types и все тела методов/consumers. Проверить compilation и существующие XCTest/ContractValidation, independent implementation review; T106 зависит также от T107. (FR061, SC026; Issue #7834)
+
+
+- [ ] T108 [US9] После независимого requirements review/analyze исправить только подготовку и наблюдение `apps/macos/Shared/Tests/DesktopNotificationProtectedConsumerTests.swift` и `EmbeddedCabinetJavaScriptConfirmTests.swift` по FR062/063: свободный исходный якорь, настоящее горизонтальное пересечение на небольшом viewport, новый AX после resize, готовый документ/закрытый sheet. Сохранить все проверки безопасности и достижимости, причинные предпосылки, focused XCTest и независимый review. T106 зависит также от T108 и нового полного pinned native. (FR062/063, SC026; Issue #7834)
+
+
+- [ ] T109 [US9] После независимого CHK008/analyze устранить доказанный WKUIDelegate optional-method mismatch по FR064: заменить только confirm callback-overload в `apps/macos/RecApp/Sources/Cabinet/EmbeddedCabinetWebView.swift` стандартным async requirement с withCheckedContinuation, удалить неиспользуемый confirm alias; сохранить все request guards/lifecycle и6 настоящих/прямых confirm tests. Выполнить local/full/native проверки, независимое code review и converge. T106 зависит также от T109. (FR064, SC026; Issue #7834)

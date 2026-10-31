@@ -216,7 +216,7 @@ A5 report identity: upload `graf-test-timings-<requested_sha>-<run_id>-<run_atte
 High-risk CI/governance; constitution 7.0.0 PASS, read-only permissions and existing owner trust retained. Research confirms native merge queue/required workflows unavailable for the personal repository; no migration or external service.
 
 1. Reuse `ci-event-identity.py` in a small `scripts/ci-pr-scope.py`: validate exact head/base and NUL Git diff, classify only exact title/body edits as text-only, conservative native scope otherwise. Pure documentation means Markdown notes/specs/changelog and owned changelog fragments. Independent server modules can skip native, while API/cabinet/shared/unknown/native paths require it. Explicit reasons are outputs. Failure of scope causes a failed required final check.
-2. Add `.github/workflows/macos-pr.yml`: scope on Ubuntu; conditional macos-14 Swift 6.0.3 build/tests/ContractValidation; unconditional result assertion with stable required name `macos-pr`. A proven text edit validates existing exact-head/base native proof instead of executing native again; a skipped native job alone never authorizes merge. Existing local/Full Swift runner and native execution concurrency are retained. No application installation or manual app launch.
+2. Add `.github/workflows/macos-pr.yml`: scope on Ubuntu; conditional macos-15 Swift 6.0.3 build/tests/ContractValidation; unconditional result assertion with stable required name `macos-pr`. A proven text edit validates existing exact-head/base native proof instead of executing native again; a skipped native job alone never authorizes merge. Existing local/Full Swift runner and native execution concurrency are retained. No application installation or manual app launch.
 3. Extend existing metadata validator with explicit trusted-policy SHA and optional second current snapshot/result output. Keep legacy event CLI requiring PR checkout. Trusted mode verifies checkout=policy SHA, repository identity, exact Git object availability and before/after snapshots, then reuses current title/body validation. Target workflow checks out `github.workflow_sha`, fetches only exact SHA Git objects (no PR code checkout), uses `python3 -I`, read-only GitHub token only for API, safe metadata artifact tied to run/attempt/head/base/policy/hash.
 4. First publication retains combined governance-fast metadata execution. After the foundation merge, verify trusted target checks on the cutover PR, add `pr-metadata` and `macos-pr` to required GitHub contexts without removing governance-fast, read back strict/app IDs. After cutover, the existing governance-fast job keeps a stable required name: exact text-only events skip expensive steps/new receipts and validate existing source proof; genuine code events retain current receipt v1 and tests. Separate text concurrency never cancels code/native. A skipped job or an unconditional text PASS cannot replace source validation. The initial different-name design was disproved by GitHub's live expected-check state; FR-040 now specifies validated reuse.
 5. Extend existing closeout/release consumers through one reusable live PR check validator. Pin the foundation commit as the historical policy boundary after it exists; do not invent its SHA. New PRs require correct workflow/event/head/conclusion for all three checks and fresh current body validation. Historical pre-cutover evidence remains valid; post-merge identity uses final head and merge ancestry. The current personal-repo train remains serial; no unsupported live merge-group claim.
@@ -604,3 +604,90 @@ Lane: existing high-risk F211, FR034/035/055/058. Реальные ошибки 
    Затем red/green, профильные реальные проверки, Ruff, process/governance,
    independent code review/converge и фрагмент F211. T104 требует новых exact
    PR checks/merge и authoritative Full; не принимает ранее неуспешный кандидат.
+
+
+## A14: перенос исполнителя CI без смены compiler
+
+T105/T106, #7834; `active Spec Kit slice`. Конституция §V/VI сохраняется:
+нет изменений приложения, публичных пакетов, доверия, обязательного набора
+проверок, release candidate или production. FR038/059/060 → T105;
+SC026 → T105/T106. Другие срезы и их незавершённые условия не принимаются.
+
+1. Требования проверяет независимый reviewer в `checklists/runner-image.md`;
+   до его PASS и ограниченного analyze реализация остановлена.
+2. В трёх существующих workflow заменить образ на macos15 и закрепить
+   `DEVELOPER_DIR=/Applications/Xcode_16.2.app/Contents/Developer` на уровне
+   задания. В прежнем selector сохранить все отрицательные проверки и добавить
+   arm64, actual developer path, SDK внутри выбранного Xcode и SDK version15.2. Никаких sudo,
+   xcode-select --switch, загрузок Xcode или нового helper.
+3. Primary/restore keys обоих caches отделить namespace macos15. Использовать
+   прежние action pins, обязательные команды, concurrency, receipts и результат.
+4. До кода воспроизвести старое отсутствие поддерживаемого runner и защиты
+   среды существующими контрактами; расширить actual-shell проверку, затем
+   согласовать Full validator/self-test и диагностический контракт.
+5. Выполнить профильные тесты, actionlint и проектные проверки, независимый
+   review/converge; получить настоящий native PR-прогон и общий validator.
+   Защищённый merge завершает этот срез. Новый release-full, выпуск, GRAF Dev
+   и production не запускаются. Следующий выпуск проверяет новый Full обычным
+   единственным прогоном замороженного кандидата.
+
+Источники: [отключение](https://github.com/actions/runner-images/issues/13518),
+[закреплённый состав macos15 arm64](https://github.com/actions/runner-images/blob/4da2307112a0fad2fd2ecaca8ba7d08683b8c581/images/macos/macos-15-arm64-Readme.md).
+
+### A14: T107 — устранение доказанного compile blocker
+
+FR061/SC026 → T107 → T106. После независимого requirements review и analyze
+удалить только старые ветви двух групп typealias, сохранить существующую
+MainActor/Sendable ветвь, без изменения методов/прав/навигации/настроек.
+Проверить все consumers этих alias и три conformance из настоящего отказа.
+Hosted run41215353665 является RED; локальная компиляция/существующие XCTest
+проверяют текущий SDK, новый native CI — именно Swift6.0.3/SDK15.2.
+Достаточна существующая compilation + поведенческая матрица, новая обвязка
+и изменение tests expectations не нужны. После независимого code review
+получить новые exact-SHA checks. GRAF Dev, выпуск и production не запускаются.
+
+
+### A14/T108 — подготовка существующих UI-проверок
+
+Владение только двумя тестовыми файлами из FR062/063. Для трёх вариантов
+shell использовать ограниченную область внутри настоящего visibleFrame
+(не более1024×743pt), расположить исходное окно слева с запасом для карточки;
+проверить эти предпосылки явно. Длинная карточка охватывает Y настоящего Stop;
+перенос только по X не упирается в системное ограничение titlebar по Y и
+оставляет место для компактного размещения ниже controls. После сужения
+host дождаться заново найденного AX Stop в новой геометрии; повторно читать
+AX controls, не хранить прежнюю виртуальную геометрию. Полное покрытие marker
+и все safety assertions сохраняются. Предположение о свободном исходном якоре
+должно воспроизводимо отказывать на прежней подготовке с небольшим viewport.
+
+Для confirmation вернуть тесту navigation controller, дождаться didFinish
+через его публичное isLoading вместе с URL/WebKit и отсутствием sheet.
+Перед вторым запросом — bounded наблюдение завершённого AppKit dismissal.
+При отказе писать key/состояние, не обходить guards и не перезапускать action.
+Новых helpers/dependencies/workflows и продуктовых изменений нет.
+SC026 → T105/T107/T108/T106; FR062/063 → T108.
+
+
+Уточнение наблюдения AX после первого исполнения T108: на SDK26.5 кнопка
+Stop при сужении600→520 меняет и положение, и ширину180→140.5pt; её центр
+сдвигается на60.25pt, а не40pt. Поэтому подготовка ждёт новую ненулевую рамку,
+отличную от прежней, вместе с точными bounds accessory, затем без изменений
+проверяет полное покрытие Stop и его нахождение внутри окна. Фиксированный
+сдвиг центра не является продуктовым требованием. Виртуальное дерево
+перечитывается на каждой попытке; старый неизменный AX не разрешает ожидание.
+
+
+### A14/T109: регистрация WKUIDelegate confirm
+
+FR064/SC026 → T109 → T106. Уточнение после доказанного selector=false и
+compiler nearly-matches в41222159260: удалить единственный confirm alias
+и заменить callback-overload стандартным async requirement. Существующий
+requestJavaScriptConfirmation вызывается из MainActor через
+withCheckedContinuation; отмена/явное согласие разрешают continuation тем же
+сохранённым однократным callback. Все consumers alias найдены: объявление
+и один метод; остальные четыре alias не меняются. Продуктовый UI/guards,
+входные URL и жизненный цикл не переписываются. Сначала независимый review
+CHK008 и scoped analyze, затем существующие шесть confirm tests, полный
+XCTest/ContractValidation и новый pinned native, независимое code review.
+Продуктовые полномочия и данные не меняются; Constitution Check PASS
+по сохранению guards/однократности/metadata-only evidence.

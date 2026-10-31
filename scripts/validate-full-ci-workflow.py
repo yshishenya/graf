@@ -85,7 +85,7 @@ def validate(path: Path) -> list[str]:
         "server phases job": r"(?ms)^\s*server-phases:\s*\n.*?runs-on:\s*ubuntu-latest",
         "server parallel job": r"(?ms)^\s*server-parallel:\s*\n.*?runs-on:\s*ubuntu-latest",
         "shard matrix": r"(?ms)^\s*server-parallel:\s*\n.*?matrix:\s*\n\s*shard:\s*\[\s*0\s*,\s*1\s*,\s*2\s*,\s*3\s*,\s*4\s*,\s*5\s*,\s*6\s*,\s*7\s*\]",
-        "macOS job": r"(?ms)^\s*macos-full:\s*\n.*?runs-on:\s*macos-14",
+        "macOS job": r"(?ms)^\s*macos-full:\s*\n.*?runs-on:\s*macos-15",
         "aggregate job": r"(?ms)^\s*aggregate:\s*\n.*?needs:\s*\[?reserve.*?server-static.*?server-phases.*?server-parallel.*?macos-full",
         "exact checkout": r"ref:\s*\$\{\{\s*inputs\.requested_sha\s*\}\}",
         "postgres serial phases": r"run_local_postgres_tests\.sh\s+--focused\s+--partitioned\s+--phases\s+strict,performance",
@@ -249,7 +249,7 @@ jobs:
             ${{ runner.temp }}/test-timings/parallel-full-nodeids-${{ matrix.shard }}.txt
             ${{ runner.temp }}/test-timings/shard-nodeids-${{ matrix.shard }}.txt
   macos-full:
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 45
     steps:
       - run: test "$(uname -m)" = arm64
@@ -298,6 +298,8 @@ jobs:
         path.write_text(good, encoding="utf-8")
         errors = validate(path)
         assert errors == [], errors
+        path.write_text(good.replace("runs-on: macos-15", "runs-on: macos-14"), encoding="utf-8")
+        assert any("macOS job" in item for item in validate(path))
         path.write_text(good.replace("cancel-in-progress: false", "cancel-in-progress: true"), encoding="utf-8")
         assert any("no cancellation" in item for item in validate(path))
         path.write_text(good.replace("bash apps/macos/Scripts/run-swift-tests.sh", "echo tests"), encoding="utf-8")

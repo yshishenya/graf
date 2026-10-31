@@ -3,18 +3,6 @@ import Combine
 import SwiftUI
 import TwoBrainRecShared
 
-#if swift(<6.1)
-public typealias EmbeddedCabinetNavigationDecisionHandler =
-    (WKNavigationActionPolicy) -> Void
-public typealias EmbeddedCabinetNavigationResponseDecisionHandler =
-    (WKNavigationResponsePolicy) -> Void
-public typealias EmbeddedCabinetOpenPanelCompletionHandler =
-    ([URL]?) -> Void
-public typealias EmbeddedCabinetDownloadCompletionHandler =
-    (URL?) -> Void
-public typealias EmbeddedCabinetConfirmCompletionHandler =
-    (Bool) -> Void
-#else
 public typealias EmbeddedCabinetNavigationDecisionHandler =
     @MainActor @Sendable (WKNavigationActionPolicy) -> Void
 public typealias EmbeddedCabinetNavigationResponseDecisionHandler =
@@ -23,9 +11,6 @@ public typealias EmbeddedCabinetOpenPanelCompletionHandler =
     @MainActor @Sendable ([URL]?) -> Void
 public typealias EmbeddedCabinetDownloadCompletionHandler =
     @MainActor @Sendable (URL?) -> Void
-public typealias EmbeddedCabinetConfirmCompletionHandler =
-    @MainActor @Sendable (Bool) -> Void
-#endif
 
 public enum EmbeddedCabinetBackNavigationDecision: Equatable, Sendable {
     case history
@@ -2116,13 +2101,14 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         public func webView(
             _ webView: WKWebView,
             runJavaScriptConfirmPanelWithMessage message: String,
-            initiatedByFrame frame: WKFrameInfo,
-            completionHandler: @escaping EmbeddedCabinetConfirmCompletionHandler
-        ) {
-            requestJavaScriptConfirmation(
-                in: webView, message: message, frameURL: frame.documentRequestURL,
-                frameIsMainFrame: frame.isMainFrame, completionHandler: completionHandler
-            )
+            initiatedByFrame frame: WKFrameInfo
+        ) async -> Bool {
+            await withCheckedContinuation { continuation in
+                requestJavaScriptConfirmation(
+                    in: webView, message: message, frameURL: frame.documentRequestURL,
+                    frameIsMainFrame: frame.isMainFrame
+                ) { continuation.resume(returning: $0) }
+            }
         }
 
         func requestJavaScriptConfirmation(

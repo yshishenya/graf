@@ -1030,3 +1030,46 @@ T104 принята после #7790/#7791 и общего validator до/пос
 [Точная цепочка и границы](validation/t104-release-2026-10-28.md).
 Прежний failed candidate не переиспользован. Общая F211 и коммерческая
 приёмка остаются открытыми; этот документ не меняет код и правила проверок.
+
+
+## A14: поддерживаемый образ CI — 2026-10-31
+
+T105/T106, #7834, полоса `active Spec Kit slice`. Продуктовый код не меняется.
+Проверка требований — `checklists/runner-image.md`, actual YAML shell —
+`tests/governance/test_governance_workflow.py::test_actual_native_toolchain_selection`.
+После её PASS: весь существующий workflow-набор, профильный CI contract,
+Full validator/self-test, actionlint трёх изменённых workflow и проектные
+проверки. Новый PR должен действительно исполнить macOS native job на macos15,
+а не только scope/result; три обязательных SHA/base checks сверяет общий
+`validate-pr-checks.py`. Старые source proofs не подставляются за новый SHA.
+Результаты и непроверенные границы записываются в
+`validation-runner-image-20261031.md`; выпуск/production/установленная приёмка
+и ускорение F269/T031 этим срезом не принимаются.
+
+A14/T107: первый hosted native run41215353665 воспроизвёл compile failure
+трёх WebKit conformances на правильном Swift6.0.3/SDK15.2. После удаления
+неверных старых typealias branches проверить оба файла и всех consumers,
+локальную компиляцию/существующие XCTest и новые hosted build/XCTest/
+ContractValidation на закреплённой среде. Другие code bodies не меняются;
+новые tests/guards поверх существующей compilation не нужны.
+
+
+### A14/T108
+
+До изменения тестов: independent requirements review и analyze FR062/063 →
+T108. В обоих файлах никакого product edit или skip; исходные отказавшие
+предпосылки проверяются на ограниченном настоящем viewport/готовности sheet.
+Исполнить обе полные группы XCTest, затем общий XCTest/ContractValidation;
+отдельно настоящий pinned native на точном SHA. Все real Stop coverage,
+collision/gap/panel/deadline/action и Return/Escape false assertions остаются.
+
+
+### A14/T109: optional requirement вместо потерянного selector
+
+До реализации прочитать настоящий compiler nearly-matches и отказ selector
+в41222159260, затем независимый CHK008 и scoped analyze. Использовать
+стандартный async requirement WKUIDelegate; все guards и существующие шесть
+confirm cases сохраняются. Локальный focused → полный XCTest и
+ContractValidation → независимый implementation review → новый exact-SHA
+макOS native и общий validator. Прежний FAIL сохраняется, новые skip или
+подмена настоящего диалога недопустимы. T106/#7834 ждут полного PASS.
