@@ -343,3 +343,47 @@ T108/T109 также ждут закреплённого CI. Общая F211 н�
 принятый F140 test-only PR7837 относительно c9a85917307a4388d534c61bc98e036a18d1245e.
 Перед отправкой требуется сверка после синхронизации и новые exact-SHA/base
 проверки; старый governance41222159075 SUCCESS на9b3… не переносится на новый SHA.
+
+
+## Окончательная приёмка A14 на GitHub — 2026-10-31
+
+PR [#7835](https://github.com/yshishenya/graf/pull/7835) принят обычным
+защищённым squash после общего валидатора; обход защит не использовался.
+
+- PR source: `bc7bf0ce9bf91690dd34df04d39d067ee13b07ed`.
+- Checked base: `837594c9c2b61d440a64efd89970695050b768b3`.
+- Merge: `e1bdbc06485010068b4abb0e426fb9908207188c`.
+- governance-fast: [41224095616](https://github.com/yshishenya/graf/actions/runs/41224095616), attempt1, SUCCESS. Fast982s,1801 PASS/2 SKIP и228 PASS; coverage=partial/next_gate=full_before_release сохранены.
+- macos-pr: [41224095705](https://github.com/yshishenya/graf/actions/runs/41224095705), attempt1, SUCCESS.
+- pr-metadata: [41224109217](https://github.com/yshishenya/graf/actions/runs/41224109217), attempt1, SUCCESS.
+- Последние соответствующие текстовые проверки governance41224108798/macOS41224108752 подтвердили те же source proofs; отдельный пропущенный Swift этап текстового события не выдан за исполнение native.
+
+Настоящий native job124604611715 подтвердил Apple Swift6.0.3 build6.0.3.1.10
+и SDK15.2 внутри Xcode16.2 на macos15 arm64. Сборка успешна; XCTest:
+**1296 total/1287 PASS/9 прежних SKIP/0 FAIL,186.453s**.
+`ContractValidation: PASS`. Все три protected consumer cases и шесть confirm
+cases прошли, включая настоящий selector/JavaScript/NSAlert/Return/Escape.
+Все1296 уникальных завершённых IDs совпали с полным локальным набором;
+дублей/потерь0. Девять skipped IDs совпадают с локальным и исходным
+run41222159260; новых пропусков нет. Это устраняет доказанный optional
+WKUIDelegate mismatch именно на закреплённом SDK.
+
+SHA256 native log: `f87bb571f63c1827564c0682019b1f750175936244f26cb3d7e86035d5ceba7a`.
+Source hashes продукта/confirm tests совпали с независимым ревью;
+rebase сохранил все пять commits по range-diff. Локальные журналы, discovery
+сверка, native-final-proof и результаты common-validator сохранены в
+закрытом каталоге доказательств; приложение и данные встреч не читались.
+
+T105/T107/T108/T109 и внешняя T106 приняты в границах A14. Исходные
+отказы41215353665/41216963828/41222159260 сохранены, не переименованы в PASS.
+Общая F211, F269/T031, GRAF Dev, установленная совместимость macOS14, Windows,
+подпись/нотаризация, release-full и production этим результатом не принимаются.
+Новый frozen candidate должен пройти обычный единственный release-full.
+Закрытие только #7834 — после слияния этой документальной сверки и отдельной
+содержательной/live-проверки; checkbox сам по себе issue не закрывает.
+
+Общий `validate-pr-checks.py --repository yshishenya/graf --pr 7835
+--expected-sha bc7bf0ce9bf91690dd34df04d39d067ee13b07ed` прошёл до и
+после слияния, exit0; после слияния подтвердил тот же checked base и
+фактический merge e1bdbc06485010068b4abb0e426fb9908207188c.
+Метаданные и последние run attempts совпали; старые successes не подставлялись.
