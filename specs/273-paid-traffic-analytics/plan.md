@@ -671,3 +671,20 @@ staging producers и общий SQL-validator меняются одноврем�
 [проверки](quickstart.md#временные-файлы-на-защищённом-диске-t113--31102026).
 Изолированная PG fixture получает удаляемый anonymous volume вместо tmpfs,
 который Docker cp не читает. Это не рабочее включение или закрытие T113.
+
+### Охват всего PG-кластера J2 — 31.10.2026
+
+Тот же T113/#7804, `high-risk-product`, Legacy Impact untouched. Только чтением
+обнаружены шесть баз PG17.8; в Temporal visibility штатно установлено `btree_gin`
+и существует `convert_ts`. Проверка одной `twobrain_rec` не доказывает отсутствие
+планировщика в соседней базе. Следующая реализация использует
+[конечный алгоритм J2](validation/t113-cluster-inventory-20261031.md#конкретный-проект-j2-для-следующей-реализации)
+внутри прежнего `_runtime_databases`: full cluster inventory/settings,
+физические read-only каталоги пяти доступных DB, известный закрытый template0,
+точные эталоны штатных расширений/Temporal, before/after и owned restore targets.
+Нового parser/framework/CLI, ролей, грантов или временного открытия template0 нет.
+Повторный [независимый проектный разбор J2](validation/t113-cluster-design-review-20261031.md)
+завершён: SCOPED PASS, P1/P2/CRITICAL/HIGH0,117/0. Принятый алгоритм также
+охватывает retained prior DB после actual restore; принадлежность проверяется
+по trusted durable history, не по prefix. J1/верхний цикл/ресурсы и рабочий
+допуск открыты. Это принятый проект, а не реализация J2.

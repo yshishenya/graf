@@ -720,3 +720,23 @@ TMPDIR ещё не получает полный local_only допуск. Ста
 оператор не должен считать его неизменным после таких действий.
 `full_preflight_not_implemented` и `activation_recovery_unverified` сохраняются;
 рабочие T0,writer,выпуск и полная приёмка T113 остаются впереди.
+
+### Весь PG-кластер локального периода — J2, 31.10.2026
+
+`local_retention_database_catalog` одной GRAF DB не даёт полного доказательства
+отсутствия планировщиков. Применяется конечный
+[алгоритм J2](../validation/t113-cluster-inventory-20261031.md#конкретный-проект-j2-для-следующей-реализации)
+для шести поддержанных DB PG17. Cluster/preload/role overrides, физическая
+привязка каждой доступной DB, точные native extension/Temporal definitions,
+closed template0 и background/prepared state проверяются фактически до/после.
+Read-only probe не открывает закрытые базы. Неизвестное/лишнее/недоступное —
+HOLD. Owned rehearsal targets ограничены доказанными UUID/OID текущего run
+и исчезают после его cleanup. Отдельно допускаются сохранённые закрытые prior
+DB только по trusted fsynced actual-run switch/complete state, точным
+cluster/OID/binding, false/limit0/0PID/0prepared и полному lifecycle coverage.
+Prefix не разрешает ни одну дополнительную DB. Prior сохраняются для отката,
+не удаляются учебным cleanup; неизвестный switch/охват закрывает допуск.
+Закрытая GRAF source использует уже удержанное reduced соединение.
+Каталожный digest не выводится
+из CLI pass-file или self-hash непрочитанной установки. J1 и весь верхний
+цикл остаются отдельными воротами; проект J2 требует независимого review.

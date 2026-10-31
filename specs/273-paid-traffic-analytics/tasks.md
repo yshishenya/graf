@@ -966,3 +966,14 @@ metadata через parent dir_fd и runtime PGDATA/FS proof. Выполнить
 под [проектным гейтом](validation/t113-staging-design-review-20261031.md),
 потом независимое code review. Installed jobs, размер двух копий, верхний
 оператор, выпуск, T112/T0 и AC01–AC06 остаются отдельными открытыми воротами.
+
+### Предварительный охват кластера T113 — 31.10.2026
+
+Только чтением перечислены шесть DB PG17.8 и каталоги пяти доступных баз;
+template0 не открывалась. Перечислены btree_gin и Temporal convert_ts,
+пустые preload и отсутствие их role/DB overrides в момент наблюдения.
+[Факты и конечный проект J2](validation/t113-cluster-inventory-20261031.md)
+не заменяют native эталон/полный verifier. [Независимый проектный разбор J2](validation/t113-cluster-design-review-20261031.md)
+PASS, P1/P2/CRITICAL/HIGH0,117/0; сохранённые prior DB и ordinary verify
+после actual restore учтены. J1, реализация полного оператора, ресурсы/T112/
+выпуск/T0 и AC01–AC06 остаются открытыми. T113/#7804 не закрывается.

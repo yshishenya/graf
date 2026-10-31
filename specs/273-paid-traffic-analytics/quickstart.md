@@ -620,3 +620,24 @@ native PG17 snapshot/full restore/replay/cancellation/unknown-create/cleanup.
 удаляемый штатным `docker rm --volumes`: Docker cp не читает её прежний tmpfs.
 Рабочие БД/сервер/Dev не меняются. T113/T112/AC01–AC06 и оба общих HOLD открыты;
 место для двух копий и верхний оператор принимаются отдельно.
+
+### Весь PG-кластер — J2, 31.10.2026
+
+Для следующей реализации действует [конечный проект J2](validation/t113-cluster-inventory-20261031.md#конкретный-проект-j2-для-следующей-реализации).
+Перед кодом — независимый разбор проекта. Native PG17 сценарий воспроизводит
+шесть DB, штатные plpgsql/btree_gin и точную Temporal convert_ts из pinned source.
+Положительный путь проверяет все физические соединения/каталоги/настройки и
+cleanup собственных restore targets. Причинные отказы: дополнительная или
+недоступная DB, preload/role override/pending restart, подмена C-routine или
+convert_ts при прежнем имени, extension membership/ACL/definition drift,
+неизвестный worker, session/prepared в template0, wrong cluster/OID/endpoint,
+неизвестная UUID-цель и подмена после yield. После actual restore проверить
+обычный verify с сохранённой closed prior DB по trusted durable run state;
+подмена OID/открытая prior/лишняя DB/неизвестный switch/непокрытое обязательное
+удаление дают HOLD. Native эталон расширения сравнивается по нормализованным
+object identities при разных OID. Обычная смена PID/ticks Temporal clients
+сохраняет положительный результат, неизвестный backend/активность закрытой DB
+его запрещают. Rehearsal cleanup не удаляет prior. Открывать template0 ради теста
+рабочего сервера нельзя. Во время своего drain проверяется reduced source
+без reconnect; отмена завершает все owned connections. До полного runtime
+цикла и J1 оба общих HOLD сохраняются. Эти проверки пока не исполнены.
