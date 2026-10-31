@@ -251,3 +251,83 @@ helper/production/release gate нет. AWS URI, окончательный hoste
 - causal-before.txt: `e17ccdf8f8a1f0dce6b2c96f0dc005cc06e1684f2af9a5a6df8ae2d9ddc20440`.
 - focused-fixed.txt: `86cc2712bca07baf913417ed8a0339473493d5238431e1eb13977dc7299fbd20`.
 - validation report: `51a3e7d1446cea48ee122f6702b8f7fcb2ca43676c401df374d4a376e603a057`.
+
+
+## Требования второго ограниченного набора T110 — 31.10.2026
+
+**PASS узкого уточнения до изменения runs-on; замечаний P1/P2/HIGH0.**
+Прочитаны целиком новые одинаковые разделы spec/plan/quickstart, изменённая
+T110 в tasks и отобранные platform/result строки безопасного журнала
+hosted-41240805226.log по всем восьми matrix samples0–7. Первый большой
+вывод журнала был усечён, поэтому metadata/result отдельно выведены для
+всех8jobs. Каждый показывает Azure, image20261025.353.1 и два mirror_list
+в ubuntu.sources; mirror-list файл представлен только hash/size. AWS URI
+этим наблюдением не установлен. Статус SUCCESS сообщён основным агентом;
+сам проверяющий GitHub API/сеть не вызывал.
+
+Прочитаны реальные runs-on и callers prepare-ci-apt в workflows: нужные
+три callers используют ubuntu-latest. Первый диагностический YAML на
+момент requirements review всё ещё ubuntu-24.04, hash6e41ccf0…;
+изменения кода до данного PASS не было. Разная метка является основанием
+сопоставить ещё одну ограниченную выборку, не доказательством причины
+различия Azure/AWS или гарантией AWS во втором наборе.
+
+Требования задают ещё ровно8jobs, суммарно≤16 в двух наборах, с меткой
+ubuntu-latest. Readset, inline safety,5min/permissions, отсутствие
+checkout/actions/network/sudo/install и удаление workflow до merge
+сохраняются. Если AWS не встретится, результат остаётся неизвестным;
+старый Full не повторяется. Нужны точная проверка новой метки, прежние14
+исполняемых случаев и независимое implementation review. Нового чтения
+продуктовых/закрытых данных, изменения helper/trust/runtime не появляется.
+
+Checklist перечитан перед дополнением: **5 отмечены / 0 открыты**.
+Требования достаточны, расширения исходного задания не найдено.
+Изменены только собственный отчёт и checklist. Это PASS требований;
+изменение YAML и второй hosted запуск ещё не принимались проверяющим.
+
+Хеши прочитанного:
+
+- spec: `a2ebecf0b942d2228484140e74338ff4f73efce6b66c35922af19d820849baac`.
+- plan: `abb906e95ed09087d8deb82d08c98610ce4db9a3ae5806145cdfa2e495221bfe`.
+- tasks: `4993f3f06777d56ba5d1351eba5f354d710b7f2625780dc68c4a03593a2fc393`.
+- quickstart: `acbf8889592fa18dcab0d673939acf50dd6ec3e3603413d3225041704773b248`.
+- hosted log: `b211a8d29a8258bef2349b29ad50a3c8e8476db6caee0d8c9e8701f02fe8ffb4`.
+
+
+## Implementation review второго набора T110 — 31.10.2026
+
+**PASS узкого diff и converge; открытых P1/P2/HIGH0.** Реальный git diff
+workflow содержит ровно одну замену runs-on ubuntu-24.04→ubuntu-latest.
+Весь текущий YAML перечитан: inline code/readset/safety, matrix0–7,
+fail-fast=false, timeout5min, permissions={}, один step и triggers сохранены.
+Нет новых actions/checkout/network/install/sudo/secret expressions или
+изменений helper/runtime/release gate. SHA256 совпал с переданным владельцем.
+
+Текущий local check.py дополнительно проверяет точное runs-on ubuntu-latest.
+Все14 прежних исполняемых случаев сохранены; sensitive-marker assertions
+теперь проверяют stdout+stderr вместе. Это устраняет ранее отмеченный предел
+доказательства только stdout. focused-latest.txt содержит14 PASS;
+process-latest.txt — agent-context/changelog/legacy-impact/development-process
+OK для F211. Журналы прочитаны, повторных тестов проверяющий не запускал.
+Actionlint/diff PASS сообщены владельцем, собственных запусков не было.
+
+Общий diff дополнен только ранее принятыми требованиями второго набора,
+документами проверки и reviewer-owned материалами. Изменение source_sha
+в ignored pointer после первого commit — объявленная коррекция актуальной
+основы; она не даёт новых полномочий. Issue sync сообщён владельцем,
+сам проверяющий GitHub не открывал и не менял.
+
+Scope converge PASS для второго ограниченного набора: ещё8jobs и
+общий предел16 остаются заданными. Этот code PASS достаточен для передачи
+оператору последующих разрешённых действий, но не доказывает AWS/result,
+удаление workflow до merge, Full или выпуск. T110 проверяющим не закрыта.
+Checklist целиком перечитан и подсчитан: **5 `[x]` / 0 `[ ]`**.
+Изменены только собственный отчёт и checklist; Git/GitHub/CI/runtime
+мутации и тестовые запуски проверяющим не выполнялись.
+
+Хеши:
+
+- workflow: `d0c641cdc451e17f0d4606719a6173d0057ab89b5e28f14109d6aa502fc1feff`.
+- check.py: `eaaf0f7db5c0f415c068e468a552dbc94e10bd223e59d236569e2de1ece89b79`.
+- focused-latest.txt: `86cc2712bca07baf913417ed8a0339473493d5238431e1eb13977dc7299fbd20`.
+- process-latest.txt: `caf1e7b86b6d45d75f3e8cb7294c2bdc9609059f0f159191b916f7ad9529ed76`.

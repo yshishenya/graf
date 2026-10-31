@@ -66,3 +66,20 @@ ASCII без управляющих символов и отсутствие por
 checklist перечитан5/0. `review-ci-apt-diagnosis-20261031.md` сохраняет первый
 HOLD и принятый текущий код.14 локальных случаев и actionlint/process/fragment/
 governance/diff PASS. До hosted факта и удаления workflow T110 остаётся[ ].
+
+## Первый hosted набор
+
+[Run41240805226](https://github.com/yshishenya/graf/actions/runs/41240805226)
+SUCCESS, source5d42971c40625997ccc49a8b0d438a263f7fc523. Все8 машин Azure
+Ubuntu24.04/image20261025.353.1; оба URIs — mirror_list. Их source SHA256
+4508181e0dd5578c33d1247db48ab4847910b25da85e0789c8e7b3140d1fb289,
+mirror-list SHA256e0d6b0af979e4662d16357a27ae456cc6f21e26da031540f4df8706ebed1d583.
+Пустой массив uris mirror-list не доказывает состав строк; его hash отдельно
+сопоставляется с известной константой. AWS не исследован, T110 открыта.
+После факта уточнён следующий набор8 jobs с настоящей меткой Full
+ubuntu-latest; новый review обязателен до изменения YAML.
+
+Второе уточнение и diff реализации независимо приняты: checklist5/0,
+P1/P2/HIGH0; YAML изменён только runs-on, safety code не менялся.
+Точная метка и прежние14 сценариев PASS, actionlint/process/diff PASS.
+Синхронизация issue#7849 сохраняет открытый AWS критерий и предел16 jobs.
