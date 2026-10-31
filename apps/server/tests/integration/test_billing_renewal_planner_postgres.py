@@ -718,9 +718,12 @@ async def test_cutoff_commits_one_unknown_notice_for_current_payer_and_period(
             event_id=notice.event_id, kind=BillingNotification.RENEWAL_UNKNOWN,
             payload=notice.safe_payload,
         ))
-        assert title == "Проверяем продление"
-        assert "бесплатный тариф" in body and "пока неизвестен" in body
-        assert "Новое списание не создаем" in body
+        assert title == "Статус продления на конец периода"
+        # Delivery may follow a late payment success: describe the cutoff event.
+        assert "был включён бесплатный тариф" in body
+        assert "результат платежа ещё не был известен" in body
+        assert "Повторное списание при этом не создавалось" in body
+        assert "Актуальный статус платежа и тарифа — в кабинете" in body
         original = await _original_purchase(db, case)
         for key in ("operation", "invoice", "grants", "methods"):
             assert original[key] == case.original[key]

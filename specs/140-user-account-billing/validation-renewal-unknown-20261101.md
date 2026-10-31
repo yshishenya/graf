@@ -13,8 +13,8 @@ untouched. Исходная основа проверки `638cf598269a717258e77
 оба снимка подтверждают payer/period. Согласие на будущие списания, финансовые
 состояния, срок и grants не меняются этим дополнением. В одной транзакции
 используется прежняя постоянная очередь и `renewal:<invoice UUID>:unknown`.
-Текст прямо называет бесплатный тариф, неизвестный результат и отсутствие
-нового списания. Никакой новой таблицы/службы/зависимости/миграции нет.
+Текст описывает включение бесплатного тарифа и неизвестный результат
+на границе периода в прошлом; актуальный статус предлагается посмотреть в кабинете. Никакой новой таблицы/службы/зависимости/миграции нет.
 
 ## Проверки
 
@@ -69,5 +69,23 @@ manual-resume и вся исходная приёмка ещё не доказа
 ## Контрольные суммы продуктового исправления
 
 - `apps/server/src/twobrain_rec_server/billing/renewal_charge.py`: `93363014b3fb62d073ef94acd59b11e7a43e12a91bfb76bf31bc5567fbacf0ef`.
-- `apps/server/src/twobrain_rec_server/billing/notifications.py`: `0b072c8b7a3e61c7a3442c9f10c98dd9e4f491eaedecc030080de5d4c19dc0a1`.
-- `apps/server/tests/integration/test_billing_renewal_planner_postgres.py`: `d974709fc59780586f559d861526905aa54b4974388f7bcf5fe8698061e2290f`.
+- `apps/server/src/twobrain_rec_server/billing/notifications.py`: `6a8a4d1e3b3701a16dc7b25c4008db68a6f0b689eeff057c1c1809e84a7d560f`.
+- `apps/server/tests/integration/test_billing_renewal_planner_postgres.py`: `c5e8d8b2edff01da408c7651def793d2735863373e7a3661f2dc2bed828025b2`.
+
+## Дополнительная проверка задержанной доставки до merge
+
+Независимое ревью обнаружило P2: прежние заголовок/тело ошибочно утверждали
+текущие Free и неизвестный исход при возможном позднем успехе до отправки.
+До кода уточнены spec/plan и CHK005, requirements6/0 PASS. Исправлен только
+существующий шаблон: состояние на границе периода описано в прошлом;
+за актуальным статусом платежа и тарифа нужно открыть кабинет.
+Новых delivery guards, таблиц, состояний или сетевых действий нет.
+
+Причинный copy-red:6 ожидаемых FAIL именно на старом заголовке,2 PASS,
+18 deselected. Copy-green на окончательных байтах:59 PASS/0 FAIL/0 SKIP
+за17.30s, весь planner PostgreSQL + notification unit + notification flow.
+Этот набор пересекается с прежними436 и не прибавляется к ним.
+Оба одноразовых контейнера штатно удалены. Журналы/XML: copy-red/copy-green
+во внешнем каталоге graf-f140-renewal-unknown. Ruff, process, governance
+и diff --check повторно PASS. Предыдущие исходные RED и временно отвергнутый
+PASS сохранены; требуется новое независимое итоговое ревью и новые GitHub gates.
