@@ -753,3 +753,41 @@ heredoc `infra/scripts/prepare-ci-apt.sh`: hashlib/json/urlsplit, DNS regex
 `checklists/ci-apt-failure-diagnosis.md`, analyze/issue sync, RED→GREEN,
 focused/actionlint/bash/process/governance/fragment/diff, независимое review/
 converge, коммит/PR exact gates. Успешная локальная/PR приёмка не равна Full.
+
+
+## T112 — нормализация официальных источников CI
+
+Constitution III/VI: до/после проекта PASS; прежние trust/required checks/
+source SHA/base/production boundaries сохраняются. Точная policy и переход
+исторических ограничений определены в spec T112; новых данных/API/зависимостей нет.
+
+Существующий Python heredoc prepare-ci-apt.sh получает native platform через
+/usr/lib/os-release (ID/VERSION_ID/VERSION_CODENAME) и dpkg --print-architecture /
+--print-foreign-architectures. Проверяет files/parent/ownership/modes/размеры,
+парсит все flat sections до побочных действий. Разрешены только поля/наборы
+T112. Не пытается определить cloud по старому URI. На выходе один раздел на
+suite с прежними остальными значениями, URIs — две HTTPS константы.
+Кроме GITHUB_ACTIONS=true/RUNNER_OS=Linux требуется RUNNER_ENVIRONMENT=github-hosted.
+Во всём входе запрещены C0 кроме TAB/LF и DEL, включая поле URI.
+
+Stdlib pathlib/stat/subprocess/tempfile/os достаточно. tempfile в том же parent,
+прежние uid/gid/mode, write/flush/fsync, os.replace и bytes readback; finally
+удаляет только свой temp. Совпавшие bytes — no-op. Root-owned directory и
+одноразовый runner — граница доверия; root compromise/злонамеренный kernel
+не доказываются. Подмена/несовпадение перед replace отказывает, нет общего
+parser/framework/обхода APT authentication. Сторонние files не меняются.
+
+Три YAML callers остаются прежними. Расширить test_actual_media_resource_preparation:
+реальные inline steps+helper, временные paths, fake native platform commands,
+явная модель root stat/fchown для непривилегированного Mac fixture. Сам security
+код исполняется; моделирование metadata не считается проверкой реального Mac/root.
+Проверить отдельные отказы owner/mode/keys/platform и tuples до/после. Ни сети,
+ни настоящего sudo/APT. До кода checklist ci-official-sources; затем узкий
+analyze и taskstoissues; RED/GREEN всего прежнего профиля, static checks,
+независимый implementation review/converge и обязательные PR gates. На hosted
+runner тест также использует явную модель. При infra-only PR внешний шаг
+Prepare в governance-fast может быть пропущен по прежнему server-scope:
+required PR gates принимают hermetic профиль, а настоящий helper/root/native
+проверяются при server-change либо штатном Full нового принятого кандидата.
+Искусственного server diff или отдельного workflow ради этого не создаётся;
+Full не используется ради определения облака.

@@ -860,3 +860,57 @@ Clarify: расширяется только сообщение уже блок�
   converge, exact PR gates. T111 — реализация сообщения; T110 и issue#7849
   остаются открытыми до фактического AWS URI. Список допуска не расширяется.
   Lane active Spec Kit slice, CI diagnostics. Legacy Impact untouched; legacy_new=0.
+
+
+## T112 — официальные источники независимо от облака, 01.11.2026
+
+Продолжение FR-057/SC-025: причина отказа известна — helper требует один
+cloud-specific URI. Выбрана нормализация **выхода**, вместо расширения списка
+неизвестных зеркал. Исторические T099/T110/T111 сохраняются; их запрет менять
+ubuntu.sources относится к тем срезам. T112 явно заменяет эту политику для
+выбранного ниже окружения. T110 не получает PASS и фактический AWS URI не
+объявляется установленным; выпуску больше не требуется его выяснение.
+
+Clarify: это технический способ устранить подтверждённый сбой разрешённого
+выпуска, не изменение пользовательского продукта. GitHub-hosted Linux,
+Ubuntu24.04/noble, native amd64 без foreign architectures; обязательны
+GITHUB_ACTIONS=true, RUNNER_OS=Linux, RUNNER_ENVIRONMENT=github-hosted; иное окружение
+отказывает. Production/Mac APT, workflow permissions, checks/receipts,
+ключи и настройки доверия вне изменения. Lane: active Spec Kit slice.
+Legacy Impact: untouched. Дополнительных решений владельца не требуется.
+
+- Изменяется только ubuntu.sources; перед любым APT три прежних caller
+  используют общий helper. URI noble-security — строго официальный HTTPS
+  security.ubuntu.com/ubuntu/, прочих разрешённых noble/noble-updates/
+  noble-backports — archive.ubuntu.com/ubuntu/. Старые URI не открываются,
+  не исполняются, не разыменовываются и не печатаются. Неизвестный URI
+  разрешён только как заменяемое поле **проверенного** источника Ubuntu.
+- Весь вход проверяется до записи: root-owned обычный нессылочный файл≤16KiB,
+  без group/other write; защищённый root-owned parent. Строгий ASCII flat
+  deb822 без повторных/неизвестных полей и продолжений; C0 кроме TAB/LF и DEL
+  запрещены во всём файле, включая URIs. Только Types (непустой
+  уникальный поднабор deb/deb-src), URIs (непустой), Suites (непустой уникальный
+  поднабор четырёх названных suites; повтор suite между разделами запрещён),
+  Components (непустой уникальный поднабор main/restricted/universe/multiverse),
+  Signed-By (ровно /usr/share/keyrings/ubuntu-archive-keyring.gpg), optional
+  Architectures (ровно amd64) и Enabled (ровно yes). Штатный keyring также
+  обычный нессылочный root-owned непустой файл≤1MiB без небезопасной записи.
+  Trusted/Allow-Insecure/Check-Valid-Until и любые иные overrides дают отказ.
+- Каждое сочетание Types/suite/components/architecture/Signed-By/Enabled
+  сохраняется. Смешанный раздел разделяется по suite, не создаются отсутствующие
+  suites/компоненты/deb-src/архитектуры. Комментарии/формат не являются настройкой;
+  порядок полей нормализуется. apt-mirrors.txt и сторонние sources неизменны.
+- Запись после полной валидации атомарна, владелец/группа/права сохраняются,
+  результат перечитывается. Повтор уже нормализованного файла не меняет bytes
+  или mtime. Ошибка до replace оставляет исходник прежним; ошибка после replace
+  не допускает APT/следующие этапы и не выдаётся за откат. Временный файл удаляется.
+- Приёмка: весь существующий исполняемый профиль трёх реальных YAML callers,
+  RED/GREEN новой положительной нормализации, сохранение package tuples,
+  mixed/security-only/no-security/deb-src/optional architecture, неизвестные
+  cloud URI без обращения к ним, missing/symlink/unsafe owner/mode/oversize,
+  malformed/duplicate/unsupported field/platform/keyring, write/readback failure,
+  repeat и отсутствие следующих действий при отказе. Старые fixture direct-URI
+  теперь становятся положительными только при сохранённых остальных условиях.
+  До кода обязательны независимый checklist/analyze/issue sync; затем code review,
+  converge и точные PR gates. Обычный required CI принимает новое поведение;
+  новый кандидат проходит штатный Full. Случайных диагностических наборов нет.
