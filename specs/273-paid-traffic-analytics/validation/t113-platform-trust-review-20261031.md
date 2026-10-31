@@ -850,3 +850,129 @@ deferred/Snap/direct dpkg/прочие executors и журнал должны п
 Изменён только свой report, история I1/I2 сохранена. Итоговое дополнение
 перечитано; код, требования, чужие файлы, чекбоксы, Git/GitHub и сервер не
 менялись. Новых probes, тестов, экспериментов или исследований ОС:0.
+
+
+## Дополнение 01.11.2026: APT outer callers — SCOPED SOURCE OBSERVATION PASS
+
+Узкий read-only разбор на сообщённом HEAD `696d2eaa7`, ветка прежняя.
+Полностью прочитаны первоначальный и исправленный
+`validation/t113-apt-callers-20261101.md`; итоговый SHA256
+`0666e95e9d4e477fa0597e313fc2fc30df71799e68b040ba6539217770abd36f`.
+Из источников прочитаны применимые целые функции/ветви CacheFile, DoInstall/
+UpgradeHelper/InstallPackages, debSystem lock, daily main, unattended run/
+Unlocked/cache_commit/main/reboot и installed cache.py commit/install_archives.
+Все10 сохранённых vendor files сверены с receipt по SHA256; выбранные installed
+scripts/unit files также сверены. Прежний свой report остаётся основанием
+ограничений; его предыдущий hash0907e6d9… совпал. Applicable constitution,
+activation-milestones и operations hashes не изменились; применяется прежнее
+исключение F273, нового чтения всей ОС/серверных probes не было.
+
+**SCOPED SOURCE OBSERVATION PASS: открытых замечаний к итоговому отчёту0;
+новых CRITICAL/HIGH/P1/P2=0.** Единственная локальная неточность исходного
+текста исправлена исполнителем: наличие AutoFix ветви больше не называется
+доказанным рабочим обходом или доказанной достижимостью из таймера.
+
+### Принятые факты и точные пределы
+
+1. **Нормальная C++ CLI ветвь.** OpenForInstall→Open(true)→BuildCaches→Lock,
+   frontend/inner acquisition и destructor/Close прослежены в сохранённых
+   точных исходниках. Указанные ранние Generate=false/existing Cache/Print-URIs/
+   NoLocking/download-only исключения действительно есть. Frontend в выбранной
+   нормальной ветви живёт через InstallPackages/PM и внешние JSON post/fail
+   hooks; backend перед DoInstall отпускается. Это не python-apt/PackageKit или
+   все flags. No-op Post-Invoke-Success до вызова dpkg не покрывается одним
+   DPkg::Pre-Invoke. Фактическая конфигурация early/deferred hooks ещё нужна.
+2. **daily FD3.** Обычный родитель берёт flock на daily_lock, запускает
+   `lock_is_held` child с `3>&-` и ждёт его. Поэтому FD не наследуется всем
+   потомкам. Прямой token-вход сам lock не берёт. Выбранные unit **files**
+   совпадают с прежним package proof, но loaded/drop-ins/env не подтверждены;
+   `KillMode=process` не доказывает lifetime/reap после смерти родителя.
+3. **Условный AutoFix.** Аутентифицированный installed unattended script
+   содержит до открытия cache прямой `dpkg --force-confold --configure -a`,
+   внутри Unlocked с DPKG_FRONTEND_LOCKED=1. Это не libapt PM/cache.commit.
+   Но ранний daily apt-get check и debSystem::Lock/CheckUpdates могут пресечь
+   all-digit dirty journal до этого участка; Python dirty predicate совпадает
+   с numeric **prefix**, C++ требует полностью цифровое имя. Native binding
+   и canonical файлы/достижимость не доказаны. Принят только факт условного
+   source пути и необходимость proof недостижимости либо whole-entry guard.
+   Реальный configure/обход не наблюдался и не утверждается.
+4. **Происхождение не преувеличено.** Unattended selected script совпал с
+   authenticated noble .deb по записанной цепочке. Общий двухпакетный probe
+   имеет selected_files_verified=false и завершился ошибкой python3-apt index.
+   Installed cache.py .2 читается как неаутентифицированное наблюдение; source
+   trace cache.py не доказывает native extension semantics/provenance. Версия
+   .3 не подставлена вместо .2. Повторного gpgv/download этим reviewer нет.
+5. **Поздние эффекты/видимость.** Main после run может писать stamp/отчёт и
+   по config вызывать shutdown; это не конец по одному cache.commit. В daily
+   check failure exit0 и quiet/debug suppression реальны, поэтому один systemd
+   success не даёт alert proof. Reader Automatic-Reboot=false/AutoFix=true и
+   APT_CONFIG absent не выданы за effective systemd config. Личного подтверждения
+   нового reader observation у reviewer нет; в отчёте это корректно ограничено.
+
+Ссылки на принятый архитектурный договор существуют. Два отмеченных пункта
+нового исследовательского отчёта относятся к source observations; это не
+закрытие tasks/checklists реализации и не full J1. Прежние I1/I2 и scoped
+L2/L5/L6 architecture PASS не отменяются; actual coverage остаётся HOLD.
+
+### Один минимальный следующий whole-entry проект
+
+Рекомендуемый следующий **договор до кода** — фиксированные daily-update/
+daily-install режимы **того же** trusted root bootstrap, не новый сервис и
+не универсальный wrapper произвольных команд. Защита начинается до vendor
+body/AutoFix/ранних effects; не нужно ждать доказательства недостижимости
+каждой source ветви, если весь фактический вход защищён. Минимальная форма:
+
+1. Один trusted parent проверяет фиксированный source/config/argv и безопасный
+   существующий daily_lock inode, получает его native flock NB, затем GRAF
+   deployment NB → filesystem EX → durable revoke/fsync/readback. Ошибка даёт
+   отказ до vendor body; никакого native frontend/backend lock parent не
+   удерживает, потому что их должен получать настоящий APT/dpkg child.
+2. После revoke parent отпускает GRAF EX/deployment, но продолжает держать
+   **daily flock**. Все ready writers по принятому L1 требуют этот domain,
+   поэтому не вернут ready во время тела. Parent вызывает только фиксированный
+   vendor `apt.systemd.daily lock_is_held update|install` под принятой source
+   boundary, сохраняя lock у себя и закрывая его FD у child. Это использует
+   уже доказанный vendor internal вход и избегает самоблокировки: запуск
+   **обычного** daily, пока wrapper держит тот же lock через другой OFD,
+   недопустим. Arbitrary args/пути/режим caller не передаёт.
+3. Parent держит свой flock до доказанного child/group/последнего dangerous
+   effect settlement; не переносит быстрый SIGKILL/reap preflight. **До
+   принятия дизайна** надо конкретно описать parent death/descendants и
+   actual unit kill/lifecycle: текущий KillMode=process и исчезновение parent
+   не сохраняют этот barrier. Не объявлять wrapper уже принятым только из
+   этих трёх шагов. Прежний I1 DB crash/drain и deferred I2 остаются.
+4. По возврату vendor нет автоматического ready. Deferred shutdown/needrestart/
+   D-Bus либо доказанно отсутствуют/безвредны в actual policy, либо отдельно
+   защищены на позднем входе, иначе full HOLD. Vendor exit0 не означает
+   успешный update: before-install дизайн должен связать фиксированный журнал/
+   существующее наблюдение с failure и повтором без отключения security updates.
+
+Это один конечный способ конкретизировать whole-entry **кандидат**, не
+разрешение переписать units сейчас. Полный охват actual update/install и
+прочих автоматических вызовов, невозможность отдельного unguarded token-входа
+из принятого scheduler набора, source/effective config, owner death и deferred
+settlement ещё подлежат независимому design review. Если принят иной
+непрерывный существующий barrier, он должен доказать те же I1/I2; размножать
+hooks или заново изучать все исходники Linux не нужно. Два фиксированных режима
+нужны потому, что daily update тоже может вызвать unattended --download-only;
+полагаться только на имя install без source/effective trace нельзя.
+
+Неподтверждённые root-only scheduler roots/UID1003 и отсутствие sudo остаются
+unknown. Нет разрешения обходить их через Docker/старые credentials или считать
+непрочитанный список пустым. Следующий безопасный шаг сейчас — запись и review
+этого конкретного договора; установка/рабочие пробы зависят от прежних gates.
+
+### Входные хеши и сохранение границ
+
+| Вход | SHA-256 |
+| --- | --- |
+| итоговый source-observation отчёт | `0666e95e9d4e477fa0597e313fc2fc30df71799e68b040ba6539217770abd36f` |
+| outer source receipt | `0c438b5b0a93b8f6c1da05fc59aa9b086162697502454cb1b8fb2a4e5cfff442` |
+| unattended/python3-apt mixed probe | `af5dbf6248af632888d9bb2360588217319ed684bfd941963636c6428a315a1e` |
+| installed unattended selected file | `3b4eadb2667d662380e24ee2561b33a6b0619701bd9ea1425b5f541d86d9c5b8` |
+| installed cache.py, unaccepted provenance | `cd280829ad7922b389c5f06a010997a88f84283d171d03312acd4542f0f641ed` |
+
+Изменён только свой reviewer report. Чужой observation отчёт, source/code,
+spec/plan/tasks/checkboxes, Git/GitHub и сервер не менялись. Итоговое дополнение
+перечитано; tests/probes/установка/Dev/публикации этим reviewer:0. Полный J1,
+ресурсы/T112/T113/T0/выпуск/трафик/продажи данным разбором не принимаются.

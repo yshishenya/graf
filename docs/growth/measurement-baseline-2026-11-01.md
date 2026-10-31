@@ -140,3 +140,21 @@ mergeca02e2cf9bb4d761cc1d24bde230a8071c078361,31.10 22:50:55UTC;
 Read-only Docker system df: Images211,4ГБ/reclaimable91,32ГБ, containers3,024ГБ,
 volumes129,5ГБ/reclaimable4,919ГБ, buildcache65,51ГБ/reclaimable18,74ГБ.
 Reclaimable не означает разрешённое/безопасное удаление; ничего не очищено.
+
+
+### Следующий предел готовности: actual APT callers
+
+[Исследование 1 ноября](../../specs/273-paid-traffic-analytics/validation/t113-apt-callers-20261101.md)
+уточнило outer frontend lifetime и daily parent flock; аутентифицированный
+unattended-upgrade содержит условный direct-dpkg AutoFix до cache.commit.
+Исполнение/полная достижимость ветви не наблюдались: предшествующие checks
+могут её отклонить. Для конечного охвата требуется доказать недостижимость
+либо защитить весь entry до ранних эффектов. Общий package probe остановился
+после успешной сверки unattended на отсутствующей старой python3-apt версии
+в текущем подписанном индексе; полной проверкой он не назван.
+
+Код продукта, обновления сервера, timers, данные, флаги и T0 не менялись.
+Проба `sudo -n true` потребовала пароль; подходящий привилегированный путь
+чтения пока не подтверждён. Зависимые root inventories не принимаются пустыми.
+CUA вновь сообщил блокировку Mac: нового чтения Search Console нет.
+Последний поисковый снимок выше остаётся прежним; Product Radar не отправлен.
