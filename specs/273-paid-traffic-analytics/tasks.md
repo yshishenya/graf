@@ -653,3 +653,14 @@ Refs #7696/#7698; это не каноническое соответствие 
 полнота рабочей истории, actual restore, readiness/fence/local_only и T112
 остаются открытыми в прежних задачах. Новых задач и закрытий нет; сам T113
 не отмечается выполненным на основании учебного результата.
+
+
+### T106 — серверный public срез, 01.11.2026
+
+Порядок существующей T106: reviewer-owned public-server-gate checklist →
+analyze/issue sync → RED/GREEN существующих public context/relay/delivery →
+focused review/converge → exact PR gates. Код: public/analytics.py и public/web.py;
+тесты: unit/test_public_analytics.py и существующие public contract files.
+Отсутствие/ошибка register закрывают public путь; PostHog final gate сохраняется.
+Новые задачи не создаются; T106/#7696 остаются открытыми до полного охвата.
+Runtime flags/consent revision/SDK и T0 не включаются этим срезом.

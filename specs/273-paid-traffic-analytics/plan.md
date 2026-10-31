@@ -577,3 +577,29 @@ runbook: shared host directory монтируется read-only в процес�
 разрешённые поля/получатели прежние, продукт не зависит от измерения,
 until_decision/отдельные удаления/restore и проверки сохраняются. Нарушений
 проекта не выявлено; до независимого PASS реализацию не начинать.
+
+
+## T106 — public context и relay, 01.11.2026
+
+Lane active Spec Kit slice, privacy/server; Constitution II/III/IV/VI PASS
+до и после design, правила не меняются. Применяется исключение владельца
+на повторное чтение F273; затронутые sections/contracts/helper читаются
+полностью, базовые документы сверены по прежним SHA256.
+В public/analytics.py переиспользовать существующие константы public scope
+и read_basis_withdrawal_register. Одна функция возвращает безопасный код
+блокировки или None по public flag/env/revision/path и свежему register;
+available=false/file_errors блокируют неизвестное, withdrawal(provider_analytics)
+блокирует отозванное. Без новых файлов/конфигураций/зависимостей/кэша.
+Context использует этот код для configured/enabled/consent_ui, сохраняя
+ранее опубликованный scope/replay policy. Relay сохраняет ранние flag/revision,
+same-origin/size/normalizer guards и затем проверяет решение по нормализованному
+page_path. Delivery повторяет решение в своём потоке и возвращает delivered=false
+при отказе. Старый PostHog gate не меняется.
+Before-code независимый checklist public-server-gate, scoped analyze и sync
+существующей T106/#7696. RED на настоящем старом context/relay/delivery:
+реальный временный register меняется между вызовами, не подменять сам gate.
+GREEN включает валидное пустое состояние, другой уровень, provider withdrawal,
+missing/malformed/unreadable register, false flag/env/revision/private path
+и изменение между route и delivery. Подменять можно только provider transport
+и request body, чтобы доказать гонку до настоящего delivery gate.
+Никакого production SDK/readback/T0/выпуска этим промежуточным PASS.

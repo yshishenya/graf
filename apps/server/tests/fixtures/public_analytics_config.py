@@ -8,7 +8,11 @@ and no secret ever reaches the browser.
 """
 
 import json
+import os
 import sys
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.public.analytics import build_public_analytics_context
@@ -32,7 +36,11 @@ def main() -> int:
     # The page path decides the surface, and a scenario that renders the consent
     # modal needs the config of the page it stands on.
     path = sys.argv[1] if len(sys.argv) > 1 else "/download"
-    json.dump(build_config(path), sys.stdout, ensure_ascii=False)
+    with TemporaryDirectory(prefix="graf-public-config-") as directory:
+        register = Path(directory) / "basis"
+        register.write_text("legal_basis_state_version=1\n", encoding="utf-8")
+        with patch.dict(os.environ, {"GRAF_PRODUCT_ANALYTICS_LEGAL_BASIS_STATE_FILE": str(register)}):
+            json.dump(build_config(path), sys.stdout, ensure_ascii=False)
     return 0
 
 

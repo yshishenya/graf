@@ -399,6 +399,7 @@ def test_a_public_visit_never_reaches_a_provider(
 
 def test_an_unavailable_provider_leaves_the_page_and_the_count_intact(
     postgres_seeded_database_url: str,
+    public_basis_register,
 ) -> None:
     """FR-058: a disabled counter is a measurement gap, not an outage."""
     settings = Settings(

@@ -25,6 +25,7 @@ from twobrain_rec_server.public.analytics import (
     deliver_public_analytics_event,
     normalize_public_analytics_event,
     normalize_public_campaign_attribution,
+    public_analytics_blocker,
     record_public_page_visit,
 )
 from twobrain_rec_server.public.content import (
@@ -446,6 +447,9 @@ async def public_analytics_event(request: Request) -> JSONResponse:
         )
     except PublicAnalyticsEventRejected as exc:
         return JSONResponse({"accepted": False, "reason": str(exc)}, status_code=400)
+    blocker = public_analytics_blocker(settings, event["page_path"])
+    if blocker:
+        return JSONResponse({"accepted": False, "reason": blocker}, status_code=403)
     delivery = await asyncio.to_thread(deliver_public_analytics_event, settings, event)
     return JSONResponse({"accepted": True, "delivery": delivery}, status_code=202)
 

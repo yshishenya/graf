@@ -438,3 +438,19 @@ bash apps/server/scripts/run_local_postgres_tests.sh --focused \
 drain, actual restore, полнота истории, readiness/fence/local_only, T112/T113
 целиком и коммерческие критерии ею не принимаются. Writer и новый период
 измерения не открываются даже при успешном учебном результате.
+
+
+## T106 — свежий public server gate, 01.11.2026
+
+До кода: independent checklist public-server-gate, analyze C/H0 и sync
+существующего issue. RED: прежние context/relay/delivery не прекращают
+отправку после изменения настоящего временного withdrawal register.
+GREEN: повторное чтение того же процесса; provider_analytics revoke
+между HTML/POST и между POST/worker; отсутствие/ошибка/нечитаемый файл
+закрывают отправку. Валидный пустой register и отзыв другого уровня не
+подменяют публичные flag/env/revision/surface и consent guards.
+Проверить существующий PostHog pre-transport gate, unit public analytics,
+contract public analytics/consent, lifecycle/provider gate и browser harness.
+Рабочий внешний SDK закрыт, настоящая передача/метрики/T0 этим не приняты;
+затем независимое review/converge и exact PR checks, один Full только
+после готового согласованного кандидата.

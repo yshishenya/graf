@@ -58,6 +58,9 @@ from twobrain_rec_server.product_analytics.attribution import (
 from twobrain_rec_server.product_analytics.forbidden_fields import (
     assert_no_forbidden_fields,
 )
+from twobrain_rec_server.product_analytics.legal_basis_lifecycle import (
+    read_basis_withdrawal_register,
+)
 from twobrain_rec_server.product_analytics.page_inventory import get_page_class_policy
 from twobrain_rec_server.product_analytics.posthog_client import PostHogClientWrapper
 from twobrain_rec_server.product_analytics.provider_delivery_gate import (
@@ -462,6 +465,25 @@ def normalize_public_campaign_attribution(
     return normalized
 
 
+def public_analytics_blocker(settings: Settings, path: str) -> str | None:
+    """Resolve public permission afresh; unknown basis never permits delivery."""
+    if not settings.public_analytics_enabled:
+        return "public_measurement_disabled"
+    if settings.public_analytics_consent_copy_version != PUBLIC_ANALYTICS_CONSENT_VERSION:
+        return "consent_revision_mismatch"
+    if (settings.env.lower() not in PUBLIC_ANALYTICS_PRODUCTION_ENVS
+            and settings.public_analytics_validation_mode not in {"render_only", "provider_smoke"}):
+        return "public_environment_disabled"
+    if path not in PUBLIC_ANALYTICS_SURFACES:
+        return "public_surface_disabled"
+    register = read_basis_withdrawal_register()
+    if not register.available or register.file_errors:
+        return "public_basis_unavailable"
+    if register.withdrawal("provider_analytics") is not None:
+        return "public_basis_withdrawn"
+    return None
+
+
 def build_public_analytics_context(
     settings: Settings,
     path: str,
@@ -477,10 +499,7 @@ def build_public_analytics_context(
         "render_only",
         "provider_smoke",
     }
-    configured = bool(
-        settings.public_analytics_enabled and environment_allowed and counter_id
-        and consent_copy_version == PUBLIC_ANALYTICS_CONSENT_VERSION
-    )
+    configured = bool(counter_id and public_analytics_blocker(settings, path) is None)
     enabled = bool(configured and surface)
     consent_ui_enabled = bool(configured and path in PUBLIC_ANALYTICS_CONSENT_PATHS)
     # Replay stays narrower than measurement: the published cookies policy names
@@ -1191,6 +1210,12 @@ def deliver_public_analytics_event(settings: Settings, event: Mapping[str, Any])
     metadata and produces no exception: the public page and the anonymous count
     must not depend on the analytics stack (FR-058).
     """
+    blocker = public_analytics_blocker(settings, str(event.get("page_path") or ""))
+    if blocker:
+        return {
+            "provider": "posthog", "status": "public_measurement_blocked",
+            "reason": blocker, "delivered": False, "retryable": False,
+        }
     properties = {
         **dict(event.get("properties") or {}),
         "source_feature": "273-paid-traffic-analytics",
