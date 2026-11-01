@@ -366,7 +366,7 @@ F269/T031, установленная приёмка macOS14 и будущий �
 
 ## T112 — официальные источники независимо от облака
 
-- [ ] T112 [US2] Нормализовать только Ubuntu sources в `infra/scripts/prepare-ci-apt.sh` по spec/plan T112: после checklist PASS и analyze/issue sync сначала RED cloud/mixed-suites в существующем `tests/governance/test_governance_workflow.py`, затем проверка Ubuntu24.04/amd64/root/files/полей, сохранение package tuples, две официальные HTTPS цели и атомарная запись с readback/no-op/cleanup; GREEN всей прежней матрицы трёх настоящих callers, negative owner/mode/platform/keyring/format/write/readback, static/governance/process/fragment/diff, независимое review/converge и exact PR gates; обновить `changes/unreleased/F211.yaml` и evidence в `specs/211-optimize-ci-cd/quickstart.md`. Новые инфраструктура/зависимости и изменения YAML/mirror/third-party/ключей/доверия исключены. (FR-057/SC-025; Issue #7859)
+- [X] T112 [US2] Нормализовать только Ubuntu sources в `infra/scripts/prepare-ci-apt.sh` по spec/plan T112: после checklist PASS и analyze/issue sync сначала RED cloud/mixed-suites в существующем `tests/governance/test_governance_workflow.py`, затем проверка Ubuntu24.04/amd64/root/files/полей, сохранение package tuples, две официальные HTTPS цели и атомарная запись с readback/no-op/cleanup; GREEN всей прежней матрицы трёх настоящих callers, negative owner/mode/platform/keyring/format/write/readback, static/governance/process/fragment/diff, независимое review/converge и exact PR gates; обновить `changes/unreleased/F211.yaml` и evidence в `specs/211-optimize-ci-cd/quickstart.md`. Новые инфраструктура/зависимости и изменения YAML/mirror/third-party/ключей/доверия исключены. (FR-057/SC-025) (Issue #7859)
 
 Зависимости: reviewer-owned `ci-official-sources.md` 5/0 PASS → T112 analyze →
 issue sync → existing test RED → helper → GREEN/static → review/converge →
@@ -377,12 +377,12 @@ T110 остаётся открытой; новый способ устраняе
 
 ## T113 — реальная подготовка и безопасные факты отказа
 
-- [ ] T113 [US2] После requirements checklist/analyze и sync #7859 сначала RED в test_actual_media_resource_preparation (`tests/governance/test_governance_workflow.py`): метаданные фиксированных source/keyring и выбор helper-only/server/docs. Затем добавить только безопасную классификацию отказа checked_read и выбор собственного helper в прежнем Prepare governance-fast, сохранить прежние guards/отказ/все три callers; GREEN модуля и static/process, независимые review/converge, draft PR и реальные metadata runner. Не сливать промежуточную ошибку; после фактов отдельно принять минимальную функциональную адаптацию и конечные exact PR gates. T112/#7859/Full/измерение не закрываются по диагностике. (FR-057/SC-025; Issue #7859)
+- [X] T113 [US2] После requirements checklist/analyze и sync #7859 сначала RED в test_actual_media_resource_preparation (`tests/governance/test_governance_workflow.py`): метаданные фиксированных source/keyring и выбор helper-only/server/docs. Затем добавить только безопасную классификацию отказа checked_read и выбор собственного helper в прежнем Prepare governance-fast, сохранить прежние guards/отказ/все три callers; GREEN модуля и static/process, независимые review/converge, draft PR и реальные metadata runner. Не сливать промежуточную ошибку; после фактов отдельно принять минимальную функциональную адаптацию и конечные exact PR gates. T112/#7859/Full/измерение не закрываются по диагностике. (FR-057/SC-025) (Issue #7859)
 
 
 ## T114 — безопасные права известного ключа CI
 
-- [ ] T114 [US2] После независимого `checklists/ci-keyring-permissions.md`, analyze и sync #7859 сначала RED в `tests/governance/test_governance_workflow.py`: только known official bytes/root:root0777/3607 и защищённый parent могут атомарно стать0644; unknown/source/owner/mode/type/size и races остаются отказами. В `infra/scripts/prepare-ci-apt.sh` реализовать ограниченный snapshot/hash/same-directory temp/fsync/identity recheck/replace/readback/cleanup без сети и изменения trust; весь прежний модуль/static/review/converge, F211 fragment/quickstart, затем тот же draft PR7863 и конечные exact native gates. Факт mode0777 не доказывает hash; mismatch не обходить. (FR-057/SC-025; Issue #7859)
+- [X] T114 [US2] После независимого `checklists/ci-keyring-permissions.md`, analyze и sync #7859 сначала RED в `tests/governance/test_governance_workflow.py`: только known official bytes/root:root0777/3607 и защищённый parent могут атомарно стать0644; unknown/source/owner/mode/type/size и races остаются отказами. В `infra/scripts/prepare-ci-apt.sh` реализовать ограниченный snapshot/hash/same-directory temp/fsync/identity recheck/replace/readback/cleanup без сети и изменения trust; весь прежний модуль/static/review/converge, F211 fragment/quickstart, затем тот же draft PR7863 и конечные exact native gates. Факт mode0777 не доказывает hash; mismatch не обходить. (FR-057/SC-025) (Issue #7859)
 
 Уточнение T114 после run41257402120: `checklists/ci-keyring-directory.md`
 до кода принимает только установленный root:root0777 directory по spec/plan:
@@ -395,4 +395,8 @@ exact gates обязательны. Прочие небезопасные direct
 принимает только root:root share0777 под защищёнными root/usr; тот же fd
 блок применяется сверху вниз к share/key parent после full-input/pin.
 Repair только share также требует новой inode key0644. Existing test RED/
-whole/static/review/converge/native exact обязательны; task остаётся открытой.
+whole/static/review/converge/native exact обязательны. Приёмка T112–T114: PR #7863,
+source `e977e4cb7536e87f9927be6385dc83aeb55e6d1f`, merge
+`724a937507b42f10f3c0e45e38c72166a3cd549f`; exact gates и общий валидатор
+до/после слияния PASS. См. quickstart: «T112–T114: приёмка слитого среза».
+Full/выпуск/F273/T0 остаются отдельными открытыми результатами.

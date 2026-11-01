@@ -1,5 +1,37 @@
 # Quickstart: проверка быстрого и доказуемого CI/CD
 
+## T112–T114: приёмка слитого среза — 01.11.2026
+
+[PR #7863](https://github.com/yshishenya/graf/pull/7863) слит защищённым
+squash 01.11 в 01:29:15 UTC. Проверены source
+`e977e4cb7536e87f9927be6385dc83aeb55e6d1f`, base
+`208e0aee20629c0770ad6ce0457fc1ebfcb6a631` и merge
+`724a937507b42f10f3c0e45e38c72166a3cd549f`. Общий
+`validate-pr-checks.py --repository yshishenya/graf --pr 7863
+--expected-sha e977e4cb7536e87f9927be6385dc83aeb55e6d1f` завершился EXIT0
+до и после слияния; после слияния он подтвердил указанную merge identity.
+
+| Обязательное подтверждение | Результат |
+| --- | --- |
+| Настоящий Prepare на GitHub-hosted Ubuntu | PASS: helper сообщил `CI APT sources: official Ubuntu HTTPS archives`; APT и Playwright завершены |
+| [governance-fast](https://github.com/yshishenya/graf/actions/runs/41259850266) | PASS, attempt 1; 2092 passed/2 skipped и отдельно 228 passed; fast остаётся частичным профилем перед Full |
+| [macos-pr](https://github.com/yshishenya/graf/actions/runs/41259850345) | PASS, attempt 1; настоящий Swift build и tests |
+| [pr-metadata](https://github.com/yshishenya/graf/actions/runs/41259851008) | PASS, attempt 1; окончательные описание и source SHA |
+
+Валидатор также проверил последние обязательные проверки после правок
+описания; их ожидание исходного исполнения не выдано за отдельный запуск
+кода. Локальные 528 PASS/8 статических проверок и независимое ревью ниже
+остаются отдельными доказательствами; прежние неуспешные запуски сохранены.
+Журнал настоящего выполнения: SHA256
+`bc7b5cf0720cbb3a2135c53c22d68cfcd314b2c5dacf8449acd1831afeac4ffd`.
+
+T112/T113/T114 приняты в своей области CI; это основание документальной
+сверки issue #7859. Историческая T110 не закрывается. Один новый frozen
+`release-full`, общий выпуск, рабочая аналитика F273, фиксированный T0,
+внешние публикации, трафик и продажи остаются отдельными результатами.
+Ни title/body слитого PR, ни код, workflow, production или приложение
+этой документальной записью не меняются. Полоса записи: docs-only.
+
 ## A4 acceptance — 2026-09-13
 
 Lane: high-risk CI/governance. First slice: FR-031–FR-033. Use the prepared server environment for standalone contracts; `--confcutdir` intentionally excludes unrelated application DB fixtures for these CLI-only checks.
