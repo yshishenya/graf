@@ -1005,3 +1005,33 @@ fixed category `keyring-directory` и числовые stat type/uid/gid/mode/si
 без path/content/env. Guard/отказ/следующие действия прежние. Existing
 key-parent owner/mode/symlink fixtures проверяют точный stderr. После фактов
 новая функциональная адаптация требует отдельного проекта/review до кода.
+
+### T114: восстановление установленного каталога, 01.11.2026
+
+Факт: source08329a279f80bae9935405b511cdb63026ba7092,
+run41257402120/job124703432330: keyring-directory type16384/uid0/gid0/mode777.
+Причина происхождения прав неизвестна. Продолжение T114, FR-057/SC-025;
+полоса active Spec Kit slice. Прежний запрет меняется только для этого
+точного каталога на одноразовом GitHub-hosted Ubuntu24.04/amd64.
+
+- Допускается восстановить `/usr/share/keyrings` из root:root0777 в0755
+  только после проверки нессылочных root-owned `/usr` и `/usr/share` без
+  group/other write, полного source/canonical и точного официального pin
+  ключа3607bytes/root:root/regular/mode0644 либо0777. Другие modes/owner/
+  group/type/hash и небезопасные ancestors отказывают. Нового доверия нет.
+- Никакой записи до полной проверки входа. Каталог открывается O_DIRECTORY/
+  O_NOFOLLOW, fstat совпадает с исходным fingerprint; fchmod только этого
+  fd в0755, fsync, проверка fstat и path identity/mode/owner. Ошибка блокирует
+  следующие действия; безопасное ужесточение не выдаётся за откат.
+- После закрытия записи в каталог повторно сверяются key bytes/fingerprint
+  и source bytes/fingerprint. Затем ключ всегда атомарно заменяется прежним
+  способом, даже если исходно0644: старые открытые дескрипторы не могут
+  изменить новую inode. Новый parent snapshot используется существующим
+  guard; source/third-party/package tuples/callers не меняются.
+- Безопасный каталог сохраняет прежний no-op и не pin-ит новый безопасный
+  ключ. Никакой рекурсии, chown, сети, загрузки ключа или chmod его inode.
+  Existing actual-shell test трёх callers: RED→GREEN/whole; оба known-key
+  modes, repeat, неизвестный ключ/invalid source/ancestor/dir metadata,
+  open/identity/chmod/fsync/readback failures и races; независимый review
+  до/после кода, analyze/sync/converge и конечные exact native gates.
+  Failed промежуточный PR, выпуск, F273/T0 и продажи остаются отдельными.

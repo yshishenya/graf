@@ -1203,6 +1203,13 @@ root/native; реальный Prepare должен дать числа в draft 
 
 ## T114 — приёмка узкого исправления прав ключа
 
+Для дополнения directory0777 обязательны оба known key modes0644/0777 и
+повторный no-op; unknown hash, malformed source, dir owner/group/mode/type,
+ancestors unsafe/symlink, open mismatch, chmod/fsync/readback failure и
+изменение key/source перед/после ужесточения. До invalid-input отказа
+directory/key/source не меняются; после частичного ужесточения ошибка не
+разрешает APT/npm/Playwright. Прежние cases и все три callers сохраняются.
+
 До кода: ci-keyring-permissions review, analyze, sync #7859. Тот же actual
 shell тест трёх callers: RED known-key-mode, затем whole module GREEN.
 Известный keyring0777 с точным public hash атомарно становится root:root0644
@@ -1250,6 +1257,28 @@ Run41256850185/job124701772801 на e118223edac681a0fa90ea502ba11feba8596665
 Для следующего наблюдения разрешён только fixed keyring-directory + числовые
 metadata при прежнем отказе. Existing3key-parent×3callers: RED→GREEN/whole
 module/static/independent review. Guard не менять, промежуточный отказ не merge.
+
+### T114: проверка восстановления directory0777
+
+Native source08329a279f80bae9935405b511cdb63026ba7092,
+run41257402120/job124703432330 установил directory type16384/uid0/gid0/
+mode777. Независимый before-code checklist `ci-keyring-directory.md`:5/0,
+analyze5/5 C/H/M0, sync #7859/канон250PASS. Existing positive три случая
+на трёх callers: RED9fail с прежним unsafe-directory, GREEN63PASS/23,26с.
+Весь модуль504PASS/0skips/191,01с. После этого добавлен только unknown-key644
+при directory777: отдельно3PASS/504deselected/0,95с; это не один507-case run.
+Ruff окончательного теста PASS; прежние8 static/process PASS, helper неизменен.
+Safe ancestors/metadata, full input до записи, fd identity/chmod/fsync/readback,
+повторные snapshots и atomic replacement для644/777 проверены; source/third-party
+не изменяются при отказе до записи. Частичная ошибка блокирует следующие шаги.
+Независимое source-review:0P1/P2/HIGH, отчёт
+`validation-ci-keyring-directory-code-review-20261101.md`.
+Scoped converge5/5: дополнительной задачи реализации не найдено; фактический
+pin на GitHub, финальные exact gates/merge и T112–T114/#7859 пока открыты.
+Helper SHA256`879306f087c4809fea3a3c26d004f78914e5541ac8490d9e3334058020e48023`,
+final test`4ffb95eb130da7a60e46cd6af0cd005d6ad310f415ad7e3c9dc404e033a9fcbd`.
+Логи `.dev/ci-official-sources/directory-{red,green,module,safe-unknown,static}.log`.
+Full/production/F273/T0/трафик и продажи этим срезом не принимаются.
 
 
 Parent diagnostic: RED9/3PASS→GREEN12; весь модуль453PASS/0skips/162,81с,

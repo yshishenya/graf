@@ -849,3 +849,22 @@ Native run41256850185 отказал unsafe keyring directory до key read. Н�
 ветвь fail получает fixed keyring-directory/numeric stat format T113;
 новых чтений/paths/guards/записей нет. Existing key-parent owner/mode/symlink
 требуют exact stderr, сначала RED. Функциональное расширение отсутствует.
+
+### T114: известный root:root0777 каталог
+
+После native факта41257402120 проект уточняется по spec T114. Constitution
+III/VI до/после PASS: только ужесточение прав фиксированного каталога и
+атомарная копия тех же pinned public bytes; новое доверие отсутствует.
+В том же helper stdlib stat/os: определить repair_parent только по exact
+dir/root:root0777. Проверить `/usr` и `/usr/share` lstat, затем прежние key
+snapshot/source parser/canonical. При repair_parent дополнительно exact
+key metadata/pin. После полной проверки открыть directory fd NOFOLLOW/
+DIRECTORY, сверить fingerprint, fchmod0755/fsync и fstat/path readback.
+Повторно сверить source/key snapshots, обновить key_parent и использовать
+прежнюю atomic key replacement даже для исходного0644. Не вводить helper
+framework/новые dependencies/workflow. Корректный безопасный путь прежний.
+Существующая root-model fixture моделирует ancestors/dir failures явно;
+новые случаи в том же параметризованном test трёх настоящих callers.
+Новый reviewer-owned `checklists/ci-keyring-directory.md`, before-code
+review→analyze→sync #7859→RED→минимальный код→whole/static→independent
+review/converge→тот же draft7863/exact gates. Full/T0/рост отдельно.

@@ -431,6 +431,11 @@ def test_governance_workflow_self_test() -> None:
     "known-key", "unknown-key", "known-key-bad-source", "known-key-mode", "known-key-owner", "known-key-group",
     "key-parent-owner", "key-parent-mode", "key-parent-symlink", "key-write-failed", "key-replace-failed",
     "key-readback-failed", "changed-key", "changed-key-parent", "key-open-writer",
+    "key-parent-safe-key", "key-parent-safe-open-writer", "key-parent-safe-unknown", "key-parent-unknown", "key-parent-bad-source",
+    "key-parent-other-mode", "key-parent-group", "key-ancestor-owner", "key-ancestor-mode",
+    "key-ancestor-symlink", "key-ancestor-upper-mode", "key-parent-open-changed", "key-parent-chmod-failed",
+    "key-parent-chmod-noop", "key-parent-sync-failed", "key-parent-path-changed",
+    "key-parent-key-changed", "key-parent-source-changed",
 ])
 def test_actual_media_resource_preparation(tmp_path, workflow_name, job_name, tools_state):
     import yaml
@@ -456,6 +461,12 @@ def test_actual_media_resource_preparation(tmp_path, workflow_name, job_name, to
     key_cases = {"known-key", "unknown-key", "known-key-bad-source", "known-key-mode", "known-key-owner", "known-key-group",
                  "key-parent-owner", "key-parent-mode", "key-parent-symlink", "key-write-failed", "key-replace-failed",
                  "key-readback-failed", "changed-key", "changed-key-parent", "key-open-writer"}
+    directory_cases = {"key-parent-mode", "key-parent-safe-key", "key-parent-safe-open-writer", "key-parent-safe-unknown", "key-parent-unknown",
+                       "key-parent-bad-source", "key-parent-other-mode", "key-parent-group", "key-ancestor-owner",
+                       "key-ancestor-mode", "key-ancestor-symlink", "key-ancestor-upper-mode", "key-parent-open-changed",
+                       "key-parent-chmod-failed", "key-parent-chmod-noop", "key-parent-sync-failed",
+                       "key-parent-path-changed", "key-parent-key-changed", "key-parent-source-changed"}
+    key_cases |= directory_cases
     key.write_bytes(b"fixture-keyring")
     source = parent / "ubuntu.sources"
     source_text = ("Types: deb\nURIs: mirror+file:/etc/apt/apt-mirrors.txt\n"
@@ -543,16 +554,19 @@ def test_actual_media_resource_preparation(tmp_path, workflow_name, job_name, to
             "bad-os": ("ubuntu", "debian"), "bad-version": ("24.04", "26.04"), "bad-codename": ("noble", "jammy"),
         }[tools_state]))
     if tools_state in key_cases:
-        key.write_bytes(known_key if tools_state != "unknown-key" else known_key[:-1] + b"y")
+        key.write_bytes(known_key if tools_state not in {"unknown-key", "key-parent-unknown", "key-parent-safe-unknown"} else known_key[:-1] + b"y")
         key.chmod(0o666 if tools_state == "known-key-mode" else 0o777)
-        if tools_state == "known-key-bad-source":
+        if tools_state in {"known-key-bad-source", "key-parent-bad-source"}:
             source.write_text(source.read_text() + "broken line\n")
-        elif tools_state == "key-parent-mode":
-            key_parent.chmod(0o777)
         elif tools_state == "key-parent-symlink":
             saved_parent = key_parent.with_suffix(".saved")
             key_parent.rename(saved_parent)
             key_parent.symlink_to(saved_parent)
+        if tools_state in directory_cases:
+            key_parent.chmod(0o775 if tools_state == "key-parent-other-mode" else 0o777)
+        if tools_state in {"key-parent-safe-key", "key-parent-safe-open-writer", "key-parent-safe-unknown"}:
+            key.chmod(0o644)
+    key_parent_mode_before = key_parent.lstat().st_mode
     key_before = key.read_bytes() if key.exists() else None
     key_stat_before = key.stat() if key.exists() else None
     source_before = source.read_bytes() if source.exists() else None
@@ -574,15 +588,51 @@ state = os.environ["TOOLS_STATE"]
 source, parent, key = map(Path, (os.environ["APT_SOURCE"], os.environ["APT_PARENT"], os.environ["APT_KEY"]))
 real_lstat, real_fstat = Path.lstat, os.fstat
 inodes = {p.stat().st_ino: label for p, label in ((source, "source"), (parent, "parent"), (key, "key"), (key.parent, "key-parent")) if p.exists()}
+inodes[key.parent.parent.stat().st_ino] = "key-ancestor"
+inodes[key.parent.parent.parent.stat().st_ino] = "key-ancestor-upper"
 def root_stat(value):
     attrs = {n: getattr(value, n) for n in dir(value) if n.startswith("st_")}
     label = inodes.get(value.st_ino)
     attrs.update(st_uid=1 if state == f"{label}-owner" or label == "key" and state == "known-key-owner" else 0,
-                 st_gid=1 if label == "key" and state == "known-key-group" else 0)
+                 st_gid=1 if label == "key" and state == "known-key-group" or label == "key-parent" and state == "key-parent-group" else 0)
+    if label in {"key-ancestor", "key-ancestor-upper"} and state == f"{label}-mode":
+        attrs['st_mode'] = stat.S_IFDIR | 0o777
+    if label == "key-ancestor" and state == "key-ancestor-symlink":
+        attrs['st_mode'] = stat.S_IFLNK | 0o755
     return types.SimpleNamespace(**attrs)
 patch.object(Path, "lstat", lambda p: root_stat(real_lstat(p))).start()
 patch("os.fstat", lambda fd: root_stat(real_fstat(fd))).start()
 patch("os.fchown", lambda fd, uid, gid: None).start()
+import stat
+if state in {"key-parent-chmod-failed", "key-parent-chmod-noop"}:
+    real_fchmod = os.fchmod
+    def directory_chmod(fd, mode):
+        if stat.S_ISDIR(real_fstat(fd).st_mode):
+            if state.endswith('failed'):
+                raise PermissionError('fixture directory chmod failed')
+            return
+        real_fchmod(fd, mode)
+    patch('os.fchmod', directory_chmod).start()
+if state == 'key-parent-open-changed':
+    real_open = os.open
+    def directory_open(path, flags, *args, **kwargs):
+        if Path(path) == key.parent:
+            key.parent.chmod(0o755)
+        return real_open(path, flags, *args, **kwargs)
+    patch('os.open', directory_open).start()
+if state in {'key-parent-sync-failed', 'key-parent-path-changed', 'key-parent-key-changed', 'key-parent-source-changed'}:
+    real_fsync = os.fsync
+    def directory_sync(fd):
+        if stat.S_ISDIR(real_fstat(fd).st_mode):
+            if state == 'key-parent-sync-failed':
+                raise PermissionError('fixture directory sync failed')
+            if state == 'key-parent-path-changed':
+                key.parent.chmod(0o777)
+            else:
+                target = source if state == 'key-parent-source-changed' else key
+                target.write_bytes(target.read_bytes() + b'# fixture changed\n')
+        real_fsync(fd)
+    patch('os.fsync', directory_sync).start()
 if state in {"write-failed", "key-write-failed"}:
     patch("os.fsync", side_effect=PermissionError("fixture write failure")).start()
 if state in {"replace-failed", "key-replace-failed"}:
@@ -603,7 +653,7 @@ if state in {"readback-failed", "key-readback-failed"}:
         real_replace(src, dst)
         Path(dst).write_bytes(b"# fixture failed readback\n")
     patch("os.replace", corrupt).start()
-if state == "key-open-writer":
+if state in {"key-open-writer", "key-parent-safe-open-writer"}:
     old_key_fd = os.open(key, os.O_WRONLY)
     real_replace = os.replace
     def old_writer(src, dst):
@@ -667,15 +717,17 @@ ffprobe() { printf 'ffprobe\n' >> "$PREP_EVENTS"; [[ "$TOOLS_STATE" != broken-ff
         "bad-suite", "duplicate-suite", "bad-component", "duplicate-component", "bad-signed-by",
         "bad-architecture", "duplicate-field", "malformed", "empty-uri",
         "unknown-key", "known-key-bad-source", "known-key-mode", "known-key-owner", "known-key-group",
-        "key-parent-owner", "key-parent-mode", "key-parent-symlink", "key-write-failed", "key-replace-failed",
+        "key-parent-owner", "key-parent-symlink", "key-write-failed", "key-replace-failed",
         "key-readback-failed", "changed-key", "changed-key-parent",
     }
+    directory_success = {"key-parent-mode", "key-parent-safe-key", "key-parent-safe-open-writer"}
+    helper_failures |= directory_cases - directory_success
     later_failures = {"update-failed", "install-failed", "broken-ffmpeg", "broken-ffprobe", "npm-failed", "browser-failed"}
     failed = tools_state in helper_failures | later_failures
     assert (result.returncode != 0) == failed, result.stdout + result.stderr
     assert rows == ([] if tools_state == "self-hosted" else ["mirror"]) if tools_state in helper_failures else rows[0] == "mirror"
     assert "fixture-private-value" not in result.stdout + result.stderr
-    if tools_state in {"key-parent-owner", "key-parent-mode", "key-parent-symlink"}:
+    if tools_state in {"key-parent-owner", "key-parent-symlink"}:
         metadata = key_parent.lstat()
         uid = 1 if tools_state == "key-parent-owner" else 0
         assert result.stderr.strip() == (
@@ -693,16 +745,21 @@ ffprobe() { printf 'ffprobe\n' >> "$PREP_EVENTS"; [[ "$TOOLS_STATE" != broken-ff
         )
     assert (mirror.read_bytes() if mirror.exists() else None) == mirror_before
     assert third_party.read_bytes() == third_before
-    if tools_state not in {"changed-key", "key-readback-failed"}:
+    if tools_state not in {"changed-key", "key-readback-failed", "key-parent-key-changed"}:
         assert (key.read_bytes() if key.exists() else None) == key_before
-    if tools_state in {"known-key", "key-open-writer"}:
+    if tools_state in {"known-key", "key-open-writer"} | directory_success:
         assert key.stat().st_ino != key_stat_before.st_ino
         assert stat.S_IMODE(key.stat().st_mode) == 0o644
     elif tools_state in key_cases - {"key-readback-failed"}:
         assert key.stat().st_ino == key_stat_before.st_ino
         assert key.stat().st_mode == key_stat_before.st_mode
+    if tools_state in directory_success:
+        assert stat.S_IMODE(key_parent.stat().st_mode) == 0o755
+    elif tools_state in directory_cases - {"key-parent-open-changed", "key-parent-sync-failed", "key-parent-path-changed",
+                                            "key-parent-key-changed", "key-parent-source-changed"}:
+        assert key_parent.lstat().st_mode == key_parent_mode_before
     if tools_state in helper_failures:
-        if tools_state not in {"changed-source", "readback-failed"}:
+        if tools_state not in {"changed-source", "readback-failed", "key-parent-source-changed"}:
             assert (source.read_bytes() if source.exists() else None) == source_before
     else:
         def tuples(data):

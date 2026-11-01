@@ -59,11 +59,22 @@ if not stat.S_ISDIR(parent.st_mode) or parent.st_uid != 0 or parent.st_mode & 0o
     fail('unsafe source directory')
 keyring = Path('/usr/share/keyrings/ubuntu-archive-keyring.gpg')
 key_parent = keyring.parent.lstat()
-if not stat.S_ISDIR(key_parent.st_mode) or key_parent.st_uid != 0 or key_parent.st_mode & 0o022:
+repair_parent = (stat.S_ISDIR(key_parent.st_mode) and key_parent.st_uid == key_parent.st_gid == 0
+                 and stat.S_IMODE(key_parent.st_mode) == 0o777)
+if not stat.S_ISDIR(key_parent.st_mode) or key_parent.st_uid != 0 or key_parent.st_mode & 0o022 and not repair_parent:
     fail(f'unsafe keyring-directory metadata type={stat.S_IFMT(key_parent.st_mode)} '
          f'uid={key_parent.st_uid} gid={key_parent.st_gid} '
          f'mode={stat.S_IMODE(key_parent.st_mode):o} size={key_parent.st_size}')
+if repair_parent:
+    for ancestor in (keyring.parent.parent, keyring.parent.parent.parent):
+        value = ancestor.lstat()
+        if not stat.S_ISDIR(value.st_mode) or value.st_uid != 0 or value.st_mode & 0o022:
+            fail('unsafe keyring ancestor')
 key_data, key_metadata = checked_read(keyring, 1048576, 'keyring')
+if repair_parent and ((key_metadata.st_uid, key_metadata.st_gid, key_metadata.st_size) != (0, 0, 3607)
+                      or stat.S_IMODE(key_metadata.st_mode) not in (0o644, 0o777)
+                      or hashlib.sha256(key_data).hexdigest() != '80a36b0a6de2f69f49d2df75ef473ccde121e9e190b9ea01d20a4f63778d5c31'):
+    fail('unrecognized keyring in writable directory')
 original, metadata = checked_read(source, 16384, 'source')
 if any(byte > 126 or byte < 32 and byte not in (9, 10) for byte in original):
     fail('expected flat ASCII source')
@@ -110,7 +121,26 @@ if not output:
 canonical = ('\n\n'.join(output) + '\n').encode('ascii')
 if len(canonical) > 16384:
     fail('normalized source exceeds size limit')
-if key_metadata.st_mode & 0o022:
+if repair_parent:
+    directory_fd = os.open(keyring.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        if fingerprint(os.fstat(directory_fd)) != fingerprint(key_parent):
+            fail('keyring directory changed while opening')
+        os.fchmod(directory_fd, 0o755)
+        os.fsync(directory_fd)
+        secured = os.fstat(directory_fd)
+        if ((secured.st_uid, secured.st_gid, stat.S_IMODE(secured.st_mode)) != (0, 0, 0o755)
+                or fingerprint(keyring.parent.lstat()) != fingerprint(secured)):
+            fail('keyring directory verification failed')
+        key_parent = secured
+    finally:
+        os.close(directory_fd)
+    for path, data, before, limit, label in ((keyring, key_data, key_metadata, 1048576, 'keyring'),
+                                            (source, original, metadata, 16384, 'source')):
+        current, actual_metadata = checked_read(path, limit, label)
+        if current != data or fingerprint(actual_metadata) != fingerprint(before):
+            fail('input changed while securing keyring directory')
+if repair_parent or key_metadata.st_mode & 0o022:
     temporary = None
     try:
         with tempfile.NamedTemporaryFile(dir=keyring.parent, prefix='.ubuntu-keyring-', delete=False) as stream:
