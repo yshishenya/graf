@@ -1119,3 +1119,31 @@ Fixture исполняет extracted Python с синтетическим filena
 (native использует `<stdin>`), чтобы linecache не подставлял строки root-model
 в traceback. Assert отсутствия учебного private marker сохраняется; production
 exceptions/диагностика этим исправлением fixture не меняются.
+
+
+## T115 — независимость проверки inventory от первой страницы, 01.11.2026
+
+Продолжение FR-057/SC-025, полоса `active Spec Kit slice`. Full41273275580
+на125b51042ff39a1a7b1d4d051ce2503ea8d1250c завершился failure:
+`test_postgres_inventory_function_returns_only_bounded_scope_ids` получил0
+совпадений. Остальные восемь серверных частей, static и macOS прошли.
+Общая модульная БД сохраняет предыдущие workspace; случайный UUID нового
+workspace не обязан попадать в первую отсортированную страницу50.
+
+Clarify: исправляется только предпосылка конкретного теста. Его назначение —
+точный безопасный TenantScope, inventory и отказ неверного maintenance context.
+Курсор непосредственно перед UUID созданного workspace гарантирует включение
+цели при прежней странице50 независимо от предшествующих записей.
+Обход страниц рабочего caller и SQL/RLS остаются прежними; None-path уже
+проверяется отдельным `test_rls_maintenance_context.py`.
+
+Критерии: неизменный тест воспроизводимо падает на disposable PostgreSQL с51
+workspace до цели; исправленный проходит в том же окружении и весь прежний
+модуль/RLS maintenance проходит без новых skips. Все существующие assertions,
+лимит50, роли, maintenance context и product SQL сохраняются. Нельзя очищать
+общую БД, увеличивать лимит, игнорировать отсутствие цели или повторять тест
+до случайного PASS. Нужны независимые requirements/code review, analyze,
+issue sync, focused/static/process и exact PR gates. Новый frozen Full и
+CD/T0/коммерческий результат принимаются отдельно по существующим задачам.
+
+Legacy Impact: untouched; новых зависимостей и совместимых обходов нет.

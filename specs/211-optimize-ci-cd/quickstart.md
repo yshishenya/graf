@@ -1352,3 +1352,80 @@ requirements и code review без замечаний, scoped converge4/4 без
 HelperSHA2562f7b24b90edf3d0be8d5a498c1d055c79787ea0bc4f37899531688eca2d36b8e,
 test0d5248820e4beb21bc026075b7d7d8daeffe059c288169c5af614292f8747f2d.
 Native metadata/functional adaptation/exact gates/merge остаются открытыми.
+
+
+## T115 — воспроизведение и проверка целевого курсора
+
+Исходный authoritative Full41273275580: failure строгой части,0 найденных
+совпадений вместо1; остальные компоненты PASS. Driver exit1, candidate
+`rc-20261101T042905Z-e980dd0d1ef7` abandoned, CD не запускался.
+
+После принятия требований выполнить штатным disposable runner один и тот же
+временный wrapper с51 меньшим workspace до и после исправления. После GREEN:
+
+```sh
+apps/server/scripts/run_local_postgres_tests.sh --focused -q \
+  tests/integration/test_playback_normalization_postgres.py \
+  tests/integration/test_rls_maintenance_context.py
+```
+
+Нужны отсутствие новых skips, `postgres_test_cleanup=isolated_container_removed`,
+Ruff для изменённого теста, process/governance/fragment/diff и независимое ревью.
+Локальное доказательство не заменяет exact PR checks и новый frozen Full.
+
+Before-code analyze T115: 3 условия/1 задача, покрытие100%, unmapped0,
+ambiguity0, duplication0, CRITICAL/HIGH/MEDIUM0/0/0. Checklist3/0 PASS.
+Issue sync: T115→#7873, существующих владельцев/дублей не найдено.
+RED:1failed/3.82s на исходном assertion1091, cleanupPASS.
+
+### T115 — фактическое RED/GREEN и воспроизводимый рецепт
+
+Один wrapper до правки на125b:1failed/3.82s, тот же assert0==1.
+После одной строки:1passed/3.90s. В обоих случаях runner очистил собственный
+контейнер. Две предварительные ошибки запуска (неверный import plugin и
+отсутствие collection plugin), затем ошибка setup с одинаковыми slug
+сохранены как неуспех; они не считаются содержательным RED.
+Правильный wrapper меняет старшие UUID bits и был одинаков до/после.
+
+Для повторения сохранить следующий учебный файл во временный каталог;
+исполнить `run_local_postgres_tests.sh --focused -p tests.conftest -q`
+с абсолютным путём этого файла. Штатный runner сам выделяет БД и удаляет её.
+
+```python
+from tests.integration import test_playback_normalization_postgres as normalization
+from tests.integration.test_playback_normalization_postgres import (migrated_postgres_url, media_postgres_url, test_postgres_inventory_function_returns_only_bounded_scope_ids)
+import pytest
+from uuid import UUID
+from sqlalchemy.ext.asyncio import create_async_engine
+import pytest_asyncio
+
+@pytest_asyncio.fixture(autouse=True)
+async def inventory_population(request, migrated_postgres_url, monkeypatch):
+    module = normalization
+    if request.node.name != "test_postgres_inventory_function_returns_only_bounded_scope_ids":
+        return
+    sequence = iter(UUID(int=value << 96) for value in range(1, 10000))
+    monkeypatch.setattr(module, "uuid4", lambda: next(sequence))
+    engine = create_async_engine(migrated_postgres_url)
+    try:
+        for _ in range(51):
+            await module._seed_revision(engine)
+    finally:
+        await engine.dispose()
+```
+
+Ruff изменённого теста, process, bootstrap governance, fragment и diff — PASS.
+Полный focused профиль двух файлов:33passed/0skipped; итог и длительность
+уточнены ниже из фактического журнала. Это локальная проверка, не Full.
+
+Полный профиль:33passed/0skipped/18.30s, runner22s,
+`postgres_test_cleanup=isolated_container_removed`.
+Хеши локальных доказательств: RED6880da537db56d69a7e2277e45ceba315e262c2cd32f6ae18a88b40ad8e87ff9;
+GREENb70318ac8efc235bab28aed7f91cc7fa9282b569a4f23ce50e654f0ab3d627a0;
+profile92593f8d7fc31a8ba30ecae00274000dbfab023ca6f561b003b4980b94533341;
+wrappera73d3176beba977b2041af3ffca4880b552393af1cf0284aa274389aae0d0911.
+
+Независимый code review/converge:3/3 PASS, P1/P2/HIGH0/0/0,
+невыполненного кода0. Отчёт: validation-inventory-cursor-code-review-20261101.md.
+T115 остаётся `[ ]` до принятия exact PR gates и защищённого merge; это
+не новый Full/CD/T0 и не коммерческий результат.
