@@ -16,7 +16,7 @@ from twobrain_rec_server.billing.catalog import (
     storage_capacity_bytes,
 )
 from twobrain_rec_server.billing.events import enqueue_billing_notification
-from twobrain_rec_server.billing.notifications import BillingNotification
+from twobrain_rec_server.billing.notifications import BillingNotification, payment_success_payload
 from twobrain_rec_server.billing.payment_methods import (
     SavedPaymentMethod,
     seal_provider_reference,
@@ -414,7 +414,9 @@ async def grant_confirmed_payment(
         recipient_id=owner.user_id,
         event_id=f"payment:{invoice.id}:succeeded",
         kind=BillingNotification.PAYMENT_SUCCEEDED,
-        payload={"invoice": invoice.safe_number, "action_path": "/billing"},
+        payload=payment_success_payload(
+            invoice, periods=[(grant.starts_at, grant.ends_at)], action_path="/billing"
+        ),
         marketing_allowed=False,
     )
     if receipt_became_available:
@@ -673,10 +675,10 @@ async def grant_confirmed_renewal(
         recipient_id=owner.user_id,
         event_id=f"payment:{invoice.id}:succeeded",
         kind=BillingNotification.PAYMENT_SUCCEEDED,
-        payload={
-            "invoice": invoice.safe_number,
-            "action_path": f"/billing/invoices/{invoice.safe_number}",
-        },
+        payload=payment_success_payload(
+            invoice, periods=[(grant.starts_at, grant.ends_at)],
+            action_path=f"/billing/invoices/{invoice.safe_number}",
+        ),
         marketing_allowed=False,
     )
     await settle_acceptance_budget(

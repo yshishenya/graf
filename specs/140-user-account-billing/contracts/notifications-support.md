@@ -26,3 +26,24 @@ Links open authenticated browser destinations and contain no provider/token/code
 Every financial page offers `Скопировать номер для поддержки`; the reference maps internally to workspace/object but cannot be enumerated. Payment support uses the configured email and asks only for the safe reference—not card details, provider ids, screenshots or meeting content.
 
 For a refund, the product shows the dedicated address, `Написать письмо`, `Скопировать email` and the warning that this message does not stop future charges. Correspondence, acknowledgement, legal deadlines, calculation, decision and manual YooKassa action are entirely external. GRAF stores no email/case/status and sends no refund-transition notification. `Отключить автопродление` is always presented as the separate immediate future-charge control.
+
+
+## Снимок подтверждений T048 — 01.11.2026
+
+Подтверждение оплаты сохраняет invoice amount_minor/currency=RUB и фактические
+границы предоставленной услуги (grant или отдельные storage segments).
+Поле планового интервала FR-105 пока не подтверждено во всех счетах:
+его показ при отличии остаётся открытой частью T048. Bonus/trial/current subscription
+не заменяют оплаченный срок. Непредоставленная услуга сохраняет отдельное
+service-reconciliation сообщение. Чек/следующее списание проверяются в истории,
+готовность не предполагается из payment success.
+
+Включение продления сохраняет consumed resume quote catalog_snapshot полную
+сумму (storage уже включено) и принятый next_attempt_label: календарная дата
+с явной зоной или закрытая фраза о ближайшем времени после подтверждения.
+Даты услуги показываются в МСК. Оба сообщения описывают событие в прошлом;
+состояние тарифа/согласия на момент доставки не обещается. Только безопасные
+поля/ссылки, прежние получатель/event identity/транзакция/rollback/dedup.
+Старое сообщение без новых полей направляет в кабинет и не восстанавливает
+данные из текущего состояния. Backfill/новая рассылка отсутствуют; вся T048,
+T068 и фактическая доставка #7524 этим контрактом не принимаются.

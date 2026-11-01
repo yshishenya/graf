@@ -413,3 +413,28 @@ local retry и следующие окна без дубликата; no consent
 unknown/newer payment; точная историческая копия и allowlist. Финансовое
 планирование/отправка не меняются. Предыдущий итоговый отказ хранится в
 отдельном коммите; исходная T048/#4903 остаётся владельцем остатка без дублей.
+
+
+## T048: содержание подтверждений — 01.11.2026
+
+Active Spec Kit slice, financial notification content; Legacy Impact untouched.
+До кода — независимый checklists/notification-content.md и scoped analyze.
+Меняются только payload существующих производителей: два в entitlements.py,
+успешное предоставление storage segments в purchases.py и resume route
+cabinet/web_routes/billing.py. notifications.py сохраняет allowlist и renderer;
+существующие форматирование/очередь/Postal переиспользуются без новой таблицы,
+миграции, зависимости или службы. Общая подготовка полей подтверждения оплаты
+не дублирует форматирование в трёх местах. Сумма — invoice, фактический срок —
+grant/segments, без объединения отдельных сегментов. Плановый интервал
+FR-105 пока не подтверждён во всех снимках счетов и остаётся открытым. Resume использует
+потреблённый quote, полную catalog amount без повторного сложения storage и
+точный принятый next_attempt_label (дата с UTC offset или закрытая фраза окна).
+Старые строки без данных не дополняются из текущей подписки при доставке.
+
+RED → настоящие producer/commit/new-session проверки в существующих
+integration тестах → минимальная правка → повтор/rollback/отрицательные
+границы/профильные notification и billing tests → независимое ревью и
+converge → обязательные три GitHub gates точного SHA/основы. Деньги, права,
+согласие и event identity не меняются; Dev/production/почта не затрагиваются.
+Constitution Check: изоляция, серверные секреты, история и атомарность
+сохранены. T048/T068/#7524 этим срезом не завершаются.

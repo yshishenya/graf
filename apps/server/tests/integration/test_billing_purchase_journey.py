@@ -5,6 +5,7 @@ import importlib.util
 import re
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import httpx
 import pytest
@@ -21,15 +22,22 @@ from tests.unit.test_billing_money_path_e2e import (
     _prepare_owner_session,
 )
 from twobrain_rec_server.billing import webhook_reconciliation
+from twobrain_rec_server.billing.notifications import (
+    BillingNotification,
+    NotificationEvent,
+    notification_copy,
+)
 from twobrain_rec_server.billing.promotions import promo_code_hash
 from twobrain_rec_server.billing.yookassa import YooKassaClient
 from twobrain_rec_server.cabinet.web_routes import billing as routes
 from twobrain_rec_server.db.models import (
     BillingAcceptanceBudget,
     BillingAuditEvent,
+    BillingEntitlementGrant,
     BillingInvoice,
     BillingNotificationDelivery,
     BillingOperation,
+    BillingPurchaseQuote,
     BillingStorageEntitlementGrant,
     PromotionCampaign,
     PromotionRedemption,
@@ -472,13 +480,32 @@ def test_initial_storage_early_renewal_and_scheduled_downgrade_are_one_coherent_
             )
             notices = list(
                 await db.scalars(
-                    select(BillingNotificationDelivery.event_id).where(
+                    select(BillingNotificationDelivery).where(
                         BillingNotificationDelivery.workspace_id == workspace,
                         BillingNotificationDelivery.template_key == "payment_succeeded",
                     )
                 )
             )
-            return redemptions, notices
+            for notice in notices:
+                invoice = await db.scalar(select(BillingInvoice).where(
+                    BillingInvoice.workspace_id == workspace,
+                    BillingInvoice.safe_number == notice.safe_payload["invoice"],
+                ))
+                assert notice.safe_payload["amount_minor"] == str(invoice.amount_minor)
+                assert notice.safe_payload["currency"] == invoice.currency
+                assert notice.channel == "email" and notice.state == "pending"
+                model = (BillingStorageEntitlementGrant
+                         if notice.safe_payload["action_path"] == "/billing/storage"
+                         else BillingEntitlementGrant)
+                grants = list(await db.scalars(select(model).where(
+                    model.invoice_id == invoice.id).order_by(model.starts_at)))
+                assert grants
+                zone = ZoneInfo("Europe/Moscow")
+                assert notice.safe_payload["service_periods"].split("; ") == [
+                    f"{g.starts_at.astimezone(zone):%d.%m.%Y %H:%M} — {g.ends_at.astimezone(zone):%d.%m.%Y %H:%M}"
+                    for g in grants
+                ]
+            return redemptions, [notice.event_id for notice in notices]
 
     redeemed, notices = asyncio.run(finalized())
     assert redeemed == ["redeemed"] * 3
@@ -486,9 +513,9 @@ def test_initial_storage_early_renewal_and_scheduled_downgrade_are_one_coherent_
 
     async def control_notices():
         async with client.app_state["sessionmaker"]() as db:
-            return list(
+            rows = list(
                 await db.scalars(
-                    select(BillingNotificationDelivery.template_key).where(
+                    select(BillingNotificationDelivery).where(
                         BillingNotificationDelivery.workspace_id == workspace,
                         BillingNotificationDelivery.template_key.in_(
                             [
@@ -500,6 +527,25 @@ def test_initial_storage_early_renewal_and_scheduled_downgrade_are_one_coherent_
                     )
                 )
             )
+            quotes = list(await db.scalars(select(BillingPurchaseQuote).where(
+                BillingPurchaseQuote.workspace_id == workspace,
+                BillingPurchaseQuote.purpose == "resume_renewal",
+                BillingPurchaseQuote.consumed_operation_id.is_not(None),
+            )))
+            expected = sorted((str(q.snapshot["catalog_snapshot"]["amount_minor"]),
+                               q.snapshot["next_attempt_label"]) for q in quotes)
+            resumed = [row for row in rows if row.template_key == "autorenewal_enabled"]
+            assert sorted((row.safe_payload["amount_minor"], row.safe_payload["next_attempt_label"])
+                          for row in resumed) == expected
+            for row in resumed:
+                assert row.safe_payload["currency"] == "RUB"
+                assert row.state == "pending" and row.channel == "email"
+                _, body = notification_copy(NotificationEvent(
+                    row.event_id, BillingNotification(row.template_key), row.safe_payload))
+                assert "1 250,00 ₽" in body  # Accepted total already includes storage.
+                assert row.safe_payload["next_attempt_label"] in body and "МСК" not in body
+                assert "Вы подтвердили включение" in body
+            return [row.template_key for row in rows]
 
     notifications = asyncio.run(control_notices())
     assert notifications.count("autorenewal_disabled") == (3 if cancel_during_dispatch else 2)

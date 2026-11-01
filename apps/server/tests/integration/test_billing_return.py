@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 from html import unescape
 from urllib.parse import parse_qs, urlencode, urlsplit
 from uuid import UUID, uuid4
+from zoneinfo import ZoneInfo
 
 import httpx
 import pytest
@@ -30,6 +31,11 @@ from tests.unit.test_billing_money_path_e2e import (
 from twobrain_rec_server.auth import redirects
 from twobrain_rec_server.auth.dependencies import AUTH_SESSION_COOKIE_NAME
 from twobrain_rec_server.billing.entitlements import grant_confirmed_renewal
+from twobrain_rec_server.billing.notifications import (
+    BillingNotification,
+    NotificationEvent,
+    notification_copy,
+)
 from twobrain_rec_server.billing.payment_methods import (
     read_billing_encryption_key,
     seal_provider_reference,
@@ -39,7 +45,9 @@ from twobrain_rec_server.billing.renewal_charge import next_renewal_attempt, pro
 from twobrain_rec_server.billing.yookassa import YooKassaClient
 from twobrain_rec_server.cabinet.web_routes import billing
 from twobrain_rec_server.db.models import (
+    BillingEntitlementGrant,
     BillingInvoice,
+    BillingNotificationDelivery,
     BillingOperation,
     BillingPaymentMethod,
     BillingPurchaseQuote,
@@ -491,6 +499,8 @@ def test_expired_pending_renewal_can_be_revoked_without_canceling_payment(client
     assert 'href="/billing/checkout/status/INV-CLARITY"' in canceled.text
     assert "Выбрать тариф" not in canceled.text
 
+    restored_at = datetime.now(UTC)
+
     async def late_success():
         async with client.app_state["sessionmaker"]() as db:
             subscription = await db.scalar(select(WorkspaceSubscription).where(
@@ -500,11 +510,49 @@ def test_expired_pending_renewal_can_be_revoked_without_canceling_payment(client
             assert not subscription.recurring_allowed and subscription.recurring_authority_version == 5
             assert subscription.paid_through == expired_at
             assert operation.state == state and invoice.status == "pending"
+            invoice_id, provider_id = invoice.id, operation.provider_id
             assert await grant_confirmed_renewal(db, workspace_id=workspace,
-                provider_payment_id=operation.provider_id, amount_minor=invoice.amount_minor,
-                currency=invoice.currency, grant_starts_at=datetime.now(UTC)) == "granted"
-            assert subscription.paid_through > datetime.now(UTC)
+                provider_payment_id=provider_id, amount_minor=invoice.amount_minor,
+                currency=invoice.currency, grant_starts_at=restored_at) == "granted"
+            assert subscription.paid_through > restored_at
             assert not subscription.recurring_allowed and subscription.recurring_authority_version == 5
+            event_id = f"payment:{invoice_id}:succeeded"
+            notice = await db.scalar(select(BillingNotificationDelivery).where(
+                BillingNotificationDelivery.event_id == event_id))
+            original_payload = dict(notice.safe_payload)
+            assert notice.recipient_id == USER_ID and notice.channel == "email"
+            await db.rollback()
+        async with client.app_state["sessionmaker"]() as db:
+            # Business mutation and its actual producer must roll back together.
+            assert await db.scalar(select(BillingNotificationDelivery).where(
+                BillingNotificationDelivery.event_id == event_id)) is None
+            assert await db.scalar(select(BillingEntitlementGrant).where(
+                BillingEntitlementGrant.invoice_id == invoice_id)) is None
+            invoice = await db.get(BillingInvoice, invoice_id)
+            assert invoice.status == "pending"
+            assert await grant_confirmed_renewal(db, workspace_id=workspace,
+                provider_payment_id=provider_id, amount_minor=invoice.amount_minor,
+                currency=invoice.currency, grant_starts_at=restored_at) == "granted"
+            await db.commit()
+        async with client.app_state["sessionmaker"]() as db:
+            invoice = await db.get(BillingInvoice, invoice_id)
+            notice = (await db.scalars(select(BillingNotificationDelivery).where(
+                BillingNotificationDelivery.event_id == event_id))).one()
+            assert notice.safe_payload == original_payload
+            assert notice.safe_payload["amount_minor"] == str(invoice.amount_minor)
+            assert notice.safe_payload["currency"] == invoice.currency
+            grant = (await db.scalars(select(BillingEntitlementGrant).where(
+                BillingEntitlementGrant.invoice_id == invoice_id))).one()
+            assert grant.starts_at == restored_at and grant.starts_at > expired_at
+            _, body = notification_copy(NotificationEvent(
+                notice.event_id, BillingNotification(notice.template_key), notice.safe_payload))
+            assert "1 000,00 ₽" in body
+            for point in (grant.starts_at, grant.ends_at):
+                assert point.astimezone(ZoneInfo("Europe/Moscow")).strftime("%d.%m.%Y %H:%M") in body
+            assert await grant_confirmed_renewal(db, workspace_id=workspace,
+                provider_payment_id=provider_id, amount_minor=invoice.amount_minor,
+                currency=invoice.currency, grant_starts_at=restored_at + timedelta(days=1)) == "duplicate"
+            assert notice.safe_payload == original_payload
             await db.commit()
     asyncio.run(late_success())
     assert payment_counts(client) == before

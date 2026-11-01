@@ -388,3 +388,14 @@ review/converge и обязательные PR SHA/base gates. T048 остаёт
 reviewer-owned checklists/renewal-reminder.md предшествуют коду; затем RED,
 минимальный producer существующей очереди, PostgreSQL/копия/границы,
 review/analyze/converge и точные PR gates. Полная T048 остаётся `[ ]`.
+
+
+Следующая часть T048/#4903 — содержание подтверждения оплаты и включения
+продления по FR-047/070/071/105. Порядок: уточнение spec/contract/plan →
+независимый checklists/notification-content.md → scoped analyze → RED
+настоящих producers → минимальные payload/renderer → PostgreSQL и профильные
+регрессии → review/converge → точные PR gates. Пути: billing/notifications.py,
+billing/entitlements.py, billing/purchases.py, cabinet/web_routes/billing.py;
+существующие тесты unit/test_billing_notifications.py,
+integration/test_billing_purchase_journey.py и integration/test_billing_return.py. Все исходные
+87 ID/описаний сохраняются; T048/T068 остаются `[ ]`, новых дублей issues нет.

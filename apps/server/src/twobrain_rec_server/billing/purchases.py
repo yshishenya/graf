@@ -693,7 +693,10 @@ async def grant_confirmed_storage(db: AsyncSession, *, operation, invoice, now: 
     from datetime import timedelta
 
     from twobrain_rec_server.billing.events import enqueue_billing_notification
-    from twobrain_rec_server.billing.notifications import BillingNotification
+    from twobrain_rec_server.billing.notifications import (
+        BillingNotification,
+        payment_success_payload,
+    )
     from twobrain_rec_server.billing.promotions import redeem_invoice_promo
     from twobrain_rec_server.db.models import BillingStorageEntitlementGrant
 
@@ -825,7 +828,15 @@ async def grant_confirmed_storage(db: AsyncSession, *, operation, invoice, now: 
             recipient_id=subscription.billing_owner_id,
             event_id=f"payment:{invoice.id}:succeeded",
             kind=BillingNotification.PAYMENT_SUCCEEDED,
-            payload={"invoice": invoice.safe_number, "action_path": "/billing/storage"},
+            payload=payment_success_payload(
+                invoice,
+                periods=[
+                    (datetime.fromisoformat(segment["starts_at"]),
+                     datetime.fromisoformat(segment["ends_at"]))
+                    for segment in valid_segments
+                ],
+                action_path="/billing/storage",
+            ),
             marketing_allowed=False,
         )
     await db.flush()

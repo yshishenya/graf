@@ -6,6 +6,7 @@ import re
 from datetime import UTC, datetime, timedelta
 from urllib.parse import urlsplit
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 import pytest
 from sqlalchemy import select
@@ -1380,6 +1381,28 @@ def test_partly_elapsed_storage_preserves_quote_and_opens_one_money_gap(
             notices = list(await db.scalars(select(BillingNotificationDelivery).where(
                 BillingNotificationDelivery.event_id == f"payment:{invoice.id}:service_gap")))
             assert len(notices) == int(delayed)
+            successes = list(await db.scalars(select(BillingNotificationDelivery).where(
+                BillingNotificationDelivery.event_id == f"payment:{invoice.id}:succeeded")))
+            assert len(successes) == int(not delayed)
+            saved_payload = dict(successes[0].safe_payload) if successes else None
+            if not delayed:
+                assert saved_payload["amount_minor"] == str(invoice.amount_minor)
+                assert saved_payload["currency"] == "RUB"
+                zone = ZoneInfo("Europe/Moscow")
+                expected_periods = [
+                    f"{g.starts_at.astimezone(zone):%d.%m.%Y %H:%M} — {g.ends_at.astimezone(zone):%d.%m.%Y %H:%M}"
+                    for g in grants
+                ]
+                assert saved_payload["service_periods"].split("; ") == expected_periods
+                assert successes[0].recipient_id == USER_ID and successes[0].channel == "email"
+            invoice_id = invoice.id
+            await db.commit()
+        async with client.app_state["sessionmaker"]() as db:
+            persisted = list(await db.scalars(select(BillingNotificationDelivery).where(
+                BillingNotificationDelivery.event_id == f"payment:{invoice_id}:succeeded")))
+            assert len(persisted) == int(not delayed)
+            if persisted:
+                assert persisted[0].safe_payload == saved_payload
     asyncio.run(run())
 
 
@@ -1701,3 +1724,76 @@ def test_subscription_real_get_period_is_only_a_truthful_active_paid_fact(client
     else:
         assert period is None
         assert "за месяц" not in response.text and "за год" not in response.text
+
+
+def test_resume_inside_window_saves_due_now_confirmation_after_cancel(client, tmp_path, monkeypatch):
+    from uuid import UUID
+
+    from twobrain_rec_server.billing.notifications import (
+        BillingNotification,
+        NotificationEvent,
+        notification_copy,
+    )
+    from twobrain_rec_server.cabinet.web_routes import billing
+    from twobrain_rec_server.db.models import (
+        BillingNotificationDelivery,
+        BillingPaymentMethod,
+        BillingPurchaseQuote,
+    )
+
+    _configure_billing(client, tmp_path)
+    _approved_month_catalog(client)
+    workspace, headers = _prepare_owner_session(client)
+    seed_periods(client, workspace)
+
+    def no_provider(*args, **kwargs):
+        pytest.fail("Resume and cancel must never create a provider payment")
+
+    monkeypatch.setattr(billing, "YooKassaClient", no_provider)
+
+    async def seed():
+        async with client.app_state["sessionmaker"]() as db:
+            sub = await db.get(WorkspaceSubscription, workspace)
+            sub.recurring_allowed = False
+            sub.recurring_authority_version = 2
+            sub.paid_through = datetime.now(UTC) + timedelta(hours=48)
+            db.add(BillingPaymentMethod(workspace_id=workspace, owner_user_id=USER_ID,
+                encrypted_provider_ref="synthetic", key_version="synthetic",
+                masked_label="Карта •••• 1111", state="active", is_default=True,
+                verified_at=datetime.now(UTC)))
+            await db.commit()
+
+    asyncio.run(seed())
+    page = client.get("/billing/subscription", headers=headers)
+    match = re.search(r'name="resume_quote_id" value="([^"]+)"', page.text)
+    assert page.status_code == 200 and match
+    values = {"expected_authority_version": "2", "resume_consent": "true",
+              "resume_quote_id": match[1]}
+    enabled = client.post("/billing/subscription/resume", headers=headers, data=values,
+                          follow_redirects=False)
+    assert enabled.headers["location"].endswith("result=resumed")
+    duplicate = client.post("/billing/subscription/resume", headers=headers, data=values,
+                            follow_redirects=False)
+    assert duplicate.headers["location"].endswith("result=already_active")
+    canceled = client.post("/billing/subscription/cancel", headers=headers,
+                          data={"expected_authority_version": "3"}, follow_redirects=False)
+    assert canceled.headers["location"].endswith("result=cancelled")
+
+    async def persisted():
+        async with client.app_state["sessionmaker"]() as db:
+            quote = await db.get(BillingPurchaseQuote, UUID(match[1]))
+            assert quote.consumed_operation_id is not None
+            notice = (await db.scalars(select(BillingNotificationDelivery).where(
+                BillingNotificationDelivery.workspace_id == workspace,
+                BillingNotificationDelivery.template_key == "autorenewal_enabled"))).one()
+            assert notice.recipient_id == USER_ID and notice.channel == "email"
+            assert notice.safe_payload["amount_minor"] == str(quote.snapshot["catalog_snapshot"]["amount_minor"])
+            due_now = "после подтверждения возобновления, в ближайшее время"
+            assert notice.safe_payload["next_attempt_label"] == quote.snapshot["next_attempt_label"] == due_now
+            sub = await db.get(WorkspaceSubscription, workspace)
+            assert not sub.recurring_allowed and sub.recurring_authority_version == 4
+            _, body = notification_copy(NotificationEvent(
+                notice.event_id, BillingNotification(notice.template_key), notice.safe_payload))
+            assert due_now in body and "Вы подтвердили включение" in body and "МСК" not in body
+
+    asyncio.run(persisted())
