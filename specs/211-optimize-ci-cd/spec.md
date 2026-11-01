@@ -914,3 +914,178 @@ Legacy Impact: untouched. Дополнительных решений владе
   До кода обязательны независимый checklist/analyze/issue sync; затем code review,
   converge и точные PR gates. Обычный required CI принимает новое поведение;
   новый кандидат проходит штатный Full. Случайных диагностических наборов нет.
+
+## T113 — фактические метаданные подготовки CI, 01.11.2026
+
+Реальный server/browser шаг PR #7861, source
+`838aa9e93310d341885b1a7a1d0b4011f3ed45ec`, run41254530857,
+отказал до тестов: `unsafe source or keyring metadata`. T112/#7859 остаётся
+открытой; PR #7862 с документальной отметкой закрыт без слияния. Неизвестно,
+какой из двух фиксированных файлов и какое условие вызвали отказ.
+
+Clarify: продолжение FR-057/SC-025, active Spec Kit slice. Нового продуктового
+решения нет. Нужны безопасные факты реального runner и проверка собственного
+helper через существующий вызывающий шаг. Не ослаблять uid/mode/type/size,
+не угадывать причину и не повторять Full ради диагностики.
+
+- При отказе checked_read выводить только фиксированную категорию source/keyring
+  и числовые type/uid/gid/mode/size. Содержимое, URI, paths, env и другие файлы
+  не выводятся. Проверка и отказ остаются прежними; запись APT после отказа
+  и последующие APT/npm/Playwright запрещены.
+- Существующий Prepare browser resources в governance-fast выбирается также
+  при изменении `infra/scripts/prepare-ci-apt.sh`. Текущий server-путь сохранён;
+  обычная документация не запускает этот шаг. Отдельного workflow, случайного
+  набора runners или искусственного server diff нет.
+- Тот же исполняемый тест трёх callers подтверждает прежнюю матрицу, точную
+  категорию/числа без содержимого и выбор helper/server/docs. Сначала RED,
+  затем профильные проверки/static, независимое ревью и draft PR.
+  Промежуточный отказ с фактами не получает merge или PASS. После наблюдения
+  минимальная функциональная адаптация отдельно конкретизируется и проверяется
+  до кода; неизвестный или небезопасный файл нельзя принимать ради зелёного CI.
+
+
+## T114 — проверенный ключ Ubuntu с правами 0777
+
+Факт T113: draft PR7863/source ebb720844e9a52f4c80b535fc9f8050508a8729e,
+run41255823281/job124698702639,01.11.2026 00:14:35UTC:
+`unsafe keyring metadata type=32768 uid=0 gid=0 mode=777 size=3607`.
+Это обычный root:root файл с небезопасной записью, не неизвестный тип/owner.
+Ubuntu24.04.5/image20261025.353.1. Draft остаётся неуспешным, не сливается.
+Причина появления прав0777 и фактический hash runner не установлены.
+
+Clarify: FR-057/SC-025, active Spec Kit slice. Разрешено исправить только
+подтверждённую комбинацию прав штатного ключа, сохраняя прежние байты и
+доверие APT. Общего допуска writable файлов нет. Не требуется менять
+продуктовые требования или получать новое решение владельца.
+
+Официальный HTTPS пакет Ubuntu ubuntu-keyring_2023.11.28.1build1_all.deb
+(deb SHA256 c377ccf26964f4c206c05c0bc7adb708e031beb919bb9a0ff63af983d064cd66)
+содержит root:root0644 ключ3607байт с SHA256
+`80a36b0a6de2f69f49d2df75ef473ccde121e9e190b9ea01d20a4f63778d5c31`.
+Прямой официальный project/ubuntu-archive-keyring.gpg дал те же size/hash.
+Это проверенный эталон, не утверждение, что фактический runner уже совпал.
+Пакет2026.08.18 имеет иной ключ2334байта: его hash не входит в исключение.
+Runtime ничего из сети для исправления ключа не скачивает.
+
+- Исключение только для фиксированного штатного keyring, обычного нессылочного
+  root:root файла строго3607байт/0777 в защищённом root-owned parent.
+  Остальные uid/gid/type/mode/size и source guards прежние; неизвестное отказывает.
+- Бounded read через O_NOFOLLOW, lstat/fstat fingerprints до/после; только
+  точный официальный SHA256 допускает исправление. Несовпадение или подмена
+  отказывает до любой записи и следующих APT/npm/Playwright.
+- До любой записи source полностью проверяется/парсится и canonical ограничен.
+  Проверенный snapshot ключа хранится в памяти; malformed/unsafe source не
+  вызывает key write. Затем исправление атомарно заменяет keyring новой root:root0644
+  копией проверенных тех же байтов. Старый открытый дескриптор не может
+  изменить новую inode. Temp в том же защищённом parent; fsync, повторная
+  сверка исходника/parent до replace, cleanup и checked readback/hash.
+  Ошибка не выдаётся за откат; дальнейшие действия запрещены.
+- Уже безопасный keyring проверяется прежним способом без переписывания;
+  новый ключ с безопасными правами не ограничивается старым hash. Source,
+  Signed-By, package tuples, сторонние файлы/ключи и настройки доверия прежние.
+  Узкое исключение отменяет только прежний безусловный отказ для описанной
+  комбинации, не позволяет chmod неизвестного ключа или допуск0777 в APT.
+- До кода независимый checklist/analyze/issue sync. Existing executable test
+  трёх callers сначала RED, затем known0777 success+repeat/unknown0777 failure,
+  source0777 failure, изменённый ключ/parent, owner/mode/size/symlink,
+  write/replace/readback/cleanup failures; весь прежний модуль/static/review.
+  Native Prepare обязан подтвердить фактический hash через успешную проверку
+  константы; mismatched key остаётся отказом. Конечные exact gates, Full,
+  выпуск, измерение/T0 и коммерческие критерии принимаются отдельно.
+
+
+### T114: следующий фактический отказ
+
+Source e118223edac681a0fa90ea502ba11feba8596665, run41256850185/
+job124701772801,01.11 00:28:23UTC: `unsafe keyring directory`. До actual
+key hash выполнение не дошло. Type/uid/gid/mode каталога неизвестны;
+никакого разрешения исправлять каталог или ослаблять guard нет. Разрешён
+только прежний диагностический подход T113: при этом существующем отказе
+fixed category `keyring-directory` и числовые stat type/uid/gid/mode/size,
+без path/content/env. Guard/отказ/следующие действия прежние. Existing
+key-parent owner/mode/symlink fixtures проверяют точный stderr. После фактов
+новая функциональная адаптация требует отдельного проекта/review до кода.
+
+### T114: восстановление установленного каталога, 01.11.2026
+
+Факт: source08329a279f80bae9935405b511cdb63026ba7092,
+run41257402120/job124703432330: keyring-directory type16384/uid0/gid0/mode777.
+Причина происхождения прав неизвестна. Продолжение T114, FR-057/SC-025;
+полоса active Spec Kit slice. Прежний запрет меняется только для этого
+точного каталога на одноразовом GitHub-hosted Ubuntu24.04/amd64.
+
+- Допускается восстановить `/usr/share/keyrings` из root:root0777 в0755
+  только после проверки нессылочных root-owned `/usr` и `/usr/share` без
+  group/other write, полного source/canonical и точного официального pin
+  ключа3607bytes/root:root/regular/mode0644 либо0777. Другие modes/owner/
+  group/type/hash и небезопасные ancestors отказывают. Нового доверия нет.
+- Никакой записи до полной проверки входа. Каталог открывается O_DIRECTORY/
+  O_NOFOLLOW, fstat совпадает с исходным fingerprint; fchmod только этого
+  fd в0755, fsync, проверка fstat и path identity/mode/owner. Ошибка блокирует
+  следующие действия; безопасное ужесточение не выдаётся за откат.
+- После закрытия записи в каталог повторно сверяются key bytes/fingerprint
+  и source bytes/fingerprint. Затем ключ всегда атомарно заменяется прежним
+  способом, даже если исходно0644: старые открытые дескрипторы не могут
+  изменить новую inode. Новый parent snapshot используется существующим
+  guard; source/third-party/package tuples/callers не меняются.
+- Безопасный каталог сохраняет прежний no-op и не pin-ит новый безопасный
+  ключ. Никакой рекурсии, chown, сети, загрузки ключа или chmod его inode.
+  Existing actual-shell test трёх callers: RED→GREEN/whole; оба known-key
+  modes, repeat, неизвестный ключ/invalid source/ancestor/dir metadata,
+  open/identity/chmod/fsync/readback failures и races; независимый review
+  до/после кода, analyze/sync/converge и конечные exact native gates.
+  Failed промежуточный PR, выпуск, F273/T0 и продажи остаются отдельными.
+
+### T114: конечная диагностика предков
+
+Source c8275c5d2f3db7e6f5a22327979b01db8cd82cc7,
+run41258326161 отказал `unsafe keyring ancestor` до проверки pin/записи.
+Следующий диагностический срез T113/T114 при этом же отказе сообщает только
+фиксированные категории share/usr/root и числовые type/uid/gid/mode/size
+их lstat. Читаются ровно `/usr/share`, `/usr`, `/`, без обхода/содержимого/
+env/пользовательских путей. Исходный guard и отказ сохраняются; ни один
+каталог не исправляется по предположению. Один штатный native Prepare
+получает конечный набор metadata, после него отдельный проект/review по
+фактам. Existing negative ancestor fixtures проверяют exact numeric stderr;
+before-code independent review, focused/static/code review и draft gates.
+
+### T114: установленный `/usr/share`0777
+
+Факт sourcefbb5604c2ba0f03255bf9ede3c23882015cbbecd,
+run41258703244,01.11 00:53:52UTC: share directory/root:root0777,
+usr и root directory/root:root0755. Разрешено заменить прежний запрет
+ремонта предков только для `/usr/share` root:root0777→0755. `/usr` и `/`
+никогда не изменяются; обязаны быть nonsymlink/root-owned/no022 до чтения
+ключа, включая ветвь безопасного key directory. Иные опасные modes/owner/
+group/type остаются отказами с bounded metadata. Рекурсии/listing/chown нет.
+
+Exact snapshot `/usr/share` и key directory фиксируется до чтения ключа;
+если хотя бы одному требуется repair, key metadata/root:root/3607/mode644
+либо777 и официальный pin обязательны. Source/canonical полностью проверяются
+до записи. Только затем прежний fd identity/fchmod0755/fsync/readback
+исполняется для требующих ремонта каталогов строго сверху вниз: share,
+потом key directory. Перед открытием следующего fd fingerprint должен
+совпасть с исходным; подмена дочернего каталога до закрытия share отказывает.
+Проверенные snapshots key/source перечитываются после закрытия прав.
+Ключ обязательно получает новую inode0644 при любом repair, включая
+безопасный key directory/ключ0644 и ремонт только share. Неизвестный ключ
+или malformed source не меняет ни один каталог. Частичный ремонт не откат;
+при любой ошибке следующие APT/npm/Playwright запрещены.
+
+Полностью безопасный путь сохраняет bytes/inode/mtime и не ограничивает
+новый безопасный key старым pin. Existing три callers/все негативные
+сценарии сохраняются; новый known share0777 с key directory0755/0777,
+key0644/0777, unknown644/malformed-source/changed-child и repeat сначала RED,
+затем focused/whole/static/review/converge и конечные exact native gates.
+Before-code отдельный checklist ci-keyring-share, analyze и sync #7859.
+Production/F273/T0/коммерческие критерии остаются отдельными.
+
+Уточнение review P2: после закрытия share исходный fingerprint key directory
+обязательно сверяется до повторных key/source reads и до любого temp даже
+для изначально безопасного child, который fd loop не изменял. Проверка после
+создания temp слишком поздняя. Existing regression наблюдает попытку создания
+temp и требует её отсутствия при изменении safe child во время fsyncshare.
+Fixture исполняет extracted Python с синтетическим filename `<prepare-ci-apt>`
+(native использует `<stdin>`), чтобы linecache не подставлял строки root-model
+в traceback. Assert отсутствия учебного private marker сохраняется; production
+exceptions/диагностика этим исправлением fixture не меняются.

@@ -1163,3 +1163,160 @@ helper/root/native и новый Full принимаются в штатном �
 
 - Helper SHA256: `2364d3e6d5d66ef4b9081ae7d411380cdab37d09ca0dcaa1ca2f2670a7b9123f`.
 - Test SHA256: `64223c8b65a55c227b6789dd7d2db1355e000da0718b974536120477e11d5f99`.
+
+
+## T113 — реальный выбор helper и отказ metadata
+
+До кода: native-ci-metadata checklist PASS, analyze, sync существующей #7859.
+Existing test_actual_media_resource_preparation: новые helper-only/docs и
+source/keyring metadata assertions сначала RED на прежнем helper/selector;
+затем весь tests/governance/test_governance_workflow.py, bash syntax/Ruff/
+actionlint, process/governance/fragment/diff, независимые review/converge.
+Draft PR исполняет настоящий Prepare при изменении helper и получает точные
+числа фиксированных файлов на runner. Native failure остаётся failure;
+после фактов функциональная адаптация требует повторного проекта/review.
+Нельзя сливать по моделируемому root профилю, повторять Full ради диагностики,
+угадывать условие metadata или ослаблять guard без обоснования.
+
+
+### T113: локальная проверка диагностического среза, 01.11.2026
+
+На base208e0aee20629c0770ad6ce0457fc1ebfcb6a631 новые assertions сначала
+дали RED7 failures/2PASS/399deselected; после изменения выбранный профиль
+9PASS/399deselected. Затем весь модуль: **408 passed, 0 skipped, 152,53с**.
+Helper/test/YAML во время полного прогона не менялись. Восемь статических и
+процессных проверок PASS: bash syntax, Ruff извлечённого heredoc и теста,
+actionlint, development-process, workflow self-test, Spec Kit governance,
+fragment, diff-check. Сеть/sudo/APT/production не запускались.
+
+Новый вывод строго ограничен fixed source/keyring и числовыми stat metadata;
+guard type/uid/mode/size прежний. Выбор helper/server/docs/other-infra
+исполнен через настоящий YAML. Источники и ключи остаются временной моделью
+root/native; реальный Prepare должен дать числа в draft PR, его отказ не
+будет принят как PASS или разрешение merge. T112/T113/#7859 остаются открытыми;
+функциональная адаптация, конечные exact gates/Full/измерение отдельно.
+
+- Helper SHA256: `b16a0c322e976a03c55cd60560e96b82bb97f2fce077a06951262118019d195f`.
+- Test SHA256: `47a509fceddc090b652f05cc8287942f63cbf61940e5959958960b4eee4a2861`.
+- YAML SHA256: `dfd738473dc9f8f47ea1a6c9e8e5f64dfcfda9e0fceb676a21a4995925dee258`.
+
+
+## T114 — приёмка узкого исправления прав ключа
+
+Для дополнения directory0777 обязательны оба known key modes0644/0777 и
+повторный no-op; unknown hash, malformed source, dir owner/group/mode/type,
+ancestors unsafe/symlink, open mismatch, chmod/fsync/readback failure и
+изменение key/source перед/после ужесточения. До invalid-input отказа
+directory/key/source не меняются; после частичного ужесточения ошибка не
+разрешает APT/npm/Playwright. Прежние cases и все три callers сохраняются.
+
+До кода: ci-keyring-permissions review, analyze, sync #7859. Тот же actual
+shell тест трёх callers: RED known-key-mode, затем whole module GREEN.
+Известный keyring0777 с точным public hash атомарно становится root:root0644
+с теми же bytes, следующий запуск no-op. Unknown/tampered key0777, прочие
+modes/owner/group/type/size, parent unsafe/symlink/change, source0777,
+read/write/replace/readback failures отказывают; нет дальнейших APT/npm/
+Playwright, temp очищен. Root/native остаются явной моделью. Official hash
+в fixture заменяется учебным hash, production pin не вычисляется из входа.
+Static/process + independent code review/converge перед update draft7863;
+настоящий Prepare проверяет actual bytes через тот же pin. Промежуточный
+failure не merge, новые факты рассматриваются отдельно. Full не диагностика.
+
+
+### T114: локальная реализация и независимое code review
+
+Новые actual-shell assertions сначала RED5 failures/2PASS/446deselected;
+после минимального изменения45PASS/408deselected. Весь существующий модуль:
+**453 passed,0 skipped,160,89с**. Helper/test во время прогона не менялись.
+Восемь static/process команд PASS. Combined known-key0777+malformed-source
+сохранил inode/mode/bytes ключа; unknown/owner/group/other-mode/parent/races
+и write/replace/readback дают отказ без следующих действий, temp очищен.
+Known-key0777 success и старый открытый writer подтверждают новую inode0644
+с теми же bytes; повтор сохраняет inode/mode/mtime обоих файлов.
+
+Независимый read-only `codex review --uncommitted`: no actionable defects,
+все текущие изменения и untracked source/checklist/review файлы прочитаны.
+Его попытка pytest не стартовала из-за read-only tempfile; это не повтор
+тестов и не замена приведённого прогона исполнителя. Shell/Python syntax,
+workflow validator/diff у reviewer успешны. Полный журнал SHA256
+078ac3c2e03323ee88767cf7513d2e0399e3c32e8e6cea8e9cacbed5424b0217.
+Обзор не подтверждает фактический hash runner или native PASS; они впереди.
+
+Scoped converge6/6: обязательной новой задачи до update draft не найдено;
+нативная проверка pin и конечные exact gates уже находятся в T114. Tasks
+оставлены открытыми; T112/T113/T114/#7859 и Full/T0 не приняты по локальной модели.
+
+- Helper SHA256: `e621ac1d9e4f67f7b0b8f92f29f01be4a0cc5f81987f1724221b2053bcd5e00e`.
+- Test SHA256: `40de319b3f2a4117736a2e70fa3e1bd8fcd815dc11465c13ecac95f55ff09eed`.
+
+
+### T114: native отказ parent до проверки pin
+
+Run41256850185/job124701772801 на e118223edac681a0fa90ea502ba11feba8596665
+отказал `unsafe keyring directory`. Actual hash ещё не проверен, успеха нет.
+Для следующего наблюдения разрешён только fixed keyring-directory + числовые
+metadata при прежнем отказе. Existing3key-parent×3callers: RED→GREEN/whole
+module/static/independent review. Guard не менять, промежуточный отказ не merge.
+
+### T114: проверка восстановления directory0777
+
+Native source08329a279f80bae9935405b511cdb63026ba7092,
+run41257402120/job124703432330 установил directory type16384/uid0/gid0/
+mode777. Независимый before-code checklist `ci-keyring-directory.md`:5/0,
+analyze5/5 C/H/M0, sync #7859/канон250PASS. Existing positive три случая
+на трёх callers: RED9fail с прежним unsafe-directory, GREEN63PASS/23,26с.
+Весь модуль504PASS/0skips/191,01с. После этого добавлен только unknown-key644
+при directory777: отдельно3PASS/504deselected/0,95с; это не один507-case run.
+Ruff окончательного теста PASS; прежние8 static/process PASS, helper неизменен.
+Safe ancestors/metadata, full input до записи, fd identity/chmod/fsync/readback,
+повторные snapshots и atomic replacement для644/777 проверены; source/third-party
+не изменяются при отказе до записи. Частичная ошибка блокирует следующие шаги.
+Независимое source-review:0P1/P2/HIGH, отчёт
+`validation-ci-keyring-directory-code-review-20261101.md`.
+Scoped converge5/5: дополнительной задачи реализации не найдено; фактический
+pin на GitHub, финальные exact gates/merge и T112–T114/#7859 пока открыты.
+Helper SHA256`879306f087c4809fea3a3c26d004f78914e5541ac8490d9e3334058020e48023`,
+final test`4ffb95eb130da7a60e46cd6af0cd005d6ad310f415ad7e3c9dc404e033a9fcbd`.
+Логи `.dev/ci-official-sources/directory-{red,green,module,safe-unknown,static}.log`.
+Full/production/F273/T0/трафик и продажи этим срезом не принимаются.
+
+### T114: фактический отказ предков и конечная диагностика
+
+Sourcec8275c5d2f3db7e6f5a22327979b01db8cd82cc7,
+run41258326161/job124706213937,01.11 00:48:45UTC отказал `unsafe keyring
+ancestor` до pin/записи. Подготовка не принята. Следующая правка только
+добавляет к прежнему отказу numeric lstat share/usr/root, guard не меняется.
+Before-code independent requirements PASS, scoped analyze3/3 C/H/M0,
+sync #7859/canon250PASS; exact negative assertions RED12fail→GREEN66PASS/
+441deselected/23,15с,8static/processPASS. Это ограниченный диагностический
+прогон, не новый whole507; настоящий native Prepare получает metadata.
+Repair предков остаётся отдельным проектом после фактов; draft не merge.
+
+### T114: итог share0777 и закрытие найденного P2
+
+Native fbb5604c2ba0f03255bf9ede3c23882015cbbecd/run41258703244 установил
+share/root:root0777 при root/usr0755. Новый независимый requirements checklist
+ci-keyring-share5/0, analyze5/5 C/H/M0, sync #7859/canon250PASS.
+Existing RED12fail/6PASS→focused84PASS. Первое code review нашло P2:
+изначально безопасный child сверялся после temp. Дополнены требования,
+before-code уточнение PASS, analyze2/2 C/H/M0 и sync/canon250PASS.
+Причинный regression с temp-event: RED3FAIL→GREEN24PASS, включая missing-source.
+Теперь child fingerprint сверяется сразу после directory loop до reads/temp.
+Fixture compiled filename `<prepare-ci-apt>` соответствует native stdin;
+строгий private-marker assert сохранён. Прежний whole522PASS/3FAIL не принят.
+Окончательный неизменный helper/test: **528PASS/0skip/204,72с**,8static/process
+PASS. Scoped converge5/5: дополнительных задач локальной реализации не найдено.
+Отчёты `validation-ci-keyring-share-{review,code-review}-20261101.md`;
+helper SHA256`4aa4f2aa7ccaaa5f1b8010d04d662290afa6871a89142cd3fa1155bc3ed010a1`,
+test`bd7f3f0720f68b8e628c89f47f6f6390332bd09c6eee331e7fd6c6f5f1cfb0b9`.
+Final logs `.dev/ci-official-sources/share-final-{module,static}.log`.
+Настоящий pin/Prepare, конечные exact gates и protected merge остаются
+отдельными; T112–T114/#7859, Full/production/F273/T0/продажи пока открыты.
+
+
+Parent diagnostic: RED9/3PASS→GREEN12; весь модуль453PASS/0skips/162,81с,
+source helper/test неизменны во время прогона. Static8PASS, независимые
+requirements и code review без замечаний, scoped converge4/4 без новых задач.
+HelperSHA2562f7b24b90edf3d0be8d5a498c1d055c79787ea0bc4f37899531688eca2d36b8e,
+test0d5248820e4beb21bc026075b7d7d8daeffe059c288169c5af614292f8747f2d.
+Native metadata/functional adaptation/exact gates/merge остаются открытыми.

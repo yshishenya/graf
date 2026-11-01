@@ -374,3 +374,25 @@ commit/PR exact checks. T112 — один самостоятельный рез�
 задач нет: helper и общий test принадлежат одному исполнителю. Историческая
 T110 остаётся открытой; новый способ устраняет зависимость выпуска от cloud URI.
 Новый frozen Full/выпуск и runtime/T0 принимаются отдельно по T100/T102/F273.
+
+## T113 — реальная подготовка и безопасные факты отказа
+
+- [ ] T113 [US2] После requirements checklist/analyze и sync #7859 сначала RED в test_actual_media_resource_preparation (`tests/governance/test_governance_workflow.py`): метаданные фиксированных source/keyring и выбор helper-only/server/docs. Затем добавить только безопасную классификацию отказа checked_read и выбор собственного helper в прежнем Prepare governance-fast, сохранить прежние guards/отказ/все три callers; GREEN модуля и static/process, независимые review/converge, draft PR и реальные metadata runner. Не сливать промежуточную ошибку; после фактов отдельно принять минимальную функциональную адаптацию и конечные exact PR gates. T112/#7859/Full/измерение не закрываются по диагностике. (FR-057/SC-025; Issue #7859)
+
+
+## T114 — безопасные права известного ключа CI
+
+- [ ] T114 [US2] После независимого `checklists/ci-keyring-permissions.md`, analyze и sync #7859 сначала RED в `tests/governance/test_governance_workflow.py`: только known official bytes/root:root0777/3607 и защищённый parent могут атомарно стать0644; unknown/source/owner/mode/type/size и races остаются отказами. В `infra/scripts/prepare-ci-apt.sh` реализовать ограниченный snapshot/hash/same-directory temp/fsync/identity recheck/replace/readback/cleanup без сети и изменения trust; весь прежний модуль/static/review/converge, F211 fragment/quickstart, затем тот же draft PR7863 и конечные exact native gates. Факт mode0777 не доказывает hash; mismatch не обходить. (FR-057/SC-025; Issue #7859)
+
+Уточнение T114 после run41257402120: `checklists/ci-keyring-directory.md`
+до кода принимает только установленный root:root0777 directory по spec/plan:
+protected ancestors, full input/pin до записи, fd identity/fchmod0755/fsync/
+readback, повторные snapshots и прежняя atomic key replacement для0644/0777.
+Existing three-caller RED/whole/static, independent review/converge и native
+exact gates обязательны. Прочие небезопасные directories/keys — отказ.
+
+Дополнение T114 по факту41258703244: reviewer-owned ci-keyring-share до кода
+принимает только root:root share0777 под защищёнными root/usr; тот же fd
+блок применяется сверху вниз к share/key parent после full-input/pin.
+Repair только share также требует новой inode key0644. Existing test RED/
+whole/static/review/converge/native exact обязательны; task остаётся открытой.

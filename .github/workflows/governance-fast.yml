@@ -241,7 +241,7 @@ jobs:
             git diff --check
           fi
 
-      - name: Prepare browser resources only for server changes
+      - name: Prepare browser resources for server or APT helper changes
         if: needs.scope.outputs.text_only == 'false'
         shell: bash
         env:
@@ -251,7 +251,7 @@ jobs:
           source infra/scripts/ci-local.sh
           paths="$(changed_files)"
           while IFS= read -r path; do
-            if [[ "$(classify_path "$path")" == server ]]; then
+            if [[ "$(classify_path "$path")" == server || "$path" == infra/scripts/prepare-ci-apt.sh ]]; then
               source infra/scripts/prepare-ci-apt.sh
               if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v ffprobe >/dev/null 2>&1; then
                 sudo apt-get update
