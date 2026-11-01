@@ -139,3 +139,34 @@ def test_credit_ledger_reason_precedence_and_maximum_age(unknown, invalid, reaso
     rows[0]["oldest_maturity_at"] = datetime.min.replace(tzinfo=UTC) + timedelta(microseconds=1)
     extreme = asyncio.run(_credit_ledger(db, datetime.max.replace(tzinfo=UTC)))
     assert extreme["values"]["pending_or_available"]["oldest_maturity_reached_age_seconds"] == 315537897599
+
+
+@pytest.mark.parametrize("rows,reason", [
+    ([], "receipts_and_reconciliation_uninstrumented"),
+    ([{"status": "succeeded", "count": 2}], "receipts_and_reconciliation_uninstrumented"),
+    ([{"status": "succeeded", "count": 2}, {"status": "unrecognized", "count": 3}], "unrecognized"),
+])
+def test_refund_inventory_closed_projection_and_incomplete_sources(rows, reason):
+    from twobrain_rec_server.billing.monitoring import _refund_inventory
+
+    response = MagicMock()
+    response.mappings.return_value.all.return_value = rows
+    db = AsyncMock(execute=AsyncMock(return_value=response))
+    result = asyncio.run(_refund_inventory(db))
+    assert result == {
+        "source": "observed_provider_refunds", "scope": "database_inventory", "kind": "current_state",
+        "coverage": "partial", "reason_code": reason,
+        "values": {"count": sum(row["count"] for row in rows), "groups": rows,
+                   "receipts": None, "reconciliation_gaps": None},
+    }
+    db.execute.assert_awaited_once()
+    statement = db.execute.await_args.args[0]
+    sql = str(statement).lower()
+    assert "case when" in sql and "status =" in sql and "source =" in sql and "else" in sql
+    assert statement.compile().params == {
+        "status_1": "succeeded", "source_1": "provider_observation", "param_1": "succeeded",
+        "param_2": "unrecognized",
+    }
+    for private in (".id", "workspace_id", "invoice_id", "provider_refund_id", "amount_minor",
+                    "currency", "shop_environment", "observed_at", "plan_snapshot"):
+        assert private not in sql

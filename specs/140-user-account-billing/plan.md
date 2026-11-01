@@ -80,6 +80,31 @@ dunning engine или второй платный тариф только рад
 
 ## Technical Context
 
+### T077: сохранённые наблюдения возвратов (01.11.2026)
+
+High-risk-product/active Spec Kit slice исходной T077 после PR7890.
+R1–R6 [O11](contracts/operator-observation.md#o11-следующий-срез-сохранённые-наблюдения-возвратов):
+одна агрегация существующей ObservedProviderRefund в том же monitoring.py,
+CASE по совместной паре status/source, count/group/order в SQL. Generic
+_groups не подходит: здесь не нужен возраст, временной столбец не читается.
+Форма семейства и maintenance/read-only граница переиспользуются. Чеки
+из invoice JSON и CSV/API/ledger сверка не подключаются, их значения null;
+coverage всегда partial. Новых схемы/служб/зависимостей/прав/egress нет.
+
+Проверка конституции до исследования и после проектирования: сохранены
+metadata-only, RLS/guard/единый снимок, ограниченные запросы/вывод,
+финансовые и приватностные границы; новых writers/пользовательского входа
+нет. Это вывод проектирования, ещё не независимый допуск или приёмка кода.
+
+Порядок: уточнение R1–R6 → research/model/quickstart → reviewer-owned
+checklists/refund-inventory.md и независимый PASS → scoped analyze/прежняя
+#4932 → RED → минимальный collector и новые случаи в существующих
+apps/server/tests/unit/test_billing_monitoring.py и
+apps/server/tests/integration/test_billing_monitoring_postgres.py →
+независимое code review/converge → три точных SHA/base GitHub gates.
+Все87 исходных полных task lines, T077 [ ], полный O6/FR089 и58старых gaps
+сохраняются. Legacy Impact untouched; Full/CD/Dev/выпуска здесь нет.
+
 ### T077: реестр бонусных дней (01.11.2026)
 
 High-risk-product/active Spec Kit slice в исходной T077, после PR7887.

@@ -28,6 +28,7 @@ from twobrain_rec_server.db.models import (
     BillingRegistryGap,
     BillingRegistryImport,
     BillingWebhookEvent,
+    ObservedProviderRefund,
     Organization,
     TimeCreditLedgerEntry,
     UserIdentity,
@@ -44,7 +45,7 @@ pytestmark = pytest.mark.strict_rls
 DAY = date(2026, 10, 31)
 ARGS = cli.build_parser().parse_args(["--date", str(DAY)])
 TABLES = (BillingAuditEvent, BillingOperation, BillingInvoice, BillingWebhookEvent, BillingNotificationDelivery,
-          BillingRegistryImport, BillingRegistryGap, TimeCreditLedgerEntry)
+          BillingRegistryImport, BillingRegistryGap, TimeCreditLedgerEntry, ObservedProviderRefund)
 
 
 @pytest.fixture
@@ -878,3 +879,152 @@ def test_credit_ledger_repeatable_snapshot_and_new_process(database):
     asyncio.run(scenario())
     restarted, code = process(database)
     assert code == 0 and restarted["families"]["addon_and_time_credit"]["values"]["count"] == 1
+
+
+def test_refund_inventory_empty_notnull_and_schema_failure(database):
+    result, code = process(database)
+    assert code == 0
+    assert result["families"]["refunds_and_receipts"] == {
+        "source": "observed_provider_refunds", "scope": "database_inventory", "kind": "current_state",
+        "coverage": "partial", "reason_code": "receipts_and_reconciliation_uninstrumented",
+        "values": {"count": 0, "groups": [], "receipts": None, "reconciliation_gaps": None},
+    }
+    workspace = asyncio.run(seed(database))
+
+    async def schema():
+        engine = create_async_engine(database)
+        try:
+            async with engine.begin() as conn:
+                invoice = (await conn.execute(text("select id from billing_invoices"))).scalar_one()
+                for column in ("status", "source"):
+                    row = {"workspace_id": workspace, "invoice_id": invoice, "shop_environment": "test",
+                           "provider_refund_id": "private-null", "amount_minor": 1, "currency": "RUB",
+                           "status": "succeeded", "source": "provider_observation", column: None}
+                    with pytest.raises(IntegrityError):
+                        async with conn.begin_nested():
+                            await conn.execute(insert(ObservedProviderRefund).values(**row))
+                await conn.execute(text("alter table observed_provider_refunds rename column source to synthetic_missing_source"))
+            try:
+                assert await asyncio.to_thread(process, database) == (cli.failure("report_unavailable"), 1)
+            finally:
+                async with engine.begin() as conn:
+                    await conn.execute(text("alter table observed_provider_refunds rename column synthetic_missing_source to source"))
+        finally:
+            await engine.dispose()
+    asyncio.run(schema())
+    assert process(database)[0]["families"]["refunds_and_receipts"]["values"]["count"] == 0
+
+
+def test_refund_inventory_pairs_time_privacy_and_restart(database, monkeypatch):
+    workspace = asyncio.run(seed(database))
+    table = ObservedProviderRefund.__table__
+    now = datetime(2026, 11, 1, tzinfo=UTC)
+    samples = [
+        ("succeeded", "provider_observation", "test", None),
+        ("succeeded", "provider_observation", "production", now + timedelta(days=365)),
+        ("succeeded", "provider_observation", "test", now - timedelta(days=365)),
+        ("canceled", "provider_observation", "test", now),
+        ("succeeded", "webhook", "test", now),
+        ("private-status", "private-source", "private-env", now),
+    ]
+
+    async def populate():
+        engine = create_async_engine(database)
+        try:
+            async with engine.begin() as conn:
+                invoice = (await conn.execute(text("select id from billing_invoices"))).scalar_one()
+                await conn.execute(insert(table).values([{
+                    "id": uuid4(), "workspace_id": workspace, "invoice_id": invoice,
+                    "shop_environment": environment, "provider_refund_id": f"private-refund-{index}",
+                    "amount_minor": 98765432, "currency": "RUB", "status": status,
+                    "source": source, "observed_at": observed,
+                } for index, (status, source, environment, observed) in enumerate(samples)]))
+        finally:
+            await engine.dispose()
+    asyncio.run(populate())
+    before = asyncio.run(fingerprint(database))
+    actual = cli.create_async_engine
+    sql = []
+
+    def instrument(*args, **kwargs):
+        engine = actual(*args, **kwargs)
+
+        @event.listens_for(engine.sync_engine, "before_cursor_execute")
+        def record(conn, cursor, statement, parameters, context, executemany):
+            if "observed_provider_refunds" in statement:
+                sql.append(statement)
+        return engine
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("unexpected financial writer or HTTP")
+
+    from twobrain_rec_server.billing import reconciliation
+    with monkeypatch.context() as scoped:
+        scoped.setattr(cli, "create_async_engine", instrument)
+        scoped.setattr(httpx.Client, "request", forbidden)
+        scoped.setattr(httpx.AsyncClient, "request", forbidden)
+        scoped.setattr(reconciliation, "record_observed_refund", forbidden)
+        scoped.setattr(reconciliation, "reverse_credit_for_payment", forbidden)
+        result, code = invoke(database)
+    assert code == 0
+    family = result["families"]["refunds_and_receipts"]
+    assert family == {
+        "source": "observed_provider_refunds", "scope": "database_inventory", "kind": "current_state",
+        "coverage": "partial", "reason_code": "unrecognized",
+        "values": {"count": 6, "groups": [{"status": "succeeded", "count": 3},
+                                           {"status": "unrecognized", "count": 3}],
+                   "receipts": None, "reconciliation_gaps": None},
+    }
+    assert len(sql) == 1
+    for private in (".id", "workspace_id", "invoice_id", "provider_refund_id", "amount_minor",
+                    "currency", "shop_environment", "observed_at", "plan_snapshot"):
+        assert private not in sql[0]
+    for day in (DAY, date(1999, 1, 1), date(2099, 1, 1)):
+        restarted, code = process(database, day=day)
+        assert code == 0 and restarted["families"]["refunds_and_receipts"] == family
+        assert "private-" not in json.dumps(restarted) and "98765432" not in json.dumps(restarted)
+    assert asyncio.run(fingerprint(database)) == before
+
+
+def test_refund_inventory_repeatable_snapshot_and_new_process(database):
+    workspace = asyncio.run(seed(database))
+    as_of = datetime(2026, 11, 1, tzinfo=UTC)
+
+    async def scenario():
+        writer = create_async_engine(database)
+        reader = create_async_engine(settings(database).database_url, execution_options={
+            "isolation_level": "REPEATABLE READ", "postgresql_readonly": True,
+        })
+        factory = create_sessionmaker(reader)
+        scope = {"environment": "test", "shop_id": "123", "report_date": DAY}
+
+        def session():
+            db = factory()
+            db.sync_session.info["tenant_context"] = maintenance_context_settings(MaintenanceTenantContext(
+                operation_name="billing_reconciliation", actor_id="synthetic-operator",
+                reason_category="operator_diagnostics", feature_area="billing",
+            ))
+            return db
+        try:
+            async with session() as db:
+                old = await monitoring.collect_billing_report(db, scope=scope, as_of=as_of)
+                assert old["families"]["refunds_and_receipts"]["values"]["count"] == 0
+                async with writer.begin() as conn:
+                    invoice = (await conn.execute(text("select id from billing_invoices"))).scalar_one()
+                    await conn.execute(insert(ObservedProviderRefund).values(
+                        workspace_id=workspace, invoice_id=invoice, shop_environment="production",
+                        provider_refund_id="private-new-refund", amount_minor=1, currency="RUB",
+                        source="provider_observation", status="succeeded", observed_at=None,
+                    ))
+                unchanged = await monitoring.collect_billing_report(db, scope=scope, as_of=as_of)
+                assert unchanged["families"]["refunds_and_receipts"] == old["families"]["refunds_and_receipts"]
+            async with session() as db:
+                new = await monitoring.collect_billing_report(db, scope=scope, as_of=as_of)
+                values = new["families"]["refunds_and_receipts"]["values"]
+                assert values["count"] == 1 and values["groups"] == [{"status": "succeeded", "count": 1}]
+        finally:
+            await reader.dispose()
+            await writer.dispose()
+    asyncio.run(scenario())
+    restarted, code = process(database)
+    assert code == 0 and restarted["families"]["refunds_and_receipts"]["values"]["count"] == 1

@@ -351,6 +351,32 @@ monthly/annual или региональный selector, аудитория и s
 
 ## Resolved unknowns and launch gates
 
+### T077/refund inventory — 01.11.2026
+
+- Decision: читать только ObservedProviderRefund/observed_provider_refunds
+  одной агрегацией status/source; известна пара succeeded/provider_observation.
+  Прочие пары — unrecognized, без исходных значений. В модели/миграции0044
+  status/source NOT NULL; observed_at nullable/default now(), shop_id нет.
+- Rationale: record_observed_refund проверяет родительскую operation/invoice,
+  сумму/валюту/дубли и создаёт именно эту пару после GET-подтверждения;
+  webhook _reconcile_event вызывает этот writer для refund.succeeded.
+  Это проверенный статический путь, не доказательство всех динамических
+  writers или live inventory. Collector writer и его reversal не вызывает.
+  Несколько частичных возвратов — несколько строк, не разные платежи.
+- Decision: не выбирать observed_at и не строить возраст. Это локальное
+  время наблюдения/начала транзакции, не provider/bank time. Inventory
+  независимо от дня и environment; Settings не доказывает shop-привязку.
+- Alternatives: сумму/дни/финансовую сверку из count отвергнуть. Receipt
+  observations реально хранятся в ограниченном invoice.plan_snapshot JSON
+  (до16), не в таблице BillingReceiptState; подключение требует отдельного
+  контракта. Receipts/reconciliation_gaps остаются null, всегда partial.
+  Нового старого source audit, provider/network/write или службы не нужно.
+- Dependencies: исходные reconciliation.py record/extract_refund_observation,
+  webhook_reconciliation.py _reconcile_event, db/models/billing.py и
+  db/migrations/versions/0044_user_account_billing.py проверены узко;
+  существующие O1–O10, operations/security/registry/lifecycle и F278 FR041
+  сохраняют финансовые/приватностные границы и сроки полного O6.
+
 ### T077/credit ledger — 01.11.2026
 
 - **Decision**: подключить только сохраняемый TimeCreditLedgerEntry внутри
