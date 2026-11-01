@@ -29,3 +29,28 @@ RED2failed→GREEN2passed; broad112pass/1fail/1skip исправлен точн�
 Матрица/границы/хеши — в [отчёте](../validation/public-server-gate-review-20261101.md).
 Exact PR gates, T106 целиком, SDK/старые вкладки/индивидуальный серверный
 отзыв/runtime/T0 остаются открытыми; внешнее включение сохраняет HOLD.
+
+
+## Before-code ревью совместимости public scope / provider smoke — 01.11.2026
+
+Проверяющий `/root/public_counter_readiness_review`.
+Основа `e4762f64ba7bab08e2a06f51a15bf370d30d3295`.
+**Requirements PASS узкой тестовой подготовки: 5 отмечены / 0 открыты;
+P1/P2/HIGH — 0/0/0.** Матрица и границы —
+[отчёт](../validation/public-smoke-basis-review-20261101.md).
+Переиспользуются existing opt-in fixture и временный register; production
+public gate, assertions, network audit и restore rejection не меняются.
+Implementation/CI/runtime/T0/внешнее включение этим не принимаются.
+
+
+## Implementation review / scoped converge учебного smoke — 01.11.2026
+
+**PASS узкой реализации; P1/P2/HIGH — 0/0/0.** Test_093 opt-in fixture,
+ранний временный register и patch.dict только вокруг builder проверены.
+Рабочие blocker/reader/final gate, assertions/network audit/restore rejection
+до/после transport сохранены. GREEN53/0skip и contracts36/0skip с actual modal
+и isolated cleanup прочитаны; прежние EXIT4 не считаются PASS.
+Checklist после записи перечитан: **5 отмечены /0 открыты**.
+Основания/хеши/границы — [отчёт](../validation/public-smoke-basis-review-20261101.md).
+Converge внутри этого среза не выявил новых задач. T106/T118, exact PR gates,
+merge/Full/CD/runtime/T0 и внешнее включение остаются отдельными.

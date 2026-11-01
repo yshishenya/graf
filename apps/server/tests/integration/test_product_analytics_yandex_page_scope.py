@@ -12,7 +12,7 @@ from twobrain_rec_server.public.analytics import (
 )
 
 
-def test_093_public_yandex_scope_is_preserved_for_landing_and_download() -> None:
+def test_093_public_yandex_scope_is_preserved_for_landing_and_download(public_basis_register) -> None:
     settings = Settings(
         public_analytics_enabled=True,
         public_analytics_validation_mode="render_only",

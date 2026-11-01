@@ -27,6 +27,7 @@ grep -Fq 'provider_state_mutation=not_requested' <<<"$rollback_metadata"
 grep -Fq 'operator_executor_hook=not_invoked' <<<"$rollback_metadata"
 
 PYTHONPATH="$ROOT_DIR/apps/server:$ROOT_DIR/apps/server/src" python3 - <<'PY'
+import os
 from dataclasses import replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -126,14 +127,20 @@ with TemporaryDirectory() as tmpdir:
         raise SystemExit("provider smoke failed")
     product_yandex_context = build_product_yandex_provider_context(settings, "public_landing")
     admin_yandex_context = build_product_yandex_provider_context(settings, "admin")
-    public_yandex_context = build_public_analytics_context(
-        Settings(
-            public_analytics_enabled=True,
-            public_analytics_validation_mode="provider_smoke",
-            public_analytics_yandex_metrica_id="12345678",
-        ),
-        "/",
+    legal_basis_state_file = Path(tmpdir) / "legal-basis-withdrawals"
+    legal_basis_state_file.write_text(
+        "legal_basis_state_version=1\n",
+        encoding="utf-8",
     )
+    with patch.dict(os.environ, {BASIS_WITHDRAWAL_STATE_FILE_ENV: str(legal_basis_state_file)}):
+        public_yandex_context = build_public_analytics_context(
+            Settings(
+                public_analytics_enabled=True,
+                public_analytics_validation_mode="provider_smoke",
+                public_analytics_yandex_metrica_id="12345678",
+            ),
+            "/",
+        )
     if (
         product_yandex_context["enabled"]
         or product_yandex_context["blocked_reason"] != "runtime_disabled"
@@ -223,11 +230,6 @@ with TemporaryDirectory() as tmpdir:
         "revocation_review=complete\n"
         "credential_rotation_review=complete\n"
         "audit_review=complete\n",
-        encoding="utf-8",
-    )
-    legal_basis_state_file = Path(tmpdir) / "legal-basis-withdrawals"
-    legal_basis_state_file.write_text(
-        "legal_basis_state_version=1\n",
         encoding="utf-8",
     )
     live_environment = {

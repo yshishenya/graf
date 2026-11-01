@@ -695,3 +695,12 @@ replay/backend/global server permission/individual server revoke/runtime/T0.
 в существующем public-analytics-consent.test.cjs. filter заменяется in-place
 splice только для своего counter; перед кодом повторный independent gate.
 Не создаётся новая задача, никакой иной scope не расширяется.
+
+
+### T106 — согласование учебной подготовки после проверки выпуска
+
+В прежней T106/#7696 исправить только предпосылку валидного временного register
+в test_product_analytics_yandex_page_scope.py и provider-smoke, по дополнению
+plan.md. Три сценария воспроизведены FAILED на e4762f64b. Сначала независимое
+ревью требований/плана, затем RED→GREEN и профиль; рабочие flags/gate не меняются.
+Общая задача остаётся открытой, новых задач и заявлений о runtime/T0 нет.

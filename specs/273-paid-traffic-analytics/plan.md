@@ -696,3 +696,19 @@ SDK/ym/порядок guards, не удалять чужие команды. В 
 owned queue добавить custom push, ссылки на array/push и count destruct.
 RED до правки, GREEN после; настоящий SDK профиль затем без диагностической
 подмены методов. Независимый checklist/analyze/sync повторяются до product JS.
+
+
+### T106 — учебная предпосылка public scope и provider smoke
+
+На основе e4762f64ba7bab08e2a06f51a15bf370d30d3295 воспроизведены три
+отказа старых сценариев: они ожидают включённый public context без
+обязательного валидного withdrawal register. Lane: active Spec Kit slice;
+меняется только учебная подготовка, прежние FR-048/049 и server gate сохраняются.
+В одном integration test явно запросить существующую opt-in fixture
+public_basis_register. В provider smoke переиспользовать его существующий
+временный legal_basis_state_file и patch.dict только вокруг public builder;
+реестр создать до вызова, дальнейший live_environment использует тот же файл.
+Не подменять gate, не ослаблять assertions/сетевой запрет/restore rejection
+перед и после synthetic transport. Before-code independent review существующего
+public-server-gate checklist; затем три RED→GREEN, весь page-scope module,
+public unit/контракты и независимый review/converge. T106/#7696 остаются открытыми.
