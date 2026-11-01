@@ -351,6 +351,25 @@ monthly/annual или региональный selector, аудитория и s
 
 ## Resolved unknowns and launch gates
 
+### T077/free_projection — 01.11.2026
+
+- **Decision**: подключить только видимый audit-event count точного
+  renewal.cutoff_projected_free по P1–P6 контракта O9. Источники:
+  renewal_charge.project_renewal_cutoffs, BillingAuditEvent и миграция0044.
+  Три пары и target_kind проверяются совместно; NULL created_at допускается
+  реальной миграцией. now() отражает начало транзакции, не commit/cutoff.
+- **Rationale**: отдельное event_window честно измеряет сохраняемый источник,
+  не меняет деньги и не выводит своевременность либо все Free paths из
+  неполных данных. record_renewal_decline пишет другой action. as_of
+  фиксируется CLI до подключения, поэтому поздняя видимая строка >=as_of
+  не является доказанной ошибкой часов; прошлый дневной итог может измениться.
+- **Alternatives considered**: месячный usage.moscow_window_for не подходит
+  для дня; две полуночи stdlib/ZoneInfo достаточно. Объединение storage/
+  receipts/time-credit требует иных источников и отложено внутри той же T077.
+  Новые таблицы/служба/сохранение отчёта и чтение приватного JSON не нужны.
+  Крайние непредставимые границы дают честный unavailable, не исключение
+  всего отчёта или произвольное ограничение коммерческой даты.
+
 Архитектурных research unknowns нет. Product-market hypotheses
 о целевом сегменте/JTBD, WTP, base/add-on packaging, campaign economics и
 launch business thresholds остаются неразрешёнными blocking research

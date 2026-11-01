@@ -328,6 +328,13 @@ Broad admin projection omits provider ids, amounts, contacts, codes and private
 payloads. Observed refund audit records only source/reference class/outcome and
 projection before/after, never email/backoffice content.
 
+Уточнение T077/free_projection (01.11.2026): новых сущностей или миграций нет.
+Наблюдение читает только action/outcome/reason_code/target_kind/created_at
+существующего billing_audit_event. Реальная миграция0044 допускает NULL
+created_at; now() — начало транзакции. Event-window counts и inventory
+undated_count не становятся источником финансового состояния, уникальными
+workspace или окончательным дневным итогом. Формат — P1–P6 контракта O9.
+
 ### `reconciliation_gap`
 
 Internal/provider/registry mismatch: object class, safe reference, severity,

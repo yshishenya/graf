@@ -1,13 +1,15 @@
 """Read-only inventory of declared billing sources; never a financial verdict."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime, time, timedelta
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import case, func, select
 
 from twobrain_rec_server.billing.database import require_billing_maintenance_database
 from twobrain_rec_server.billing.registry_store import GAPS, registry_status
 from twobrain_rec_server.db.models.billing import (
+    BillingAuditEvent,
     BillingInvoice,
     BillingNotificationDelivery,
     BillingOperation,
@@ -88,6 +90,54 @@ def _reason(rows, compatibility=()):
     if any(row.get("invalid_attempt_count", 0) for row in rows):
         return "invalid_attempt_count"
     return "observed"
+
+
+async def _free_projection(db, report_date, as_of):
+    """Visible cutoff audit rows, not all Free transitions or a commit watermark."""
+    window = {"timezone": "Europe/Moscow", "start": None, "end": None,
+              "observed_until": None, "calendar_day_elapsed": None}
+    result = {"source": "billing_audit_events", "scope": "database_inventory", "kind": "event_window",
+              "coverage": "unavailable", "reason_code": "calendar_boundary_unrepresentable",
+              "values": None, "window": window}
+    try:
+        zone = ZoneInfo(window["timezone"])
+        start = datetime.combine(report_date, time.min, zone).astimezone(UTC)
+        end = datetime.combine(report_date + timedelta(days=1), time.min, zone).astimezone(UTC)
+    except (OverflowError, ValueError):
+        return result
+    window.update(start=start.isoformat(), end=end.isoformat(), calendar_day_elapsed=end <= as_of)
+    if start > as_of:
+        result["reason_code"] = "window_not_started"
+        return result
+    until = min(end, as_of)
+    window["observed_until"] = until.isoformat()
+    table = BillingAuditEvent.__table__.c
+    action = table.action == "renewal.cutoff_projected_free"
+    known = (table.target_kind == "workspace_subscription") & (
+        ((table.outcome == "blocked") & (table.reason_code == "workspace_scope_invalid"))
+        | ((table.outcome == "projected") & table.reason_code.in_(("unknown_pending", "renewal_not_confirmed")))
+    )
+    outcome = case((known, table.outcome), else_="unrecognized").label("outcome")
+    reason = case((known, table.reason_code), else_="unrecognized").label("reason_code")
+    groups = [dict(row) for row in (await db.execute(select(
+        outcome, reason, func.count().label("count"),
+    ).where(action, table.created_at >= start, table.created_at < until)
+        .group_by(outcome, reason).order_by(outcome, reason))).mappings().all()]
+    undated, after = (await db.execute(select(
+        func.count().filter(table.created_at.is_(None)),
+        func.count().filter((table.created_at >= start) & (table.created_at < end) & (table.created_at >= as_of)),
+    ).where(action))).one()
+    count = sum(group["count"] for group in groups)
+    reason_code = (
+        "unrecognized" if any(group["outcome"] == "unrecognized" for group in groups) else
+        "undated_time" if undated else "at_or_after_as_of" if after else
+        "window_open" if as_of < end else "observed" if count else "empty"
+    )
+    result.update(coverage="complete_declared_source" if reason_code in {"observed", "empty"} else "partial",
+                  reason_code=reason_code, values={"count": count, "groups": groups,
+                  "undated_count": undated, "undated_count_scope": "database_inventory",
+                  "at_or_after_as_of_count": after})
+    return result
 
 
 async def _registry(db, scope, as_of):
@@ -175,8 +225,9 @@ async def collect_billing_report(db, *, scope, as_of):
             "invalid_attempt_count": sum(row["invalid_attempt_count"] for row in deliveries),
         }, reason=_reason(deliveries)),
         "registry": await _registry(db, scope, as_of),
+        "free_projection": await _free_projection(db, scope["report_date"], as_of),
     }
-    for name in ("ingress_and_duplicates", "free_projection", "storage", "addon_and_time_credit",
+    for name in ("ingress_and_duplicates", "storage", "addon_and_time_credit",
                  "refunds_and_receipts", "deletion_and_fair_use"):
         families[name] = {"source": None, "scope": "unavailable", "kind": "current_state",
                           "coverage": "unavailable", "reason_code": (

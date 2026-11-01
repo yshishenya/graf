@@ -76,7 +76,7 @@ shop/environment колонок. Текущие Settings не восстанав
 | operation_uncertainty | Те же операции; count и oldest operation age по состояниям | unknown/manual_resolution/reconciliation_gap — три отдельные группы, не весь unresolved. Отдельно scheduled/provider_pending/sent/processing/pending_reconciliation/method_required/observation_expired/provider_key_expired; unknown_since отсутствует, длительность неизвестности=null. |
 | webhook_queue | BillingWebhookEvent; database_inventory/current_state, count по состоянию и oldest received_at общей очереди accepted/pending_reconciliation | Это возраст очереди, не задержка транспорта. reconciliation_gap считается отдельно для реакции. occurred_at=object.created_at с fallback1970 не время отправки; transport lag/errors/dedup counters=null/uninstrumented. |
 | ingress_and_duplicates | values=null, uninstrumented | Число уникальных строк не число предотвращённых повторов; 401/409/503 не накопленный счётчик. |
-| free_projection | values=null, not_connected | Сохраняемый renewal.cutoff_projected_free можно подключить только как audit-event count по created_at в [start,end), outcome/reason отдельно; это не все Free paths и не своевременность. |
+| free_projection | В принятом первом шаге values=null, not_connected; следующий срез определён O9 | Только видимые audit-события renewal.cutoff_projected_free, не все Free paths и не своевременность. |
 | storage | values=null, not_connected | Последующее подключение требует effective_paid_storage и действующих _active_reserved_bytes с общим as_of, явных аргументов project_active_playback_storage; без default zero. Expired-active отдельно, workspace без subscription не пропускается, capacity без источника unavailable. WAV/object total не customer quota; repair/purge не вызываются. |
 | addon_and_time_credit | values=null, not_connected | Следующий источник — сохраняемые operation/grant/credit state/expiry, не число maintenance-действий и не heartbeat. |
 | refunds_and_receipts | values=null, not_connected | Только authoritative observed outcome с доказанной областью; observed_at не дата возврата, отсутствие observation не успех чека или банковский срок. |
@@ -176,3 +176,64 @@ ownership, уточнение spec/plan/tasks/quickstart, reviewer-owned checkli
 review/converge, обязательные governance-fast/macos-pr/pr-metadata exact SHA
 и основы. До выполнения всего O6 и исходной FR-089 T077 остаётся `[ ]`,
 issue OPEN; PR первого шага только Refs #4932. Выпуск не имитировать новым Full.
+
+## O9. Следующий срез: события free_projection
+
+Требования к доработке исходной T077/#4932 после PR7884; не приёмка кода.
+O1–O8 сохраняются, кроме явно уточнённой ниже семантики времени этого
+нового семейства. Другие семейства и их возрастные правила не меняются.
+
+- **P1 — источник и смысл.** source=billing_audit_events,
+  scope=database_inventory, kind=event_window; точный action
+  renewal.cutoff_projected_free. count — число видимых audit-строк,
+  не уникальных workspace/платежей и не всех переходов на Free.
+  created_at не cutoff/commit/фактическое время проекции. blocked не означает
+  отсутствие проекции, renewal_not_confirmed не доказывает банковский отказ.
+- **P2 — окно.** report_date — календарный день Europe/Moscow. Обе локальные
+  полуночи отдельно переводятся в UTC: start включён, end исключён.
+  Наблюдаемый интервал [start,min(end,as_of)); точный as_of исключён.
+  Семейство содержит window с timezone, start, end, observed_until и
+  calendar_day_elapsed=(end<=as_of). Этот признак календарный, не watermark:
+  PostgreSQL now() может относиться к началу поздно закоммиченной транзакции;
+  новый снимок вправе изменить итог прошлого дня.
+- **P3 — группы.** Внутри наблюдаемого интервала известны ровно пары
+  blocked/workspace_scope_invalid, projected/unknown_pending и
+  projected/renewal_not_confirmed, только при target_kind=workspace_subscription.
+  Группы содержат outcome/reason_code/count; отсутствующие группы не выводятся,
+  count равен сумме групп. Неизвестная/невозможная пара, NULL reason или иной
+  target_kind попадают в одну группу unrecognized/unrecognized. Исходные
+  строки не выводятся; неполнота выражена coverage=partial/reason=unrecognized.
+- **P4 — неполнота и приоритет.** values содержит count, groups,
+  undated_count, undated_count_scope=database_inventory и
+  at_or_after_as_of_count. undated_count считает все строки этого action
+  с NULL created_at в доступном снимке БД, без приписывания выбранному дню.
+  at_or_after_as_of_count считает строки этого action только в выбранном
+  [start,end) с created_at>=as_of; это может быть нормальная конкурентная
+  запись во время подключения, не доказательство ошибки часов. Эти строки
+  не входят в count/groups. Для начавшегося представимого дня reason_code
+  выбирается строго: unrecognized → undated_time → at_or_after_as_of →
+  window_open → empty → observed. Первые четыре означают partial; empty
+  и observed — complete_declared_source только объявленного audit-источника.
+  undated_time требует undated_count>0, at_or_after_as_of — соответствующий
+  count>0, window_open — start<=as_of<end. Все признаки и количества
+  сохраняются независимо от единственного выбранного reason_code.
+- **P5 — недоступное окно.** Для представимого дня с start>as_of:
+  unavailable/window_not_started, values=null, observed_until=null,
+  calendar_day_elapsed=false; не выдавать будущий день за ноль, запросы
+  подсчёта этого семейства не выполнять. Если локальная полуночь, следующий
+  день или её UTC-проекция не представимы stdlib datetime/date:
+  unavailable/calendar_boundary_unrepresentable, values=null,
+  start/end/observed_until/calendar_day_elapsed=null, timezone сохранён.
+  Этот исход имеет приоритет перед window_not_started. Произвольного
+  коммерческого ограничения дат нет; CLI-проверка YYYY-MM-DD сохраняется.
+  Недоступность семейства не отменяет чтение других источников: успешный
+  отчёт с общей coverage=partial имеет exit 0. Ошибка БД/схемы/предела
+  сохраняет отказ всего отчёта по O2/O3, без частичного результата.
+- **P6 — безопасность и допуск.** SQL агрегирует только объявленный action,
+  выбирает закрытые группы и времена/счётчики. Не читать metadata_json,
+  target_ref, workspace/actor/id; не менять источники, RLS, деньги или guard.
+  Единый as_of и существующая READ ONLY RR/timeout/cleanup граница обязательны.
+  До кода — предметный reviewer-owned checklist free-projection.md,
+  независимый PASS и scoped analyze; после — реальные PostgreSQL/CLI
+  сценарии quickstart, независимое review/converge и точные PR gates.
+  Только Refs #4932; T077 остаётся [ ], весь O6/FR089 не закрывается.

@@ -7,10 +7,11 @@ import subprocess
 import sys
 from datetime import UTC, date, datetime, timedelta
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 import httpx
 import pytest
-from sqlalchemy import event, insert, text
+from sqlalchemy import delete, event, insert, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
@@ -19,6 +20,7 @@ from twobrain_rec_server.billing import monitoring
 from twobrain_rec_server.billing.registry import canonical_hash
 from twobrain_rec_server.cli import billing_monitoring as cli
 from twobrain_rec_server.db.models import (
+    BillingAuditEvent,
     BillingInvoice,
     BillingNotificationDelivery,
     BillingOperation,
@@ -33,12 +35,13 @@ from twobrain_rec_server.db.session import create_sessionmaker
 from twobrain_rec_server.db.tenant_context import (
     MaintenanceTenantContext,
     apply_tenant_context_to_connection,
+    maintenance_context_settings,
 )
 
 pytestmark = pytest.mark.strict_rls
 DAY = date(2026, 10, 31)
 ARGS = cli.build_parser().parse_args(["--date", str(DAY)])
-TABLES = (BillingOperation, BillingInvoice, BillingWebhookEvent, BillingNotificationDelivery,
+TABLES = (BillingAuditEvent, BillingOperation, BillingInvoice, BillingWebhookEvent, BillingNotificationDelivery,
           BillingRegistryImport, BillingRegistryGap)
 
 
@@ -66,11 +69,11 @@ def invoke(url, role="twobrain_rec_maintenance"):
     return asyncio.run(cli.run(ARGS, settings=settings(url, role)))
 
 
-def process(url, role="twobrain_rec_maintenance"):
+def process(url, role="twobrain_rec_maintenance", *, day=DAY):
     env = {**os.environ, "TWOBRAIN_DATABASE_URL": settings(url, role).database_url,
            "TWOBRAIN_BILLING_YOOKASSA_SHOP_ID": "123",
            "TWOBRAIN_BILLING_YOOKASSA_ENVIRONMENT": "test"}
-    result = subprocess.run([sys.executable, "-m", cli.__name__, "--date", str(DAY)],
+    result = subprocess.run([sys.executable, "-m", cli.__name__, "--date", str(day)],
                             env=env, capture_output=True, text=True, timeout=20)
     assert result.stderr == ""
     return json.loads(result.stdout), result.returncode
@@ -126,6 +129,7 @@ async def seed(url):
                                                   last_error_code="postal_outcome_unknown",
                                                   safe_payload={"private": "private-payload"}, created_at=now))
             await db.commit()
+            return workspace
     finally:
         await engine.dispose()
 
@@ -498,3 +502,196 @@ def test_expired_deadline_bounds_session_close_and_disconnects(database, monkeyp
                 await db.invalidate()
                 await actual_close(db)
     asyncio.run(bounded())
+
+
+def test_free_projection_boundaries_pairs_priorities_and_restart(database, monkeypatch):
+    workspace = asyncio.run(seed(database))
+    audit = BillingAuditEvent.__table__
+    start = datetime(2026, 10, 30, 21, tzinfo=UTC)
+    end = start + timedelta(days=1)
+    as_of = start + timedelta(hours=12)
+    microsecond = timedelta(microseconds=1)
+    rows = [
+        {"created_at": start - microsecond},
+        {"created_at": start, "outcome": "blocked", "reason_code": "workspace_scope_invalid"},
+        {"created_at": start + timedelta(seconds=1), "reason_code": "renewal_not_confirmed"},
+        {"created_at": as_of - microsecond},
+        {"created_at": start + timedelta(seconds=2), "outcome": "blocked"},
+        {"created_at": start + timedelta(seconds=3), "reason_code": None},
+        {"created_at": start + timedelta(seconds=4), "target_kind": "private-target"},
+        {"created_at": start + timedelta(seconds=5), "outcome": "private-outcome", "reason_code": "private-reason"},
+        {"created_at": as_of}, {"created_at": as_of + microsecond},
+        {"created_at": end - microsecond}, {"created_at": end},
+        {"created_at": None},
+        {"created_at": None, "action": "renewal.private-other-action"},
+    ]
+
+    async def change(statement):
+        engine = create_async_engine(database)
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(statement)
+        finally:
+            await engine.dispose()
+
+    asyncio.run(change(insert(audit).values([{
+        "workspace_id": workspace, "action": "renewal.cutoff_projected_free",
+        "target_kind": "workspace_subscription", "outcome": "projected", "reason_code": "unknown_pending",
+        "target_ref": "private-target-ref", "metadata_json": {"secret": "private-audit-json"}, **row,
+    } for row in rows])))
+    before = asyncio.run(fingerprint(database))
+    clock = [as_of]
+
+    class Clock:
+        @staticmethod
+        def now(tz):
+            return clock[0]
+
+    actual_engine = cli.create_async_engine
+    sql = []
+
+    def instrument(*args, **kwargs):
+        engine = actual_engine(*args, **kwargs)
+
+        @event.listens_for(engine.sync_engine, "before_cursor_execute")
+        def record(conn, cursor, statement, parameters, context, executemany):
+            if "billing_audit_events" in statement:
+                sql.append(statement)
+        return engine
+
+    def no_http(*args, **kwargs):
+        raise AssertionError("unexpected HTTP")
+
+    with monkeypatch.context() as scoped:
+        scoped.setattr(cli, "datetime", Clock)
+        scoped.setattr(cli, "create_async_engine", instrument)
+        scoped.setattr(httpx.Client, "request", no_http)
+        scoped.setattr(httpx.AsyncClient, "request", no_http)
+
+        def observe(reason, count, coverage="partial"):
+            result, code = invoke(database)
+            assert code == 0
+            family = result["families"]["free_projection"]
+            assert family["source"] == "billing_audit_events" and family["kind"] == "event_window"
+            assert family["scope"] == "database_inventory" and family["coverage"] == coverage
+            assert family["reason_code"] == reason
+            assert family["values"]["count"] == count == sum(g["count"] for g in family["values"]["groups"])
+            assert "private-" not in json.dumps(result)
+            return family
+
+        family = observe("unrecognized", 7)
+        assert family["values"]["undated_count"] == 1
+        assert family["values"]["undated_count_scope"] == "database_inventory"
+        assert family["values"]["at_or_after_as_of_count"] == 3
+        assert {(g["outcome"], g["reason_code"], g["count"]) for g in family["values"]["groups"]} == {
+            ("blocked", "workspace_scope_invalid", 1), ("projected", "unknown_pending", 1),
+            ("projected", "renewal_not_confirmed", 1), ("unrecognized", "unrecognized", 4),
+        }
+        assert family["window"] == {"timezone": "Europe/Moscow", "start": start.isoformat(),
+                                    "end": end.isoformat(), "observed_until": as_of.isoformat(),
+                                    "calendar_day_elapsed": False}
+        assert asyncio.run(fingerprint(database)) == before
+        for _ in range(2):
+            restarted, code = process(database)
+            assert code == 0 and restarted["families"]["free_projection"]["values"]["count"] == 10
+            assert "private-" not in json.dumps(restarted)
+        assert asyncio.run(fingerprint(database)) == before
+        for statement in sql:
+            assert all(name not in statement for name in ("metadata_json", "target_ref", "workspace_id", "actor_user_id"))
+        assert len(sql) == 2
+
+        asyncio.run(change(delete(audit).where(
+            audit.c.created_at >= start + timedelta(seconds=2), audit.c.created_at <= start + timedelta(seconds=5))))
+        observe("undated_time", 3)
+        asyncio.run(change(delete(audit).where(audit.c.created_at.is_(None))))
+        observe("at_or_after_as_of", 3)
+        asyncio.run(change(delete(audit).where(audit.c.created_at >= as_of, audit.c.created_at < end)))
+        observe("window_open", 3)
+        clock[0] = start
+        at_start = observe("at_or_after_as_of", 0)
+        assert at_start["values"]["at_or_after_as_of_count"] == 3
+        clock[0] = end
+        closed = observe("observed", 3, "complete_declared_source")
+        assert closed["window"]["calendar_day_elapsed"] is True
+        assert closed["window"]["observed_until"] == end.isoformat()
+        asyncio.run(change(delete(audit)))
+        observe("empty", 0, "complete_declared_source")
+        clock[0] = as_of
+        observe("window_open", 0)
+
+
+def test_free_projection_unavailable_and_schema_failure_are_safe(database):
+    for day, reason in ((date.min, "calendar_boundary_unrepresentable"),
+                        (date.max, "calendar_boundary_unrepresentable"),
+                        (date.today() + timedelta(days=3), "window_not_started")):
+        result, code = process(database, day=day)
+        assert code == 0 and result["coverage"] == "partial"
+        assert result["families"]["free_projection"]["reason_code"] == reason
+        assert result["families"]["free_projection"]["values"] is None
+        assert result["families"]["payment_state"]["values"]["operations"]["count"] == 0
+
+    async def rename(source, target):
+        engine = create_async_engine(database)
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(text(f"alter table billing_audit_events rename column {source} to {target}"))
+        finally:
+            await engine.dispose()
+
+    asyncio.run(rename("reason_code", "synthetic_missing_reason"))
+    try:
+        assert process(database) == (cli.failure("report_unavailable"), 1)
+    finally:
+        asyncio.run(rename("synthetic_missing_reason", "reason_code"))
+
+
+def test_free_projection_late_commit_changes_new_snapshot_only(database):
+    workspace = asyncio.run(seed(database))
+
+    async def scenario():
+        writer = create_async_engine(database)
+        reader = create_async_engine(settings(database).database_url, execution_options={
+            "isolation_level": "REPEATABLE READ", "postgresql_readonly": True,
+        })
+        factory = create_sessionmaker(reader)
+        try:
+            async with writer.connect() as conn:
+                started = (await conn.execute(text("select transaction_timestamp()"))).scalar_one()
+                day = started.astimezone(ZoneInfo("Europe/Moscow")).date()
+                # A closed calendar day is a synthetic boundary; no system clock change.
+                as_of = datetime.combine(day + timedelta(days=1), datetime.min.time(),
+                                         ZoneInfo("Europe/Moscow")).astimezone(UTC) + timedelta(hours=1)
+                scope = {"environment": "test", "shop_id": "123", "report_date": day}
+                async with factory() as db:
+                    db.sync_session.info["tenant_context"] = maintenance_context_settings(MaintenanceTenantContext(
+                        operation_name="billing_reconciliation", actor_id="synthetic-operator",
+                        reason_category="operator_diagnostics", feature_area="billing",
+                    ))
+                    old = await monitoring.collect_billing_report(db, scope=scope, as_of=as_of)
+                    assert old["families"]["free_projection"]["values"]["count"] == 0
+                    recorded = (await conn.execute(insert(BillingAuditEvent).values(
+                        workspace_id=workspace, action="renewal.cutoff_projected_free",
+                        target_kind="workspace_subscription", outcome="projected", reason_code="unknown_pending",
+                    ).returning(BillingAuditEvent.created_at))).scalar_one()
+                    assert recorded == started  # PostgreSQL default now(), not Python's wall clock.
+                    await conn.commit()
+                    committed_after = (await conn.execute(text("select clock_timestamp()"))).scalar_one()
+                    assert committed_after > recorded
+                    unchanged = await monitoring.collect_billing_report(db, scope=scope, as_of=as_of)
+                    assert unchanged["families"]["free_projection"] == old["families"]["free_projection"]
+                async with factory() as db:
+                    db.sync_session.info["tenant_context"] = maintenance_context_settings(MaintenanceTenantContext(
+                        operation_name="billing_reconciliation", actor_id="synthetic-operator",
+                        reason_category="operator_diagnostics", feature_area="billing",
+                    ))
+                    new = await monitoring.collect_billing_report(db, scope=scope, as_of=as_of)
+                    family = new["families"]["free_projection"]
+                    assert family["values"]["count"] == 1 and family["reason_code"] == "observed"
+                    assert family["window"]["calendar_day_elapsed"] is True
+            restarted, code = await asyncio.to_thread(process, database, day=day)
+            assert code == 0 and restarted["families"]["free_projection"]["values"]["count"] == 1
+        finally:
+            await writer.dispose()
+            await reader.dispose()
+
+    asyncio.run(scenario())
