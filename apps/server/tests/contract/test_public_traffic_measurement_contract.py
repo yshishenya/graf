@@ -415,15 +415,31 @@ def test_an_unavailable_provider_leaves_the_page_and_the_count_intact(
     )
     app = create_app(settings)
 
-    with TestClient(app) as client:
+    with TestClient(app, base_url="https://rec.2brain.pro") as client:
+        consent_id = str(uuid4())
+        origin = {"Origin": "https://rec.2brain.pro"}
+        revoked = client.post("/analytics/public-consent", headers=origin, json={
+            "action": "revoke", "consent_id": consent_id,
+        })
+        assert revoked.status_code == 200, revoked.text
+        granted = client.post("/analytics/public-consent", headers=origin, json={
+            "action": "grant", "consent_id": consent_id,
+            "expected_epoch": revoked.json()["epoch"],
+            "categories": ["necessary", "analytics"],
+            "copy_version": PUBLIC_ANALYTICS_CONSENT_VERSION,
+        })
+        assert granted.status_code == 200, granted.text
         response = client.post(
             "/analytics/public-event",
+            headers=origin,
             json={
                 "event_name": "public_download_viewed",
                 "page_path": "/download",
                 "surface": "public_download",
                 "view_id": "graf_public_view_0123456789abcdef",
-                "consent_state": "accepted_all",
+                "consent_state": "customized",
+                "consent_id": consent_id,
+                "consent_epoch": granted.json()["epoch"],
                 "consent_copy_version": PUBLIC_ANALYTICS_CONSENT_VERSION,
                 "consent_categories": ["necessary", "analytics"],
             },

@@ -5,6 +5,9 @@ reads: the first must show three disabled levels and four local signals, the
 second must never echo a hostile campaign label back to the browser.
 """
 
+import json
+import re
+
 from fastapi.testclient import TestClient
 
 from twobrain_rec_server.config import Settings
@@ -134,7 +137,7 @@ def test_public_page_drops_unsafe_campaign_labels_and_keeps_safe_ones(
     assert '"utm_campaign": "2026q3_b2c_launch_ru"' in clean.text
 
 
-def test_public_pages_still_render_without_the_consent_widget_by_default(
+def test_public_pages_offer_refusal_without_optional_measurement_by_default(
     postgres_schema_database_url: str,
 ) -> None:
     app = create_app(
@@ -150,5 +153,12 @@ def test_public_pages_still_render_without_the_consent_widget_by_default(
         response = client.get("/")
 
     assert response.status_code == 200
-    assert "analytics.js" not in response.text
-    assert "graf-public-analytics-config" not in response.text
+    match = re.search(r'id="graf-public-analytics-config"[^>]*>(.*?)</script>', response.text, re.S)
+    assert match is not None
+    config = json.loads(match.group(1))
+    assert config["consent_ui_enabled"] is True
+    assert config["enabled"] is False
+    assert config["external_counter_allowed"] is False
+    assert config["replay_allowed"] is False
+    assert config["yandex_metrica_id"] is None
+    assert "mc.yandex.ru" not in response.text
