@@ -45,7 +45,24 @@ function readConfig(pagePath) {
 }
 
 function serveStatic() {
-  const server = http.createServer((request, response) => {
+  const rows = new Map();
+  const server = http.createServer(async (request, response) => {
+    if (request.url === "/analytics/public-consent" && request.method === "POST") {
+      let text = ""; for await (const chunk of request) text += chunk;
+      const body = JSON.parse(text);
+      response.setHeader("Content-Type", "application/json");
+      let result;
+      if (body.action === "read") result = rows.has(body.consent_id)
+        ? { ...rows.get(body.consent_id), state: "known" } : { state: "unknown" };
+      else {
+        result = { accepted: true, state: body.action === "grant" ? "granted" : "revoked",
+          epoch: require("node:crypto").randomUUID(),
+          categories: body.action === "grant" ? body.categories : ["necessary"],
+          copy_version: body.action === "grant" ? body.copy_version : null };
+        rows.set(body.consent_id, result);
+      }
+      response.end(JSON.stringify(result)); return;
+    }
     if (request.url === "/" || request.url.startsWith("/?")) {
       response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
       response.end('<!doctype html><html lang="ru"><head></head><body></body></html>');
@@ -137,7 +154,8 @@ async function decisionButtons(page) {
 // wrapper stays in the document, so the visible state is what has to be checked.
 function waitForDecision(page) {
   return page.waitForFunction(
-    () => !document.documentElement.classList.contains("show--consent"),
+    () => !document.documentElement.classList.contains("show--consent") &&
+      window.GRAFPublicAnalytics.currentConsentState !== "unknown" && !window.GRAFPublicAnalytics.consentPending,
     undefined,
     { timeout: 5000 },
   );
@@ -305,6 +323,7 @@ async function main() {
         : choice === "necessary" ? ["necessary"] : ["necessary", "analytics"]);
       await revisionPage.reload();
       await loadController(revisionPage, config);
+      await revisionPage.waitForFunction(() => window.GRAFPublicAnalytics.currentConsentState !== "unknown");
       assert.equal(await revisionPage.evaluate(
         () => window.GRAFPublicAnalytics.currentConsentState), state);
       assert.equal(await revisionPage.evaluate(

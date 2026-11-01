@@ -12,7 +12,7 @@ from twobrain_rec_server.public.analytics import (
 )
 
 
-def test_093_public_yandex_scope_is_preserved_for_landing_and_download(public_basis_register) -> None:
+def test_public_external_sdk_stays_closed_while_first_party_measurement_is_available(public_basis_register) -> None:
     settings = Settings(
         public_analytics_enabled=True,
         public_analytics_validation_mode="render_only",
@@ -21,8 +21,8 @@ def test_093_public_yandex_scope_is_preserved_for_landing_and_download(public_ba
 
     assert build_public_analytics_context(settings, "/")["enabled"] is True
     assert build_public_analytics_context(settings, "/download")["enabled"] is True
-    assert build_public_analytics_context(settings, "/")["external_counter_allowed"] is True
-    assert build_public_analytics_context(settings, "/download")["external_counter_allowed"] is True
+    assert build_public_analytics_context(settings, "/")["external_counter_allowed"] is False
+    assert build_public_analytics_context(settings, "/download")["external_counter_allowed"] is False
 
     # FR-027: the login page is a public page and is measured by consent, but the
     # external counter keeps its published two-page scope, so the credential page
@@ -57,7 +57,8 @@ def _live_gate_environment(tmp_path: Path) -> dict[str, str]:
         "category=measurement_events retention_mode=until_decision retention_days=none storage=clickhouse enforcement=decision_required enforcement_verified=true\n"
         "category=anonymous_aggregate retention_mode=until_decision retention_days=none storage=postgres enforcement=decision_required enforcement_verified=true\n"
         "category=visit_attribution retention_mode=until_decision retention_days=none storage=postgres enforcement=decision_required enforcement_verified=true\n"
-        "category=acquisition_attribute retention_mode=until_decision retention_days=none storage=postgres enforcement=decision_required enforcement_verified=true\n",
+        "category=acquisition_attribute retention_mode=until_decision retention_days=none storage=postgres enforcement=decision_required enforcement_verified=true\n"
+        "category=public_consent_control retention_mode=until_decision retention_days=none storage=postgres enforcement=decision_required enforcement_verified=true\n",
         encoding="utf-8",
     )
     approvals = tmp_path / "approvals"

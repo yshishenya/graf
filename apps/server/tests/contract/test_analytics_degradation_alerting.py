@@ -126,6 +126,8 @@ def _valid_operations_state(directory: Path, *, now: int) -> dict[str, Path]:
             "last_enforced_at=recent rows_deleted=1 enforcement_verified=true",
             "category=acquisition_attribute retention_mode=until_decision retention_days=none storage=postgres enforcement=decision_required "
             "last_enforced_at=recent rows_deleted=1 enforcement_verified=true",
+            "category=public_consent_control retention_mode=until_decision retention_days=none storage=postgres enforcement=decision_required "
+            "last_enforced_at=recent rows_deleted=1 enforcement_verified=true",
         ],
     )
     return {"backup": backup, "restore": restore, "retention": retention}

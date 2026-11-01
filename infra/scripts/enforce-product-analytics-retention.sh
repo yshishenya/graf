@@ -17,7 +17,7 @@ clickhouse_container_hint="${GRAF_PRODUCT_ANALYTICS_CLICKHOUSE_CONTAINER:-}"
 posthog_project="${GRAF_POSTHOG_PROJECT:-graf-posthog}"
 retention_mode="${GRAF_PRODUCT_ANALYTICS_RETENTION_MODE:-}"
 mode="dry-run"
-categories=(measurement_events anonymous_aggregate visit_attribution acquisition_attribute)
+categories=(measurement_events anonymous_aggregate visit_attribution acquisition_attribute public_consent_control)
 
 retention_category_for() {
   case "$1" in
@@ -25,6 +25,7 @@ retention_category_for() {
     anonymous_aggregate) printf anonymous_page_aggregate ;;
     visit_attribution) printf visit_attribution ;;
     acquisition_attribute) printf client_acquisition_attribute ;;
+    public_consent_control) printf public_consent_control ;;
     *) return 1 ;;
   esac
 }
@@ -33,6 +34,7 @@ table_for() {
     anonymous_aggregate) printf anonymous_page_aggregate_buckets ;;
     visit_attribution) printf public_visit_attributions ;;
     acquisition_attribute) printf client_acquisition_attributes ;;
+    public_consent_control) printf public_analytics_choices ;;
     *) return 1 ;;
   esac
 }

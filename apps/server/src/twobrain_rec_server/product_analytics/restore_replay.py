@@ -23,9 +23,10 @@ from sqlalchemy.engine import URL
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
-from twobrain_rec_server.db.models import ProductActivationMilestone
+from twobrain_rec_server.db.models import ProductActivationMilestone, PublicAnalyticsChoice
 from twobrain_rec_server.db.tenant_context import MaintenanceTenantContext, apply_tenant_context
 from twobrain_rec_server.product_analytics.legal_basis_lifecycle import (
+    BASIS_WITHDRAWAL_STATE_FILE_ENV,
     apply_basis_loss_disposition,
     parse_disposition_cases,
     plan_processing_stop,
@@ -38,6 +39,19 @@ from twobrain_rec_server.product_analytics.milestones import (
 CONTEXT = MaintenanceTenantContext(
     operation_name="backup_restore_rehearsal", actor_id="restore_operator",
     reason_category="restore_replay", feature_area="product_analytics",
+)
+CHOICE_CONTEXT = MaintenanceTenantContext(
+    operation_name="public_consent_control", actor_id="restore_operator",
+    reason_category="restore_replay", feature_area="product_analytics",
+)
+CHOICE_POLICY = (
+    "(((rec_context_kind() = 'public_consent'::text) AND ((consent_digest)::text = "
+    "rec_setting('app.public_consent_digest'::text))) OR ((SESSION_USER = 'twobrain_rec_maintenance'::name) "
+    "AND (CURRENT_USER = 'twobrain_rec_maintenance'::name) AND (rec_context_kind() = 'maintenance'::text) "
+    "AND (rec_setting('app.maintenance_operation'::text) = 'public_consent_control'::text) "
+    "AND (rec_setting('app.maintenance_feature_area'::text) = 'product_analytics'::text) "
+    "AND (rec_setting('app.maintenance_actor'::text) IS NOT NULL) "
+    "AND (rec_setting('app.maintenance_reason'::text) IS NOT NULL)))"
 )
 CLOSURE_POLICY = "((requested_by_user_id = rec_current_user_id()) OR rec_maintenance_allowed())"
 UNCONFIRMED = {"pending", "pre_send_retry", "dispatching", "submitted"}
@@ -200,6 +214,46 @@ async def verify_ledger(db, expected):
             raise ReplayHold("replay_ledger_mismatch")
 
 
+async def public_choices(db):
+    await apply_tenant_context(db, CHOICE_CONTEXT)
+    policies = (await db.execute(text("""
+        SELECT polname, polpermissive, polcmd::text, polroles::text,
+               pg_get_expr(polqual,polrelid), pg_get_expr(polwithcheck,polrelid)
+          FROM pg_policy WHERE polrelid='public.public_analytics_choices'::regclass
+    """))).all()
+    if [tuple(row) for row in policies] != [
+        ("public_consent_isolation", True, "*", "{0}", CHOICE_POLICY, CHOICE_POLICY)
+    ]:
+        raise ReplayHold("replay_choice_policy_invalid")
+    choices = {row["consent_digest"]: dict(row) for row in
+               (await db.execute(select(PublicAnalyticsChoice.__table__))).mappings()}
+    await apply_tenant_context(db, CONTEXT)
+    return choices
+
+
+async def quarantine_public_choices(db):
+    before = await public_choices(db)
+    await apply_tenant_context(db, CHOICE_CONTEXT)
+    # The owned target has no admitted writers. The table lock also orders a
+    # mistaken concurrent reader/grant before any restored epoch is invalidated.
+    await db.execute(text("LOCK TABLE public.public_analytics_choices IN ACCESS EXCLUSIVE MODE"))
+    await db.execute(text("""UPDATE public.public_analytics_choices
+        SET epoch=gen_random_uuid(),categories='["necessary"]'::jsonb,
+            copy_version=NULL,updated_at=now()"""))
+    after = await public_choices(db)
+    if set(before) != set(after) or any(
+        row["epoch"] == before[key]["epoch"] or row["categories"] != ["necessary"]
+        or row["copy_version"] is not None for key, row in after.items()
+    ):
+        raise ReplayHold("replay_choice_quarantine_failed")
+    return after
+
+
+async def verify_public_choices(db, expected):
+    if await public_choices(db) != expected:
+        raise ReplayHold("replay_choice_readback_failed")
+
+
 async def reconcile(*, host: str, port: int, password_file: Path, operator_file: Path,
                     ownership_file: Path, staging: Path) -> dict:
     """One stopped synthetic source and one previously compared owned UUID target."""
@@ -265,6 +319,8 @@ async def reconcile(*, host: str, port: int, password_file: Path, operator_file:
                     expected = expected_ledger(before, accounts, category=bool(categories))
                     unchanged()
                     intents = await quarantine_milestone_deliveries(target, after_restore=True)
+                    choices = await quarantine_public_choices(target)
+                    quarantined_choices = len(choices)
                     removed = 0
                     for account in sorted(accounts, key=str):
                         removed += await delete_account_activation_decisions(target, account_id=account)
@@ -276,7 +332,22 @@ async def reconcile(*, host: str, port: int, password_file: Path, operator_file:
                         )
                         outcomes = await apply_basis_loss_disposition(target, plan, commit=False)
                         removed += sum(result.rows_affected for result in outcomes)
+                    for case in (case for case in cases if case.scope == "public_consent_control"):
+                        await apply_tenant_context(target, CHOICE_CONTEXT)
+                        plan = plan_processing_stop(
+                            level_key="provider_analytics", basis_lost_at=case.decided_at,
+                            reason=case.reason, affected_categories=("public_consent_control",),
+                            deletion_deadlines={"public_consent_control": case.due_at},
+                        )
+                        outcomes = await apply_basis_loss_disposition(
+                            target, plan, commit=False,
+                            basis_environ={BASIS_WITHDRAWAL_STATE_FILE_ENV: str(operator_file)},
+                        )
+                        removed += sum(result.rows_affected for result in outcomes)
+                        choices = {}
+                        await apply_tenant_context(target, CONTEXT)
                     await verify_ledger(target, expected)
+                    await verify_public_choices(target, choices)
                     unchanged()
                     commit_attempted = True
                     await target.commit()
@@ -284,11 +355,13 @@ async def reconcile(*, host: str, port: int, password_file: Path, operator_file:
                 async with target_sessions() as readback:
                     await database_context(readback, name=binding["target_database"], oid=binding["target_oid"])
                     await verify_ledger(readback, expected)
+                    await verify_public_choices(readback, choices)
                     unchanged()
             if Path(directory).exists():
                 raise ReplayHold("replay_cleanup_failed")
         verified_at = datetime.now(UTC)
         return {"replay_result": "verified", "readiness": "hold", "cases": len(cases),
+                "quarantined_choices": quarantined_choices,
                 "quarantined_intents": intents, "deleted_rows": removed,
                 "overdue_cases": sum(verified_at > case.due_at for case in cases),
                 "verified_at": verified_at.isoformat(),

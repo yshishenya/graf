@@ -166,6 +166,17 @@ def test_the_rendered_consent_modal_offers_refusal_as_the_same_single_action() -
         assert f"ok {scenario}" in completed.stdout, scenario
 
 
+@pytest.mark.skipif(NODE is None or NODE_MODULES is None, reason="Node and Playwright required")
+def test_real_cookieconsent_uses_server_epochs_and_explicit_retry() -> None:
+    completed = subprocess.run(
+        [NODE, str(ROOT / "tests/browser/public-consent-control.test.cjs")],
+        capture_output=True, text=True, check=False, cwd=str(ROOT),
+        env={**os.environ, "GRAF_NODE_MODULES": NODE_MODULES}, timeout=180,
+    )
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert "public_consent_control_browser=pass" in completed.stdout
+
+
 def test_relay_refuses_an_event_without_a_valid_consent_decision(
     postgres_seeded_database_url: str,
     monkeypatch: pytest.MonkeyPatch,

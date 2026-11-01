@@ -117,6 +117,17 @@ class ProviderLifecycleRecord:
 
 RETENTION_RULES: tuple[AnalyticsRetentionRule, ...] = (
     AnalyticsRetentionRule(
+        "public_consent_control",
+        None,
+        None,
+        "separate_required_decision",
+        "delete only under a named case with grants closed; replay the case after restore",
+        "Necessary refusal control is independent of optional events and has no age cleanup.",
+        "graf_postgres",
+        "decision_required",
+        retention_mode="until_decision",
+    ),
+    AnalyticsRetentionRule(
         "activation_milestone_decisions",
         None,
         None,

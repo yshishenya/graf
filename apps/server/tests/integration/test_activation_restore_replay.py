@@ -85,6 +85,14 @@ def replay_world(postgres_isolated_cluster_database_url, tmp_path, monkeypatch, 
                 state,policy_version,requested_at,finalize_at,canceled_at,metadata_json)
           VALUES('{uuid4()}','{workspace}','{accounts[0]}','synthetic-canceled','canceled',
                  'account-close-v1',now(),now()+interval '7 days',now(),'{{}}')""", "twobrain_rec")
+    # Both negative and positive decisions must lose their restored epoch.
+    from twobrain_rec_server.public.consent import choice_digest
+    choices = [(str(uuid4()), str(uuid4())), (str(uuid4()), str(uuid4()))]
+    for index, (consent_id, epoch) in enumerate(choices):
+        categories = '["necessary"]' if index == 0 else '["necessary","analytics"]'
+        copy = 'NULL' if index == 0 else "'2026-10-22.1'"
+        owner(f"""INSERT INTO public_analytics_choices(consent_digest,epoch,categories,copy_version)
+              VALUES('{choice_digest(consent_id)}','{epoch}','{categories}',{copy})""", "twobrain_rec")
     reference = tmp_path / "reference"
     capture(container, "twobrain_rec", reference, dump=True)
     oid = int(owner("SELECT oid FROM pg_database WHERE datname='twobrain_rec'", "postgres"))
@@ -137,7 +145,7 @@ def replay_world(postgres_isolated_cluster_database_url, tmp_path, monkeypatch, 
            "owner": owner, "binding": binding, "ownership": ownership, "operator": operator,
            "staging": staging, "root": tmp_path, "accounts": accounts, "case": case,
            "password": tmp_path / "MAINTENANCE-password", "closure": closure,
-           "image": image}
+           "image": image, "choices": choices}
     # The existing owning cluster fixture removes all synthetic DBs and volumes.
     assert not list(staging.iterdir())
 
@@ -390,3 +398,95 @@ def test_changed_operator_rolls_back_and_cleanup_failure_never_passes(replay_wor
         with pytest.raises(replay.ReplayHold, match="replay_result_unknown"):
             asyncio.run(replay.reconcile(**replay_kwargs(world)))
     assert not list(world["staging"].iterdir())
+
+
+def test_negative_copy_epoch_cannot_replay_grant_and_all_choices_are_quarantined(replay_world, monkeypatch):
+    from twobrain_rec_server.config import Settings
+    from twobrain_rec_server.public.consent import ChoiceRejected, control_choice
+
+    world = replay_world
+    closed(world["root"] / "basis", "legal_basis_state_version=1\n")
+    monkeypatch.setenv("GRAF_PRODUCT_ANALYTICS_LEGAL_BASIS_STATE_FILE", str(world["root"] / "basis"))
+    settings = Settings(public_analytics_enabled=True, public_analytics_validation_mode="render_only",
+                        public_analytics_yandex_metrica_id="12345678")
+    consent_id, copied_epoch = world["choices"][0]
+    payload = {"action": "grant", "consent_id": consent_id, "expected_epoch": copied_epoch,
+               "categories": ["necessary", "analytics"], "copy_version": "2026-10-22.1"}
+
+    async def source_transitions():
+        engine = create_async_engine(world["url"], poolclass=NullPool)
+        try:
+            sessions = async_sessionmaker(engine)
+            assert (await control_choice(sessions, settings, payload))["state"] == "granted"
+            assert (await control_choice(sessions, settings, {"action": "revoke", "consent_id": consent_id}))["state"] == "revoked"
+        finally:
+            await engine.dispose()
+    asyncio.run(source_transitions())
+    before = world["owner"]("SELECT md5(jsonb_agg(to_jsonb(t) ORDER BY consent_digest)::text) FROM public_analytics_choices t")
+    result = launch(world)
+    assert result.returncode == 0, result.stdout + result.stderr
+    receipt = json.loads(result.stdout)
+    assert receipt["quarantined_choices"] == 2
+    assert world["owner"]("SELECT md5(jsonb_agg(to_jsonb(t) ORDER BY consent_digest)::text) FROM public_analytics_choices t") == before
+    assert world["owner"]("SELECT count(*) FROM public_analytics_choices WHERE categories=jsonb_build_array('necessary') AND copy_version IS NULL", world["target"]).strip() == "2"
+
+    async def replay_old_grant():
+        engine = create_async_engine(world["url"].set(database=world["target"]), poolclass=NullPool)
+        try:
+            with pytest.raises(ChoiceRejected) as rejected:
+                await control_choice(async_sessionmaker(engine), settings, payload)
+            assert rejected.value.status == 409
+        finally:
+            await engine.dispose()
+    asyncio.run(replay_old_grant())
+    assert all(reference not in result.stdout for pair in world["choices"] for reference in pair)
+
+
+def test_public_control_requires_named_case_and_closed_grants_then_replays_deletion(replay_world):
+    from twobrain_rec_server.db.tenant_context import apply_tenant_context
+    from twobrain_rec_server.product_analytics.legal_basis_lifecycle import (
+        BASIS_WITHDRAWAL_STATE_FILE_ENV,
+        LegalBasisLifecycleError,
+        apply_basis_loss_disposition,
+        plan_processing_stop,
+    )
+    from twobrain_rec_server.product_analytics.restore_replay import CHOICE_CONTEXT
+
+    world = replay_world
+    now = datetime.now(UTC)
+    due = now + timedelta(days=1)
+    category = ("disposition_case case_ref=case_control decision_ref=decision_control "
+                "scope=public_consent_control selector_ref=all owner_role=operator "
+                f"reason=purpose_ended decided_at={now.isoformat()} due_at={due.isoformat()} stage=accepted")
+    original = world["operator"].read_text()
+    closed(world["operator"], original + category + "\n")
+    assert launch(world).returncode != 0, "a case without closed grants must not erase control"
+    withdrawal = ("basis_withdrawal level=provider_analytics state=withdrawn "
+                  f"withdrawn_at={now.date().isoformat()} reason=purpose_ended\n")
+    plan = plan_processing_stop(level_key="provider_analytics", basis_lost_at=now,
+                               reason="purpose_ended", affected_categories=("public_consent_control",),
+                               deletion_deadlines={"public_consent_control": due})
+
+    async def delete_source():
+        url = world["url"].set(username="twobrain_rec_maintenance", password=world["password"].read_text())
+        engine = create_async_engine(url, poolclass=NullPool)
+        try:
+            async with async_sessionmaker(engine)() as db:
+                await apply_tenant_context(db, CHOICE_CONTEXT)
+                return await apply_basis_loss_disposition(
+                    db, plan, basis_environ={BASIS_WITHDRAWAL_STATE_FILE_ENV: str(world["operator"])})
+        finally:
+            await engine.dispose()
+
+    closed(world["operator"], original + withdrawal)
+    with pytest.raises(LegalBasisLifecycleError, match="public_control_deletion_case_missing"):
+        asyncio.run(delete_source())
+    closed(world["operator"], original + withdrawal + category + "\n")
+    assert asyncio.run(delete_source())[0].rows_affected == 2
+    assert world["owner"]("SELECT count(*) FROM public_analytics_choices").strip() == "0"
+    result = launch(world)
+    assert result.returncode == 0, result.stdout + result.stderr
+    receipt = json.loads(result.stdout)
+    assert receipt["cases"] == 2 and receipt["deleted_rows"] == 3
+    assert world["owner"]("SELECT count(*) FROM public_analytics_choices", world["target"]).strip() == "0"
+    assert launch(world).returncode == 0

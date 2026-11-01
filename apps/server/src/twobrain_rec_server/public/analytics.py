@@ -503,20 +503,12 @@ def build_public_analytics_context(
     }
     configured = bool(counter_id and public_analytics_blocker(settings, path) is None)
     enabled = bool(configured and surface)
-    consent_ui_enabled = bool(configured and path in PUBLIC_ANALYTICS_CONSENT_PATHS)
-    # Replay stays narrower than measurement: the published cookies policy names
-    # ``/`` and ``/download`` only, so a legal or auth page measured by consent
-    # must not start recording behaviour.
-    replay_allowed = bool(
-        settings.public_analytics_replay_enabled
-        and enabled
-        and surface in PUBLIC_ANALYTICS_REPLAY_SURFACES
-    )
-    # The external counter is a third-party script. On a page outside the two
-    # published counter surfaces — the pages that show a credential form in
-    # particular — the visitor's decision authorises the first-party relay only,
-    # so no external script is loaded there.
-    external_counter_allowed = bool(enabled and surface in PUBLIC_ANALYTICS_EXTERNAL_COUNTER_SURFACES)
+    # Refusal control remains available when optional measurement is disabled.
+    consent_ui_enabled = path in PUBLIC_ANALYTICS_CONSENT_PATHS
+    # T106 currently admits only the first-party relay. External SDK/replay need
+    # their own accepted revocation boundary before they can be enabled again.
+    replay_allowed = False
+    external_counter_allowed = False
 
     campaign_attribution = normalize_public_campaign_attribution(
         query_params,
@@ -527,11 +519,12 @@ def build_public_analytics_context(
     return {
         "enabled": enabled,
         "consent_ui_enabled": consent_ui_enabled,
+        "consent_control_endpoint": "/analytics/public-consent" if consent_ui_enabled else None,
         "provider": PUBLIC_ANALYTICS_PROVIDER,
         "validation_mode": validation_mode,
         "environment_allowed": environment_allowed,
         "yandex_metrica_id_present": bool(counter_id),
-        "yandex_metrica_id": counter_id if enabled else None,
+        "yandex_metrica_id": None,
         "replay_allowed": replay_allowed,
         "webvisor_allowed": replay_allowed,
         "click_map_allowed": replay_allowed,

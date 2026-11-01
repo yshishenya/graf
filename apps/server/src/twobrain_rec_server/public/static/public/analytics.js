@@ -61,6 +61,11 @@
   var publicProviderCaptureBlocked = false;
   var publicProviderCaptureFailure = false;
   var ownedYandexQueue = null;
+  var publicConsentControl = Boolean(publicConfig);
+  var choiceGeneration = 0;
+  var choiceInFlight = false;
+  var serverChoice = null;
+  var retryRevokeOnly = false;
 
   (publicConfig && publicConfig.event_catalog ? publicConfig.event_catalog : []).forEach(function (event) {
     if (event && event.event_name) {
@@ -241,6 +246,10 @@
   }
 
   function canUseAnalytics() {
+    if (publicConsentControl && (!publicConfig.enabled || !serverChoiceMatchesCookie())) {
+      disableOptionalProviders();
+      return false;
+    }
     if (currentConsentState !== "unknown" && !persistedConsentMetadataMatches(currentConsentState, currentCategories)) {
       disableOptionalProviders();
     }
@@ -307,6 +316,7 @@
 
   function ensurePublicYandexProvider() {
     if (
+      publicConsentControl ||
       !publicConfig ||
       !publicConfig.enabled ||
       !isPublicPageAllowed(publicConfig) ||
@@ -445,6 +455,8 @@
       consent_state: currentConsentState,
       consent_copy_version: consentCopyVersion(),
       consent_categories: currentCategories.slice(),
+      consent_id: serverChoice && serverChoice.consentId,
+      consent_epoch: serverChoice && serverChoice.epoch,
     };
     if (
       payload &&
@@ -637,7 +649,237 @@
     return null;
   }
 
+  function uuidV4(value) {
+    return typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value);
+  }
+
+  function publicChoiceCookie() {
+    var cookie = consentCookieFromDetails(null);
+    try {
+      var stored = JSON.parse(window.localStorage.getItem(config.consent_storage_key || "graf_public_cookie_consent"));
+      if (!cookie || !stored || !uuidV4(cookie.consentId) ||
+          JSON.stringify(stored) !== JSON.stringify(cookie) || !normalizedCategories(cookie.categories)) {
+        return null;
+      }
+      return cookie;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function samePublicChoice(left, right) {
+    return Boolean(left && right && left.consentId === right.consentId &&
+      left.revision === right.revision && left.lastConsentTimestamp === right.lastConsentTimestamp &&
+      JSON.stringify(normalizedCategories(left.categories)) === JSON.stringify(normalizedCategories(right.categories)));
+  }
+
+  function serverChoiceMatchesCookie() {
+    var cookie = publicChoiceCookie();
+    return Boolean(serverChoice && samePublicChoice(serverChoice.cookie, cookie) &&
+      consentVersionMatches(cookie) &&
+      cookie.data && cookie.data.graf_public_consent_epoch === serverChoice.epoch);
+  }
+
+  function consentStatus(message, retry) {
+    var status = document.getElementById("graf-public-consent-status");
+    if (!status) {
+      return;
+    }
+    status.hidden = !message;
+    status.querySelector("[data-consent-message]").textContent = message || "";
+    var button = status.querySelector("[data-consent-retry]");
+    button.hidden = !retry;
+    button.textContent = retry || "";
+  }
+
+  function choiceNeedsGrant(cookie) {
+    return Boolean(publicConfig.enabled && cookie && Number(cookie.revision) === consentRevision() &&
+      normalizedCategories(cookie.categories).length > 1);
+  }
+
+  function choicePendingStatus(cookie, revokeFailed) {
+    var positive = choiceNeedsGrant(cookie);
+    retryRevokeOnly = revokeFailed || !positive;
+    consentStatus(revokeFailed
+      ? "На этом устройстве аналитика отключена. Серверное сохранение отказа пока не подтверждено."
+      : "Аналитика отключена. Сохранение выбранного разрешения не подтверждено.",
+    positive && !revokeFailed ? "Подтвердить выбранное разрешение" : "Повторить сохранение отказа");
+  }
+
+  async function publicConsentRequest(payload) {
+    if (publicConfig.consent_control_endpoint !== "/analytics/public-consent" || !window.fetch) {
+      throw new Error("choice_unavailable");
+    }
+    var controller = new AbortController();
+    var timeout = setTimeout(function () { controller.abort(); }, 6500);
+    try {
+      var response = await window.fetch(publicConfig.consent_control_endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "omit",
+        cache: "no-store",
+        redirect: "error",
+        signal: controller.signal,
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) {
+        throw new Error("choice_unavailable");
+      }
+      return await response.json();
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  function acceptPublicChoice(cookie, epoch, persist) {
+    var categories = normalizedCategories(cookie.categories);
+    var state = consentStateFor(cookie, categories, previousOptionalConsent || cookieHadOptionalConsent(cookie));
+    if (state === "unknown" || !samePublicChoice(cookie, publicChoiceCookie())) {
+      return false;
+    }
+    if (persist) {
+      if (!persistConsentMetadata(state, categories)) {
+        return false;
+      }
+      window.CookieConsent.setCookieData({ mode: "update", value: { graf_public_consent_epoch: epoch } });
+    } else if (!persistedConsentMetadataMatches(state, categories)) {
+      return false;
+    }
+    var saved = publicChoiceCookie();
+    if (!samePublicChoice(cookie, saved) || !saved.data || saved.data.graf_public_consent_epoch !== epoch) {
+      return false;
+    }
+    currentCategories = categories;
+    currentConsentState = state;
+    api.currentCategories = categories.slice();
+    api.currentConsentState = state;
+    serverChoice = epoch ? { cookie: saved, consentId: saved.consentId, epoch: epoch } : null;
+    previousOptionalConsent = previousOptionalConsent || categories.length > 1;
+    return true;
+  }
+
+  // No background grant, rebase or retry. Only a fresh user action calls this.
+  async function savePublicChoice(details, revokeOnly) {
+    var generation = ++choiceGeneration;
+    serverChoice = null;
+    disableOptionalProviders();
+    api.currentConsentState = currentConsentState = "unknown";
+    var cookie = publicChoiceCookie();
+    if (!cookie || (details && !samePublicChoice(details.cookie, cookie))) {
+      choicePendingStatus(cookie, true);
+      return false;
+    }
+    choiceInFlight = api.consentPending = true;
+    consentStatus("Аналитика отключена. Сохраняем ваш выбор.");
+    var revoked = false;
+    try {
+      if (!details) {
+        // getCookie reads shared storage, but setCookieData writes the library's
+        // cached cookie. A retry must first load the actual current choice.
+        window.CookieConsent.reset(false);
+        await window.CookieConsent.run(Object.assign({}, api.consentOptions, { autoShow: false }));
+        if (generation !== choiceGeneration || !samePublicChoice(cookie, publicChoiceCookie())) {
+          return false;
+        }
+      }
+      window.CookieConsent.setCookieData({ mode: "update", value: { graf_public_consent_epoch: null } });
+      var result = await publicConsentRequest({ action: "revoke", consent_id: cookie.consentId });
+      if (generation !== choiceGeneration || !samePublicChoice(cookie, publicChoiceCookie())) {
+        return false;
+      }
+      if (!result.accepted || result.state !== "revoked" || !uuidV4(result.epoch) ||
+          JSON.stringify(result.categories) !== '["necessary"]' || result.copy_version !== null) {
+        throw new Error("choice_unavailable");
+      }
+      revoked = true;
+      if (Number(cookie.revision) !== consentRevision()) {
+        consentStatus("Сервер сохранил отказ от аналитики.");
+        return true;
+      }
+      var epoch = result.epoch;
+      var categories = normalizedCategories(cookie.categories);
+      if (!revokeOnly && choiceNeedsGrant(cookie)) {
+        result = await publicConsentRequest({ action: "grant", consent_id: cookie.consentId,
+          expected_epoch: epoch, categories: categories, copy_version: consentCopyVersion() });
+        if (generation !== choiceGeneration || !samePublicChoice(cookie, publicChoiceCookie())) {
+          return false;
+        }
+        if (!result.accepted || result.state !== "granted" || !uuidV4(result.epoch) ||
+            result.copy_version !== consentCopyVersion() ||
+            JSON.stringify(normalizedCategories(result.categories)) !== JSON.stringify(categories)) {
+          throw new Error("choice_unavailable");
+        }
+        epoch = result.epoch;
+      } else if (categories.length > 1) {
+        epoch = null;
+      }
+      var freshCookie = Object.assign({}, cookie, { data: Object.assign({}, cookie.data, {
+        graf_consent_copy_version: consentCopyVersion(), graf_consent_revision: consentRevision(),
+      }) });
+      if (!acceptPublicChoice(freshCookie, epoch, true)) {
+        throw new Error("choice_unavailable");
+      }
+      retryRevokeOnly = false;
+      consentStatus(revokeOnly && categories.length > 1
+        ? "Сервер сохранил отказ. Выбранные необязательные категории пока отключены."
+        : categories.length === 1 || !publicConfig.enabled ? "Сервер сохранил отказ от аналитики." : "",
+      revokeOnly && choiceNeedsGrant(cookie) ? "Подтвердить выбранное разрешение" : null);
+      enableOptionalProviders();
+      startGrantedProviders();
+      return true;
+    } catch (_) {
+      if (generation === choiceGeneration) {
+        serverChoice = null;
+        disableOptionalProviders();
+        choicePendingStatus(cookie, !revoked);
+      }
+      return false;
+    } finally {
+      if (generation === choiceGeneration) {
+        choiceInFlight = api.consentPending = false;
+      }
+    }
+  }
+
+  async function readPublicChoice() {
+    var generation = ++choiceGeneration;
+    serverChoice = null;
+    choiceInFlight = api.consentPending = false;
+    disableOptionalProviders();
+    api.currentConsentState = currentConsentState = "unknown";
+    var cookie = publicChoiceCookie();
+    if (!cookie) {
+      return false;
+    }
+    try {
+      var result = await publicConsentRequest({ action: "read", consent_id: cookie.consentId });
+      if (generation !== choiceGeneration || !samePublicChoice(cookie, publicChoiceCookie())) {
+        return false;
+      }
+      var categories = normalizedCategories(cookie.categories);
+      if ((categories.length > 1 && !publicConfig.enabled) || !cookie.data || !uuidV4(cookie.data.graf_public_consent_epoch) ||
+          result.state !== "known" || result.epoch !== cookie.data.graf_public_consent_epoch ||
+          JSON.stringify(normalizedCategories(result.categories)) !== JSON.stringify(categories) ||
+          result.copy_version !== (categories.length > 1 ? consentCopyVersion() : null) ||
+          !consentVersionMatches(cookie) || !acceptPublicChoice(cookie, result.epoch)) {
+        throw new Error("choice_unavailable");
+      }
+      consentStatus("");
+      enableOptionalProviders();
+      startGrantedProviders();
+      return true;
+    } catch (_) {
+      if (generation === choiceGeneration) {
+        choicePendingStatus(cookie, !choiceNeedsGrant(cookie));
+      }
+      return false;
+    }
+  }
+
   function handleConsentChoice(details) {
+    if (publicConsentControl) {
+      return savePublicChoice(details);
+    }
     var cookie = consentCookieFromDetails(null);
     var categories = normalizedCategories(cookie && cookie.categories);
     // onConsent also runs at page load. Only a new choice matching the actual
@@ -658,6 +900,10 @@
   }
 
   function handleConsent(details) {
+    if (publicConsentControl) {
+      // The real library calls onConsent immediately after onFirstConsent.
+      return choiceInFlight ? false : readPublicChoice();
+    }
     var cookie = consentCookieFromDetails(details);
     var categories = normalizedCategories(cookie && cookie.categories);
     var hadOptionalConsent = previousOptionalConsent || cookieHadOptionalConsent(cookie);
@@ -1056,6 +1302,9 @@
   }
 
   function startGrantedProviders() {
+    if (publicConsentControl) {
+      return startPublicTracking();
+    }
     var started = false;
     if (startPublicTracking()) {
       started = true;
@@ -1082,7 +1331,7 @@
     var acceptAllBtn = "Разрешить все";
     var acceptNecessaryBtn = "Только необходимые";
     var options = {
-      autoShow: true,
+      autoShow: publicConsentControl ? Boolean(publicConfig.enabled) : true,
       cookie: {
         expiresAfterDays: 180,
         name: config.consent_storage_key || "graf_public_cookie_consent",
@@ -1189,6 +1438,7 @@
     config: Object.freeze(publicConfig || {}),
     consentOptions: null,
     consentReady: false,
+    consentPending: false,
     currentCategories: [],
     currentConsentState: currentConsentState,
     dispatchEvent: dispatchEvent,
@@ -1215,14 +1465,23 @@
 
   if (publicConfig) {
     window.GRAFPublicAnalytics = api;
+    var statusElement = document.getElementById("graf-public-consent-status");
+    if (statusElement) {
+      statusElement.querySelector("[data-consent-retry]").addEventListener("click", function () {
+        savePublicChoice(null, retryRevokeOnly);
+      });
+    }
+  }
+  function refreshConsent() {
+    return publicConsentControl ? readPublicChoice() : canUseAnalytics();
   }
   window.addEventListener("storage", function (event) {
     if (event.key === null || event.key === (config.consent_storage_key || "graf_public_cookie_consent")) {
-      canUseAnalytics();
+      refreshConsent();
     }
   });
-  window.addEventListener("pageshow", canUseAnalytics);
-  window.addEventListener("focus", canUseAnalytics);
-  document.addEventListener("visibilitychange", canUseAnalytics);
+  window.addEventListener("pageshow", refreshConsent);
+  window.addEventListener("focus", refreshConsent);
+  document.addEventListener("visibilitychange", refreshConsent);
   runCookieConsent();
 })();
