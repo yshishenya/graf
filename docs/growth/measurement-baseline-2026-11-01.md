@@ -743,3 +743,100 @@ v2026.11.01.1 обновлён на d7d87beec с честными pending notes 
 Mac остаётся locked по текущей проверке cua; повторный запрос разблокировки
 не отправлен. Нового чтения кабинетов, регистрации или оплаты не было.
 Измерение/T0 и коммерческая цель остаются открытыми; Product Radar не отправлен.
+
+## Новый полный прогон — 05:21 UTC
+
+Строгий train-freeze проверил все61 PR; пропусков0, featureIDs12.
+Состав `train-20261101T051512Z-d7d87beec52a`, кандидат
+`rc-20261101T052055Z-4c20f326ece6`; оба validate --current PASS.
+Один release-full41276607334 запущен через штатный driver, session40627.
+Он относится только к source `d7d87beec52a8f71b36cf53eca30dd31158eb643`.
+До терминального результата нет приёмки Full/CD/публикации.
+
+Рабочий сервер до выкладки: git source976f310f9fff09b96a1e6fcec99cb43f4bb706ae,
+health ready. Контрольные суммы public-downloads до выпуска:
+`graf.pkg`:b5df859986d0ad36a07302c87c598b7a7d6e027a65e4024dd70fe0cba3338662;
+`graf-appcast.xml`:a41579d1b65a44ec2a6e33a4efb33aa1841f8ea4d1d5d44445f3ef8138d7711a.
+Повторное чтение публичного catalog: enabled=false, validation/provider disabled,
+rollout verdict blocked. Это подтверждает выключенное измерение, а не нулевой трафик.
+
+## Ограниченная проверка доступа — 05:29 UTC
+
+Один разрешённый интерактивный sudo-вход для чтения `id -u` отвергнут
+аутентификацией. Процесс остановлен, повторов и перебора не было.
+Секреты не сохранены в файлах проекта или отчёте. Привилегированная
+опись scheduler roots/units/cgroups/APT-dpkg по-прежнему не получена;
+пустой описью или PASS это не считается. Mac повторно locked.
+Рабочая конфигурация и данные этой проверкой не менялись.
+
+## Full принят — 05:34 UTC
+
+[release-full41276607334](https://github.com/yshishenya/graf/actions/runs/41276607334)
+завершён SUCCESS: все серверные компоненты, macOS и aggregate PASS. Driver40627
+terminalEXIT0,785секунд; skipped_gates пуст. Requested/observed/component SHA
+совпадают: `d7d87beec52a8f71b36cf53eca30dd31158eb643`. Квитанция
+`authoritative-rc-20261101T052055Z-4c20f326ece6.json` сохранена локально.
+Это приёмка единственного Full нового кандидата, а не выкладки или измерения.
+
+В05:34:26UTC запущен штатный decide/deploy до stop-after deploy; driver35935,
+журнал release-inventory-20261101-deploy.log. До фактического результата CD
+и чтения рабочего сайта выпуск не принят.
+
+## Исправлена ветка запуска CD — 05:36 UTC
+
+Первый decide и dry-run прошли, execute остановлен локально
+`reason=branch_mismatch`: оператор выбрал подготовительную ветку вместо
+требуемой master. Удалённых действий в этой попытке не было, driver35935
+terminalEXIT1. Cleanup сохранил отдельный abandoned sidecar и удалил
+неопубликованный tag. История и неизменные записи не удалялись.
+
+Чистая копия переключена на master, выполнен fast-forward до того же
+`d7d87beec52a8f71b36cf53eca30dd31158eb643`, pointer обновлён.
+Неизменное решение go и квитанция единственного успешного Full сохраняют
+точный source/digest. Обычный `release-candidate.sh validate <decision>
+--current` завершился EXIT0 без исключений; журнал inventory-resume-decision-validate-20261101.log.
+В05:36:07UTC запущен документированный `--from deploy --deploy
+--stop-after deploy`: driver8616, release-inventory-20261101-deploy-resume.log.
+Это повтор предварительно заблокированного запуска после исправления ветки,
+а не повтор Full или создание нового решения. До фактического результата
+и чтения рабочего сайта CD/публикация не принимаются.
+
+## Рабочий выпуск принят — 05:44 UTC
+
+[v2026.11.01.1](https://github.com/yshishenya/graf/releases/tag/v2026.11.01.1)
+опубликован05:44:02UTC, не draft и не prerelease. Tag, Release target,
+deployed/runtime и локальная чистая master совпадают с
+`d7d87beec52a8f71b36cf53eca30dd31158eb643`. Единственный Full41276607334
+SUCCESS; повторного Full не было.
+
+Повторный штатный dry-run/execute после исправления ветки принят: driver8616
+terminalEXIT0, deploy_result=pass, runtime_sha совпал, всего374секунды.
+Резервная копия PASS, миграции и служебная обработка PASS, итоговая готовность
+Temporal/processing-worker PASS. Первый локальный отказ и его sidecar сохранены.
+
+Публичная проверка после установки:
+- Все17 URL карты сайта:200 без перенаправлений, одинH1, непустойtitle,
+  самостоятельныйcanonical; в проверенных полях noindex нет.
+- Неизвестный адрес404; health/live200ok, health/ready200ready.
+- [Word из руководства](https://rec.2brain.pro/static/public/graf-shablon-protokola-vstrechi.docx?v=db3382c12973):
+  200,39652байта, SHA-256db3382c12973eaa95a4c1737094386c77a6c5877faf0e630cad914a5c4906692.
+  Единственная обратная ссылка DOCX ведёт на публичное руководство с метками;
+  HTTP-переход200. Побайтовое соответствие исходнику подтверждено.
+- pkg/appcast после установки имеют те же две контрольные суммы, что до неё.
+- Catalog: enabled=false, validation_mode/provider_mode=disabled, rollout blocked.
+
+Финальные русские заметки заменили pending notes только после реального CDPASS;
+точное обратное чтение до и после публикации PASS. SHA-256финальных заметок
+`9b4d65c98d7469782acdb09f0c7fc2b7abdeb778f568789b0d79280e20c5af06`.
+Driver58962 terminalEXIT0, release_result=pass; publication attestation PASS.
+Окно без слияний освобождено отдельным сообщением согласованной задаче.
+
+Доказательства хранятся в ignored `.dev/release/`: inventory-frozen,
+authoritative receipt, deploy-resume.log, live-public-inventory,
+live-inventory, draft-final-inventory-readback, published-inventory-readback.
+В Git сохранён этот отчёт, без частных данных, исходного звука и секретов.
+
+Полоса: Release / production deploy для выпуска; docs-only / mechanical для
+этой сверки. Новый клиент macOS не выпускался, nginx/аналитика/IP не включались.
+Измерение/T0 и M01–M03/AC01–AC06 остаются открытыми. Служебные обращения и
+учебная обработка не являются внешним трафиком, регистрациями или оплатами.
