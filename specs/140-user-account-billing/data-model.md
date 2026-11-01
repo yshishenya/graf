@@ -1,3 +1,24 @@
+## T077: storage projection — 02.11.2026
+
+Read-only JSON projection O15/S1–S6, без таблиц/миграций/новых прав. Root
+storage source/scope/kind/coverage/reason заданы контрактом. values:
+workspace_count, capacity_unavailable_workspace_count, unrecognized_plan_count,
+invalid_capacity_time_count; used_bytes/reserved_bytes/capacity_bytes
+(целые суммы либо все null по S3); reservations {count,groups [{state,count}],
+expired_active_count,invalid_value_count}; reconciliation_gaps=null.
+Counts — целые количества строк/workspaces, не bytes/jobs/unique objects.
+Byte totals суммируют только полные existing projections всех workspaces;
+данные capacity/reservations с неизвестностью запрещают любые subtotal итоги.
+Ни один ID/JSON/object key не входит в форму. Empty inventory имеет нули,
+groups[], всегда partial. Отсутствие подписки увеличивает только unavailable;
+NULL/unknown plan существующей подписки — также unrecognized_plan_count.
+Узкий SQL-признак наличия строки не экспортируется. Snapshot, который helper
+не может обработать, helper/schema/limit failure — безопасный отказ целого
+отчёта, не JSON-ноль. Falsy plan_snapshot/catalog_snapshot сохраняют existing
+`or {}` семантику. Область database_inventory не доказывает shop.
+Текущие StorageReservation model/writers/O15 используют active/committed/
+released; историческое pending в исходном design ниже не меняет runtime.
+
 ## T077: проекция запросов удаления — 01.11.2026
 
 Существующая MeetingDeletionRequest/meeting_deletion_requests: новых моделей

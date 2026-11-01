@@ -7,7 +7,12 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import JSON, Text, case, column, func, literal, select, true
 
 from twobrain_rec_server.billing.database import require_billing_maintenance_database
+from twobrain_rec_server.billing.purchases import effective_paid_storage
 from twobrain_rec_server.billing.registry_store import GAPS, registry_status
+from twobrain_rec_server.billing.storage import (
+    _active_reserved_bytes,
+    project_active_playback_storage,
+)
 from twobrain_rec_server.db.models.billing import (
     BillingAuditEvent,
     BillingInvoice,
@@ -16,9 +21,12 @@ from twobrain_rec_server.db.models.billing import (
     BillingWebhookEvent,
     FairUseReviewRecord,
     ObservedProviderRefund,
+    StorageReservation,
     TimeCreditLedgerEntry,
+    WorkspaceSubscription,
 )
 from twobrain_rec_server.db.models.deletion import MeetingDeletionRequest
+from twobrain_rec_server.db.models.identity import Workspace
 
 OPERATION_KINDS = (
     "initial_checkout", "renewal", "storage_upgrade", "early_renewal",
@@ -38,6 +46,7 @@ CREDIT_STATES = ("pending", "available", "applied", "expired", "rejected", "reve
 FAIR_USE_STATES = ("notice", "restricted", "appealed", "cleared", "confirmed")
 DELETION_STATES = ("requested", "deleting", "active_purge_complete", "retryable_failed")
 MAX_GAPS = 500
+MAX_STORAGE_WORKSPACES = 500
 
 
 class ReportLimitError(RuntimeError):
@@ -329,6 +338,80 @@ async def _fair_use_inventory(db, as_of):
     }, reason=reason)
 
 
+async def _storage_inventory(db, as_of):
+    """Existing byte projections over a bounded snapshot, not object or financial reconciliation."""
+    table = StorageReservation.__table__.c
+    state = _closed(table.state, ("active", "committed", "released")).label("state")
+    invalid = (table.declared_bytes.is_(None) | (table.declared_bytes <= 0)
+               | table.committed_bytes.is_(None) | (table.committed_bytes < 0)
+               | (table.committed_bytes > table.declared_bytes)
+               | (table.expires_at.is_not(None) & ~func.isfinite(table.expires_at)))
+    expired = ((table.state == "active") & func.isfinite(table.expires_at) & (table.expires_at <= as_of))
+    rows = (await db.execute(select(
+        state, func.count().label("count"),
+        func.count().filter(invalid).label("invalid_value_count"),
+        func.count().filter(expired).label("expired_active_count"),
+    ).group_by(state).order_by(state))).mappings().all()
+    reservations = {"count": sum(row["count"] for row in rows),
+                    "groups": [{"state": row["state"], "count": row["count"]} for row in rows],
+                    "expired_active_count": sum(row["expired_active_count"] for row in rows),
+                    "invalid_value_count": sum(row["invalid_value_count"] for row in rows)}
+    subscription = WorkspaceSubscription.__table__.c
+    workspaces = Workspace.__table__
+    invalid_time = case(
+        (subscription.plan_code == "trial", subscription.trial_ends_at.is_not(None) & ~func.isfinite(subscription.trial_ends_at)),
+        (subscription.plan_code == "personal", subscription.paid_through.is_not(None) & ~func.isfinite(subscription.paid_through)),
+        else_=False,
+    )
+    # Never decode PostgreSQL infinities into Python datetime, including unused dates.
+    inventory = (await db.execute(select(
+        workspaces.c.id.label("workspace_id"), subscription.plan_code, subscription.capacity_bytes,
+        case((func.isfinite(subscription.paid_through), subscription.paid_through)).label("paid_through"),
+        case((func.isfinite(subscription.trial_ends_at), subscription.trial_ends_at)).label("trial_ends_at"),
+        subscription.workspace_id.is_not(None).label("subscription_present"),
+        invalid_time.label("invalid_capacity_time"),
+    ).select_from(workspaces.outerjoin(WorkspaceSubscription.__table__, workspaces.c.id == subscription.workspace_id))
+        .limit(MAX_STORAGE_WORKSPACES + 1))).all()
+    if len(inventory) > MAX_STORAGE_WORKSPACES:
+        raise ReportLimitError
+    totals = {"used_bytes": 0, "reserved_bytes": 0, "capacity_bytes": 0}
+    unavailable = unknown = bad_time = 0
+    for row in inventory:
+        if not row.subscription_present:
+            unavailable += 1
+            continue
+        if row.plan_code not in {"free", "trial", "personal"}:
+            unknown += 1
+            unavailable += 1
+            continue
+        if row.invalid_capacity_time:
+            bad_time += 1
+            unavailable += 1
+            continue
+        capacity = await effective_paid_storage(db, subscription=row, now=as_of)
+        if capacity <= 0:
+            unavailable += 1
+            continue
+        reserved = await _active_reserved_bytes(db, workspace_id=row.workspace_id, now=as_of)
+        projection = await project_active_playback_storage(
+            db, workspace_id=row.workspace_id, capacity_bytes=capacity, reserved_bytes=reserved,
+        )
+        for key in totals:
+            totals[key] += getattr(projection, key)
+    unrecognized = unknown or any(row["state"] == "unrecognized" for row in rows)
+    if unavailable or unrecognized or reservations["invalid_value_count"]:
+        totals = dict.fromkeys(totals)
+    reason = ("unrecognized" if unrecognized else "invalid_storage_values" if reservations["invalid_value_count"] else
+              "capacity_unavailable" if unavailable else "reconciliation_uninstrumented")
+    return _source(
+        "workspaces,workspace_subscriptions,effective_paid_storage,storage_reservations,track_artifacts,upload_sessions", {
+            "workspace_count": len(inventory), "capacity_unavailable_workspace_count": unavailable,
+            "unrecognized_plan_count": unknown, "invalid_capacity_time_count": bad_time,
+            **totals, "reservations": reservations, "reconciliation_gaps": None,
+        }, reason=reason,
+    )
+
+
 async def collect_billing_report(db, *, scope, as_of):
     """Caller owns the bounded READ ONLY REPEATABLE READ transaction."""
     await require_billing_maintenance_database(db)
@@ -364,11 +447,11 @@ async def collect_billing_report(db, *, scope, as_of):
         "addon_and_time_credit": await _credit_ledger(db, as_of),
         "refunds_and_receipts": await _refund_inventory(db),
         "deletion_and_fair_use": await _fair_use_inventory(db, as_of),
+        "storage": await _storage_inventory(db, as_of),
     }
-    for name in ("ingress_and_duplicates", "storage"):
-        families[name] = {"source": None, "scope": "unavailable", "kind": "current_state",
-                          "coverage": "unavailable", "reason_code": (
-                              "uninstrumented" if name == "ingress_and_duplicates" else "not_connected"
-                          ), "values": None}
+    families["ingress_and_duplicates"] = {
+        "source": None, "scope": "unavailable", "kind": "current_state",
+        "coverage": "unavailable", "reason_code": "uninstrumented", "values": None,
+    }
     return {"schema_version": 1, "coverage": "partial", "as_of": as_of.isoformat(),
             "report_date": scope["report_date"].isoformat(), "families": families}
