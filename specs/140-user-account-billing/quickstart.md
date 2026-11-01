@@ -84,6 +84,29 @@ scoped analyze и существующая #4932. Использовать уж�
    repository checks и три точных SHA/base PR gates. PR только Refs #4932;
    O6/FR089/T077 [ ] остаются, Full/CD/Dev/финансовая приёмка отдельно.
 
+## T077: сохраняемые запросы удаления — 01.11.2026
+
+D1–D6/O14; новые проверки в прежних unit/integration monitoring файлах.
+До кода независимый checklist/analyze, затем RED отсутствующего helper/source.
+1. Пустая таблица: оба root/nested sources, inventory/current_state/partial,
+   requestcount0/groups[], null artifact_completion/deadline_status/jobs/reaction.
+   Ошибка схемы безопасно отвергает весь CLI без traceback/частичного отчёта.
+2. Реальная PostgreSQL: четыре state, unknown/complete/terminal_failed/none,
+   sorted groups/сумма; реальные NOT NULL/FORCE RLS. NULLstate отдельным SQL
+   VALUES, не ослабляя положительную схему. Даты включая future/infinity/NULL
+   не выбираются и не меняют counts; разные report_date дают тот же inventory.
+3. Настоящие CLI/new process/два RR снимка; поздний commit виден новому запуску.
+   Fingerprint до/после прежний. Синтетические private ID/reasons/boundary/metadata
+   не выходят в stdout/stderr; SQL только state/count. Provider/почта/purge=0.
+4. Fair-use count/buckets и root priorities: unknown любого источника выше
+   invalid_schedule, затем deletion_details_and_reaction_uninstrumented.
+   Затронутые unitfair-use и PG identity/SETROLE/READONLY/fair-use границы проверить;
+   успешные неподверженные наборы не повторять и повторы не суммировать.
+5. Owned apps/server/.venv/PYTHONPATH=src:./__file__, cleanup своего runner;
+   nodeids/XML/log/hashes, independent review/converge и три exact SHA/base gates.
+   T077[ ]/#4932OPEN/O6/T070/58gaps/исходные сроки/финансовые/приватностные/
+   ручные/выпускные критерии остаются открытыми. Не запускать Full/CD/Dev.
+
 ## T077: сохраняемые наблюдения чеков — 01.11.2026
 
 Q1–Q6 [O13](contracts/operator-observation.md#o13-следующий-срез-сохраняемые-наблюдения-чеков),

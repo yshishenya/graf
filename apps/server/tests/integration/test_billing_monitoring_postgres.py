@@ -30,8 +30,11 @@ from twobrain_rec_server.db.models import (
     BillingRegistryImport,
     BillingWebhookEvent,
     FairUseReviewRecord,
+    Meeting,
+    MeetingDeletionRequest,
     ObservedProviderRefund,
     Organization,
+    RegisteredDevice,
     TimeCreditLedgerEntry,
     UserIdentity,
     Workspace,
@@ -47,7 +50,8 @@ pytestmark = pytest.mark.strict_rls
 DAY = date(2026, 10, 31)
 ARGS = cli.build_parser().parse_args(["--date", str(DAY)])
 TABLES = (BillingAuditEvent, BillingOperation, BillingInvoice, BillingWebhookEvent, BillingNotificationDelivery,
-          BillingRegistryImport, BillingRegistryGap, TimeCreditLedgerEntry, ObservedProviderRefund, FairUseReviewRecord)
+          BillingRegistryImport, BillingRegistryGap, TimeCreditLedgerEntry, ObservedProviderRefund, FairUseReviewRecord,
+          MeetingDeletionRequest)
 
 
 @pytest.fixture
@@ -1240,12 +1244,16 @@ def test_fair_use_inventory_empty_constraints_and_schema_failure(database):
     result, code = process(database)
     assert code == 0
     assert result["families"]["deletion_and_fair_use"] == {
-        "source": "fair_use_reviews", "scope": "database_inventory", "kind": "current_state",
-        "coverage": "partial", "reason_code": "deletion_and_reaction_uninstrumented",
+        "source": "fair_use_reviews,meeting_deletion_requests", "scope": "database_inventory", "kind": "current_state",
+        "coverage": "partial", "reason_code": "deletion_details_and_reaction_uninstrumented",
         "values": {"count": 0, "groups": [], "pending_review": {
             "count": 0, "invalid_schedule_count": 0, "not_started_count": 0,
             "deadline_reached_count": 0, "waiting_count": 0,
-        }, "deletion": None, "reaction": None},
+        }, "deletion": {"source": "meeting_deletion_requests", "scope": "database_inventory",
+                        "kind": "current_state", "coverage": "partial",
+                        "reason_code": "artifact_and_deadline_uninstrumented", "values": {
+                            "count": 0, "groups": [], "artifact_completion": None, "deadline_status": None,
+                            "job_attempts": None, "job_errors": None, "job_retries": None}}, "reaction": None},
     }
     workspace = asyncio.run(seed(database))
     now = datetime(2026, 11, 1, tzinfo=UTC)
@@ -1349,7 +1357,7 @@ def test_fair_use_inventory_boundaries_infinity_privacy_and_restart(database, mo
         "count": 9, "invalid_schedule_count": 2, "not_started_count": 1,
         "deadline_reached_count": 3, "waiting_count": 3,
     }
-    assert counts["deletion"] is counts["reaction"] is None
+    assert counts["deletion"]["values"]["count"] == 0 and counts["reaction"] is None
     assert len(sql) == 1
     for private in (".id", "workspace_id", "subject_user_id", "capability", "reason_code",
                     "evidence_ref", "appeal", "resolved_at", "resolution_code", "created_at", "updated_at"):
@@ -1380,7 +1388,7 @@ def test_fair_use_inventory_synthetic_defenses_and_dst(database, monkeypatch):
                 for rows, reason, count, invalid in (
                     (samples, "unrecognized", 9, 4),
                     (samples[:6], "invalid_schedule", 6, 4),
-                    (samples[4:6], "deletion_and_reaction_uninstrumented", 2, 0),
+                    (samples[4:6], "deletion_details_and_reaction_uninstrumented", 2, 0),
                 ):
                     # Malformed rows stay in a VALUES source; migrated constraints are never weakened.
                     source = values(column("state", String), column("starts_at", DateTime(timezone=True)),
@@ -1443,3 +1451,180 @@ def test_fair_use_inventory_repeatable_snapshot_and_new_process(database):
     asyncio.run(scenario())
     restarted, code = process(database)
     assert code == 0 and restarted["families"]["deletion_and_fair_use"]["values"]["count"] == 1
+
+
+async def deletion_meeting(conn, workspace):
+    subject = (await conn.execute(text("select owner_user_id from workspaces where id=:id"),
+                                  {"id": workspace})).scalar_one()
+    device, meeting = uuid4(), uuid4()
+    await conn.execute(insert(RegisteredDevice).values(
+        id=device, workspace_id=workspace, user_id=subject, device_public_id=f"private-device-{device}",
+    ))
+    await conn.execute(insert(Meeting).values(
+        id=meeting, workspace_id=workspace, created_by_user_id=subject, device_id=device,
+        local_recording_id=f"private-recording-{meeting}", title="private-meeting", duration_seconds=1,
+    ))
+    return {"workspace_id": workspace, "meeting_id": meeting, "requested_by_user_id": subject,
+            "request_source": "private-source", "reason_code": "private-reason",
+            "confirmation_boundary": "private-boundary", "failure_reason": "private-failure",
+            "metadata_json": {"private-key": "private-value"}}
+
+
+def test_deletion_inventory_empty_notnull_and_schema_failure(database):
+    result, code = process(database)
+    assert code == 0
+    family = result["families"]["deletion_and_fair_use"]
+    assert family["source"] == "fair_use_reviews,meeting_deletion_requests"
+    assert family["coverage"] == "partial" and family["reason_code"] == "deletion_details_and_reaction_uninstrumented"
+    assert family["values"]["deletion"] == {
+        "source": "meeting_deletion_requests", "scope": "database_inventory", "kind": "current_state",
+        "coverage": "partial", "reason_code": "artifact_and_deadline_uninstrumented",
+        "values": {"count": 0, "groups": [], "artifact_completion": None, "deadline_status": None,
+                   "job_attempts": None, "job_errors": None, "job_retries": None},
+    }
+    workspace = asyncio.run(seed(database))
+
+    async def schema():
+        engine = create_async_engine(database)
+        try:
+            async with engine.begin() as conn:
+                row = await deletion_meeting(conn, workspace)
+                with pytest.raises(IntegrityError):
+                    async with conn.begin_nested():
+                        await conn.execute(insert(MeetingDeletionRequest).values(**row, state=None))
+                # The actual migrated default is requested, independently of the ORM default.
+                assert (await conn.execute(text(
+                    "select column_default from information_schema.columns "
+                    "where table_name='meeting_deletion_requests' and column_name='state'"
+                ))).scalar_one() == "'requested'::character varying"
+                await conn.execute(text("alter table meeting_deletion_requests rename column state to synthetic_missing_state"))
+            try:
+                assert await asyncio.to_thread(process, database) == (cli.failure("report_unavailable"), 1)
+            finally:
+                async with engine.begin() as conn:
+                    await conn.execute(text("alter table meeting_deletion_requests rename column synthetic_missing_state to state"))
+        finally:
+            await engine.dispose()
+    asyncio.run(schema())
+    assert process(database)[0]["families"]["deletion_and_fair_use"]["values"]["deletion"]["values"]["count"] == 0
+
+
+def test_deletion_inventory_states_dates_defenses_privacy_and_restart(database, monkeypatch):
+    workspace = asyncio.run(seed(database))
+    states = ["requested", "deleting", "active_purge_complete", "retryable_failed",
+              "complete", "terminal_failed", "none", "private-state"]
+    now = datetime(2026, 11, 1, tzinfo=UTC)
+
+    async def populate():
+        engine = create_async_engine(database)
+        try:
+            async with engine.begin() as conn:
+                row = await deletion_meeting(conn, workspace)
+                for index, state in enumerate(states):
+                    await conn.execute(insert(MeetingDeletionRequest).values(
+                        **row, state=state,
+                        created_at=None if index == 0 else text("'infinity'::timestamptz"),
+                        accepted_at=now + timedelta(days=100), completed_at=text("'-infinity'::timestamptz"),
+                    ))
+                await conn.execute(insert(FairUseReviewRecord).values(
+                    workspace_id=workspace, subject_user_id=row["requested_by_user_id"],
+                    capability="private-capability", reason_code="security_abuse", evidence_ref="private-evidence",
+                    state="notice", starts_at=text("'infinity'::timestamptz"), review_by=text("'infinity'::timestamptz"),
+                ))
+        finally:
+            await engine.dispose()
+    asyncio.run(populate())
+    before = asyncio.run(fingerprint(database))
+    actual, sql = cli.create_async_engine, []
+
+    def instrument(*args, **kwargs):
+        engine = actual(*args, **kwargs)
+
+        @event.listens_for(engine.sync_engine, "before_cursor_execute")
+        def record(conn, cursor, statement, parameters, context, executemany):
+            if "meeting_deletion_requests" in statement:
+                sql.append(statement)
+        return engine
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("unexpected deletion writer or HTTP")
+
+    from twobrain_rec_server.deletion import service
+    with monkeypatch.context() as scoped:
+        scoped.setattr(cli, "create_async_engine", instrument)
+        scoped.setattr(httpx.Client, "request", forbidden)
+        scoped.setattr(httpx.AsyncClient, "request", forbidden)
+        scoped.setattr(service, "request_meeting_deletion", forbidden)
+        result, code = invoke(database)
+    assert code == 0
+    family = result["families"]["deletion_and_fair_use"]
+    assert family["reason_code"] == "unrecognized" and family["coverage"] == "partial"
+    assert family["values"]["count"] == 1
+    assert family["values"]["pending_review"]["invalid_schedule_count"] == 1
+    assert family["values"]["reaction"] is None
+    deletion = family["values"]["deletion"]
+    assert deletion["reason_code"] == "unrecognized" and deletion["coverage"] == "partial"
+    assert deletion["values"]["count"] == 8
+    assert deletion["values"]["groups"] == [{"state": state, "count": count} for state, count in (
+        ("active_purge_complete", 1), ("deleting", 1), ("requested", 1), ("retryable_failed", 1), ("unrecognized", 4),
+    )]
+    assert len(sql) == 1 and "private-" not in json.dumps(result)
+    assert "where" not in sql[0].lower()
+    for private in (".id", "workspace_id", "meeting_id", "requested_by", "request_source", "reason",
+                    "confirmation_boundary", "policy", "metadata", "created_at", "accepted_at", "completed_at", "failed_at"):
+        assert private not in sql[0].lower()
+    for report_day in (DAY, date(1999, 1, 1), date(2099, 1, 1)):
+        restarted, code = process(database, day=report_day)
+        assert code == 0 and restarted["families"]["deletion_and_fair_use"] == family
+        assert "private-" not in json.dumps(restarted)
+
+    # Exercise NULL defensively without weakening the positive migrated schema.
+    with monkeypatch.context() as scoped:
+        source = values(column("state", String)).data([(None,), ("private-state",), ("deleting",)]).alias("synthetic_requests")
+        scoped.setattr(monitoring, "MeetingDeletionRequest", SimpleNamespace(__table__=source))
+        defended, code = invoke(database)
+        assert code == 0
+        assert defended["families"]["deletion_and_fair_use"]["values"]["deletion"]["values"]["groups"] == [
+            {"state": "deleting", "count": 1}, {"state": "unrecognized", "count": 2},
+        ]
+    assert asyncio.run(fingerprint(database)) == before
+
+
+def test_deletion_inventory_repeatable_snapshot_and_new_process(database):
+    workspace = asyncio.run(seed(database))
+    as_of = datetime(2026, 11, 1, tzinfo=UTC)
+
+    async def scenario():
+        writer = create_async_engine(database)
+        reader = create_async_engine(settings(database).database_url, execution_options={
+            "isolation_level": "REPEATABLE READ", "postgresql_readonly": True,
+        })
+        factory = create_sessionmaker(reader)
+        scope = {"environment": "test", "shop_id": "123", "report_date": DAY}
+
+        def session():
+            db = factory()
+            db.sync_session.info["tenant_context"] = maintenance_context_settings(MaintenanceTenantContext(
+                operation_name="billing_reconciliation", actor_id="synthetic-operator",
+                reason_category="operator_diagnostics", feature_area="billing",
+            ))
+            return db
+        try:
+            async with writer.begin() as conn:
+                row = await deletion_meeting(conn, workspace)
+            async with session() as db:
+                old = await monitoring.collect_billing_report(db, scope=scope, as_of=as_of)
+                assert old["families"]["deletion_and_fair_use"]["values"]["deletion"]["values"]["count"] == 0
+                async with writer.begin() as conn:
+                    await conn.execute(insert(MeetingDeletionRequest).values(**row, state="active_purge_complete"))
+                unchanged = await monitoring.collect_billing_report(db, scope=scope, as_of=as_of)
+                assert unchanged["families"]["deletion_and_fair_use"] == old["families"]["deletion_and_fair_use"]
+            async with session() as db:
+                new = await monitoring.collect_billing_report(db, scope=scope, as_of=as_of)
+                assert new["families"]["deletion_and_fair_use"]["values"]["deletion"]["values"]["count"] == 1
+        finally:
+            await reader.dispose()
+            await writer.dispose()
+    asyncio.run(scenario())
+    restarted, code = process(database)
+    assert code == 0 and restarted["families"]["deletion_and_fair_use"]["values"]["deletion"]["values"]["count"] == 1

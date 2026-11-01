@@ -302,6 +302,15 @@ description: "Dependency-ordered implementation tasks for the GRAF personal acco
   точные PR gates. Это порядок исполнения, не новая задача; все87 полных
   task lines, T077 [ ], полный O6 и58 gaps сохраняются.
 
+  После PR7896: D1–D6 O14/deletion request inventory исходной T077;
+  checklists/deletion-inventory.md/независимый допуск → scoped analyze/та же
+  #4932 → RED → один helper в прежнем billing/monitoring.py и случаи в прежних
+  apps/server/tests/unit/test_billing_monitoring.py,
+  apps/server/tests/integration/test_billing_monitoring_postgres.py → реальные
+  CLI/PG/forcedRLS/NOTNULL/unknown/privacy/снимки/no-write/схема/роли → независимые
+  code/converge/exact PR gates. Это порядок исходной задачи, не новая task.
+  Все87полных task lines/T077[ ]/58gaps/полныйO6/T070/сроки остаются открытыми.
+
 - [ ] T078 [US10] Add test-shop and controlled real-shop canary runbooks, environment separation, provider capability evidence, legal/finance sign-off records, and rollback/stop procedure in `specs/140-user-account-billing/quickstart.md` and `docs/runbooks/billing-launch.md`.
 
 **Checkpoint**: Launch evidence proves immediate-Free behavior, unlimited paid core, finite storage, provider reconciliation and external merchant refund handling before public enablement.

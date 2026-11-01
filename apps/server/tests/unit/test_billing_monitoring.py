@@ -219,7 +219,7 @@ def test_receipt_inventory_counts_priorities_and_closed_sql(unknown, invalid, mi
 
 
 @pytest.mark.parametrize("state,invalid,reason", [
-    (None, 0, "deletion_and_reaction_uninstrumented"),
+    (None, 0, "deletion_details_and_reaction_uninstrumented"),
     ("notice", 2, "invalid_schedule"), ("unrecognized", 0, "unrecognized"),
 ])
 def test_fair_use_inventory_closed_counts_and_private_projection(state, invalid, reason):
@@ -231,21 +231,57 @@ def test_fair_use_inventory_closed_counts_and_private_projection(state, invalid,
     }]
     response = MagicMock()
     response.mappings.return_value.all.return_value = rows
-    db = AsyncMock(execute=AsyncMock(return_value=response))
+    empty = MagicMock()
+    empty.mappings.return_value.all.return_value = []
+    db = AsyncMock(execute=AsyncMock(side_effect=[response, empty]))
     result = asyncio.run(_fair_use_inventory(db, datetime(2026, 11, 1, tzinfo=UTC)))
     assert result == {
-        "source": "fair_use_reviews", "scope": "database_inventory", "kind": "current_state",
+        "source": "fair_use_reviews,meeting_deletion_requests", "scope": "database_inventory", "kind": "current_state",
         "coverage": "partial", "reason_code": reason,
         "values": {"count": 2 if rows else 0,
                    "groups": [{"state": state, "count": 2}] if rows else [],
                    "pending_review": {"count": 2 if state == "notice" else 0,
                                       "invalid_schedule_count": invalid, "not_started_count": 0,
                                       "deadline_reached_count": 0, "waiting_count": 0},
-                   "deletion": None, "reaction": None},
+                   "deletion": {"source": "meeting_deletion_requests", "scope": "database_inventory",
+                                "kind": "current_state", "coverage": "partial",
+                                "reason_code": "artifact_and_deadline_uninstrumented", "values": {
+                                    "count": 0, "groups": [], "artifact_completion": None, "deadline_status": None,
+                                    "job_attempts": None, "job_errors": None, "job_retries": None}}, "reaction": None},
     }
-    db.execute.assert_awaited_once()
-    sql = str(db.execute.await_args.args[0]).lower()
+    assert db.execute.await_count == 2
+    sql = str(db.execute.await_args_list[0].args[0]).lower()
     assert "isfinite(" in sql and "extract(epoch" in sql and "case when" in sql
     for private in (".id", "workspace_id", "subject_user_id", "capability", "reason_code",
                     "evidence_ref", "appeal", "resolved_at", "resolution_code", "created_at", "updated_at"):
+        assert private not in sql
+
+
+@pytest.mark.parametrize("groups,reason", [
+    ([], "artifact_and_deadline_uninstrumented"),
+    ([{"state": "active_purge_complete", "count": 2}], "artifact_and_deadline_uninstrumented"),
+    ([{"state": "unrecognized", "count": 3}], "unrecognized"),
+])
+def test_deletion_inventory_closed_projection_and_truthful_limits(groups, reason):
+    from twobrain_rec_server.billing.monitoring import _deletion_inventory
+
+    response = MagicMock()
+    response.mappings.return_value.all.return_value = groups
+    db = AsyncMock(execute=AsyncMock(return_value=response))
+    result = asyncio.run(_deletion_inventory(db))
+    assert result == {
+        "source": "meeting_deletion_requests", "scope": "database_inventory", "kind": "current_state",
+        "coverage": "partial", "reason_code": reason,
+        "values": {"count": sum(row["count"] for row in groups), "groups": groups,
+                   "artifact_completion": None, "deadline_status": None,
+                   "job_attempts": None, "job_errors": None, "job_retries": None},
+    }
+    db.execute.assert_awaited_once()
+    query = db.execute.await_args.args[0]
+    assert query.whereclause is None
+    sql = str(query).lower()
+    assert "case when" in sql and "order by" in sql
+    for private in (".id", "workspace_id", "meeting_id", "requested_by", "request_source", "reason",
+                    "confirmation_boundary", "policy", "metadata", "created_at", "accepted_at",
+                    "completed_at", "failed_at"):
         assert private not in sql

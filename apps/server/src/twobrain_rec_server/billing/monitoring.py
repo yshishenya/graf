@@ -18,6 +18,7 @@ from twobrain_rec_server.db.models.billing import (
     ObservedProviderRefund,
     TimeCreditLedgerEntry,
 )
+from twobrain_rec_server.db.models.deletion import MeetingDeletionRequest
 
 OPERATION_KINDS = (
     "initial_checkout", "renewal", "storage_upgrade", "early_renewal",
@@ -35,6 +36,7 @@ WEBHOOK_STATES = ("accepted", "pending_reconciliation", "reconciled", "reconcili
 DELIVERY_STATES = ("pending", "retry", "failed", "delivered", "suppressed")
 CREDIT_STATES = ("pending", "available", "applied", "expired", "rejected", "reversed")
 FAIR_USE_STATES = ("notice", "restricted", "appealed", "cleared", "confirmed")
+DELETION_STATES = ("requested", "deleting", "active_purge_complete", "retryable_failed")
 MAX_GAPS = 500
 
 
@@ -283,6 +285,20 @@ async def _refund_inventory(db):
     }, reason=reason)
 
 
+async def _deletion_inventory(db):
+    """Stored request states, never proof of artifact purge or deadline compliance."""
+    state = _closed(MeetingDeletionRequest.__table__.c.state, DELETION_STATES).label("state")
+    groups = [dict(row) for row in (await db.execute(select(
+        state, func.count().label("count"),
+    ).group_by(state).order_by(state))).mappings().all()]
+    return _source("meeting_deletion_requests", {
+        "count": sum(row["count"] for row in groups), "groups": groups,
+        "artifact_completion": None, "deadline_status": None,
+        "job_attempts": None, "job_errors": None, "job_retries": None,
+    }, reason="unrecognized" if any(row["state"] == "unrecognized" for row in groups) else
+        "artifact_and_deadline_uninstrumented")
+
+
 async def _fair_use_inventory(db, as_of):
     """Stored review schedules, without claiming cleared restrictions or incident closure."""
     table = FairUseReviewRecord.__table__.c
@@ -302,12 +318,14 @@ async def _fair_use_inventory(db, as_of):
     ).group_by(state).order_by(state))).mappings().all()
     summary = {"count": sum(row["count"] for row in rows if row["state"] in {"notice", "restricted", "appealed"}),
                **{name: sum(row[name] for row in rows) for name in names}}
-    reason = ("unrecognized" if any(row["state"] == "unrecognized" for row in rows) else
-              "invalid_schedule" if summary["invalid_schedule_count"] else "deletion_and_reaction_uninstrumented")
-    return _source("fair_use_reviews", {
+    deletion = await _deletion_inventory(db)
+    reason = ("unrecognized" if any(row["state"] == "unrecognized" for row in rows)
+              or deletion["reason_code"] == "unrecognized" else
+              "invalid_schedule" if summary["invalid_schedule_count"] else "deletion_details_and_reaction_uninstrumented")
+    return _source("fair_use_reviews,meeting_deletion_requests", {
         "count": sum(row["count"] for row in rows),
         "groups": [{"state": row["state"], "count": row["count"]} for row in rows],
-        "pending_review": summary, "deletion": None, "reaction": None,
+        "pending_review": summary, "deletion": deletion, "reaction": None,
     }, reason=reason)
 
 

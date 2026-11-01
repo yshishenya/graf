@@ -80,6 +80,33 @@ dunning engine или второй платный тариф только рад
 
 ## Technical Context
 
+### T077: сохраняемые запросы удаления (01.11.2026)
+
+High-risk-product/active Spec Kit slice, D1–D6/O14 после PR7896. Один helper
+SQLAlchemy select/case/count в billing/monitoring.py плюс включение в прежний
+fair-use collector. _closed/_source переиспользуются; generic _groups не нужен,
+так как возраста/времена не читаются. MeetingDeletionRequest/state — источник;
+четыре объявленные state не брать из всего DeletionState. Root/nested sources
+и приоритеты точно по контракту, без суммирования двух сущностей.
+
+Constitution Check до исследования/после дизайна: сохранены deletion truth,
+metadata-only/RLS/maintenance guard/единый READ ONLY RR/пределы/финансы/egress;
+нет новых схем/прав/служб/зависимостей. Существующая migration0007 включает
+FORCE RLS и rec_maintenance_allowed, не менять политику ради тестов.
+В TABLES/fingerprint существующего integration fixture добавить request model;
+дополнительные FK tables уже создаёт штатный runner. Для настоящих строк
+использовать синтетическую Meeting/Workspace; NULLstate проверить отдельно
+через SQL VALUES, не ослабляя NOT NULL положительной схемы.
+
+Порядок: уточнение/research/model/quickstart → reviewer-owned deletion-inventory
+и независимый PASS → scoped analyze/существующая #4932 → RED → минимальный
+collector и проверки в прежних apps/server/tests/unit/test_billing_monitoring.py,
+apps/server/tests/integration/test_billing_monitoring_postgres.py → independent
+code/converge/exact PR gates. Затронутые fair-use и identity/SETROLE случаи
+повторить по изменению зависимости; остальные успешные наборы не повторять.
+Legacy Impact untouched; все87полных task lines/T077[ ]/58gaps/O6/T070/сроки
+сохраняются. Full/CD/выпуска/Dev здесь нет.
+
 ### T077: сохраняемые наблюдения чеков (01.11.2026)
 
 High-risk-product/active Spec Kit slice исходной T077 после PR7894.

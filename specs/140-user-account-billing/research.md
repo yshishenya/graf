@@ -1,3 +1,25 @@
+## T077: источник запросов удаления — 01.11.2026
+
+- Decision: только MeetingDeletionRequest/meeting_deletion_requests, state/count,
+  D1–D6/O14. Это следующая узкая область, старый source audit не повторяется.
+- Evidence: db/models/deletion.py11–29; migrations0007 (полностью прочитана)
+  сохраняет NOT NULLstate/defaultrequested и FORCE RLS/rec_maintenance_allowed.
+  Модель сама не отмечает nullable=False для state; положительная fixture
+  остаётся по настоящим миграциям. Billing operation разрешён текущей общей
+  maintenance policy; новые grants/политики не требуются в продукте.
+- Writers: единственный constructor deletion/service.py225 создаёт deleting;
+  присваивания371/685/1673 дают retryable_failed,433/797 active_purge_complete.
+  requested — объявленный default схемы/модели. DeletionState шире; остальные
+  значения безопасно unrecognized, не proof завершения. Поиск по server source
+  не доказывает отсутствия динамических/historical writers или liveinventory.
+- Truth: service.py430–439/794–802 отдельно сохраняет active purge, не все
+  артефакты. ConstitutionIV/PRD25 требуют различать backup/local/external и
+  сохраняемую observability; timestamps не подтверждают фактический результат.
+- Alternatives: generic _groups/возраст, полный DeletionState allowlist,
+  чтение request/report JSON, запуск purge, новая служба/таблица/права отвергнуты.
+  Одна агрегация/повторное _closed/_source достаточны. Сроки/attempts/details/
+  reaction остаются null; всегда partial. До кода независимый допуск/analyze.
+
 ## T077: источник наблюдений чеков — 01.11.2026
 
 - **Decision**: читать существующую invoice.plan_snapshot.receipt_observations,
