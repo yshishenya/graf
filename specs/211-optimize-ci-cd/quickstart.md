@@ -1443,3 +1443,21 @@ pr-metadata41274841409 — PASS. Общий `validate-pr-checks.py` до и по
 T115 принимается в своей области; issue #7873 закрывается после принятия
 этой документальной сверки с проверенным closure comment. Новый frozen Full,
 рабочий выпуск, аналитика/T0 и коммерческие результаты остаются отдельными.
+
+
+## T116 — отказ настоящего тела отката БД
+
+До исправления новый параметризованный тест должен показать потерю ошибки
+в условном Bash-контексте. После трёх явных возвратов выполнить:
+
+```sh
+PYTHONPATH=apps/server/src apps/server/.venv/bin/python -m pytest --noconftest -q apps/server/tests/integration/test_deployment_readiness_gates.py
+PATH="$PWD/apps/server/.venv/bin:$PATH" PYTHONPATH=apps/server/src apps/server/.venv/bin/python -m pytest --noconftest -q tests/governance/test_release_images.py apps/server/tests/integration/test_production_smoke_boundary.py apps/server/tests/integration/test_deployment_backup_restore_rehearsal.py apps/server/tests/contract/test_rls_production_boundary.py
+bash -n infra/scripts/cd-remote-runtime.sh
+```
+
+Ожидаются отсутствие пропусков, остановка перед следующей операцией при
+каждом отказе, совместимое окружение вместо старого, ошибка при неудачном
+восстановлении и прежний путь при полном успехе. Docker/сервер/настоящие
+данные тест не меняет. Затем независимые code review/converge и exact-SHA
+PR gates. Full/CD/рабочее измерение и T0 остаются отдельной приёмкой.

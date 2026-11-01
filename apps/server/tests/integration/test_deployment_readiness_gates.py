@@ -506,6 +506,103 @@ restore_previous_runtime
     assert "unsafe_previous_checkout" not in trace
 
 
+@pytest.mark.parametrize(
+    ("failure_stage", "database_status", "compatibility_status"),
+    [
+        ("downgrade", 17, 0),
+        ("query", 18, 0),
+        ("drop", 19, 0),
+        ("downgrade", 17, 1),
+        ("none", 0, 0),
+    ],
+)
+def test_database_rollback_propagates_command_errors_in_conditional_context(
+    tmp_path: Path,
+    failure_stage: str,
+    database_status: int,
+    compatibility_status: int,
+) -> None:
+    runtime = (Path(__file__).parents[4] / "infra/scripts/cd-remote-runtime.sh").read_text()
+    database_source = runtime[
+        runtime.index("rollback_feature_database()") : runtime.index("feature_truth_count()")
+    ]
+    restore_source = runtime[
+        runtime.index("restore_previous_runtime()") : runtime.index("rollback_on_exit()")
+    ]
+    trace_path = tmp_path / "rollback-trace"
+    fixture_script = f"""
+set -uo pipefail
+set +e
+compose=(compose_stub)
+dispatch_opened=0
+previous_schema_head=fixture_previous
+expected_schema_head=0108_public_consent
+previous_sha=fixture_previous_sha
+backup_reference=fixture_backup
+{database_source}
+{restore_source}
+feature_truth_count() {{ printf '0\\n'; }}
+rollback_feature_storage() {{ printf 'storage\\n' >>"$TRACE_PATH"; }}
+restore_previous_services() {{ printf 'previous\\n' >>"$TRACE_PATH"; }}
+restore_compatibility_runtime() {{
+  printf 'compatibility\\n' >>"$TRACE_PATH"
+  return "$COMPATIBILITY_STATUS"
+}}
+compose_stub() {{
+  case "$1:${{2:-}}:${{3:-}}" in
+    run:*)
+      printf 'downgrade\\n' >>"$TRACE_PATH"
+      [[ "$FAILURE_STAGE" != downgrade ]] || return 17 ;;
+    ps:-q:rec-media-worker|stop:*) return 0 ;;
+    exec:-T:rec-postgres)
+      if [[ "$*" == *'select version_num from alembic_version'* ]]; then
+        printf '%s\\n' "$expected_schema_head"
+      elif [[ "$*" == *'select 1 from pg_roles'* ]]; then
+        printf 'query\\n' >>"$TRACE_PATH"
+        [[ "$FAILURE_STAGE" != query ]] || return 18
+        printf '1\\n'
+      else
+        cat >/dev/null
+        printf 'drop\\n' >>"$TRACE_PATH"
+        [[ "$FAILURE_STAGE" != drop ]] || return 19
+      fi ;;
+    *) return 2 ;;
+  esac
+}}
+if rollback_feature_database; then database_status=0; else database_status=$?; fi
+printf 'database_status=%s\\n' "$database_status"
+: >"$TRACE_PATH"
+if restore_previous_runtime; then restore_status=0; else restore_status=$?; fi
+printf 'restore_status=%s\\n' "$restore_status"
+"""
+    result = subprocess.run(
+        ["bash", "-c", fixture_script],
+        check=False,
+        capture_output=True,
+        text=True,
+        env={
+            **os.environ,
+            "TRACE_PATH": str(trace_path),
+            "FAILURE_STAGE": failure_stage,
+            "COMPATIBILITY_STATUS": str(compatibility_status),
+        },
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert f"database_status={database_status}\n" in result.stdout
+    trace = trace_path.read_text().splitlines()
+    if failure_stage == "none":
+        assert trace == ["downgrade", *(["query", "drop"] * 3), "storage", "previous"]
+        assert "rollback_database_downgrade=blocked" not in result.stdout
+        assert "rollback_target=raw_pre_099_without_feature_truth" in result.stdout
+        assert "restore_status=0\n" in result.stdout
+    else:
+        operations = ["downgrade", "query", "drop"]
+        assert trace == operations[: operations.index(failure_stage) + 1] + ["compatibility"]
+        assert "rollback_database_downgrade=blocked" in result.stdout
+        assert f"restore_status={compatibility_status}\n" in result.stdout
+
+
 def test_remote_rollback_discovers_operations_profile_services() -> None:
     from pathlib import Path
 
