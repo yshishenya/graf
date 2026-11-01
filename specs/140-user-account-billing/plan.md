@@ -80,6 +80,34 @@ dunning engine или второй платный тариф только рад
 
 ## Technical Context
 
+### T077: сроки fair-use проверок (01.11.2026)
+
+High-risk-product/active Spec Kit slice исходной T077 после PR7892.
+F1–F6 [O12](contracts/operator-observation.md#o12-следующий-срез-сроки-сохраняемых-fair-use-проверок):
+одна SQL-агрегация FairUseReviewRecord в существующем
+apps/server/src/twobrain_rec_server/billing/monitoring.py по образцу _credit_ledger.
+CASE закрывает state; фильтры дают четыре непересекающихся pending buckets.
+Вложенный CASE сначала проверяет NULL/isfinite дат, затем numeric разность
+EXTRACT(EPOCH) для24истекших часов, без infinity subtraction/float/DST.
+Python получает только закрытые группы/количества, не timestamps или ORM rows.
+Generic _groups не подходит: будущий срок нормален, возраста не нужны.
+
+Конституционная проверка до исследования и после проектирования: сохраняются
+metadata-only, RLS/maintenance guard, один READ ONLY RR снимок, пределы O2,
+деньги/приватность/удаление и отсутствие egress. Нет новых writers/модели/
+миграций/службы/прав/зависимостей. Это проектная оценка, не приёмка реализации.
+
+Порядок: specify/clarify F1–F6 → research/model/quickstart → reviewer-owned
+checklists/fair-use-inventory.md и независимый PASS → scoped analyze/прежняя
+#4932 → RED → один collector и случаи в существующих
+apps/server/tests/unit/test_billing_monitoring.py и
+apps/server/tests/integration/test_billing_monitoring_postgres.py → независимое
+кодовое review/converge → три exact-SHA/base PR gates. Реальные constraints
+и FORCE RLS включить в fixture/fingerprint; защитные ветви отдельно проверить
+синтетическим SQL-входом, не ослабляя положительную схему. Все87 task lines,
+T077 [ ], полный O6/FR089 и58 старых gaps сохраняются. Legacy Impact untouched;
+CLI/guard/cleanup/другие семейства прежние; Full/CD/Dev/выпуска здесь нет.
+
 ### T077: сохранённые наблюдения возвратов (01.11.2026)
 
 High-risk-product/active Spec Kit slice исходной T077 после PR7890.

@@ -351,6 +351,29 @@ monthly/annual или региональный selector, аудитория и s
 
 ## Resolved unknowns and launch gates
 
+### T077/fair-use inventory — 01.11.2026
+
+- Decision: FairUseReviewRecord/fair_use_reviews, пять состояний и отдельные
+  pending=notice/restricted/appealed; confirmed остаётся в _RESTRICTED_STATES.
+  persist_review создаёт переданный state, но существующую строку им не
+  обновляет; appeal_persisted_review сохраняет appealed. resolve_review меняет
+  только dataclass, поэтому не доказывает сохраняемого решения. Поле state
+  само по себе не доказывает owner/evidence/closure общего incident.
+- Evidence: узко прочитаны fair_use.py, модель, migrations0068–0071 и текущая
+  lineage/maintenance RLS policy0074, cabinet fair_use и account_merge reader.
+  На base46251467 даты NOT NULL, deadline CHECK задаёт starts_at<=review_by
+  <=starts_at+interval'24 hours'. PostgreSQL infinity может пройти этот CHECK;
+  классификация чтения должна отделять не конечные даты без арифметической
+  ошибки. Наличие такой строки в рабочей БД не утверждается.
+- Decision: одна агрегирующая SQL-операция с CASE: конечность/NULL раньше
+  numeric epoch difference, затем границы по единому as_of. 24ч=86400секунд
+  независимо от timezone/DST; будущие starts/review_by нормальны. Без возраста,
+  дат/частных полей в выходе, фильтра report_date, joins или запуска writers.
+- Alternatives: generic _groups с future-invalid/возрастом created_at не
+  подходит; новая таблица/служба/изменение ограничений/уведомления отвергнуты.
+  Deletion и сохраняемая реакция остаются null; всегда partial. FR107,
+  operations/security/deletion и F278 FR041/полный O6 сохраняют сроки и границы.
+
 ### T077/refund inventory — 01.11.2026
 
 - Decision: читать только ObservedProviderRefund/observed_provider_refunds

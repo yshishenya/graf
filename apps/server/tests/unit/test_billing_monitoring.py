@@ -170,3 +170,36 @@ def test_refund_inventory_closed_projection_and_incomplete_sources(rows, reason)
     for private in (".id", "workspace_id", "invoice_id", "provider_refund_id", "amount_minor",
                     "currency", "shop_environment", "observed_at", "plan_snapshot"):
         assert private not in sql
+
+
+@pytest.mark.parametrize("state,invalid,reason", [
+    (None, 0, "deletion_and_reaction_uninstrumented"),
+    ("notice", 2, "invalid_schedule"), ("unrecognized", 0, "unrecognized"),
+])
+def test_fair_use_inventory_closed_counts_and_private_projection(state, invalid, reason):
+    from twobrain_rec_server.billing.monitoring import _fair_use_inventory
+
+    rows = [] if state is None else [{
+        "state": state, "count": 2, "invalid_schedule_count": invalid,
+        "not_started_count": 0, "deadline_reached_count": 0, "waiting_count": 0,
+    }]
+    response = MagicMock()
+    response.mappings.return_value.all.return_value = rows
+    db = AsyncMock(execute=AsyncMock(return_value=response))
+    result = asyncio.run(_fair_use_inventory(db, datetime(2026, 11, 1, tzinfo=UTC)))
+    assert result == {
+        "source": "fair_use_reviews", "scope": "database_inventory", "kind": "current_state",
+        "coverage": "partial", "reason_code": reason,
+        "values": {"count": 2 if rows else 0,
+                   "groups": [{"state": state, "count": 2}] if rows else [],
+                   "pending_review": {"count": 2 if state == "notice" else 0,
+                                      "invalid_schedule_count": invalid, "not_started_count": 0,
+                                      "deadline_reached_count": 0, "waiting_count": 0},
+                   "deletion": None, "reaction": None},
+    }
+    db.execute.assert_awaited_once()
+    sql = str(db.execute.await_args.args[0]).lower()
+    assert "isfinite(" in sql and "extract(epoch" in sql and "case when" in sql
+    for private in (".id", "workspace_id", "subject_user_id", "capability", "reason_code",
+                    "evidence_ref", "appeal", "resolved_at", "resolution_code", "created_at", "updated_at"):
+        assert private not in sql

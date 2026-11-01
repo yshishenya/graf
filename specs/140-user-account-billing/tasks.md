@@ -286,6 +286,14 @@ description: "Dependency-ordered implementation tasks for the GRAF personal acco
   no-write/privacy/роли/снимок/ошибка схемы → независимые review/converge и
   точные PR gates. Чеки/финансовая сверка остаются null; T077 [ ] и все
   исходные полные task lines сохраняются без новой задачи или issue.
+  После PR7892: F1–F6 O12/fair-use inventory в той же T077; сначала
+  checklists/fair-use-inventory.md/независимый допуск → scoped analyze/прежняя
+  #4932 → RED → одна агрегация в том же billing/monitoring.py и два названных
+  unit/integration файла → реальные PostgreSQL/CLI/constraints/forced RLS,
+  границы/снимки/приватность/no-write/схема → независимые review/converge и
+  точные PR gates. Это порядок исполнения, не новая задача; все87 полных
+  task lines, T077 [ ], полный O6 и58 gaps сохраняются.
+
 - [ ] T078 [US10] Add test-shop and controlled real-shop canary runbooks, environment separation, provider capability evidence, legal/finance sign-off records, and rollback/stop procedure in `specs/140-user-account-billing/quickstart.md` and `docs/runbooks/billing-launch.md`.
 
 **Checkpoint**: Launch evidence proves immediate-Free behavior, unlimited paid core, finite storage, provider reconciliation and external merchant refund handling before public enablement.

@@ -6,12 +6,13 @@ import signal
 import subprocess
 import sys
 from datetime import UTC, date, datetime, timedelta
+from types import SimpleNamespace
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 import httpx
 import pytest
-from sqlalchemy import delete, event, insert, text
+from sqlalchemy import DateTime, String, column, delete, event, insert, text, values
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
@@ -28,6 +29,7 @@ from twobrain_rec_server.db.models import (
     BillingRegistryGap,
     BillingRegistryImport,
     BillingWebhookEvent,
+    FairUseReviewRecord,
     ObservedProviderRefund,
     Organization,
     TimeCreditLedgerEntry,
@@ -45,7 +47,7 @@ pytestmark = pytest.mark.strict_rls
 DAY = date(2026, 10, 31)
 ARGS = cli.build_parser().parse_args(["--date", str(DAY)])
 TABLES = (BillingAuditEvent, BillingOperation, BillingInvoice, BillingWebhookEvent, BillingNotificationDelivery,
-          BillingRegistryImport, BillingRegistryGap, TimeCreditLedgerEntry, ObservedProviderRefund)
+          BillingRegistryImport, BillingRegistryGap, TimeCreditLedgerEntry, ObservedProviderRefund, FairUseReviewRecord)
 
 
 @pytest.fixture
@@ -62,6 +64,9 @@ def database(registry_database):  # noqa: F811 — imported pytest fixture
                         "select relrowsecurity, relforcerowsecurity from pg_class where relname=:table"
                     ), {"table": model.__tablename__})).one()
                     assert flags == (True, True)
+                # The migrated fair-use policy contains an owner_scope subquery.
+                # Runtime bootstrap already grants this SELECT; keep its RLS intact.
+                await conn.execute(text("GRANT SELECT ON workspaces TO twobrain_rec_maintenance"))
         finally:
             await engine.dispose()
     asyncio.run(setup())
@@ -1028,3 +1033,212 @@ def test_refund_inventory_repeatable_snapshot_and_new_process(database):
     asyncio.run(scenario())
     restarted, code = process(database)
     assert code == 0 and restarted["families"]["refunds_and_receipts"]["values"]["count"] == 1
+
+
+def test_fair_use_inventory_empty_constraints_and_schema_failure(database):
+    result, code = process(database)
+    assert code == 0
+    assert result["families"]["deletion_and_fair_use"] == {
+        "source": "fair_use_reviews", "scope": "database_inventory", "kind": "current_state",
+        "coverage": "partial", "reason_code": "deletion_and_reaction_uninstrumented",
+        "values": {"count": 0, "groups": [], "pending_review": {
+            "count": 0, "invalid_schedule_count": 0, "not_started_count": 0,
+            "deadline_reached_count": 0, "waiting_count": 0,
+        }, "deletion": None, "reaction": None},
+    }
+    workspace = asyncio.run(seed(database))
+    now = datetime(2026, 11, 1, tzinfo=UTC)
+
+    async def schema():
+        engine = create_async_engine(database)
+        try:
+            async with engine.begin() as conn:
+                subject = (await conn.execute(text("select owner_user_id from workspaces where id=:id"),
+                                              {"id": workspace})).scalar_one()
+                for bad in ({"state": None}, {"starts_at": None}, {"review_by": None},
+                            {"state": "private-state"}, {"review_by": now - timedelta(microseconds=1)},
+                            {"review_by": now + timedelta(days=1, microseconds=1)}):
+                    row = {"workspace_id": workspace, "subject_user_id": subject,
+                           "capability": "private-capability", "reason_code": "security_abuse",
+                           "evidence_ref": "private-ref", "state": "notice", "starts_at": now,
+                           "review_by": now + timedelta(days=1), **bad}
+                    with pytest.raises(IntegrityError):
+                        async with conn.begin_nested():
+                            await conn.execute(insert(FairUseReviewRecord).values(**row))
+                await conn.execute(text("alter table fair_use_reviews rename column review_by to synthetic_missing_deadline"))
+            try:
+                assert await asyncio.to_thread(process, database) == (cli.failure("report_unavailable"), 1)
+            finally:
+                async with engine.begin() as conn:
+                    await conn.execute(text("alter table fair_use_reviews rename column synthetic_missing_deadline to review_by"))
+        finally:
+            await engine.dispose()
+    asyncio.run(schema())
+    assert process(database)[0]["families"]["deletion_and_fair_use"]["values"]["count"] == 0
+
+
+def test_fair_use_inventory_boundaries_infinity_privacy_and_restart(database, monkeypatch):
+    workspace = asyncio.run(seed(database))
+    now = datetime(2026, 11, 1, tzinfo=UTC)
+    us, day = timedelta(microseconds=1), timedelta(days=1)
+    schedules = [
+        ("notice", now - us, now + us), ("restricted", now, now),
+        ("appealed", now - us, now - us), ("notice", now + us, now + day),
+        ("restricted", now - day, now - us), ("appealed", now, now + us),
+        ("notice", now, now + day), ("cleared", now, now + day),
+        ("confirmed", now - day, now),
+        ("notice", text("'infinity'::timestamptz"), text("'infinity'::timestamptz")),
+        ("appealed", text("'-infinity'::timestamptz"), text("'-infinity'::timestamptz")),
+    ]
+
+    async def populate():
+        engine = create_async_engine(database)
+        try:
+            async with engine.begin() as conn:
+                subject = (await conn.execute(text("select owner_user_id from workspaces where id=:id"),
+                                              {"id": workspace})).scalar_one()
+                await conn.execute(insert(FairUseReviewRecord).values([{
+                    "id": uuid4(), "workspace_id": workspace, "subject_user_id": subject,
+                    "capability": "private-capability", "reason_code": "security_abuse",
+                    "evidence_ref": f"private-evidence-{i}", "appeal_ref": "private-appeal",
+                    "resolution_code": "private-resolution", "state": state,
+                    "starts_at": start, "review_by": deadline,
+                } for i, (state, start, deadline) in enumerate(schedules)]))
+        finally:
+            await engine.dispose()
+    asyncio.run(populate())
+    before = asyncio.run(fingerprint(database))
+    actual, sql = cli.create_async_engine, []
+
+    def instrument(*args, **kwargs):
+        engine = actual(*args, **kwargs)
+
+        @event.listens_for(engine.sync_engine, "before_cursor_execute")
+        def record(conn, cursor, statement, parameters, context, executemany):
+            if "fair_use_reviews" in statement:
+                sql.append(statement)
+        return engine
+
+    class Clock:
+        @staticmethod
+        def now(tz):
+            return now
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("unexpected writer or HTTP")
+
+    from twobrain_rec_server.billing import fair_use
+    with monkeypatch.context() as scoped:
+        scoped.setattr(cli, "datetime", Clock)
+        scoped.setattr(cli, "create_async_engine", instrument)
+        scoped.setattr(httpx.Client, "request", forbidden)
+        scoped.setattr(httpx.AsyncClient, "request", forbidden)
+        for name in ("persist_review", "appeal_persisted_review", "resolve_review", "enqueue_review_notification"):
+            scoped.setattr(fair_use, name, forbidden)
+        result, code = invoke(database)
+    assert code == 0 and result["as_of"] == now.isoformat()
+    family = result["families"]["deletion_and_fair_use"]
+    assert family["coverage"] == "partial" and family["reason_code"] == "invalid_schedule"
+    counts = family["values"]
+    assert counts["count"] == 11 == sum(group["count"] for group in counts["groups"])
+    assert counts["groups"] == [{"state": state, "count": count} for state, count in (
+        ("appealed", 3), ("cleared", 1), ("confirmed", 1), ("notice", 4), ("restricted", 2),
+    )]
+    assert counts["pending_review"] == {
+        "count": 9, "invalid_schedule_count": 2, "not_started_count": 1,
+        "deadline_reached_count": 3, "waiting_count": 3,
+    }
+    assert counts["deletion"] is counts["reaction"] is None
+    assert len(sql) == 1
+    for private in (".id", "workspace_id", "subject_user_id", "capability", "reason_code",
+                    "evidence_ref", "appeal", "resolved_at", "resolution_code", "created_at", "updated_at"):
+        assert private not in sql[0]
+    assert "private-" not in json.dumps(result)
+    for report_day in (DAY, date(1999, 1, 1), date(2099, 1, 1)):
+        restarted, code = process(database, day=report_day)
+        assert code == 0 and restarted["families"]["deletion_and_fair_use"]["values"]["groups"] == counts["groups"]
+        assert "private-" not in json.dumps(restarted)
+    assert asyncio.run(fingerprint(database)) == before
+
+
+def test_fair_use_inventory_synthetic_defenses_and_dst(database, monkeypatch):
+    now = datetime(2026, 11, 1, 12, tzinfo=UTC)
+    us, day = timedelta(microseconds=1), timedelta(days=1)
+    samples = [("notice", None, now), ("notice", now, None),
+               ("restricted", now, now - us), ("appealed", now - day - us, now),
+               ("notice", now - day, now), ("notice", now, now + day),
+               ("private-state", None, None), (None, None, None), ("confirmed", None, None)]
+
+    async def scenario():
+        engine = create_async_engine(settings(database).database_url, execution_options={
+            "isolation_level": "REPEATABLE READ", "postgresql_readonly": True,
+        })
+        try:
+            async with AsyncSession(engine) as db:
+                await db.execute(text("SET TIME ZONE 'America/New_York'"))
+                for rows, reason, count, invalid in (
+                    (samples, "unrecognized", 9, 4),
+                    (samples[:6], "invalid_schedule", 6, 4),
+                    (samples[4:6], "deletion_and_reaction_uninstrumented", 2, 0),
+                ):
+                    # Malformed rows stay in a VALUES source; migrated constraints are never weakened.
+                    source = values(column("state", String), column("starts_at", DateTime(timezone=True)),
+                                    column("review_by", DateTime(timezone=True))).data(rows).alias("synthetic_reviews")
+                    monkeypatch.setattr(monitoring, "FairUseReviewRecord", SimpleNamespace(__table__=source))
+                    family = await monitoring._fair_use_inventory(db, now)
+                    assert family["coverage"] == "partial" and family["reason_code"] == reason
+                    summary = family["values"]
+                    assert summary["count"] == count == sum(group["count"] for group in summary["groups"])
+                    assert summary["pending_review"] == {
+                        "count": invalid + 2, "invalid_schedule_count": invalid,
+                        "not_started_count": 0, "deadline_reached_count": 1, "waiting_count": 1,
+                    }
+                    assert "private-" not in json.dumps(family)
+        finally:
+            await engine.dispose()
+    asyncio.run(scenario())
+
+
+def test_fair_use_inventory_repeatable_snapshot_and_new_process(database):
+    workspace = asyncio.run(seed(database))
+    as_of = datetime(2026, 11, 1, tzinfo=UTC)
+
+    async def scenario():
+        writer = create_async_engine(database)
+        reader = create_async_engine(settings(database).database_url, execution_options={
+            "isolation_level": "REPEATABLE READ", "postgresql_readonly": True,
+        })
+        factory = create_sessionmaker(reader)
+        scope = {"environment": "test", "shop_id": "123", "report_date": DAY}
+
+        def session():
+            db = factory()
+            db.sync_session.info["tenant_context"] = maintenance_context_settings(MaintenanceTenantContext(
+                operation_name="billing_reconciliation", actor_id="synthetic-operator",
+                reason_category="operator_diagnostics", feature_area="billing",
+            ))
+            return db
+        try:
+            async with session() as db:
+                old = await monitoring.collect_billing_report(db, scope=scope, as_of=as_of)
+                assert old["families"]["deletion_and_fair_use"]["values"]["count"] == 0
+                async with writer.begin() as conn:
+                    subject = (await conn.execute(text("select owner_user_id from workspaces where id=:id"),
+                                                  {"id": workspace})).scalar_one()
+                    await conn.execute(insert(FairUseReviewRecord).values(
+                        workspace_id=workspace, subject_user_id=subject, capability="private-capability",
+                        reason_code="security_abuse", evidence_ref="private-new-review", state="notice",
+                        starts_at=as_of, review_by=as_of,
+                    ))
+                unchanged = await monitoring.collect_billing_report(db, scope=scope, as_of=as_of)
+                assert unchanged["families"]["deletion_and_fair_use"] == old["families"]["deletion_and_fair_use"]
+            async with session() as db:
+                new = await monitoring.collect_billing_report(db, scope=scope, as_of=as_of)
+                pending = new["families"]["deletion_and_fair_use"]["values"]["pending_review"]
+                assert pending["count"] == pending["deadline_reached_count"] == 1
+        finally:
+            await reader.dispose()
+            await writer.dispose()
+    asyncio.run(scenario())
+    restarted, code = process(database)
+    assert code == 0 and restarted["families"]["deletion_and_fair_use"]["values"]["count"] == 1
