@@ -1035,3 +1035,16 @@ run41257402120/job124703432330: keyring-directory type16384/uid0/gid0/mode777.
   open/identity/chmod/fsync/readback failures и races; независимый review
   до/после кода, analyze/sync/converge и конечные exact native gates.
   Failed промежуточный PR, выпуск, F273/T0 и продажи остаются отдельными.
+
+### T114: конечная диагностика предков
+
+Source c8275c5d2f3db7e6f5a22327979b01db8cd82cc7,
+run41258326161 отказал `unsafe keyring ancestor` до проверки pin/записи.
+Следующий диагностический срез T113/T114 при этом же отказе сообщает только
+фиксированные категории share/usr/root и числовые type/uid/gid/mode/size
+их lstat. Читаются ровно `/usr/share`, `/usr`, `/`, без обхода/содержимого/
+env/пользовательских путей. Исходный guard и отказ сохраняются; ни один
+каталог не исправляется по предположению. Один штатный native Prepare
+получает конечный набор metadata, после него отдельный проект/review по
+фактам. Existing negative ancestor fixtures проверяют exact numeric stderr;
+before-code independent review, focused/static/code review и draft gates.

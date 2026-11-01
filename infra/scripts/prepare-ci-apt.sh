@@ -69,7 +69,13 @@ if repair_parent:
     for ancestor in (keyring.parent.parent, keyring.parent.parent.parent):
         value = ancestor.lstat()
         if not stat.S_ISDIR(value.st_mode) or value.st_uid != 0 or value.st_mode & 0o022:
-            fail('unsafe keyring ancestor')
+            summaries = []
+            for label, path in (('share', keyring.parent.parent), ('usr', keyring.parent.parent.parent), ('root', Path('/'))):
+                metadata = path.lstat()
+                summaries.append(f'{label} type={stat.S_IFMT(metadata.st_mode)} '
+                                 f'uid={metadata.st_uid} gid={metadata.st_gid} '
+                                 f'mode={stat.S_IMODE(metadata.st_mode):o} size={metadata.st_size}')
+            fail('unsafe keyring ancestor; ' + '; '.join(summaries))
 key_data, key_metadata = checked_read(keyring, 1048576, 'keyring')
 if repair_parent and ((key_metadata.st_uid, key_metadata.st_gid, key_metadata.st_size) != (0, 0, 3607)
                       or stat.S_IMODE(key_metadata.st_mode) not in (0o644, 0o777)

@@ -1280,6 +1280,18 @@ final test`4ffb95eb130da7a60e46cd6af0cd005d6ad310f415ad7e3c9dc404e033a9fcbd`.
 Логи `.dev/ci-official-sources/directory-{red,green,module,safe-unknown,static}.log`.
 Full/production/F273/T0/трафик и продажи этим срезом не принимаются.
 
+### T114: фактический отказ предков и конечная диагностика
+
+Sourcec8275c5d2f3db7e6f5a22327979b01db8cd82cc7,
+run41258326161/job124706213937,01.11 00:48:45UTC отказал `unsafe keyring
+ancestor` до pin/записи. Подготовка не принята. Следующая правка только
+добавляет к прежнему отказу numeric lstat share/usr/root, guard не меняется.
+Before-code independent requirements PASS, scoped analyze3/3 C/H/M0,
+sync #7859/canon250PASS; exact negative assertions RED12fail→GREEN66PASS/
+441deselected/23,15с,8static/processPASS. Это ограниченный диагностический
+прогон, не новый whole507; настоящий native Prepare получает metadata.
+Repair предков остаётся отдельным проектом после фактов; draft не merge.
+
 
 Parent diagnostic: RED9/3PASS→GREEN12; весь модуль453PASS/0skips/162,81с,
 source helper/test неизменны во время прогона. Static8PASS, независимые

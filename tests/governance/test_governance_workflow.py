@@ -727,6 +727,18 @@ ffprobe() { printf 'ffprobe\n' >> "$PREP_EVENTS"; [[ "$TOOLS_STATE" != broken-ff
     assert (result.returncode != 0) == failed, result.stdout + result.stderr
     assert rows == ([] if tools_state == "self-hosted" else ["mirror"]) if tools_state in helper_failures else rows[0] == "mirror"
     assert "fixture-private-value" not in result.stdout + result.stderr
+    if tools_state in {"key-ancestor-owner", "key-ancestor-mode", "key-ancestor-symlink", "key-ancestor-upper-mode"}:
+        summaries = []
+        for label, path in (("share", key_parent.parent), ("usr", key_parent.parent.parent), ("root", Path("/"))):
+            value = path.lstat()
+            mode = value.st_mode
+            if tools_state == "key-ancestor-mode" and label == "share" or tools_state == "key-ancestor-upper-mode" and label == "usr":
+                mode = stat.S_IFDIR | 0o777
+            if tools_state == "key-ancestor-symlink" and label == "share":
+                mode = stat.S_IFLNK | 0o755
+            uid = 1 if tools_state == "key-ancestor-owner" and label == "share" else 0
+            summaries.append(f"{label} type={stat.S_IFMT(mode)} uid={uid} gid=0 mode={stat.S_IMODE(mode):o} size={value.st_size}")
+        assert result.stderr.strip() == "CI APT preparation: unsafe keyring ancestor; " + "; ".join(summaries)
     if tools_state in {"key-parent-owner", "key-parent-symlink"}:
         metadata = key_parent.lstat()
         uid = 1 if tools_state == "key-parent-owner" else 0

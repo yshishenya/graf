@@ -868,3 +868,11 @@ framework/новые dependencies/workflow. Корректный безопас�
 Новый reviewer-owned `checklists/ci-keyring-directory.md`, before-code
 review→analyze→sync #7859→RED→минимальный код→whole/static→independent
 review/converge→тот же draft7863/exact gates. Full/T0/рост отдельно.
+
+T114 после native41258326161: только diagnostic continuation T113.
+Существующий unsafe-ancestor отказ добавляет bounded numeric metadata
+фиксированных share/usr/root через lstat; три записи, никаких contents/
+directory listing/записей/допуска. Исходный condition не меняется. Existing
+unsafe-ancestor cases требуют точный stderr; прежде независимый review,
+затем focused/static/review и один native Prepare. Следующая функциональная
+адаптация остаётся заблокирована до этих фактов и своего review.
