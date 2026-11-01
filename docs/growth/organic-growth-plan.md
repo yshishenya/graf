@@ -62,7 +62,15 @@
   merge и master `125b51042ff39a1a7b1d4d051ce2503ea8d1250c`.
   Повторный штатный prepare-release PASS и не изменил выпускные метаданные;
   дополнительный PR подготовки не требуется.
-- [ ] Принять общий выпуск на source `125b51042ff39a1a7b1d4d051ce2503ea8d1250c`.
+- [x] Дочитать единственный Full41273275580: итог FAILURE, driver EXIT1,
+  candidate abandoned; CD/публикации нет. Восемь postgres shards, static
+  и macOS PASS. Окно125b освобождено, сосед уведомлён.
+- [x] Детерминированно воспроизвести ложный отказ inventory:51 предшествующий
+  workspace, исходный test assert0==1,1failed/3.82s, cleanupPASS.
+  Независимое ревью требований F211/T115:3/0 PASS; issue #7873.
+- [ ] Принять узкую правку T115, exact PR/merge, затем новый состав/кандидат
+  и один новый Full. Общий выпуск остаётся открытым. Ниже сохранена история
+  подготовки source `125b51042ff39a1a7b1d4d051ce2503ea8d1250c`:
   GitHub Actions endpoint восстановился: 04:11:25 UTC, HTTP 200,
   core remaining 4927/5000. В прежнем driver обнаружено ограничение
   `gh pr list --limit 50`; весь диапазон после stable содержит 62 коммита

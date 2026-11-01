@@ -1,5 +1,29 @@
 # Проверка поискового притока — 1 ноября 2026
 
+## Full завершился отказом; причина воспроизведена
+
+[Authoritative Full41273275580](https://github.com/yshishenya/graf/actions/runs/41273275580)
+на125b51042ff39a1a7b1d4d051ce2503ea8d1250c окончательно FAILURE.
+Все8postgres shards, static/governance и macOS PASS. Единственный первичный
+отказ — `test_postgres_inventory_function_returns_only_bounded_scope_ids`,
+строка1091, assert0==1 в строгой части. Aggregator правильно завершился failure.
+Driver10345 остановился EXIT1 и штатно записал abandoned для
+`rc-20261101T042905Z-e980dd0d1ef7`. CD/публикации нет; окно слияний освобождено
+сообщением согласованной задаче, она подтвердила получение.
+
+На неизменном test причина воспроизведена детерминированно:51 предшествующий
+workspace на disposable PostgreSQL,1failed/3.82s на том же assertion,
+`isolated_container_removed`. Общая модульная БД не обещает, что случайный
+новый UUID попадёт на первую страницу50; production caller обходит страницы.
+F211/T115/#7873 исправляет только курсор этого теста; SQL/RLS/лимит/assertions
+не меняются. Независимые требования3/0 PASS; focused GREEN и полный профиль,
+review/converge, exact PR/merge и новый frozen Full ещё принимаются.
+
+Прежние записи «выполняется» ниже — история соответствующего времени.
+Failed125b candidate нельзя использовать для выкладки. Расширенная аналитика,
+T0 и ровно три Product Radar сообщения остаются ожидающими. Новых подтверждённых
+визитов, регистраций или оплат по технической проверке не заявляется.
+
 ## Исправление проверок принято — 03:36 UTC
 
 [PR #7869](https://github.com/yshishenya/graf/pull/7869) защищённо слит
