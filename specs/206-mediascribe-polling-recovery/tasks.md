@@ -120,3 +120,14 @@ crash/replay, no-archive и terminal UI contracts добавляются до р
 ## Phase 9: Post-release terminal refresh hardening
 
 - [X] T032 [US3] Не терять detail polling в скрытом окне, покрыть pending → terminal `no_recognizable_speech` без повторного submit и удалить только доказанно мёртвые MediaScribe helper/DTO aliases, сохранив historical dual-track и Temporal replay compatibility.
+
+## Повторная сверка T029 — 01.11.2026
+
+На исходнике `4c0c6746b4386a5549b89896c13490014b5d87ef` повторены все 14
+профильных файлов: 323 уникальных PASS, без FAIL/ERROR/SKIP. Общий fast
+завершился FAIL на трёх проверках аналитики; последующие этапы не исполнены.
+Независимое ревью сохранило infra 14/1 и UX 12/1. T029/#5893 остаётся `[ ]`;
+T030/#5895 и T031/#5896 также не приняты. Точный состав, границы,
+неисполненные этапы и контрольные суммы — в
+[отчёте](review-t029-20261101.md). Отдельные успешные этапы не заменяют
+успешный общий fast, настоящую установленную или рабочую приёмку.
