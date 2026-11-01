@@ -15,6 +15,13 @@ const pages = JSON.parse(fs.readFileSync(path.join(fixtures, 'pages.json'), 'utf
       if (url.hostname !== 'graf-help.test') return route.abort();
       if (url.pathname.startsWith('/static/public/')) {
         const file = path.join(root, 'public/static/public', url.pathname.slice('/static/public/'.length));
+        const range = /^bytes=(\d+)-(\d*)$/.exec(route.request().headers().range || '');
+        if (file.endsWith('.mp4') && range) {
+          const data = fs.readFileSync(file), start = Number(range[1]), end = Math.min(Number(range[2] || data.length - 1), data.length - 1);
+          return route.fulfill({status: 206, contentType: 'video/mp4', body: data.subarray(start, end + 1), headers: {
+            'Accept-Ranges': 'bytes', 'Content-Range': `bytes ${start}-${end}/${data.length}`,
+          }});
+        }
         return route.fulfill({path: file});
       }
       if (url.pathname.startsWith('/static/cabinet/')) {
@@ -38,6 +45,10 @@ const pages = JSON.parse(fs.readFileSync(path.join(fixtures, 'pages.json'), 'utf
         }), `${url} Onest must load`);
         assert.equal(await page.locator('h1').count(), 1);
         assert.equal(await page.locator('.content-header-nav a[href="/help"]').isVisible(), true);
+        if (url === '/guides/protokol-vstrechi-iz-zapisi') {
+          const video = await page.locator('video').boundingBox();
+          assert.ok(video.width <= width && Math.abs(video.width / video.height - 9 / 16) < .01);
+        }
         for (const scale of [1, 2]) {
           await page.evaluate(scale => {
             // Snapshot first: inherited sizes must not compound into 4x, 8x, ...
@@ -86,6 +97,49 @@ const pages = JSON.parse(fs.readFileSync(path.join(fixtures, 'pages.json'), 'utf
         }
       }
     }
+    const mediaRequests = [];
+    page.on('request', request => { if (new URL(request.url()).pathname.endsWith('.mp4')) mediaRequests.push(request.url()); });
+    await page.emulateMedia({reducedMotion: 'reduce'});
+    await page.setViewportSize({width: 390, height: 900});
+    await page.goto('http://graf-help.test/guides/protokol-vstrechi-iz-zapisi');
+    const video = page.locator('video');
+    await video.scrollIntoViewIfNeeded();
+    await page.waitForLoadState('networkidle');
+    assert.equal(mediaRequests.length, 0, 'MP4 must not load before Play, even when visible');
+    for (let tabs = 0; tabs < 80 && !await video.evaluate(v => document.activeElement === v); tabs++) {
+      await page.keyboard.press('Tab');
+    }
+    assert.ok(await video.evaluate(v => document.activeElement === v), 'native player is keyboard reachable');
+    await video.scrollIntoViewIfNeeded();
+    // Disabled page JavaScript also disables waitForFunction's page timers.
+    const waitForMedia = async check => {
+      for (let attempt = 0; attempt < 100; attempt++) {
+        if (await video.evaluate(check)) return;
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      assert.fail(`Media condition timed out: ${check}`);
+    };
+    await page.keyboard.press('Space');
+    await waitForMedia(v => {
+      return v.currentTime > .1 && v.getVideoPlaybackQuality().totalVideoFrames > 0;
+    });
+    assert.ok(mediaRequests.length > 0);
+    await page.keyboard.press('Space');
+    await waitForMedia(v => v.paused);
+    await video.evaluate(v => { v.textTracks[0].mode = 'hidden'; });
+    await waitForMedia(v => v.textTracks[0].cues?.length === 6);
+    const cues = await video.evaluate(v => Array.from(v.textTracks[0].cues, c => [c.startTime, c.endTime, c.text]));
+    assert.deepEqual(cues.map(c => c.slice(0, 2)), [[0, 8], [8, 20], [20, 34], [34, 48], [48, 62], [62, 72]]);
+    assert.match(cues[2][2], /не назван утверждённым/);
+    assert.match(cues[3][2], /Отсутствующий срок нужно уточнить/);
+    assert.match(cues[4][2], /Процент точности не измерялся/);
+    assert.match(cues[5][2], /а не отзыв клиента/);
+    assert.equal(await video.evaluate(v => v.duration), 72);
+    await video.evaluate(v => { v.currentTime = 65; });
+    await waitForMedia(v => {
+      return !v.seeking && v.readyState >= 2 && Math.abs(v.currentTime - 65) < .1;
+    });
+    console.log('public_protocol_video=pass no-preload keyboard-play decoded seek captions=6 noJS');
     console.log(`public_audio_help_browser=pass cases=${cases} widths=320,360,390,768,1440 text=100%,200% noJS keyboard`);
   } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

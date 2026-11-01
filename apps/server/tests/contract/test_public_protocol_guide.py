@@ -175,3 +175,32 @@ def test_guide_schema_matches_visible_article_and_navigation():
                 ],
             }
             assert not any(value in data for value in ("wrong.example", "synthetic-secret", "utm_source"))
+
+
+def test_protocol_video_is_guest_accessible_with_native_media_headers():
+    from twobrain_rec_server.public.templates import public_static_asset_url
+
+    with TestClient(create_app(Settings())) as client:
+        html = client.get(PATH).text
+        video = re.search(r"<video\b([^>]*)>(.*?)</video>", html, re.S)
+        assert video is not None
+        attrs, body = video.groups()
+        assert 'controls preload="none" playsinline' in attrs
+        assert 'width="1080" height="1920"' in attrs
+        assert "autoplay" not in attrs and "iframe" not in body
+        for ext, content_type in (("mp4", "video/mp4"), ("vtt", "text/vtt"), ("txt", "text/plain"), ("png", "image/png")):
+            url = public_static_asset_url(f"graf-demo-20261101.{ext}")
+            assert url in html
+            response = client.get(url)
+            assert response.status_code == 200
+            assert response.headers["content-type"].startswith(content_type)
+            assert response.headers["cache-control"] == "public, max-age=31536000, immutable"
+            assert "set-cookie" not in response.headers
+            if ext == "mp4":
+                partial = client.get(url, headers={"Range": "bytes=0-31"})
+                assert partial.status_code == 206
+                assert partial.headers["content-range"] == f"bytes 0-31/{len(response.content)}"
+                assert partial.content == response.content[:32]
+            if ext == "txt":
+                assert "все данные вымышлены" in response.text
+                assert "Выпуской записи" in response.text

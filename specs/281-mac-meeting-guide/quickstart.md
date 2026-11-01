@@ -78,3 +78,19 @@ fragment/governance/diff checks. Все шаблоны и иные публич�
 побайтно совпасть с основой. PR:3 required checks + common validator.
 T023: в согласованном выпуске exact candidate Full/CD и та же live matrix;
 без неё не закрывать publication task и общую F281.
+
+## Видео FR035–37/T026–T027
+
+Переиспользовать Python/Node/Playwright и штатный StaticFiles. Полностью
+запустить существующий `test_public_protocol_guide.py` через изолированный
+PostgreSQL runner; media-проверку включить в этот обнаруживаемый файл.
+В настоящей гостевой локальной странице проверить: MP4 не запрашивается
+до Play; после Play декодируются кадры и растёт currentTime;6 WebVTT cues
+полны; MP4 video/mp4, VTT text/vtt, Range206 с Content-Range; TXT доступен
+без входа. Проверить320/360/390/768/1440×100/200% текста, no-JS и фокус
+native player с клавиатуры. Удаление только новой section и одного пункта
+оглавления возвращает шаблон к base побайтово; protected main/download/
+policies/DOCX/CSS/JS без diff. Сверить SHA готовых G037 assets, ffprobe,
+diff/governance/fragment, независимый source review. Затем3 exact-SHA/base
+GitHub checks и общий валидатор. T027 закрывается только после реального
+общего выпуска и live readback; новая внешняя публикация не выполняется.
