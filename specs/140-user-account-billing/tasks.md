@@ -262,6 +262,13 @@ description: "Dependency-ordered implementation tasks for the GRAF personal acco
   F272/F199 stop/gates не восстанавливаются. Admin/readiness/F254 не меняются.
   Полный FR-089/O6 (все источники/регулярность/тревоги/сохраняемая реакция)
   остаётся здесь; первый отчёт не даёт `[X]` или закрытия issue.
+
+  Следующий срез после PR7884: P1–P6 контракта O9/free_projection,
+  reviewer-owned checklists/free-projection.md → независимый допуск →
+  scoped analyze/существующая #4932 → новые RED и PostgreSQL/CLI сценарии
+  quickstart → минимальная доработка того же monitoring.py и двух названных
+  unit/integration test файлов → независимое review/converge/exact PR gates.
+  Это порядок исполнения T077, не новая задача; все исходные строки прежние.
 - [ ] T078 [US10] Add test-shop and controlled real-shop canary runbooks, environment separation, provider capability evidence, legal/finance sign-off records, and rollback/stop procedure in `specs/140-user-account-billing/quickstart.md` and `docs/runbooks/billing-launch.md`.
 
 **Checkpoint**: Launch evidence proves immediate-Free behavior, unlimited paid core, finite storage, provider reconciliation and external merchant refund handling before public enablement.

@@ -80,6 +80,35 @@ dunning engine или второй платный тариф только рад
 
 ## Technical Context
 
+### T077: следующий срез free_projection (01.11.2026)
+
+Требования P1–P6 [O9](contracts/operator-observation.md#o9-следующий-срез-события-free_projection)
+выполняются в той же T077; первый read-only CLI принят PR7884.
+High-risk-product/active Spec Kit slice. Реализация только в существующем
+billing/monitoring.py: отдельная ограниченная SQL-агрегация BillingAuditEvent,
+построение двух полуночей через stdlib date/datetime/ZoneInfo и
+event_window вместо заглушки free_projection. usage.moscow_window_for
+возвращает месяц и здесь не переиспользуется. CLI/guard/снимок/cleanup,
+остальные семейства и их current_state остаются действующими.
+Новых служб/таблиц/миграций/зависимостей/флагов/egress нет.
+
+Порядок: уточнение P1–P6 → research/model/quickstart → reviewer-owned
+checklists/free-projection.md и независимый PASS → scoped analyze и
+подтверждение прежней #4932 → RED для нового семейства → минимальный
+collector → содержательные unit и реальные PostgreSQL/CLI проверки в
+существующих tests/unit/test_billing_monitoring.py и
+tests/integration/test_billing_monitoring_postgres.py → независимое
+кодовое review/converge → три exact-SHA/base GitHub gates. Полные пути
+исходников/тестов имеют существующий префикс apps/server/.
+
+Constitution Check до исследования и после проектирования: PASS по
+границам проекта — metadata-only, действующий maintenance/RLS, read-only
+снимок, ограниченные запросы/вывод, без изменения финансовых/пользовательских
+данных. Независимое принятие требований ещё обязательно. Legacy Impact
+следующего среза untouched: новых путей совместимости нет; удаление
+непотребляемого снимка относится к уже принятому PR7884 и остаётся историей.
+O6/FR089 и исходная T077 [ ] сохраняются. Своих Full/CD/Dev/выпуска нет.
+
 **Language/Version**: Python 3.13; HTML/Jinja, CSS, HTMX 2.0.10 и минимальный
 JavaScript; Swift 6 только для существующей macOS route/handoff policy
 
