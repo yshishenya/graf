@@ -187,3 +187,8 @@ Lane: docs-only / mechanical. В руководстве уже опублико�
 
 - [ ] T024 В `apps/server/src/twobrain_rec_server/public/templates/public/meeting_protocol_guide.html` добавить вводную ссылку на существующий `#template`, явно назвать Word в оглавлении и H2. Сохранить metadata/H1/DOCX/примеры и остальные страницы; пройти существующие HTML/links/example и mobile/no-JS проверки, независимое ревью и exact-SHA PR gates. Частичная связь: (Issue #7391); нового issue для редакционного direct lane нет.
 - [ ] T025 При ближайшем согласованном общем выпуске опубликовать T024 штатным процессом; проверить новые формулировки, переход к `#template` и прежние байты DOCX на рабочем сайте. Не выполнять отдельный выпуск ради редакционной правки; индексация, допустимые внешние визиты, регистрации и оплаты принимаются отдельно. (Issue #7391)
+
+## Видео в существующем протоколе — 01.11.2026
+
+- [ ] T026 Подключить проверенный G037 в `public/templates/public/meeting_protocol_guide.html` и `public/static/public/` по FR035–37; native player/manual/preload-none/poster/VTT/TXT, без общих CSS/JS и новых маршрутов. Проверить реальные media MIME/Range/playback, подписи, no-JS/keyboard/mobile/text200%, прежний контент и protected diff; независимое ревью, focused contracts и exact-SHA PR gates. (Issue #7391)
+- [ ] T027 При ближайшем общем штатном выпуске опубликовать T026; проверить публичные HTML/MP4/Range/VTT/TXT/poster, воспроизведение и прежний DOCX. Не считать публикацию трафиком или продажами. До live readback оставить открытой. (Issue #7391)
