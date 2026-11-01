@@ -21,7 +21,6 @@ from pathlib import Path
 
 import pytest
 import sqlalchemy as sa
-from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
@@ -77,6 +76,8 @@ def _event_payload(**overrides: object) -> dict:
         "surface": "public_download",
         "view_id": VIEW_ID,
         "consent_state": "accepted_all",
+        "consent_id": "a4e71874-d03e-49d2-a14f-98da121655e9",
+        "consent_epoch": "0b25ac98-b422-45fd-9d46-ce3f1bfc7bf4",
         "consent_copy_version": PUBLIC_ANALYTICS_CONSENT_VERSION,
         "consent_categories": list(PUBLIC_ANALYTICS_CONSENT_CATEGORIES),
     }
@@ -175,7 +176,7 @@ def test_relay_refuses_an_event_without_a_valid_consent_decision(
 
     import twobrain_rec_server.public.web as public_web
 
-    def _record(settings: Settings, event: dict) -> dict:
+    def _record(settings: Settings, event: dict, **kwargs) -> dict:
         delivered.append(event)
         return {
             "provider": "posthog",
@@ -242,7 +243,7 @@ def test_relay_refuses_forbidden_material_even_with_consent(
     monkeypatch.setattr(
         public_web,
         "deliver_public_analytics_event",
-        lambda settings, event: delivered.append(event) or {"delivered": True},
+        lambda settings, event, **kwargs: delivered.append(event) or {"delivered": True},
     )
 
     rejected_payloads = {
@@ -288,7 +289,7 @@ def test_signup_and_login_page_views_cannot_carry_a_typed_value(
     monkeypatch.setattr(
         public_web,
         "deliver_public_analytics_event",
-        lambda settings, event: delivered.append(event) or {"delivered": True},
+        lambda settings, event, **kwargs: delivered.append(event) or {"delivered": True},
     )
 
     typed_email = "visitor-273@example.test"
@@ -449,7 +450,7 @@ def test_relay_refuses_stale_server_revision_before_delivery(
     delivered: list[dict] = []
     monkeypatch.setattr(
         public_web, "deliver_public_analytics_event",
-        lambda settings, event: delivered.append(event) or {"delivered": True},
+        lambda settings, event, **kwargs: delivered.append(event) or {"delivered": True},
     )
     with TestClient(create_app(settings)) as client:
         response = client.post(PUBLIC_ANALYTICS_CAPTURE_ENDPOINT, json=_event_payload())
@@ -458,16 +459,14 @@ def test_relay_refuses_stale_server_revision_before_delivery(
     assert delivered == []
 
 
-def test_relay_and_worker_reread_current_public_basis(public_basis_register, monkeypatch):
+def test_relay_and_worker_reread_current_public_basis(public_basis_register, postgres_seeded_database_url, monkeypatch):
     from types import SimpleNamespace
 
     import twobrain_rec_server.public.analytics as analytics
     import twobrain_rec_server.public.web as public_web
 
-    settings = _analytics_settings("postgresql+asyncpg://unused:unused@localhost/unused")
-    app = FastAPI()
-    app.state.settings = settings
-    app.include_router(public_web.router)
+    settings = _analytics_settings(postgres_seeded_database_url)
+    app = create_app(settings)
     sent = []
     class Client:
         def capture_event(self, **kwargs):

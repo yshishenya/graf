@@ -301,6 +301,8 @@ PUBLIC_ANALYTICS_RELAY_ALLOWED_FIELDS = (
     "consent_state",
     "consent_categories",
     "consent_copy_version",
+    "consent_id",
+    "consent_epoch",
     "campaign_attribution",
     *PUBLIC_ANALYTICS_RELAY_STABLE_LABEL_FIELDS,
 )
@@ -1129,6 +1131,13 @@ def normalize_public_analytics_event(payload: Any) -> dict[str, Any]:
     if unknown_fields:
         raise PublicAnalyticsEventRejected("unknown_field")
 
+    from twobrain_rec_server.public.consent import ChoiceRejected, canonical_uuid
+    try:
+        consent_id = canonical_uuid(payload.get("consent_id"))
+        consent_epoch = canonical_uuid(payload.get("consent_epoch"))
+    except ChoiceRejected as exc:
+        raise PublicAnalyticsConsentRequired("server_choice_required") from exc
+
     event_name = payload.get("event_name")
     catalog_entry = next(
         (entry for entry in PUBLIC_ANALYTICS_EVENT_CATALOG if entry["event_name"] == event_name),
@@ -1192,6 +1201,8 @@ def normalize_public_analytics_event(payload: Any) -> dict[str, Any]:
     properties["consent_categories"] = list(categories)
     return {
         "event_name": str(event_name),
+        "consent_id": consent_id,
+        "consent_epoch": consent_epoch,
         "page_path": page_path,
         "surface": surface,
         PUBLIC_ANALYTICS_VIEW_ID_FIELD: view_id,
@@ -1200,7 +1211,7 @@ def normalize_public_analytics_event(payload: Any) -> dict[str, Any]:
     }
 
 
-def deliver_public_analytics_event(settings: Settings, event: Mapping[str, Any]) -> dict[str, Any]:
+def deliver_public_analytics_event(settings: Settings, event: Mapping[str, Any], *, transport=None) -> dict[str, Any]:
     """Relay one consented public event to PostHog and never raise.
 
     Delivery goes through the same first-party ``PostHogClientWrapper`` the
@@ -1216,6 +1227,8 @@ def deliver_public_analytics_event(settings: Settings, event: Mapping[str, Any])
             "provider": "posthog", "status": "public_measurement_blocked",
             "reason": blocker, "delivered": False, "retryable": False,
         }
+    if transport is None:
+        return {"provider": "posthog", "status": "choice_control_required", "delivered": False, "retryable": False}
     properties = {
         **dict(event.get("properties") or {}),
         "source_feature": "273-paid-traffic-analytics",
@@ -1224,6 +1237,8 @@ def deliver_public_analytics_event(settings: Settings, event: Mapping[str, Any])
     }
     try:
         client = PostHogClientWrapper.from_settings(settings)
+        client.transport = transport
+        client.timeout_seconds = 5.0
         result = client.capture_event(
             event_name=str(event["event_name"]),
             distinct_id=str(event[PUBLIC_ANALYTICS_VIEW_ID_FIELD]),

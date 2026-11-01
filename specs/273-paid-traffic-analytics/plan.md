@@ -712,3 +712,23 @@ public_basis_register. В provider smoke переиспользовать его
 перед и после synthetic transport. Before-code independent review существующего
 public-server-gate checklist; затем три RED→GREEN, весь page-scope module,
 public unit/контракты и независимый review/converge. T106/#7696 остаются открытыми.
+
+## T106 — индивидуальный серверный выбор, 01.11.2026
+
+Lane: `high-risk-product`, существующая T106/#7696; clarify — Session2026-11-01.
+Договор и единственная точная схема: [public-consent-control](contracts/public-consent-control.md).
+Переиспользуются CookieConsent.consentId, штатные PostgreSQL sessions/migrations,
+transaction advisory locks из acquisition, внедряемый transport PostHog wrapper
+и ограниченное async I/O из router. Новый сервис/зависимость/опрос не нужны.
+Новая таблица контрольного выбора отделена от событий; прежние таблицы не
+переиспользуются под другую цель. Реализация затрагивает public analytics.py,
+web.py, analytics.js, один scoped public consent модуль, db/model/migration,
+существующий lifecycle/retention и focused проверки PostgreSQL/браузера.
+
+Constitution check до/после дизайна: I/V/VII не затрагиваются; II сохраняет
+явный обратимый выбор; III — прежний self-hosted получатель, запреты payload;
+IV — until_decision, отдельное удаление и restore quarantine без обещания
+стирания у получателя; VI — checklist→analyze→issue sync→код→review/converge.
+Нарушений принципов не найдено. Архитектурные неизвестные разрешены в договоре;
+принятие полноты требований принадлежит независимому рецензенту.
+Рабочие backup/restore и полная готовность T113 не принимаются этим срезом.

@@ -26,6 +26,7 @@ ALLOWED_MAINTENANCE_OPERATIONS = frozenset(
         "summary_slots_reconciliation",
         "summary_delivery_reconciliation",
         "activation_milestone_delivery",
+        "public_consent_control",
         "deletion_purge_reconciliation",
         "outcome_initial_baseline_reconciliation",
         "billing_reconciliation",
@@ -159,6 +160,15 @@ class AccountMergeTenantContext:
             raise ValueError(f"Unsupported account merge context_kind: {self.context_kind}")
         if self.survivor_user_id == self.source_user_id:
             raise ValueError("account merge context requires distinct users")
+
+
+@dataclass(frozen=True, slots=True)
+class PublicConsentContext:
+    consent_digest: str
+
+    def __post_init__(self) -> None:
+        if len(self.consent_digest) != 64 or any(c not in "0123456789abcdef" for c in self.consent_digest):
+            raise ValueError("invalid public consent digest")
 
 
 @dataclass(frozen=True, slots=True)
@@ -421,6 +431,7 @@ async def apply_tenant_context(
     context: (
         TenantDatabaseContext
         | MaintenanceTenantContext
+        | PublicConsentContext
         | AccountMergeTenantContext
         | AuthSessionLookupContext
         | WorkspaceAuthContext
@@ -435,6 +446,8 @@ async def apply_tenant_context(
 ) -> None:
     if isinstance(context, TenantDatabaseContext):
         settings = tenant_context_settings(context)
+    elif isinstance(context, PublicConsentContext):
+        settings = {"app.context_kind": "public_consent", "app.public_consent_digest": context.consent_digest}
     elif isinstance(context, MaintenanceTenantContext):
         settings = maintenance_context_settings(context)
     elif isinstance(context, AccountMergeTenantContext):
@@ -471,6 +484,7 @@ async def apply_tenant_context_to_connection(
     context: (
         TenantDatabaseContext
         | MaintenanceTenantContext
+        | PublicConsentContext
         | AccountMergeTenantContext
         | AuthSessionLookupContext
         | WorkspaceAuthContext
@@ -485,6 +499,8 @@ async def apply_tenant_context_to_connection(
 ) -> None:
     if isinstance(context, TenantDatabaseContext):
         settings = tenant_context_settings(context)
+    elif isinstance(context, PublicConsentContext):
+        settings = {"app.context_kind": "public_consent", "app.public_consent_digest": context.consent_digest}
     elif isinstance(context, MaintenanceTenantContext):
         settings = maintenance_context_settings(context)
     elif isinstance(context, AccountMergeTenantContext):

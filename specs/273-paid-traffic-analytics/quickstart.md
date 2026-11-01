@@ -499,6 +499,29 @@ owned-queue scenario обязан FAIL на сохранении array/push и �
 после in-place очистки оба профиля GREEN. В accepted SDK test нет прямого
 instance.destruct или обёртки ym; они применялись только для диагностики FAIL.
 
+## T106 — индивидуальный серверный выбор
+
+После независимого checklist public-consent-control, analyze C/H0 и sync #7696:
+RED в существующей contract/integration/browser структуре, затем минимальный код.
+Настоящая временная PostgreSQL и два отдельных процесса обязаны причинно
+показать transport до revoke и ноль новых после commit: удержать lock/send,
+начать revoke, дождаться bounded send, принять revoke, продолжить старый worker.
+Повторить old grant/payload после нового grant, отсутствующую строку,
+рестарт, restore quarantine, отказ DB/read/write/lock/commit и отмену запроса.
+Restore-профиль обязательно содержит отрицательную строку epoch E до копии,
+grant(E) и revoke после копии, затем восстановление: replay grant(E) отклонён.
+Все request/lock/commit бюджеты конечны. Настоящая CookieConsent дополнительно
+проходит подтверждение неизменившихся категорий после 503/утраты server epoch
+обычной кнопкой статуса, без зависимости от повторного onChange.
+Настоящая CookieConsent: grant→revoke, reload, shared storage из другой вкладки,
+pageshow, отсутствие server epoch и поздний callback. Никакого внешнего SDK.
+Разобрать сохранённую строку и полученный fake transport body: consentId/digest
+не попадают в distinct_id/properties/уровни1/2; действуют cap/RLS/until_decision.
+Ошибка revoke видна как pending, а не успех. Прежние public/global/provider
+gates, payload guards и отсутствие live запуска сохраняются.
+Код проверяется focused pytest/Node и независимым review/converge, затем
+exact PR gates. Полный T106/T113, рабочее измерение/T0 этим не закрываются.
+
 Запуск из корня (GRAF_NODE_MODULES указывает на уже установленный Playwright,
 если его нет в tests/browser/node_modules; автоматической установки нет):
 

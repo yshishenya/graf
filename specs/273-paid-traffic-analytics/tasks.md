@@ -704,3 +704,53 @@ splice только для своего counter; перед кодом повт�
 plan.md. Три сценария воспроизведены FAILED на e4762f64b. Сначала независимое
 ревью требований/плана, затем RED→GREEN и профиль; рабочие flags/gate не меняются.
 Общая задача остаётся открытой, новых задач и заявлений о runtime/T0 нет.
+
+
+### T106 — индивидуальный серверный выбор, 01.11.2026
+
+Та же открытая T106/#7696, FR-001/002/003/004/006/007/008/048/049/050/051/059,
+US2 (P1), high-risk-product. Независимый checklist public-consent-control:
+PASS требований6/0; последующие analyze/issue-sync обязательны перед кодом.
+Все ограничения полей и переходов заданы в contracts/public-consent-control.md.
+Новых task IDs и issues нет; общий T106 не закрывается частичным срезом.
+
+Порядок исполнения внутри T106:
+
+1. RED: apps/server/tests/contract/test_public_analytics_consent_enforcement.py
+   и tests/integration/test_public_consent_control.py: настоящий PostgreSQL,
+   два процесса, transport до revoke и ноль новых после commit, old grant/payload
+   после regrant; negative-row restore; отсутствие/ошибки/таймауты/отмена.
+2. Схема и контроль: db/models/public_consent.py, db/migrations/versions/0108_public_consent.py,
+   db/tenant_context.py и public/consent.py в apps/server/src/twobrain_rec_server/.
+   SHA256 UUIDv4 consent_digest, случайный UUIDv4 epoch на каждый переход,
+   закрытые категории с necessary, NULL copy_version при отказе, server time;
+   forced RLS по точному transaction-local digest, без контекста deny;
+   named maintenance public_consent_control, без BYPASSRLS.
+   Admission новых строк при pg_total_relation_size<16MiB, digest→admission lock,
+   until_decision без возрастного удаления; существующий отзыв обслуживается.
+3. API и доставка: public/web.py, public/analytics.py, public/consent.py;
+   POST/1024байта/точный обязательный Origin/no-store/строгие поля и UUIDv4.
+   Read не создаёт; revoke всегда новый epoch независимо от measurement flags;
+   grant CAS только текущей редакции и basis; success только после commit.
+   Relay требует id+epoch; общий digest lock удерживается через final gate и
+   bounded transport, без SDK/авторетраев/redirect; общий budget6с, transport≤5с.
+4. Браузер: public/static/public/analytics.js и public/templates/public/_analytics.html;
+   явный выбор revoke→CAS grant, expected_epoch только текущего revoke,
+   onConsent/read не разрешают; повторная сверка настоящей записи библиотеки,
+   передача epoch и локальный запрет при ошибке. Доступный role=status и явная
+   кнопка повторения неизменившихся категорий; настройки отказа доступны при
+   выключенном measurement без automatic banner/grant. Сохранить product-only путь.
+5. Lifecycle: product_analytics/retention.py, legal_basis_lifecycle.py и существующие
+   restore/inventory paths; категория public_consent_control until_decision,
+   полный dump и все строки с новым epoch/запретом до снятия restore quarantine.
+   Отдельное обязательное удаление и повтор случая после restore сохраняются.
+6. GREEN/регрессии: causal PostgreSQL/RLS/cap/restart/budget/cancel/failure,
+   отсутствие id/digest в receiver/уровнях1/2; настоящий CookieConsent,
+   cross-tab/resume/same-category retry; прежние public/provider/browser tests.
+   Независимое implementation review→converge→exact PR checks→штатный выпуск.
+
+Зависимости последовательные, parallel product implementation не назначается:
+сначала договор/схема, затем writers/браузер и lifecycle, затем общий профиль.
+Независимое чтение тестов допустимо параллельно без правки чужих файлов.
+Рабочее включение/T0/SDK остаются закрытыми до отдельных backup/restore,
+capacity, actual rights, legal/provider/browser readback и операционной приёмки.

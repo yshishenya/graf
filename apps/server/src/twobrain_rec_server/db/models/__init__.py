@@ -145,6 +145,7 @@ from twobrain_rec_server.db.models.product_analytics import (
     ProductActivationMilestone,
     PublicVisitAttribution,
 )
+from twobrain_rec_server.db.models.public_consent import PublicAnalyticsChoice
 from twobrain_rec_server.db.models.summary_autosend import (
     SummaryAutoSendException,
     SummaryAutoSendRule,
@@ -159,6 +160,7 @@ from twobrain_rec_server.db.models.summary_sharing import (
 from twobrain_rec_server.db.models.support import SupportIncident, SupportIncidentRateLimitBucket
 
 __all__ = [
+    "PublicAnalyticsChoice",
     "BillingRegistryGap",
     "BillingRegistryImport",
     "SummaryAutoSendException",
