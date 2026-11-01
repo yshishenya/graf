@@ -320,7 +320,6 @@ description: "Dependency-ordered implementation tasks for the GRAF personal acco
 - Every task above remains unchecked until implementation and its listed validation evidence pass.
 - No task may add an in-product refund form, claim/status/timeline, amount calculator, operator refund UI, refund CLI, or outbound refund mutation.
 - No task may introduce a second paid base tier, commercial paid-minute cap, renewal grace/retry path, or duplicate storage inventory.
-- Implementation changes require explicit user approval before commit, push, merge or production release.
 
 
 ## Сверка отметок — 2026-10-27
