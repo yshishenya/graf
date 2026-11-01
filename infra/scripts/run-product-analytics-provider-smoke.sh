@@ -201,7 +201,8 @@ with TemporaryDirectory() as tmpdir:
         "category=measurement_events retention_mode=until_decision retention_days=none storage=clickhouse enforcement=decision_required enforcement_verified=true\n"
         "category=anonymous_aggregate retention_mode=until_decision retention_days=none storage=postgres enforcement=decision_required enforcement_verified=true\n"
         "category=visit_attribution retention_mode=until_decision retention_days=none storage=postgres enforcement=decision_required enforcement_verified=true\n"
-        "category=acquisition_attribute retention_mode=until_decision retention_days=none storage=postgres enforcement=decision_required enforcement_verified=true\n",
+        "category=acquisition_attribute retention_mode=until_decision retention_days=none storage=postgres enforcement=decision_required enforcement_verified=true\n"
+        "category=public_consent_control retention_mode=until_decision retention_days=none storage=postgres enforcement=decision_required enforcement_verified=true\n",
         encoding="utf-8",
     )
     approval_state_file = Path(tmpdir) / "launch-approvals"

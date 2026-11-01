@@ -1,5 +1,6 @@
 """Public Webmaster proof is rendered only for the approved production hostname."""
 
+import json
 from html.parser import HTMLParser
 
 import pytest
@@ -15,17 +16,27 @@ class VerificationMetaParser(HTMLParser):
         super().__init__()
         self.in_head = False
         self.verification = []
+        self.in_public_config = False
+        self.public_config = None
 
     def handle_starttag(self, tag, attrs):
         if tag == "head":
             self.in_head = True
         attributes = dict(attrs)
+        if tag == "script" and attributes.get("id") == "graf-public-analytics-config":
+            self.in_public_config = True
         if tag == "meta" and attributes.get("name") == "yandex-verification":
             self.verification.append((self.in_head, attributes.get("content")))
 
     def handle_endtag(self, tag):
         if tag == "head":
             self.in_head = False
+        if tag == "script":
+            self.in_public_config = False
+
+    def handle_data(self, data):
+        if self.in_public_config:
+            self.public_config = json.loads(data)
 
 
 @pytest.mark.parametrize(
@@ -53,7 +64,11 @@ def test_webmaster_meta_is_one_head_tag_on_the_approved_host(base_url, expected)
         parser.feed(response.text)
         assert parser.verification == expected
         # This verification method does not depend on enabling the optional SDK.
-        assert "graf-public-analytics-config" not in response.text
+        assert parser.public_config["consent_ui_enabled"] is True
+        assert parser.public_config["enabled"] is False
+        assert parser.public_config["external_counter_allowed"] is False
+        assert parser.public_config["replay_allowed"] is False
+        assert parser.public_config["yandex_metrica_id"] is None
         assert "mc.yandex.ru" not in response.text
 
 

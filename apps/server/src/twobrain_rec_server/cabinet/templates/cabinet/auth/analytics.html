@@ -12,13 +12,15 @@
     <span data-consent-message></span>
     <button type="button" data-consent-retry hidden></button>
   </div>
+  <script id="graf-public-analytics-config" type="application/json">
+    {{ public_analytics | tojson }}
+  </script>
+  {% if not (product_analytics_provider is defined and product_analytics_provider and product_analytics_provider.enabled) %}
   <script
     defer
     src="{{ public_static_asset_url('cookieconsent.umd.js') }}"
     data-graf-cookieconsent-version="{{ public_analytics.cookieconsent_version }}"
   ></script>
-  <script id="graf-public-analytics-config" type="application/json">
-    {{ public_analytics | tojson }}
-  </script>
   <script defer src="{{ public_static_asset_url('analytics.js') }}"></script>
+  {% endif %}
 {% endif %}
