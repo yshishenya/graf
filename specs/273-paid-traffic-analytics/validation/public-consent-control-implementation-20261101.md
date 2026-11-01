@@ -223,3 +223,34 @@ Scoped convergence сверяет12применимых FR,SC004,6групп а�
 существующими открытыми задачами. Новый source ещё требует independent review
 и собственных PR checks; зелёные проверки85fb… к следующему коммиту неприменимы.
 Изменений рабочего сервера, включения аналитики и внешних публикаций не было.
+
+## После отказа governance41303116058: исправление изоляции тестов
+
+Исторический source `afc48aa93fd3a843012d115fe72dc4b6807342fa` не прошёл
+GitHub CI:4FAILED/316PASS в changed server profile. Локальный69PASS выше
+не заменяет этот отказ. Последующие evidence outcome errors — последствия.
+
+Причины и узкая правка в существующей T106:
+
+- [x] Два negative timeout сценария оставляли искусственный бюджет80мс на
+  обычный postcondition read/revoke. `monkeypatch.context()` ограничивает
+  сокращение отрицательной фазой; production6с не меняются. Тот же leak
+  устранён в соседних stalled-preparations80мс/final-gate-reads200мс.
+- [x] Spawn/import readiness до начала delivery имеет конечный запас60с
+  вместо10с. Реальный IPC барьер, наблюдение pg_locks,2с ожидание race,
+  факт transport до revoke и запрет после commit остались прежними.
+- [x] Глобальная история browser иногда включает допустимый `read` перед
+  текущим выбором. Проверка mutations требует ровно `revoke→grant` и один
+  accepted consentId; любой write другого выбора тоже провалит тест.
+  Отдельные reload/read-only, nonmutating cookie, CAS и no-background-grant
+  утверждения сохраняются. Рабочий controller/consent.py не изменялись.
+- [x] Окончательный общий повтор с4xdist workers, dist=loadfile:
+  **69PASS,10warnings,0skips,23.46s**; runner подтвердил удаление временного
+  контейнера. Предыдущий промежуточный параллельный69PASS не выдаётся за
+  проверку окончательного diff. Ruff и diff --check PASS.
+
+SHA256 окончательного параллельного журнала:
+`9ab472d6f36d0fb7cbcf4d5c468793d7a74de2c48a8a888bdea688d7d97be221`.
+
+Нужны independent review и свежие GitHub gates нового exact SHA. Ничего
+не слито и не выпущено; аналитика/T0/Product Radar и коммерческие цели открыты.

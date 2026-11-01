@@ -103,8 +103,12 @@ print(render_template('cabinet/auth/analytics.html', public_analytics=json.loads
     await ready(page);
     const accepted = await cookie(page);
     assert.equal(accepted.data.graf_public_consent_epoch, rows.get(accepted.consentId).epoch);
-    assert.deepEqual(requests.map(r => r.action), ['revoke', 'grant']);
-    assert.equal(requests[1].expected_epoch !== accepted.data.graf_public_consent_epoch, true);
+    // A queued focus/read from a closing auth page may arrive after reset.
+    // Every mutation must still belong to this explicit choice, in order.
+    const writes = requests.filter(r => r.action !== 'read');
+    assert.deepEqual(writes.map(r => [r.action, r.consent_id]),
+      [['revoke', accepted.consentId], ['grant', accepted.consentId]]);
+    assert.equal(writes[1].expected_epoch !== accepted.data.graf_public_consent_epoch, true);
     await page.waitForFunction(() => window.GRAFPublicAnalytics.sentEvents.length > 0);
     await new Promise(resolve => setImmediate(resolve));
     assert.ok(events.length > 0);

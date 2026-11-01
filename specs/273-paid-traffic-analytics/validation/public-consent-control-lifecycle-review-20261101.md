@@ -426,3 +426,114 @@ runtime/полный T113/T0 и внешнее SDK/replay HOLD остаются 
 convergence. Общие требования и checklist не переоценены как полное выполнение.
 Изменён только этот reviewer report; код/spec/plan/tasks/checklist/Git/GitHub
 и чужие изменения проверяющий не менял, новых агентов не создавал.
+
+## afc48aa — независимая диагностика четырёх отказов CI
+
+База: HEAD `afc48aa93fd3a843012d115fe72dc4b6807342fa`.
+Прочитан terminal журнал владельца
+`/private/tmp/graf-pr7878-afc-failed-clean-20261101.txt`, строки323–920,
+SHA256 `4e043a19b4561f853b7aec42c9c7cbfb84880c85ec7bc3d94d80daa973ca2abf`.
+Итог соответствующей стадии: **4 failed, 316 passed**, очистка контейнера
+подтверждена. Прежний локальный PASS не подменяет этот новый CI failure.
+
+Диагностика владельца подтверждена независимо по traceback и исходнику:
+
+1. Browser упал на глобальном журнале `read,revoke,grant` вместо
+   `revoke,grant`. Сам `read` допустим по контракту и не является согласием;
+   нельзя требовать отсутствия фонового чтения во всей истории. Минимальная
+   проверка должна выделять ровно две mutation текущего consentId в прежнем
+   порядке, проверять их идентичность и CAS и не скрывать лишние mutation
+   других IDs. Начальное чтение и запрет grant при load/reload остаются
+   отдельными проверками. В момент чтения browser diff содержал только
+   диагностическую строку, поэтому окончательная правка ещё не принята.
+2. Cap/timeout-тест доказал нужный TimeoutError в отрицательной фазе,
+   затем обычный postcondition `read` также получил оставшийся искусственный
+   бюджет80мс. Scoped `monkeypatch.context` только вокруг заблокированного
+   вызова сохраняет отрицательный TimeoutError, возвращая production6с
+   перед чтением неизменного epoch. Это уточнение тестового воздействия,
+   не увеличение продуктового бюджета.
+3. Late-preparation тест уже получил bounded blocked результат, но обычный
+   последующий revoke выполнялся с теми же80мс и упал на commit/cleanup.
+   Узкий context вокруг stalled attempt и bounded await сохраняет его
+   отрицательную фазу; обычный revoke после context проверяется с6с.
+   Утверждения detached preparation/no-late-transport должны остаться.
+4. Spawn-тест упал на `progress.get(...,10)` **до создания sending task**.
+   Ожидание готовности до60с допустимо отдельно от product deadline:
+   настоящий IPC барьер, transport entered, наблюдение PostgreSQL advisory
+   wait, release, child result/exitcode и запрет старого epoch сохраняются.
+   Ожидания внутри уже начавшейся продуктовой гонки увеличивать этим
+   исправлением не требуется.
+
+Повторно прочитанный появившийся локальный diff Python теста действительно
+ограничивает80мс двумя contexts и меняет только pre-transport spawn wait
+10→60. Реализация, product6с, lock/HTTP бюджеты не меняются. **Вердикт
+диагностики и этих минимальных способов исправления: PASS; окончательное
+тестовое изменение и общий CI пока HOLD до полного diff/исполнения.**
+
+Дополнительно обнаружены два других места с тем же классом тестового
+воздействия: `test_stalled_preparations_are_bounded_and_do_not_block_revoke`
+оставляет80мс для обычного revoke, а `test_stalled_final_gate_reads_are_bounded_and_never_send_late`
+оставляет200мс для revoke и положительного recovery. Это не новые дефекты
+продукта и не ещё два доказанных CI failures; владельцу предложено так же
+отделить отрицательную фазу от обычных postconditions, сохранив held slots,
+точные счётчики, no-late-HTTP и возврат ёмкости. Не добавлять retry/skip или
+увеличение product deadline ради прохождения нагрузки.
+
+Production consent.py SHA256 при чтении не изменился:
+`36f32a6a64f907846daf4960bc3eeb51e22ec7736b1ef6424ae87ad74dbc7fd0`.
+Тесты проверяющий не запускал; исходники и чужие изменения не менял,
+дополнил только этот собственный отчёт. Общие runtime/T113/T0 HOLD прежние.
+
+## afc48aa — окончательное чтение test-only исправления и параллельного повтора
+
+**Итог узкой test-only поправки: PASS. Новых конкретных P1/P2 нет; причины
+четырёх указанных отказов устранены с сохранением проверяемой причинности.**
+Новая текущая CI окончательного commit отдельно обязательна; старый afc48aa
+terminal failure не переименован в успешную проверку этого SHA.
+
+Полностью прочитан финальный diff только двух тестовых файлов:
+
+- Browser исключает только `read` из журнала mutations, затем требует ровно
+  `[['revoke', accepted.consentId], ['grant', accepted.consentId]]`.
+  Любая лишняя мутация или write другого ID провалит утверждение. CAS assertion
+  теперь обращается к grant именно этого списка, а не к сдвинутому индексу
+  общего журнала. Настоящая loopback модель сервера по-прежнему проверяет
+  expected_epoch до принятия grant. Reload/read-only, no-epoch, same-category,
+  отказной retry, auth, cross-tab, malformed metadata и late callback не убраны.
+  Фоновый read остаётся допустимым и сам не становится новым согласием.
+- Четыре коротких бюджета80/200мс ограничены `monkeypatch.context` только
+  отрицательными фазами. В cap-тесте остаются TimeoutError и неизменный epoch;
+  в late-preparation — bounded completion/blocked и no-late-send; в двух
+  capacity-тестах — точные started/finished счётчики, удержанные слоты,
+  отсутствие роста очереди, успешный revoke и восстановление ёмкости.
+  Обычные postcondition read/revoke/recovery выполняются после возврата6с.
+- Spawn readiness60с находится до создания sending task. Последующие
+  entered2с, реальный IPC start_revoke, pg_locks wait2с, release, ответ
+  дочернего процесса, exitcode0, отсутствие отправки старого epoch и calls1
+  остались прежними. Искусственного sleep вместо причинного барьера нет.
+
+Финальные SHA256:
+
+- `tests/browser/public-consent-control.test.cjs`:
+  `0b12ac0cf1260e4f9e914ec3017547802c16b217b6f6940cdf064e2489ec8df5`.
+- `tests/contract/test_public_consent_control.py`:
+  `f2124c61a54dcd599568c58e87890c1e4bdecc3a7290f3bd21f7cd975dd74c52`.
+- Production `public/consent.py` не изменился:
+  `36f32a6a64f907846daf4960bc3eeb51e22ec7736b1ef6424ae87ad74dbc7fd0`.
+
+Дочитан именно окончательный журнал
+`/private/tmp/graf-pr7878-fixture-final-parallel-20261101.txt`, SHA256
+`9ab472d6f36d0fb7cbcf4d5c468793d7a74de2c48a8a888bdea688d7d97be221`:
+4 worker, collection_count69, тот же digest
+`80c846392a1dabb1a4647d4d0b4be6effc5c47279903d5332e3767b8dbf4cb19`,
+**69 passed, 10 warnings in 23.46s, без skips**;
+`postgres_test_phase=focused status=pass duration_seconds=28`,
+`postgres_test_cleanup=isolated_container_removed`, `postgres_test_result=pass`.
+Это окончательный diff; промежуточный PASS на diagnostic-only browser правке
+не используется как его доказательство. Предупреждения pytest fixture import
+и Starlette повторяются по процессам, не обозначают дополнительных failures.
+
+Проверяющий сам не запускал тесты и не менял реализацию, тесты, требования,
+план, задачи, checklist или Git. Изменён только собственный отчёт. Scoped
+convergence индивидуального public-consent среза сохранён; полный F273,
+рабочий релиз/runtime, T113/T0 и цель трафика/продаж не закрываются.

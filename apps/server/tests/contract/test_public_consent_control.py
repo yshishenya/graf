@@ -221,7 +221,7 @@ def test_another_process_waits_for_transport_then_blocks_old_epoch(postgres_seed
             child = context.Process(target=_revoke_in_another_process,
                                     args=(postgres_seeded_database_url, consent_id, progress, start_revoke))
             child.start()
-            assert await asyncio.to_thread(progress.get, True, 10) == 'started'
+            assert await asyncio.to_thread(progress.get, True, 60) == 'started'
             sending = asyncio.create_task(choices.send_consented_event(sessions, Settings(), event, sender=sender))
             await asyncio.wait_for(entered.wait(), 2)
             start_revoke.set()
@@ -274,9 +274,10 @@ def test_new_row_cap_preserves_existing_refusal_and_timeout_never_claims_success
             second = await choices.control_choice(sessions, Settings(), {'action': 'revoke', 'consent_id': consent_id})
             assert first['epoch'] != second['epoch']
             async with choices.locked_choice(sessions, consent_id):
-                monkeypatch.setattr(choices, 'CHOICE_BUDGET_SECONDS', .08)
-                with pytest.raises(TimeoutError):
-                    await choices.control_choice(sessions, Settings(), {'action': 'revoke', 'consent_id': consent_id})
+                with monkeypatch.context() as budget:
+                    budget.setattr(choices, 'CHOICE_BUDGET_SECONDS', .08)
+                    with pytest.raises(TimeoutError):
+                        await choices.control_choice(sessions, Settings(), {'action': 'revoke', 'consent_id': consent_id})
             observed = await choices.control_choice(sessions, Settings(), {'action': 'read', 'consent_id': consent_id})
             assert observed['epoch'] == second['epoch']
         finally:
@@ -347,12 +348,13 @@ def test_late_sender_failure_preserves_transport_truth_and_late_thread_cannot_se
                 except PermissionError:
                     return {'delivered': False}
                 raise AssertionError('late sender reached transport')
-            monkeypatch.setattr(choices, 'CHOICE_BUDGET_SECONDS', .08)
-            task = asyncio.create_task(choices.send_consented_event(sessions, Settings(), event, sender=stalled_preparation))
-            assert await asyncio.to_thread(started.wait, 1)
-            done, _ = await asyncio.wait([task], timeout=.3)
-            assert task in done, 'preparation retained request/DB lock beyond the budget'
-            assert (await task)['delivered'] is False
+            with monkeypatch.context() as budget:
+                budget.setattr(choices, 'CHOICE_BUDGET_SECONDS', .08)
+                task = asyncio.create_task(choices.send_consented_event(sessions, Settings(), event, sender=stalled_preparation))
+                assert await asyncio.to_thread(started.wait, 1)
+                done, _ = await asyncio.wait([task], timeout=.3)
+                assert task in done, 'preparation retained request/DB lock beyond the budget'
+                assert (await task)['delivered'] is False
             # The detached preparation is still blocked, but revoke can commit.
             assert (await choices.control_choice(sessions, Settings(), {'action': 'revoke', 'consent_id': consent_id}))['accepted'] is True
             release.set()
@@ -451,7 +453,6 @@ def test_stalled_preparations_are_bounded_and_do_not_block_revoke(postgres_seede
         count_lock = threading.Lock()
         started = []
         finished = []
-        monkeypatch.setattr(choices, 'CHOICE_BUDGET_SECONDS', .08)
         if hasattr(choices, 'PUBLIC_PREPARATIONS'):
             monkeypatch.setattr(choices, 'PUBLIC_PREPARATIONS', threading.BoundedSemaphore(2))
         event = {'consent_id': str(uuid4()), 'consent_epoch': str(uuid4())}
@@ -468,11 +469,13 @@ def test_stalled_preparations_are_bounded_and_do_not_block_revoke(postgres_seede
                 with count_lock:
                     finished.append(1)
         try:
-            results = await asyncio.wait_for(asyncio.gather(*[
-                choices.send_consented_event(sessions, Settings(), event, sender=stalled) for _ in range(10)
-            ]), .5)
-            assert all(result['delivered'] is False for result in results)
-            assert len(started) == 2, 'unbounded sender preparations were queued/started'
+            with monkeypatch.context() as budget:
+                budget.setattr(choices, 'CHOICE_BUDGET_SECONDS', .08)
+                results = await asyncio.wait_for(asyncio.gather(*[
+                    choices.send_consented_event(sessions, Settings(), event, sender=stalled) for _ in range(10)
+                ]), .5)
+                assert all(result['delivered'] is False for result in results)
+                assert len(started) == 2, 'unbounded sender preparations were queued/started'
             refused = await choices.control_choice(sessions, Settings(), {'action': 'revoke', 'consent_id': event['consent_id']})
             assert refused['accepted'] is True
             release.set()
@@ -616,14 +619,15 @@ def test_stalled_final_gate_reads_are_bounded_and_never_send_late(postgres_seede
                     'categories': ['necessary', 'analytics'], 'copy_version': PUBLIC_ANALYTICS_CONSENT_VERSION})
                 events.append({'consent_id': consent_id, 'consent_epoch': grant['epoch'], 'page_path': '/',
                                'properties': {'consent_categories': ['necessary', 'analytics']}})
-            monkeypatch.setattr(choices, 'CHOICE_BUDGET_SECONDS', .2)
-            results = await asyncio.wait_for(asyncio.gather(*[
-                choices.send_consented_event(sessions, Settings(), event, sender=sender) for event in events]), 1)
-            assert all(result['delivered'] is False for result in results)
-            assert len(started) == 2 and not finished
-            for _ in range(3):
-                assert (await choices.send_consented_event(sessions, Settings(), events[0], sender=sender))['delivered'] is False
-            assert len(started) == 2, 'timed-out readers lost their concurrency slots'
+            with monkeypatch.context() as budget:
+                budget.setattr(choices, 'CHOICE_BUDGET_SECONDS', .2)
+                results = await asyncio.wait_for(asyncio.gather(*[
+                    choices.send_consented_event(sessions, Settings(), event, sender=sender) for event in events]), 1)
+                assert all(result['delivered'] is False for result in results)
+                assert len(started) == 2 and not finished
+                for _ in range(3):
+                    assert (await choices.send_consented_event(sessions, Settings(), events[0], sender=sender))['delivered'] is False
+                assert len(started) == 2, 'timed-out readers lost their concurrency slots'
             assert (await choices.control_choice(sessions, Settings(), {
                 'action': 'revoke', 'consent_id': events[0]['consent_id']}))['accepted'] is True
             release.set()
