@@ -4,6 +4,22 @@
 
 **Input**: Feature specification from `specs/179-production-landing-refresh/spec.md`
 
+## Активный срез 2026-11-01 — G026
+
+Ветка: `codex/f179-landing-readability-20261101`; исходная основа: `b64cd4ce490081437e460376884214519949e723`. Режим: `high-risk-product` / существующая F179, поскольку исправляются доступность и допустимые отклонения утверждённого оформления. Новая фича и новая подсистема не требуются.
+
+Область: R179-01–R179-05. Минимальный подход — перенос длинных слов в основном содержимом, устойчивый размер значка FAQ, локальные цвета основных кнопок и двух подписей подвала, замена трёх контейнеров `article[role=tabpanel]` на допустимые `div[role=tabpanel]`. В режиме без JavaScript мобильная шапка и открытое меню переводятся в обычный поток по выявленному при проверке перекрытию (T059); улучшенный режим сохраняется. Существующий JavaScript вкладок переиспользуется. Новых зависимостей, данных, миграций, ассетов и договоров API нет.
+
+Проверка конституции до исследования и после проектирования: PASS по §VI/§VII; доступность требует документированного точечного отклонения. Capture, согласие, данные встреч, аналитика, каталог, оплата и macOS-пакет не меняются. Исторические настройки аналитики ниже не применяются к этому срезу; действует R179-04.
+
+Исследование уже установило причины: минимальная ширина сеток от длинных слов; отдельный выход повёрнутого плюса FAQ; недостаточный контраст кнопок и мелкого подвала; недопустимый `tabpanel` на `article`. Полный исходный отчёт и независимое ревью сохранены в ветке плана роста, коммит `dbac765659a3803b763dc1dd4bd4821db31f1942`, `docs/growth/landing-readability-diagnosis-2026-11-01.md`. Это основание для исправления, а не приёмка результата.
+
+Активный reviewer-owned список: `checklists/ux.md`. Августовский `checklists/release.md` сохраняется исторически; его финансовые/аналитические пункты не активируются CSS-правкой. Нельзя объявлять всю F179 завершённой.
+
+Порядок работ после полного PASS требований: T055 — небольшой контракт семантики панелей; T056 — CSS и контейнеры панелей; T057 — браузерная матрица и регрессии по quickstart; T058 — независимое ревью, converge и PR с доказательствами точного SHA. Общие файлы правятся последовательно.
+
+Перед слиянием обязательны `governance-fast`, `macos-pr`, `pr-metadata` на точном SHA и проверенной основе; выпуск отдельно получает один `release-full`, dry-run и штатный CD. Завершённый `v2026.11.01.2` повторно не готовится. Трафик, регистрации, оплаты и T0 остаются отдельными критериями плана роста.
+
 ## Summary
 
 Replace the server-rendered public landing with the owner-approved local design, adapt the existing `/download` route to the same visual system, keep all legal and authentication routes inside the current FastAPI/Jinja application, and rework public Yandex Metrica goals around the new funnel. Prices are 1,000 RUB/month and 10,000 RUB/year: the tariff is published from an effective database catalog, while any promise of immediate payment remains tied to the existing checkout launch gates. Production checkout must stay disabled until the separate billing canary and four-eyes approvals pass.
