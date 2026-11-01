@@ -278,6 +278,14 @@ description: "Dependency-ordered implementation tasks for the GRAF personal acco
   sync; затем RED, ограниченная агрегация и реальные сценарии quickstart,
   независимое review/converge и точные PR gates. Состояния/временные признаки
   строк не принимают add-on/job измерители и полный O6; T077 остаётся [ ].
+
+  После PR7890: R1–R6 O11/refund inventory, reviewer-owned
+  checklists/refund-inventory.md → независимый допуск → scoped analyze и
+  прежняя #4932 → RED → одна агрегация в том же billing/monitoring.py и
+  существующих unit/integration файлах выше → реальные PostgreSQL/CLI,
+  no-write/privacy/роли/снимок/ошибка схемы → независимые review/converge и
+  точные PR gates. Чеки/финансовая сверка остаются null; T077 [ ] и все
+  исходные полные task lines сохраняются без новой задачи или issue.
 - [ ] T078 [US10] Add test-shop and controlled real-shop canary runbooks, environment separation, provider capability evidence, legal/finance sign-off records, and rollback/stop procedure in `specs/140-user-account-billing/quickstart.md` and `docs/runbooks/billing-launch.md`.
 
 **Checkpoint**: Launch evidence proves immediate-Free behavior, unlimited paid core, finite storage, provider reconciliation and external merchant refund handling before public enablement.

@@ -14,6 +14,7 @@ from twobrain_rec_server.db.models.billing import (
     BillingNotificationDelivery,
     BillingOperation,
     BillingWebhookEvent,
+    ObservedProviderRefund,
     TimeCreditLedgerEntry,
 )
 
@@ -228,6 +229,21 @@ async def _credit_ledger(db, as_of):
     }, reason=reason)
 
 
+async def _refund_inventory(db):
+    """Stored observation rows, without claiming refund timing or receipt truth."""
+    table = ObservedProviderRefund.__table__.c
+    known = (table.status == "succeeded") & (table.source == "provider_observation")
+    status = case((known, "succeeded"), else_="unrecognized").label("status")
+    groups = [dict(row) for row in (await db.execute(select(
+        status, func.count().label("count"),
+    ).group_by(status).order_by(status))).mappings().all()]
+    return _source("observed_provider_refunds", {
+        "count": sum(row["count"] for row in groups), "groups": groups,
+        "receipts": None, "reconciliation_gaps": None,
+    }, reason="unrecognized" if any(row["status"] == "unrecognized" for row in groups)
+        else "receipts_and_reconciliation_uninstrumented")
+
+
 async def collect_billing_report(db, *, scope, as_of):
     """Caller owns the bounded READ ONLY REPEATABLE READ transaction."""
     await require_billing_maintenance_database(db)
@@ -261,9 +277,9 @@ async def collect_billing_report(db, *, scope, as_of):
         "registry": await _registry(db, scope, as_of),
         "free_projection": await _free_projection(db, scope["report_date"], as_of),
         "addon_and_time_credit": await _credit_ledger(db, as_of),
+        "refunds_and_receipts": await _refund_inventory(db),
     }
-    for name in ("ingress_and_duplicates", "storage",
-                 "refunds_and_receipts", "deletion_and_fair_use"):
+    for name in ("ingress_and_duplicates", "storage", "deletion_and_fair_use"):
         families[name] = {"source": None, "scope": "unavailable", "kind": "current_state",
                           "coverage": "unavailable", "reason_code": (
                               "uninstrumented" if name == "ingress_and_duplicates" else "not_connected"

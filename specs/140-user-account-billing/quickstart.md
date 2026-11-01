@@ -84,6 +84,40 @@ scoped analyze и существующая #4932. Использовать уж�
    repository checks и три точных SHA/base PR gates. PR только Refs #4932;
    O6/FR089/T077 [ ] остаются, Full/CD/Dev/финансовая приёмка отдельно.
 
+## T077: сохранённые наблюдения возвратов — 01.11.2026
+
+План R1–R6 [O11](contracts/operator-observation.md#o11-следующий-срез-сохранённые-наблюдения-возвратов),
+не результат. До кода: независимый checklists/refund-inventory.md,
+scoped analyze/прежняя #4932 и собственные чтения текущих оригиналов.
+Из apps/server использовать owned .venv/PYTHONPATH=src:. с проверкой __file__;
+новые unit/PG случаи выбираются через `-k refund_inventory` в существующих
+tests/unit/test_billing_monitoring.py и
+tests/integration/test_billing_monitoring_postgres.py. Использовать прежний
+изолированный PG runner; не запускать всю старую приёмку без новой причины.
+
+1. Сохранить RED отсутствующего источника. Настоящий CLI→guard→forced RLS
+   PostgreSQL: пустое даёт count0/groups[], оба null, partial с причиной
+   receipts_and_reconciliation_uninstrumented; это не unavailable/PASS денег.
+2. Создать несколько синтетических частичных refund rows одного invoice,
+   succeeded/provider_observation и неизвестные status/source, включая
+   известный status с неизвестным source. Ровно закрытые sorted status/count,
+   count=sum(groups), unrecognized приоритетнее причины неподключённых метрик.
+   Реальные status/source NOT NULL не ослаблять; отказ NULL INSERT доказать
+   отдельно. CASE NULL-защиту проверить на SQL-форме без изменения схемы.
+3. Разные environments, report_date, NULL/будущие observed_at не фильтруют
+   inventory и не создают возраст. Между двумя соединениями закрепить RR
+   до commit новой строки: старый отчёт неизменен, новый снимок/новый CLI
+   процесс видит строку. Повторное чтение не меняет fingerprint таблиц.
+4. Синтетические суммы/валюта/IDs/связи/environment/JSON/даты не выбираются
+   SQL семейства и не попадают в stdout/stderr. Provider GET/POST, reversal,
+   почта=0. Несовместимая схема/нет доступа — безопасный отказ всего отчёта,
+   без traceback/SQL/частичного JSON и без нулевой подстановки. Выполнить
+   только затронутый минимальный прежний набор identity/SET ROLE/read-only.
+5. Сохранить XML/log/hashes, удалить только свой одноразовый контейнер
+   штатным finally. Независимые code review/converge и exact-SHA/base PR
+   gates обязательны. T077[ ]/#4932 OPEN, весь O6/FR089/сроки и внешние
+   приёмки сохраняются; чеков/тревог/финансовой сверки этот срез не принимает.
+
 ## T077: сохраняемый реестр бонусных дней — 01.11.2026
 
 План C1–C6 [O10](contracts/operator-observation.md#o10-следующий-срез-сохраняемый-реестр-бонусных-дней),

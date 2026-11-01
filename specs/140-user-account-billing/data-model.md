@@ -201,6 +201,15 @@ applied-consistency version. It contains no request, claimant, reason,
 calculation, decision, correspondence, SLA, operator action or user-visible
 state. GRAF never creates this provider object.
 
+Уточнение фактического T077/O11: модель ObservedProviderRefund и таблица
+observed_provider_refunds имеют environment без shop_id, status/source
+NOT NULL и nullable observed_at/default now(). Объявленный writer сохраняет
+пару succeeded/provider_observation; transport webhook/poll/registry не
+являются значениями row.source. Историческое описание выше не доказывает
+наличие дополнительных столбцов или текущую shop-привязку. Collector
+читает только status/source/count и безопасную неизвестную группу,
+без сумм/связей/времени; inventory, всегда partial, не сверка и не SLA.
+
 ### `billing_receipt_state`
 
 Payment or observed-refund linked: kind, approved configuration version,
@@ -208,6 +217,12 @@ bounded provider registration/reference class, `pending|succeeded|canceled`,
 requested/confirmed timestamps, last poll and error class. Money state and
 fiscal state are separate. Restricted contact snapshot remains on invoice and
 is omitted from general/admin projections.
+
+Для O11 это историческая проектная сущность: отдельной BillingReceiptState
+модели/таблицы нет. Реальные observations находятся в ограниченной карте
+BillingInvoice.plan_snapshot, отдельно от прежнего receipt_registration.
+Они не читаются этим срезом; values.receipts/reconciliation_gaps=null,
+pending/canceled и исходные сроки не выдаются за проверенные.
 
 ## Usage and storage
 
