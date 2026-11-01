@@ -1258,12 +1258,14 @@ async def charge_renewal_operation(
                 )
             except ValueError as exc:
                 raise YooKassaProviderError("provider payment binding is invalid") from exc
+            # The POST and lock wait may cross paid_through; classify the observed
+            # result now, preserving an explicitly supplied clock for callers/tests.
             await record_renewal_decline(
                 db,
                 subscription=subscription,
                 operation=operation,
                 invoice=invoice,
-                now=current,
+                now=_utc(now or datetime.now(UTC)),
             )
             await db.commit()
             return RenewalChargeResult(operation_id, operation.state, provider_id)

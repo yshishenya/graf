@@ -1,5 +1,6 @@
 """Real PostgreSQL transaction proof, with synthetic truth and no external API."""
 
+import asyncio
 import json
 from contextlib import asynccontextmanager
 from copy import deepcopy
@@ -538,10 +539,21 @@ async def test_repeat_dispatched_charge_preserves_state(
     assert calls == ["POST"]
 
 
+@pytest.mark.parametrize("response_timing", ["explicit", "early", "late", "late-cutoff-worker"])
 async def test_three_confirmed_declines_persist_without_duplicate_charges_or_lost_paid_term(
-    paid_workspace, tmp_path, monkeypatch
+    paid_workspace, tmp_path, monkeypatch, response_timing
 ):
     case = paid_workspace
+    cutoff = case.original["subscription"]["paid_through"]
+    observed_at = case.t0
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return observed_at.astimezone(tz)
+
+    monkeypatch.setattr(renewal_charge, "datetime", Clock)
     secret = tmp_path / "synthetic-provider-secret"
     secret.write_text("synthetic-offline-not-a-real-key")
     secret.chmod(0o600)
@@ -568,7 +580,7 @@ async def test_three_confirmed_declines_persist_without_duplicate_charges_or_los
     })
     calls = []
 
-    def provider(request):
+    async def provider(request):
         assert request.method == "POST" and request.url.path == "/v3/payments"
         payload = json.loads(request.content)
         assert payload["payment_method_id"] == "synthetic-no-provider-method"
@@ -576,6 +588,9 @@ async def test_three_confirmed_declines_persist_without_duplicate_charges_or_los
             "value": f"{case.amount // 100}.{case.amount % 100:02d}", "currency": "RUB"
         }
         calls.append(request.headers["Idempotence-Key"])
+        if len(calls) == 3 and response_timing.startswith("late"):
+            entered.set()
+            await release.wait()
         return httpx.Response(200, json={
             "id": str(uuid4()), "status": "canceled", "test": True,
             "recipient": {"account_id": "1"},
@@ -596,15 +611,42 @@ async def test_three_confirmed_declines_persist_without_duplicate_charges_or_los
     original = case.original["subscription"]
     for attempt in range(1, 4):
         now = case.t0 + timedelta(hours=24 * (attempt - 1))
+        observed_at = cutoff - timedelta(seconds=1) if attempt == 3 else now
+        entered.clear()
+        release.clear()
         async with _session(case.factory) as db:
             (operation_id,) = await plan_due_renewals(
                 db, now=now, allowed_workspace_ids=frozenset({case.workspace})
             )
             await db.commit()
         async with _session(case.factory) as db:
-            result = await charge_renewal_operation(
-                db, settings, operation_id=operation_id, workspace_id=case.workspace, now=now
-            )
+            charge = asyncio.create_task(charge_renewal_operation(
+                db, settings, operation_id=operation_id, workspace_id=case.workspace,
+                now=now if response_timing == "explicit" else None,
+            ))
+            try:
+                if attempt == 3 and response_timing.startswith("late"):
+                    await asyncio.wait_for(entered.wait(), timeout=10)
+                    async with _session(case.factory) as observer:
+                        operation = await observer.get(BillingOperation, operation_id)
+                        assert operation.state == "processing" and operation.provider_id is None
+                        if response_timing == "late-cutoff-worker":
+                            assert await renewal_charge.project_renewal_cutoffs(
+                                observer, now=cutoff
+                            ) == 1
+                            await observer.commit()
+                            await observer.refresh(operation)
+                            subscription = await observer.get(WorkspaceSubscription, case.workspace)
+                            assert subscription.plan_code == subscription.state == "free"
+                            assert operation.state == "processing" and operation.provider_id is None
+                    observed_at = cutoff + timedelta(seconds=1)
+                    release.set()
+                result = await asyncio.wait_for(charge, timeout=10)
+            finally:
+                release.set()
+                if not charge.done():
+                    charge.cancel()
+                    await asyncio.gather(charge, return_exceptions=True)
         assert result.status == "canceled"
         async with _session(case.factory) as db:
             repeated = await charge_renewal_operation(
@@ -622,7 +664,8 @@ async def test_three_confirmed_declines_persist_without_duplicate_charges_or_los
             assert operation.state == invoice.status == "canceled"
             assert operation.provider_id == result.provider_id
             assert subscription.paid_through == original["paid_through"]
-            assert subscription.plan_code == subscription.state == "personal"
+            late = attempt == 3 and response_timing.startswith("late")
+            assert subscription.plan_code == subscription.state == ("free" if late else "personal")
             assert subscription.recurring_allowed is (attempt < 3)
             assert subscription.recurring_authority_version == (
                 original["recurring_authority_version"] + (attempt == 3)
@@ -631,12 +674,22 @@ async def test_three_confirmed_declines_persist_without_duplicate_charges_or_los
                 BillingNotificationDelivery.workspace_id == case.workspace,
                 BillingNotificationDelivery.template_key == "renewal_attempt_failed",
             )))
-            assert len(notices) == attempt
-            assert len({notice.event_id for notice in notices}) == attempt
+            assert len(notices) == attempt - late
+            assert len({notice.event_id for notice in notices}) == attempt - late
             assert all(notice.state == "pending" and notice.attempts == 0 for notice in notices)
             purchase = await _original_purchase(db, case)
             assert purchase["grants"] == case.original["grants"]
             assert purchase["methods"] == case.original["methods"]
+            if late:
+                await _assert_final_failure_notice(db, case, invoice.id)
+            unknown = list(await db.scalars(select(BillingNotificationDelivery).where(
+                BillingNotificationDelivery.workspace_id == case.workspace,
+                BillingNotificationDelivery.template_key == "renewal_unknown",
+            )))
+            assert len(unknown) == (attempt == 3 and response_timing == "late-cutoff-worker")
+            if unknown:
+                assert unknown[0].event_id == f"renewal:{invoice.id}:unknown"
+                assert unknown[0].state == "pending" and unknown[0].attempts == 0
             assert await plan_due_renewals(
                 db, now=now + timedelta(hours=23),
                 allowed_workspace_ids=frozenset({case.workspace}),
@@ -648,11 +701,12 @@ async def test_three_confirmed_declines_persist_without_duplicate_charges_or_los
         assert await renewal_charge.project_renewal_cutoffs(
             db, now=cutoff - timedelta(microseconds=1)
         ) == 0
-        assert list(await db.scalars(select(BillingNotificationDelivery).where(
+        final = list(await db.scalars(select(BillingNotificationDelivery).where(
             BillingNotificationDelivery.workspace_id == case.workspace,
             BillingNotificationDelivery.template_key == "payment_failed",
-        ))) == []
-        assert await renewal_charge.project_renewal_cutoffs(db, now=cutoff) == 1
+        )))
+        assert len(final) == late
+        assert await renewal_charge.project_renewal_cutoffs(db, now=cutoff) == (0 if late else 1)
         await db.commit()
     async with _session(case.factory) as db:
         await _assert_final_failure_notice(db, case, invoice.id)
