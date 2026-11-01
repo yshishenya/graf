@@ -392,3 +392,24 @@ renewal/notification tests, независимые review/converge и три т�
 
 Общий helper сохраняет UNKNOWN без восстановленного provider_id; этот guard
 применяется только к canceled/canceled. Отдельная регрессия сохранит границу.
+
+
+## T048: напоминание в первом окне продления — 01.11.2026
+
+Active Spec Kit slice, Legacy Impact untouched. До кода — независимый
+checklists/renewal-reminder.md и ограниченный analyze. Использовать
+plan_due_renewals после всех действующих проверок и создания первой
+operation/invoice. Существующая транзакционная очередь, новый конкретный
+вид сообщения в notifications.py; не создавать таблицу, службу или scheduler.
+Stable event на workspace/payer/paid_through, без номера попытки/операции.
+Тариф/цикл и сумма берутся из принятого снимка, даты — из текущего периода
+и первого окна. В payload только minor units, RUB, month/year, даты МСК,
+последние4цифры безопасной маски и путь кабинета. Случай отсутствующей маски
+показывает «сохранённый способ оплаты», а не provider ID.
+
+RED на настоящем PostgreSQL planner, затем одна минимальная запись в том же
+commit. Проверки: first-window commit/rollback/new session/repeat/concurrent;
+local retry и следующие окна без дубликата; no consent/method/current scope,
+unknown/newer payment; точная историческая копия и allowlist. Финансовое
+планирование/отправка не меняются. Предыдущий итоговый отказ хранится в
+отдельном коммите; исходная T048/#4903 остаётся владельцем остатка без дублей.
