@@ -1048,3 +1048,44 @@ env/пользовательских путей. Исходный guard и от�
 получает конечный набор metadata, после него отдельный проект/review по
 фактам. Existing negative ancestor fixtures проверяют exact numeric stderr;
 before-code independent review, focused/static/code review и draft gates.
+
+### T114: установленный `/usr/share`0777
+
+Факт sourcefbb5604c2ba0f03255bf9ede3c23882015cbbecd,
+run41258703244,01.11 00:53:52UTC: share directory/root:root0777,
+usr и root directory/root:root0755. Разрешено заменить прежний запрет
+ремонта предков только для `/usr/share` root:root0777→0755. `/usr` и `/`
+никогда не изменяются; обязаны быть nonsymlink/root-owned/no022 до чтения
+ключа, включая ветвь безопасного key directory. Иные опасные modes/owner/
+group/type остаются отказами с bounded metadata. Рекурсии/listing/chown нет.
+
+Exact snapshot `/usr/share` и key directory фиксируется до чтения ключа;
+если хотя бы одному требуется repair, key metadata/root:root/3607/mode644
+либо777 и официальный pin обязательны. Source/canonical полностью проверяются
+до записи. Только затем прежний fd identity/fchmod0755/fsync/readback
+исполняется для требующих ремонта каталогов строго сверху вниз: share,
+потом key directory. Перед открытием следующего fd fingerprint должен
+совпасть с исходным; подмена дочернего каталога до закрытия share отказывает.
+Проверенные snapshots key/source перечитываются после закрытия прав.
+Ключ обязательно получает новую inode0644 при любом repair, включая
+безопасный key directory/ключ0644 и ремонт только share. Неизвестный ключ
+или malformed source не меняет ни один каталог. Частичный ремонт не откат;
+при любой ошибке следующие APT/npm/Playwright запрещены.
+
+Полностью безопасный путь сохраняет bytes/inode/mtime и не ограничивает
+новый безопасный key старым pin. Existing три callers/все негативные
+сценарии сохраняются; новый known share0777 с key directory0755/0777,
+key0644/0777, unknown644/malformed-source/changed-child и repeat сначала RED,
+затем focused/whole/static/review/converge и конечные exact native gates.
+Before-code отдельный checklist ci-keyring-share, analyze и sync #7859.
+Production/F273/T0/коммерческие критерии остаются отдельными.
+
+Уточнение review P2: после закрытия share исходный fingerprint key directory
+обязательно сверяется до повторных key/source reads и до любого temp даже
+для изначально безопасного child, который fd loop не изменял. Проверка после
+создания temp слишком поздняя. Existing regression наблюдает попытку создания
+temp и требует её отсутствия при изменении safe child во время fsyncshare.
+Fixture исполняет extracted Python с синтетическим filename `<prepare-ci-apt>`
+(native использует `<stdin>`), чтобы linecache не подставлял строки root-model
+в traceback. Assert отсутствия учебного private marker сохраняется; production
+exceptions/диагностика этим исправлением fixture не меняются.

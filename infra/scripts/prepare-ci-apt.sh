@@ -59,16 +59,22 @@ if not stat.S_ISDIR(parent.st_mode) or parent.st_uid != 0 or parent.st_mode & 0o
     fail('unsafe source directory')
 keyring = Path('/usr/share/keyrings/ubuntu-archive-keyring.gpg')
 key_parent = keyring.parent.lstat()
+share_path = keyring.parent.parent
+share_metadata = share_path.lstat()
+repair_share = (stat.S_ISDIR(share_metadata.st_mode) and share_metadata.st_uid == share_metadata.st_gid == 0
+                and stat.S_IMODE(share_metadata.st_mode) == 0o777)
 repair_parent = (stat.S_ISDIR(key_parent.st_mode) and key_parent.st_uid == key_parent.st_gid == 0
                  and stat.S_IMODE(key_parent.st_mode) == 0o777)
 if not stat.S_ISDIR(key_parent.st_mode) or key_parent.st_uid != 0 or key_parent.st_mode & 0o022 and not repair_parent:
     fail(f'unsafe keyring-directory metadata type={stat.S_IFMT(key_parent.st_mode)} '
          f'uid={key_parent.st_uid} gid={key_parent.st_gid} '
          f'mode={stat.S_IMODE(key_parent.st_mode):o} size={key_parent.st_size}')
-if repair_parent:
-    for ancestor in (keyring.parent.parent, keyring.parent.parent.parent):
-        value = ancestor.lstat()
-        if not stat.S_ISDIR(value.st_mode) or value.st_uid != 0 or value.st_mode & 0o022:
+for ancestor in (share_path, share_path.parent, Path('/')):
+    value = ancestor.lstat()
+    if not stat.S_ISDIR(value.st_mode) or value.st_uid != 0 or value.st_mode & 0o022:
+        if ancestor == share_path and repair_share and fingerprint(value) == fingerprint(share_metadata):
+            continue
+        else:
             summaries = []
             for label, path in (('share', keyring.parent.parent), ('usr', keyring.parent.parent.parent), ('root', Path('/'))):
                 metadata = path.lstat()
@@ -77,7 +83,7 @@ if repair_parent:
                                  f'mode={stat.S_IMODE(metadata.st_mode):o} size={metadata.st_size}')
             fail('unsafe keyring ancestor; ' + '; '.join(summaries))
 key_data, key_metadata = checked_read(keyring, 1048576, 'keyring')
-if repair_parent and ((key_metadata.st_uid, key_metadata.st_gid, key_metadata.st_size) != (0, 0, 3607)
+if (repair_parent or repair_share) and ((key_metadata.st_uid, key_metadata.st_gid, key_metadata.st_size) != (0, 0, 3607)
                       or stat.S_IMODE(key_metadata.st_mode) not in (0o644, 0o777)
                       or hashlib.sha256(key_data).hexdigest() != '80a36b0a6de2f69f49d2df75ef473ccde121e9e190b9ea01d20a4f63778d5c31'):
     fail('unrecognized keyring in writable directory')
@@ -127,26 +133,32 @@ if not output:
 canonical = ('\n\n'.join(output) + '\n').encode('ascii')
 if len(canonical) > 16384:
     fail('normalized source exceeds size limit')
-if repair_parent:
-    directory_fd = os.open(keyring.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-    try:
-        if fingerprint(os.fstat(directory_fd)) != fingerprint(key_parent):
-            fail('keyring directory changed while opening')
-        os.fchmod(directory_fd, 0o755)
-        os.fsync(directory_fd)
-        secured = os.fstat(directory_fd)
-        if ((secured.st_uid, secured.st_gid, stat.S_IMODE(secured.st_mode)) != (0, 0, 0o755)
-                or fingerprint(keyring.parent.lstat()) != fingerprint(secured)):
-            fail('keyring directory verification failed')
-        key_parent = secured
-    finally:
-        os.close(directory_fd)
+if repair_parent or repair_share:
+    for directory, before in ((share_path, share_metadata), (keyring.parent, key_parent)):
+        if not before.st_mode & 0o022:
+            continue
+        directory_fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            if fingerprint(os.fstat(directory_fd)) != fingerprint(before):
+                fail('keyring directory changed while opening')
+            os.fchmod(directory_fd, 0o755)
+            os.fsync(directory_fd)
+            secured = os.fstat(directory_fd)
+            if ((secured.st_uid, secured.st_gid, stat.S_IMODE(secured.st_mode)) != (0, 0, 0o755)
+                    or fingerprint(directory.lstat()) != fingerprint(secured)):
+                fail('keyring directory verification failed')
+            if directory == keyring.parent:
+                key_parent = secured
+        finally:
+            os.close(directory_fd)
+    if fingerprint(keyring.parent.lstat()) != fingerprint(key_parent):
+        fail('keyring directory changed before input verification')
     for path, data, before, limit, label in ((keyring, key_data, key_metadata, 1048576, 'keyring'),
                                             (source, original, metadata, 16384, 'source')):
         current, actual_metadata = checked_read(path, limit, label)
         if current != data or fingerprint(actual_metadata) != fingerprint(before):
             fail('input changed while securing keyring directory')
-if repair_parent or key_metadata.st_mode & 0o022:
+if repair_parent or repair_share or key_metadata.st_mode & 0o022:
     temporary = None
     try:
         with tempfile.NamedTemporaryFile(dir=keyring.parent, prefix='.ubuntu-keyring-', delete=False) as stream:

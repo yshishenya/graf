@@ -436,6 +436,8 @@ def test_governance_workflow_self_test() -> None:
     "key-ancestor-symlink", "key-ancestor-upper-mode", "key-parent-open-changed", "key-parent-chmod-failed",
     "key-parent-chmod-noop", "key-parent-sync-failed", "key-parent-path-changed",
     "key-parent-key-changed", "key-parent-source-changed",
+    "key-share-known", "key-share-safe-key", "key-share-safe-directory", "key-share-unknown",
+    "key-share-invalid-source", "key-share-changed-child", "key-share-safe-child-changed",
 ])
 def test_actual_media_resource_preparation(tmp_path, workflow_name, job_name, tools_state):
     import yaml
@@ -467,6 +469,9 @@ def test_actual_media_resource_preparation(tmp_path, workflow_name, job_name, to
                        "key-parent-chmod-failed", "key-parent-chmod-noop", "key-parent-sync-failed",
                        "key-parent-path-changed", "key-parent-key-changed", "key-parent-source-changed"}
     key_cases |= directory_cases
+    share_cases = {"key-share-known", "key-share-safe-key", "key-share-safe-directory", "key-share-unknown",
+                   "key-share-invalid-source", "key-share-changed-child", "key-share-safe-child-changed"}
+    key_cases |= share_cases
     key.write_bytes(b"fixture-keyring")
     source = parent / "ubuntu.sources"
     source_text = ("Types: deb\nURIs: mirror+file:/etc/apt/apt-mirrors.txt\n"
@@ -554,9 +559,9 @@ def test_actual_media_resource_preparation(tmp_path, workflow_name, job_name, to
             "bad-os": ("ubuntu", "debian"), "bad-version": ("24.04", "26.04"), "bad-codename": ("noble", "jammy"),
         }[tools_state]))
     if tools_state in key_cases:
-        key.write_bytes(known_key if tools_state not in {"unknown-key", "key-parent-unknown", "key-parent-safe-unknown"} else known_key[:-1] + b"y")
+        key.write_bytes(known_key if tools_state not in {"unknown-key", "key-parent-unknown", "key-parent-safe-unknown", "key-share-unknown"} else known_key[:-1] + b"y")
         key.chmod(0o666 if tools_state == "known-key-mode" else 0o777)
-        if tools_state in {"known-key-bad-source", "key-parent-bad-source"}:
+        if tools_state in {"known-key-bad-source", "key-parent-bad-source", "key-share-invalid-source"}:
             source.write_text(source.read_text() + "broken line\n")
         elif tools_state == "key-parent-symlink":
             saved_parent = key_parent.with_suffix(".saved")
@@ -566,6 +571,11 @@ def test_actual_media_resource_preparation(tmp_path, workflow_name, job_name, to
             key_parent.chmod(0o775 if tools_state == "key-parent-other-mode" else 0o777)
         if tools_state in {"key-parent-safe-key", "key-parent-safe-open-writer", "key-parent-safe-unknown"}:
             key.chmod(0o644)
+        if tools_state in share_cases:
+            key_parent.parent.chmod(0o777)
+            key_parent.chmod(0o755 if tools_state in {"key-share-safe-directory", "key-share-safe-child-changed"} else 0o777)
+            if tools_state in {"key-share-safe-key", "key-share-safe-directory", "key-share-unknown", "key-share-safe-child-changed"}:
+                key.chmod(0o644)
     key_parent_mode_before = key_parent.lstat().st_mode
     key_before = key.read_bytes() if key.exists() else None
     key_stat_before = key.stat() if key.exists() else None
@@ -596,7 +606,7 @@ def root_stat(value):
     attrs.update(st_uid=1 if state == f"{label}-owner" or label == "key" and state == "known-key-owner" else 0,
                  st_gid=1 if label == "key" and state == "known-key-group" or label == "key-parent" and state == "key-parent-group" else 0)
     if label in {"key-ancestor", "key-ancestor-upper"} and state == f"{label}-mode":
-        attrs['st_mode'] = stat.S_IFDIR | 0o777
+        attrs['st_mode'] = stat.S_IFDIR | (0o775 if label == 'key-ancestor' else 0o777)
     if label == "key-ancestor" and state == "key-ancestor-symlink":
         attrs['st_mode'] = stat.S_IFLNK | 0o755
     return types.SimpleNamespace(**attrs)
@@ -620,19 +630,31 @@ if state == 'key-parent-open-changed':
             key.parent.chmod(0o755)
         return real_open(path, flags, *args, **kwargs)
     patch('os.open', directory_open).start()
-if state in {'key-parent-sync-failed', 'key-parent-path-changed', 'key-parent-key-changed', 'key-parent-source-changed'}:
+if state in {'key-parent-sync-failed', 'key-parent-path-changed', 'key-parent-key-changed', 'key-parent-source-changed', 'key-share-changed-child', 'key-share-safe-child-changed'}:
     real_fsync = os.fsync
     def directory_sync(fd):
         if stat.S_ISDIR(real_fstat(fd).st_mode):
             if state == 'key-parent-sync-failed':
                 raise PermissionError('fixture directory sync failed')
-            if state == 'key-parent-path-changed':
+            if state == 'key-share-safe-child-changed':
+                key.parent.chmod(0o777)
+            elif state == 'key-share-changed-child':
+                key.parent.chmod(0o755)
+            elif state == 'key-parent-path-changed':
                 key.parent.chmod(0o777)
             else:
                 target = source if state == 'key-parent-source-changed' else key
                 target.write_bytes(target.read_bytes() + b'# fixture changed\n')
         real_fsync(fd)
     patch('os.fsync', directory_sync).start()
+if state == 'key-share-safe-child-changed':
+    import tempfile
+    real_temp = tempfile.NamedTemporaryFile
+    def observed_temp(*args, **kwargs):
+        with Path(os.environ['PREP_EVENTS']).open('a') as log:
+            log.write('key-temp\n')
+        return real_temp(*args, **kwargs)
+    patch('tempfile.NamedTemporaryFile', observed_temp).start()
 if state in {"write-failed", "key-write-failed"}:
     patch("os.fsync", side_effect=PermissionError("fixture write failure")).start()
 if state in {"replace-failed", "key-replace-failed"}:
@@ -661,7 +683,7 @@ if state in {"key-open-writer", "key-parent-safe-open-writer"}:
         if Path(dst) == key:
             os.write(old_key_fd, b"fixture-private-value")
     patch("os.replace", old_writer).start()
-exec(compile(sys.stdin.read(), "prepare-ci-apt.sh", "exec"))
+exec(compile(sys.stdin.read(), "<prepare-ci-apt>", "exec"))
 ''')
     dpkg = tmp_path / "bin/dpkg"
     dpkg.parent.mkdir()
@@ -722,6 +744,8 @@ ffprobe() { printf 'ffprobe\n' >> "$PREP_EVENTS"; [[ "$TOOLS_STATE" != broken-ff
     }
     directory_success = {"key-parent-mode", "key-parent-safe-key", "key-parent-safe-open-writer"}
     helper_failures |= directory_cases - directory_success
+    share_success = {"key-share-known", "key-share-safe-key", "key-share-safe-directory"}
+    helper_failures |= share_cases - share_success
     later_failures = {"update-failed", "install-failed", "broken-ffmpeg", "broken-ffprobe", "npm-failed", "browser-failed"}
     failed = tools_state in helper_failures | later_failures
     assert (result.returncode != 0) == failed, result.stdout + result.stderr
@@ -733,7 +757,7 @@ ffprobe() { printf 'ffprobe\n' >> "$PREP_EVENTS"; [[ "$TOOLS_STATE" != broken-ff
             value = path.lstat()
             mode = value.st_mode
             if tools_state == "key-ancestor-mode" and label == "share" or tools_state == "key-ancestor-upper-mode" and label == "usr":
-                mode = stat.S_IFDIR | 0o777
+                mode = stat.S_IFDIR | (0o775 if label == "share" else 0o777)
             if tools_state == "key-ancestor-symlink" and label == "share":
                 mode = stat.S_IFLNK | 0o755
             uid = 1 if tools_state == "key-ancestor-owner" and label == "share" else 0
@@ -759,17 +783,19 @@ ffprobe() { printf 'ffprobe\n' >> "$PREP_EVENTS"; [[ "$TOOLS_STATE" != broken-ff
     assert third_party.read_bytes() == third_before
     if tools_state not in {"changed-key", "key-readback-failed", "key-parent-key-changed"}:
         assert (key.read_bytes() if key.exists() else None) == key_before
-    if tools_state in {"known-key", "key-open-writer"} | directory_success:
+    if tools_state in {"known-key", "key-open-writer"} | directory_success | share_success:
         assert key.stat().st_ino != key_stat_before.st_ino
         assert stat.S_IMODE(key.stat().st_mode) == 0o644
     elif tools_state in key_cases - {"key-readback-failed"}:
         assert key.stat().st_ino == key_stat_before.st_ino
         assert key.stat().st_mode == key_stat_before.st_mode
-    if tools_state in directory_success:
+    if tools_state in directory_success | share_success:
         assert stat.S_IMODE(key_parent.stat().st_mode) == 0o755
     elif tools_state in directory_cases - {"key-parent-open-changed", "key-parent-sync-failed", "key-parent-path-changed",
                                             "key-parent-key-changed", "key-parent-source-changed"}:
         assert key_parent.lstat().st_mode == key_parent_mode_before
+    if tools_state in share_cases:
+        assert stat.S_IMODE(key_parent.parent.stat().st_mode) == (0o755 if tools_state in share_success | {"key-share-changed-child", "key-share-safe-child-changed"} else 0o777)
     if tools_state in helper_failures:
         if tools_state not in {"changed-source", "readback-failed", "key-parent-source-changed"}:
             assert (source.read_bytes() if source.exists() else None) == source_before

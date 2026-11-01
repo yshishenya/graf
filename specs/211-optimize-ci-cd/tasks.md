@@ -390,3 +390,9 @@ protected ancestors, full input/pin до записи, fd identity/fchmod0755/fs
 readback, повторные snapshots и прежняя atomic key replacement для0644/0777.
 Existing three-caller RED/whole/static, independent review/converge и native
 exact gates обязательны. Прочие небезопасные directories/keys — отказ.
+
+Дополнение T114 по факту41258703244: reviewer-owned ci-keyring-share до кода
+принимает только root:root share0777 под защищёнными root/usr; тот же fd
+блок применяется сверху вниз к share/key parent после full-input/pin.
+Repair только share также требует новой inode key0644. Existing test RED/
+whole/static/review/converge/native exact обязательны; task остаётся открытой.

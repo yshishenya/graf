@@ -1292,6 +1292,27 @@ sync #7859/canon250PASS; exact negative assertions RED12fail→GREEN66PASS/
 прогон, не новый whole507; настоящий native Prepare получает metadata.
 Repair предков остаётся отдельным проектом после фактов; draft не merge.
 
+### T114: итог share0777 и закрытие найденного P2
+
+Native fbb5604c2ba0f03255bf9ede3c23882015cbbecd/run41258703244 установил
+share/root:root0777 при root/usr0755. Новый независимый requirements checklist
+ci-keyring-share5/0, analyze5/5 C/H/M0, sync #7859/canon250PASS.
+Existing RED12fail/6PASS→focused84PASS. Первое code review нашло P2:
+изначально безопасный child сверялся после temp. Дополнены требования,
+before-code уточнение PASS, analyze2/2 C/H/M0 и sync/canon250PASS.
+Причинный regression с temp-event: RED3FAIL→GREEN24PASS, включая missing-source.
+Теперь child fingerprint сверяется сразу после directory loop до reads/temp.
+Fixture compiled filename `<prepare-ci-apt>` соответствует native stdin;
+строгий private-marker assert сохранён. Прежний whole522PASS/3FAIL не принят.
+Окончательный неизменный helper/test: **528PASS/0skip/204,72с**,8static/process
+PASS. Scoped converge5/5: дополнительных задач локальной реализации не найдено.
+Отчёты `validation-ci-keyring-share-{review,code-review}-20261101.md`;
+helper SHA256`4aa4f2aa7ccaaa5f1b8010d04d662290afa6871a89142cd3fa1155bc3ed010a1`,
+test`bd7f3f0720f68b8e628c89f47f6f6390332bd09c6eee331e7fd6c6f5f1cfb0b9`.
+Final logs `.dev/ci-official-sources/share-final-{module,static}.log`.
+Настоящий pin/Prepare, конечные exact gates и protected merge остаются
+отдельными; T112–T114/#7859, Full/production/F273/T0/продажи пока открыты.
+
 
 Parent diagnostic: RED9/3PASS→GREEN12; весь модуль453PASS/0skips/162,81с,
 source helper/test неизменны во время прогона. Static8PASS, независимые

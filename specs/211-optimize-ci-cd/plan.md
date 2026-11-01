@@ -876,3 +876,26 @@ directory listing/записей/допуска. Исходный condition не
 unsafe-ancestor cases требуют точный stderr; прежде независимый review,
 затем focused/static/review и один native Prepare. Следующая функциональная
 адаптация остаётся заблокирована до этих фактов и своего review.
+
+T114 share0777 после native41258703244: Constitution III/VI до/после PASS,
+одна дополнительная fixed directory permission repair, без нового trust.
+Всегда проверить root/usr, share exact unsafe exception и key parent.
+Список требующих ремонта snapshots содержит только share и key parent,
+в порядке сверху вниз. Переиспользовать прежний directory fd блок в цикле;
+при любом repair exact key pin и full source до записи, затем повторные
+snapshots и прежняя atomic key replacement. Защита root/usr никогда не
+меняется. Existing fixture использует actual temp share0777 в новых случаях,
+unsupported ancestor negative остаётся0775; shared I/O guards упражняются
+прежними key-parent cases. Новый changed-child после первого fsync проверяет
+отказ второго fd. Before-code checklist/analyze/sync, RED→whole/static→
+independent review/converge и тот же draft7863/exact native. Новых модулей,
+dependencies/workflow/configuration и ремонтов других каталогов нет.
+
+Review P2 уточняет прежний prewrite guard: сразу после directory loop exact
+fingerprint key_parent (включая safe child), до повторных reads/temp. Новый
+safe-child-changed fsyncshare case записывает key-temp event через прежний
+mock harness: любой temp до refusal проваливает assert только mirror event.
+Отдельный fixture bug traceback устраняется только compile filename
+`<prepare-ci-apt>` вместо относительного имени: loader root-model не должен
+показывать чужие строки. Предыдущий whole с3missing-source FAIL сохраняется,
+новый focused/whole проверяет прежний privacy assert без ослабления.
