@@ -927,3 +927,27 @@ workspace. Штатный runner выделяет disposable PostgreSQL и уд�
 или legacy path. Сохранить безопасный рецепт и итоги. Затем весь normalization
 PostgreSQL module и maintenance-context file, Ruff/diff/process/fragment,
 независимое code review/converge. Release clone failed125b не изменять.
+
+
+## T116 — явная передача отказа rollback_feature_database
+
+Lane: active Spec Kit, high-risk deployment. Constitution III/IV/VI
+before/after design PASS: сохранность решений, запрет секретов в evidence,
+backup/restore и независимое ревью сохраняются. Базовые четыре документа и
+семь guidance сверены с принятыми хешами; требования FR-008/FR-048/SC-021 и
+весь затронутый helper/caller перечитаны. Новых неоднозначных решений нет.
+
+1. Дополнить существующие требования, quickstart и T116/#6989; получить
+   независимый review нового checklist, затем scoped analyze и issue sync.
+2. Добавить один параметризованный исполняемый тест в существующий
+   `test_deployment_readiness_gates.py`: извлечь настоящее тело функции и
+   `restore_previous_runtime`, подменить только внешние Compose/службы.
+   Фиксировать отказы migration/query/drop и успех; отдельно failed
+   compatibility. Получить RED прежнего тела до правки.
+3. В `infra/scripts/cd-remote-runtime.sh` добавить явный `|| return` к
+   downgrade, присвоению результата запроса роли и команде удаления роли.
+   Не менять caller/миграцию/данные/флаги/образ или политику отката.
+4. GREEN нового теста, весь модуль, связанные rollback/smoke/backup/image
+   контракты, Bash/Ruff/process/fragment; независимые review и converge.
+   Required checks на окончательном SHA, protected merge; новый Full/CD
+   выполняет оператор выпуска отдельно. Срез не включает измерение и T0.

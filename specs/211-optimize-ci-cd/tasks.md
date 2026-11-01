@@ -415,3 +415,8 @@ Full/выпуск/F273/T0 остаются отдельными открытым
 ## T115 — исправление предпосылки первой страницы
 
 - [X] T115 [US2] После независимого checklist `inventory-test-cursor.md`, analyze и issue sync воспроизвести отсутствие цели за51 предшествующим workspace на настоящем disposable PostgreSQL; заменить только курсор в `test_postgres_inventory_function_returns_only_bounded_scope_ids` (`apps/server/tests/integration/test_playback_normalization_postgres.py`), сохранив все assertions/лимит/SQL/права; GREEN тем же wrapper, весь прежний модуль и `test_rls_maintenance_context.py` без новых skips, static/process/fragment и независимые review/converge, exact PR gates. Full/CD/T0 вне приёмки T115. (FR-057/SC-025) (Issue #7873)
+
+
+## T116 — немедленный отказ отката БД
+
+- [ ] T116 [US2] После независимого `checklists/database-rollback-error.md`, scoped analyze и sync существующей #6989 воспроизвести потерю ошибки настоящего `rollback_feature_database()` в `apps/server/tests/integration/test_deployment_readiness_gates.py`; явно вернуть ошибки downgrade/query/drop в `infra/scripts/cd-remote-runtime.sh` до следующих операций; проверить RED/GREEN, успешный путь трёх ролей, compatibility success/failure, весь readiness и связанные image/smoke/backup/RLS контракты без новых skips, Bash/Ruff/process/fragment, независимые review/converge и required exact PR gates. Full/CD/T0 не входят в локальную приёмку. (FR-008/FR-048/SC-021) (Issue #6989)

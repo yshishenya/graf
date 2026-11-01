@@ -604,21 +604,21 @@ rollback_feature_storage() {
 
 rollback_feature_database() {
   "${compose[@]}" run --pull never --rm --no-deps rec-migrate \
-    alembic downgrade "$previous_schema_head"
+    alembic downgrade "$previous_schema_head" || return
   local role_name role_exists
   for role_name in twobrain_rec_app twobrain_rec_media twobrain_rec_maintenance; do
     role_exists="$("${compose[@]}" exec -T rec-postgres psql \
       -U twobrain_rec \
       -d twobrain_rec \
       -Atc "select 1 from pg_roles where rolname = '$role_name'" \
-      | tr -d '\r')"
+      | tr -d '\r')" || return
     if [[ "$role_exists" != "1" ]]; then
       continue
     fi
     "${compose[@]}" exec -T rec-postgres psql \
       -v ON_ERROR_STOP=1 \
       -U twobrain_rec \
-      -d twobrain_rec <<SQL
+      -d twobrain_rec <<SQL || return
 select pg_terminate_backend(pid)
 from pg_stat_activity
 where usename = '$role_name'
