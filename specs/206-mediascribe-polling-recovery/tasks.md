@@ -82,7 +82,7 @@ crash/replay, no-archive и terminal UI contracts добавляются до р
 - T026: #5892
 - T027: #5891
 - T028: #5894
-- T029: #5893
+- T029 (Issue #5893)
 - T030: #5895
 - T031: #5896
 - T032: #5908
