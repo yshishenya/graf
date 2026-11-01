@@ -351,6 +351,31 @@ monthly/annual или региональный selector, аудитория и s
 
 ## Resolved unknowns and launch gates
 
+### T077/credit ledger — 01.11.2026
+
+- **Decision**: подключить только сохраняемый TimeCreditLedgerEntry внутри
+  addon_and_time_credit, database_inventory/current_state. Семейство partial,
+  add-on/job_attempts/errors/retries остаются null; источник не доказывает
+  работу maintenance или готовность к применению награды.
+- **Evidence**: на source458e874ddb40b3eb56dbc6535d84ef2e6bd2f8df
+  referral_rewards.py создаёт pending, сохраняет available/applied/expired/
+  rejected/reversed. matured — только TimeCredit вспомогательного расчёта,
+  не writer состояния БД. Миграция0044 требует NOT NULL maturity_at/expires_at.
+  Reversal может добавить отрицательные days и поменять прежнюю строку:
+  count — строки, не награды/дни/денежный баланс. Историческое требование
+  append-only не выдаётся за доказанную неизменность каждого поля writer.
+- **Rationale**: maturity в будущем нормальна; достигнутая maturity не сбой:
+  security hold, Free/отсутствующая подписка и cap влияют на применение.
+  Четыре закрытых временных группы C3 не требуют joins/частных полей и
+  не объявляют строки заданиями. Целая часть максимального возраста
+  допустимой maturity — наблюдение, не SLA или доказательство eligibility.
+- **Alternatives**: generic _groups с created_at/future-invalid не подходит
+  к этой модели. Запуск mature_pending_credits ради наблюдения, сумма days,
+  второй реестр/баланс, объединение storage/receipts и новая служба отвергнуты.
+  Существующий maintenance вызывает mature_pending_credits; его возвращённое
+  matured_credits — число применённых дней за проход, не постоянный счётчик
+  успешных заданий. Здесь не инструментируется и остаётся отдельным O6.
+
 ### T077/free_projection — 01.11.2026
 
 - **Decision**: подключить только видимый audit-event count точного

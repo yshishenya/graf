@@ -13,6 +13,7 @@ import httpx
 import pytest
 from sqlalchemy import delete, event, insert, text
 from sqlalchemy.engine import make_url
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from tests.integration.test_billing_registry import registry_database, settings  # noqa: F401
@@ -28,6 +29,7 @@ from twobrain_rec_server.db.models import (
     BillingRegistryImport,
     BillingWebhookEvent,
     Organization,
+    TimeCreditLedgerEntry,
     UserIdentity,
     Workspace,
 )
@@ -42,7 +44,7 @@ pytestmark = pytest.mark.strict_rls
 DAY = date(2026, 10, 31)
 ARGS = cli.build_parser().parse_args(["--date", str(DAY)])
 TABLES = (BillingAuditEvent, BillingOperation, BillingInvoice, BillingWebhookEvent, BillingNotificationDelivery,
-          BillingRegistryImport, BillingRegistryGap)
+          BillingRegistryImport, BillingRegistryGap, TimeCreditLedgerEntry)
 
 
 @pytest.fixture
@@ -695,3 +697,184 @@ def test_free_projection_late_commit_changes_new_snapshot_only(database):
             await reader.dispose()
 
     asyncio.run(scenario())
+
+
+def test_credit_ledger_boundaries_states_priorities_and_privacy(database, monkeypatch):
+    workspace = asyncio.run(seed(database))
+    now = datetime(2026, 11, 1, tzinfo=UTC)
+    us = timedelta(microseconds=1)
+    day = timedelta(days=1)
+    table = TimeCreditLedgerEntry.__table__
+    schedules = [
+        ("pending", now - timedelta(seconds=120.9), now + us),
+        ("available", now, now + day),
+        ("pending", now + us, now + 2 * us),
+        ("available", now + day, now + 2 * day),
+        ("pending", now - 2 * day, now - us),
+        ("available", now - day, now),
+        ("pending", now, now),
+        ("available", now, now - us),
+        ("pending", now - us, now + us),
+        *[(state, now, now) for state in ("applied", "expired", "rejected", "reversed", "matured", "private-state")],
+    ]
+
+    async def change(statement):
+        engine = create_async_engine(database)
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(statement)
+        finally:
+            await engine.dispose()
+
+    asyncio.run(change(insert(table).values([{
+        "id": uuid4(), "workspace_id": workspace, "source_ref": f"private-credit-{index}",
+        "days": -987654321 if state == "reversed" else 987654321,
+        "capacity_snapshot_bytes": 987654321, "state": state, "maturity_at": maturity,
+        "expires_at": expiry, "applied_start": now - day, "applied_end": now + day,
+    } for index, (state, maturity, expiry) in enumerate(schedules)])))
+    before = asyncio.run(fingerprint(database))
+    actual_engine = cli.create_async_engine
+    sql = []
+
+    def instrument(*args, **kwargs):
+        engine = actual_engine(*args, **kwargs)
+
+        @event.listens_for(engine.sync_engine, "before_cursor_execute")
+        def record(conn, cursor, statement, parameters, context, executemany):
+            if "time_credit_ledger_entries" in statement:
+                sql.append(statement)
+        return engine
+
+    class Clock:
+        @staticmethod
+        def now(tz):
+            return now
+
+    def no_http(*args, **kwargs):
+        raise AssertionError("unexpected HTTP")
+
+    with monkeypatch.context() as scoped:
+        scoped.setattr(cli, "datetime", Clock)
+        scoped.setattr(cli, "create_async_engine", instrument)
+        scoped.setattr(httpx.Client, "request", no_http)
+        scoped.setattr(httpx.AsyncClient, "request", no_http)
+        result, code = invoke(database)
+        assert code == 0 and result["as_of"] == now.isoformat()
+        family = result["families"]["addon_and_time_credit"]
+        assert family["source"] == "time_credit_ledger_entries"
+        assert family["scope"] == "database_inventory" and family["kind"] == "current_state"
+        assert family["coverage"] == "partial" and family["reason_code"] == "unrecognized"
+        values = family["values"]
+        assert values["count"] == 15 == sum(group["count"] for group in values["groups"])
+        assert values["groups"] == [{"state": state, "count": count} for state, count in (
+            ("applied", 1), ("available", 4), ("expired", 1), ("pending", 5),
+            ("rejected", 1), ("reversed", 1), ("unrecognized", 2),
+        )]
+        pending = values["pending_or_available"]
+        assert pending == {"count": 9, "invalid_schedule_count": 2, "expiry_reached_count": 2,
+                           "maturity_reached_unexpired_count": 3, "waiting_count": 2,
+                           "oldest_maturity_reached_age_seconds": 120}
+        assert pending["count"] == sum(pending[key] for key in (
+            "invalid_schedule_count", "expiry_reached_count", "maturity_reached_unexpired_count", "waiting_count"))
+        for key in ("addon_jobs", "job_attempts", "job_errors", "job_retries"):
+            assert values[key] is None
+        assert len(sql) == 1
+        for private in ("days", "source_ref", ".id", "workspace_id", "referral_attribution_id",
+                        "capacity_snapshot_bytes", "applied_start", "applied_end", "reversal_of_id"):
+            assert private not in sql[0]
+        assert "private-" not in json.dumps(result) and "987654321" not in json.dumps(result)
+        assert asyncio.run(fingerprint(database)) == before
+        for report_day in (DAY, date(1999, 1, 1)):
+            restarted, code = process(database, day=report_day)
+            assert code == 0
+            assert restarted["families"]["addon_and_time_credit"]["values"]["groups"] == values["groups"]
+            assert "private-" not in json.dumps(restarted) and "987654321" not in json.dumps(restarted)
+        assert asyncio.run(fingerprint(database)) == before
+        asyncio.run(change(delete(table).where(table.c.state.in_(("matured", "private-state")))))
+        assert invoke(database)[0]["families"]["addon_and_time_credit"]["reason_code"] == "invalid_schedule"
+        asyncio.run(change(delete(table).where(table.c.state.in_(("pending", "available")),
+                                              table.c.expires_at <= table.c.maturity_at)))
+        valid = invoke(database)[0]["families"]["addon_and_time_credit"]
+        assert valid["coverage"] == "partial" and valid["reason_code"] == "jobs_uninstrumented"
+        assert valid["values"]["pending_or_available"]["count"] == 7
+
+
+def test_credit_ledger_empty_notnull_and_schema_failure(database):
+    result, code = process(database)
+    assert code == 0
+    family = result["families"]["addon_and_time_credit"]
+    assert family["source"] == "time_credit_ledger_entries"
+    assert family["coverage"] == "partial" and family["reason_code"] == "jobs_uninstrumented"
+    values = family["values"]
+    assert values["count"] == 0 and values["groups"] == []
+    assert values["pending_or_available"] == {
+        "count": 0, "invalid_schedule_count": 0, "expiry_reached_count": 0,
+        "maturity_reached_unexpired_count": 0, "waiting_count": 0,
+        "oldest_maturity_reached_age_seconds": None,
+    }
+    workspace = asyncio.run(seed(database))
+
+    async def schema():
+        engine = create_async_engine(database)
+        try:
+            async with engine.begin() as conn:
+                for column in ("state", "maturity_at", "expires_at"):
+                    row = {"workspace_id": workspace, "source_ref": "private-null", "days": 7,
+                           "state": "pending", "maturity_at": datetime(2026, 11, 1, tzinfo=UTC),
+                           "expires_at": datetime(2027, 11, 1, tzinfo=UTC), column: None}
+                    with pytest.raises(IntegrityError):
+                        async with conn.begin_nested():
+                            await conn.execute(insert(TimeCreditLedgerEntry).values(**row))
+                await conn.execute(text("alter table time_credit_ledger_entries rename column maturity_at to synthetic_missing_maturity"))
+            try:
+                assert await asyncio.to_thread(process, database) == (cli.failure("report_unavailable"), 1)
+            finally:
+                async with engine.begin() as conn:
+                    await conn.execute(text("alter table time_credit_ledger_entries rename column synthetic_missing_maturity to maturity_at"))
+        finally:
+            await engine.dispose()
+    asyncio.run(schema())
+    assert process(database)[0]["families"]["addon_and_time_credit"]["values"]["count"] == 0
+
+
+def test_credit_ledger_repeatable_snapshot_and_new_process(database):
+    workspace = asyncio.run(seed(database))
+    as_of = datetime(2026, 11, 1, tzinfo=UTC)
+
+    async def scenario():
+        writer = create_async_engine(database)
+        reader = create_async_engine(settings(database).database_url, execution_options={
+            "isolation_level": "REPEATABLE READ", "postgresql_readonly": True,
+        })
+        factory = create_sessionmaker(reader)
+        scope = {"environment": "test", "shop_id": "123", "report_date": DAY}
+
+        def session():
+            db = factory()
+            db.sync_session.info["tenant_context"] = maintenance_context_settings(MaintenanceTenantContext(
+                operation_name="billing_reconciliation", actor_id="synthetic-operator",
+                reason_category="operator_diagnostics", feature_area="billing",
+            ))
+            return db
+        try:
+            async with session() as db:
+                old = await monitoring.collect_billing_report(db, scope=scope, as_of=as_of)
+                assert old["families"]["addon_and_time_credit"]["values"]["count"] == 0
+                async with writer.begin() as conn:
+                    await conn.execute(insert(TimeCreditLedgerEntry).values(
+                        workspace_id=workspace, source_ref="private-new-credit", days=7, state="pending",
+                        maturity_at=as_of, expires_at=as_of + timedelta(days=365),
+                    ))
+                unchanged = await monitoring.collect_billing_report(db, scope=scope, as_of=as_of)
+                assert unchanged["families"]["addon_and_time_credit"] == old["families"]["addon_and_time_credit"]
+            async with session() as db:
+                new = await monitoring.collect_billing_report(db, scope=scope, as_of=as_of)
+                pending = new["families"]["addon_and_time_credit"]["values"]["pending_or_available"]
+                assert pending["count"] == pending["maturity_reached_unexpired_count"] == 1
+                assert pending["oldest_maturity_reached_age_seconds"] == 0
+        finally:
+            await reader.dispose()
+            await writer.dispose()
+    asyncio.run(scenario())
+    restarted, code = process(database)
+    assert code == 0 and restarted["families"]["addon_and_time_credit"]["values"]["count"] == 1

@@ -302,6 +302,17 @@ state `pending|available|applied|expired|reversed`, applied interval and
 final service/add-on cutoff; Free holds credit up to 12 months. No cash value,
 receipt or mutable wallet.
 
+Уточнение чтения T077/credit ledger (01.11.2026), C1–C6 O10: новых сущностей
+нет. Фактический TimeCreditLedgerEntry дополнительно допускает сохраняемый
+rejected; matured не является состоянием строки. Диагностика читает только
+state/maturity_at/expires_at, без days/IDs/source_ref/applied interval.
+Отрицательная reversal — отдельная строка и не денежный долг; изменение
+state исходной строки не выдаётся за неизменность всех полей реестра.
+Четыре временные группы применимы только pending/available; достигнутая
+граница не доказывает eligibility, сбой задания или пропущенный SLA.
+Миграция0044 задаёт обе даты NOT NULL; несогласованный порядок дат явно
+неполон, NULL-ветвь — защитная семантика, не разрешение ослабить схему.
+
 ### `fair_use_review`
 
 Narrow non-meter restriction: workspace, affected capability, reason class

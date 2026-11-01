@@ -83,3 +83,59 @@ def test_free_projection_historical_midnights_and_private_columns():
         sql = str(call.args[0]).lower()
         for private in ("metadata_json", "target_ref", "workspace_id", "actor_user_id", "billing_audit_events.id"):
             assert private not in sql
+
+
+def test_credit_ledger_empty_and_private_column_projection():
+    from twobrain_rec_server.billing.monitoring import _credit_ledger
+
+    response = MagicMock()
+    response.mappings.return_value.all.return_value = []
+    db = AsyncMock(execute=AsyncMock(return_value=response))
+    result = asyncio.run(_credit_ledger(db, datetime(2026, 11, 1, tzinfo=UTC)))
+    assert result == {
+        "source": "time_credit_ledger_entries", "scope": "database_inventory", "kind": "current_state",
+        "coverage": "partial", "reason_code": "jobs_uninstrumented",
+        "values": {"count": 0, "groups": [], "pending_or_available": {
+            "count": 0, "invalid_schedule_count": 0, "expiry_reached_count": 0,
+            "maturity_reached_unexpired_count": 0, "waiting_count": 0,
+            "oldest_maturity_reached_age_seconds": None,
+        }, "addon_jobs": None, "job_attempts": None, "job_errors": None, "job_retries": None},
+    }
+    db.execute.assert_awaited_once()
+    sql = str(db.execute.await_args.args[0]).lower()
+    assert "maturity_at is null" in sql and "expires_at is null" in sql
+    for private in ("days", "source_ref", ".id", "workspace_id", "referral_attribution_id",
+                    "capacity_snapshot_bytes", "applied_start", "applied_end", "reversal_of_id"):
+        assert private not in sql
+
+
+@pytest.mark.parametrize("unknown,invalid,reason", [
+    (False, 0, "jobs_uninstrumented"), (False, 2, "invalid_schedule"), (True, 2, "unrecognized"),
+])
+def test_credit_ledger_reason_precedence_and_maximum_age(unknown, invalid, reason):
+    from twobrain_rec_server.billing.monitoring import _credit_ledger
+
+    now = datetime(2026, 11, 1, tzinfo=UTC)
+    rows = [{"state": state, "count": 4 + invalid, "invalid_schedule_count": invalid,
+             "expiry_reached_count": 1, "maturity_reached_unexpired_count": 2, "waiting_count": 1,
+             "oldest_maturity_at": now - timedelta(seconds=age)}
+            for state, age in (("available", 120.9), ("pending", 60.5))]
+    if unknown:
+        rows.append({"state": "unrecognized", "count": 1, "invalid_schedule_count": 0,
+                     "expiry_reached_count": 0, "maturity_reached_unexpired_count": 0,
+                     "waiting_count": 0, "oldest_maturity_at": None})
+    response = MagicMock()
+    response.mappings.return_value.all.return_value = rows
+    db = AsyncMock(execute=AsyncMock(return_value=response))
+    result = asyncio.run(_credit_ledger(db, now))
+    assert result["coverage"] == "partial" and result["reason_code"] == reason
+    values = result["values"]
+    assert values["count"] == sum(group["count"] for group in values["groups"])
+    assert [group["state"] for group in values["groups"]] == sorted(row["state"] for row in rows)
+    pending = values["pending_or_available"]
+    assert pending == {"count": 8 + 2 * invalid, "invalid_schedule_count": 2 * invalid,
+                       "expiry_reached_count": 2, "maturity_reached_unexpired_count": 4,
+                       "waiting_count": 2, "oldest_maturity_reached_age_seconds": 120}
+    rows[0]["oldest_maturity_at"] = datetime.min.replace(tzinfo=UTC) + timedelta(microseconds=1)
+    extreme = asyncio.run(_credit_ledger(db, datetime.max.replace(tzinfo=UTC)))
+    assert extreme["values"]["pending_or_available"]["oldest_maturity_reached_age_seconds"] == 315537897599

@@ -14,6 +14,7 @@ from twobrain_rec_server.db.models.billing import (
     BillingNotificationDelivery,
     BillingOperation,
     BillingWebhookEvent,
+    TimeCreditLedgerEntry,
 )
 
 OPERATION_KINDS = (
@@ -30,6 +31,7 @@ READ_COMPATIBILITY_STATES = {"pending_reconciliation", "method_required", "faile
 INVOICE_STATES = ("pending", "unknown", "succeeded", "canceled", "manual_resolution", "failed")
 WEBHOOK_STATES = ("accepted", "pending_reconciliation", "reconciled", "reconciliation_gap")
 DELIVERY_STATES = ("pending", "retry", "failed", "delivered", "suppressed")
+CREDIT_STATES = ("pending", "available", "applied", "expired", "rejected", "reversed")
 MAX_GAPS = 500
 
 
@@ -194,6 +196,38 @@ async def _registry(db, scope, as_of):
                    reason="invalid_time" if invalid_time_count else "unverified" if incomplete else "observed")
 
 
+async def _credit_ledger(db, as_of):
+    """Stored service-credit rows and dates, never job health or financial eligibility."""
+    table = TimeCreditLedgerEntry.__table__.c
+    state = _closed(table.state, CREDIT_STATES).label("state")
+    pending = table.state.in_(("pending", "available"))
+    invalid = table.maturity_at.is_(None) | table.expires_at.is_(None) | (table.expires_at <= table.maturity_at)
+    reached = pending & ~invalid & (table.maturity_at <= as_of) & (table.expires_at > as_of)
+    filters = {
+        "invalid_schedule_count": pending & invalid,
+        "expiry_reached_count": pending & ~invalid & (table.expires_at <= as_of),
+        "maturity_reached_unexpired_count": reached,
+        "waiting_count": pending & ~invalid & (table.maturity_at > as_of),
+    }
+    rows = (await db.execute(select(
+        state, func.count().label("count"),
+        *[func.count().filter(condition).label(name) for name, condition in filters.items()],
+        func.min(table.maturity_at).filter(reached).label("oldest_maturity_at"),
+    ).group_by(state).order_by(state))).mappings().all()
+    oldest = min((row["oldest_maturity_at"] for row in rows if row["oldest_maturity_at"] is not None), default=None)
+    summary = {"count": sum(row["count"] for row in rows if row["state"] in {"pending", "available"}),
+               **{name: sum(row[name] for row in rows) for name in filters},
+               "oldest_maturity_reached_age_seconds": (as_of - oldest) // timedelta(seconds=1) if oldest is not None else None}
+    reason = ("unrecognized" if any(row["state"] == "unrecognized" for row in rows) else
+              "invalid_schedule" if summary["invalid_schedule_count"] else "jobs_uninstrumented")
+    return _source("time_credit_ledger_entries", {
+        "count": sum(row["count"] for row in rows),
+        "groups": [{"state": row["state"], "count": row["count"]} for row in rows],
+        "pending_or_available": summary,
+        "addon_jobs": None, "job_attempts": None, "job_errors": None, "job_retries": None,
+    }, reason=reason)
+
+
 async def collect_billing_report(db, *, scope, as_of):
     """Caller owns the bounded READ ONLY REPEATABLE READ transaction."""
     await require_billing_maintenance_database(db)
@@ -226,8 +260,9 @@ async def collect_billing_report(db, *, scope, as_of):
         }, reason=_reason(deliveries)),
         "registry": await _registry(db, scope, as_of),
         "free_projection": await _free_projection(db, scope["report_date"], as_of),
+        "addon_and_time_credit": await _credit_ledger(db, as_of),
     }
-    for name in ("ingress_and_duplicates", "storage", "addon_and_time_credit",
+    for name in ("ingress_and_duplicates", "storage",
                  "refunds_and_receipts", "deletion_and_fair_use"):
         families[name] = {"source": None, "scope": "unavailable", "kind": "current_state",
                           "coverage": "unavailable", "reason_code": (

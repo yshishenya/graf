@@ -84,6 +84,42 @@ scoped analyze и существующая #4932. Использовать уж�
    repository checks и три точных SHA/base PR gates. PR только Refs #4932;
    O6/FR089/T077 [ ] остаются, Full/CD/Dev/финансовая приёмка отдельно.
 
+## T077: сохраняемый реестр бонусных дней — 01.11.2026
+
+План C1–C6 [O10](contracts/operator-observation.md#o10-следующий-срез-сохраняемый-реестр-бонусных-дней),
+не результат проверки. До кода обязательны независимый допуск
+checklists/credit-ledger.md, scoped analyze и исходная #4932.
+Owned apps/server/.venv/PYTHONPATH=src:. и существующий isolated PostgreSQL
+runner/forced RLS, проверенный __file__; прежние10/26/3 PASS не повторять
+без затронутой зависимости, не складывать новые и повторные случаи.
+
+1. RED нового источника в существующих unit/test_billing_monitoring.py и
+   integration/test_billing_monitoring_postgres.py; затем только новые и
+   реально затронутые focused случаи. Сохранить XML/log/SHA, удалить свой
+   одноразовый PostgreSQL штатным finally; рабочие данные/Dev не использовать.
+2. Настоящий CLI→guard→PostgreSQL: пустой источник (count0/groups[], четыре
+   нуля/возрастnull, family partial/jobs_uninstrumented), затем все шесть
+   состояний, отрицательная reversal и неизвестные приватные строки/NULL
+   state там, где это разрешает тест формы SQL. Реальную NOT NULL схему
+   не ослаблять ради NULL: PostgreSQL должен отвергнуть такой INSERT.
+3. Pending/available с maturity и expiry за1мкс до/ровно/после as_of,
+   expires=maturity и expires<maturity, терминальные с совпавшими датами:
+   четыре непересекающихся количества, сумма=count только pending/available,
+   max возраст из допустимых достигнутых maturity, будущая maturity нормальна.
+   Неизвестная группа приоритетнее invalid_schedule, затем jobs_uninstrumented;
+   количества сохраняются независимо от выбранной причины.
+4. Два соединения: закрепить старый RR-снимок до writer commit новой credit
+   строки; прежний отчёт неизменен, новый снимок/новый CLI процесс видит новое.
+   Зафиксировать общий as_of; report_date не фильтрует current_state реестр.
+5. Синтетические days/source_ref/IDs/capacity/applied interval не выбираются
+   SQL семейства и не попадают в stdout/stderr. Сравнить таблицы до/после,
+   не запускать начисление/reversal/почту/provider. Настоящие identity/SET ROLE/
+   forced RLS/read-only проверки повторить только затронутым минимальным набором.
+   Несовместимый столбец/недоступная таблица даёт отказ всего отчёта, не нули.
+6. Независимое кодовое review/converge и exact-SHA/base GitHub gates.
+   Только Refs #4932; T077[ ], полный O6/FR089/исходные сроки и внешние
+   финансовая/приватностная/ручная/выпускная приёмки сохраняются.
+
 ## Сверка требований интерфейса — 2026-10-30
 
 Полоса: `active Spec Kit slice`, только согласование документации T079/T083
