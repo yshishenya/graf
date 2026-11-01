@@ -473,3 +473,52 @@ O1–O12 сохраняются; для receipts/null и source/reason семе�
   После независимые review/converge и три exact-SHA/base PR gates. Только
   Refs #4932; T077[ ],87 исходных task lines,58 старых gaps/весьFR089/O6,
   исторический O8 пропуск и отдельные приёмки остаются открытыми.
+
+
+## O14. Следующий срез: сохраняемые запросы удаления
+
+Исходная T077/#4932 после PR7896; это ограниченный обзор, не выполнение T070.
+Уточнение `$speckit-clarify`: источник/границы ниже выведены из действующих
+FR077/078/089, O6 и конституции IV; новых ответов владельца не приписывают.
+
+- **D1 — источник и граница.** Внутри deletion_and_fair_use подключить
+  MeetingDeletionRequest/meeting_deletion_requests. Root source точно
+  fair_use_reviews,meeting_deletion_requests; values.deletion — отдельный
+  source meeting_deletion_requests. Оба database_inventory/current_state,
+  без report_date/created_at/accepted_at/completed_at/failed_at фильтров.
+  Все видимые запросы, включая исторические и не доказанные текущему shop;
+  count — строки запросов, не уникальные встречи/люди и не число удалений.
+- **D2 — закрытые группы.** Ровно requested (default модели/миграции),
+  deleting, active_purge_complete, retryable_failed (текущие writers).
+  Любое другое значение, включая NULL/complete/terminal_failed/none,
+  относится к одной unrecognized без исходной строки. Groups sorted по state;
+  count равен сумме групп. Перечисление DeletionState шире реальных writers
+  запросов и не является основанием назвать все его значения завершением.
+- **D3 — отсутствие ложной приёмки.** active_purge_complete — только
+  сохранённое состояние запроса, не проверка объектов или полного удаления.
+  Оно не доказывает backup/local/MediaScribe/post-egress исход и не означает
+  удаления Generation Call/Langfuse/Temporal, сохраняемых по политике оператора.
+  completed_at не заменяет эти доказательства и вообще не читается.
+  В values.deletion.values оставить artifact_completion, deadline_status,
+  job_attempts, job_errors, job_retries=null. Нет SLA/возраста/дат/доли успеха.
+- **D4 — неполнота и приоритет.** Nested coverage всегда partial;
+  reason unrecognized при такой группе, иначе artifact_and_deadline_uninstrumented.
+  Root всегда partial: unrecognized любого источника → invalid_schedule
+  fair-use → deletion_details_and_reaction_uninstrumented. Fair-use count/groups/
+  pending_review сохраняются отдельно, с deletion count не складываются.
+  reaction=null. Пустые запросы дают count0/groups[] и всё равно partial.
+  Недоступная таблица/схема — безопасный отказ всего CLI, а не пустой успех.
+- **D5 — безопасность и минимальность.** Один helper/одна SQL-агрегация
+  state/count в прежнем billing/monitoring.py, вызываемая прежним fair-use
+  collector. В Python не выбирать ID/связи/request_source/reason/failure_reason/
+  confirmation_boundary/policy/metadata/времена и объекты встреч. Не вызывать
+  deletion/retention/purge/repair writers или внешние зависимости; схема,
+  права/политики RLS, guard/READ ONLY RR/as_of/пределы O2/cleanup не меняются.
+- **D6 — проверяемый порядок.** До кода семь согласованных документов,
+  независимый reviewer-owned checklists/deletion-inventory.md и scoped analyze;
+  исходная #4932 без дубля. RED, реальные PostgreSQL/CLI/FORCE RLS/NOT NULL,
+  четыре state/unknown/NULL defensive SQL, private sentinels/два снимка/
+  новый процесс/no-write/схема/роли; минимальные затронутые fair-use регрессии.
+  Затем independent code/converge и exact SHA/base gates. T077[ ],87полных
+  task lines,58старых gaps, весь O6/исходные сроки и отдельная T070 сохраняются.
+  Наших Full/CD/релиза/Dev/данных нет. Исторический O8 пропуск не исправлен.

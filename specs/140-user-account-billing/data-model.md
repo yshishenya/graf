@@ -1,3 +1,16 @@
+## T077: проекция запросов удаления — 01.11.2026
+
+Существующая MeetingDeletionRequest/meeting_deletion_requests: новых моделей
+и миграций нет. Migration0007 задаёт NOT NULLstate/defaultrequested и FORCE RLS;
+поле state модели без явного nullable=False не заменяет реальную схему.
+В SQL читается только state, наружу count и sorted closedgroups D1–D6/O14:
+requested/deleting/active_purge_complete/retryable_failed, иначеunrecognized.
+Nested source в values.deletion с database_inventory/current_state/partial.
+Нет времени/возраста/ID/metadata/фактической проверки объектов. Counts запросов
+и fair-use отдельно; artifact_completion/deadline_status/job_attempts/job_errors/
+job_retries/reaction null. Сохранённый active_purge_complete не универсальное
+удаление и не отменяет operator-retained Generation Call/Langfuse/Temporal.
+
 ## T077: проекция наблюдений чеков — 01.11.2026
 
 Новой сущности/колонки/миграции нет. Существующий BillingInvoice.plan_snapshot
