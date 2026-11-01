@@ -290,3 +290,29 @@ noindex в meta/X-Robots-Tag не найден. Word-файл пока404, по�
 о поисковых переходах/Метрике/продажах нет; AC01–AC06 остаются открытыми.
 Ровно три сообщения Product Radar уже разрешены после принятых измерения/T0
 и повторной проверки правил/дубля; не отправлены, нового согласия не требуется.
+
+### Окончательный кандидат двух каталогов
+
+Native fbb5604c2ba0f03255bf9ede3c23882015cbbecd/run41258703244 установил
+share/root:root0777 при root/usr0755. Узкий ремонт сверху вниз принят
+independent requirements5/0 и analyze/sync; code review нашло P2 — слишком
+позднюю проверку изначально безопасного child. Проверка перенесена до reads/
+temp, regression наблюдает попытку создания temp: RED3FAIL→GREEN24PASS.
+Предыдущий whole522PASS/3FAIL сохранён; fixture traceback приведён к native
+stdin без ослабления privacy assertion. Окончательные **528PASS/0skip204,72с**,
+8static/processPASS и independent review/converge0P1/P2/HIGH привязаны к
+helper4aa4f2aa7ccaaa5f1b8010d04d662290afa6871a89142cd3fa1155bc3ed010a1 и
+testbd7f3f0720f68b8e628c89f47f6f6390332bd09c6eee331e7fd6c6f5f1cfb0b9.
+Commit `e977e4cb7536e87f9927be6385dc83aeb55e6d1f` сохранён и отправлен в
+тот же PR7863. Настоящий pin и конечные exact gates пока не приняты;
+выпуска/production/T0 по локальному результату нет. Последний опубликованный
+Release по текущему GitHub — v2026.10.29.1 от29.10 12:55:40UTC,
+target976f310f9fff09b96a1e6fcec99cb43f4bb706ae.
+
+Дополнительно только чтением обновлено место рабочего диска: всего
+1880373706752, available331702861824байта, около17,64%, по-прежнему ниже20%.
+`docker system df`:240images/77active,206,4GB/86,28GBreclaimable;
+build-cache59,46GB/12,69GBreclaimable. Это оценка Docker, не доказательство
+допустимости удаления или реально освобождаемого объёма. Images, volumes,
+containers, кэш и данные в этом проходе не удалялись. Ресурсная приёмка и
+привилегированное наблюдение F273 остаются отдельными открытыми условиями.
