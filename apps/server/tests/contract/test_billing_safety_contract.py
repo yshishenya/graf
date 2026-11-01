@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from twobrain_rec_server.billing.monitoring import BillingMetricSnapshot
+from twobrain_rec_server.billing.monitoring import summarize
 from twobrain_rec_server.billing.operations import BillingCheckoutDisabled, require_billing_enabled
 from twobrain_rec_server.observability.redaction import redact_mapping
 
@@ -24,10 +24,9 @@ def test_money_mutations_keep_provider_boundary_and_no_launch_gate_dependency() 
 
 
 def test_monitoring_and_redaction_are_safe_for_evidence() -> None:
-    snapshot = BillingMetricSnapshot(payment_success=1, reconciliation_gaps=2, notification_failures=1)
-    safe = snapshot.as_safe_dict()
-    assert set(safe) == set(BillingMetricSnapshot.__dataclass_fields__)
-    assert all(isinstance(value, int) for value in safe.values())
+    safe = summarize([], None)
+    assert set(safe) == {"count", "oldest_age_seconds", "invalid_time_count", "reason_code"}
+    assert "provider_payment_id" not in safe and "invoice" not in safe
     redacted = redact_mapping({"provider_payment_id": "pay-secret", "invoice": "INV-1"})
     assert redacted["provider_payment_id"] == "[REDACTED]"
     assert redacted["invoice"] == "INV-1"

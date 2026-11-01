@@ -4,9 +4,33 @@
 
 ## Summary
 
-Активная доработка 01.11.2026 — T048/#4903: UNKNOWN при cutoff,
-описана в заключительном разделе плана. Полоса: active Spec Kit slice;
-новая денежная операция и выдача прав не входят.
+Активная доработка 01.11.2026 — T077/#4932: внутренний read-only отчёт
+по [контракту O1–O8](contracts/operator-observation.md). Полоса:
+active Spec Kit slice, high-risk (диагностика/финансы/PostgreSQL).
+Предыдущие срезы T048 ниже сохраняют собственные результаты и остаток.
+
+Первый шаг T077: заменить непотребляемую модель снимка в billing/monitoring.py
+конкретным read-only сбором и добавить cli/billing_monitoring.py по образцу
+cli/billing_registry.py; argparse, SQLAlchemy и существующий maintenance guard.
+Пути имеют префикс apps/server/src/twobrain_rec_server/. Новых таблиц,
+миграций, зависимостей, scheduler и публичного API нет. Admin/readiness/F254
+не менять. PostgreSQL isolation/read-only установить на connection до hooks;
+общий timeout включает setup/lock. registry_status использовать после bounded
+preflight и проецировать только разрешённые поля, без raw ответа.
+
+Порядок внутри исходной T077: O1–O8 и reviewer-owned
+checklists/operator-observation.md → независимый допуск → scoped analyze →
+подтверждение #4932 → RED → минимальный collector/CLI → unit плюс настоящая
+изолированная PostgreSQL CLI/guard/snapshot/timeout/privacy/no-write проверка
+в tests/unit/test_billing_monitoring.py и
+tests/integration/test_billing_monitoring_postgres.py → независимое кодовое
+ревью/converge → три обязательных exact-SHA/base PR gates.
+
+Предварительный Constitution Check: проект сохраняет maintenance/RLS,
+metadata-only вывод, source/deletion truth, capture/Stop, деньги, согласие
+и права; нет egress/production/Dev. После независимого review повторить.
+Полный остаток FR-089/O6 — та же T077, не новая задача/отмена; частичный
+JSON не закрывает issue и не является доказательством работающих тревог.
 
 Предыдущая доработка 30.10.2026 — F140/T075/#4930, операторский импорт
 по [контракту B1–B3](contracts/registry-operator-import.md). Полоса:
