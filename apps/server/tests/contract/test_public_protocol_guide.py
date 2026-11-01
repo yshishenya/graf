@@ -140,9 +140,10 @@ def test_protocol_guide_counts_visits_and_preserves_campaign_without_optional_tr
 
 
 def test_guide_schema_matches_visible_article_and_navigation():
-    paths = (PATH, "/guides/rasshifrovka-zapisi-zoom")
+    paths = {PATH: ("2026-11-01", "1 ноября 2026"),
+             "/guides/rasshifrovka-zapisi-zoom": ("2026-10-27", "27 октября 2026")}
     with TestClient(create_app(Settings(public_base_url="https://rec.2brain.pro"))) as client:
-        for path in paths:
+        for path, (modified, visible_date) in paths.items():
             response = client.get(
                 path + "?utm_source=example&token=synthetic-secret",
                 headers={"host": "wrong.example"},
@@ -161,9 +162,11 @@ def test_guide_schema_matches_visible_article_and_navigation():
                 "@type": "Article", "headline": headline,
                 "mainEntityOfPage": "https://rec.2brain.pro" + path,
                 "inLanguage": "ru",
+                "dateModified": modified,
                 "author": {"@type": "Organization", "name": "Редакция ГРАФ"},
             }
             visible_html = re.sub(r"<script[^>]*>.*?</script>", "", html, flags=re.S)
+            assert re.findall(r'<time datetime="([^"]+)">([^<]+)</time>', visible_html) == [(modified, visible_date)]
             assert "редакция граф" in visible_html.casefold() and 'href="/guides"' in visible_html
             assert breadcrumbs == {
                 "@type": "BreadcrumbList",
