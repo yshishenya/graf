@@ -94,3 +94,16 @@ policies/DOCX/CSS/JS без diff. Сверить SHA готовых G037 assets,
 diff/governance/fragment, независимый source review. Затем3 exact-SHA/base
 GitHub checks и общий валидатор. T027 закрывается только после реального
 общего выпуска и live readback; новая внешняя публикация не выполняется.
+
+## Даты FR038/T028–T029
+
+В том же полном13-test focused runner проверить JSON-LD обоих материалов:
+dateModified совпадает с единственным видимым `<time datetime>` и ожидаемой
+датой содержательной редакции; даты первой публикации не придуманы. Старые
+Article/BreadcrumbList поля/заголовки и canonical сохранены. После удаления
+только одного dateModified и time-абзаца из каждого шаблона байты равны
+основе. Повторить прежние70browser/no-JS/native-media сценарии: новый абзац
+не ломает переносы. Сверить release-v2026.10.27.1 для Zoom, источникPR7893 и
+Word-entry01.11 для протокола; source commit timestamp не выдавать за дату
+публичной публикации. Governance/fragment/diff, независимое ревью, затем
+три exact-SHA/base checks и общий валидатор. T029 только после live readback.

@@ -192,3 +192,8 @@ Lane: docs-only / mechanical. В руководстве уже опублико�
 
 - [ ] T026 Подключить проверенный G037 в `public/templates/public/meeting_protocol_guide.html` и `public/static/public/` по FR035–37; native player/manual/preload-none/poster/VTT/TXT, без общих CSS/JS и новых маршрутов. Проверить реальные media MIME/Range/playback, подписи, no-JS/keyboard/mobile/text200%, прежний контент и protected diff; независимое ревью, focused contracts и exact-SHA PR gates. (Issue #7391)
 - [ ] T027 При ближайшем общем штатном выпуске опубликовать T026; проверить публичные HTML/MP4/Range/VTT/TXT/poster, воспроизведение и прежний DOCX. Не считать публикацию трафиком или продажами. До live readback оставить открытой. (Issue #7391)
+
+## Даты редакции — G038, 01.11.2026
+
+- [ ] T028 В `public/templates/public/zoom_recording_guide.html` и `meeting_protocol_guide.html` добавить видимый time и совпадающий Article.dateModified по FR038; уточнить существующий schema-контракт в `tests/contract/test_public_protocol_guide.py`. Сверить основания дат, восстановление прежних байтов после удаления двух точных добавлений, прежние13contracts/70browser/no-JS/media, независимое ревью и exact-SHA PR gates. (Issue #7391)
+- [ ] T029 В ближайшем общем штатном выпуске опубликовать T028; проверить обе видимые даты, JSON-LD и сохранение прежних материалов. Публикация и commercial acceptance отдельны; до рабочего чтения оставить открытой. (Issue #7391)
