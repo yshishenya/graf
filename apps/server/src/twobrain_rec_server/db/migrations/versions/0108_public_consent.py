@@ -3,8 +3,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects.postgresql import JSONB
 
-revision = '0108_public_consent'
-down_revision = '0107_billing_registry'
+revision: str = "0108_public_consent"
+down_revision: str | None = "0107_billing_registry"
 branch_labels = None
 depends_on = None
 TABLE = 'public_analytics_choices'
