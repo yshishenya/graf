@@ -404,3 +404,72 @@ O1–O11 сохраняются. Это обзор строк, не новые �
   Только Refs #4932, T077 [ ], все87 исходных task lines, полный FR089/O6,
   58 старых gaps и внешние приёмки сохраняются; исторический пропуск до
   первоначального PR7884 кода не исправлен, весь O8 не объявляется PASS.
+
+## O13. Следующий срез: сохраняемые наблюдения чеков
+
+После PR7894 подключается map наблюдений чеков внутри той же T077/#4932.
+O1–O12 сохраняются; для receipts/null и source/reason семейства O11 действуют
+явные уточнения ниже. Это чтение inventory, не финансовая сверка или реакция.
+
+- **Q1 — источник и форма.** refunds_and_receipts сохраняет count/groups
+  наблюдаемых возвратов O11, но source становится составным:
+  observed_provider_refunds,billing_invoices.plan_snapshot.receipt_observations.
+  values.receipts вместо null получает самостоятельный source-объект:
+  source=billing_invoices.plan_snapshot.receipt_observations,
+  scope=database_inventory, kind=current_state, coverage всегда partial,
+  reason_code и values ниже. Корневые scope/kind/partial сохраняются.
+  Это все видимые invoice/map entries того же снимка независимо от report_date,
+  invoice status, environment/shop и времён, не текущий магазин или число
+  уникальных чеков/платежей. Корневой count не складывается с вложенным.
+- **Q2 — контейнеры.** receipts.values содержит invoice_count (все invoice),
+  missing_map_count (только object plan_snapshot с отсутствующим ключом
+  receipt_observations либо JSON null), invalid_container_count (plan_snapshot
+  не object, включая SQL/JSON null, либо его ненулевая map не object).
+  Пустая object map допустима, даёт0entries и не missing. Invalid не missing;
+  контейнеры считаются по invoice один раз. Они не дают фиктивную запись
+  observation. Раскрывать в SQL только object map через защищённый CASE;
+  malformed array/scalar не должны вызывать ошибку json_each или исчезать
+  под видом успешного полного нуля. NOT NULL реальной схемы не ослаблять.
+- **Q3 — закрытые группы.** receipts.values.count — число видимых JSON entries
+  object map; groups — непустые группы parent_kind/status/source/count,
+  лексикографически отсортированные в этом порядке. Известны только совместно
+  parent_kind=payment|refund, status=pending|succeeded|canceled,
+  source=webhook|poll|registry (18 сочетаний). Иной/отсутствующий/NULL/нестроковый
+  компонент или не-object entry даёт одну тройку unrecognized/unrecognized/
+  unrecognized; исходные строки не выводятся. Count равен сумме groups.
+  Ключ map/идентичность/immutable связи не перепроверяются; SQL JSON может
+  содержать повторяющиеся ключи, entries не объявляются уникальными чеками.
+  Top-level receipt_registration — отдельная payment UI projection; её
+  наличие без map не считается observation и не восстанавливается догадкой.
+- **Q4 — время и неполнота.** registered_at/observed_at/created_at не читаются
+  и не образуют возраст: ни одна не является доказанным pending_since.
+  receipts.values.pending_age_seconds и escalation_due остаются null;
+  values.reconciliation_gaps корневого семейства остаётся null. Succeeded
+  означает сохранённый статус, не доставку письма/актуальную проверку API,
+  финансовое разрешение или работу всех producers. Вложенная причина строго
+  unrecognized → invalid_container → missing_observations →
+  timing_and_reconciliation_uninstrumented. Первые три требуют соответственно
+  unknown group/invalid count>0/missing count>0. Корневая причина имеет тот же
+  приоритет с учётом unknown возвратов O11, последний код —
+  reconciliation_uninstrumented. Пустая БД даёт нулевые counts/groups[]/null,
+  оба source partial. Ошибка доступа/БД/схемы сохраняет отказ целого отчёта
+  O2/O3. Canceled требует немедленной реакции, pending эскалации через3дня;
+  этот срез сроков не измеряет и их не переносит, O6 остаётся открытым.
+- **Q5 — безопасность и минимум.** Две SQL-агрегации invoice containers и
+  закрытых map groups в существующем billing/monitoring.py; прежняя refund
+  агрегация сохраняется. JSON читается только внутри SQL по разрешённому пути
+  и полям parent_kind/status/source; в Python/вывод не выбирать целый JSON,
+  map key, ID/связи/shop/environment/контакты/суммы/времена/receipt URL.
+  Не вызывать record/merge receipt, provider/почту/analytics или writer.
+  Не менять модель/миграции/права/RLS/CLI/guard/READ ONLY RR/as_of/cleanup,
+  пределы15с/5с/2с/500gaps/64KiB или остальные семейства. Новых служб,
+  зависимостей/параметров нет; группы ограничены19 закрытыми комбинациями.
+- **Q6 — допуск и доказательство.** До кода собственный контекст, reviewer-owned
+  checklists/receipt-inventory.md, независимый PASS, scoped analyze и та же
+  #4932. Затем RED и реальные PostgreSQL/CLI/FORCE RLS: пустота, payment/refund
+  и все18сочетаний, malformed root/map/entries/NULL/missing/{} и приоритеты,
+  два снимка/новый процесс/разные дни, private sentinels/no-write/схема/роли.
+  Сохранить NOT NULL; SQL NULL защиту проверять отдельно от положительной БД.
+  После независимые review/converge и три exact-SHA/base PR gates. Только
+  Refs #4932; T077[ ],87 исходных task lines,58 старых gaps/весьFR089/O6,
+  исторический O8 пропуск и отдельные приёмки остаются открытыми.

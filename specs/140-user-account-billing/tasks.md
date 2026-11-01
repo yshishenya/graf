@@ -286,6 +286,14 @@ description: "Dependency-ordered implementation tasks for the GRAF personal acco
   no-write/privacy/роли/снимок/ошибка схемы → независимые review/converge и
   точные PR gates. Чеки/финансовая сверка остаются null; T077 [ ] и все
   исходные полные task lines сохраняются без новой задачи или issue.
+  После PR7894: Q1–Q6 O13/receipt observation inventory в той же T077;
+  checklists/receipt-inventory.md/независимый допуск → analyze/та же #4932 →
+  RED → helper в прежнем billing/monitoring.py и случаи в прежних unit/
+  integration файлах выше → настоящие SQL JSON/CLI/FORCE RLS/снимки/роли/
+  no-write/privacy/схема → review/converge/exact PR gates. До допуска нового
+  кода нет. Это порядок исходной задачи, не новая task; все87 task lines,
+  T077[ ],58gaps/полный O6/исходные сроки сохраняются.
+
   После PR7892: F1–F6 O12/fair-use inventory в той же T077; сначала
   checklists/fair-use-inventory.md/независимый допуск → scoped analyze/прежняя
   #4932 → RED → одна агрегация в том же billing/monitoring.py и два названных

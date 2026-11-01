@@ -84,6 +84,34 @@ scoped analyze и существующая #4932. Использовать уж�
    repository checks и три точных SHA/base PR gates. PR только Refs #4932;
    O6/FR089/T077 [ ] остаются, Full/CD/Dev/финансовая приёмка отдельно.
 
+## T077: сохраняемые наблюдения чеков — 01.11.2026
+
+Q1–Q6 [O13](contracts/operator-observation.md#o13-следующий-срез-сохраняемые-наблюдения-чеков),
+те же unit/integration файлы, настоящий CLI/изолированная PostgreSQL.
+Это план до независимого допуска/кода, не результат проверок.
+
+1. RED нового receipt inventory; пустой nested source partial с нулями/null,
+   корневой refund count прежний. Отсутствующая/JSON-null map отличается от
+   invalid root/map и явной пустой object map; invoice_count не count entries.
+2. Все18совместных parent/status/source сочетаний, несколько entries на invoice,
+   missing/null/нестроковые компоненты, scalar/array entries. Unknown tuple одна,
+   сортировка/сумма/приоритеты. JSON root/map scalar/array/null безопасны для
+   json_each; реальный NOT NULL отвергает SQL NULL. Его защитную SQL ветвь
+   проверить отдельным синтетическим входом без ослабления реальной схемы.
+3. Только payment top-level receipt_registration без map остаётся missing;
+   строки не фильтруются по invoice status/дню/environment/времени. Разные даты
+   отчёта не меняют current_state groups. Даты/возраст/решение не выводятся;
+   pending_age_seconds/escalation_due и reconciliation_gaps null.
+4. Настоящие CLI/maintenance/READ ONLY RR/FORCE RLS, два снимка/конкурентный
+   commit/новый процесс. Private keys/IDs/контакты/URL/суммы/JSON timestamps
+   с synthetic sentinels отсутствуют в Python output/stdout/stderr и SQL
+   выбранных полях; fingerprints до/после прежние, provider/почта=0.
+5. Несовместимая схема безопасно отвергает весь CLI. Повторить только новые
+   и affected refund/identity/SET ROLE случаи; неизменные наборы не повторять.
+   Owned apps/server/.venv, PYTHONPATH=src:., подтвердить __file__, сохранить
+   XML/log/nodeids/hashes/cleanup. Независимые review/converge/exact PR gates.
+   T077[ ]/#4932OPEN, весь O6/сроки/отдельные приёмки остаются открытыми.
+
 ## T077: сроки fair-use проверок — 01.11.2026
 
 F1–F6 [O12](contracts/operator-observation.md#o12-следующий-срез-сроки-сохраняемых-fair-use-проверок),

@@ -1,3 +1,15 @@
+## T077: проекция наблюдений чеков — 01.11.2026
+
+Новой сущности/колонки/миграции нет. Существующий BillingInvoice.plan_snapshot
+(JSON NOT NULL) хранит receipt_observations object map; текущий writer16entries,
+parent_kind payment/refund, status pending/succeeded/canceled, source webhook/
+poll/registry. Служебный inventory O13 читает только закрытые группы/counts.
+Invoice/missing/invalid containers отдельно от числа map entries; JSON null
+не SQL NULL, реальные constraints сохраняются. Ключи/связи/shop/environment/
+времена/JSON не выбираются. Top-level receipt_registration — отдельная UI
+projection; count не число уникальных чеков, pending_since здесь отсутствует.
+Имеющийся READ ONLY RR/RLS/maintenance и все прежние сущности неизменны.
+
 # Data Model: account, subscription and billing
 
 ## Modeling rules

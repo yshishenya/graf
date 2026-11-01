@@ -1,3 +1,22 @@
+## T077: источник наблюдений чеков — 01.11.2026
+
+- **Decision**: читать существующую invoice.plan_snapshot.receipt_observations,
+  которую сохраняют record_observed_receipt/merge_receipt_observation_snapshot
+  (billing/reconciliation.py324–499); текущий writer ограничивает map16entries,
+  payment/refund сосуществуют. Это не доказательство формы всей исторической БД.
+- **Rationale**: parent_kind/status/source дают закрытые совместные группы;
+  ключ/ID/shop/JSON не выбираются. Две SQL-агрегации отдельно учитывают invoice
+  containers и entries; CASE перед json_each сохраняет безопасный malformed
+  исход без JSON parsing в Python. Missing map и invalid container не ноль.
+  Число entries не число уникальных чеков, immutable связи здесь не проверяются.
+- **Decision**: не использовать observed_at/registered_at/created_at как
+  pending_since; duplicate status не обновляет observed_at. Возраст/эскалация/
+  финансовая сверка null, canceled немедленно/pending3дня остаются O6.
+- **Alternatives**: top-level receipt_registration теряет отдельные refund
+  observations и не заменяет map; новая таблица/служба/JSONB миграция/полный
+  Python JSON и ложная shop привязка отвергнуты. Старый source audit не повторён.
+  Уточнения Q1–Q6/O13 требуют независимого допуска и analyze до кода.
+
 # Research: личный кабинет, биллинг и growth mechanics
 
 ## Дополнение T075 — 2026-10-30
