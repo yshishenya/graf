@@ -82,7 +82,7 @@ crash/replay, no-archive и terminal UI contracts добавляются до р
 - T026: #5892
 - T027: #5891
 - T028: #5894
-- T029: #5893
+- T029 (Issue #5893)
 - T030: #5895
 - T031: #5896
 - T032: #5908
@@ -113,7 +113,7 @@ crash/replay, no-archive и terminal UI contracts добавляются до р
 ## Phase 8: Validation and release readiness
 
 - [X] T028 [P] Обновить `[Unreleased]`, operational metrics и runbook в `CHANGELOG.md`, `apps/server/src/twobrain_rec_server/admin/metrics.py` и `specs/206-mediascribe-polling-recovery/quickstart.md`.
-- [ ] T029 Повторить updated checklists, `$speckit-analyze`, quickstart, focused tests, replay evidence, `git diff --check` и `infra/scripts/ci-local.sh --fast` после исправлений повторного аудита.
+- [X] T029 Повторить updated checklists, `$speckit-analyze`, quickstart, focused tests, replay evidence, `git diff --check` и `infra/scripts/ci-local.sh --fast` после исправлений повторного аудита.
 - [ ] T030 Провести Product Design audit web/embedded flow на pending, retry countdown, terminal failure и success; сохранить текущие screenshots/evidence вне git.
 - [ ] T031 Выполнить scoped/current-SHA и обязательные PR/review/merge/release/deploy gates по действующим правилам проекта, включая GitHub `release-full` замороженного кандидата, и production E2E на real ready, recoverable corrupt, no-archive и terminal recordings.
 
@@ -131,3 +131,20 @@ T030/#5895 и T031/#5896 также не приняты. Точный соста
 неисполненные этапы и контрольные суммы — в
 [отчёте](review-t029-20261101.md). Отдельные успешные этапы не заменяют
 успешный общий fast, настоящую установленную или рабочую приёмку.
+
+
+### Итог повторной проверки на `125b5104`
+
+Предыдущий отказ на `4c0c6746` сохранён выше как история. На исходнике
+`125b51042ff39a1a7b1d4d051ce2503ea8d1250c` получены 323 уникальных
+окончательных PASS по 14 профильным файлам; две ошибки подготовки браузера
+устранены указанием существующей установки, повторены только эти два случая.
+Общий fast на том же исходнике завершился PASS за 1588 секунд, код 0,
+`coverage=partial`, следующий барьер `full_before_release`.
+Независимая проверка приняла infra8: requirements 12/0, infra 15/0,
+UX 12/1. Анализ: 22 FR, 14 SC, 32 уникальные задачи, CRITICAL 0 / HIGH 0.
+На этом основании локальные критерии T029 выполнены; закрытие #5893
+дополнительно требует принятого документального PR и живой проверки.
+Настоящий интерфейс UX3/T030 и выпуск/рабочая приёмка T031 остаются открытыми.
+Подробности и суммы — в [независимом отчёте](review-t029-20261101.md) и
+[анализе](analysis-t029-20261101.md). Рабочий код и тесты не менялись.
