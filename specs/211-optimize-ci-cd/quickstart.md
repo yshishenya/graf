@@ -1241,3 +1241,20 @@ Scoped converge6/6: обязательной новой задачи до update
 
 - Helper SHA256: `e621ac1d9e4f67f7b0b8f92f29f01be4a0cc5f81987f1724221b2053bcd5e00e`.
 - Test SHA256: `40de319b3f2a4117736a2e70fa3e1bd8fcd815dc11465c13ecac95f55ff09eed`.
+
+
+### T114: native отказ parent до проверки pin
+
+Run41256850185/job124701772801 на e118223edac681a0fa90ea502ba11feba8596665
+отказал `unsafe keyring directory`. Actual hash ещё не проверен, успеха нет.
+Для следующего наблюдения разрешён только fixed keyring-directory + числовые
+metadata при прежнем отказе. Existing3key-parent×3callers: RED→GREEN/whole
+module/static/independent review. Guard не менять, промежуточный отказ не merge.
+
+
+Parent diagnostic: RED9/3PASS→GREEN12; весь модуль453PASS/0skips/162,81с,
+source helper/test неизменны во время прогона. Static8PASS, независимые
+requirements и code review без замечаний, scoped converge4/4 без новых задач.
+HelperSHA2562f7b24b90edf3d0be8d5a498c1d055c79787ea0bc4f37899531688eca2d36b8e,
+test0d5248820e4beb21bc026075b7d7d8daeffe059c288169c5af614292f8747f2d.
+Native metadata/functional adaptation/exact gates/merge остаются открытыми.

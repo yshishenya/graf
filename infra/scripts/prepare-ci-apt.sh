@@ -60,7 +60,9 @@ if not stat.S_ISDIR(parent.st_mode) or parent.st_uid != 0 or parent.st_mode & 0o
 keyring = Path('/usr/share/keyrings/ubuntu-archive-keyring.gpg')
 key_parent = keyring.parent.lstat()
 if not stat.S_ISDIR(key_parent.st_mode) or key_parent.st_uid != 0 or key_parent.st_mode & 0o022:
-    fail('unsafe keyring directory')
+    fail(f'unsafe keyring-directory metadata type={stat.S_IFMT(key_parent.st_mode)} '
+         f'uid={key_parent.st_uid} gid={key_parent.st_gid} '
+         f'mode={stat.S_IMODE(key_parent.st_mode):o} size={key_parent.st_size}')
 key_data, key_metadata = checked_read(keyring, 1048576, 'keyring')
 original, metadata = checked_read(source, 16384, 'source')
 if any(byte > 126 or byte < 32 and byte not in (9, 10) for byte in original):

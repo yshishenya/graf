@@ -840,3 +840,12 @@ hash учебного ключа; отдельный tampered fixture не со�
 review/converge и обновление того же draft PR7863 на exact source. Реальный
 успех ещё не доказан; mismatch не обходится chmod. T112/#7859 открыты до
 конечного принятия. F273 и коммерческая цель этим не закрываются.
+
+
+### T114: диагностика уже прочитанного key_parent
+
+Native run41256850185 отказал unsafe keyring directory до key read. Не
+угадывать metadata и не исправлять каталог по предположению. Только прежняя
+ветвь fail получает fixed keyring-directory/numeric stat format T113;
+новых чтений/paths/guards/записей нет. Existing key-parent owner/mode/symlink
+требуют exact stderr, сначала RED. Функциональное расширение отсутствует.

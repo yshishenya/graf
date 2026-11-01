@@ -675,6 +675,13 @@ ffprobe() { printf 'ffprobe\n' >> "$PREP_EVENTS"; [[ "$TOOLS_STATE" != broken-ff
     assert (result.returncode != 0) == failed, result.stdout + result.stderr
     assert rows == ([] if tools_state == "self-hosted" else ["mirror"]) if tools_state in helper_failures else rows[0] == "mirror"
     assert "fixture-private-value" not in result.stdout + result.stderr
+    if tools_state in {"key-parent-owner", "key-parent-mode", "key-parent-symlink"}:
+        metadata = key_parent.lstat()
+        uid = 1 if tools_state == "key-parent-owner" else 0
+        assert result.stderr.strip() == (
+            f"CI APT preparation: unsafe keyring-directory metadata type={stat.S_IFMT(metadata.st_mode)} "
+            f"uid={uid} gid=0 mode={stat.S_IMODE(metadata.st_mode):o} size={metadata.st_size}"
+        )
     if tools_state in {"source-owner", "source-mode", "source-symlink", "source-empty", "source-oversize",
                        "key-owner", "key-mode", "key-symlink", "key-empty", "key-oversize"}:
         label = "source" if tools_state.startswith("source-") else "keyring"
