@@ -1084,7 +1084,7 @@ async def test_postgres_inventory_function_returns_only_bounded_scope_ids(
             )
             rows = await enumerate_backfill_workspace_candidates(
                 db,
-                after_workspace_id=None,
+                after_workspace_id=UUID(int=ids["workspace_id"].int - 1),
                 page_size=50,
             )
         matching = [row for row in rows if row.tenant_scope.workspace_id == ids["workspace_id"]]

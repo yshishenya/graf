@@ -910,3 +910,20 @@ mock harness: любой temp до refusal проваливает assert тол�
 `<prepare-ci-apt>` вместо относительного имени: loader root-model не должен
 показывать чужие строки. Предыдущий whole с3missing-source FAIL сохраняется,
 новый focused/whole проверяет прежний privacy assert без ослабления.
+
+
+## T115 — целевой курсор учебного inventory
+
+FR-057/SC-025; active Spec Kit slice. До реализации — независимый checklist
+`inventory-test-cursor.md`, analyze и issue sync. В одном существующем тесте
+заменить только `after_workspace_id=None` на UUID непосредственно перед
+созданным workspace. UUID уже импортирован; общий helper/SQL не менять.
+
+Доказательство до/после: отдельный временный pytest wrapper импортирует тот же
+неизменный test и его две fixtures, autouse fixture задаёт последовательные
+учебные UUID и через существующий `_seed_revision` создаёт51 предшествующий
+workspace. Штатный runner выделяет disposable PostgreSQL и удаляет его после
+отказа/успеха. Этот wrapper — диагностический инструмент, не новый product
+или legacy path. Сохранить безопасный рецепт и итоги. Затем весь normalization
+PostgreSQL module и maintenance-context file, Ruff/diff/process/fragment,
+независимое code review/converge. Release clone failed125b не изменять.

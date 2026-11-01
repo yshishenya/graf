@@ -410,3 +410,8 @@ source `e977e4cb7536e87f9927be6385dc83aeb55e6d1f`, merge
 `724a937507b42f10f3c0e45e38c72166a3cd549f`; exact gates и общий валидатор
 до/после слияния PASS. См. quickstart: «T112–T114: приёмка слитого среза».
 Full/выпуск/F273/T0 остаются отдельными открытыми результатами.
+
+
+## T115 — исправление предпосылки первой страницы
+
+- [ ] T115 [US2] После независимого checklist `inventory-test-cursor.md`, analyze и issue sync воспроизвести отсутствие цели за51 предшествующим workspace на настоящем disposable PostgreSQL; заменить только курсор в `test_postgres_inventory_function_returns_only_bounded_scope_ids` (`apps/server/tests/integration/test_playback_normalization_postgres.py`), сохранив все assertions/лимит/SQL/права; GREEN тем же wrapper, весь прежний модуль и `test_rls_maintenance_context.py` без новых skips, static/process/fragment и независимые review/converge, exact PR gates. Full/CD/T0 вне приёмки T115. (FR-057/SC-025) (Issue #7873)
