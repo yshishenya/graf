@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 
 import httpx
 import pytest
-from sqlalchemy import DateTime, String, column, delete, event, insert, text, values
+from sqlalchemy import JSON, DateTime, String, column, delete, event, insert, text, values
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
@@ -889,11 +889,13 @@ def test_credit_ledger_repeatable_snapshot_and_new_process(database):
 def test_refund_inventory_empty_notnull_and_schema_failure(database):
     result, code = process(database)
     assert code == 0
-    assert result["families"]["refunds_and_receipts"] == {
-        "source": "observed_provider_refunds", "scope": "database_inventory", "kind": "current_state",
-        "coverage": "partial", "reason_code": "receipts_and_reconciliation_uninstrumented",
-        "values": {"count": 0, "groups": [], "receipts": None, "reconciliation_gaps": None},
-    }
+    family = result["families"]["refunds_and_receipts"]
+    assert family["source"] == "observed_provider_refunds,billing_invoices.plan_snapshot.receipt_observations"
+    assert family["scope"] == "database_inventory" and family["kind"] == "current_state"
+    assert family["coverage"] == "partial" and family["reason_code"] == "reconciliation_uninstrumented"
+    assert family["values"]["count"] == 0 and family["values"]["groups"] == []
+    assert family["values"]["reconciliation_gaps"] is None
+    assert family["values"]["receipts"]["values"]["invoice_count"] == 0
     workspace = asyncio.run(seed(database))
 
     async def schema():
@@ -973,13 +975,13 @@ def test_refund_inventory_pairs_time_privacy_and_restart(database, monkeypatch):
         result, code = invoke(database)
     assert code == 0
     family = result["families"]["refunds_and_receipts"]
-    assert family == {
-        "source": "observed_provider_refunds", "scope": "database_inventory", "kind": "current_state",
-        "coverage": "partial", "reason_code": "unrecognized",
-        "values": {"count": 6, "groups": [{"status": "succeeded", "count": 3},
-                                           {"status": "unrecognized", "count": 3}],
-                   "receipts": None, "reconciliation_gaps": None},
-    }
+    assert family["source"] == "observed_provider_refunds,billing_invoices.plan_snapshot.receipt_observations"
+    assert family["coverage"] == "partial" and family["reason_code"] == "unrecognized"
+    assert family["values"]["count"] == 6
+    assert family["values"]["groups"] == [{"status": "succeeded", "count": 3}, {"status": "unrecognized", "count": 3}]
+    assert family["values"]["receipts"]["reason_code"] == "missing_observations"
+    assert family["values"]["receipts"]["values"]["missing_map_count"] == 1
+    assert family["values"]["reconciliation_gaps"] is None
     assert len(sql) == 1
     for private in (".id", "workspace_id", "invoice_id", "provider_refund_id", "amount_minor",
                     "currency", "shop_environment", "observed_at", "plan_snapshot"):
@@ -1033,6 +1035,205 @@ def test_refund_inventory_repeatable_snapshot_and_new_process(database):
     asyncio.run(scenario())
     restarted, code = process(database)
     assert code == 0 and restarted["families"]["refunds_and_receipts"]["values"]["count"] == 1
+
+
+def test_receipt_inventory_empty_notnull_and_schema_failure(database):
+    report, code = process(database)
+    assert code == 0
+    family = report["families"]["refunds_and_receipts"]
+    assert family["source"] == "observed_provider_refunds,billing_invoices.plan_snapshot.receipt_observations"
+    assert family["reason_code"] == "reconciliation_uninstrumented"
+    assert family["values"]["receipts"] == {
+        "source": "billing_invoices.plan_snapshot.receipt_observations", "scope": "database_inventory",
+        "kind": "current_state", "coverage": "partial",
+        "reason_code": "timing_and_reconciliation_uninstrumented", "values": {
+            "invoice_count": 0, "missing_map_count": 0, "invalid_container_count": 0,
+            "count": 0, "groups": [], "pending_age_seconds": None, "escalation_due": None,
+        },
+    }
+    asyncio.run(seed(database))
+
+    async def schema():
+        engine = create_async_engine(database)
+        try:
+            async with engine.begin() as conn:
+                with pytest.raises(IntegrityError):
+                    async with conn.begin_nested():
+                        await conn.execute(text("update billing_invoices set plan_snapshot=NULL"))
+                await conn.execute(text("alter table billing_invoices rename column plan_snapshot to synthetic_missing_snapshot"))
+            try:
+                assert await asyncio.to_thread(process, database) == (cli.failure("report_unavailable"), 1)
+            finally:
+                async with engine.begin() as conn:
+                    await conn.execute(text("alter table billing_invoices rename column synthetic_missing_snapshot to plan_snapshot"))
+        finally:
+            await engine.dispose()
+    asyncio.run(schema())
+    assert process(database)[1] == 0
+
+
+def test_receipt_inventory_all_pairs_containers_privacy_and_priorities(database, monkeypatch):
+    workspace = asyncio.run(seed(database))
+    expected = [{"parent_kind": parent, "status": status, "source": source, "count": 1}
+                for parent in ("payment", "refund") for status in ("canceled", "pending", "succeeded")
+                for source in ("poll", "registry", "webhook")]
+    valid = {"parent_kind": "payment", "status": "pending", "source": "poll"}
+    malformed = [None, [], "private-entry", 123, True, {}]
+    for field in valid:
+        malformed.append({key: value for key, value in valid.items() if key != field})
+        malformed.extend({**valid, field: value} for value in (None, 123, [], {}, "private-component"))
+    samples = [None, [], 123, "private-root", True,
+               *[{"receipt_observations": value} for value in ([], 123, "private-map", True)],
+               {}, {"receipt_registration": "succeeded"}, {"receipt_observations": None},
+               {"receipt_observations": {}},
+               *[{"receipt_observations": {f"private-key-{i}": {**group,
+                   "provider_receipt_id": "private-id", "environment": "private-env", "shop_id": "private-shop",
+                   "observed_at": "2999-01-01", "registered_at": "1900-01-01",
+                   "receipt_url": "private-url", "contact": "private-contact", "amount": 987654321,
+               } for i, group in enumerate(expected[start:start + 9])}} for start in (0, 9)],
+               {"receipt_observations": {f"private-malformed-{i}": value for i, value in enumerate(malformed)}}]
+
+    async def populate():
+        engine = create_async_engine(database)
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(delete(BillingInvoice))
+                for snapshot in samples:
+                    operation = (await conn.execute(insert(BillingOperation).values(
+                        workspace_id=workspace, kind="renewal", state="unknown", idempotency_key=str(uuid4()),
+                    ).returning(BillingOperation.id))).scalar_one()
+                    await conn.execute(insert(BillingInvoice).values(
+                        workspace_id=workspace, operation_id=operation, safe_number=str(uuid4()),
+                        amount_minor=987654321, status="canceled", plan_snapshot=snapshot,
+                        created_at=datetime(2999, 1, 1, tzinfo=UTC),
+                    ))
+        finally:
+            await engine.dispose()
+    asyncio.run(populate())
+    before = asyncio.run(fingerprint(database))
+    actual = cli.create_async_engine
+    selected = []
+
+    def instrument(*args, **kwargs):
+        engine = actual(*args, **kwargs)
+
+        @event.listens_for(engine.sync_engine, "before_cursor_execute")
+        def record(conn, cursor, statement, parameters, context, executemany):
+            if "json_typeof" in statement:
+                selected.append(statement)
+        return engine
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("unexpected receipt writer or HTTP")
+
+    from twobrain_rec_server.auth.email_delivery import PostalEmailLoginClient
+    from twobrain_rec_server.billing import reconciliation
+    with monkeypatch.context() as scoped:
+        scoped.setattr(cli, "create_async_engine", instrument)
+        scoped.setattr(httpx.Client, "request", forbidden)
+        scoped.setattr(httpx.AsyncClient, "request", forbidden)
+        scoped.setattr(reconciliation, "record_observed_receipt", forbidden)
+        scoped.setattr(reconciliation, "merge_receipt_observation_snapshot", forbidden)
+        scoped.setattr(PostalEmailLoginClient, "_post_message", forbidden)
+        report, code = invoke(database)
+    assert code == 0
+    family = report["families"]["refunds_and_receipts"]
+    receipt = family["values"]["receipts"]
+    assert receipt["coverage"] == "partial" and receipt["reason_code"] == family["reason_code"] == "unrecognized"
+    assert receipt["values"] == {
+        "invoice_count": len(samples), "missing_map_count": 3, "invalid_container_count": 9,
+        "count": 18 + len(malformed), "groups": expected + [{
+            "parent_kind": "unrecognized", "status": "unrecognized", "source": "unrecognized", "count": len(malformed),
+        }], "pending_age_seconds": None, "escalation_due": None,
+    }
+    assert family["values"]["count"] == 0 and family["values"]["reconciliation_gaps"] is None
+    assert len(selected) == 2
+    for sql in selected:
+        for private in (".id", "workspace_id", "operation_id", "amount_minor", "created_at", "observed_at",
+                        "registered_at", "provider_receipt_id", "shop_id", "environment", "receipt_url", "contact"):
+            assert private not in sql
+    for day in (DAY, date(1999, 1, 1), date(2099, 1, 1)):
+        restarted, code = process(database, day=day)
+        assert code == 0 and restarted["families"]["refunds_and_receipts"] == family
+        assert "private-" not in json.dumps(restarted) and "987654321" not in json.dumps(restarted)
+    assert asyncio.run(fingerprint(database)) == before
+
+    async def priorities():
+        engine = create_async_engine(database)
+        try:
+            for snapshot, reason in (([], "invalid_container"), ({"receipt_registration": "succeeded"}, "missing_observations"),
+                                     ({"receipt_observations": {}}, "reconciliation_uninstrumented")):
+                async with engine.begin() as conn:
+                    await conn.execute(text("update billing_invoices set plan_snapshot=cast(:snapshot as json)"),
+                                       {"snapshot": json.dumps(snapshot)})
+                current, code = await asyncio.to_thread(process, database)
+                assert code == 0 and current["families"]["refunds_and_receipts"]["reason_code"] == reason
+        finally:
+            await engine.dispose()
+    asyncio.run(priorities())
+
+
+def test_receipt_inventory_sql_null_and_duplicate_keys_defense(database, monkeypatch):
+    async def scenario():
+        engine = create_async_engine(database)
+        raw = '{"receipt_observations":{"duplicate":{"parent_kind":"refund","status":"pending","source":"registry"},"duplicate":{"parent_kind":"refund","status":"pending","source":"registry"}}}'
+        # Preserve duplicate JSON keys in a literal SQL JSON row, unlike Python dict parsing.
+        synthetic = text("select null::json as plan_snapshot union all select cast(:raw as json)").bindparams(raw=raw).columns(plan_snapshot=JSON).subquery()
+        with monkeypatch.context() as scoped:
+            scoped.setattr(monitoring, "BillingInvoice", SimpleNamespace(__table__=synthetic))
+            try:
+                async with AsyncSession(engine) as db:
+                    result = await monitoring._receipt_inventory(db)
+            finally:
+                await engine.dispose()
+        values_ = result["values"]
+        assert result["reason_code"] == "invalid_container"
+        assert values_["invoice_count"] == 2 and values_["invalid_container_count"] == 1
+        assert values_["missing_map_count"] == 0 and values_["count"] == 2
+        assert values_["groups"] == [{"parent_kind": "refund", "status": "pending", "source": "registry", "count": 2}]
+    asyncio.run(scenario())
+
+
+def test_receipt_inventory_repeatable_snapshot_and_new_process(database):
+    asyncio.run(seed(database))
+    as_of = datetime(2026, 11, 1, tzinfo=UTC)
+
+    async def scenario():
+        writer = create_async_engine(database)
+        reader = create_async_engine(settings(database).database_url, execution_options={
+            "isolation_level": "REPEATABLE READ", "postgresql_readonly": True,
+        })
+        factory = create_sessionmaker(reader)
+        scope = {"environment": "test", "shop_id": "123", "report_date": DAY}
+
+        def session():
+            db = factory()
+            db.sync_session.info["tenant_context"] = maintenance_context_settings(MaintenanceTenantContext(
+                operation_name="billing_reconciliation", actor_id="synthetic-operator",
+                reason_category="operator_diagnostics", feature_area="billing",
+            ))
+            return db
+        try:
+            async with session() as db:
+                old = await monitoring.collect_billing_report(db, scope=scope, as_of=as_of)
+                assert old["families"]["refunds_and_receipts"]["values"]["receipts"]["values"]["count"] == 0
+                async with writer.begin() as conn:
+                    await conn.execute(text("update billing_invoices set plan_snapshot=cast(:snapshot as json)"), {
+                        "snapshot": json.dumps({"receipt_observations": {"private-key": {
+                            "parent_kind": "refund", "status": "canceled", "source": "webhook",
+                        }}}),
+                    })
+                unchanged = await monitoring.collect_billing_report(db, scope=scope, as_of=as_of)
+                assert unchanged["families"]["refunds_and_receipts"] == old["families"]["refunds_and_receipts"]
+            async with session() as db:
+                new = await monitoring.collect_billing_report(db, scope=scope, as_of=as_of)
+                assert new["families"]["refunds_and_receipts"]["values"]["receipts"]["values"]["count"] == 1
+        finally:
+            await reader.dispose()
+            await writer.dispose()
+    asyncio.run(scenario())
+    restarted, code = process(database)
+    assert code == 0 and restarted["families"]["refunds_and_receipts"]["values"]["receipts"]["values"]["count"] == 1
 
 
 def test_fair_use_inventory_empty_constraints_and_schema_failure(database):

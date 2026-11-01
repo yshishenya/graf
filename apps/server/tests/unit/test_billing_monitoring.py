@@ -142,22 +142,27 @@ def test_credit_ledger_reason_precedence_and_maximum_age(unknown, invalid, reaso
 
 
 @pytest.mark.parametrize("rows,reason", [
-    ([], "receipts_and_reconciliation_uninstrumented"),
-    ([{"status": "succeeded", "count": 2}], "receipts_and_reconciliation_uninstrumented"),
+    ([], "missing_observations"),
+    ([{"status": "succeeded", "count": 2}], "missing_observations"),
     ([{"status": "succeeded", "count": 2}, {"status": "unrecognized", "count": 3}], "unrecognized"),
 ])
-def test_refund_inventory_closed_projection_and_incomplete_sources(rows, reason):
+def test_refund_inventory_closed_projection_and_incomplete_sources(rows, reason, monkeypatch):
+    from twobrain_rec_server.billing import monitoring
     from twobrain_rec_server.billing.monitoring import _refund_inventory
+
+    receipts = {"reason_code": "missing_observations", "coverage": "partial"}
+    monkeypatch.setattr(monitoring, "_receipt_inventory", AsyncMock(return_value=receipts))
 
     response = MagicMock()
     response.mappings.return_value.all.return_value = rows
     db = AsyncMock(execute=AsyncMock(return_value=response))
     result = asyncio.run(_refund_inventory(db))
     assert result == {
-        "source": "observed_provider_refunds", "scope": "database_inventory", "kind": "current_state",
+        "source": "observed_provider_refunds,billing_invoices.plan_snapshot.receipt_observations",
+        "scope": "database_inventory", "kind": "current_state",
         "coverage": "partial", "reason_code": reason,
         "values": {"count": sum(row["count"] for row in rows), "groups": rows,
-                   "receipts": None, "reconciliation_gaps": None},
+                   "receipts": receipts, "reconciliation_gaps": None},
     }
     db.execute.assert_awaited_once()
     statement = db.execute.await_args.args[0]
@@ -170,6 +175,47 @@ def test_refund_inventory_closed_projection_and_incomplete_sources(rows, reason)
     for private in (".id", "workspace_id", "invoice_id", "provider_refund_id", "amount_minor",
                     "currency", "shop_environment", "observed_at", "plan_snapshot"):
         assert private not in sql
+
+
+@pytest.mark.parametrize("unknown,invalid,missing,reason", [
+    (False, 0, 0, "timing_and_reconciliation_uninstrumented"),
+    (False, 0, 2, "missing_observations"),
+    (False, 1, 2, "invalid_container"),
+    (True, 1, 2, "unrecognized"),
+])
+def test_receipt_inventory_counts_priorities_and_closed_sql(unknown, invalid, missing, reason):
+    from twobrain_rec_server.billing.monitoring import _receipt_inventory
+
+    containers, entries = MagicMock(), MagicMock()
+    containers.one.return_value = (4, missing, invalid)
+    groups = [{"parent_kind": "payment", "status": "pending", "source": "poll", "count": 2}]
+    if unknown:
+        groups.append({"parent_kind": "unrecognized", "status": "unrecognized",
+                       "source": "unrecognized", "count": 3})
+    entries.mappings.return_value.all.return_value = groups
+    db = AsyncMock(execute=AsyncMock(side_effect=[containers, entries]))
+    result = asyncio.run(_receipt_inventory(db))
+    assert result == {
+        "source": "billing_invoices.plan_snapshot.receipt_observations",
+        "scope": "database_inventory", "kind": "current_state", "coverage": "partial",
+        "reason_code": reason, "values": {
+            "invoice_count": 4, "missing_map_count": missing, "invalid_container_count": invalid,
+            "count": 5 if unknown else 2, "groups": groups,
+            "pending_age_seconds": None, "escalation_due": None,
+        },
+    }
+    assert db.execute.await_count == 2
+    from sqlalchemy.dialects import postgresql
+    sql = [str(call.args[0].compile(dialect=postgresql.dialect())).lower()
+           for call in db.execute.await_args_list]
+    assert "json_typeof" in sql[0] and "json_each(case when" in sql[1]
+    for call in db.execute.await_args_list:
+        assert call.args[0].whereclause is None
+        selected = str(call.args[0].selected_columns).lower()
+        assert "key" not in selected
+        for private in (".id", "workspace_id", "operation_id", "amount_minor", "receipt_contact",
+                        "created_at", "observed_at", "registered_at", "shop_id", "environment", "receipt_url"):
+            assert private not in str(call.args[0]).lower()
 
 
 @pytest.mark.parametrize("state,invalid,reason", [

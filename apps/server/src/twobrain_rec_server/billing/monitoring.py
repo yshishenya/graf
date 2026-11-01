@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import case, func, select
+from sqlalchemy import JSON, Text, case, column, func, literal, select, true
 
 from twobrain_rec_server.billing.database import require_billing_maintenance_database
 from twobrain_rec_server.billing.registry_store import GAPS, registry_status
@@ -231,19 +231,56 @@ async def _credit_ledger(db, as_of):
     }, reason=reason)
 
 
+async def _receipt_inventory(db):
+    """Stored JSON entries, never unique receipts, pending age or delivery proof."""
+    table = BillingInvoice.__table__
+    snapshot = table.c.plan_snapshot
+    root_object = func.coalesce(func.json_typeof(snapshot) == "object", False)
+    observations = snapshot["receipt_observations"]
+    map_type = func.json_typeof(observations)
+    missing = root_object & (map_type.is_(None) | (map_type == "null"))
+    invalid = ~root_object | (root_object & map_type.not_in(("object", "null")))
+    invoices, missing_count, invalid_count = (await db.execute(select(
+        func.count(), func.count().filter(missing), func.count().filter(invalid),
+    ).select_from(table))).one()
+    safe_map = case((root_object & (map_type == "object"), observations), else_=literal({}, type_=JSON))
+    entries = func.json_each(safe_map).table_valued(column("key", Text), column("value", JSON)).lateral()
+    fields = {name: entries.c.value[name] for name in ("parent_kind", "status", "source")}
+    known = func.json_typeof(entries.c.value) == "object"
+    for name, allowed in (("parent_kind", ("payment", "refund")),
+                          ("status", ("pending", "succeeded", "canceled")),
+                          ("source", ("webhook", "poll", "registry"))):
+        known = known & (func.json_typeof(fields[name]) == "string") & fields[name].as_string().in_(allowed)
+    keys = [case((known, value.as_string()), else_="unrecognized").label(name) for name, value in fields.items()]
+    groups = [dict(row) for row in (await db.execute(select(
+        *keys, func.count().label("count"),
+    ).select_from(table.join(entries, true())).group_by(*keys).order_by(*keys))).mappings().all()]
+    reason = ("unrecognized" if any(group["parent_kind"] == "unrecognized" for group in groups) else
+              "invalid_container" if invalid_count else "missing_observations" if missing_count else
+              "timing_and_reconciliation_uninstrumented")
+    return _source("billing_invoices.plan_snapshot.receipt_observations", {
+        "invoice_count": invoices, "missing_map_count": missing_count, "invalid_container_count": invalid_count,
+        "count": sum(group["count"] for group in groups), "groups": groups,
+        "pending_age_seconds": None, "escalation_due": None,
+    }, reason=reason)
+
+
 async def _refund_inventory(db):
-    """Stored observation rows, without claiming refund timing or receipt truth."""
+    """Stored refund rows and receipt entries, without timing or reconciliation claims."""
     table = ObservedProviderRefund.__table__.c
     known = (table.status == "succeeded") & (table.source == "provider_observation")
     status = case((known, "succeeded"), else_="unrecognized").label("status")
     groups = [dict(row) for row in (await db.execute(select(
         status, func.count().label("count"),
     ).group_by(status).order_by(status))).mappings().all()]
-    return _source("observed_provider_refunds", {
+    receipts = await _receipt_inventory(db)
+    reason = ("unrecognized" if any(row["status"] == "unrecognized" for row in groups) else
+              receipts["reason_code"] if receipts["reason_code"] != "timing_and_reconciliation_uninstrumented" else
+              "reconciliation_uninstrumented")
+    return _source("observed_provider_refunds,billing_invoices.plan_snapshot.receipt_observations", {
         "count": sum(row["count"] for row in groups), "groups": groups,
-        "receipts": None, "reconciliation_gaps": None,
-    }, reason="unrecognized" if any(row["status"] == "unrecognized" for row in groups)
-        else "receipts_and_reconciliation_uninstrumented")
+        "receipts": receipts, "reconciliation_gaps": None,
+    }, reason=reason)
 
 
 async def _fair_use_inventory(db, as_of):

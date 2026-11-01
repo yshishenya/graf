@@ -80,6 +80,34 @@ dunning engine или второй платный тариф только рад
 
 ## Technical Context
 
+### T077: сохраняемые наблюдения чеков (01.11.2026)
+
+High-risk-product/active Spec Kit slice исходной T077 после PR7894.
+Q1–Q6 O13: использовать существующую BillingInvoice.plan_snapshot map
+receipt_observations. Две SQL-агрегации в том же monitoring.py: counts всех
+invoice/missing/invalid containers и closed map groups через json_each с
+CASE, допускающим только object map. SQL JSON, без JSONB миграции; SQLAlchemy
+func/case/select и существующие JSON/table-valued primitives достаточны.
+Тип проверять до раскрытия; scalar/array entry закрывать общей unknown.
+Выбирать только counts/закрытые parent_kind/status/source, не JSON/key/ID.
+Root refund count/groups прежние, receipts получает отдельный source;
+приоритеты/root composite source заданы контрактом, без сложения разных count.
+Top-level UI projection и даты не переиспользовать как доказательство map/срока.
+
+Порядок: specify/clarify Q1–Q6 → узкие research/model/quickstart → reviewer-owned
+checklists/receipt-inventory.md/независимый PASS → analyze/та же #4932 → RED →
+один helper и включение в существующий refund collector, случаи в прежних
+apps/server/tests/unit/test_billing_monitoring.py и
+apps/server/tests/integration/test_billing_monitoring_postgres.py → независимые
+code review/converge → exact-SHA/base PR gates. Invoice уже входит в TABLES/
+fingerprint/FORCE RLS; существующие affected refund/CLI/role проверки повторить
+по изменению поведения, остальные успешные наборы не повторять.
+
+Constitution Check до исследования и после дизайна: metadata-only/RLS/guard/
+снимок/лимиты/деньги/приватность/удаление/egress сохранены. Нет новой схемы/
+полномочий/службы/зависимости. Это проектная оценка, не приёмка кода/всегоO6.
+Legacy Impact untouched; все87 task lines/T077[ ]/58gaps/сроки сохраняются.
+
 ### T077: сроки fair-use проверок (01.11.2026)
 
 High-risk-product/active Spec Kit slice исходной T077 после PR7892.
