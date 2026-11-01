@@ -8,6 +8,7 @@ worker restart cannot create a second charge for the same paid interval.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -336,9 +337,26 @@ async def plan_due_renewals(
         await db.refresh(subscription, with_for_update=True)
         if (
             not subscription.recurring_allowed
+            or subscription.state != "personal"
+            or subscription.plan_code != "personal"
             or not subscription.paid_through
             or subscription.paid_through <= current
+            or subscription.paid_through > current + timedelta(hours=RENEWAL_REMINDER_HOURS)
         ):
+            continue
+        owner_workspace = await db.scalar(
+            select(Workspace.id)
+            .join(WorkspaceMembership, WorkspaceMembership.workspace_id == Workspace.id)
+            .where(
+                Workspace.id == subscription.workspace_id,
+                Workspace.kind == "personal",
+                Workspace.owner_user_id == subscription.billing_owner_id,
+                WorkspaceMembership.user_id == subscription.billing_owner_id,
+                WorkspaceMembership.role == "owner",
+                WorkspaceMembership.status == "active",
+            )
+        )
+        if owner_workspace is None:
             continue
         initial_checkout = await db.scalar(
             select(BillingOperation.id)
@@ -575,6 +593,31 @@ async def plan_due_renewals(
                 ),
             )
         )
+        if attempt == 1:
+            period = _utc(subscription.paid_through).isoformat()
+            reminder_id = uuid5(
+                NAMESPACE_URL,
+                f"graf:renewal-reminder:{subscription.workspace_id}:"
+                f"{subscription.billing_owner_id}:{period}",
+            )
+            mask = re.fullmatch(r"•••• ([0-9]{4})", method_label or "")
+            await enqueue_billing_notification(
+                db,
+                workspace_id=subscription.workspace_id,
+                recipient_id=subscription.billing_owner_id,
+                event_id=f"renewal:{reminder_id}:upcoming",
+                kind=BillingNotification.RENEWAL_UPCOMING,
+                payload={
+                    "amount_minor": str(catalog.amount_minor),
+                    "currency": catalog.currency,
+                    "cycle": subscription.cycle,
+                    "scheduled_at": _moscow_label(due_at),
+                    "access_until": _moscow_label(subscription.paid_through),
+                    "last4": mask[1] if mask else None,
+                    "action_path": "/billing/subscription",
+                },
+                marketing_allowed=False,
+            )
         planned.append(operation_id)
     await db.flush()
     return tuple(planned)

@@ -347,6 +347,7 @@ async def test_due_renewal_commits_parent_invoice_audit_once(paid_workspace):
         # A flush must not commit: another transaction still sees no new rows.
         async with _session(case.factory) as observer:
             assert tuple(map(len, await _renewal_rows(observer, case.workspace))) == (0, 0, 0)
+            assert await _upcoming_notices(observer, case) == []
         await db.commit()
     async with _session(case.factory) as db:
         rows = await _renewal_rows(db, case.workspace)
@@ -357,6 +358,7 @@ async def test_due_renewal_commits_parent_invoice_audit_once(paid_workspace):
             (planned[0], case.workspace),
         )
         assert await _original_purchase(db, case) == case.original
+        await _assert_upcoming_notice(db, case)
         assert (
             await plan_due_renewals(
                 db, now=case.t0, allowed_workspace_ids=frozenset({case.workspace})
@@ -373,6 +375,7 @@ async def test_due_renewal_commits_parent_invoice_audit_once(paid_workspace):
             == stable
         )
         assert await _original_purchase(db, case) == case.original
+        await _assert_upcoming_notice(db, case)
 
 
 async def test_caller_rollback_removes_entire_renewal_then_retry_succeeds(paid_workspace):
@@ -386,6 +389,7 @@ async def test_caller_rollback_removes_entire_renewal_then_retry_succeeds(paid_w
         await db.rollback()
     async with _session(case.factory) as db:
         assert tuple(map(len, await _renewal_rows(db, case.workspace))) == (0, 0, 0)
+        assert await _upcoming_notices(db, case) == []
         assert await _original_purchase(db, case) == case.original
         candidates = await pending_renewal_charge_candidates(db, now=case.t0)
         assert tuple(candidate for candidate in candidates if candidate[1] == case.workspace) == ()
@@ -396,6 +400,7 @@ async def test_caller_rollback_removes_entire_renewal_then_retry_succeeds(paid_w
         await db.commit()
     async with _session(case.factory) as db:
         _assert_linked_renewal(await _renewal_rows(db, case.workspace), case, planned[0])
+        await _assert_upcoming_notice(db, case)
         assert await _original_purchase(db, case) == case.original
 
 
@@ -675,6 +680,7 @@ async def test_three_confirmed_declines_persist_without_duplicate_charges_or_los
                 BillingNotificationDelivery.template_key == "renewal_attempt_failed",
             )))
             assert len(notices) == attempt - late
+            await _assert_upcoming_notice(db, case)
             assert len({notice.event_id for notice in notices}) == attempt - late
             assert all(notice.state == "pending" and notice.attempts == 0 for notice in notices)
             purchase = await _original_purchase(db, case)
@@ -1088,3 +1094,227 @@ async def test_late_decline_rollback_preserves_unknown_and_removes_final_notice(
             BillingNotificationDelivery.workspace_id == case.workspace,
         ).order_by(BillingNotificationDelivery.id)))
         assert tuple(_row_snapshot(notice) for notice in notices) == before_notices
+
+
+async def _upcoming_notices(db, case):
+    return list(await db.scalars(select(BillingNotificationDelivery).where(
+        BillingNotificationDelivery.workspace_id == case.workspace,
+        BillingNotificationDelivery.template_key == "renewal_upcoming",
+    )))
+
+
+async def _assert_upcoming_notice(db, case):
+    from zoneinfo import ZoneInfo
+
+    from twobrain_rec_server.billing.notifications import (
+        BillingNotification,
+        build_notification,
+        notification_copy,
+    )
+
+    (notice,) = await _upcoming_notices(db, case)
+    assert notice.recipient_id == case.owner and notice.channel == "email"
+    assert notice.state == "pending" and notice.attempts == 0
+    def label(value):
+        return value.astimezone(ZoneInfo("Europe/Moscow")).strftime("%d.%m.%Y %H:%M")
+    assert notice.safe_payload == {
+        "amount_minor": str(case.amount), "currency": "RUB", "cycle": "month",
+        "scheduled_at": label(case.t0),
+        "access_until": label(case.original["subscription"]["paid_through"]),
+        "last4": "4444", "action_path": "/billing/subscription",
+    }
+    title, body = notification_copy(build_notification(
+        event_id=notice.event_id, kind=BillingNotification.RENEWAL_UPCOMING,
+        payload=notice.safe_payload,
+    ))
+    assert title == "Напоминание о продлении"
+    assert "по расписанию на момент события" in body
+    assert "Актуальный статус и управление — в кабинете" in body
+    return notice.event_id
+
+
+async def test_concurrent_planners_commit_one_upcoming_notice(paid_workspace):
+    import asyncio
+
+    case = paid_workspace
+
+    async def plan():
+        async with _session(case.factory) as db:
+            result = await plan_due_renewals(
+                db, now=case.t0, allowed_workspace_ids=frozenset({case.workspace})
+            )
+            await db.commit()
+            return result
+
+    first, second = await asyncio.gather(plan(), plan())
+    assert first == second and len(first) == 1
+    async with _session(case.factory) as db:
+        await _assert_upcoming_notice(db, case)
+        _assert_linked_renewal(await _renewal_rows(db, case.workspace), case, first[0])
+        assert await _original_purchase(db, case) == case.original
+
+
+@pytest.mark.parametrize("reason", ["provider_unavailable", "authority_cancelled"])
+async def test_local_retry_does_not_repeat_upcoming_notice(paid_workspace, reason):
+    case = paid_workspace
+    async with _session(case.factory) as db:
+        (first,) = await plan_due_renewals(
+            db, now=case.t0, allowed_workspace_ids=frozenset({case.workspace})
+        )
+        await db.commit()
+    async with _session(case.factory) as db:
+        event_id = await _assert_upcoming_notice(db, case)
+        operation = await db.get(BillingOperation, first)
+        operation.state = "canceled"
+        operation.request_snapshot = {**operation.request_snapshot, "cancel_reason": reason}
+        invoice = await db.scalar(select(BillingInvoice).where(BillingInvoice.operation_id == first))
+        invoice.status = "canceled"
+        if reason == "authority_cancelled":
+            subscription = await db.get(WorkspaceSubscription, case.workspace)
+            subscription.recurring_authority_version += 1
+        await db.commit()
+    async with _session(case.factory) as db:
+        (retry,) = await plan_due_renewals(
+            db, now=case.t0 + timedelta(hours=1), allowed_workspace_ids=frozenset({case.workspace})
+        )
+        assert retry != first
+        await db.commit()
+    async with _session(case.factory) as db:
+        assert await _assert_upcoming_notice(db, case) == event_id
+
+
+@pytest.mark.parametrize("hours", [24, 48])
+async def test_missed_first_window_does_not_send_upcoming_notice(paid_workspace, hours):
+    case = paid_workspace
+    async with _session(case.factory) as db:
+        (operation_id,) = await plan_due_renewals(
+            db, now=case.t0 + timedelta(hours=hours),
+            allowed_workspace_ids=frozenset({case.workspace}),
+        )
+        operation = await db.get(BillingOperation, operation_id)
+        assert operation.request_snapshot["renewal_attempt"] == hours // 24 + 1
+        await db.commit()
+    async with _session(case.factory) as db:
+        assert await _upcoming_notices(db, case) == []
+
+
+@pytest.mark.parametrize("mismatch", [
+    "consent", "method", "price", "pending", "future_period", "scope",
+    "workspace", "owner", "membership",
+])
+async def test_ineligible_planner_sends_no_upcoming_notice(paid_workspace, mismatch):
+    case = paid_workspace
+    async with _session(case.factory) as db:
+        subscription = await db.get(WorkspaceSubscription, case.workspace)
+        if mismatch == "consent":
+            subscription.recurring_allowed = False
+        elif mismatch == "method":
+            method = await db.get(BillingPaymentMethod, case.original["methods"][0]["id"])
+            method.state = "revoked"
+        elif mismatch == "price":
+            subscription.storage_price_consents = {}
+        elif mismatch == "pending":
+            initial = await db.get(BillingOperation, case.initial_id)
+            initial.state = "unknown"
+        elif mismatch == "future_period":
+            subscription.paid_through += timedelta(days=10)
+        elif mismatch in {"workspace", "owner"}:
+            workspace = await db.get(Workspace, case.workspace)
+            if mismatch == "workspace":
+                workspace.kind = "corporate"
+            else:
+                workspace.owner_user_id = None
+        elif mismatch == "membership":
+            membership = await db.scalar(select(WorkspaceMembership).where(
+                WorkspaceMembership.workspace_id == case.workspace,
+                WorkspaceMembership.user_id == case.owner,
+            ))
+            membership.status = "inactive"
+        await db.commit()
+    async with _session(case.factory) as db:
+        assert await plan_due_renewals(
+            db, now=case.t0,
+            allowed_workspace_ids=frozenset() if mismatch == "scope" else frozenset({case.workspace}),
+        ) == ()
+        await db.commit()
+    async with _session(case.factory) as db:
+        assert await _upcoming_notices(db, case) == []
+
+
+@pytest.mark.parametrize("mismatch", ["owner", "workspace", "membership", "newer_period"])
+async def test_planner_rechecks_current_scope_after_lock(paid_workspace, monkeypatch, mismatch):
+    case = paid_workspace
+    original_lock = renewal_charge.lock_storage_workspace
+
+    async def change_before_lock(db, workspace_id):
+        # The initial candidate has already been selected. A real second
+        # transaction changes it before the planner acquires its lock.
+        async with _session(case.factory) as other:
+            if mismatch == "membership":
+                await other.execute(update(WorkspaceMembership).where(
+                    WorkspaceMembership.workspace_id == case.workspace,
+                    WorkspaceMembership.user_id == case.owner,
+                ).values(status="inactive"))
+            elif mismatch == "newer_period":
+                await other.execute(update(WorkspaceSubscription).where(
+                    WorkspaceSubscription.workspace_id == case.workspace,
+                ).values(paid_through=case.original["subscription"]["paid_through"] + timedelta(days=30)))
+            else:
+                values = {"owner_user_id": None} if mismatch == "owner" else {"kind": "corporate"}
+                await other.execute(update(Workspace).where(Workspace.id == case.workspace).values(**values))
+            await other.commit()
+        await original_lock(db, workspace_id)
+
+    monkeypatch.setattr(renewal_charge, "lock_storage_workspace", change_before_lock)
+    async with _session(case.factory) as db:
+        # Populate the identity map too: a fresh scalar query must not trust it.
+        await db.get(Workspace, case.workspace)
+        await db.scalars(select(WorkspaceMembership).where(WorkspaceMembership.workspace_id == case.workspace))
+        assert await plan_due_renewals(
+            db, now=case.t0, allowed_workspace_ids=frozenset({case.workspace})
+        ) == ()
+        await db.commit()
+    async with _session(case.factory) as db:
+        assert tuple(map(len, await _renewal_rows(db, case.workspace))) == (0, 0, 0)
+        assert await _upcoming_notices(db, case) == []
+
+
+@pytest.mark.parametrize("mask,last4", [
+    ("•••• 0042", "0042"), (None, None),
+    ("private@example.invalid", None), ("•••• １２３４", None),
+    ("4444444444444444", None),
+])
+async def test_yearly_reminder_uses_accepted_price_and_only_safe_last4(paid_workspace, mask, last4):
+    from twobrain_rec_server.billing.notifications import build_notification, notification_copy
+
+    case = paid_workspace
+    async with _session(case.factory) as db:
+        yearly = await db.scalar(select(BillingPlanVersion).where(
+            BillingPlanVersion.plan_code == "personal", BillingPlanVersion.cycle == "year",
+        ).order_by(BillingPlanVersion.version.desc()).limit(1))
+        yearly.enabled_for_checkout = True
+        yearly.effective_until = None
+        catalog = validate_plan_version(yearly, now=case.t0)
+        subscription = await db.get(WorkspaceSubscription, case.workspace)
+        subscription.cycle = "year"
+        accept_base_price(subscription, catalog.as_dict())
+        method = await db.get(BillingPaymentMethod, case.original["methods"][0]["id"])
+        method.masked_label = mask
+        await db.commit()
+    async with _session(case.factory) as db:
+        assert len(await plan_due_renewals(
+            db, now=case.t0, allowed_workspace_ids=frozenset({case.workspace})
+        )) == 1
+        await db.commit()
+    async with _session(case.factory) as db:
+        (notice,) = await _upcoming_notices(db, case)
+        assert notice.safe_payload["cycle"] == "year"
+        assert notice.safe_payload["amount_minor"] == str(catalog.amount_minor)
+        assert notice.safe_payload.get("last4") == last4
+        _, body = notification_copy(build_notification(
+            event_id=notice.event_id, kind=renewal_charge.BillingNotification.RENEWAL_UPCOMING,
+            payload=notice.safe_payload,
+        ))
+        assert "период: год" in body
+        assert "private" not in body and "4444444444444444" not in body
+        assert (f"•••• {last4}" if last4 else "сохранённый способ оплаты") in body

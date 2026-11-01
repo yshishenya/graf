@@ -149,3 +149,42 @@ def test_final_failure_copy_uses_only_a_valid_historical_cutoff(access_until) ->
     else:
         assert "access_until" not in event.safe_payload
         assert "Оплаченный период завершился;" in body
+
+
+@pytest.mark.parametrize("cycle,period", [("month", "месяц"), ("year", "год")])
+def test_upcoming_copy_preserves_exact_price_and_historical_schedule(cycle, period):
+    event = build_notification(
+        event_id="renewal:period:upcoming", kind=BillingNotification.RENEWAL_UPCOMING,
+        payload={
+            "amount_minor": "1234567890123456789", "currency": "RUB", "cycle": cycle,
+            "scheduled_at": "01.11.2026 03:00", "access_until": "04.11.2026 03:00",
+            "last4": "0042", "action_path": "/billing/subscription",
+            "masked_label": "private@example.test", "provider_id": "private-provider",
+        },
+    )
+    title, body = notification_copy(event)
+    assert title == "Напоминание о продлении"
+    assert f"Тариф «Личный», период: {period}" in body
+    assert "12 345 678 901 234 567,89 ₽" in body
+    assert "по расписанию на момент события" in body
+    assert "01.11.2026 03:00 МСК" in body and "04.11.2026 03:00 МСК" in body
+    assert "•••• 0042" in body and "private" not in body
+    assert "masked_label" not in event.safe_payload and "provider_id" not in event.safe_payload
+    assert NotificationOutbox().enqueue(event, recipient_id="owner", marketing_allowed=False)
+
+
+@pytest.mark.parametrize("payload", [
+    {}, {"amount_minor": "-1", "currency": "USD", "cycle": "week", "last4": "12345"},
+    {"amount_minor": "1.00", "last4": "１２３４", "scheduled_at": "soon"},
+    {"amount_minor": True, "last4": "private@example.test"},
+    {"amount_minor": "0", "last4": "1234\n"},
+])
+def test_upcoming_rejects_untrusted_fields_and_uses_generic_method(payload):
+    event = build_notification(
+        event_id="renewal:period:upcoming", kind=BillingNotification.RENEWAL_UPCOMING,
+        payload=payload,
+    )
+    assert event.safe_payload == {}
+    _, body = notification_copy(event)
+    assert "сохранённый способ оплаты" in body
+    assert "указана в кабинете" in body
