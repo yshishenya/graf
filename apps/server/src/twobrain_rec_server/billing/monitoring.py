@@ -14,6 +14,7 @@ from twobrain_rec_server.db.models.billing import (
     BillingNotificationDelivery,
     BillingOperation,
     BillingWebhookEvent,
+    FairUseReviewRecord,
     ObservedProviderRefund,
     TimeCreditLedgerEntry,
 )
@@ -33,6 +34,7 @@ INVOICE_STATES = ("pending", "unknown", "succeeded", "canceled", "manual_resolut
 WEBHOOK_STATES = ("accepted", "pending_reconciliation", "reconciled", "reconciliation_gap")
 DELIVERY_STATES = ("pending", "retry", "failed", "delivered", "suppressed")
 CREDIT_STATES = ("pending", "available", "applied", "expired", "rejected", "reversed")
+FAIR_USE_STATES = ("notice", "restricted", "appealed", "cleared", "confirmed")
 MAX_GAPS = 500
 
 
@@ -244,6 +246,34 @@ async def _refund_inventory(db):
         else "receipts_and_reconciliation_uninstrumented")
 
 
+async def _fair_use_inventory(db, as_of):
+    """Stored review schedules, without claiming cleared restrictions or incident closure."""
+    table = FairUseReviewRecord.__table__.c
+    state = _closed(table.state, FAIR_USE_STATES).label("state")
+    pending = table.state.in_(("notice", "restricted", "appealed"))
+    invalid = case((table.starts_at.is_(None) | table.review_by.is_(None)
+                    | ~func.isfinite(table.starts_at) | ~func.isfinite(table.review_by), True),
+                   else_=(table.review_by < table.starts_at)
+                   | (func.extract("epoch", table.review_by) - func.extract("epoch", table.starts_at) > 86400))
+    bucket = case((invalid, "invalid_schedule_count"),
+                  (table.starts_at > as_of, "not_started_count"),
+                  (table.review_by <= as_of, "deadline_reached_count"), else_="waiting_count")
+    names = ("invalid_schedule_count", "not_started_count", "deadline_reached_count", "waiting_count")
+    rows = (await db.execute(select(
+        state, func.count().label("count"),
+        *[func.count().filter(pending & (bucket == name)).label(name) for name in names],
+    ).group_by(state).order_by(state))).mappings().all()
+    summary = {"count": sum(row["count"] for row in rows if row["state"] in {"notice", "restricted", "appealed"}),
+               **{name: sum(row[name] for row in rows) for name in names}}
+    reason = ("unrecognized" if any(row["state"] == "unrecognized" for row in rows) else
+              "invalid_schedule" if summary["invalid_schedule_count"] else "deletion_and_reaction_uninstrumented")
+    return _source("fair_use_reviews", {
+        "count": sum(row["count"] for row in rows),
+        "groups": [{"state": row["state"], "count": row["count"]} for row in rows],
+        "pending_review": summary, "deletion": None, "reaction": None,
+    }, reason=reason)
+
+
 async def collect_billing_report(db, *, scope, as_of):
     """Caller owns the bounded READ ONLY REPEATABLE READ transaction."""
     await require_billing_maintenance_database(db)
@@ -278,8 +308,9 @@ async def collect_billing_report(db, *, scope, as_of):
         "free_projection": await _free_projection(db, scope["report_date"], as_of),
         "addon_and_time_credit": await _credit_ledger(db, as_of),
         "refunds_and_receipts": await _refund_inventory(db),
+        "deletion_and_fair_use": await _fair_use_inventory(db, as_of),
     }
-    for name in ("ingress_and_duplicates", "storage", "deletion_and_fair_use"):
+    for name in ("ingress_and_duplicates", "storage"):
         families[name] = {"source": None, "scope": "unavailable", "kind": "current_state",
                           "coverage": "unavailable", "reason_code": (
                               "uninstrumented" if name == "ingress_and_duplicates" else "not_connected"

@@ -84,6 +84,36 @@ scoped analyze и существующая #4932. Использовать уж�
    repository checks и три точных SHA/base PR gates. PR только Refs #4932;
    O6/FR089/T077 [ ] остаются, Full/CD/Dev/финансовая приёмка отдельно.
 
+## T077: сроки fair-use проверок — 01.11.2026
+
+F1–F6 [O12](contracts/operator-observation.md#o12-следующий-срез-сроки-сохраняемых-fair-use-проверок),
+те же unit/integration файлы, настоящий CLI и отдельная PostgreSQL.
+Сначала независимый допуск/анализ; это план, ещё не результат тестов.
+
+1. RED нового collector. Пустое: source fair_use_reviews/inventory/current_state,
+   partial, count0/groups[], pending_review все0, deletion/reaction null;
+   ошибка схемы должна давать отказ всего CLI без частичного JSON/traceback.
+2. Все5state, сортировка/сумма; confirmed не включается в pending buckets.
+   На едином as_of проверить start ±1мкс/равенство, review_by ±1мкс/равенство,
+   нулевой срок, ровно24ч, будущее. Четыре buckets взаимно исключаются и
+   суммируются в pending count, независимо от report_date; возраста/дат нет.
+3. Реальная схема сохраняет NOT NULL/state/deadline CHECK и ENABLE/FORCE RLS.
+   Проверить отказ неверных state/NULL/обратных/>24ч дат. Сохраняемые infinity
+   проверить как invalid_schedule без subtraction error. Отдельный синтетический
+   SQL-вход проверяет NULL/неизвестные/обратные/>24ч ветви и приоритет
+   unrecognized→invalid_schedule→deletion_and_reaction_uninstrumented; не
+   ослаблять положительную схему. Проверить24истекших часа на DST timezone.
+4. Настоящие CLI/guard/new process/два снимка: конкурентный commit не меняет
+   уже зафиксированный RR, новый запуск видит его; повтор не пишет. Fingerprint
+   таблиц, частные synthetic sentinels в capability/evidence/appeal/IDs не
+   выходят в stdout/stderr. В запросе нет частных столбцов; provider/почта=0.
+   Затронутые прежние PG сценарии ролей/SET ROLE/READ ONLY/schema failure
+   проверить минимально, сохранив лимиты O2 и cleanup.
+5. Owned apps/server/.venv и PYTHONPATH=src:., проверить __file__. Сохранить
+   окончательные nodeids/XML/log/hashes, не складывать повторы. Независимые
+   review/converge и точные SHA/base PR gates. Только Refs #4932; T077 [ ],
+   весь O6/FR089/сроки/финансовая/приватностная приёмка остаются открытыми.
+
 ## T077: сохранённые наблюдения возвратов — 01.11.2026
 
 План R1–R6 [O11](contracts/operator-observation.md#o11-следующий-срез-сохранённые-наблюдения-возвратов),

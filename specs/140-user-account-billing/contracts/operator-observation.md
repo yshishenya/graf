@@ -350,3 +350,57 @@ O1–O9 сохраняются. Это требования к чтению, н�
   После — независимые review/converge и три exact-SHA/base PR gates.
   Только Refs #4932; все исходные task lines, T077 [ ], полный O6/FR089,
   сроки и внешняя финансовая/приватностная приёмка остаются открытыми.
+
+## O12. Следующий срез: сроки сохраняемых fair-use проверок
+
+После PR7892 подключается только fair-use источник исходной T077/#4932.
+O1–O11 сохраняются. Это обзор строк, не новые ограничения или реакция.
+
+- **F1 — источник и смысл.** Семейство deletion_and_fair_use получает
+  source=fair_use_reviews, scope=database_inventory, kind=current_state.
+  Считаются все видимые строки того же снимка независимо от report_date;
+  это не текущий магазин, число людей/нарушений или завершённых рассмотрений.
+  values.deletion и values.reaction остаются null; coverage всегда partial.
+- **F2 — закрытые состояния.** values.count равен сумме непустых values.groups,
+  отсортированных по state: notice/restricted/appealed/cleared/confirmed.
+  Другой state, включая NULL, попадает в одну unrecognized без исходной строки.
+  confirmed означает сохранённое подтверждение ограничения и может продолжать
+  ограничивать capability; это не снятое ограничение. Наличие cleared/confirmed
+  не доказывает сохраняемого решения с владельцем/evidence или закрытия incident.
+- **F3 — сохранённое расписание.** values.pending_review содержит count только
+  notice/restricted/appealed и четыре непересекающихся количества. Сначала
+  invalid_schedule_count: NULL либо не конечные starts_at/review_by, review_by
+  раньше starts_at либо больше чем через24 истекших часа. Затем для корректных
+  дат not_started_count при starts_at>as_of; deadline_reached_count при
+  starts_at<=as_of и review_by<=as_of; waiting_count при starts_at<=as_of<review_by.
+  Сумма четырёх равна pending_review.count. Равенство начала уже началось,
+  равенство срока уже достигнуто; review_by=starts_at допустимо. Будущая дата
+  нормальна. cleared/confirmed/неизвестные состояния в эти количества не входят.
+  24 часа — прошедшие86400секунд, независимо от session timezone/DST.
+- **F4 — предел и неполнота.** Ни даты, ни возраст не выводятся. Достигнутый
+  сохранённый срок — сигнал строки, не доказанный глобальный SLA breach,
+  длительность сбоя, подтверждённая доставка письма или автоматическое решение.
+  reason_code выбирается строго unrecognized → invalid_schedule →
+  deletion_and_reaction_uninstrumented. Пустая таблица: count=0/groups=[],
+  pending_review.count и четыре количества=0, оба прежних null; всегда partial.
+  Ошибка доступа/БД/схемы даёт отказ целого отчёта O2/O3, без подстановки нулей.
+  Срок review≤24ч и полная реакция O6 сохраняются независимо от этого счётчика.
+- **F5 — безопасность и минимум.** Одна SQL-агрегация только state/starts_at/
+  review_by и количеств; даты не загружаются в Python. Не выбирать ID/связи,
+  capability/reason/evidence_ref/appeal_ref/decision metadata/контакты/JSON.
+  Не вызывать persist/appeal/resolve/restrict, provider/почту/analytics/purge.
+  Не менять модель/миграции/RLS/права, CLI/guard/READ ONLY RR/cleanup,
+  пределы O2 и другие семейства. Новых служб/зависимостей/параметров нет.
+- **F6 — допуск и доказательство.** До кода — собственный контекст, независимый
+  reviewer-owned checklists/fair-use-inventory.md, PASS и scoped analyze,
+  существующая #4932. Затем RED и реальные PostgreSQL/CLI/forced RLS:
+  пустое/все5states, точные ±1мкс границы/будущее/нулевой срок/24ч,
+  не конечные даты без ошибки арифметики, приоритеты, два снимка/новый процесс,
+  no-write/privacy/ошибка схемы и прежняя граница ролей. Сохранить реальные
+  NOT NULL/state/deadline CHECK: неверные значения должны отвергаться;
+  защитные NULL/неизвестные/неверный порядок/срок>24ч ветви проверять отдельно
+  на синтетическом SQL-входе без ослабления положительной схемы.
+  После — независимые code review/converge и три exact-SHA/base PR gates.
+  Только Refs #4932, T077 [ ], все87 исходных task lines, полный FR089/O6,
+  58 старых gaps и внешние приёмки сохраняются; исторический пропуск до
+  первоначального PR7884 кода не исправлен, весь O8 не объявляется PASS.

@@ -338,6 +338,15 @@ the opaque evidence reference; the notification outbox receives only a hashed
 subject and the `/account/fair-use` action path. Volume/IP/device alone cannot
 decide it. Local Record/Stop and existing read/export/delete remain available.
 
+Уточнение T077/fair-use inventory (01.11.2026): существующая таблица
+fair_use_reviews с NOT NULL state/starts_at/review_by и CHECK state/deadline.
+Новых сущностей/миграций нет. Читаются только state и две даты внутри SQL;
+наружу — закрытые количества F1–F6 O12. confirmed не снятое ограничение.
+Pending notice/restricted/appealed классифицируются по корректности расписания,
+началу и сроку; остальные state не входят в buckets. Сохранённый срок не
+подтверждает владельца/доставку/разрешение. Не конечные даты безопасно
+неполны; положительная тестовая схема сохраняет реальные constraints.
+
 ## Notifications, audit and reconciliation
 
 ### `transactional_notice`
