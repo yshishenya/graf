@@ -120,6 +120,9 @@ EXECUTION_PROVIDER_REQUEST = "provider_deletion_request"
 # record and is anonymised in place, and the provider-held categories can only be
 # requested from the provider.
 CATEGORY_DISPOSITIONS: Mapping[str, str] = {
+    # Necessary control is deliberately NOT in LEVEL_RETENTION_CATEGORIES:
+    # stopping optional measurement alone must never erase a visitor's refusal.
+    "public_consent_control": DISPOSITION_DELETE,
     ANONYMOUS_AGGREGATE_RETENTION_CATEGORY: DISPOSITION_DELETE,
     ATTRIBUTION_PROFILES_RETENTION_CATEGORY: DISPOSITION_ANONYMISE,
     "visit_attribution": DISPOSITION_DELETE,
@@ -519,7 +522,7 @@ def parse_disposition_cases(text: str, *, now: datetime) -> tuple[DispositionCas
                     raise ValueError
             except ValueError:
                 raise LegalBasisLifecycleError("replay_case_selector_invalid") from None
-        elif scope != "activation_milestone_decisions" or selector != "all":
+        elif scope not in {"activation_milestone_decisions", "public_consent_control"} or selector != "all":
             raise LegalBasisLifecycleError("replay_case_scope_invalid")
         decided, due = (_case_time(record[key]) for key in ("decided_at", "due_at"))
         applied = _case_time(record["applied_at"]) if "applied_at" in record else None
@@ -723,6 +726,7 @@ async def apply_basis_loss_disposition(
     *,
     erased_at: datetime | None = None,
     commit: bool = True,
+    basis_environ: Mapping[str, str] | None = None,
 ) -> tuple[BasisLossErasureResult, ...]:
     """Erase or anonymise what GRAF stores, and record the provider requests.
 
@@ -734,8 +738,9 @@ async def apply_basis_loss_disposition(
 
     # Imported here so the planner, the readiness report and the tests can use
     # the lifecycle without loading the ORM.
-    from sqlalchemy import delete, update
+    from sqlalchemy import delete, text, update
 
+    from twobrain_rec_server.db.models import PublicAnalyticsChoice
     from twobrain_rec_server.db.models.product_analytics import (
         AnonymousPageAggregateBucket,
         ClientAcquisitionAttribute,
@@ -747,11 +752,40 @@ async def apply_basis_loss_disposition(
         raise LegalBasisLifecycleError("separate deletion deadline is required before erasure")
     moment = _aware(erased_at or datetime.now(UTC))
     results: list[BasisLossErasureResult] = []
+    control_withdrawal = None
+    control_case_text = None
     for action in disposition.actions:
         if action.execution != EXECUTION_LOCAL:
             results.append(_result(disposition, action, rows=0, erased_at=moment))
             continue
-        if action.category == ANONYMOUS_AGGREGATE_RETENTION_CATEGORY:
+        if action.category == "public_consent_control":
+            control_withdrawal = read_basis_withdrawal_register(basis_environ)
+            if (not control_withdrawal.available or control_withdrawal.file_errors
+                    or control_withdrawal.withdrawal(PROVIDER_ANALYTICS_LEVEL) is None
+                    or not await session.scalar(text("""SELECT
+                        session_user='twobrain_rec_maintenance'
+                        AND current_user='twobrain_rec_maintenance'
+                        AND rec_context_kind()='maintenance'
+                        AND rec_setting('app.maintenance_operation')='public_consent_control'
+                        AND rec_setting('app.maintenance_feature_area')='product_analytics'
+                        AND rec_setting('app.maintenance_actor') IS NOT NULL
+                        AND rec_setting('app.maintenance_reason') IS NOT NULL"""))):
+                raise LegalBasisLifecycleError("public_control_deletion_not_allowed")
+            try:
+                with open(control_withdrawal.state_path, encoding="utf-8") as source:
+                    control_case_text = source.read()
+                cases = parse_disposition_cases(control_case_text, now=datetime.now(UTC))
+            except (OSError, UnicodeError):
+                raise LegalBasisLifecycleError("public_control_deletion_case_unavailable") from None
+            if not any(case.scope == "public_consent_control" and case.selector_ref == "all"
+                       and case.stage in {"accepted", "applied"}
+                       and case.decided_at == disposition.basis_lost_at and case.due_at == action.due_at
+                       and case.reason == disposition.reason for case in cases):
+                raise LegalBasisLifecycleError("public_control_deletion_case_missing")
+            await session.execute(text("SET LOCAL lock_timeout='5000ms'"))
+            await session.execute(text("LOCK TABLE public.public_analytics_choices IN ACCESS EXCLUSIVE MODE"))
+            statement = delete(PublicAnalyticsChoice)
+        elif action.category == ANONYMOUS_AGGREGATE_RETENTION_CATEGORY:
             statement = delete(AnonymousPageAggregateBucket)
         elif action.category == "visit_attribution":
             statement = delete(PublicVisitAttribution)
@@ -774,6 +808,12 @@ async def apply_basis_loss_disposition(
         results.append(
             _result(disposition, action, rows=int(outcome.rowcount or 0), erased_at=moment)
         )
+    if control_withdrawal is not None and read_basis_withdrawal_register(basis_environ) != control_withdrawal:
+        raise LegalBasisLifecycleError("public_control_deletion_basis_changed")
+    if control_case_text is not None:
+        with open(control_withdrawal.state_path, encoding="utf-8") as source:
+            if source.read() != control_case_text:
+                raise LegalBasisLifecycleError("public_control_deletion_case_changed")
     if commit:
         await session.commit()
     return tuple(results)

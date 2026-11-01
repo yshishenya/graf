@@ -301,6 +301,8 @@ PUBLIC_ANALYTICS_RELAY_ALLOWED_FIELDS = (
     "consent_state",
     "consent_categories",
     "consent_copy_version",
+    "consent_id",
+    "consent_epoch",
     "campaign_attribution",
     *PUBLIC_ANALYTICS_RELAY_STABLE_LABEL_FIELDS,
 )
@@ -501,20 +503,12 @@ def build_public_analytics_context(
     }
     configured = bool(counter_id and public_analytics_blocker(settings, path) is None)
     enabled = bool(configured and surface)
-    consent_ui_enabled = bool(configured and path in PUBLIC_ANALYTICS_CONSENT_PATHS)
-    # Replay stays narrower than measurement: the published cookies policy names
-    # ``/`` and ``/download`` only, so a legal or auth page measured by consent
-    # must not start recording behaviour.
-    replay_allowed = bool(
-        settings.public_analytics_replay_enabled
-        and enabled
-        and surface in PUBLIC_ANALYTICS_REPLAY_SURFACES
-    )
-    # The external counter is a third-party script. On a page outside the two
-    # published counter surfaces — the pages that show a credential form in
-    # particular — the visitor's decision authorises the first-party relay only,
-    # so no external script is loaded there.
-    external_counter_allowed = bool(enabled and surface in PUBLIC_ANALYTICS_EXTERNAL_COUNTER_SURFACES)
+    # Refusal control remains available when optional measurement is disabled.
+    consent_ui_enabled = path in PUBLIC_ANALYTICS_CONSENT_PATHS
+    # T106 currently admits only the first-party relay. External SDK/replay need
+    # their own accepted revocation boundary before they can be enabled again.
+    replay_allowed = False
+    external_counter_allowed = False
 
     campaign_attribution = normalize_public_campaign_attribution(
         query_params,
@@ -525,11 +519,12 @@ def build_public_analytics_context(
     return {
         "enabled": enabled,
         "consent_ui_enabled": consent_ui_enabled,
+        "consent_control_endpoint": "/analytics/public-consent" if consent_ui_enabled else None,
         "provider": PUBLIC_ANALYTICS_PROVIDER,
         "validation_mode": validation_mode,
         "environment_allowed": environment_allowed,
         "yandex_metrica_id_present": bool(counter_id),
-        "yandex_metrica_id": counter_id if enabled else None,
+        "yandex_metrica_id": None,
         "replay_allowed": replay_allowed,
         "webvisor_allowed": replay_allowed,
         "click_map_allowed": replay_allowed,
@@ -1129,6 +1124,13 @@ def normalize_public_analytics_event(payload: Any) -> dict[str, Any]:
     if unknown_fields:
         raise PublicAnalyticsEventRejected("unknown_field")
 
+    from twobrain_rec_server.public.consent import ChoiceRejected, canonical_uuid
+    try:
+        consent_id = canonical_uuid(payload.get("consent_id"))
+        consent_epoch = canonical_uuid(payload.get("consent_epoch"))
+    except ChoiceRejected as exc:
+        raise PublicAnalyticsConsentRequired("server_choice_required") from exc
+
     event_name = payload.get("event_name")
     catalog_entry = next(
         (entry for entry in PUBLIC_ANALYTICS_EVENT_CATALOG if entry["event_name"] == event_name),
@@ -1192,6 +1194,8 @@ def normalize_public_analytics_event(payload: Any) -> dict[str, Any]:
     properties["consent_categories"] = list(categories)
     return {
         "event_name": str(event_name),
+        "consent_id": consent_id,
+        "consent_epoch": consent_epoch,
         "page_path": page_path,
         "surface": surface,
         PUBLIC_ANALYTICS_VIEW_ID_FIELD: view_id,
@@ -1200,7 +1204,7 @@ def normalize_public_analytics_event(payload: Any) -> dict[str, Any]:
     }
 
 
-def deliver_public_analytics_event(settings: Settings, event: Mapping[str, Any]) -> dict[str, Any]:
+def deliver_public_analytics_event(settings: Settings, event: Mapping[str, Any], *, transport=None) -> dict[str, Any]:
     """Relay one consented public event to PostHog and never raise.
 
     Delivery goes through the same first-party ``PostHogClientWrapper`` the
@@ -1216,6 +1220,8 @@ def deliver_public_analytics_event(settings: Settings, event: Mapping[str, Any])
             "provider": "posthog", "status": "public_measurement_blocked",
             "reason": blocker, "delivered": False, "retryable": False,
         }
+    if transport is None:
+        return {"provider": "posthog", "status": "choice_control_required", "delivered": False, "retryable": False}
     properties = {
         **dict(event.get("properties") or {}),
         "source_feature": "273-paid-traffic-analytics",
@@ -1224,6 +1230,8 @@ def deliver_public_analytics_event(settings: Settings, event: Mapping[str, Any])
     }
     try:
         client = PostHogClientWrapper.from_settings(settings)
+        client.transport = transport
+        client.timeout_seconds = 5.0
         result = client.capture_event(
             event_name=str(event["event_name"]),
             distinct_id=str(event[PUBLIC_ANALYTICS_VIEW_ID_FIELD]),

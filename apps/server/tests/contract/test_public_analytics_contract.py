@@ -79,9 +79,11 @@ def test_public_pages_render_without_analytics_by_default(client) -> None:
     for path in ("/", "/download"):
         response = client.get(path)
         assert response.status_code == 200
-        assert "graf-public-analytics-config" not in response.text
-        assert "analytics.js" not in response.text
-        assert "cookieconsent" not in response.text.lower()
+        assert '"enabled": false' in response.text
+        assert '"consent_ui_enabled": true' in response.text
+        assert '"consent_control_endpoint": "/analytics/public-consent"' in response.text
+        assert 'id="graf-public-consent-status" role="status"' in response.text
+        assert 'data-consent-retry' in response.text
 
 
 def test_public_pages_render_immediate_narrow_analytics_context(
@@ -96,13 +98,13 @@ def test_public_pages_render_immediate_narrow_analytics_context(
     for response, surface in ((landing, "public_landing"), (download, "public_download")):
         assert response.status_code == 200
         assert 'id="graf-public-analytics-config"' in response.text
-        assert '"yandex_metrica_id": "12345678"' in response.text
+        assert '"yandex_metrica_id": null' in response.text
         assert f'"surface": "{surface}"' in response.text
         assert "/static/public/analytics.js?v=" in response.text
         assert "cookieconsent.umd.js" in response.text
         assert "cookieconsent.css" in response.text
-        assert '"replay_allowed": true' in response.text
-        assert '"webvisor_allowed": true' in response.text
+        assert '"replay_allowed": false' in response.text
+        assert '"webvisor_allowed": false' in response.text
         assert '"form_analytics_allowed": false' in response.text
 
 
@@ -170,7 +172,7 @@ def test_public_analytics_provider_is_absent_from_private_surfaces(
         assert 'id="graf-public-analytics-config"' in response.text
         assert '"consent_ui_enabled": true' in response.text
         assert '"enabled": true' in response.text
-        assert '"yandex_metrica_id": "12345678"' in response.text
+        assert '"yandex_metrica_id": null' in response.text
         assert '"measurement_scope": "all_public_pages_by_consent"' in response.text
         assert '"replay_scope": ["public_landing", "public_download"]' in response.text
         assert '"replay_allowed": false' in response.text

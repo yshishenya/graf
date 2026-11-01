@@ -410,6 +410,36 @@ async def public_page_response(
     return await record_public_page_response(request, response, db=db)
 
 
+@router.post("/analytics/public-consent", include_in_schema=False)
+async def public_consent_choice(request: Request) -> JSONResponse:
+    from twobrain_rec_server.public.consent import ChoiceRejected, control_choice
+
+    def response(value, status=200):
+        return JSONResponse(value, status_code=status, headers={"Cache-Control": "no-store"})
+
+    # The public canonical origin is configured independently of forwarded Host.
+    if request.headers.get("origin") != _public_base_url(request):
+        return response({"accepted": False, "reason": "cross_origin"}, 403)
+    try:
+        async with asyncio.timeout(6):
+            body = bytearray()
+            async for chunk in request.stream():
+                if len(body) + len(chunk) > 1024:
+                    raise ChoiceRejected("payload_too_large")
+                body.extend(chunk)
+            try:
+                payload = json.loads(body)
+            except (TypeError, ValueError):
+                raise ChoiceRejected("invalid_json") from None
+            settings = request.app.state.settings
+            result = await control_choice(request.app.state.db_sessionmaker, settings, payload)
+            return response(result)
+    except ChoiceRejected as error:
+        return response({"accepted": False, "reason": str(error)}, error.status)
+    except Exception:
+        return response({"accepted": False, "reason": "choice_unavailable"}, 503)
+
+
 @router.post(PUBLIC_ANALYTICS_CAPTURE_ENDPOINT, include_in_schema=False)
 async def public_analytics_event(request: Request) -> JSONResponse:
     """Relay one consented public page event to PostHog (FR-004, FR-006, FR-058).
@@ -450,7 +480,9 @@ async def public_analytics_event(request: Request) -> JSONResponse:
     blocker = public_analytics_blocker(settings, event["page_path"])
     if blocker:
         return JSONResponse({"accepted": False, "reason": blocker}, status_code=403)
-    delivery = await asyncio.to_thread(deliver_public_analytics_event, settings, event)
+    from twobrain_rec_server.public.consent import send_consented_event
+    delivery = await send_consented_event(request.app.state.db_sessionmaker, settings, event,
+                                         sender=deliver_public_analytics_event)
     return JSONResponse({"accepted": True, "delivery": delivery}, status_code=202)
 
 

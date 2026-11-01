@@ -386,8 +386,8 @@ def test_public_landing_analytics_has_opt_in_consent_widget(
     assert "cookieconsent.umd.js" in response.text
     assert "cookieconsent.css" in response.text
     assert "show-preferencesModal" in response.text
-    assert '"replay_allowed": true' in response.text
-    assert '"webvisor_allowed": true' in response.text
+    assert '"replay_allowed": false' in response.text
+    assert '"webvisor_allowed": false' in response.text
 
 
 def test_public_download_handoff_is_available(client) -> None:
@@ -421,7 +421,14 @@ def test_public_legal_and_discovery_routes_are_available(client) -> None:
         assert 'href="/terms"' in response.text
         assert 'href="/offer"' in response.text
         assert 'href="/analytics-consent"' in response.text
-        assert "graf-public-analytics-config" not in response.text
+        config = json.loads(response.text.split(
+            '<script id="graf-public-analytics-config" type="application/json">', 1,
+        )[1].split("</script>", 1)[0])
+        assert config["enabled"] is False
+        assert config["consent_control_endpoint"] == "/analytics/public-consent"
+        assert config["external_counter_allowed"] is False
+        assert config["replay_allowed"] is False
+        assert config["yandex_metrica_id"] is None
 
     sitemap = client.get("/sitemap.xml")
     assert sitemap.status_code == 200

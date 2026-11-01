@@ -50,6 +50,7 @@ def _write_evidence(tmp_path: Path) -> dict[str, str]:
                 "category=anonymous_aggregate retention_mode=until_decision retention_days=none storage=postgres enforcement=decision_required enforcement_verified=true",
                 "category=visit_attribution retention_mode=until_decision retention_days=none storage=postgres enforcement=decision_required enforcement_verified=true",
                 "category=acquisition_attribute retention_mode=until_decision retention_days=none storage=postgres enforcement=decision_required enforcement_verified=true",
+                "category=public_consent_control retention_mode=until_decision retention_days=none storage=postgres enforcement=decision_required enforcement_verified=true",
             )
         )
         + "\n",

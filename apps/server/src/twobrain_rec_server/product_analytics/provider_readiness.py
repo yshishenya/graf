@@ -43,6 +43,7 @@ REQUIRED_RETENTION_TERMS: tuple[tuple[str, None], ...] = (
     ("anonymous_aggregate", None),
     ("visit_attribution", None),
     ("acquisition_attribute", None),
+    ("public_consent_control", None),
 )
 
 BLOCKER_BACKUP_STATE_UNAVAILABLE = "backup_state_unavailable"

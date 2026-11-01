@@ -40,8 +40,8 @@ def test_public_analytics_immediate_context_is_narrow_and_public_scoped() -> Non
     assert context["validation_mode"] == "render_only"
     assert context["page_path"] == "/download"
     assert context["surface"] == "public_download"
-    assert context["yandex_metrica_id"] == "12345678"
-    assert context["replay_allowed"] is True
+    assert context["yandex_metrica_id"] is None
+    assert context["replay_allowed"] is False
     assert context["event_catalog"]
 
 
@@ -94,7 +94,7 @@ def test_public_analytics_consent_revision_follows_copy_version() -> None:
     assert context["consent_copy_version"] == "2026-09-20.7"
     assert context["consent_revision"] == 202609207
     assert context["enabled"] is False
-    assert context["consent_ui_enabled"] is False
+    assert context["consent_ui_enabled"] is True
     assert context["replay_allowed"] is False
 
 
@@ -332,9 +332,9 @@ def test_public_context_rereads_basis_and_refuses_unknown_state(public_basis_reg
             public_basis_register.write_text(text)
         context = build_public_analytics_context(settings, "/download")
         assert context["enabled"] is allowed
-        assert context["consent_ui_enabled"] is allowed
-        assert context["external_counter_allowed"] is allowed
-        assert context["replay_allowed"] is allowed
+        assert context["consent_ui_enabled"] is True
+        assert context["external_counter_allowed"] is False
+        assert context["replay_allowed"] is False
         assert str(public_basis_register) not in str(context)
 
     # The reader uses builtin open, so target that boundary, not the decision.

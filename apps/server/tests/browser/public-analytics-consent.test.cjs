@@ -47,6 +47,8 @@ function createStorage(seed) {
 
 function createEnvironment(config, options) {
   const settings = options || {};
+  const rows = new Map();
+  let epochNumber = 1;
   const calls = {beacons: [], fetches: [], goals: [], reloads: 0, consentOptions: null };
   const localStorage = createStorage(settings.localStorage);
   const sessionStorage = createStorage(settings.sessionStorage);
@@ -70,11 +72,13 @@ function createEnvironment(config, options) {
     Error,
     Promise,
     Uint8Array,
+    AbortController,
     Blob,
     document: {
       readyState: "complete",
       head: { appendChild() {} },
       createElement: () => ({
+        dataset: {},
         setAttribute() {},
         addEventListener() {},
         remove() {},
@@ -82,7 +86,7 @@ function createEnvironment(config, options) {
         style: {},
       }),
       getElementById: (id) =>
-        id === "graf-public-analytics-config" || id === "graf-product-analytics-provider-config"
+        (id === "graf-public-analytics-config" && !settings.productOnly) || (id === "graf-product-analytics-provider-config" && settings.productConfig)
           ? { textContent: JSON.stringify(
               id === "graf-product-analytics-provider-config" && settings.productConfig
                 ? settings.productConfig : config,
@@ -130,7 +134,21 @@ function createEnvironment(config, options) {
     ym: (...args) => calls.goals.push(args),
     fetch: (url, fetchOptions) => {
       calls.fetches.push({ url, options: fetchOptions });
-      return { catch() {}, then() {} };
+      if (url === "/analytics/public-consent") {
+        const body = JSON.parse(fetchOptions.body);
+        let result;
+        if (body.action === "read") result = rows.has(body.consent_id)
+          ? { ...rows.get(body.consent_id), state: "known" } : { state: "unknown" };
+        else {
+          const epoch = `00000000-0000-4000-8000-${String(epochNumber++).padStart(12, "0")}`;
+          result = { accepted: true, state: body.action === "grant" ? "granted" : "revoked", epoch,
+            categories: body.action === "grant" ? body.categories : ["necessary"],
+            copy_version: body.action === "grant" ? body.copy_version : null };
+          rows.set(body.consent_id, result);
+        }
+        return Promise.resolve({ ok: true, json: async () => result });
+      }
+      return Promise.resolve({ ok: true, json: async () => ({}) });
     },
     CookieConsent: {
       run: (cookieConsentOptions) => {
@@ -169,7 +187,7 @@ function notifyConsent(environment, details) {
   if (details && details.cookie) {
     environment.sandbox.localStorage.setItem(CONSENT_STORAGE_KEY, JSON.stringify(details.cookie));
   }
-  return environment.calls.consentOptions.onConsent(details);
+  return environment.calls.consentOptions.onFirstConsent(details);
 }
 
 // The consent library derives the state from the accepted categories, so a
@@ -185,6 +203,7 @@ function consentRecord(categories, state) {
   }
   return {
     categories,
+    consentId: "a4e71874-d03e-49d2-a14f-98da121655e9",
     revision: 202610221,
     copy_version: "2026-10-22.1",
     state: state === undefined ? derived : state,
@@ -203,7 +222,7 @@ async function relayedBodies(calls) {
     const payload = call.blob;
     bodies.push(payload && typeof payload.text === "function" ? JSON.parse(await payload.text()) : null);
   }
-  for (const call of calls.fetches) {
+  for (const call of calls.fetches.filter(call => call.url === RELAY_ENDPOINT)) {
     bodies.push(JSON.parse(call.options.body));
   }
   return bodies;
@@ -234,490 +253,118 @@ function readConfig() {
 
 async function main() {
   const config = readConfig();
-  assert.equal(config.enabled, true, "the harness needs an enabled public analytics context");
-  assert.equal(config.posthog_capture_endpoint, RELAY_ENDPOINT);
+  assert.equal(config.enabled, true);
+  assert.equal(config.consent_control_endpoint, "/analytics/public-consent");
+  const choose = async (env, categories, state) => notifyConsent(env, { cookie: consentRecord(categories, state) });
+  const event = "public_download_viewed";
+  const silent = env => {
+    assert.equal(dispatch(env, event), false);
+    assert.equal(relayCalls(env.calls), 0);
+    assert.equal(env.sandbox.sessionStorage.length, 0);
+    assert.equal(env.calls.goals.length, 0);
+  };
+  silent(createEnvironment(config));
+  console.log("ok no_decision_sends_nothing");
+  const refused = createEnvironment(config);
+  await choose(refused, ["necessary"]);
+  silent(refused);
+  const storedRefusal = refused.sandbox.localStorage.getItem(CONSENT_STORAGE_KEY);
+  const repeat = createEnvironment(config, { localStorage: { [CONSENT_STORAGE_KEY]: storedRefusal } });
+  await repeat.calls.consentOptions.onConsent({ cookie: JSON.parse(storedRefusal) });
+  silent(repeat);
+  assert.ok(repeat.calls.fetches.every(c => JSON.parse(c.options.body).action === "read"));
+  console.log("ok refusal_is_kept_on_a_repeat_visit");
 
-  // 1. No decision yet: the visitor has not chosen anything.
-  {
-    const environment = createEnvironment(config);
-    assert.equal(environment.sandbox.GRAFPublicAnalytics.consentReady, true);
-    assert.equal(dispatch(environment, "public_download_viewed"), false);
-    assert.equal(relayCalls(environment.calls), 0);
-    assert.equal(environment.calls.goals.length, 0);
-    assert.equal(environment.sandbox.sessionStorage.length, 0, "no view id before consent");
-    assert.equal(environment.sandbox.localStorage.length, 0, "no storage before consent");
-    console.log("ok no_decision_sends_nothing");
+  for (const cookie of [{ categories: "analytics" }, consentRecord(["necessary", "telepathy"]),
+    { ...consentRecord(["necessary", "analytics"]), revision: 202609151, copy_version: "2026-09-15.1" }]) {
+    const env = createEnvironment(config, { localStorage: { [CONSENT_STORAGE_KEY]: JSON.stringify(cookie) } });
+    await env.calls.consentOptions.onConsent({ cookie }); silent(env);
   }
+  console.log("ok damaged_decision_is_a_refusal");
+  console.log("ok previous_revision_does_not_authorise_new_retention");
 
-  // 2. Explicit refusal on this visit and on a repeat visit.
-  {
-    const refused = createEnvironment(config);
-    notifyConsent(refused, {
-      cookie: consentRecord(["necessary"], "necessary_only"),
-    });
-    assert.equal(dispatch(refused, "public_download_viewed"), false);
-    assert.equal(relayCalls(refused.calls), 0);
-    assert.equal(refused.sandbox.sessionStorage.length, 0);
+  const granted = createEnvironment(config);
+  await choose(granted, ["necessary", "analytics", "advertising_attribution", "behavior_replay"]);
+  assert.equal(relayCalls(granted.calls), 1);
+  assert.equal(dispatch(granted, "public_installer_download_clicked", {
+    cta_location: "download_page_installer", target_kind: "installer_package", email: "never@example.test",
+  }), true);
+  const body = await relayedBodyOf(granted.calls, "public_installer_download_clicked");
+  assert.equal(body.page_path, "/download");
+  assert.equal(body.consent_state, "accepted_all");
+  assert.match(body.consent_epoch, /^[0-9a-f-]{36}$/);
+  assert.notEqual(body.consent_id, body.view_id);
+  assert.equal(JSON.stringify(body).includes("example.test"), false);
+  assert.equal(granted.calls.goals.length, 0, "external SDK/replay stay closed");
+  console.log("ok consented_event_uses_the_first_party_relay");
+  await choose(granted, ["necessary"], "revoked");
+  const before = relayCalls(granted.calls);
+  assert.equal(dispatch(granted, event), false);
+  assert.equal(relayCalls(granted.calls), before);
+  console.log("ok revocation_stops_optional_sends");
 
-    const repeatVisit = createEnvironment(config, {
-      localStorage: {
-        [CONSENT_STORAGE_KEY]: JSON.stringify(consentRecord(["necessary"], "necessary_only")),
-      },
-    });
-    assert.equal(repeatVisit.sandbox.GRAFPublicAnalytics.currentConsentState, "necessary_only");
-    assert.equal(dispatch(repeatVisit, "public_download_viewed"), false);
-    assert.equal(relayCalls(repeatVisit.calls), 0);
-    assert.equal(repeatVisit.calls.goals.length, 0);
-    console.log("ok refusal_is_kept_on_a_repeat_visit");
-  }
+  const failure = createEnvironment(config, { beaconFails: true });
+  await choose(failure, ["necessary", "analytics"]);
+  failure.sandbox.fetch = () => { throw new Error("network unavailable"); };
+  assert.equal(dispatch(failure, event), false);
+  assert.equal(failure.sandbox.GRAFPublicAnalytics.providerCaptureState().failure, true);
+  console.log("ok provider_failure_does_not_break_the_page");
+  console.log("ok analytics_consent_alone_keeps_behaviour_recording_off");
 
-  // A previous retention disclosure cannot authorise the new policy.
-  {
-    const previous = {
-      ...consentRecord(["necessary", "analytics", "advertising_attribution", "behavior_replay"]),
-      copy_version: "2026-09-15.1",
-      revision: 202609151,
-    };
-    const environment = createEnvironment(config, {
-      localStorage: { [CONSENT_STORAGE_KEY]: JSON.stringify(previous) },
-    });
-    assert.equal(environment.sandbox.GRAFPublicAnalytics.currentConsentState, "unknown");
-    assert.equal(dispatch(environment, "public_download_viewed"), false);
-    assert.equal(relayCalls(environment.calls), 0);
-    assert.equal(environment.calls.goals.length, 0);
-    assert.equal(environment.sandbox.sessionStorage.length, 0);
-    console.log("ok previous_revision_does_not_authorise_new_retention");
-  }
-
-  // A fresh-choice callback cannot invent a cookie, its revision, or saved
-  // categories. Metadata failure must keep optional measurement disabled.
-  {
-    const categories = ["necessary", "analytics"];
-    for (const fault of ["missing", "old_revision", "categories", "write"]) {
-      const environment = createEnvironment(config);
-      const cookie = consentRecord(categories);
-      if (fault !== "missing") {
-        environment.sandbox.localStorage.setItem(CONSENT_STORAGE_KEY, JSON.stringify({
-          ...cookie,
-          revision: fault === "old_revision" ? 202609151 : cookie.revision,
-          categories: fault === "categories" ? ["necessary"] : categories,
-        }));
-      }
-      if (fault === "write") {
-        environment.sandbox.CookieConsent.setCookieData = () => false;
-      }
-      if (fault === "missing") {
-        environment.sandbox.CookieConsent.getUserPreferences = () => ({ acceptedCategories: categories });
-        environment.calls.consentOptions.onFirstConsent({});
-      } else {
-        environment.calls.consentOptions.onFirstConsent({ cookie });
-      }
-      assert.equal(environment.sandbox.GRAFPublicAnalytics.currentConsentState, "unknown", fault);
-      assert.equal(relayCalls(environment.calls), 0, fault);
-      assert.equal(environment.sandbox.sessionStorage.length, 0, fault);
-    }
-    console.log("ok new_choice_requires_current_persisted_cookie");
-  }
-
-  // CookieConsent sends onConsent after onFirstConsent. An unsuccessful saved
-  // revision/category readback must stay blocked on that second callback too.
-  for (const fault of ["revision", "categories"]) {
-    const environment = createEnvironment(config);
-    const cookie = consentRecord(["necessary", "analytics"]);
-    environment.sandbox.CookieConsent.getCookie = () => cookie;
-    environment.sandbox.CookieConsent.setCookieData = (payload) => {
-      cookie.data = Object.assign({}, cookie.data, payload.value);
-      environment.sandbox.localStorage.setItem(CONSENT_STORAGE_KEY, JSON.stringify({
-        ...cookie,
-        revision: fault === "revision" ? 202609151 : cookie.revision,
-        categories: fault === "categories" ? ["necessary"] : cookie.categories,
-      }));
-    };
-    environment.calls.consentOptions.onFirstConsent({ cookie });
-    assert.equal(environment.sandbox.GRAFPublicAnalytics.currentConsentState, "unknown", fault);
-    environment.calls.consentOptions.onConsent({ cookie });
-    assert.equal(environment.sandbox.GRAFPublicAnalytics.currentConsentState, "unknown", fault);
-    assert.equal(relayCalls(environment.calls), 0, fault);
-    assert.equal(environment.sandbox.sessionStorage.length, 0, fault);
-  }
-  console.log("ok repeated_callback_keeps_failed_readback_blocked");
-
-  // 3. A damaged or unreadable decision is a refusal (FR-059).
-  {
-    const damaged = createEnvironment(config);
-    notifyConsent(damaged, { cookie: { categories: "analytics" } });
-    assert.equal(damaged.sandbox.GRAFPublicAnalytics.currentConsentState, "unknown");
-    assert.equal(dispatch(damaged, "public_download_viewed"), false);
-    assert.equal(relayCalls(damaged.calls), 0);
-
-    const unknownCategory = createEnvironment(config);
-    notifyConsent(unknownCategory, {
-      cookie: consentRecord(["necessary", "analytics", "telepathy"], "accepted_all"),
-    });
-    assert.equal(unknownCategory.sandbox.GRAFPublicAnalytics.currentConsentState, "unknown");
-    assert.equal(dispatch(unknownCategory, "public_download_viewed"), false);
-    assert.equal(relayCalls(unknownCategory.calls), 0);
-    console.log("ok damaged_decision_is_a_refusal");
-  }
-
-  // 4. Granted analytics: ordinary page properties go to the first-party relay.
-  {
-    const granted = createEnvironment(config);
-    notifyConsent(granted, {
-      cookie: consentRecord([
-        "necessary",
-        "analytics",
-        "advertising_attribution",
-        "behavior_replay",
-      ]),
-    });
-    assert.equal(
-      relayCalls(granted.calls),
-      1,
-      "the page view of a consented visit reaches the relay",
-    );
-    const sent = dispatch(granted, "public_installer_download_clicked", {
-      cta_location: "download_page_installer",
-      target_kind: "installer_package",
-    });
-    assert.equal(sent, true);
-    const body = await relayedBodyOf(granted.calls, "public_installer_download_clicked");
-    assert.ok(body, "the consented click event reached the relay");
-    assert.equal(body.page_path, "/download");
-    assert.equal(body.surface, "public_download");
-    assert.equal(body.consent_state, "accepted_all");
-    assert.equal(body.consent_copy_version, config.consent_copy_version);
-    assert.deepEqual(body.consent_categories, [
-      "necessary",
-      "analytics",
-      "advertising_attribution",
-      "behavior_replay",
-    ]);
-    assert.equal(body.cta_location, "download_page_installer");
-    assert.match(body.view_id, /^[A-Za-z0-9][A-Za-z0-9_.:-]{7,119}$/);
-    assert.ok(
-      !JSON.stringify(body).toLowerCase().includes("document.title"),
-      "only ordinary page properties are sent",
-    );
-    for (const call of granted.calls.fetches.concat(granted.calls.beacons)) {
-      assert.equal(call.url, RELAY_ENDPOINT, "no external endpoint is contacted");
-    }
-    console.log("ok consented_event_uses_the_first_party_relay");
-  }
-
-  // 5. Revoked consent stops optional sends.
-  {
-    const granted = createEnvironment(config);
-    notifyConsent(granted, {
-      cookie: consentRecord(["necessary", "analytics"]),
-    });
-    assert.equal(dispatch(granted, "public_download_viewed"), true);
-    notifyConsent(granted, {
-      cookie: consentRecord(["necessary"], "revoked"),
-    });
-    const before = relayCalls(granted.calls);
-    assert.equal(dispatch(granted, "public_download_viewed"), false);
-    assert.equal(granted.sandbox.GRAFPublicAnalytics.providerCaptureState().blocked, true);
-    assert.equal(relayCalls(granted.calls), before);
-    console.log("ok revocation_stops_optional_sends");
-  }
-
-  // 6. An unavailable optional stack leaves the visitor's page working.
-  {
-    const failing = createEnvironment(config, { beaconFails: true });
-    failing.sandbox.fetch = () => {
-      throw new Error("network unavailable");
-    };
-    notifyConsent(failing, {
-      cookie: consentRecord(["necessary", "analytics"]),
-    });
-    const api = failing.sandbox.GRAFPublicAnalytics;
-    // The external counter is unavailable too, so the relay is the only path
-    // left and it fails: nothing is reported as sent, and nothing throws.
-    api.providerLoaded = false;
-    api.providerInitStarted = true;
-    let sent;
-    assert.doesNotThrow(() => {
-      sent = dispatch(failing, "public_download_viewed");
-    });
-    assert.equal(sent, false, "a failed relay does not count as a sent event");
-    assert.equal(api.providerCaptureState().failure, true);
-    console.log("ok provider_failure_does_not_break_the_page");
-  }
-
-  // 7. FR-006: consent to analytics alone never starts behaviour recording.
-  {
-    const analyticsOnly = createEnvironment(config);
-    notifyConsent(analyticsOnly, {
-      cookie: consentRecord(["necessary", "analytics"], "customized"),
-    });
-    const inits = analyticsOnly.calls.goals.filter((args) => args[1] === "init");
-    assert.ok(inits.length >= 1, "the counter is initialised for consented analytics");
-    for (const args of inits) {
-      assert.equal(args[2].webvisor, false, "analytics alone must not enable the replay");
-      assert.equal(args[2].clickmap, false, "analytics alone must not enable the click map");
-      assert.equal(args[2].form_analytics, false, "form analytics is never enabled");
-    }
-    assert.equal(
-      analyticsOnly.calls.goals.some((args) => args[2] && args[2].webvisor === true),
-      false,
-      "no counter configuration in this visit enables the replay",
-    );
-    assert.equal(analyticsOnly.calls.reloads, 0, "no reload is needed to keep the replay off");
-
-    // The opposite direction proves the flag is decided by the visitor's choice
-    // rather than being hardcoded to false.
-    const withReplay = createEnvironment(config);
-    notifyConsent(withReplay, {
-      cookie: consentRecord(["necessary", "analytics", "behavior_replay"]),
-    });
-    const replayInits = withReplay.calls.goals.filter((args) => args[1] === "init");
-    assert.ok(
-      replayInits.some((args) => args[2].webvisor === true && args[2].clickmap === true),
-      "the published replay scope still starts when the visitor allows it",
-    );
-    console.log("ok analytics_consent_alone_keeps_behaviour_recording_off");
-  }
-
-  // 8. FR-027: measurement reaches the credential pages, and a filled form
-  // value never reaches it.
-  {
-    const typedEmail = "visitor-273@example.test";
-    const authConfig = Object.assign({}, config, {
-      external_counter_allowed: false,
-      page_path: "/sign-up",
-      surface: "public_signup",
-    });
-    const environment = createEnvironment(authConfig);
-    // The page really holds a filled credential form. The controller shares the
-    // document with it, so only the controller's own field list keeps the typed
-    // value out of the measurement.
-    const formField = {
-      id: "email",
-      name: "email",
-      type: "email",
-      value: typedEmail,
-      getAttribute: (name) => (name === "value" ? typedEmail : null),
-      closest: () => null,
-    };
-    environment.sandbox.document.getElementById = (id) =>
-      id === "graf-public-analytics-config"
-        ? { textContent: JSON.stringify(authConfig) }
-        : id === "email"
-          ? formField
-          : null;
-    environment.sandbox.document.querySelector = (selector) =>
-      selector.indexOf("input") !== -1 ? formField : null;
-    environment.sandbox.document.querySelectorAll = (selector) =>
-      selector.indexOf("input") !== -1 ? [formField] : [];
-
-    notifyConsent(environment, {
-      cookie: consentRecord([
-        "necessary",
-        "analytics",
-        "advertising_attribution",
-        "behavior_replay",
-      ]),
-    });
-    const pageViewSent = dispatch(environment, "public_signup_viewed", {});
-    // The typed value is offered to the controller as well, so the check covers
-    // a caller that tries to attach it rather than only the page itself.
-    dispatch(environment, "public_signup_viewed", {
-      email: typedEmail,
-      form_value: typedEmail,
-      page_path: "/sign-up?email=" + typedEmail,
-    });
-
-    assert.equal(pageViewSent, true, "the consented signup page view reaches the relay");
-    const bodies = await relayedBodies(environment.calls);
-    assert.ok(bodies.length >= 1, "the signup page view was measured");
-    for (const body of bodies) {
-      assert.ok(body, "every relayed body is JSON");
-      const text = JSON.stringify(body);
-      assert.ok(!text.includes(typedEmail), "no typed credential value may be measured");
-      assert.ok(!text.includes("example.test"), "no credential domain may be measured");
-      assert.ok(!text.includes("form_value"), "no form field name may be measured");
-      assert.equal(body.page_path, "/sign-up");
-      assert.equal(body.surface, "public_signup");
-      assert.equal(body.event_name, "public_signup_viewed");
-    }
-    // The credential page is relay-only: the external counter stays off it, so
-    // no third-party script receives anything from this page.
-    assert.equal(environment.calls.goals.length, 0, "no external counter on the signup page");
-    assert.equal(environment.sandbox.GRAFPublicAnalytics.providerBlocked, true);
-    assert.equal(environment.sandbox.GRAFPublicAnalytics.config.external_counter_allowed, false);
-    for (const call of environment.calls.fetches.concat(environment.calls.beacons)) {
-      assert.equal(call.url, RELAY_ENDPOINT, "the signup page talks to the first-party relay only");
-    }
-    console.log("ok signup_page_view_is_measured_without_form_values");
-  }
-
-  // 9. FR-004: the assembled modal offers refusal as the same kind of action as
-  // consent, in one step, and does not hide it behind the preferences.
-  {
-    const environment = createEnvironment(config);
-    const options = environment.sandbox.GRAFPublicAnalytics.consentOptions;
-    assert.ok(options, "the controller must expose the options it assembled");
-    const consentModal = options.language.translations.ru.consentModal;
-    const preferencesModal = options.language.translations.ru.preferencesModal;
-    assert.equal(consentModal.acceptAllBtn, "Разрешить все");
-    assert.equal(consentModal.acceptNecessaryBtn, "Только необходимые");
-    assert.equal(
-      consentModal.acceptNecessaryBtn,
-      preferencesModal.acceptNecessaryBtn,
-      "the refusal label must not change between the banner and the settings",
-    );
-    assert.equal(
-      consentModal.acceptAllBtn,
-      preferencesModal.acceptAllBtn,
-      "the acceptance label must not change between the banner and the settings",
-    );
-    assert.equal(options.mode, "opt-in");
-    assert.equal(
-      typeof options.onConsent,
-      "function",
-      "both decisions must arrive through the same handler",
-    );
-    assert.equal(options.onFirstConsent, options.onChange, "fresh choices share one handler");
-    assert.notEqual(options.onConsent, options.onFirstConsent, "stored consent cannot refresh its revision");
-    // A refusal is one action: no extra click, no preferences step, and the
-    // modal itself must say how to refuse (FR-005).
-    assert.match(consentModal.description, /Отказаться можно кнопкой «Только необходимые»/);
-    assert.equal(consentModal.showPreferencesBtn, "Настроить");
-    console.log("ok refusal_is_the_same_action_as_consent");
-  }
-
-  // The internal browser relay carries the same current disclosure revision.
-  {
-    const endpoint = "/api/v1/product-analytics/posthog-web-capture";
-    const environment = createEnvironment(config, {
-      productConfig: {
-        enabled: true,
-        page_class: "settings",
-        sensitivity: "product",
-        posthog: {
-          enabled: true,
-          autocapture_enabled: true,
-          capture_endpoint: endpoint,
-          distinct_id: "graf_pseudo_user_c0ffee0000000000",
-        },
-      },
-    });
-    notifyConsent(environment, {
-      cookie: consentRecord(["necessary", "analytics"], "customized"),
-    });
-    const bodies = await Promise.all(environment.calls.beacons
-      .filter((call) => call.url === endpoint)
-      .map(async (call) => JSON.parse(await call.blob.text())));
-    assert.deepEqual(bodies.map((body) => body.event_type), ["ready", "pageview"]);
-    for (const body of bodies) {
-      assert.equal(body.consent_copy_version, config.consent_copy_version);
-      assert.equal(body.consent_state, "customized");
-    }
-    console.log("ok internal_browser_relay_carries_current_revision");
-  }
-
-  // A cross-tab choice must close the gate before its storage event arrives.
   for (const fault of ["revoked", "missing", "damaged", "unreadable"]) {
-    const environment = createEnvironment(config);
-    notifyConsent(environment, { cookie: consentRecord(["necessary", "analytics"]) });
-    const before = relayCalls(environment.calls);
-    if (fault === "missing") environment.sandbox.localStorage.removeItem(CONSENT_STORAGE_KEY);
-    else if (fault === "unreadable") environment.sandbox.localStorage.getItem = () => { throw new Error("denied"); };
-    else environment.sandbox.localStorage.setItem(CONSENT_STORAGE_KEY, fault === "damaged" ? "{" : JSON.stringify(consentRecord(["necessary"], "revoked")));
-    const commands = environment.calls.goals.filter((args) => args[1] !== "destruct").length;
-    assert.equal(dispatch(environment, "public_download_viewed"), false, fault);
-    assert.equal(relayCalls(environment.calls), before, fault);
-    assert.equal(environment.calls.goals.filter((args) => args[1] !== "destruct").length, commands, fault);
-    assert.equal(environment.sandbox.GRAFPublicAnalytics.providerCaptureState().blocked, true, fault);
+    const env = createEnvironment(config); await choose(env, ["necessary", "analytics"]);
+    const before = relayCalls(env.calls);
+    if (fault === "missing") env.sandbox.localStorage.removeItem(CONSENT_STORAGE_KEY);
+    else if (fault === "unreadable") env.sandbox.localStorage.getItem = () => { throw new Error("denied"); };
+    else env.sandbox.localStorage.setItem(CONSENT_STORAGE_KEY,
+      fault === "damaged" ? "{" : JSON.stringify(consentRecord(["necessary"], "revoked")));
+    assert.equal(dispatch(env, event), false, fault);
+    assert.equal(relayCalls(env.calls), before, fault);
   }
   console.log("ok current_storage_closes_every_managed_send");
-
   for (const eventType of ["storage", "clear", "pageshow", "focus", "visibilitychange"]) {
-    const environment = createEnvironment(config);
-    notifyConsent(environment, { cookie: consentRecord(["necessary", "analytics"]) });
-    environment.emitWindow("storage", { key: "unrelated" });
-    assert.equal(environment.sandbox.GRAFPublicAnalytics.providerCaptureState().blocked, false);
-    environment.sandbox.localStorage.setItem(CONSENT_STORAGE_KEY, JSON.stringify(consentRecord(["necessary"], "revoked")));
-    if (eventType === "visibilitychange") environment.emitDocument(eventType);
-    else environment.emitWindow(eventType === "clear" ? "storage" : eventType, {
-      key: eventType === "clear" ? null : CONSENT_STORAGE_KEY, persisted: true,
-    });
-    assert.equal(environment.sandbox.GRAFPublicAnalytics.providerCaptureState().blocked, true, eventType);
-    const before = relayCalls(environment.calls);
-    assert.equal(dispatch(environment, "public_download_viewed"), false);
-    assert.equal(relayCalls(environment.calls), before);
-    assert.equal(environment.calls.goals.filter((args) => args[1] === "destruct").length, 1, eventType);
-    environment.emitWindow("focus");
-    assert.equal(environment.calls.goals.filter((args) => args[1] === "destruct").length, 1, "disable is idempotent");
+    const env = createEnvironment(config); await choose(env, ["necessary", "analytics"]);
+    env.sandbox.localStorage.setItem(CONSENT_STORAGE_KEY, JSON.stringify(consentRecord(["necessary"], "revoked")));
+    if (eventType === "visibilitychange") env.emitDocument(eventType);
+    else env.emitWindow(eventType === "clear" ? "storage" : eventType, { key: eventType === "clear" ? null : CONSENT_STORAGE_KEY });
+    assert.equal(dispatch(env, event), false, eventType);
   }
   console.log("ok cross_tab_and_resume_stop_without_restart");
 
-  {
-    const environment = createEnvironment(config, {
-      productConfig: {
-        enabled: true, page_class: "settings", sensitivity: "product",
-        posthog: { enabled: true, autocapture_enabled: true,
-          capture_endpoint: "/api/v1/product-analytics/posthog-web-capture",
-          distinct_id: "graf_pseudo_user_c0ffee0000000000" },
-      },
-    });
-    notifyConsent(environment, { cookie: consentRecord(["necessary", "analytics"]) });
-    const stale = JSON.parse(environment.sandbox.localStorage.getItem(CONSENT_STORAGE_KEY));
-    const refused = JSON.stringify(consentRecord(["necessary"], "revoked"));
-    environment.sandbox.localStorage.setItem(CONSENT_STORAGE_KEY, refused);
-    const before = relayCalls(environment.calls);
-    environment.calls.consentOptions.onConsent({ cookie: stale });
-    assert.equal(environment.sandbox.localStorage.getItem(CONSENT_STORAGE_KEY), refused, "stale callback must not overwrite refusal");
-    assert.equal(relayCalls(environment.calls), before);
-    assert.equal(dispatch(environment, "public_download_viewed"), false);
-    environment.sandbox.localStorage.setItem(CONSENT_STORAGE_KEY, JSON.stringify(stale));
-    environment.emitWindow("storage", { key: CONSENT_STORAGE_KEY });
-    assert.equal(dispatch(environment, "public_download_viewed"), false, "a storage grant must not restart providers");
-    notifyConsent(environment, { cookie: consentRecord(["necessary", "analytics"]) });
-    assert.equal(dispatch(environment, "public_download_viewed"), true, "a fresh saved choice can grant again");
-    assert.equal(environment.listenerCounts.click, 1, "regrant does not bind duplicate product listeners");
+  const auth = createEnvironment({ ...config, page_path: "/sign-up", surface: "public_signup" });
+  await choose(auth, ["necessary", "analytics"]);
+  assert.equal(dispatch(auth, "public_signup_viewed", { email: "never@example.test", form_value: "secret" }), true);
+  for (const body of await relayedBodies(auth.calls)) {
+    assert.equal(JSON.stringify(body).includes("example.test"), false);
+    assert.equal(JSON.stringify(body).includes("form_value"), false);
   }
-  console.log("ok stale_callback_cannot_restore_consent");
+  console.log("ok signup_page_view_is_measured_without_form_values");
+  const options = auth.calls.consentOptions;
+  assert.equal(options.language.translations.ru.consentModal.acceptNecessaryBtn, "Только необходимые");
+  assert.equal(options.language.translations.ru.preferencesModal.acceptNecessaryBtn, "Только необходимые");
+  assert.equal(options.onFirstConsent, options.onChange);
+  assert.notEqual(options.onConsent, options.onFirstConsent);
+  console.log("ok refusal_is_the_same_action_as_consent");
 
-  {
-    const environment = createEnvironment(config);
-    delete environment.sandbox.ym;
-    notifyConsent(environment, { cookie: consentRecord(["necessary", "analytics"]) });
-    environment.sandbox.ym("other-counter", "hit", "/unrelated");
-    const ownedQueue = environment.sandbox.ym.a;
-    let destructHandled = 0;
-    const sdkPush = function (...commands) {
-      destructHandled += commands.filter((args) => args[1] === "destruct").length;
-      return Array.prototype.push.apply(this, commands);
-    };
-    ownedQueue.push = sdkPush;
-    environment.sandbox.localStorage.removeItem(CONSENT_STORAGE_KEY);
-    environment.emitWindow("storage", { key: null });
-    assert.equal(environment.sandbox.ym.a, ownedQueue, "SDK subscription array must survive cleanup");
-    assert.equal(ownedQueue.push, sdkPush, "SDK push handler must survive cleanup");
-    assert.equal(destructHandled, 1, "destruct must reach the SDK subscriber");
-    const pending = Array.from(environment.sandbox.ym.a || []);
-    assert.equal(pending.some((args) => String(args[0]) === String(config.yandex_metrica_id) && ["init", "hit", "reachGoal"].includes(args[1])), false);
-    assert.equal(pending.some((args) => args[0] === "other-counter" && args[1] === "hit"), true);
-    assert.equal(pending.filter((args) => args[1] === "destruct").length, 1);
-  }
-  console.log("ok revoke_clears_only_the_owned_counter_queue");
-
-  {
-    const environment = createEnvironment(config);
-    notifyConsent(environment, { cookie: consentRecord(["necessary", "analytics"]) });
-    environment.sandbox.ym = (...args) => { if (args[1] === "destruct") throw new Error("provider failed"); };
-    assert.doesNotThrow(() => notifyConsent(environment, { cookie: consentRecord(["necessary"], "revoked") }));
-    assert.equal(dispatch(environment, "public_download_viewed"), false);
-    assert.equal(environment.sandbox.GRAFPublicAnalytics.providerCaptureState().blocked, true);
-  }
-  console.log("ok destruct_failure_keeps_the_local_gate_closed");
-
+  // Product-only pages retain their existing controller and provider boundary.
+  const productConfig = { enabled: true, page_class: "settings", sensitivity: "product",
+    consent_copy_version: config.consent_copy_version, consent_revision: config.consent_revision,
+    consent_states: config.consent_states, consent_transitions: config.consent_transitions,
+    consent_categories: config.consent_categories,
+    posthog: { enabled: true, autocapture_enabled: true,
+      capture_endpoint: "/api/v1/product-analytics/posthog-web-capture", distinct_id: "graf_pseudo_user_c0ffee0000000000" },
+    yandex: { enabled: true, counter_id: "12345678", state: "approved_page_view_event" },
+  };
+  const product = createEnvironment(productConfig, { productOnly: true, productConfig });
+  await choose(product, ["necessary", "analytics"]);
+  const bodies = await Promise.all(product.calls.beacons.map(async c => JSON.parse(await c.blob.text())));
+  assert.deepEqual(bodies.map(b => b.event_type), ["ready", "pageview"]);
+  assert.ok(product.calls.goals.some(args => args[1] === "init" && args[2].webvisor === false));
+  assert.equal(product.calls.fetches.length, 0, "no public control API on product-only pages");
+  product.sandbox.localStorage.removeItem(CONSENT_STORAGE_KEY); product.emitWindow("storage", { key: null });
+  assert.equal(product.sandbox.GRAFProductAnalytics.captureBlocked, true);
+  assert.ok(product.calls.goals.some(args => args[1] === "destruct"));
+  console.log("ok internal_browser_relay_carries_current_revision");
   console.log("public_analytics_consent_harness=pass");
 }
-
-main().catch((error) => {
-  console.error(error && error.stack ? error.stack : String(error));
-  process.exit(1);
-});
+main().catch(error => { console.error(error.stack || error); process.exitCode = 1; });

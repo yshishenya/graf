@@ -342,3 +342,14 @@ readiness связывают admission с поддерживаемым actual re
 необходимые доказательства закреплены в activation-milestones/operations;
 сценарии отказов — quickstart. Нулевой текущий счёт и выключенный guard дают
 только исходную проверку, не историю первого старта или готовность production.
+## T106 — выбор основы индивидуального контроля, 01.11.2026
+
+- Decision: существующий случайный CookieConsent.consentId как control reference,
+  digest в отдельной PostgreSQL строке; новый случайный серверный epoch на
+  переход, единый transaction advisory lock непосредственно у transport.
+- Rationale: межпроцессный и устойчивый порядок, включая отсутствующую строку;
+  поздний accepted payload не оживляет отозванный выбор. Внешний SDK закрыт.
+- Alternatives: один локальный флаг/время/TTL/polling не управляет поздним
+  transport; старые aggregate/attribution/milestone таблицы имеют другую цель;
+  отдельный файловый реестр дублирует уже имеющуюся PostgreSQL и её копирование.
+- Exact contract: [public-consent-control](contracts/public-consent-control.md).

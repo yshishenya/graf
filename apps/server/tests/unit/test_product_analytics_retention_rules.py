@@ -17,6 +17,7 @@ from twobrain_rec_server.product_analytics.retention import (
 )
 
 NEW_CATEGORIES = (
+    "public_consent_control",
     "posthog_product_events",
     "anonymous_page_aggregate",
     "client_acquisition_attribute",

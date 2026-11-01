@@ -141,6 +141,7 @@ def _write_operations_states(
         "anonymous_aggregate": "none",
         "visit_attribution": "none",
         "acquisition_attribute": "none",
+        "public_consent_control": "none",
     }
     terms.update(retention_override or {})
     retention_lines = ["retention_state_version=2", f"recorded_at_epoch={now}", "result=pass"]
@@ -379,7 +380,7 @@ def test_readiness_names_a_category_that_has_no_retention_record(tmp_path: Path,
     assert "retention_category_missing:anonymous_aggregate" in operations["blockers"]
     assert "retention_category_missing:visit_attribution" in operations["blockers"]
     assert operations["metadata"]["retention_required_terms"] == (
-        "measurement_events=until_decision,anonymous_aggregate=until_decision,visit_attribution=until_decision,acquisition_attribute=until_decision"
+        "measurement_events=until_decision,anonymous_aggregate=until_decision,visit_attribution=until_decision,acquisition_attribute=until_decision,public_consent_control=until_decision"
     )
 
 
@@ -418,3 +419,27 @@ def test_retention_verification_accepts_only_current_daily_window(tmp_path, age_
         Settings(), {RETENTION_STATE_FILE_ENV: str(state["retention"])}, now=now,
     )
     assert "retention_enforcement_unverified" not in result.blockers
+
+
+def test_public_consent_control_requires_current_daily_retention_evidence(tmp_path):
+    from twobrain_rec_server.product_analytics.provider_readiness import (
+        RETENTION_STATE_FILE_ENV,
+        build_analytics_operations_readiness,
+    )
+
+    now = 1800000000
+    state = _write_operations_states(tmp_path, now=now)
+    original = state["retention"].read_text()
+    state["retention"].write_text("\n".join(
+        line for line in original.splitlines() if not line.startswith("category=public_consent_control ")
+    ) + "\n")
+    environment = {RETENTION_STATE_FILE_ENV: str(state["retention"])}
+    blocked = build_analytics_operations_readiness(Settings(), environment, now=now)
+    assert "retention_category_missing:public_consent_control" in blocked.blockers
+    state["retention"].write_text(original + (
+        "category=public_consent_control retention_mode=until_decision retention_days=none "
+        "storage=postgres enforcement=decision_required enforcement_verified=true\n"
+        if "category=public_consent_control " not in original else ""
+    ))
+    checked = build_analytics_operations_readiness(Settings(), environment, now=now)
+    assert "retention_category_missing:public_consent_control" not in checked.blockers

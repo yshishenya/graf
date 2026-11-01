@@ -613,6 +613,7 @@ def test_retention_terms_match_the_approved_contract() -> None:
             "anonymous_aggregate",
             "visit_attribution",
             "acquisition_attribute",
+            "public_consent_control",
         )
     }
     script = RETENTION_PATH.read_text()
@@ -652,8 +653,8 @@ def test_retention_execution_only_observes_storage_and_produces_current_evidence
     state = state_file.read_text()
     assert "result=pass" in state
     assert "rows_deleted_total=0" in state
-    assert state.count("enforcement_verified=true") == 4
-    assert state.count("retention_days=none") == 4
+    assert state.count("enforcement_verified=true") == 5
+    assert state.count("retention_days=none") == 5
     log = (tmp_path / "docker.log").read_text()
     assert not any(word in log for word in ("DELETE", "UPDATE", "ALTER", "TRUNCATE"))
     evidence = provider_readiness.collect_analytics_operations_evidence(
