@@ -31,7 +31,7 @@
 
 - [x] CHK016 Shared atomic recurring-authority version makes refusal win before any provider charge. [FR-044, FR-103]
 - [ ] CHK017 Late-after-refusal stays Free, records one internal incident and sends static support-email instruction; no product case or keep-period workflow exists. [FR-048, FR-104] Проверка 2026-10-30: X4; см. [отчёт T075](../t075-requirements-review-20261030.md).
-- [x] CHK018 Invoice purchased duration/planned interval is separate from actual grant and fiscal wording. [FR-105]
+- [x] CHK018 Invoice purchased duration/planned interval is separate from actual grant and fiscal wording. [FR-105] Проверка 01.11.2026: подтверждена только формулировка требований; реализация планового интервала не принята, остаток T048 открыт. См. [отдельное ревью](../review-planned-interval-checklist-20261101.md).
 - [x] CHK019 Consumer withdrawal affects access immediately while monetary state changes only after confirmed refund outcome. [FR-102]
 - [ ] CHK020 Refund approval/execution concurrency and four-eyes produce exactly one money mutation. [FR-056, FR-102] Проверка 2026-10-30: X4; см. [отчёт T075](../t075-requirements-review-20261030.md).
 
@@ -49,3 +49,24 @@
 **PASS только для требований первой части операторского импорта B1–B3** по [новому отчёту](../t075-import-design-review-20261030.md). Предыдущий BLOCK сохраняется как результат прежней версии требований; он снят только для этой ограниченной части после уточнения контракта. Это не глобальный PASS списка, не реализация и не закрытие T075/#4930. Полнота файлов оставляет `financial_status=not_checked`.
 
 Все 20 исходных пунктов перечитаны; глобальные отметки не изменены: **14 отмечены / 6 открыты**. Старые X4–X7 и внешние условия запуска сохраняются отдельно от предметного PASS.
+
+## Независимая перепроверка CHK018 — 01.11.2026
+
+CHK018 сохранён отмеченным именно как проверка качества требований: FR-105
+явно разделяет неизменяемые длительность/плановый интервал счёта, фактический
+grant и фискальное описание. Отсутствие доказательства реализации само по себе
+не опровергает эту формулировку. Смысл отметки ограничен требованиями по правилам
+Spec Kit и примечанию от 30.10.2026 выше.
+
+**Реализация FR-105 не принята.** Текущий срез содержания уведомлений использует
+только подтверждённую сумму и фактически предоставленные интервалы. Полнота
+неизменяемого планового интервала во всех счетах и показ двух интервалов при
+расхождении остаются открытой частью T048/#4903; текущая подписка и границы
+фактического grant не заменяют исходный плановый снимок. Отдельный ограниченный
+допуск требований notification-content **8/8** сохранён; T048/T068/#7524
+не закрываются. Основания и границы — в [отчёте](../review-planned-interval-checklist-20261101.md).
+
+Все 20 пунктов payments перечитаны после правки: **14 отмечены / 6 открыты**;
+другие 19 отметок не менялись. Подсчёт восьми общих списков по строкам
+чекбоксов: **162 отмечены / 58 открыты**; это не новая приёмка остальных
+пунктов. Глобального PASS платежей или F140 эта перепроверка не даёт.
