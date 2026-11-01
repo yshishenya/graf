@@ -1,5 +1,46 @@
 # Quickstart and validation matrix
 
+## T077: внутренний отчёт — 01.11.2026
+
+Первый шаг [O1–O8](contracts/operator-observation.md); пока требования,
+не выполненная проверка. Active Spec Kit slice/high-risk. До кода —
+независимый reviewer-owned checklists/operator-observation.md и analyze.
+Все исходные 87 задач сохраняются, T077/#4932 остаются открытыми.
+
+1. Штатный одноразовый PostgreSQL runner: unit/test_billing_monitoring.py
+   и integration/test_billing_monitoring_postgres.py. Реальные restricted
+   logins/forced RLS, не подмена guard. Сначала RED отсутствующего CLI;
+   затем `python -m twobrain_rec_server.cli.billing_monitoring --date 2026-10-31`
+   из apps/server с синтетической конфигурацией через штатное окружение.
+2. Пустые подключённые источники дают нули, неподключённые семейства null.
+   Набор с разными состояниями/опасными snapshot полями подтверждает
+   закрытые группы, unrecognized, operation age/received queue age,
+   отсутствие ложного transport lag/unknown duration/суточных успехов.
+3. Под настоящими app/worker/superuser/SET ROLE и неверными контекстами
+   получить отказ до предметных чтений. Верные maintenance identity/context
+   проходят только в READ ONLY REPEATABLE READ. Mutation probe запрещена БД.
+4. Два соединения: читатель закрепляет снимок; writer держит registry lock,
+   заменяет принятый результат и коммитит. Читатель после lock видит прежний
+   согласованный снимок, новый процесс — новый. Единый as_of, отдельный
+   finished_at; будущая дата не становится ложным нулевым возрастом.
+5. Ошибка подключения/identity, lock/query timeout, >500 detected gaps,
+   >64 KiB stdout или несовместимая схема дают exit 1 и только безопасный
+   отказ целого отчёта, без частичного результата. Успешно прочитанные
+   неизвестные состояния и будущие времена дают завершённый JSON с exit 0,
+   coverage=partial, закрытыми unrecognized/null и reason_code по O3/O4.
+   В обоих случаях SQL/URL/traceback и сырые значения не выводятся.
+6. Новый процесс повторяет чтение без provider HTTP/почты и без изменения
+   строк/финансов/прав/согласий. Registry missing/unverified, files_complete
+   против financial_status=not_checked, исходные owner/deadline сохранены;
+   чужой магазин не попадает в текущую registry-область.
+7. Сохранить команды/versions/SHA/counts/ограничения, провести независимое
+   кодовое ревью/converge и три точных PR gates. Не повторять прежние498
+   тестов PR7877 без новой причины. Full/CD/Dev/реальные деньги не требуются.
+
+O6 сохраняет полный обязательный остаток источников, регулярности, тревог
+и реакции. Финансовые/приватностные сроки действуют независимо от того,
+подключено ли семейство к первому отчёту. Один удачный JSON не закрывает T077.
+
 ## Сверка требований интерфейса — 2026-10-30
 
 Полоса: `active Spec Kit slice`, только согласование документации T079/T083

@@ -251,6 +251,17 @@ description: "Dependency-ordered implementation tasks for the GRAF personal acco
   отрицательные входы и полный остаток исходной T075. Issue не дробится.
 - [X] T076 [US10] Implement Temporal reconciliation, stuck-operation, storage projection, add-on/time-credit and notification maintenance workflows in `apps/server/src/twobrain_rec_server/workflows/billing_reconciliation_workflow.py` and `apps/server/src/twobrain_rec_server/workflows/maintenance_worker.py`.
 - [ ] T077 [US10] Add operational metrics, dashboards, emergency stop and read-only launch diagnostics through existing observability patterns in `apps/server/src/twobrain_rec_server/billing/monitoring.py`, `apps/server/src/twobrain_rec_server/readiness/checks.py`, and `apps/server/src/twobrain_rec_server/admin/metrics.py`. (Issue #4932).
+
+  Порядок доработки 01.11.2026: [O1–O8](contracts/operator-observation.md),
+  reviewer-owned checklists/operator-observation.md и независимый допуск,
+  scoped analyze, подтверждение существующей #4932; затем минимальный
+  billing/monitoring.py + cli/billing_monitoring.py и существующий unit test
+  плюс tests/integration/test_billing_monitoring_postgres.py (префиксы plan).
+  Настоящие CLI/guard/снимок/timeout/privacy/no-write, review/converge и
+  три PR gates обязательны. Исходный текст/ID/владелец сохранены; отменённые
+  F272/F199 stop/gates не восстанавливаются. Admin/readiness/F254 не меняются.
+  Полный FR-089/O6 (все источники/регулярность/тревоги/сохраняемая реакция)
+  остаётся здесь; первый отчёт не даёт `[X]` или закрытия issue.
 - [ ] T078 [US10] Add test-shop and controlled real-shop canary runbooks, environment separation, provider capability evidence, legal/finance sign-off records, and rollback/stop procedure in `specs/140-user-account-billing/quickstart.md` and `docs/runbooks/billing-launch.md`.
 
 **Checkpoint**: Launch evidence proves immediate-Free behavior, unlimited paid core, finite storage, provider reconciliation and external merchant refund handling before public enablement.
