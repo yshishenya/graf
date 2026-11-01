@@ -131,6 +131,15 @@ class PlanningDb(FakeDb):
         return [self.subscription]  # type: ignore[return-value]
 
     async def scalar(self, query):
+        entity = query.column_descriptions[0].get("entity")
+        if entity is Workspace:
+            return self.workspace.id if (
+                self.workspace.kind == "personal"
+                and self.workspace.owner_user_id == self.subscription.billing_owner_id
+                and self.membership.role == "owner" and self.membership.status == "active"
+            ) else None
+        if entity is BillingNotificationDelivery:
+            return None
         if (query.column_descriptions[0].get("entity") is WorkspaceSubscription
                 and hasattr(self, "subscription")):
             return self.subscription
@@ -1499,6 +1508,8 @@ async def test_planner_pages_past_unaccepted_prices_without_consuming_action_lim
 
         async def scalar(self, query):
             entity = query.column_descriptions[0].get("entity")
+            if entity is Workspace:
+                return self.workspace.id
             if entity is BillingPlanVersion:
                 return _planning_catalog()
             if entity is BillingPaymentMethod:

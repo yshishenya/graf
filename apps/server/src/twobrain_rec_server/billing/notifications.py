@@ -25,6 +25,7 @@ class BillingNotification(StrEnum):
     RECEIPT_AVAILABLE = "receipt_available"
     REFERRAL_CREDIT = "referral_credit"
     RENEWAL_UNKNOWN = "renewal_unknown"
+    RENEWAL_UPCOMING = "renewal_upcoming"
     RENEWAL_ATTEMPT_FAILED = "renewal_attempt_failed"
     RENEWAL_LATE_SUCCESS = "renewal_late_success"
     RENEWAL_LATE_SUCCESS_REFUSED = "renewal_late_success_refused"
@@ -44,6 +45,7 @@ MANDATORY_NOTIFICATION_KINDS = frozenset(
         BillingNotification.STORAGE_SELECTION_CHANGED,
         BillingNotification.RECEIPT_AVAILABLE,
         BillingNotification.RENEWAL_UNKNOWN,
+        BillingNotification.RENEWAL_UPCOMING,
         BillingNotification.RENEWAL_ATTEMPT_FAILED,
         BillingNotification.RENEWAL_LATE_SUCCESS,
         BillingNotification.RENEWAL_LATE_SUCCESS_REFUSED,
@@ -247,6 +249,25 @@ def notification_copy(
     support_email: str | None = None,
 ) -> tuple[str, str]:
     """Russian-first copy built only from allowlisted event fields."""
+    if event.kind == BillingNotification.RENEWAL_UPCOMING:
+        payload = event.safe_payload
+        amount = payload.get("amount_minor")
+        if amount:
+            rubles, kopecks = divmod(int(amount), 100)
+            price = f"{rubles:,}".replace(",", " ") + f",{kopecks:02d} ₽"
+        else:
+            price = "указана в кабинете"
+        cycle = {"month": "месяц", "year": "год"}.get(payload.get("cycle"), "указан в кабинете")
+        method = f"•••• {payload['last4']}" if "last4" in payload else "сохранённый способ оплаты"
+        scheduled = payload.get("scheduled_at", "указана в кабинете")
+        end = payload.get("access_until", "указан в кабинете")
+        return (
+            "Напоминание о продлении",
+            f"Тариф «Личный», период: {cycle}. Сумма по расписанию на момент события: {price}. "
+            f"Первая попытка по этому расписанию: {scheduled} МСК; "
+            f"конец оплаченного периода: {end} МСК. Способ оплаты: {method}. "
+            "Актуальный статус и управление — в кабинете.",
+        )
     invoice = event.safe_payload.get("invoice")
     suffix = f" Номер платежа: {invoice}." if invoice else ""
     fair_use_capability = {
@@ -368,6 +389,9 @@ def build_notification(
         BillingNotification.PAYMENT_FAILED: {"invoice", "access_until"},
         BillingNotification.RECEIPT_AVAILABLE: {"invoice"},
         BillingNotification.RENEWAL_UNKNOWN: {"invoice"},
+        BillingNotification.RENEWAL_UPCOMING: {
+            "amount_minor", "currency", "cycle", "scheduled_at", "access_until", "last4",
+        },
         BillingNotification.RENEWAL_ATTEMPT_FAILED: {"invoice", "access_until"},
         BillingNotification.RENEWAL_LATE_SUCCESS: {"invoice"},
         BillingNotification.RENEWAL_LATE_SUCCESS_REFUSED: {"invoice"},
@@ -382,9 +406,14 @@ def build_notification(
     safe: dict[str, str] = {}
     for key in allowed_keys:
         value = payload.get(key)
-        pattern = (
+        pattern = {
+            "amount_minor": r"[1-9][0-9]{0,18}",
+            "currency": r"RUB",
+            "cycle": r"month|year",
+            "last4": r"[0-9]{4}",
+        }.get(key) or (
             r"\d{2}\.\d{2}\.\d{4} \d{2}:\d{2}"
-            if key in {"review_by", "access_until"}
+            if key in {"review_by", "access_until", "scheduled_at"}
             else r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}"
         )
         if isinstance(value, str) and re.fullmatch(pattern, value):

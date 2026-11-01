@@ -383,3 +383,9 @@ Account-close, внешний refund и денежные/защитные гра
 и независимый checklists/renewal-final-failure.md, затем RED двух входов,
 одна общая безопасная запись события, сохраняемые PostgreSQL границы,
 review/converge и обязательные PR SHA/base gates. T048 остаётся `[ ]`.
+
+
+Следующая часть исходной T048 — напоминание в первом окне. Требования и
+reviewer-owned checklists/renewal-reminder.md предшествуют коду; затем RED,
+минимальный producer существующей очереди, PostgreSQL/копия/границы,
+review/analyze/converge и точные PR gates. Полная T048 остаётся `[ ]`.
