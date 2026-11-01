@@ -3485,7 +3485,12 @@ async def resume_billing_subscription(
         recipient_id=principal.user_id,
         event_id=f"subscription:{tenant_scope.workspace_id}:authority:{changed.authority_version}",
         kind=BillingNotification.AUTORENEWAL_ENABLED,
-        payload={"action_path": "/billing/subscription"},
+        payload={
+            "amount_minor": str(resume_quote.snapshot["catalog_snapshot"]["amount_minor"]),
+            "currency": resume_quote.snapshot["catalog_snapshot"]["currency"],
+            "next_attempt_label": resume_quote.snapshot["next_attempt_label"],
+            "action_path": "/billing/subscription",
+        },
         marketing_allowed=False,
     )
     await db.commit()

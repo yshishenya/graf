@@ -109,7 +109,11 @@ def test_notification_outbox_is_idempotent_and_keeps_finance_notices() -> None:
     assert first is not None
     assert outbox.enqueue(event, recipient_id="user-1", marketing_allowed=False) == first
     assert outbox.mark_delivered(event_id="evt-1", recipient_id="user-1", channel="email").state == "delivered"
-    assert notification_copy(event) == ("Платеж подтвержден", "Оплата прошла успешно. Номер платежа: INV-1.")
+    title, body = notification_copy(event)
+    assert title == "Платеж подтвержден"
+    assert "Номер платежа: INV-1." in body
+    assert "Сумма: указана в кабинете" in body
+    assert "Период указан в истории платежей" in body
     unsafe = build_notification(
         event_id="evt-2",
         kind=BillingNotification.PAYMENT_SUCCEEDED,

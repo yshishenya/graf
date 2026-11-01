@@ -1,3 +1,5 @@
+from datetime import UTC, datetime
+
 import pytest
 
 from twobrain_rec_server.billing.notifications import (
@@ -5,7 +7,9 @@ from twobrain_rec_server.billing.notifications import (
     NotificationOutbox,
     build_notification,
     notification_copy,
+    payment_success_payload,
 )
+from twobrain_rec_server.db.models import BillingInvoice
 
 
 def test_notification_event_allowlist_strips_private_fields_and_renders_safe_copy() -> None:
@@ -188,3 +192,68 @@ def test_upcoming_rejects_untrusted_fields_and_uses_generic_method(payload):
     _, body = notification_copy(event)
     assert "сохранённый способ оплаты" in body
     assert "указана в кабинете" in body
+
+
+
+def test_success_snapshot_preserves_money_and_separate_service_intervals():
+    invoice = BillingInvoice(safe_number="INV-SNAPSHOT", amount_minor=125001, currency="RUB")
+    event = build_notification(
+        event_id="payment:1:succeeded", kind=BillingNotification.PAYMENT_SUCCEEDED,
+        payload=payment_success_payload(invoice, action_path="/billing/history", periods=[
+            (datetime(2026, 11, 1, tzinfo=UTC), datetime(2026, 12, 1, tzinfo=UTC)),
+            (datetime(2026, 12, 15, tzinfo=UTC), datetime(2027, 1, 15, tzinfo=UTC)),
+        ]),
+    )
+    assert event.safe_payload["service_periods"] == (
+        "01.11.2026 03:00 — 01.12.2026 03:00; 15.12.2026 03:00 — 15.01.2027 03:00"
+    )
+    _, body = notification_copy(event)
+    assert "1 250,01 ₽" in body and "МСК" in body and "INV-SNAPSHOT" in body
+    assert "Чек и актуальный статус — в истории платежей" in body
+    assert "чек доступен" not in body.lower()
+
+
+@pytest.mark.parametrize("label", [
+    "01.11.2026, 12:30 (UTC)", "01.11.2026, 12:30 (UTC+03:00)",
+    "01.11.2026, 12:30 (UTC-04:30)",
+    "после подтверждения возобновления, в ближайшее время",
+])
+def test_resume_copy_preserves_accepted_amount_and_explicit_zone(label):
+    event = build_notification(
+        event_id="subscription:1:authority:3", kind=BillingNotification.AUTORENEWAL_ENABLED,
+        payload={"amount_minor": "125000", "currency": "RUB", "next_attempt_label": label},
+    )
+    _, body = notification_copy(event)
+    assert label in body and "1 250,00 ₽" in body and "МСК" not in body
+    assert "Вы подтвердили включение" in body and "Актуальное состояние" in body
+
+
+@pytest.mark.parametrize("key,kind,value", [
+    ("service_periods", BillingNotification.PAYMENT_SUCCEEDED, value)
+    for value in [None, 1, "private@example.test", "0" * 4097,
+        "01.11.2026 03:00 — 01.11.2025 03:00",
+        "31.02.2026 03:00 — 01.12.2026 03:00",
+        "01.11.2026 03:00 — 01.12.2026 03:00\nprivate"]
+] + [
+    ("next_attempt_label", BillingNotification.AUTORENEWAL_ENABLED, value)
+    for value in [None, True, "private@example.test", "0" * 4097,
+        "31.02.2026, 12:30 (UTC)", "01.11.2026, 12:30 (UTC+24:00)",
+        "01.11.2026, 12:30 (UTC)\n"]
+])
+def test_confirmation_snapshot_rejects_invalid_or_private_dates(key, kind, value):
+    event = build_notification(event_id="diagnostic", kind=kind, payload={key: value})
+    assert key not in event.safe_payload
+    assert "private" not in notification_copy(event)[1]
+
+
+@pytest.mark.parametrize("kind", [BillingNotification.PAYMENT_SUCCEEDED,
+                                  BillingNotification.AUTORENEWAL_ENABLED])
+@pytest.mark.parametrize("payload", [
+    {}, {"amount_minor": "-1", "currency": "USD"},
+    {"amount_minor": "1.00", "email": "private@example.test"},
+    {"amount_minor": True}, {"amount_minor": "0"},
+])
+def test_old_or_invalid_confirmation_payload_directs_to_cabinet(kind, payload):
+    event = build_notification(event_id="diagnostic", kind=kind, payload=payload)
+    _, body = notification_copy(event)
+    assert "указана в кабинете" in body and "private" not in body and "₽" not in body

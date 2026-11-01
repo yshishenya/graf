@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from twobrain_rec_server.db.models import BillingNotificationDelivery
+from twobrain_rec_server.db.models import BillingInvoice, BillingNotificationDelivery
 
 
 class BillingNotification(StrEnum):
@@ -243,20 +245,40 @@ class DurableNotificationOutbox:
         return row
 
 
+def payment_success_payload(
+    invoice: BillingInvoice,
+    *,
+    periods: Iterable[tuple[datetime, datetime]],
+    action_path: str,
+) -> dict[str, object]:
+    """Snapshot only confirmed money and the actual granted service intervals."""
+    zone = ZoneInfo("Europe/Moscow")
+    return {
+        "invoice": invoice.safe_number,
+        "amount_minor": str(invoice.amount_minor),
+        "currency": invoice.currency,
+        "service_periods": "; ".join(
+            f"{start.astimezone(zone):%d.%m.%Y %H:%M} — {end.astimezone(zone):%d.%m.%Y %H:%M}"
+            for start, end in periods
+        ),
+        "action_path": action_path,
+    }
+
+
 def notification_copy(
     event: NotificationEvent,
     *,
     support_email: str | None = None,
 ) -> tuple[str, str]:
     """Russian-first copy built only from allowlisted event fields."""
+    payload = event.safe_payload
+    amount = payload.get("amount_minor")
+    if amount and payload.get("currency") == "RUB":
+        rubles, kopecks = divmod(int(amount), 100)
+        price = f"{rubles:,}".replace(",", " ") + f",{kopecks:02d} ₽"
+    else:
+        price = "указана в кабинете"
     if event.kind == BillingNotification.RENEWAL_UPCOMING:
-        payload = event.safe_payload
-        amount = payload.get("amount_minor")
-        if amount:
-            rubles, kopecks = divmod(int(amount), 100)
-            price = f"{rubles:,}".replace(",", " ") + f",{kopecks:02d} ₽"
-        else:
-            price = "указана в кабинете"
         cycle = {"month": "месяц", "year": "год"}.get(payload.get("cycle"), "указан в кабинете")
         method = f"•••• {payload['last4']}" if "last4" in payload else "сохранённый способ оплаты"
         scheduled = payload.get("scheduled_at", "указана в кабинете")
@@ -308,7 +330,10 @@ def notification_copy(
         ),
         BillingNotification.AUTORENEWAL_ENABLED: (
             "Автопродление включено",
-            "Вы разрешили следующие автоматические списания. Сумма, дата ближайшей попытки и отмена доступны в управлении подпиской.",
+            f"Вы подтвердили включение автопродления. Принятая сумма: {price}. "
+            "Ближайшая попытка в принятом предложении: "
+            f"{payload.get('next_attempt_label', 'указана в управлении подпиской')}. "
+            "Актуальное состояние и отмена — в управлении подпиской.",
         ),
         BillingNotification.STORAGE_SELECTION_CHANGED: (
             "Выбор объёма обновлён",
@@ -316,7 +341,10 @@ def notification_copy(
         ),
         BillingNotification.PAYMENT_SUCCEEDED: (
             "Платеж подтвержден",
-            f"Оплата прошла успешно.{suffix}",
+            f"Оплата была подтверждена. Сумма: {price}. "
+            + (f"Предоставленные периоды: {payload['service_periods']} МСК."
+               if "service_periods" in payload else "Период указан в истории платежей.")
+            + f"{suffix} Чек и актуальный статус — в истории платежей.",
         ),
         BillingNotification.PAYMENT_FAILED: (
             "Продление не состоялось",
@@ -382,9 +410,9 @@ def build_notification(
 ) -> NotificationEvent:
     allowed_keys = {
         BillingNotification.AUTORENEWAL_DISABLED: set(),
-        BillingNotification.AUTORENEWAL_ENABLED: set(),
+        BillingNotification.AUTORENEWAL_ENABLED: {"amount_minor", "currency", "next_attempt_label"},
         BillingNotification.STORAGE_SELECTION_CHANGED: set(),
-        BillingNotification.PAYMENT_SUCCEEDED: {"invoice"},
+        BillingNotification.PAYMENT_SUCCEEDED: {"invoice", "amount_minor", "currency", "service_periods"},
         BillingNotification.SERVICE_RECONCILIATION: {"invoice"},
         BillingNotification.PAYMENT_FAILED: {"invoice", "access_until"},
         BillingNotification.RECEIPT_AVAILABLE: {"invoice"},
@@ -406,6 +434,37 @@ def build_notification(
     safe: dict[str, str] = {}
     for key in allowed_keys:
         value = payload.get(key)
+        if key in {"service_periods", "next_attempt_label"}:
+            if not isinstance(value, str) or len(value) > 4096:
+                continue
+            stamp = r"[0-9]{2}\.[0-9]{2}\.[0-9]{4} [0-9]{2}:[0-9]{2}"
+            if key == "service_periods":
+                if not re.fullmatch(rf"{stamp} — {stamp}(?:; {stamp} — {stamp})*", value):
+                    continue
+                try:
+                    periods = [
+                        [datetime.strptime(part, "%d.%m.%Y %H:%M") for part in pair.split(" — ")]
+                        for pair in value.split("; ")
+                    ]
+                    if any(start > end for start, end in periods):
+                        continue
+                except ValueError:
+                    continue
+            elif value != "после подтверждения возобновления, в ближайшее время":
+                if not re.fullmatch(
+                    r"[0-9]{2}\.[0-9]{2}\.[0-9]{4}, [0-9]{2}:[0-9]{2} "
+                    r"\(UTC(?:[+-][0-9]{2}:[0-9]{2})?\)", value,
+                ):
+                    continue
+                try:
+                    datetime.strptime(
+                        value.replace("UTC)", "+00:00)").replace("UTC", ""),
+                        "%d.%m.%Y, %H:%M (%z)",
+                    )
+                except ValueError:
+                    continue
+            safe[key] = value
+            continue
         pattern = {
             "amount_minor": r"[1-9][0-9]{0,18}",
             "currency": r"RUB",
