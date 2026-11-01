@@ -1163,3 +1163,39 @@ helper/root/native и новый Full принимаются в штатном �
 
 - Helper SHA256: `2364d3e6d5d66ef4b9081ae7d411380cdab37d09ca0dcaa1ca2f2670a7b9123f`.
 - Test SHA256: `64223c8b65a55c227b6789dd7d2db1355e000da0718b974536120477e11d5f99`.
+
+
+## T113 — реальный выбор helper и отказ metadata
+
+До кода: native-ci-metadata checklist PASS, analyze, sync существующей #7859.
+Existing test_actual_media_resource_preparation: новые helper-only/docs и
+source/keyring metadata assertions сначала RED на прежнем helper/selector;
+затем весь tests/governance/test_governance_workflow.py, bash syntax/Ruff/
+actionlint, process/governance/fragment/diff, независимые review/converge.
+Draft PR исполняет настоящий Prepare при изменении helper и получает точные
+числа фиксированных файлов на runner. Native failure остаётся failure;
+после фактов функциональная адаптация требует повторного проекта/review.
+Нельзя сливать по моделируемому root профилю, повторять Full ради диагностики,
+угадывать условие metadata или ослаблять guard без обоснования.
+
+
+### T113: локальная проверка диагностического среза, 01.11.2026
+
+На base208e0aee20629c0770ad6ce0457fc1ebfcb6a631 новые assertions сначала
+дали RED7 failures/2PASS/399deselected; после изменения выбранный профиль
+9PASS/399deselected. Затем весь модуль: **408 passed, 0 skipped, 152,53с**.
+Helper/test/YAML во время полного прогона не менялись. Восемь статических и
+процессных проверок PASS: bash syntax, Ruff извлечённого heredoc и теста,
+actionlint, development-process, workflow self-test, Spec Kit governance,
+fragment, diff-check. Сеть/sudo/APT/production не запускались.
+
+Новый вывод строго ограничен fixed source/keyring и числовыми stat metadata;
+guard type/uid/mode/size прежний. Выбор helper/server/docs/other-infra
+исполнен через настоящий YAML. Источники и ключи остаются временной моделью
+root/native; реальный Prepare должен дать числа в draft PR, его отказ не
+будет принят как PASS или разрешение merge. T112/T113/#7859 остаются открытыми;
+функциональная адаптация, конечные exact gates/Full/измерение отдельно.
+
+- Helper SHA256: `b16a0c322e976a03c55cd60560e96b82bb97f2fce077a06951262118019d195f`.
+- Test SHA256: `47a509fceddc090b652f05cc8287942f63cbf61940e5959958960b4eee4a2861`.
+- YAML SHA256: `dfd738473dc9f8f47ea1a6c9e8e5f64dfcfda9e0fceb676a21a4995925dee258`.

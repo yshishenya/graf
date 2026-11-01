@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import shutil
+import stat
 import subprocess
 import sys
 import textwrap
@@ -414,7 +415,7 @@ def test_governance_workflow_self_test() -> None:
 ])
 @pytest.mark.parametrize("tools_state", [
     "working", "missing-ffmpeg", "missing-ffprobe", "update-failed", "install-failed",
-    "broken-ffmpeg", "broken-ffprobe", "non-server", "mirror-failed", "npm-failed", "browser-failed",
+    "broken-ffmpeg", "broken-ffprobe", "non-server", "helper-change", "other-infra", "mirror-failed", "npm-failed", "browser-failed",
     "write-failed", "replace-failed", "readback-failed", "changed-source",
     "unknown-mirror", "duplicate-mirror", "missing-mirror", "bad-source", "missing-source",
     "crlf-mirror", "mirror-symlink", "source-symlink", "second-source", "continued-source",
@@ -607,7 +608,8 @@ ffmpeg() { printf 'ffmpeg\n' >> "$PREP_EVENTS"; [[ "$TOOLS_STATE" != broken-ffmp
 ffprobe() { printf 'ffprobe\n' >> "$PREP_EVENTS"; [[ "$TOOLS_STATE" != broken-ffprobe ]]; }
 '''
     env = {**os.environ, "CI_SOURCE": str(ROOT / "infra/scripts/ci-local.sh"),
-           "CHANGED_PATH": "README.md" if tools_state == "non-server" else "apps/server/src/example.py",
+           "CHANGED_PATH": {"non-server": "README.md", "helper-change": "infra/scripts/prepare-ci-apt.sh",
+                            "other-infra": "infra/scripts/ci-local.sh"}.get(tools_state, "apps/server/src/example.py"),
            "TOOLS_STATE": tools_state, "PREP_EVENTS": str(events), "ROOT_MODEL": str(model),
            "APT_SOURCE": str(source), "APT_PARENT": str(parent), "APT_KEY": str(key),
            "GITHUB_ACTIONS": "true", "RUNNER_OS": "Linux",
@@ -616,7 +618,7 @@ ffprobe() { printf 'ffprobe\n' >> "$PREP_EVENTS"; [[ "$TOOLS_STATE" != broken-ff
     result = subprocess.run(["bash", "-e", "-o", "pipefail", "-c", harness + step["run"]],
                             cwd=tmp_path, env=env, capture_output=True, text=True, timeout=10)
     rows = events.read_text().splitlines() if events.exists() else []
-    if workflow_name == "governance-fast" and tools_state == "non-server":
+    if workflow_name == "governance-fast" and tools_state in {"non-server", "other-infra"}:
         assert result.returncode == 0 and not rows, result.stderr
         return
     helper_failures = {
@@ -634,6 +636,15 @@ ffprobe() { printf 'ffprobe\n' >> "$PREP_EVENTS"; [[ "$TOOLS_STATE" != broken-ff
     assert (result.returncode != 0) == failed, result.stdout + result.stderr
     assert rows == ([] if tools_state == "self-hosted" else ["mirror"]) if tools_state in helper_failures else rows[0] == "mirror"
     assert "fixture-private-value" not in result.stdout + result.stderr
+    if tools_state in {"source-owner", "source-mode", "source-symlink", "source-empty", "source-oversize",
+                       "key-owner", "key-mode", "key-symlink", "key-empty", "key-oversize"}:
+        label = "source" if tools_state.startswith("source-") else "keyring"
+        metadata = (source if label == "source" else key).lstat()
+        uid = 1 if tools_state.endswith("owner") else 0  # Explicit root model above.
+        assert result.stderr.strip() == (
+            f"CI APT preparation: unsafe {label} metadata type={stat.S_IFMT(metadata.st_mode)} "
+            f"uid={uid} gid=0 mode={stat.S_IMODE(metadata.st_mode):o} size={metadata.st_size}"
+        )
     assert (mirror.read_bytes() if mirror.exists() else None) == mirror_before
     assert third_party.read_bytes() == third_before
     assert key.read_bytes() == b"fixture-keyring" if tools_state not in {"key-missing", "key-empty", "key-oversize"} else True

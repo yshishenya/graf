@@ -23,10 +23,12 @@ def fingerprint(value):
             value.st_size, value.st_mtime_ns, value.st_ctime_ns)
 
 
-def checked_read(path, limit):
+def checked_read(path, limit, label):
     before = path.lstat()
     if not stat.S_ISREG(before.st_mode) or before.st_uid != 0 or before.st_mode & 0o022 or not 0 < before.st_size <= limit:
-        fail('unsafe source or keyring metadata')
+        fail(f'unsafe {label} metadata type={stat.S_IFMT(before.st_mode)} '
+             f'uid={before.st_uid} gid={before.st_gid} '
+             f'mode={stat.S_IMODE(before.st_mode):o} size={before.st_size}')
     with os.fdopen(os.open(path, os.O_RDONLY | os.O_NOFOLLOW), 'rb') as stream:
         if fingerprint(os.fstat(stream.fileno())) != fingerprint(before):
             fail('input changed while opening')
@@ -49,8 +51,8 @@ parent = source.parent.lstat()
 if not stat.S_ISDIR(parent.st_mode) or parent.st_uid != 0 or parent.st_mode & 0o022:
     fail('unsafe source directory')
 keyring = Path('/usr/share/keyrings/ubuntu-archive-keyring.gpg')
-checked_read(keyring, 1048576)
-original, metadata = checked_read(source, 16384)
+checked_read(keyring, 1048576, 'keyring')
+original, metadata = checked_read(source, 16384, 'source')
 if any(byte > 126 or byte < 32 and byte not in (9, 10) for byte in original):
     fail('expected flat ASCII source')
 allowed = {'types', 'uris', 'suites', 'components', 'signed-by', 'architectures', 'enabled'}
@@ -106,14 +108,14 @@ if canonical != original:
             stream.write(canonical)
             stream.flush()
             os.fsync(stream.fileno())
-        current, current_metadata = checked_read(source, 16384)
+        current, current_metadata = checked_read(source, 16384, 'source')
         if current != original or fingerprint(current_metadata) != fingerprint(metadata) or fingerprint(source.parent.lstat())[:5] != fingerprint(parent)[:5]:
             fail('source changed before replacement')
         os.replace(temporary, source)
     finally:
         if temporary is not None:
             temporary.unlink(missing_ok=True)
-    actual, final_metadata = checked_read(source, 16384)
+    actual, final_metadata = checked_read(source, 16384, 'source')
     if actual != canonical or (final_metadata.st_uid, final_metadata.st_gid, final_metadata.st_mode) != (metadata.st_uid, metadata.st_gid, metadata.st_mode):
         fail('source write verification failed')
 print('CI APT sources: official Ubuntu HTTPS archives')

@@ -791,3 +791,23 @@ required PR gates принимают hermetic профиль, а настоящ�
 проверяются при server-change либо штатном Full нового принятого кандидата.
 Искусственного server diff или отдельного workflow ради этого не создаётся;
 Full не используется ради определения облака.
+
+## T113 — наблюдаемый отказ и проверка самого helper
+
+Constitution III/VI до/после проекта: PASS; содержимое и доверие APT, данные
+продукта и production не меняются. Новых прав или разрешений не требуется.
+
+Область: прежний checked_read и один существующий selector в governance-fast;
+без новой инфраструктуры/зависимостей/permission changes. checked_read получает
+фиксированную категорию от своих двух callers и при прежнем отказе добавляет
+только stat.S_IFMT, uid/gid, stat.S_IMODE и size. Источник и keyring не читаются
+при неудачной metadata-проверке. Все safety-условия T112 сохраняются.
+
+В прежнем цикле changed_files условие Prepare принимает server либо точное
+имя helper. Другие infra/docs не выбираются новой ветвью. Существующий test
+actual_media_resource_preparation исполняет YAML с helper-only/server/docs;
+negative fixtures проверяют отсутствие содержимого/URI и дальнейших действий.
+До кода checklist native-ci-metadata, analyze и sync #7859; далее RED/GREEN,
+static/process, независимый code review, draft PR и фактические числа runner.
+Без фактов не проектировать ослабление guard. Failed intermediate run остаётся
+failed; требуемые exact gates для конечного изменения сохраняются.

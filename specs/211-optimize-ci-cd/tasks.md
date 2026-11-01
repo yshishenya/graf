@@ -374,3 +374,7 @@ commit/PR exact checks. T112 — один самостоятельный рез�
 задач нет: helper и общий test принадлежат одному исполнителю. Историческая
 T110 остаётся открытой; новый способ устраняет зависимость выпуска от cloud URI.
 Новый frozen Full/выпуск и runtime/T0 принимаются отдельно по T100/T102/F273.
+
+## T113 — реальная подготовка и безопасные факты отказа
+
+- [ ] T113 [US2] После requirements checklist/analyze и sync #7859 сначала RED в test_actual_media_resource_preparation (`tests/governance/test_governance_workflow.py`): метаданные фиксированных source/keyring и выбор helper-only/server/docs. Затем добавить только безопасную классификацию отказа checked_read и выбор собственного helper в прежнем Prepare governance-fast, сохранить прежние guards/отказ/все три callers; GREEN модуля и static/process, независимые review/converge, draft PR и реальные metadata runner. Не сливать промежуточную ошибку; после фактов отдельно принять минимальную функциональную адаптацию и конечные exact PR gates. T112/#7859/Full/измерение не закрываются по диагностике. (FR-057/SC-025; Issue #7859)
