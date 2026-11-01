@@ -1199,3 +1199,45 @@ root/native; реальный Prepare должен дать числа в draft 
 - Helper SHA256: `b16a0c322e976a03c55cd60560e96b82bb97f2fce077a06951262118019d195f`.
 - Test SHA256: `47a509fceddc090b652f05cc8287942f63cbf61940e5959958960b4eee4a2861`.
 - YAML SHA256: `dfd738473dc9f8f47ea1a6c9e8e5f64dfcfda9e0fceb676a21a4995925dee258`.
+
+
+## T114 — приёмка узкого исправления прав ключа
+
+До кода: ci-keyring-permissions review, analyze, sync #7859. Тот же actual
+shell тест трёх callers: RED known-key-mode, затем whole module GREEN.
+Известный keyring0777 с точным public hash атомарно становится root:root0644
+с теми же bytes, следующий запуск no-op. Unknown/tampered key0777, прочие
+modes/owner/group/type/size, parent unsafe/symlink/change, source0777,
+read/write/replace/readback failures отказывают; нет дальнейших APT/npm/
+Playwright, temp очищен. Root/native остаются явной моделью. Official hash
+в fixture заменяется учебным hash, production pin не вычисляется из входа.
+Static/process + independent code review/converge перед update draft7863;
+настоящий Prepare проверяет actual bytes через тот же pin. Промежуточный
+failure не merge, новые факты рассматриваются отдельно. Full не диагностика.
+
+
+### T114: локальная реализация и независимое code review
+
+Новые actual-shell assertions сначала RED5 failures/2PASS/446deselected;
+после минимального изменения45PASS/408deselected. Весь существующий модуль:
+**453 passed,0 skipped,160,89с**. Helper/test во время прогона не менялись.
+Восемь static/process команд PASS. Combined known-key0777+malformed-source
+сохранил inode/mode/bytes ключа; unknown/owner/group/other-mode/parent/races
+и write/replace/readback дают отказ без следующих действий, temp очищен.
+Known-key0777 success и старый открытый writer подтверждают новую inode0644
+с теми же bytes; повтор сохраняет inode/mode/mtime обоих файлов.
+
+Независимый read-only `codex review --uncommitted`: no actionable defects,
+все текущие изменения и untracked source/checklist/review файлы прочитаны.
+Его попытка pytest не стартовала из-за read-only tempfile; это не повтор
+тестов и не замена приведённого прогона исполнителя. Shell/Python syntax,
+workflow validator/diff у reviewer успешны. Полный журнал SHA256
+078ac3c2e03323ee88767cf7513d2e0399e3c32e8e6cea8e9cacbed5424b0217.
+Обзор не подтверждает фактический hash runner или native PASS; они впереди.
+
+Scoped converge6/6: обязательной новой задачи до update draft не найдено;
+нативная проверка pin и конечные exact gates уже находятся в T114. Tasks
+оставлены открытыми; T112/T113/T114/#7859 и Full/T0 не приняты по локальной модели.
+
+- Helper SHA256: `e621ac1d9e4f67f7b0b8f92f29f01be4a0cc5f81987f1724221b2053bcd5e00e`.
+- Test SHA256: `40de319b3f2a4117736a2e70fa3e1bd8fcd815dc11465c13ecac95f55ff09eed`.

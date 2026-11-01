@@ -7,6 +7,7 @@ if [[ "${GITHUB_ACTIONS:-}" != true || "${RUNNER_OS:-}" != Linux || "${RUNNER_EN
 fi
 sudo python3 - <<'PY'
 from pathlib import Path
+import hashlib
 import os
 import re
 import stat
@@ -25,7 +26,10 @@ def fingerprint(value):
 
 def checked_read(path, limit, label):
     before = path.lstat()
-    if not stat.S_ISREG(before.st_mode) or before.st_uid != 0 or before.st_mode & 0o022 or not 0 < before.st_size <= limit:
+    repairable = (label == 'keyring' and stat.S_ISREG(before.st_mode)
+                  and before.st_uid == before.st_gid == 0
+                  and stat.S_IMODE(before.st_mode) == 0o777 and before.st_size == 3607)
+    if not stat.S_ISREG(before.st_mode) or before.st_uid != 0 or before.st_mode & 0o022 and not repairable or not 0 < before.st_size <= limit:
         fail(f'unsafe {label} metadata type={stat.S_IFMT(before.st_mode)} '
              f'uid={before.st_uid} gid={before.st_gid} '
              f'mode={stat.S_IMODE(before.st_mode):o} size={before.st_size}')
@@ -35,6 +39,9 @@ def checked_read(path, limit, label):
         data = stream.read(limit + 1)
         if len(data) != before.st_size or fingerprint(os.fstat(stream.fileno())) != fingerprint(before):
             fail('input changed while reading')
+    # Ubuntu's official 2023.11.28.1build1 archive key; only its permissions may be repaired.
+    if repairable and hashlib.sha256(data).hexdigest() != '80a36b0a6de2f69f49d2df75ef473ccde121e9e190b9ea01d20a4f63778d5c31':
+        fail('unrecognized writable Ubuntu keyring')
     return data, before
 
 
@@ -51,7 +58,10 @@ parent = source.parent.lstat()
 if not stat.S_ISDIR(parent.st_mode) or parent.st_uid != 0 or parent.st_mode & 0o022:
     fail('unsafe source directory')
 keyring = Path('/usr/share/keyrings/ubuntu-archive-keyring.gpg')
-checked_read(keyring, 1048576, 'keyring')
+key_parent = keyring.parent.lstat()
+if not stat.S_ISDIR(key_parent.st_mode) or key_parent.st_uid != 0 or key_parent.st_mode & 0o022:
+    fail('unsafe keyring directory')
+key_data, key_metadata = checked_read(keyring, 1048576, 'keyring')
 original, metadata = checked_read(source, 16384, 'source')
 if any(byte > 126 or byte < 32 and byte not in (9, 10) for byte in original):
     fail('expected flat ASCII source')
@@ -98,6 +108,26 @@ if not output:
 canonical = ('\n\n'.join(output) + '\n').encode('ascii')
 if len(canonical) > 16384:
     fail('normalized source exceeds size limit')
+if key_metadata.st_mode & 0o022:
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(dir=keyring.parent, prefix='.ubuntu-keyring-', delete=False) as stream:
+            temporary = Path(stream.name)
+            os.fchown(stream.fileno(), 0, 0)
+            os.fchmod(stream.fileno(), 0o644)
+            stream.write(key_data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        current, current_metadata = checked_read(keyring, 1048576, 'keyring')
+        if current != key_data or fingerprint(current_metadata) != fingerprint(key_metadata) or fingerprint(keyring.parent.lstat())[:5] != fingerprint(key_parent)[:5]:
+            fail('keyring changed before replacement')
+        os.replace(temporary, keyring)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+    actual, final_metadata = checked_read(keyring, 1048576, 'keyring')
+    if actual != key_data or (final_metadata.st_uid, final_metadata.st_gid, stat.S_IMODE(final_metadata.st_mode)) != (0, 0, 0o644):
+        fail('keyring write verification failed')
 if canonical != original:
     temporary = None
     try:

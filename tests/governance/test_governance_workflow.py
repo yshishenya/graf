@@ -428,6 +428,9 @@ def test_governance_workflow_self_test() -> None:
     "source-empty", "source-oversize", "non-ascii", "del-source", "unknown-field", "trusted",
     "bad-type", "duplicate-type", "bad-suite", "duplicate-suite", "bad-component", "duplicate-component",
     "bad-signed-by", "bad-architecture", "duplicate-field", "malformed", "empty-uri",
+    "known-key", "unknown-key", "known-key-bad-source", "known-key-mode", "known-key-owner", "known-key-group",
+    "key-parent-owner", "key-parent-mode", "key-parent-symlink", "key-write-failed", "key-replace-failed",
+    "key-readback-failed", "changed-key", "changed-key-parent", "key-open-writer",
 ])
 def test_actual_media_resource_preparation(tmp_path, workflow_name, job_name, tools_state):
     import yaml
@@ -446,7 +449,13 @@ def test_actual_media_resource_preparation(tmp_path, workflow_name, job_name, to
     parent = apt / "sources.list.d"
     parent.mkdir(parents=True)
     parent.chmod(0o755)
-    key = tmp_path / "ubuntu-archive-keyring.gpg"
+    key_parent = tmp_path / "keyrings"
+    key_parent.mkdir(mode=0o755)
+    key = key_parent / "ubuntu-archive-keyring.gpg"
+    known_key = b"fixture-keyring" + b"x" * (3607 - len(b"fixture-keyring"))
+    key_cases = {"known-key", "unknown-key", "known-key-bad-source", "known-key-mode", "known-key-owner", "known-key-group",
+                 "key-parent-owner", "key-parent-mode", "key-parent-symlink", "key-write-failed", "key-replace-failed",
+                 "key-readback-failed", "changed-key", "changed-key-parent", "key-open-writer"}
     key.write_bytes(b"fixture-keyring")
     source = parent / "ubuntu.sources"
     source_text = ("Types: deb\nURIs: mirror+file:/etc/apt/apt-mirrors.txt\n"
@@ -533,6 +542,19 @@ def test_actual_media_resource_preparation(tmp_path, workflow_name, job_name, to
         platform_file.write_text(platform_file.read_text().replace(*{
             "bad-os": ("ubuntu", "debian"), "bad-version": ("24.04", "26.04"), "bad-codename": ("noble", "jammy"),
         }[tools_state]))
+    if tools_state in key_cases:
+        key.write_bytes(known_key if tools_state != "unknown-key" else known_key[:-1] + b"y")
+        key.chmod(0o666 if tools_state == "known-key-mode" else 0o777)
+        if tools_state == "known-key-bad-source":
+            source.write_text(source.read_text() + "broken line\n")
+        elif tools_state == "key-parent-mode":
+            key_parent.chmod(0o777)
+        elif tools_state == "key-parent-symlink":
+            saved_parent = key_parent.with_suffix(".saved")
+            key_parent.rename(saved_parent)
+            key_parent.symlink_to(saved_parent)
+    key_before = key.read_bytes() if key.exists() else None
+    key_stat_before = key.stat() if key.exists() else None
     source_before = source.read_bytes() if source.exists() else None
     mirror_before = mirror.read_bytes() if mirror.exists() else None
     third_before = third_party.read_bytes()
@@ -540,7 +562,8 @@ def test_actual_media_resource_preparation(tmp_path, workflow_name, job_name, to
     helper = ROOT / "infra/scripts/prepare-ci-apt.sh"
     (runner.parent / helper.name).write_text(helper.read_text().replace("/etc/apt", str(apt))
         .replace("/usr/lib/os-release", str(platform_file))
-        .replace("Path('/usr/share/keyrings/ubuntu-archive-keyring.gpg')", f"Path({str(key)!r})"))
+        .replace("Path('/usr/share/keyrings/ubuntu-archive-keyring.gpg')", f"Path({str(key)!r})")
+        .replace("80a36b0a6de2f69f49d2df75ef473ccde121e9e190b9ea01d20a4f63778d5c31", hashlib.sha256(known_key).hexdigest()))
     # Explicit local model of root metadata; the security branches still execute.
     model = tmp_path / "root-model.py"
     model.write_text(r'''
@@ -550,31 +573,44 @@ from unittest.mock import patch
 state = os.environ["TOOLS_STATE"]
 source, parent, key = map(Path, (os.environ["APT_SOURCE"], os.environ["APT_PARENT"], os.environ["APT_KEY"]))
 real_lstat, real_fstat = Path.lstat, os.fstat
-inodes = {p.stat().st_ino: label for p, label in ((source, "source"), (parent, "parent"), (key, "key")) if p.exists()}
+inodes = {p.stat().st_ino: label for p, label in ((source, "source"), (parent, "parent"), (key, "key"), (key.parent, "key-parent")) if p.exists()}
 def root_stat(value):
     attrs = {n: getattr(value, n) for n in dir(value) if n.startswith("st_")}
     label = inodes.get(value.st_ino)
-    attrs.update(st_uid=1 if state == f"{label}-owner" else 0, st_gid=0)
+    attrs.update(st_uid=1 if state == f"{label}-owner" or label == "key" and state == "known-key-owner" else 0,
+                 st_gid=1 if label == "key" and state == "known-key-group" else 0)
     return types.SimpleNamespace(**attrs)
 patch.object(Path, "lstat", lambda p: root_stat(real_lstat(p))).start()
 patch("os.fstat", lambda fd: root_stat(real_fstat(fd))).start()
 patch("os.fchown", lambda fd, uid, gid: None).start()
-if state == "write-failed":
+if state in {"write-failed", "key-write-failed"}:
     patch("os.fsync", side_effect=PermissionError("fixture write failure")).start()
-if state == "replace-failed":
+if state in {"replace-failed", "key-replace-failed"}:
     patch("os.replace", side_effect=PermissionError("fixture replace failure")).start()
-if state == "changed-source":
+if state in {"changed-source", "changed-key", "changed-key-parent"}:
     real_fsync = os.fsync
     def changed(fd):
         real_fsync(fd)
-        source.write_bytes(source.read_bytes() + b"# fixture changed\n")
+        if state == "changed-key-parent":
+            key.parent.chmod(0o777)
+        else:
+            target = source if state == "changed-source" else key
+            target.write_bytes(target.read_bytes() + b"# fixture changed\n")
     patch("os.fsync", changed).start()
-if state == "readback-failed":
+if state in {"readback-failed", "key-readback-failed"}:
     real_replace = os.replace
     def corrupt(src, dst):
         real_replace(src, dst)
         Path(dst).write_bytes(b"# fixture failed readback\n")
     patch("os.replace", corrupt).start()
+if state == "key-open-writer":
+    old_key_fd = os.open(key, os.O_WRONLY)
+    real_replace = os.replace
+    def old_writer(src, dst):
+        real_replace(src, dst)
+        if Path(dst) == key:
+            os.write(old_key_fd, b"fixture-private-value")
+    patch("os.replace", old_writer).start()
 exec(compile(sys.stdin.read(), "prepare-ci-apt.sh", "exec"))
 ''')
     dpkg = tmp_path / "bin/dpkg"
@@ -630,6 +666,9 @@ ffprobe() { printf 'ffprobe\n' >> "$PREP_EVENTS"; [[ "$TOOLS_STATE" != broken-ff
         "source-oversize", "non-ascii", "del-source", "unknown-field", "trusted", "bad-type", "duplicate-type",
         "bad-suite", "duplicate-suite", "bad-component", "duplicate-component", "bad-signed-by",
         "bad-architecture", "duplicate-field", "malformed", "empty-uri",
+        "unknown-key", "known-key-bad-source", "known-key-mode", "known-key-owner", "known-key-group",
+        "key-parent-owner", "key-parent-mode", "key-parent-symlink", "key-write-failed", "key-replace-failed",
+        "key-readback-failed", "changed-key", "changed-key-parent",
     }
     later_failures = {"update-failed", "install-failed", "broken-ffmpeg", "broken-ffprobe", "npm-failed", "browser-failed"}
     failed = tools_state in helper_failures | later_failures
@@ -647,7 +686,14 @@ ffprobe() { printf 'ffprobe\n' >> "$PREP_EVENTS"; [[ "$TOOLS_STATE" != broken-ff
         )
     assert (mirror.read_bytes() if mirror.exists() else None) == mirror_before
     assert third_party.read_bytes() == third_before
-    assert key.read_bytes() == b"fixture-keyring" if tools_state not in {"key-missing", "key-empty", "key-oversize"} else True
+    if tools_state not in {"changed-key", "key-readback-failed"}:
+        assert (key.read_bytes() if key.exists() else None) == key_before
+    if tools_state in {"known-key", "key-open-writer"}:
+        assert key.stat().st_ino != key_stat_before.st_ino
+        assert stat.S_IMODE(key.stat().st_mode) == 0o644
+    elif tools_state in key_cases - {"key-readback-failed"}:
+        assert key.stat().st_ino == key_stat_before.st_ino
+        assert key.stat().st_mode == key_stat_before.st_mode
     if tools_state in helper_failures:
         if tools_state not in {"changed-source", "readback-failed"}:
             assert (source.read_bytes() if source.exists() else None) == source_before
@@ -665,11 +711,14 @@ ffprobe() { printf 'ffprobe\n' >> "$PREP_EVENTS"; [[ "$TOOLS_STATE" != broken-ff
             assert fields["URIs"].strip() == f"https://{expected}.ubuntu.com/ubuntu/"
         assert source.stat().st_mode == mode_before
         before = (source.read_bytes(), source.stat().st_mtime_ns)
+        key_repeat_before = (key.read_bytes(), key.stat().st_ino, key.stat().st_mode, key.stat().st_mtime_ns)
         repeat = subprocess.run(["bash", "-e", "-c", harness + "source infra/scripts/prepare-ci-apt.sh"],
                                 cwd=tmp_path, env=env, capture_output=True, text=True, timeout=10)
         assert repeat.returncode == 0, repeat.stderr
         assert (source.read_bytes(), source.stat().st_mtime_ns) == before
+        assert (key.read_bytes(), key.stat().st_ino, key.stat().st_mode, key.stat().st_mtime_ns) == key_repeat_before
     assert not list(parent.glob(".ubuntu.sources-*"))
+    assert not list(key_parent.glob(".ubuntu-keyring-*"))
     installs = [row for row in rows if row.startswith("apt-get")]
     if tools_state in {"missing-ffmpeg", "missing-ffprobe", "install-failed"}:
         assert len(installs) == 2 and installs[0] == "apt-get update"

@@ -811,3 +811,32 @@ negative fixtures проверяют отсутствие содержимого
 static/process, независимый code review, draft PR и фактические числа runner.
 Без фактов не проектировать ослабление guard. Failed intermediate run остаётся
 failed; требуемые exact gates для конечного изменения сохраняются.
+
+
+## T114 — атомарное исправление только известного ключа
+
+Constitution III/VI до/после проекта PASS: исправляем права конкретного
+проверенного публичного ключа, не ослабляем подписи/trust/required checks.
+Один существующий helper, stdlib hashlib/os/tempfile/stat; без сети,
+зависимостей, новых workflow или product state.
+
+Существующий checked_read получает узкую ветвь только для literal keyring
+0777/root:root/regular/3607bytes. Parent проверяется до чтения. Остальные
+ветви, включая source0777 и неизвестный ключ, отказывают. Ветвь читает
+ограниченный snapshot с прежними fd fingerprints и сравнивает SHA256 с
+официальной константой из spec. Возвращаются snapshot/key metadata; ключ ещё
+не меняется. Source полностью парсится и canonical проходит size guard.
+Только затем same-directory temp ключа, root:root0644,
+write/flush/fsync. Перед replace повторно проверяются parent identity/mode/
+owner и исходный fingerprint, при изменении отказ без replace. os.replace
+отсекает старые fd к writable inode. После cleanup повторный checked_read
+обязан подтвердить metadata, bytes и тот же hash. Безопасный обычный путь
+не делает writes; ключи с уже безопасными правами не pin-ятся старой версией.
+
+В existing root-model fixture exact known public hash заменяется только на
+hash учебного ключа; отдельный tampered fixture не совпадает. Бинарные ключи
+не коммитятся. Все три actual YAML caller остаются прежними. Новые кейсы
+в этом же тесте сначала RED; затем весь модуль/static, independent code
+review/converge и обновление того же draft PR7863 на exact source. Реальный
+успех ещё не доказан; mismatch не обходится chmod. T112/#7859 открыты до
+конечного принятия. F273 и коммерческая цель этим не закрываются.
