@@ -11,6 +11,9 @@ from sqlalchemy import func, select, text
 
 from twobrain_rec_server.db.models import PublicAnalyticsChoice
 from twobrain_rec_server.db.tenant_context import PublicConsentContext, apply_tenant_context
+from twobrain_rec_server.product_analytics.provider_delivery_gate import (
+    resolve_provider_delivery_gate,
+)
 from twobrain_rec_server.public.analytics import (
     PUBLIC_ANALYTICS_CONSENT_VERSION,
     normalize_public_analytics_consent,
@@ -23,6 +26,9 @@ CHOICE_ENDPOINT = '/analytics/public-consent'
 # ponytail: four unfinished preparations per API process; use a dedicated pool
 # only if measured provider preparation throughput needs more capacity.
 PUBLIC_PREPARATIONS = BoundedSemaphore(4)
+# ponytail: four unfinished metadata reads per API process; a timed-out read
+# keeps its own slot until it exits, without retaining a DB session or transport.
+PUBLIC_GATE_READS = BoundedSemaphore(4)
 
 
 class ChoiceRejected(ValueError):
@@ -165,8 +171,24 @@ async def send_consented_event(sessions, settings, event, *, sender=None):
             raise PermissionError("choice_attempt_closed")
         async with asyncio.timeout_at(deadline):
             async with locked_choice(sessions, event.get("consent_id")) as (db, digest, row):
-                if (closed.is_set() or loop.time() >= deadline or not _allows_event(row, event)
-                        or public_analytics_blocker(settings, event["page_path"])):
+                if closed.is_set() or loop.time() >= deadline or not _allows_event(row, event):
+                    raise PermissionError("choice_blocked")
+                slots = PUBLIC_GATE_READS
+                if not slots.acquire(blocking=False):
+                    raise PermissionError("choice_blocked")
+                def read_gate():
+                    try:
+                        return (not closed.is_set()
+                                and not public_analytics_blocker(settings, event["page_path"])
+                                and resolve_provider_delivery_gate(settings, provider="posthog").allowed)
+                    finally:
+                        slots.release()
+                # Both guards are fresh after the DB wait. Only metadata goes
+                # to the bounded reader; cancellation cannot start late HTTP.
+                gate = asyncio.create_task(asyncio.to_thread(read_gate))
+                gate.add_done_callback(lambda done: None if done.cancelled() else done.exception())
+                allowed = await asyncio.shield(gate)
+                if not allowed or closed.is_set() or loop.time() >= deadline:
                     raise PermissionError("choice_blocked")
                 entered = True
                 response = await _milestone_http_transport(

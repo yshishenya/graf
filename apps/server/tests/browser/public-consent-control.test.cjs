@@ -1,6 +1,8 @@
 /* Real vendored CookieConsent + loopback control API. No external delivery. */
 const assert = require('node:assert/strict');
 const http = require('node:http');
+const path = require('node:path');
+const { execFileSync } = require('node:child_process');
 const { randomUUID } = require('node:crypto');
 const { chromium } = require(require.resolve('playwright', {
   paths: [process.env.GRAF_NODE_MODULES || __dirname + '/node_modules'],
@@ -14,11 +16,20 @@ async function main() {
   assert.equal(config.consent_control_endpoint, CONTROL);
   assert.equal(config.external_counter_allowed, false);
   assert.equal(config.replay_allowed, false);
+  const authHtml = execFileSync(path.resolve(__dirname, '../../.venv/bin/python'), ['-c', `
+import json, sys
+from twobrain_rec_server.cabinet.templates import render_template
+print(render_template('cabinet/auth/analytics.html', public_analytics=json.loads(sys.argv[1])))
+`, JSON.stringify(config)], { cwd: path.resolve(__dirname, '../..'), encoding: 'utf8' });
   const requests = [], events = [], rows = new Map();
   let intercept = null;
   const server = http.createServer(async (req, res) => {
     if (req.method !== 'POST') {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      if (['/login', '/sign-up'].includes(req.url)) {
+        res.end('<!doctype html><html lang="ru"><body>' + authHtml.replace(/<script\b[^>]*>[\s\S]*?<\/script>/g, '') + '</body></html>');
+        return;
+      }
       res.end('<!doctype html><html lang="ru"><body>' +
         '<button type="button" data-cc="show-preferencesModal">Настройки cookies</button>' +
         '<div id="graf-public-consent-status" role="status" aria-live="polite" hidden>' +
@@ -54,7 +65,7 @@ async function main() {
     ? route.continue() : route.abort());
   const cookie = page => page.evaluate(key => JSON.parse(localStorage.getItem(key)), KEY);
   const pending = page => page.waitForFunction(() =>
-    document.querySelector('[data-consent-retry]').hidden === false);
+    document.querySelector('[data-consent-retry]')?.hidden === false);
   const ready = page => page.waitForFunction(() =>
     window.GRAFPublicAnalytics.currentConsentState !== 'unknown' &&
     window.GRAFPublicAnalytics.consentPending === false);
@@ -65,6 +76,28 @@ async function main() {
     await loadController(page, cfg); return page;
   };
   try {
+    for (const authPath of ['/login', '/sign-up']) {
+      const auth = await context.newPage(); await auth.goto(origin + authPath);
+      await auth.evaluate(key => localStorage.removeItem(key), KEY);
+      await loadController(auth, readConfig(authPath));
+      intercept = async (body, reply) => {
+        if (body.action !== 'revoke') return false;
+        reply(503, { accepted: false, reason: 'choice_unavailable' }); return true;
+      };
+      await auth.locator('.cm__btns [data-role="necessary"]').click();
+      await pending(auth);
+      assert.match(await auth.locator('#graf-public-consent-status').innerText(), /Серверное сохранение отказа пока не подтверждено/);
+      assert.equal(await auth.evaluate(() => window.GRAFPublicAnalytics.sentEvents.length), 0);
+      intercept = null;
+      const retryStart = requests.length;
+      await auth.locator('[data-consent-retry]').focus(); await auth.keyboard.press('Enter');
+      await ready(auth);
+      assert.deepEqual(requests.slice(retryStart).map(r => r.action), ['revoke']);
+      assert.deepEqual(rows.get((await cookie(auth)).consentId).categories, ['necessary']);
+      await auth.close();
+      console.log('ok_actual_auth_template_refusal_retry ' + authPath);
+    }
+    requests.length = 0; events.length = 0;
     const page = await open();
     await page.locator('.cm__btns [data-role="all"]').click();
     await ready(page);

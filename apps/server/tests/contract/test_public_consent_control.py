@@ -12,6 +12,16 @@ ENDPOINT = '/analytics/public-consent'
 ORIGIN = 'https://rec.2brain.pro'
 
 
+@pytest.fixture(autouse=True)
+def synthetic_final_provider_gate(monkeypatch):
+    # These causal DB tests inject a synthetic sender, with no live receiver.
+    from types import SimpleNamespace
+
+    import twobrain_rec_server.public.consent as choices
+    monkeypatch.setattr(choices, 'resolve_provider_delivery_gate',
+                        lambda *_, **__: SimpleNamespace(allowed=True))
+
+
 def test_revoke_is_durable_when_measurement_is_disabled(postgres_seeded_database_url):
     settings = Settings(database_url=postgres_seeded_database_url, public_analytics_enabled=False)
     consent_id = str(uuid4())
@@ -487,6 +497,7 @@ def test_real_wrapper_keeps_view_identity_and_final_provider_gate(postgres_seede
     import json
     from types import SimpleNamespace
 
+    from sqlalchemy import text
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
     from sqlalchemy.pool import NullPool
 
@@ -501,6 +512,7 @@ def test_real_wrapper_keeps_view_identity_and_final_provider_gate(postgres_seede
     monkeypatch.setattr(choices, 'public_analytics_blocker', lambda *_: None)
     monkeypatch.setattr(analytics, 'public_analytics_blocker', lambda *_: None)
     monkeypatch.setattr(posthog, 'resolve_provider_delivery_gate', lambda *_, **__: SimpleNamespace(allowed=permitted[0], blockers=()))
+    monkeypatch.setattr(choices, 'resolve_provider_delivery_gate', lambda *_, **__: SimpleNamespace(allowed=permitted[0]))
     monkeypatch.setattr(posthog.PostHogClientWrapper, 'from_settings', lambda settings: posthog.PostHogClientWrapper(
         enabled=True, host='https://receiver.example.test', project_key_file=key, project_key_present=True,
         validation_mode='live_safe', live_delivery_allowed=True, settings=settings))
@@ -531,7 +543,21 @@ def test_real_wrapper_keeps_view_identity_and_final_provider_gate(postgres_seede
             exported = json.dumps(bodies)
             for control_value in (consent_id, choices.choice_digest(consent_id), granted['epoch']):
                 assert control_value not in exported
-            permitted[0] = False
+            # Approval closes while the real wrapper's already-approved request
+            # waits on the PostgreSQL choice lock. No transport may start later.
+            async with choices.locked_choice(sessions, consent_id):
+                queued = asyncio.create_task(choices.send_consented_event(sessions, Settings(), event))
+                deadline = asyncio.get_running_loop().time() + 2
+                while True:
+                    async with sessions() as db:
+                        waiting = await db.scalar(text("SELECT count(*) FROM pg_locks WHERE locktype='advisory' AND NOT granted"))
+                    if waiting:
+                        break
+                    assert asyncio.get_running_loop().time() < deadline, 'delivery never waited on the choice lock'
+                    await asyncio.sleep(.01)
+                permitted[0] = False
+            assert (await queued)['delivered'] is False, 'provider approval closed during lock wait'
+            assert len(bodies) == 1, 'queued delivery bypassed the final provider gate'
             assert (await choices.send_consented_event(sessions, Settings(), event))['delivered'] is False
             assert len(bodies) == 1, 'final provider gate was bypassed'
             permitted[0] = True
@@ -539,5 +565,76 @@ def test_real_wrapper_keeps_view_identity_and_final_provider_gate(postgres_seede
             assert (await choices.send_consented_event(sessions, Settings(), event))['delivered'] is False
             assert len(bodies) == 1
         finally:
+            await engine.dispose()
+    asyncio.run(scenario())
+
+
+def test_stalled_final_gate_reads_are_bounded_and_never_send_late(postgres_seeded_database_url, monkeypatch):
+    import asyncio
+    import threading
+    from types import SimpleNamespace
+
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+    from sqlalchemy.pool import NullPool
+
+    import twobrain_rec_server.product_analytics.router as provider_router
+    import twobrain_rec_server.public.consent as choices
+    from twobrain_rec_server.product_analytics.posthog_client import ProviderTransportResponse
+
+    release = threading.Event()
+    count_lock = threading.Lock()
+    started, finished, sends = [], [], []
+    def read_gate(*_, **__):
+        with count_lock:
+            started.append(1)
+        try:
+            assert release.wait(3)
+            return SimpleNamespace(allowed=True)
+        finally:
+            with count_lock:
+                finished.append(1)
+    def sender(settings, event, *, transport):
+        transport('https://receiver.example.test', {}, b'{}', 5)
+        return {'delivered': True}
+    async def transport(*_):
+        sends.append(1)
+        return ProviderTransportResponse(200)
+    monkeypatch.setattr(choices, 'public_analytics_blocker', lambda *_: None)
+    monkeypatch.setattr(choices, 'resolve_provider_delivery_gate', read_gate)
+    monkeypatch.setattr(provider_router, '_milestone_http_transport', transport)
+    monkeypatch.setattr(choices, 'PUBLIC_GATE_READS', threading.BoundedSemaphore(2))
+    async def scenario():
+        engine = create_async_engine(postgres_seeded_database_url, poolclass=NullPool)
+        sessions = async_sessionmaker(engine, expire_on_commit=False)
+        events = []
+        try:
+            for _ in range(2):
+                consent_id = str(uuid4())
+                refused = await choices.control_choice(sessions, Settings(), {'action': 'revoke', 'consent_id': consent_id})
+                grant = await choices.control_choice(sessions, Settings(), {
+                    'action': 'grant', 'consent_id': consent_id, 'expected_epoch': refused['epoch'],
+                    'categories': ['necessary', 'analytics'], 'copy_version': PUBLIC_ANALYTICS_CONSENT_VERSION})
+                events.append({'consent_id': consent_id, 'consent_epoch': grant['epoch'], 'page_path': '/',
+                               'properties': {'consent_categories': ['necessary', 'analytics']}})
+            monkeypatch.setattr(choices, 'CHOICE_BUDGET_SECONDS', .2)
+            results = await asyncio.wait_for(asyncio.gather(*[
+                choices.send_consented_event(sessions, Settings(), event, sender=sender) for event in events]), 1)
+            assert all(result['delivered'] is False for result in results)
+            assert len(started) == 2 and not finished
+            for _ in range(3):
+                assert (await choices.send_consented_event(sessions, Settings(), events[0], sender=sender))['delivered'] is False
+            assert len(started) == 2, 'timed-out readers lost their concurrency slots'
+            assert (await choices.control_choice(sessions, Settings(), {
+                'action': 'revoke', 'consent_id': events[0]['consent_id']}))['accepted'] is True
+            release.set()
+            deadline = asyncio.get_running_loop().time() + 1
+            while len(finished) < 2:
+                assert asyncio.get_running_loop().time() < deadline
+                await asyncio.sleep(.01)
+            assert sends == [], 'a timed-out reader started late HTTP'
+            assert (await choices.send_consented_event(sessions, Settings(), events[1], sender=sender))['delivered'] is True
+            assert sends == [1], 'reader capacity did not recover'
+        finally:
+            release.set()
             await engine.dispose()
     asyncio.run(scenario())

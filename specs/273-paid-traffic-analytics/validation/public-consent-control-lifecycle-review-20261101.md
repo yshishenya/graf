@@ -330,3 +330,99 @@ backup/restore проверки и H1, а не один выбранный те�
 принимается этим локальным отчётом. Общие T106/T113, выпуск, runtime/T0 и
 коммерческая цель не закрыты. Требования/checklist не менялись; проверяющий
 изменил только собственный отчёт и не менял migration/test/code/spec/tasks/Git.
+
+## T106 — закрытие двух замечаний auth UI/final provider gate после 85fb
+
+База чтения: HEAD `85fb682fffcbd0f7ffb940fa6ef965620a4d0d25` плюс текущий
+локальный diff четырёх файлов. Требования не менялись: оба пробела уже входят
+в индивидуальный серверный выбор T106. **Оба P2 закрыты; scoped review и
+convergence именно этого implementation-среза — PASS. Новых конкретных
+P1/P2 в повторно прочитанных четырёх файлах не найдено.** Это не приёмка всей
+F273, рабочего включения, T113/T0 или ещё не полученной CI будущего commit.
+
+Снимок проверенного исправления:
+
+| Файл | SHA256 |
+| --- | --- |
+| `cabinet/templates/cabinet/auth/analytics.html` | `7cb0cca5ae4c011afbfb5ad7aee04be1bdb8c45bb09d0e111c05e0dd18b4648b` |
+| `public/consent.py` | `36f32a6a64f907846daf4960bc3eeb51e22ec7736b1ef6424ae87ad74dbc7fd0` |
+| `tests/browser/public-consent-control.test.cjs` | `586a3ea22d6bcd3ea4fe6e5674979ebe1fa4602bf205529426028fb469b5452e` |
+| `tests/contract/test_public_consent_control.py` | `da9efaaf9cffba1a3b7c477ad934ff581ca172be14b8ca9ca145b52e4df73244` |
+
+### P2 auth — закрыт
+
+Настоящий общий auth-фрагмент теперь содержит тот же `role=status`,
+`aria-live=polite`, текст сообщения и обычную кнопку retry. Controller находит
+их и на `/login`, и на `/sign-up`. При revoke503 отсутствие серверного
+подтверждения видно; клавиатурный повтор отправляет только revoke.
+Остальной auth/template код не менялся.
+
+Новый browser-сценарий рендерит **настоящий Jinja auth-фрагмент** через
+существующий `render_template`, использует его разметку для двух URL и
+настоящую vendored CookieConsent с фактическим controller/config этих путей.
+Это содержательное покрытие ранее отсутствовавшего элемента, а не ещё одна
+ручная копия status-разметки. Тестовая HTML-обёртка и loopback control API
+учебные; весь production auth-route/backend этим профилем не подменяется.
+
+Прочитан RED: обращение к отсутствующей retry-кнопке упало с null/hidden.
+Финальный GREEN перечисляет оба auth-сценария и восемь сохранённых прежних,
+затем `public_consent_control_browser=pass`. Старые negative/cross-tab/
+late-callback/disabled/same-category сценарии не удалены.
+
+### P2 final gate — закрыт
+
+После получения digest lock и чтения текущего выбора выполняются свежие
+public basis и **полный** `resolve_provider_delivery_gate(...provider=posthog)`.
+Прежняя проверка wrapper сохранена. Новая проверка стоит до `entered`/HTTP,
+поэтому закрытие approval/readiness во время ожидания DB lock запрещает сеть.
+
+Синхронное чтение вынесено в `to_thread` с отдельным процессным
+`PUBLIC_GATE_READS=BoundedSemaphore(4)`. Слот берётся неблокирующе **до**
+создания future, а возвращается из finally самого reader после фактического
+завершения. Timeout родителя не возвращает ёмкость зависшего чтения. Shield
+не отменяет реального владельца слота; полный await входит в прежний deadline.
+После await повторены closed/deadline проверки. Reader не получает DB или
+transport и сам не может начать HTTP. Поэтому поздний завершившийся reader
+не отправляет событие; DB transaction завершается по ограниченному времени
+независимо от зависшего файла. Возможны максимум четыре незавершённых чтения
+и четыре preparations на процесс, без неограниченной очереди новых readers.
+
+Прочитанный causal wrapper-тест наблюдает настоящий advisory-lock wait,
+закрывает approval **после** ожидания, затем требует ноль новых HTTP. RED
+подтвердил реальную прежнюю отправку (`True is False`); GREEN подтверждает
+новую границу. Дополнительный stalled-reader сценарий удерживает оба учебных
+слота после timeout, подаёт ещё запросы без роста started readers, принимает
+revoke, отпускает чтения, проверяет отсутствие поздней сети и возврат ёмкости.
+Прежние отмена запроса, удержание lock во время активного transport,
+другой процесс, старый epoch, cap и commit-failure сценарии сохранены.
+
+Autouse fixture разрешает final gate только внутри учебных causal DB-тестов
+с внедряемым sender; production default по-прежнему настоящий resolver.
+Real-wrapper сценарий явно переопределяет оба места проверки одной изменяемой
+моделью approval, поэтому новая проверка не скрыта постоянным fixture true.
+
+### Прочитанные завершённые доказательства владельца
+
+Проверяющий самостоятельно тесты не запускал; прочитал RED/GREEN журналы:
+
+| Журнал в `/private/tmp/` | Результат | SHA256 |
+| --- | --- | --- |
+| `graf-pr7878-auth-red-20261101.txt` | RED: missing status/retry, null.hidden | `20234467d61d348ae0fe3f0513d65b140e577ef093437f0738f4eee8f956d44b` |
+| `graf-pr7878-lock-gate-red-20261101.txt` | RED: approval closed during wait, delivery true | `d74fddb57b21b1683dbffaceb64f347cd7fd259fa2e15410dcf132460d1a8548` |
+| `graf-pr7878-lock-gate-green-20261101.txt` | 13 passed, 2 warnings; isolated_container_removed | `38b3ba0b63f9dc3fc975168d8568f52084e41f05debfb488c47f2aa41f0906a8` |
+| `graf-pr7878-auth-final-20261101.txt` | 10 сценариев, browser=pass | `069d819faa0bec291f0f099dcbacdac99069f7709e521c241d35966caa25e251` |
+| `graf-pr7878-final-gate-regression2-20261101.txt` | **69 passed, 2 warnings**, 25.43s; status/result pass; isolated_container_removed | `4d2908e6493442dc07231f9e3fdf53458df189ad647cbb4496514e054c5c8904` |
+
+Общий повтор содержит все шесть заявленных модулей, collection_count69,
+digest `80c846392a1dabb1a4647d4d0b4be6effc5c47279903d5332e3767b8dbf4cb19`;
+пропусков в terminal summary нет. Прежний запуск67 PASS/2 SKIP не используется
+вместо этого результата. Исторические узкие PASS выше не скрывают два
+обнаруженных позже пробела: их закрывает именно это отдельное дополнение.
+
+Карта индивидуального T106 по spec/plan/tasks/contract при этом сохраняется:
+схема/RLS/admission; API/CAS/commit; lock/revoke/delivery; явный browser/read/retry;
+отдельный lifecycle/restore/named deletion; focused regression. Известные
+runtime/полный T113/T0 и внешнее SDK/replay HOLD остаются вне этого узкого
+convergence. Общие требования и checklist не переоценены как полное выполнение.
+Изменён только этот reviewer report; код/spec/plan/tasks/checklist/Git/GitHub
+и чужие изменения проверяющий не менял, новых агентов не создавал.

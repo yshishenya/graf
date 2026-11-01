@@ -8,6 +8,10 @@
       Настройки cookies
     </button>
   </footer>
+  <div id="graf-public-consent-status" role="status" aria-live="polite" hidden>
+    <span data-consent-message></span>
+    <button type="button" data-consent-retry hidden></button>
+  </div>
   <script
     defer
     src="{{ public_static_asset_url('cookieconsent.umd.js') }}"
