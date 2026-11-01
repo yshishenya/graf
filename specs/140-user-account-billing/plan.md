@@ -80,6 +80,33 @@ dunning engine или второй платный тариф только рад
 
 ## Technical Context
 
+### T077: реестр бонусных дней (01.11.2026)
+
+High-risk-product/active Spec Kit slice в исходной T077, после PR7887.
+Реализовать C1–C6 [O10](contracts/operator-observation.md#o10-следующий-срез-сохраняемый-реестр-бонусных-дней)
+одной ограниченной агрегацией существующего TimeCreditLedgerEntry в
+apps/server/src/twobrain_rec_server/billing/monitoring.py. Переиспользовать
+закрытую SQL-группировку и форму семейства; generic _groups не подходит:
+у реестра нет created_at, будущая maturity нормальна. Группировать state,
+считать четыре фильтра и MIN maturity только допустимого достигнутого окна.
+Не загружать ORM-строки, не суммировать days и не вызывать финансовые helpers.
+Семейство addon_and_time_credit всегда partial; add-on/job метрики null.
+
+Проверка конституции до исследования и после проектирования: границы
+сохранены — read-only metadata, прежний maintenance/RLS и единый снимок,
+ограниченные запросы/вывод, без финансовых/пользовательских изменений,
+новых зависимостей/служб/схемы/полномочий. Это решение проектирования,
+независимый допуск и приёмка реализации ещё не получены.
+
+Порядок: уточнение C1–C6 → research/model/quickstart → reviewer-owned
+checklists/credit-ledger.md и независимый PASS → scoped analyze/существующая
+#4932 → RED → минимальный collector и новые случаи в существующих
+apps/server/tests/unit/test_billing_monitoring.py и
+apps/server/tests/integration/test_billing_monitoring_postgres.py →
+независимое кодовое review/converge → три точных SHA/base GitHub gates.
+Все87 исходных полных task lines, T077 [ ], полный O6/FR089 и58старых gaps
+сохраняются. Legacy Impact untouched; нет Full/CD/Dev/выпуска.
+
 ### T077: следующий срез free_projection (01.11.2026)
 
 Требования P1–P6 [O9](contracts/operator-observation.md#o9-следующий-срез-события-free_projection)

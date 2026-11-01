@@ -269,6 +269,15 @@ description: "Dependency-ordered implementation tasks for the GRAF personal acco
   quickstart → минимальная доработка того же monitoring.py и двух названных
   unit/integration test файлов → независимое review/converge/exact PR gates.
   Это порядок исполнения T077, не новая задача; все исходные строки прежние.
+
+  Далее после PR7887: C1–C6 O10/credit-ledger той же T077 в
+  apps/server/src/twobrain_rec_server/billing/monitoring.py и существующих
+  apps/server/tests/unit/test_billing_monitoring.py,
+  apps/server/tests/integration/test_billing_monitoring_postgres.py.
+  Сначала reviewer-owned checklists/credit-ledger.md, scoped analyze/issue
+  sync; затем RED, ограниченная агрегация и реальные сценарии quickstart,
+  независимое review/converge и точные PR gates. Состояния/временные признаки
+  строк не принимают add-on/job измерители и полный O6; T077 остаётся [ ].
 - [ ] T078 [US10] Add test-shop and controlled real-shop canary runbooks, environment separation, provider capability evidence, legal/finance sign-off records, and rollback/stop procedure in `specs/140-user-account-billing/quickstart.md` and `docs/runbooks/billing-launch.md`.
 
 **Checkpoint**: Launch evidence proves immediate-Free behavior, unlimited paid core, finite storage, provider reconciliation and external merchant refund handling before public enablement.
