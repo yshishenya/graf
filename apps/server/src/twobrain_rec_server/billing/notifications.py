@@ -262,6 +262,7 @@ def notification_copy(
     }.get(event.safe_payload.get("reason", ""), "доказуемая неперсональная эксплуатация")
     fair_use_deadline = event.safe_payload.get("review_by", "в течение 24 часов")
     renewal_access_until = event.safe_payload.get("access_until", "в конце оплаченного периода")
+    ended_at = f" {event.safe_payload['access_until']} МСК" if "access_until" in event.safe_payload else ""
     support_instruction = (
         f" Напишите в поддержку: {support_email}."
         if support_email and "\n" not in support_email and "\r" not in support_email
@@ -297,8 +298,11 @@ def notification_copy(
             f"Оплата прошла успешно.{suffix}",
         ),
         BillingNotification.PAYMENT_FAILED: (
-            "Не удалось продлить подписку",
-            "Платный доступ завершен, выбран бесплатный тариф.",
+            "Продление не состоялось",
+            f"Оплаченный период завершился{ended_at}; "
+            "при переходе был выбран бесплатный тариф. "
+            "Повторные автоматические попытки после окончания этого периода не планируются. "
+            "Актуальный статус и доступные действия — в кабинете.",
         ),
         BillingNotification.STORAGE_THRESHOLD: (
             "Заканчивается место",
@@ -361,7 +365,7 @@ def build_notification(
         BillingNotification.STORAGE_SELECTION_CHANGED: set(),
         BillingNotification.PAYMENT_SUCCEEDED: {"invoice"},
         BillingNotification.SERVICE_RECONCILIATION: {"invoice"},
-        BillingNotification.PAYMENT_FAILED: {"invoice"},
+        BillingNotification.PAYMENT_FAILED: {"invoice", "access_until"},
         BillingNotification.RECEIPT_AVAILABLE: {"invoice"},
         BillingNotification.RENEWAL_UNKNOWN: {"invoice"},
         BillingNotification.RENEWAL_ATTEMPT_FAILED: {"invoice", "access_until"},
