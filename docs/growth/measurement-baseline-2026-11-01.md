@@ -254,3 +254,39 @@ PR остаётся draft; это не устранение препятстви
 с теми же bytes после полной проверки source; mismatch/подмена остаются
 отказами, runtime без скачиваний. До кода проходит независимое review.
 Браузер вновь сообщил Mac locked; свежих поисковых/Метрики показателей нет.
+
+
+### T114: следующий native результат
+
+Source e118223edac681a0fa90ea502ba11feba8596665: локальный модуль453PASS/
+0skips/160,89с, static8PASS, independent read-only code review без замечаний.
+Run41256850185/job124701772801,01.11 00:28:23UTC отказал `unsafe keyring
+directory` до проверки pin. Actual key hash и metadata parent пока неизвестны;
+исправление не принято, draft не сливается. Следующий срез только сообщает
+fixed numeric metadata каталога при прежнем отказе, без нового trust/записей.
+
+### T114: установленный directory0777 и проверенный кандидат
+
+Source08329a279f80bae9935405b511cdb63026ba7092,
+run41257402120/job124703432330 подтвердил directory type16384/uid0/gid0/
+mode777. Узкая адаптация: protected /usr и /usr/share, exact official key
+pin/metadata и full source до записи; fd identity/fchmod0755/fsync/readback,
+повторные snapshots и atomic key replacement, включая исходный0644.
+Неизвестный hash/metadata и ошибки остаются отказами; source trust прежний.
+Независимые requirements5/0, analyze5/5 C/H/M0, sync/canon250PASS;
+RED9fail→focused63PASS, whole504PASS/0skip191,01с и отдельно3PASS0,95с
+для unknown-key0644. Восемь static/process PASS, final Ruff PASS,
+independent review/converge0P1/P2/HIGH. Commit
+`c8275c5d2f3db7e6f5a22327979b01db8cd82cc7` сохранён и отправлен в тот же
+draft PR7863. Native actual pin/конечные exact gates пока не приняты;
+слияния, нового выпуска или T0 по этому результату нет.
+
+Публичная проверка этого продолжения: целевая ссылка Product Radar с
+разрешёнными UTM отвечает200, один H1, самостоятельный HTTPS canonical,
+noindex в meta/X-Robots-Tag не найден. Word-файл пока404, поэтому его
+скачивание в тексте не обещается. Собственные GET с явно указанным
+`GRAF-SEO-check/1.0 (owner-authorized)` не засчитываются в трафик.
+Повторное чтение кабинетов не состоялось: Mac locked. Новых данных
+о поисковых переходах/Метрике/продажах нет; AC01–AC06 остаются открытыми.
+Ровно три сообщения Product Radar уже разрешены после принятых измерения/T0
+и повторной проверки правил/дубля; не отправлены, нового согласия не требуется.
