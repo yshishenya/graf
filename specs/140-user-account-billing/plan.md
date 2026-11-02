@@ -80,6 +80,47 @@ dunning engine или второй платный тариф только рад
 
 ## Technical Context
 
+### T077: проекция storage (02.11.2026)
+
+High-risk-product/active Spec Kit slice, O15/S1–S6 после PR7897. Один
+_storage_inventory в существующем billing/monitoring.py; _source/_closed и
+ReportLimitError переиспользуются. Узкий outer join от Workspace к
+WorkspaceSubscription, limit501 с отказом >500; пять полей helper и SQL
+признаки наличия подписки/nonfinite релевантной даты, без целого ORM/private полей. Никакой
+новой абстракции, wrapper/factory, схемы или изменения трёх существующих
+storage/capacity helpers. SQL row содержит нужные читаемые атрибуты подписки.
+
+Сначала одна SQL aggregation reservations по закрытым state/count с filtered
+expired_active/invalid counters. Затем для workspace с доказанной capacity
+existing effective_paid_storage → _active_reserved_bytes →
+project_active_playback_storage с явными аргументами и общим as_of. Несколько
+SELECT на workspace остаются под общим15с; нет скрытого batch/sampling.
+Неизвестные/некорректные данные дают counts и null итогов ровно по контракту;
+Отсутствие подписки увеличивает только unavailable; NULL/unknown plan
+существующей строки — также unrecognized_plan_count. Falsy значения обоих
+snapshot сохраняют существующее `or {}`; отдельного JSON-валидатора нет.
+Форма, которую helper не может обработать, или его exception безопасно
+отказывает CLI с прежним report_unavailable/exit1.
+Успех всегда partial, reconciliation_gaps=null; прочие семейства прежние.
+
+Constitution Check до исследования/после дизайна: PASS для этого дизайна —
+только чтение под maintenance/FORCE RLS/READ ONLY RR, metadata-only вывод
+(counts/целые байты), нет egress/финансовых/retention мутаций. Внутреннее чтение
+snapshot существующим helper признано; поля не экспортируются/не логируются.
+Действующий data-model storage pending — историческое описание; текущий
+writer/model и O15 явно используют active/committed/released без миграции.
+Ни O6, ни privacy/финансовые/ручные/выпускные ворота этим не принимаются.
+
+Порядок: уточнение/research/model/quickstart → независимый reviewer-owned
+checklists/storage-projection.md → scoped analyze/существующая #4932 → RED →
+один collector и профильные сценарии в прежних unit/integration файлах →
+независимые code/converge → governance-fast/macos-pr/pr-metadata на точном
+source/base. До допуска кода нет. Новые реальные PG cases проходят штатный
+одноразовый runner, полные Alembic схемы/NOTNULL/FORCERLS, узкие SELECT fixture
+соответствуют существующей maintenance роли, не ослабляют production RLS.
+Legacy Impact untouched; все87 task lines/T077[ ]/58gaps/O6/сроки прежние.
+Full/CD/Dev/рабочая БД и новые dependencies не требуются.
+
 ### T077: сохраняемые запросы удаления (01.11.2026)
 
 High-risk-product/active Spec Kit slice, D1–D6/O14 после PR7896. Один helper

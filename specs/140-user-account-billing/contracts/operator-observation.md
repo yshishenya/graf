@@ -522,3 +522,93 @@ FR077/078/089, O6 и конституции IV; новых ответов вла
   Затем independent code/converge и exact SHA/base gates. T077[ ],87полных
   task lines,58старых gaps, весь O6/исходные сроки и отдельная T070 сохраняются.
   Наших Full/CD/релиза/Dev/данных нет. Исторический O8 пропуск не исправлен.
+
+## O15. Следующий срез: проекция storage
+
+02.11.2026, исходная T077/#4932 после принятого PR7897. Это подключение
+уже объявленного O4, не приёмка всего storage/reconciliation/O6.
+
+**S1 — область и предел.** Семейство storage: source=
+`workspaces,workspace_subscriptions,effective_paid_storage,storage_reservations,track_artifacts,upload_sessions`,
+scope=database_inventory, kind=current_state. Все видимые Workspace, без
+фильтра report_date/shop/environment и без inner join, теряющего workspace
+без подписки. Отдельные reservation counts также охватывают все видимые
+строки. Inventory workspaces ограничен 500: SELECT не более501 узких строк;
+501-я означает ReportLimitError/прежний report_limit_exceeded, без частичного
+JSON или продолжения со случайной выборкой. Никакой maintenance batch100.
+Прежние 15с/5с/2с и500gaps/64KiB независимы; превышение любого предела
+отказывает целому отчёту. Это диагностика, не новое условие работы продукта.
+
+**S2 — байты.** Для каждой workspace с доказанной capacity переиспользовать
+effective_paid_storage(subscription,now=as_of), затем _active_reserved_bytes
+(workspace_id,now=as_of) и project_active_playback_storage с явно переданными
+workspace_id/capacity_bytes/reserved_bytes. Default reserved=0 запрещён.
+Единый as_of и READ ONLY RR по O2. Used — существующая сумма canonical
+stored/playback/profile/точного suffix `/meeting-review.m4a`, с исключением
+finalized UploadSession/archive_audio=False. Reserved — max(0,sum(declared−
+committed)) только active и (expiry NULL либо >as_of), не число резервов.
+Capacity следует ровно существующему helper: trial/free/paid cutoff, applied
+bonus, действующие storage grants, base invoice и historical cache fallback.
+Существующие helpers/финансовые writers/схема не меняются ради мониторинга.
+Это проекция строк, не проверка фактических объектов/MinIO или оплаты.
+
+**S3 — неизвестность и итоги.** values содержит workspace_count,
+capacity_unavailable_workspace_count, unrecognized_plan_count,
+invalid_capacity_time_count, used_bytes/reserved_bytes/capacity_bytes,
+reservations по S4 и reconciliation_gaps=null. Только plan free/trial/personal
+распознаются; любой иной/NULL считается unrecognized_plan_count и capacity
+unavailable, без исходной строки. Узкий SQL-признак наличия подписки различает
+отсутствие строки и NULL plan у существующей строки: отсутствие увеличивает
+только capacity_unavailable_workspace_count, без unrecognized_plan_count;
+NULL/unknown plan существующей подписки увеличивает оба счётчика. Подписка
+отсутствует — unavailable, не Free; её причина capacity_unavailable, тогда
+как NULL/unknown plan даёт unrecognized по S6.
+Для trial релевантно trial_ends_at, для personal paid_through: NULL сохраняет
+семантику helper (Free), nonfinite значение даёт invalid_capacity_time_count
+и unavailable до передачи datetime в helper. Free эти даты не использует.
+Неположительная capacity helper также unavailable; не подставлять default/1.
+При хотя бы одной unavailable workspace, unrecognized reservation state или
+invalid reservation values **все три** byte totals=null. Иначе — точные целые
+суммы всех workspace projections без float; известный subtotal не выводится.
+Полностью пустой inventory даёт workspace_count0 и три byte totals0; пустые
+резервы count0/groups[]. Это всё равно partial.
+
+**S4 — резервы.** reservations содержит count (строки, не jobs/objects),
+groups [{state,count}] в сортировке state, expired_active_count и
+invalid_value_count. Распознаются active/committed/released; любая другая
+строка/NULL — единая unrecognized. Expired-active — stateactive с конечной
+ненулевой expires_at<=as_of; expiry==as_of уже истекла, NULLexpiry действует.
+Invalid — declared NULL/<=0, committed NULL/<0/>declared либо ненулевая
+nonfinite expiry; строка считается один раз. Это отдельные признаки, могут
+пересекаться с expired-active. SQL проверяет isfinite до передачи дат в
+Python, raw expiry не выбирается. Clamp helper не скрывает malformed строки.
+Не вызывать release_expired, repair, locks, flush, purge или финансовые paths.
+
+**S5 — приватность и отказ.** В Python передаются только внутренний workspace
+ref и нужные helper поля subscription: plan_code/paid_through/trial_ends_at/
+capacity_bytes, плюс безопасные SQL-признаки наличия подписки и nonfinite дат. Целый ORM объект,
+billing owner/method/контакты не нужны. Существующий effective_paid_storage
+внутренне выбирает финансовый plan_snapshot: утверждение «JSON не выбирается»
+к O15 неприменимо. Snapshot, invoice/grant/ledger refs, object keys, IDs,
+денежные суммы/контакты/raw значения не выводятся/не логируются; допустимы
+только закрытые коды, counts и целые байты. Семантика `plan_snapshot or {}` и
+`catalog_snapshot or {}` существующего helper сохраняется: JSON null, [], 0,
+false и пустая строка сами по себе не означают отказ. Неподдерживаемая форма —
+та, которую helper действительно не может обработать, например truthy
+nonobject без `.get`; отдельный более строгий JSON-валидатор не добавляется.
+Исключение helper или schema failure — прежний безопасный отказ целого CLI
+`report_unavailable`/exit1 (O3), без
+traceback/SQL/сырых исключений и ложного нуля. Нового egress/сохранения нет.
+
+**S6 — неполнота и приёмка.** coverage всегда partial; приоритет reason_code:
+unrecognized (plan/reservation) → invalid_storage_values (резервы) →
+capacity_unavailable → reconciliation_uninstrumented. Группы и все counts
+сохраняются независимо от причины; reconciliation_gaps всегда null.
+Used не MinIO inventory, capacity с historical fallback не финансовая сверка,
+expired-active не доказательство своевременной очистки/jobs/heartbeat.
+Настоящие PG/CLI/FORCE RLS/снимки/newprocess/no-write/privacy/предел501,
+схема/malformed/helper failures и source semantics обязательны по quickstart.
+До кода независимый reviewer-owned storage-projection/analyze; после —
+независимые code/converge и exact PR gates. T077/T070/O6/58 прежних gaps,
+все87 полных task lines и все исходные сроки сохраняются. Новых служб,
+таблиц, зависимостей, прав, тревог, записи или выпуска этот срез не вводит.

@@ -311,6 +311,17 @@ description: "Dependency-ordered implementation tasks for the GRAF personal acco
   code/converge/exact PR gates. Это порядок исходной задачи, не новая task.
   Все87полных task lines/T077[ ]/58gaps/полныйO6/T070/сроки остаются открытыми.
 
+  После PR7897: S1–S6 O15/storage projection той же T077; сначала
+  checklists/storage-projection.md/независимый допуск → scoped analyze/та же
+  #4932 → RED → один collector в прежнем billing/monitoring.py и сценарии в
+  apps/server/tests/unit/test_billing_monitoring.py,
+  apps/server/tests/integration/test_billing_monitoring_postgres.py. Existing
+  effective_paid_storage/_active_reserved_bytes/project_active_playback_storage
+  с общим as_of/явными аргументами; настоящие PG/CLI/500–501/forcedRLS/снимки/
+  privacy/no-write/schema/helper failures → независимые code/converge/exact
+  PR gates. Исходная строка T077 и все87 полных task lines сохраняются, новой
+  задачи/issue нет; T077[ ]/T070/полныйO6/58gaps/исходные сроки остаются открытыми.
+
 - [ ] T078 [US10] Add test-shop and controlled real-shop canary runbooks, environment separation, provider capability evidence, legal/finance sign-off records, and rollback/stop procedure in `specs/140-user-account-billing/quickstart.md` and `docs/runbooks/billing-launch.md`.
 
 **Checkpoint**: Launch evidence proves immediate-Free behavior, unlimited paid core, finite storage, provider reconciliation and external merchant refund handling before public enablement.

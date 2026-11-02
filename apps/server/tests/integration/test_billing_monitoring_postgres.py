@@ -12,7 +12,18 @@ from zoneinfo import ZoneInfo
 
 import httpx
 import pytest
-from sqlalchemy import JSON, DateTime, String, column, delete, event, insert, text, values
+from sqlalchemy import (
+    JSON,
+    BigInteger,
+    DateTime,
+    String,
+    column,
+    delete,
+    event,
+    insert,
+    text,
+    values,
+)
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
@@ -23,21 +34,28 @@ from twobrain_rec_server.billing.registry import canonical_hash
 from twobrain_rec_server.cli import billing_monitoring as cli
 from twobrain_rec_server.db.models import (
     BillingAuditEvent,
+    BillingEntitlementGrant,
     BillingInvoice,
     BillingNotificationDelivery,
     BillingOperation,
     BillingRegistryGap,
     BillingRegistryImport,
+    BillingStorageEntitlementGrant,
     BillingWebhookEvent,
     FairUseReviewRecord,
+    MediaRevision,
     Meeting,
     MeetingDeletionRequest,
     ObservedProviderRefund,
     Organization,
     RegisteredDevice,
+    StorageReservation,
     TimeCreditLedgerEntry,
+    TrackArtifact,
+    UploadSession,
     UserIdentity,
     Workspace,
+    WorkspaceSubscription,
 )
 from twobrain_rec_server.db.session import create_sessionmaker
 from twobrain_rec_server.db.tenant_context import (
@@ -52,6 +70,8 @@ ARGS = cli.build_parser().parse_args(["--date", str(DAY)])
 TABLES = (BillingAuditEvent, BillingOperation, BillingInvoice, BillingWebhookEvent, BillingNotificationDelivery,
           BillingRegistryImport, BillingRegistryGap, TimeCreditLedgerEntry, ObservedProviderRefund, FairUseReviewRecord,
           MeetingDeletionRequest)
+STORAGE_TABLES = (Workspace, WorkspaceSubscription, StorageReservation, BillingEntitlementGrant,
+                  BillingStorageEntitlementGrant, TrackArtifact, UploadSession)
 
 
 @pytest.fixture
@@ -63,7 +83,7 @@ def database(registry_database):  # noqa: F811 — imported pytest fixture
                 names = ",".join(model.__tablename__ for model in TABLES)
                 for role in ("twobrain_rec_app", "twobrain_rec_maintenance", "registry_worker"):
                     await conn.execute(text(f"GRANT SELECT,INSERT,UPDATE,DELETE ON {names} TO {role}"))
-                for model in TABLES:
+                for model in (*TABLES, *STORAGE_TABLES):
                     flags = (await conn.execute(text(
                         "select relrowsecurity, relforcerowsecurity from pg_class where relname=:table"
                     ), {"table": model.__tablename__})).one()
@@ -71,6 +91,8 @@ def database(registry_database):  # noqa: F811 — imported pytest fixture
                 # The migrated fair-use policy contains an owner_scope subquery.
                 # Runtime bootstrap already grants this SELECT; keep its RLS intact.
                 await conn.execute(text("GRANT SELECT ON workspaces TO twobrain_rec_maintenance"))
+                storage_names = ",".join(model.__tablename__ for model in STORAGE_TABLES)
+                await conn.execute(text(f"GRANT SELECT ON {storage_names} TO twobrain_rec_maintenance"))
         finally:
             await engine.dispose()
     asyncio.run(setup())
@@ -96,8 +118,9 @@ async def fingerprint(url):
     try:
         async with engine.connect() as conn:
             return [(await conn.execute(text(
-                f"select coalesce(jsonb_agg(to_jsonb(t) order by id)::text, '[]') from {model.__tablename__} t"
-            ))).scalar_one() for model in TABLES]
+                f"select coalesce(jsonb_agg(to_jsonb(t) order by "
+                f"{'workspace_id' if model is WorkspaceSubscription else 'id'})::text, '[]') from {model.__tablename__} t"
+            ))).scalar_one() for model in (*TABLES, *STORAGE_TABLES)]
     finally:
         await engine.dispose()
 
@@ -152,7 +175,7 @@ def test_empty_then_populated_cli_restart_privacy_and_no_writes(database):
     families = empty["families"]
     assert len(families) == 11
     assert families["payment_state"]["values"]["operations"]["count"] == 0
-    assert families["storage"]["values"] is None
+    assert families["storage"]["values"]["workspace_count"] == 0
     assert families["ingress_and_duplicates"]["reason_code"] == "uninstrumented"
     assert families["registry"]["reason_code"] == "unverified"
     asyncio.run(seed(database))
@@ -1628,3 +1651,397 @@ def test_deletion_inventory_repeatable_snapshot_and_new_process(database):
     asyncio.run(scenario())
     restarted, code = process(database)
     assert code == 0 and restarted["families"]["deletion_and_fair_use"]["values"]["deletion"]["values"]["count"] == 1
+
+
+def test_storage_inventory_empty_and_missing_subscription(database):
+    empty, code = process(database)
+    assert code == 0
+    family = empty["families"]["storage"]
+    assert family["source"] == "workspaces,workspace_subscriptions,effective_paid_storage,storage_reservations,track_artifacts,upload_sessions"
+    assert family["scope"] == "database_inventory" and family["coverage"] == "partial"
+    assert family["reason_code"] == "reconciliation_uninstrumented"
+    assert family["values"]["workspace_count"] == 0
+    assert [family["values"][key] for key in ("used_bytes", "reserved_bytes", "capacity_bytes")] == [0, 0, 0]
+    asyncio.run(seed(database))
+    before = asyncio.run(fingerprint(database))
+    populated, code = process(database)
+    assert code == 0
+    v = populated["families"]["storage"]["values"]
+    assert populated["families"]["storage"]["reason_code"] == "capacity_unavailable"
+    assert v["workspace_count"] == v["capacity_unavailable_workspace_count"] == 1
+    assert v["unrecognized_plan_count"] == v["invalid_capacity_time_count"] == 0
+    assert v["used_bytes"] is v["reserved_bytes"] is v["capacity_bytes"] is None
+    assert asyncio.run(fingerprint(database)) == before
+
+
+async def storage_workspace(conn, parent, **subscription):
+    organization, owner = (await conn.execute(text(
+        "select organization_id,owner_user_id from workspaces where id=:id"
+    ), {"id": parent})).one()
+    workspace = uuid4()
+    await conn.execute(insert(Workspace).values(id=workspace, organization_id=organization, owner_user_id=owner,
+                                              slug=f"private-{workspace}", name="private-workspace", kind="corporate"))
+    await conn.execute(insert(WorkspaceSubscription).values(workspace_id=workspace, **subscription))
+    return workspace
+
+
+async def storage_base_invoice(conn, workspace, now, snapshot):
+    operation, invoice, grant = uuid4(), uuid4(), uuid4()
+    await conn.execute(insert(BillingOperation).values(id=operation, workspace_id=workspace, kind="renewal",
+                                                      idempotency_key=f"private-{operation}"))
+    await conn.execute(insert(BillingInvoice).values(id=invoice, workspace_id=workspace, operation_id=operation,
+                                                   safe_number=f"private-{invoice}", amount_minor=987654321,
+                                                   plan_snapshot=snapshot, receipt_contact_snapshot="private-contact"))
+    await conn.execute(insert(BillingEntitlementGrant).values(
+        id=grant, workspace_id=workspace, invoice_id=invoice, provider_payment_id=f"private-{invoice}",
+        plan_code="personal", cycle="month", starts_at=now - timedelta(days=1),
+        ends_at=now + timedelta(days=1), amount_minor=987654321, currency="RUB",
+    ))
+    return invoice, grant
+
+
+async def storage_read(url, now):
+    engine = create_async_engine(settings(url).database_url, execution_options={
+        "isolation_level": "REPEATABLE READ", "postgresql_readonly": True,
+    })
+    try:
+        async with create_sessionmaker(engine)() as db:
+            db.sync_session.info["tenant_context"] = maintenance_context_settings(MaintenanceTenantContext(
+                operation_name="billing_reconciliation", actor_id="synthetic-operator",
+                reason_category="operator_diagnostics", feature_area="billing",
+            ))
+            return (await monitoring.collect_billing_report(
+                db, scope={"environment": "test", "shop_id": "123", "report_date": DAY}, as_of=now,
+            ))["families"]["storage"]
+    finally:
+        await engine.dispose()
+
+
+def test_storage_capacity_sources_cutoffs_and_snapshot_fallbacks(database):
+    workspace = asyncio.run(seed(database))
+    now = datetime.now(UTC)
+
+    async def scenario():
+        engine = create_async_engine(database)
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(insert(WorkspaceSubscription).values(workspace_id=workspace, plan_code="free"))
+                for end in (now + timedelta(days=1), now, None):
+                    await storage_workspace(conn, workspace, plan_code="trial", trial_ends_at=end)
+                for end in (now + timedelta(days=1), now, None):
+                    await storage_workspace(conn, workspace, plan_code="personal", paid_through=end, capacity_bytes=20_000_000_000)
+                bonus = await storage_workspace(conn, workspace, plan_code="personal", paid_through=now + timedelta(days=1))
+                await conn.execute(insert(TimeCreditLedgerEntry).values(
+                    workspace_id=bonus, source_ref="private-bonus", days=7, state="applied",
+                    capacity_snapshot_bytes=35_000_000_000, maturity_at=now - timedelta(days=2),
+                    expires_at=now + timedelta(days=2), applied_start=now, applied_end=now + timedelta(days=1),
+                ))
+                active = await storage_workspace(conn, workspace, plan_code="personal", paid_through=now + timedelta(days=1))
+                invoice, grant = await storage_base_invoice(conn, active, now, {"purchase_schema": 2})
+                price, price_amount = (await conn.execute(text(
+                    "select id,amount_minor from billing_storage_price_versions "
+                    "where capacity_bytes=40000000000 and cycle='month' and version=2"
+                ))).one()
+                await conn.execute(insert(BillingStorageEntitlementGrant).values(
+                    workspace_id=active, invoice_id=invoice, base_grant_id=grant, capacity_bytes=40_000_000_000,
+                    starts_at=now, ends_at=now + timedelta(days=1), catalog_version_id=price, full_period_amount_minor=price_amount,
+                ))
+                for snapshot in ({"purchase_schema": 2}, {"catalog_snapshot": {"storage_bytes": 30_000_000_000}}, {}):
+                    target = await storage_workspace(conn, workspace, plan_code="personal", paid_through=now + timedelta(days=1),
+                                                     capacity_bytes=20_000_000_000)
+                    await storage_base_invoice(conn, target, now, snapshot)
+                journal = await storage_workspace(conn, workspace, plan_code="personal", paid_through=now + timedelta(days=1),
+                                                  capacity_bytes=100_000_000_000)
+                invoice, grant = await storage_base_invoice(conn, journal, now - timedelta(days=10), {})
+                await conn.execute(insert(BillingStorageEntitlementGrant).values(
+                    workspace_id=journal, invoice_id=invoice, base_grant_id=grant, capacity_bytes=40_000_000_000,
+                    starts_at=now - timedelta(days=10), ends_at=now - timedelta(days=9), catalog_version_id=price,
+                    full_period_amount_minor=price_amount,
+                ))
+            before = await fingerprint(database)
+            family = await storage_read(database, now)
+            assert family["reason_code"] == "reconciliation_uninstrumented"
+            v = family["values"]
+            # 250M + Trial(500M+250M+250M) + paid(20G+250M+250M)
+            # + bonus35G + active40G + base5G + legacy30G + cache20G + expired-journal5G.
+            assert v["workspace_count"] == 13 and v["capacity_bytes"] == 156_750_000_000
+            assert v["used_bytes"] == v["reserved_bytes"] == v["capacity_unavailable_workspace_count"] == 0
+            assert "private-" not in json.dumps(family) and "987654321" not in json.dumps(family)
+            assert await fingerprint(database) == before
+        finally:
+            await engine.dispose()
+    asyncio.run(scenario())
+
+
+def test_storage_reservation_states_invalid_values_and_capacity_times(database, monkeypatch):
+    workspace = asyncio.run(seed(database))
+    now = datetime(2026, 11, 2, tzinfo=UTC)
+
+    async def scenario():
+        engine = create_async_engine(database)
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(insert(WorkspaceSubscription).values(workspace_id=workspace, plan_code="free",
+                                  paid_through=text("'infinity'::timestamptz"), trial_ends_at=text("'-infinity'::timestamptz")))
+                schedule = [("active", now + timedelta(microseconds=1), 100, 10),
+                            ("active", None, 200, 20), ("active", now, 300, 30),
+                            ("active", now - timedelta(days=1), 400, 40),
+                            ("committed", None, 100, 100), ("released", None, 100, 0)]
+                for index, (state, expiry, declared, committed) in enumerate(schedule):
+                    await conn.execute(insert(StorageReservation).values(
+                        workspace_id=workspace, idempotency_key=f"private-reserve-{index}", state=state,
+                        expires_at=expiry, declared_bytes=declared, committed_bytes=committed,
+                    ))
+            family = await storage_read(database, now)
+            assert family["values"]["reserved_bytes"] == 270  # 90 + 180; equality is expired.
+            assert family["values"]["capacity_bytes"] == 250_000_000
+            assert family["values"]["reservations"] == {"count": 6, "groups": [
+                {"state": "active", "count": 4}, {"state": "committed", "count": 1}, {"state": "released", "count": 1}],
+                "expired_active_count": 2, "invalid_value_count": 0}
+            async with engine.begin() as conn:
+                for index, (declared, committed, expiry) in enumerate((
+                    (0, 1, now), (-1, -1, None), (1, 2, None),
+                    (1, 0, text("'infinity'::timestamptz")), (1, 0, text("'-infinity'::timestamptz")),
+                )):
+                    await conn.execute(insert(StorageReservation).values(
+                        workspace_id=workspace, idempotency_key=f"private-invalid-{index}", state="active",
+                        expires_at=expiry, declared_bytes=declared, committed_bytes=committed,
+                    ))
+                await storage_workspace(conn, workspace, plan_code="trial", trial_ends_at=text("'infinity'::timestamptz"))
+                await storage_workspace(conn, workspace, plan_code="personal", paid_through=text("'-infinity'::timestamptz"))
+            invalid = await storage_read(database, now)
+            assert invalid["reason_code"] == "invalid_storage_values"
+            v = invalid["values"]
+            assert v["invalid_capacity_time_count"] == v["capacity_unavailable_workspace_count"] == 2
+            assert v["reservations"]["invalid_value_count"] == 5
+            assert v["reservations"]["expired_active_count"] == 3
+            assert v["used_bytes"] is v["reserved_bytes"] is v["capacity_bytes"] is None
+            async with engine.begin() as conn:
+                await conn.execute(insert(StorageReservation).values(workspace_id=workspace,
+                                   idempotency_key="private-unknown", state="private-state", declared_bytes=1, committed_bytes=0))
+                await storage_workspace(conn, workspace, plan_code="private-plan")
+                # Preserve the actual migrated NOT NULL constraints.
+                for field in ("state", "declared_bytes", "committed_bytes"):
+                    with pytest.raises(IntegrityError):
+                        async with conn.begin_nested():
+                            await conn.execute(insert(StorageReservation).values(**{
+                                "workspace_id": workspace, "idempotency_key": f"private-null-{field}",
+                                "declared_bytes": 1, "committed_bytes": 0, "state": "active", field: None}))
+                with pytest.raises(IntegrityError):
+                    async with conn.begin_nested():
+                        await conn.execute(text("update workspace_subscriptions set plan_code=NULL where workspace_id=:id"), {"id": workspace})
+            before = await fingerprint(database)
+            unknown = await storage_read(database, now)
+            assert unknown["reason_code"] == "unrecognized" and unknown["values"]["unrecognized_plan_count"] == 1
+            assert unknown["values"]["reservations"]["groups"][-1] == {"state": "unrecognized", "count": 1}
+            with monkeypatch.context() as scoped:
+                source = values(column("state", String), column("declared_bytes", BigInteger),
+                                column("committed_bytes", BigInteger), column("expires_at", DateTime(timezone=True))).data([
+                                    (None, None, 0, None), ("active", 1, None, now), ("released", 1, 0, None),
+                                ]).alias("synthetic_reservations")
+                scoped.setattr(monitoring, "StorageReservation", SimpleNamespace(__table__=source))
+                defended = await storage_read(database, now)
+                assert defended["values"]["reservations"] == {"count": 3, "groups": [
+                    {"state": "active", "count": 1}, {"state": "released", "count": 1}, {"state": "unrecognized", "count": 1}],
+                    "expired_active_count": 1, "invalid_value_count": 2}
+            with monkeypatch.context() as scoped:
+                source = values(
+                    column("workspace_id", WorkspaceSubscription.__table__.c.workspace_id.type),
+                    column("plan_code", String), column("capacity_bytes", BigInteger),
+                    column("paid_through", DateTime(timezone=True)), column("trial_ends_at", DateTime(timezone=True)),
+                ).data([(workspace, None, 250_000_000, text("NULL::timestamptz"), text("NULL::timestamptz"))]).alias("synthetic_subscriptions")
+                scoped.setattr(monitoring, "WorkspaceSubscription", SimpleNamespace(__table__=source))
+                null_plan = await storage_read(database, now)
+                assert null_plan["reason_code"] == "unrecognized"
+                assert null_plan["values"]["unrecognized_plan_count"] == 1
+                assert null_plan["values"]["capacity_unavailable_workspace_count"] == 4
+            assert await fingerprint(database) == before
+        finally:
+            await engine.dispose()
+    asyncio.run(scenario())
+
+
+def test_storage_falsy_financial_snapshots_and_whole_safe_failures(database, monkeypatch):
+    workspace = asyncio.run(seed(database))
+    now = datetime.now(UTC)
+
+    async def scenario():
+        engine = create_async_engine(database)
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(insert(WorkspaceSubscription).values(workspace_id=workspace, plan_code="personal",
+                                   paid_through=now + timedelta(days=1), capacity_bytes=20_000_000_000))
+                invoice, _ = await storage_base_invoice(conn, workspace, now, {})
+            # JSON null/[]/0/false/"" preserve the two existing `or {}` fallbacks.
+            for snapshot in (None, [], 0, False, "", *({"catalog_snapshot": v} for v in (None, [], 0, False, ""))):
+                async with engine.begin() as conn:
+                    await conn.execute(BillingInvoice.__table__.update().where(BillingInvoice.id == invoice)
+                                       .values(plan_snapshot=snapshot))
+                before = await fingerprint(database)
+                family = await storage_read(database, now)
+                assert family["values"]["capacity_bytes"] == 20_000_000_000
+                assert family["reason_code"] == "reconciliation_uninstrumented"
+                assert await fingerprint(database) == before
+            for snapshot in (["private-snapshot"], {"catalog_snapshot": ["private-snapshot"]}):
+                async with engine.begin() as conn:
+                    await conn.execute(BillingInvoice.__table__.update().where(BillingInvoice.id == invoice)
+                                       .values(plan_snapshot=snapshot))
+                before = await fingerprint(database)
+                assert await asyncio.to_thread(process, database) == (cli.failure("report_unavailable"), 1)
+                assert await fingerprint(database) == before
+            async with engine.begin() as conn:
+                await conn.execute(BillingInvoice.__table__.update().where(BillingInvoice.id == invoice).values(plan_snapshot={}))
+                await conn.execute(text("alter table storage_reservations rename column declared_bytes to synthetic_missing_bytes"))
+            try:
+                assert await asyncio.to_thread(process, database) == (cli.failure("report_unavailable"), 1)
+            finally:
+                async with engine.begin() as conn:
+                    await conn.execute(text("alter table storage_reservations rename column synthetic_missing_bytes to declared_bytes"))
+        finally:
+            await engine.dispose()
+    asyncio.run(scenario())
+
+    async def broken(*args, **kwargs):
+        raise ValueError("private-helper-error")
+    with monkeypatch.context() as scoped:
+        scoped.setattr(monitoring, "effective_paid_storage", broken)
+        assert invoke(database) == (cli.failure("report_unavailable"), 1)
+
+
+def test_storage_canonical_playback_repeatable_snapshot_and_new_process(database, monkeypatch):
+    from twobrain_rec_server.billing.storage import CANONICAL_PLAYBACK_PROFILE
+
+    workspace = asyncio.run(seed(database))
+    now = datetime.now(UTC)
+
+    async def scenario():
+        writer = create_async_engine(database)
+        reader = create_async_engine(settings(database).database_url, execution_options={
+            "isolation_level": "REPEATABLE READ", "postgresql_readonly": True,
+        })
+        factory = create_sessionmaker(reader)
+
+        async def artifact(conn, byte_length, *, kind="canonical"):
+            row = await deletion_meeting(conn, workspace)
+            revision = uuid4()
+            await conn.execute(insert(MediaRevision).values(id=revision, workspace_id=workspace,
+                               meeting_id=row["meeting_id"], local_media_revision_id=f"private-revision-{revision}"))
+            validated = kind in {"canonical", "noarchive", "wrong_suffix"}
+            await conn.execute(insert(TrackArtifact).values(
+                meeting_id=row["meeting_id"], workspace_id=workspace, media_revision_id=revision,
+                track_role="media" if kind == "wav" else "playback", codec="private-codec", sample_rate_hz=48000,
+                channel_count=1, duration_seconds=1, byte_length=byte_length, sha256="f" * 64,
+                storage_object_key=f"private-key/{revision}/" + ("meeting-transcription.wav" if kind == "wav" else
+                                   "meeting-review.m4a.tmp" if kind == "wrong_suffix" else "meeting-review.m4a"),
+                status="deleted" if kind == "deleted" else "stored",
+                normalization_profile_version=CANONICAL_PLAYBACK_PROFILE if validated else None,
+                validated_at=now if validated else None, derivation_kind="normalized" if validated else None,
+                source_fingerprint_sha256="a" * 64 if validated else None,
+                validation_version="playback_validator_v1" if validated else None,
+            ))
+            if kind == "noarchive":
+                device = (await conn.execute(text("select device_id from meetings where id=:id"), {"id": row["meeting_id"]})).scalar_one()
+                await conn.execute(insert(UploadSession).values(
+                    workspace_id=workspace, meeting_id=row["meeting_id"], media_revision_id=revision, device_id=device,
+                    created_by_user_id=row["requested_by_user_id"], status="finalized", archive_audio=False,
+                    max_package_bytes_snapshot=1_000_000, max_track_bytes_snapshot=1_000_000,
+                    expires_at=now + timedelta(days=1),
+                ))
+
+        def session():
+            db = factory()
+            db.sync_session.info["tenant_context"] = maintenance_context_settings(MaintenanceTenantContext(
+                operation_name="billing_reconciliation", actor_id="synthetic-operator",
+                reason_category="operator_diagnostics", feature_area="billing",
+            ))
+            return db
+
+        async def read(db):
+            return (await monitoring.collect_billing_report(
+                db, scope={"environment": "test", "shop_id": "123", "report_date": DAY}, as_of=now,
+            ))["families"]["storage"]
+        try:
+            async with writer.begin() as conn:
+                await conn.execute(insert(WorkspaceSubscription).values(workspace_id=workspace, plan_code="free"))
+                for size, kind in ((111, "canonical"), (222, "noarchive"), (333, "wrong_suffix"),
+                                   (444, "unvalidated"), (555, "wav"), (666, "deleted"), (777, "canonical")):
+                    await artifact(conn, size, kind=kind)
+                await conn.execute(insert(StorageReservation).values(workspace_id=workspace, idempotency_key="private-old",
+                                   declared_bytes=100, committed_bytes=10, state="active", expires_at=None))
+            before = await fingerprint(database)
+            async with session() as db:
+                old = await read(db)
+                assert (old["values"]["used_bytes"], old["values"]["reserved_bytes"], old["values"]["capacity_bytes"]) == (888, 90, 250_000_000)
+                assert await fingerprint(database) == before
+                async with writer.begin() as conn:
+                    await artifact(conn, 101)
+                    await conn.execute(insert(StorageReservation).values(workspace_id=workspace, idempotency_key="private-late",
+                                       declared_bytes=70, committed_bytes=20, state="active", expires_at=None))
+                    await conn.execute(WorkspaceSubscription.__table__.update().where(WorkspaceSubscription.workspace_id == workspace)
+                                       .values(plan_code="trial", trial_ends_at=now + timedelta(days=1)))
+                assert await read(db) == old
+            before = await fingerprint(database)
+            async with session() as db:
+                new = await read(db)
+                assert (new["values"]["used_bytes"], new["values"]["reserved_bytes"], new["values"]["capacity_bytes"]) == (989, 140, 500_000_000)
+            assert await fingerprint(database) == before
+            return new
+        finally:
+            await reader.dispose()
+            await writer.dispose()
+    family = asyncio.run(scenario())
+    before = asyncio.run(fingerprint(database))
+    for report_day in (DAY, date(1999, 1, 1), date(2099, 1, 1)):
+        restarted, code = process(database, day=report_day)
+        assert code == 0 and restarted["families"]["storage"] == family
+        assert "private-" not in json.dumps(restarted) and "987654321" not in json.dumps(restarted)
+    def forbidden(*args, **kwargs):
+        raise AssertionError("storage inventory must never call HTTP")
+    monkeypatch.setattr(httpx.AsyncClient, "request", forbidden)
+    monkeypatch.setattr(httpx.Client, "request", forbidden)
+    assert invoke(database)[0]["families"]["storage"] == family
+    assert asyncio.run(fingerprint(database)) == before
+
+
+def test_storage_full_workspace_limit_and_shared_deadline(database, monkeypatch):
+    workspace = asyncio.run(seed(database))
+
+    async def populate(count):
+        engine = create_async_engine(database)
+        try:
+            async with engine.begin() as conn:
+                organization, owner = (await conn.execute(text(
+                    "select organization_id,owner_user_id from workspaces where id=:id"
+                ), {"id": workspace})).one()
+                await conn.execute(insert(Workspace), [{"id": uuid4(), "organization_id": organization,
+                    "owner_user_id": owner, "slug": f"private-{uuid4()}", "name": "private-workspace", "kind": "corporate"}
+                    for _ in range(count)])
+        finally:
+            await engine.dispose()
+    asyncio.run(populate(499))
+    result, code = process(database)
+    assert code == 0 and result["families"]["storage"]["values"]["workspace_count"] == 500
+    assert result["families"]["storage"]["values"]["capacity_unavailable_workspace_count"] == 500
+    asyncio.run(populate(1))
+    before = asyncio.run(fingerprint(database))
+    assert process(database) == (cli.failure("report_limit_exceeded"), 1)
+    assert asyncio.run(fingerprint(database)) == before
+
+    async def shrink():
+        engine = create_async_engine(database)
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(delete(Workspace).where(Workspace.id != workspace))
+                await conn.execute(insert(WorkspaceSubscription).values(workspace_id=workspace, plan_code="free"))
+        finally:
+            await engine.dispose()
+    asyncio.run(shrink())
+    reached = []
+    async def slow(db, *, subscription, now):
+        reached.append(True)
+        await asyncio.sleep(10)
+    with monkeypatch.context() as scoped:
+        scoped.setattr(monitoring, "effective_paid_storage", slow)
+        scoped.setattr(cli, "REPORT_TIMEOUT_SECONDS", 0.3)
+        assert invoke(database) == (cli.failure("report_timeout"), 1)
+    assert reached == [True]

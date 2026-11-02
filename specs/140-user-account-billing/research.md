@@ -1,3 +1,37 @@
+## T077: источники storage projection — 02.11.2026
+
+- Decision: существующие effective_paid_storage (purchases.py311–408),
+  _active_reserved_bytes (storage.py184–202) и project_active_playback_storage
+  (storage.py81–115), общий as_of/явные аргументы, прежний collector. Rationale:
+  O4 требует настоящие источники capacity/reserved/used; один count таблицы
+  storage этого не выполняет. Узкое исследование helpers/callers после PR7897
+  выполнено отдельно, прежние source fingerprints совпали; старый общий audit
+  не повторён. Новая схема/duplicate object inventory не нужны.
+- Decision: outer join всех видимых Workspace, максимум500/SELECT501 с отказом
+  целого отчёта. Missing subscription/неизвестный plan/nonfinite нужная дата/
+  неположительный capacity явно unavailable. Нельзя известный subtotal назвать
+  итогом; null всех byte totals при неполноте источника. Rationale: guard15с
+  остаётся общим, per-workspace helpers могут делать несколько SELECT; это
+  явный ограниченный полный inventory, не молчаливый maintenance batch100.
+- Decision: state/count/expired-active/invalid values SQL-агрегация отдельно от
+  byte projections. Текущие model/writers storage.py используют active,
+  committed, released; старый data-model pending не новый runtime state.
+  NULL/nonfinite/неположительные/перерасходованные bytes не скрываются clamp.
+- Decision: capacity сохраняет действующую семантику trial/free/bonus/grants/
+  invoice/cache fallback без её переопределения. Helper выбирает финансовый
+  JSON в Python; нельзя утверждать обратное. Snapshot/ref не пересекают
+  monitoring output/log boundary. Существующая falsy-нормализация обоих
+  plan_snapshot/catalog_snapshot через `or {}` сохраняется. Только форма,
+  которую helper не может обработать, например truthy nonobject без `.get`,
+  завершает отчёт прежним безопасным report_unavailable/exit1; отдельный
+  более строгий валидатор финансового JSON не вводится.
+- Alternatives rejected: maintenance.py330–375 — writer release-expired/cache
+  mutation и defaultreserved0, не read-only источник; кабинетная IA/HTTP не
+  нужны. Молчаливый limit100, Free/default1 для отсутствующей подписки,
+  произвольные counts, собственная копия capacity расчёта и MinIO egress
+  отвергнуты. Общие alarm/job/reconciliation механизмы остаются O6, не
+  имитируются этим чтением. Источники и acceptance — O15/S1–S6/quickstart.
+
 ## T077: источник запросов удаления — 01.11.2026
 
 - Decision: только MeetingDeletionRequest/meeting_deletion_requests, state/count,

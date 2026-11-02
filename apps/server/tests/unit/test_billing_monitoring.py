@@ -1,5 +1,6 @@
 import asyncio
 from datetime import UTC, date, datetime, timedelta
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -285,3 +286,100 @@ def test_deletion_inventory_closed_projection_and_truthful_limits(groups, reason
                     "confirmation_boundary", "policy", "metadata", "created_at", "accepted_at",
                     "completed_at", "failed_at"):
         assert private not in sql
+
+
+def test_storage_empty_and_explicit_exact_helper_arguments(monkeypatch):
+    from twobrain_rec_server.billing import monitoring
+
+    rows, reservations = MagicMock(), MagicMock()
+    rows.all.return_value = []
+    reservations.mappings.return_value.all.return_value = []
+    db = AsyncMock(execute=AsyncMock(side_effect=lambda query: rows if "workspaces" in str(query) else reservations))
+    now = datetime(2026, 11, 2, tzinfo=UTC)
+    result = asyncio.run(monitoring._storage_inventory(db, now))
+    assert result["scope"] == "database_inventory" and result["coverage"] == "partial"
+    assert result["reason_code"] == "reconciliation_uninstrumented"
+    assert result["values"] == {
+        "workspace_count": 0, "capacity_unavailable_workspace_count": 0,
+        "unrecognized_plan_count": 0, "invalid_capacity_time_count": 0,
+        "used_bytes": 0, "reserved_bytes": 0, "capacity_bytes": 0,
+        "reservations": {"count": 0, "groups": [], "expired_active_count": 0, "invalid_value_count": 0},
+        "reconciliation_gaps": None,
+    }
+    row = SimpleNamespace(workspace_id="private-workspace", subscription_present=True,
+                          plan_code="free", invalid_capacity_time=False)
+    rows.all.return_value = [row, row]
+    capacity, reserved = 2**60 + 1, 2**54 + 3
+    paid = AsyncMock(return_value=capacity)
+    hold = AsyncMock(return_value=reserved)
+    playback = AsyncMock(return_value=SimpleNamespace(used_bytes=2**53 + 7, reserved_bytes=reserved, capacity_bytes=capacity))
+    monkeypatch.setattr(monitoring, "effective_paid_storage", paid)
+    monkeypatch.setattr(monitoring, "_active_reserved_bytes", hold)
+    monkeypatch.setattr(monitoring, "project_active_playback_storage", playback)
+    result = asyncio.run(monitoring._storage_inventory(db, now))
+    assert result["values"]["used_bytes"] == 2 * (2**53 + 7)
+    assert result["values"]["reserved_bytes"] == 2 * reserved
+    assert result["values"]["capacity_bytes"] == 2 * capacity
+    assert "private-" not in str(result)
+    for call in paid.await_args_list:
+        assert call.args == (db,) and call.kwargs == {"subscription": row, "now": now}
+    for call in hold.await_args_list:
+        assert call.args == (db,) and call.kwargs == {"workspace_id": row.workspace_id, "now": now}
+    for call in playback.await_args_list:
+        assert call.args == (db,) and call.kwargs == {"workspace_id": row.workspace_id, "capacity_bytes": capacity,
+                                                    "reserved_bytes": reserved}
+
+
+def test_storage_unavailable_and_reservation_priorities(monkeypatch):
+    from twobrain_rec_server.billing import monitoring
+
+    rows, reservations = MagicMock(), MagicMock()
+    reservations.mappings.return_value.all.return_value = []
+    db = AsyncMock(execute=AsyncMock(side_effect=lambda query: rows if "workspaces" in str(query) else reservations))
+    paid = AsyncMock(return_value=0)
+    monkeypatch.setattr(monitoring, "effective_paid_storage", paid)
+    monkeypatch.setattr(monitoring, "_active_reserved_bytes", AsyncMock(side_effect=AssertionError("no capacity")))
+    for present, plan, invalid, unavailable, unknown, bad_time, reason in (
+        (False, None, False, 1, 0, 0, "capacity_unavailable"),
+        (True, None, False, 1, 1, 0, "unrecognized"),
+        (True, "private-plan", False, 1, 1, 0, "unrecognized"),
+        (True, "personal", True, 1, 0, 1, "capacity_unavailable"),
+        (True, "trial", True, 1, 0, 1, "capacity_unavailable"),
+        (True, "free", False, 1, 0, 0, "capacity_unavailable"),
+    ):
+        rows.all.return_value = [SimpleNamespace(subscription_present=present, plan_code=plan,
+                                                invalid_capacity_time=invalid)]
+        result = asyncio.run(monitoring._storage_inventory(db, datetime(2026, 11, 2, tzinfo=UTC)))
+        v = result["values"]
+        assert result["reason_code"] == reason
+        assert (v["capacity_unavailable_workspace_count"], v["unrecognized_plan_count"],
+                v["invalid_capacity_time_count"]) == (unavailable, unknown, bad_time)
+        assert v["used_bytes"] is v["reserved_bytes"] is v["capacity_bytes"] is None
+    paid.assert_awaited_once()
+    for state, invalid, reason in (("active", 2, "invalid_storage_values"), ("unrecognized", 2, "unrecognized")):
+        reservations.mappings.return_value.all.return_value = [
+            {"state": state, "count": 3, "expired_active_count": 1, "invalid_value_count": invalid}]
+        result = asyncio.run(monitoring._storage_inventory(db, datetime(2026, 11, 2, tzinfo=UTC)))
+        assert result["reason_code"] == reason
+        assert result["values"]["reservations"] == {
+            "count": 3, "groups": [{"state": state, "count": 3}], "expired_active_count": 1,
+            "invalid_value_count": invalid,
+        }
+
+
+def test_storage_workspace_limit_before_helpers(monkeypatch):
+    from twobrain_rec_server.billing import monitoring
+
+    rows, reservations = MagicMock(), MagicMock()
+    reservations.mappings.return_value.all.return_value = []
+    db = AsyncMock(execute=AsyncMock(side_effect=lambda query: rows if "workspaces" in str(query) else reservations))
+    # Missing subscriptions still count toward the inventory boundary.
+    row = SimpleNamespace(subscription_present=False)
+    paid = AsyncMock(side_effect=AssertionError("limit/missing subscription must not call helper"))
+    monkeypatch.setattr(monitoring, "effective_paid_storage", paid)
+    rows.all.return_value = [row] * 500
+    assert asyncio.run(monitoring._storage_inventory(db, datetime.now(UTC)))["values"]["workspace_count"] == 500
+    rows.all.return_value.append(row)
+    with pytest.raises(ReportLimitError):
+        asyncio.run(monitoring._storage_inventory(db, datetime.now(UTC)))
+    paid.assert_not_awaited()

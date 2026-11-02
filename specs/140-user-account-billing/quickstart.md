@@ -1,5 +1,61 @@
 # Quickstart and validation matrix
 
+## T077: storage projection — 02.11.2026
+
+O15/S1–S6, исходная T077/#4932/high-risk-product. Ниже план, ещё не результаты.
+До кода reviewer-owned checklists/storage-projection.md и scoped analyze;
+остальные принятые O1–O14 не повторять без затронутой зависимости/отказа.
+Команды из owned apps/server: PYTHONPATH=src:. .venv/bin/python -m pytest
+tests/unit/test_billing_monitoring.py -k storage; PG/CLI — существующий
+одноразовый runner tests/integration/test_billing_monitoring_postgres.py
+(узкие новые storage nodeids/затронутые CLI identity/SETROLE, не весь корпус).
+Проверить twobrain_rec_server.__file__, не чужой /tmp editable. Журналы/XML,
+точные nodeids/exit status и cleanup сохраняются отдельно; failed→final
+заменяет тот же nodeid, результаты не складывать с принятыми прежними наборами.
+
+1. RED отсутствующего collector; затем unit: explicit workspace/capacity/
+   reserved/as_of helper args, точные integer суммы без float, missing
+   subscription/unknown plan/nonfinite relevant date/nonpositive capacity,
+   пустой inventory; missing subscription даёт unavailable1/unknown0 и reason
+   capacity_unavailable, NULL/unknown plan существующей строки — оба1 и reason
+   unrecognized. Реальную NOTNULL схему не ослаблять, NULLplan — отдельным
+   защитным SQL-входом. Неизвестность не становится нулём/subtotal. Граница500
+   принимается полностью,501 даёт ReportLimitError до per-workspace helpers.
+2. Настоящий PG17/Alembic head/FORCE RLS/NOTNULL, restricted maintenance и
+   CLI/newprocess: workspace без subscription, Free/Trial до/на expiry,
+   paid до/на cutoff; active bonus/storage grant/base invoice schema2/legacy
+   catalog snapshot/cache fallback. Явные now и reserved включают active
+   future/NULLexpiry, исключают expiry==as_of/expired-active. Used включает
+   canonical playback и исключает WAV/deleted/wrong suffix/profile и
+   finalized archive_audio=False; точная expected сумма фиксируется заранее.
+3. Закрытые active/committed/released/unrecognized, SQL NULLstate защитно
+   отдельно от настоящего NOTNULL; expired-active, malformed declared/
+   committed и ±infinity expiry. Все counts полные, invalid counted once,
+   группы sorted; unknown приоритетнее invalid/недоказанной capacity.
+   Invalid/unknown reserves обнулять нельзя: все byte totalsnull.
+4. Приватные синтетические refs/JSON/keys/контакты/денежные поля отсутствуют
+   в stdout/stderr; разрешены counts/байты. Falsy plan_snapshot и вложенный
+   catalog_snapshot (JSON null/[]/0/false/пустая строка) сохраняют существующий
+   fallback. Отдельно truthy nonobject, который helper не может обработать,
+   missing schema/helper exception — прежний безопасный CLI отказ целиком
+   report_unavailable/exit1,
+   без SQL/URL/traceback/сырых значений. Внутренний JSON helper читается,
+   поэтому проверка не заявляет «JSON никогда не выбирается в Python».
+5. Два RR snapshot с поздним commit storage/reservation/entitlement: старый
+   отчёт согласован со своим снимком, новый процесс видит новый; разные дни
+   report_date не фильтруют storage. Один UTC as_of, READONLY до hooks;
+   no-write fingerprints до/после включают новые source tables, mutation
+   probe запрещена. App/worker/superuser/SETROLE/неверный контекст denied.
+6. Реальный >500 workspace inventory отказывает whole CLI, не усечённый
+   итог; прежний общий deadline/statement/lock/64KiB сохраняется. Для нового
+   helper проверить cancellation/timeout в штатном wrapper без нового15с
+   бюджета на workspace. Свои контейнеры удалить finally, чужие сохранить.
+7. Независимые code review/converge, Ruff/process/governance/fragments и
+   точные PR source/base gates до/после merge. Refs4932, не closure; T077/
+   T070/все87 полных task lines/58gaps/O6 и сроки остаются открытыми.
+   Financial/object reconciliation не доказывается; Full/CD/Dev/реальных
+   денег/данных/новых служб/зависимостей здесь нет.
+
 ## T077: внутренний отчёт — 01.11.2026
 
 Первый шаг [O1–O8](contracts/operator-observation.md); пока требования,
