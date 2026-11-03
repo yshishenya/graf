@@ -1,0 +1,28 @@
+{
+  "launcher": {
+    "image_id": "sha256:REPLACE_WITH_VERIFIED_EXISTING_IMAGE_ID",
+    "source_sha": "REPLACE_WITH_VERIFIED_FULL_SOURCE_SHA",
+    "platform": "linux/amd64",
+    "run_uid": 1200,
+    "network": "REPLACE_WITH_EXISTING_APPROVED_NETWORK",
+    "role": "primary"
+  },
+  "source": {
+    "source_profile": "REPLACE_WITH_VERIFIED_SOURCE_PROFILE_UUID",
+    "source_generation": "REPLACE_WITH_VERIFIED_SOURCE_GENERATION_UUID",
+    "database_url": "CONFIGURE_PRIVATELY_ON_DATABASE_HOST_ONLY"
+  },
+  "mail": {
+    "role": "primary",
+    "source_profile": "REPLACE_WITH_VERIFIED_SOURCE_PROFILE_UUID",
+    "source_generation": "REPLACE_WITH_VERIFIED_SOURCE_GENERATION_UUID",
+    "binding_version": "REPLACE_WITH_LOCAL_BINDING_UUID",
+    "mail": {
+      "api_url": "https://postal.example.invalid",
+      "api_key": "CONFIGURE_PRIVATELY",
+      "from_address": "graf@example.invalid",
+      "recipient": "owner@example.invalid",
+      "host_header": null
+    }
+  }
+}

@@ -1,0 +1,12 @@
+[Unit]
+Description=Check the GRAF billing observer every five minutes
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=300s
+AccuracySec=1s
+RandomizedDelaySec=0
+Unit=graf-billing-observation-witness.service
+
+[Install]
+WantedBy=timers.target

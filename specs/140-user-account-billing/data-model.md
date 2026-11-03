@@ -1,3 +1,121 @@
+## T077/O16 J5/J6: журнал реакции вне PostgreSQL — 03.11.2026
+
+Дизайн для независимого ревью, не допуск к установке. Источник0109 принят
+PR7914 и не меняется. Новых таблиц, миграций, БД или tenant entities нет.
+Ниже один конкретный журнал для A1–A7 [контракта](contracts/operator-observation.md).
+
+- `activation`: schema1, случайные installation_id/source_profile/generation,
+  роль primary|witness, activated_at UTC, неприватная binding_version. Это
+  create-once локальная эксплуатационная привязка; повторная активация поверх
+  существующего состояния запрещена. Не хранит адрес, endpoints или secret.
+- `source_sample`: UTC source_as_of/received_at, cumulative event_count/
+  failed_event_count/conflicting_attempt_count, nullable last_event_at,
+  partial=true, закрытый outcome available|unavailable|discontinuity. Event
+  counts монотонны лишь в неизменном append-only источнике без restore.
+  Source_generation задаётся custodian, не создаёт доказательство полноты.
+- `tick`: role, local completed_at UTC, source_check outcome, peer_tick_at,
+  peer journal head ref и собственные sequence/head hash. Read-only status
+  возвращает только эти поля≤16KiB, без инцидентов/решений/почтовых receipts;
+  чтение не пишет новый tick. Missing/invalid status — unavailable.
+- `incident`: случайный incident_id, source_profile/source_generation/role/kind,
+  incident_generation, basis_revision, basis_hash только стабильных полей A2
+  (не всего sample), severity=high, owner=GRAF_owner, detected_at,
+  initial_deadline=detected+300с, breached, containment code/evidence class/ref,
+  состояния/времена detected→contained→owner_assigned→notified→investigating→
+  resolved|accepted_risk, nullable closure ref/time. Времена — наблюдаемые,
+  не вымышленные за прошлый outage. Contained отмечает неполноту и безопасное
+  действие восстановления наблюдения, не исправление денег/данных. Новое
+  основание по A2 меняет basis_revision/message key; новое поколение только
+  после closure и нового основания. Обе нумерации с1; source_generation —
+  отдельное сверенное поколение источника. Tick/почта/реакция basis не меняют;
+  journal sequence не expected version решения. Последние принятые предметные
+  counts и gap anchors сохраняются после closure, чтобы старое основание не
+  возникало заново. Новая revision открытого incident сохраняет исходные
+  detected/deadline и прежние подтверждения в истории, но не наследует их
+  как notified/closure нового основания. Точная таблица всех7 kinds — A2.
+- `mail_attempt`: incident_id/incident_generation/basis_revision/binding_version/message_key,
+  последовательный attempt, reserved_at, next_allowed_at≥reserved_at+300с,
+  unknown до POST; затем failed|unknown|accepted и nullable digest acceptance
+  ref, queue_seq. Ключ сообщения — SHA256 канонических source_profile/
+  source_generation/incident_id/incident_generation/basis_revision/kind/
+  binding_version, не адреса. Повтор записи outcome не новый POST.
+  Accepted той же identity сохраняется навсегда в истории. POST разрешён
+  только для текущих basis_revision и binding_version открытого incident,
+  без accepted этого key и после next_allowed_at incident. Unknown/failed
+  прежнего key не eligible: все его attempts/reservations/accepted/queue_seq
+  сохраняются как неизменная история вне очереди. Поздний outcome старого
+  key меняет только его историю, не notified текущей identity. Смена binding
+  не меняет basis/решение владельца, но notified старого key не наследуется.
+  Новое основание не покрыто old accepted/risk.
+  Queue_seq нового сообщения равен sequence создания; перед POST одной
+  reservation записью меняется на её sequence, даже если исход unknown.
+  Выбор eligible по (queue_seq, incident key), не detected_at; все новые
+  основания tick записываются до выбора. Next_allowed_at последней reservation
+  incident действует и после изменения basis/binding. Порядок восстанавливается
+  replay; old identity/accepted/closure не eligible, история не удаляется (A4).
+- `reaction_transfer`: source_profile/source_generation/incident_id/
+  incident_generation/expected_basis_revision и basis_hash,
+  action investigating|resolved|accepted_risk, evidence class/ref, message ref
+  и message_at для решения владельца, decision_digest, transferred_at,
+  manifest_digest/consumed_ref. Конкретный accepted_risk только из root-owned
+  create-once manifest переноса фактического решения в чате. Не хранить полный
+  текст сообщения; hash не удостоверяет автора. Resolved имеет evidence
+  устранения; произвольный actor, DB role, общая политика и письмо не основание.
+  Expected_basis_revision — только текущая basis_revision под lock, не sequence
+  журнала или номер tick/lifecycle. Проверяется также допустимость перехода;
+  новое предметное основание отклоняет старый manifest, новый sample — нет.
+
+Единственный authoritative файл — append-only journal JSON Lines. Каждая
+каноническая UTF-8 запись содержит sequence, prev_sha256, kind, bounded data,
+record_sha256; hash считается без своего поля. Один record атомарно описывает
+все изменения одной версии, включая transfer+consumed_ref или reservation+
+next_allowed_at. Один nonblocking flock с общим ожиданием≤2с, append полного
+record и fsync до внешнего действия/успешного ответа. Данные восстанавливаются
+replay цепочки; изменяемый кэш/отдельный HEAD не авторитетны. Незавершённая
+строка или противоречие — hold; не отбрасывать tail/не создавать новую историю.
+Journal create O_EXCL/NOFOLLOW, file0600/state directory0700; тип/UID/mode/
+nlink=1/identity lstat→fstat проверять до чтения, запрещать writable ancestors
+кроме выделенного owner каталога. Root владеет launcher/config/relay inbox;
+контейнер non-root с отдельным UID владеет только узким journal mount.
+
+Запретительный `journal.jsonl.hold` содержит только постоянный признак формата,
+не предметные состояния. Под journal flock перед каждой записью: защищённое
+create-once/0600/owner/nlink/identity → fsync запрета и каталога → append+fsync
+журнала → unlink своего проверенного запрета → fsync каталога → внешнее
+действие/успешный ответ. Activation ставит запрет до создания журнала. Чужой
+или прежний запрет обычный writer/status не снимает и не объявляет хвост
+подтверждённым; авария внутри записи оставляет hold. После законченной записи
+crash вокруг POST сохраняет unknown/прежний retry. Recovery под тем же lock
+после полной проверки цепочки/expected_head, последней проверенной копии и
+реальных решений синхронизирует журнал, сохраняет accepted/consumed/сроки,
+записывает recovery и только затем снимает запрет. Для storage-only recovery
+целой цепочки допустимо прежнее source_generation; discontinuity/restore
+требуют нового сверенного поколения. Backup/restore не очищают hold копированием.
+Ошибка fsync каталога после unlink возвращает отказ, хотя имя могло исчезнуть;
+данные журнала к этому моменту уже синхронизированы. Попытаться вернуть запрет,
+но при полностью отказавшей FS не обещать его сохранение. Это консервативный
+предохранитель, не второй authoritative snapshot или двухфайловая транзакция.
+Барьеры входят в60с, непрерываемый fsync ограничивается внешним runner процесса.
+
+Пределы: record/manifest≤16KiB, journal≤64MiB и≤262144 records,≤500 incident
+generations, строки refs≤255 UTF-8 bytes, UUID и SHA256 строго проверяются,
+unknown keys/JSON duplicate keys/nonfinite/bool-as-int отклоняются. Full replay
+и все операции входят в60с tick; рост не разрешает его молча продлевать.
+При достижении любого лимита — hold/закрытая ошибка, без trimming, sampling,
+удаления или автоматического archive/reset. Эти пределы должны пройти
+проверку заполненного synthetic журнала до принятия реализации; новый формат
+хранения при необходимости — отдельная согласованная доработка, не fallback.
+
+Backup под тем же lock сохраняет всю цепочку/activation, checksum/count/head,
+accepted/consumed/сроки. Закрытое штатное хранилище; временный synthetic backup
+удаляется finally. Restore на отдельный путь проверяет полную цепочку и peer
+head, остаётся в hold до сверки с последней проверенной копией и реальными
+решениями. Нельзя возобновлять рассылку после stale/неполного восстановления,
+забыв accepted/next_allowed_at. Откат всех копий не распознаётся по одному
+локальному hash. Нет автоматического срока очистки; meeting deletion не
+удаляет финансовую/операционную историю. Секреты и адреса не часть backup
+журнала; custody конфигурации — отдельные закрытые эксплуатационные средства.
+
 ## T077/O16: наблюдения попыток reconciliation — 03.11.2026
 
 Проект первого шага J1–J6, не приёмка миграции. Одна глобальная служебная

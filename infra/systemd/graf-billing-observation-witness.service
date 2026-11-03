@@ -1,0 +1,21 @@
+[Unit]
+Description=Check the GRAF billing observer from the existing database host OS
+After=network-online.target
+ConditionPathIsDirectory=/var/lib/graf-billing-observation
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/local/libexec/check-billing-observation.sh --witness
+RuntimeDirectory=graf-billing-observation
+RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=yes
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+NoNewPrivileges=true
+ReadWritePaths=/var/lib/graf-billing-observation /run/graf-billing-observation
+TimeoutStartSec=60
+TimeoutStopSec=5
+KillMode=control-group

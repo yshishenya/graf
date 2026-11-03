@@ -1,5 +1,97 @@
 # Quickstart and validation matrix
 
+## T077/O16 J5/J6: независимое наблюдение и почта — 03.11.2026
+
+Дизайн A1–A7 [контракта](contracts/operator-observation.md), ещё не результаты.
+J1–J4/PR7914 приняты отдельно; прежние68 тестов без причины не повторять.
+Полоса high-risk-product/active Spec Kit slice. Сначала independent checklist
+observation-alerts/scoped analyze/та же #4932. Адрес только в закрытой
+конфигурации; до разрешённой установки настоящий Postal не вызывается.
+
+1. RED новых source projection/controller. Owned `.venv`, PYTHONPATH=src:.,
+   проверить импорт __file__; перед контейнерами место≥80GB, при<50GB тяжёлую
+   проверку не запускать. Synthetic PostgreSQL17 с полным head/FORCE RLS.
+   Новые cases в tests/integration/test_billing_monitoring_postgres.py:
+   exact maintenance/неверные роли/SET ROLE/schema/read-only до hooks/RR/
+   no-write; failed/conflict counts, old timestamp/late commit, пустой source,
+   finite times/overflow/output limit/SQL-deadline/cleanup. Старый CLI contract
+   неизменен, финансовые функции/provider calls не вызываются.
+2. tests/unit/test_billing_observation_alerts.py: source success/last event/
+   durable tick раздельно; bootstrap без success, исторические failures,
+   899/900/901с, future/clock rollback, counters drop/generation change,
+   unresolved start после300с, source/producer/peer gaps. При рестарте old
+   detected/deadline сохраняются; old accepted/risk не покрывают new basis.
+   Bootstrap started+succeeded/event_count2/failed0/conflict0 не создаёт
+   failure/conflict. Historical failed1/conflict1 создаёт обе тревоги; затем
+   success-only рост event_count/last_event_at/as_of не меняет их basis/key
+   и допустимость owner manifest. Late commit с failed increment меняет только
+   failure, conflict increment — только conflict. Продолжающийся gap сохраняет
+   anchor, recovery не закрывает incident, повторный gap имеет новое основание.
+   Closure плюс неизменные counts не создаёт generation заново; новое основание
+   создаёт следующий incident_generation с basis_revision1.
+   Никакой автоматической financial failure/closure по возрасту или recovery.
+3. tests/integration/test_billing_observation_alerts.py: настоящее файловое
+   хранилище/новый процесс/конкуренция flock; reservation fsync до synthetic
+   POST; crash до/после fsync/POST/accepted, unknown retry299/300с и accepted
+   dedup после restart. One POST per tick/min(queue_seq,incident key);
+   новые основания сохраняются до выбора, reservation переносит выбранное
+   сообщение в конец до POST. A unknown в t0; в t300 появляются B и eligible A:
+   даже если A снова получает unknown, B получает слот в t600. Повторить с
+   restart после reservation, failed вместо unknown, равными queue_seq/tie;
+   новые basis/binding не ускоряют retry до300с. Expected message
+   key меняется только при новом основании/получатель binding version.
+   M1 unknown и отдельно failed → смена basis_revision, затем отдельные случаи
+   смены binding_version → M2 accepted → restart: к POST допускается только
+   текущая identity открытого incident, M1 больше не POST, M2 dedup. Сохранены
+   прежние attempts/reservations/accepted/queue_seq и исходный next_allowed_at
+   incident≥last reservation+300с; смена версии не сокращает паузу. Поздний
+   accepted M1 до/после accepted M2 не делает M2 notified и не возвращает M1
+   в очередь. Смена binding не аннулирует решение по неизменному basis.
+   Synthetic MockTransport использует существующий Postal classifier;
+   customer financial sender/retry не изменяются. Проверить текст без PII.
+4. FS boundary: symlink/hardlink/nonregular/owner/mode/ancestors/TOCTOU,
+   duplicate JSON keys/nonfinite/oversize, lock timeout, partial tail/hash
+   corruption/sequence gap/disk-full/fsync errors, полный limit journal/500
+   generations/clock rollback. Нет POST при hold; хвост и история сохраняются.
+   Backup под lock→restore на отдельный путь→full chain/consumed refs/accepted/
+   retry deadlines сверка; stale/missing restore остаётся hold/no-send.
+   Временные synthetic backup/containers удалить finally, baseline sets равны.
+5. Local relay: неверные source/incident/generation/version/basis/message/hash,
+   replay/consumed ref/writable manifest/arbitrary actor denied. Expected
+   basis_revision не journal sequence: новые ticks/mail/lifecycle не делают
+   manifest устаревшим, новое основание A2 делает. Один synthetic
+   конкретный owner decision→одна durable запись transfer+consumed ref.
+   Investigating не закрывает; resolved имеет отдельную evidence устранения.
+   Тестовая фикстура решения не является настоящим принятием риска владельцем.
+6. tests/contract/test_billing_observation_infra.py и изолированный runner:
+   fixed forced SSH/no shell/PTY/forwarding/env/stdin/arbitrary command/image;
+   no Docker socket/общие secrets/Settings; exact image ID/platform/source
+   label+env, no pull/build/start/restart. Missing/wrong image, oversize stdout,
+   hung/disconnected SSH/Docker/child — bounded outcome/cleanup без rawstderr.
+   Whole tick≤60с/source wrapper≤25с/DB15с/mail10с; remote cleanup после обрыва,
+   отсутствие surviving tasks/процессов/owned containers. Непроверенный cleanup
+   не считать PASS; kernel/daemon outage не выдавать за гарантию удаления.
+7. Двухузловой synthetic стенд: stopped/absent maintenance при живом source,
+   DB outage до старта/в середине, Temporal/producer outage; внешний journal
+   и MockTransport работают без этих зависимостей. Остановка primary/timer→
+   witness observer_gap; остановка witness→primary witness_gap. Status read
+   не освежает tick. После recovery истории сохраняют реальные времена;
+   общая потеря узлов/сети/Postal остаётся unavailable без выдуманной доставки.
+8. После реализации independent code review/converge A1–A7/J5/J6 и исходных
+   границ J1–J4; процесс/fragments/Ruff/diff и exact source/base PR gates.
+   Scoped PASS не даёт completed T077/полного O6; исходные87 lines/58 gaps
+   и все старые checklist markers сохраняются.
+
+Отдельная установка по `infra/docs/billing-observation.md` (будущий run guide):
+заранее доставленные проверенные images, host keys/forced commands, non-root
+UID/state custody, locked backup/restore rehearsal, enabled timers/actual
+durable ticks и Postal route с обоих узлов независимо от основной БД/process.
+Учебное письмо требует эксплуатационного разрешения и подтверждения получения
+владельцем. Accepted в журнале не mailbox/read. Настоящие службы ради проверки
+не останавливать. Rollback отключает только собственные timers/keys/launchers,
+сохраняет journal/accepted/consumed/backup и прежние финансовые процессы.
+Нет Full/CD/release/Dev/финансовых действий или почтовой приёмки этим дизайном.
+
 ## T077/O16: постоянные наблюдения попыток — 03.11.2026
 
 J1–J6, первый шаг — журнал/агрегаты, без запуска тревог. High-risk-product;

@@ -252,6 +252,62 @@ description: "Dependency-ordered implementation tasks for the GRAF personal acco
 - [X] T076 [US10] Implement Temporal reconciliation, stuck-operation, storage projection, add-on/time-credit and notification maintenance workflows in `apps/server/src/twobrain_rec_server/workflows/billing_reconciliation_workflow.py` and `apps/server/src/twobrain_rec_server/workflows/maintenance_worker.py`.
 - [ ] T077 [US10] Add operational metrics, dashboards, emergency stop and read-only launch diagnostics through existing observability patterns in `apps/server/src/twobrain_rec_server/billing/monitoring.py`, `apps/server/src/twobrain_rec_server/readiness/checks.py`, and `apps/server/src/twobrain_rec_server/admin/metrics.py`. (Issue #4932).
 
+  Порядок продолжения J5/J6 после PR7914 — 03.11.2026. Независимое ревью
+  `checklists/observation-alerts.md`: 18 отмечены / 0 открыты; приняты только
+  требования A1–A7, не код/установка/почта. Ниже уточнение той же US10/P1/T077,
+  без новых task IDs, изменения исходных87 полных строк или закрытия #4932.
+  Префикс Python-путей — `apps/server/src/twobrain_rec_server/`.
+
+  1. Scoped analyze A1–A7/III/IV/VI → sync существующей #4932. Затем RED в
+     `apps/server/tests/unit/test_billing_observation_alerts.py`,
+     `apps/server/tests/integration/test_billing_observation_alerts.py`,
+     `apps/server/tests/integration/test_billing_monitoring_postgres.py` и
+     `apps/server/tests/contract/test_billing_observation_infra.py` по всем
+     сценариям quickstart §J5/J6, включая исправления R1/R2/R3.
+  2. A1: `billing/observation_probe.py`/`cli/billing_observation_probe.py` —
+     один exact-maintenance/FORCE-RLS/READ-ONLY-RR снимок0109 до SQL/hooks;
+     counters≤9223372036854775807, частичный охват, nullable last_event_at,
+     без identity/частных полей. Бюджеты15с/statement5с/lock2с/output16KiB.
+  3. A2–A5: `billing/observation_alerts.py`/`cli/billing_observation_alerts.py`
+     — primary/witness/tick/status/local relay в существующем image. Сначала
+     закрытая схема и replay одного защищённого append-only журнала, затем
+     seven-kind stable basis, поколения/revision и честная реакция. Пределы:
+     «record/manifest≤16KiB, journal≤64MiB и≤262144 records,≤500 incident
+     generations, строки refs≤255 UTF-8 bytes»; UUID/SHA256 строгие, unknown
+     keys/duplicate JSON keys/nonfinite/bool-as-int отклоняются. Lock≤2с,
+     fsync/chain/partial-tail/disk-full/лимит → hold/noPOST без удаления.
+     Activation create-once, file0600/directory0700, owner/nlink/ancestors/
+     NOFOLLOW/identity проверяются. Backup/restore под тем же lock сохраняет
+     accepted/consumed/сроки; restore отдельно остаётся hold до сверки.
+  4. A4/R1–R3: один Postal POST≤10с за tick; durable reservation до POST,
+     retry≥300с incident через basis/binding/restart; только текущие identities
+     открытого incident, accepted dedup. Queue_seq переносится в конец доPOST;
+     old attempts/late outcomes остаются историей. Success-only не меняет
+     failure/conflict basis/owner manifest. Текст metadata-only, адрес/секреты
+     только protected configuration; customer sender/retry/F273 не меняются.
+     A5: create-once root-custodian manifest конкретного решения в этом чате,
+     exact basis/source/incident/message; transition+consumed одним record.
+  5. A6: `infra/scripts/billing-observation-probe.sh`,
+     `infra/scripts/check-billing-observation.sh`,
+     `infra/systemd/graf-billing-observation{,-witness}.{service,timer}`,
+     `infra/env/billing-observation.example.json`,
+     `infra/docs/billing-observation.md`. Fixed forced SSH/imageID/platform/
+     source/no client env/stdin/PTY/forwarding; non-root/read-only/cap-drop/
+     no-new-privileges, узкие mounts/секреты/ресурсы; no pull/build/restart.
+     Интервал300с/gap≥900с, whole tick≤60с/remote wrapper≤25с с cleanup.
+  6. A7: изолированные unit/PG/new-process/двухузловые synthetic проверки
+     quickstart1–7, все отрицательные FS/relay/SSH/Docker/crash/retry/restore
+     границы и полный limit journal. Затем `changes/unreleased/F140.yaml`,
+     независимые code review/converge, профильная валидация и exact-SHA/base
+     PR gates/common before-after/tree-parent. Старые68 тестов не повторять
+     без затронутой зависимости. Параллельные примеры — независимые файлы
+     тестов source и controller; реализация после общего RED/допуска.
+  7. Установка, независимый Postal route с обоих узлов при DB/maintenance
+     outage, реальные ticks/custody и получение учебного письма владельцем —
+     отдельная разрешённая эксплуатационная приёмка A7. Общая потеря узлов/
+     сети/Postal остаётся unavailable. Полный FR089/O6/58 gaps/T070/T077[ ]
+     и исходные сроки не принимаются этим порядком; initial scope только J5/J6.
+
   После PR7898: J1–J6 O16, принятые ответы владельца03.11. Первый шаг —
   append-only billing_reconciliation_observations в db/models/billing.py,
   новая миграция от фактического head, db/rls_validation.py, узкий
