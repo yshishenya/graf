@@ -13,7 +13,7 @@ const assets = path.join(__dirname, '../../src/twobrain_rec_server/cabinet/stati
       let version=1, audience='invite_only', scope='summary_only', grants=[], workspaceEnabled=false, linkEnabled=true;
       let releaseGeneral;const generalGate=new Promise(resolve=>{releaseGeneral=resolve;});
       const fingerprint=()=>version.toString(16).padStart(64,'0');
-      const link=()=>audience==='link'?{state:'active',grant_id:'synthetic-link',version,content_scope:scope,share_url:'https://graf.test/synthetic-reader',expires_at:'2026-12-01T00:00:00Z'}:{state:'absent'};
+      const link=()=>audience==='link'?{state:'active',grant_id:'synthetic-link',version,content_scope:scope,share_url:'https://graf.test/synthetic-reader',expires_at:'2026-12-01T00:00:00Z'}:{state:width===320?'expired':'replacement_required',grant_id:'old-link',version,content_scope:'summary_only'};
       const general=()=>({audience,content_scope:scope,fingerprint:fingerprint(),capabilities:{workspace:workspaceEnabled,link:linkEnabled},link:link()});
       page.on('pageerror',e=>errors.push(e.message));
       page.on('dialog',dialog=>dialog.accept());
@@ -51,6 +51,7 @@ const assets = path.join(__dirname, '../../src/twobrain_rec_server/cabinet/stati
       await page.locator('[data-sharing-audience] option[value=workspace]:disabled').waitFor({state:'attached'});
       await page.locator('[data-sharing-scope]:enabled').waitFor();
       assert.equal(mutations.length,0,'Opening must not grant access');
+      assert.equal(await page.locator('[data-summary-share-copy]').textContent(),'Скопировать ссылку','Closed audience must not promise renewal or rotation');
       await page.getByRole('combobox',{name:'Что доступно получателю'}).selectOption('full_meeting');
       assert.equal(mutations.length,0,'Selecting unpublished scope must not publish');
       await page.getByRole('button',{name:'Скопировать ссылку',exact:true}).click();

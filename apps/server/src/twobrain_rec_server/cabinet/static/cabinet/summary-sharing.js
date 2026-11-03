@@ -122,9 +122,10 @@
       const field=find('[data-summary-share-url]');field.value=data.share_url||'';
       find('[data-summary-share-url-label]').hidden=!data.share_url;
       find('[data-summary-share-expiry-date]').textContent=data.expires_at?`До ${date(data.expires_at)}`:'';
-      copy.textContent=data.state==='replacement_required'?'Заменить и скопировать ссылку':data.state==='expired'?'Продлить и скопировать ссылку':'Скопировать ссылку';
-      if(data.state==='expired')setStatus('Срок ссылки истёк. Продлите его, чтобы снова открыть доступ.');
-      if(data.state==='replacement_required')setStatus('Чтобы скопировать прежнюю ссылку, нужен её адрес. Здесь можно явно заменить её.');
+      const publicAudience=general?.audience==='link';
+      copy.textContent=publicAudience&&data.state==='replacement_required'?'Заменить и скопировать ссылку':publicAudience&&data.state==='expired'?'Продлить и скопировать ссылку':'Скопировать ссылку';
+      if(publicAudience&&data.state==='expired')setStatus('Срок ссылки истёк. Продлите его, чтобы снова открыть доступ.');
+      if(publicAudience&&data.state==='replacement_required')setStatus('Чтобы скопировать прежнюю ссылку, нужен её адрес. Здесь можно явно заменить её.');
     }
     async function loadLink(){try{renderLink(await api('/link'));}catch(error){setStatus(errorText(error),true);}}
     async function copyURL(value) {
