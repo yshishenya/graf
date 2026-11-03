@@ -3,6 +3,7 @@
 
 import argparse
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import ExitStack
 import hashlib
 import http.client
 import json
@@ -75,14 +76,14 @@ def run(repo, nginx, module, protocol_only=False):
     finally:
         for sock in reservations:
             sock.close()
-    ingress, graf, default_relay, special_relay, default, special, api = ports
+    ingress, graf, legacy_relay, default, special, mail, api = ports
     routing = (repo / "infra/nginx/graf-sni-routing.conf").read_text()
     blocks = (repo / "infra/nginx/rec.2brain.pro.conf").read_text().split("\nserver {")
     if len(blocks) != 3:
         raise ValueError("unexpected_rec_server_layout")
     rec = "server {" + blocks[1].split("# YooKassa", 1)[0]
     checks["dedicated_receivers"] = all(
-        f"listen {host}:10445 ssl http2 proxy_protocol;" in rec
+        f"listen {host}:10446 ssl http2 proxy_protocol;" in rec
         for host in ("127.0.0.1", "[::1]")
     ) and "10444" not in rec
     if not checks["dedicated_receivers"]:
@@ -95,18 +96,18 @@ def run(repo, nginx, module, protocol_only=False):
             "-days", "1", "-subj", "/CN=isolated.invalid",
         ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15)
         cert = f"ssl_certificate {root}/cert.pem; ssl_certificate_key {root}/key.pem;"
-        rec = rec.replace("127.0.0.1:10445", f"127.0.0.1:{graf}")
-        rec = rec.replace("[::1]:10445", f"[::1]:{graf}")
+        rec = rec.replace("127.0.0.1:10446", f"127.0.0.1:{graf}")
+        rec = rec.replace("[::1]:10446", f"[::1]:{graf}")
         rec = rec.replace("127.0.0.1:18081", f"127.0.0.1:{api}")
         # Only certificates/log destinations are substituted. Locations, guards
         # and forwarding directives come from the candidate rec file itself.
         rec = "\n".join(
             "" if line.strip().startswith(("ssl_certificate", "include ", "ssl_dhparam"))
-            else "access_log off;" if line.strip().startswith("access_log ")
-            else "error_log /dev/null crit;" if line.strip().startswith("error_log ")
+            else f"access_log {root}/rec-access.log;"
+            if line.strip().startswith("access_log ") and line.strip() != "access_log off;"
             else line for line in rec.splitlines()
         ).replace("server_name rec.2brain.pro;", "server_name rec.2brain.pro; " + cert)
-        for old, new in ((10445, graf), (10446, default_relay), (10447, special_relay)):
+        for old, new in ((10446, graf), (10447, legacy_relay)):
             routing = routing.replace(f":{old}", f":{new}")
         (root / "routing.conf").write_text(routing)
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
@@ -138,38 +139,101 @@ def run(repo, nginx, module, protocol_only=False):
                     status = 0
                 return status, response.read()
 
-        def config(stage):
-            switched = stage in ("switch", "final")
+        def bio_request(sni, port, prefix, mode):
+            incoming, outgoing = ssl.MemoryBIO(), ssl.MemoryBIO()
+            tls = context.wrap_bio(incoming, outgoing, server_hostname=sni)
+            with socket.create_connection(("127.0.0.1", port), timeout=4) as raw:
+                first = True
+                for _ in range(64):
+                    try:
+                        tls.do_handshake()
+                        break
+                    except ssl.SSLWantReadError:
+                        data = outgoing.read()
+                        if first:
+                            if mode == "coalesced":
+                                raw.sendall(prefix + data)
+                            else:
+                                raw.sendall(prefix)
+                                time.sleep(.03)
+                                if mode == "fragmented_tls":
+                                    raw.sendall(data[:7])
+                                    time.sleep(.03)
+                                    raw.sendall(data[7:])
+                                else:
+                                    raw.sendall(data)
+                            first = False
+                        elif data:
+                            raw.sendall(data)
+                        data = raw.recv(65536)
+                        if not data:
+                            raise ValueError("bio_handshake_closed")
+                        incoming.write(data)
+                else:
+                    raise ValueError("bio_handshake_incomplete")
+                tls.write((f"GET / HTTP/1.1\r\nHost: {sni}\r\n"
+                           "Connection: close\r\n\r\n").encode())
+                raw.sendall(outgoing.read())
+                response = bytearray()
+                for _ in range(64):
+                    try:
+                        response.extend(tls.read(65536))
+                    except ssl.SSLWantReadError:
+                        data = raw.recv(65536)
+                        if not data:
+                            raise ValueError("bio_response_closed")
+                        incoming.write(data)
+                        continue
+                    head, separator, body = bytes(response).partition(b"\r\n\r\n")
+                    if separator:
+                        length = re.search(rb"(?im)^content-length: ([0-9]+)\r?$", head)
+                        if length and len(body) == int(length.group(1)):
+                            return int(head.split(b" ", 2)[1]), body
+                raise ValueError("bio_response_incomplete")
+
+        def config(stage, raw_ports=None, log_control=None):
+            switched = stage in ("switch", "final", "capture")
             old_receiver = stage != "final"
+            targets = raw_ports or (default, special, mail)
             stream_routing = ("include " + str(root / "routing.conf") + ";"
                               if stage != "baseline" else "")
-            if not switched:
-                stream_routing += "\nmap $ssl_preread_server_name $old_target { " \
-                    "www.amazon.com kvn_xray_reality; default kvn_https_nginx; }"
+            old_map = ("map $ssl_preread_server_name $kvn_443_backend { "
+                       "www.amazon.com kvn_xray_reality; "
+                       + " ".join(f"mail{n}.invalid stalwart_https;" for n in range(5))
+                       + " default kvn_https_nginx; }")
+            (root / "routing.conf").write_text(
+                routing.replace("error_log /dev/null;", "")
+                if log_control == "strip" else routing)
+            effective_rec = (rec.replace("error_log /dev/null;", "")
+                             if log_control == "dedicated" else rec)
             text = f"""
 load_module {module};
 daemon off;
 pid {root}/nginx.pid;
-error_log /dev/null crit;
+error_log {root}/inherited-error.log info;
 worker_processes 2;
 events {{ worker_connections 768; }}
 stream {{
-    upstream kvn_https_nginx {{ server 127.0.0.1:{default}; }}
-    upstream kvn_xray_reality {{ server 127.0.0.1:{special}; }}
+    upstream kvn_https_nginx {{ server 127.0.0.1:{targets[0]}; }}
+    upstream kvn_xray_reality {{ server 127.0.0.1:{targets[1]}; }}
+    upstream stalwart_https {{ server 127.0.0.1:{targets[2]}; }}
+    {old_map}
     {stream_routing}
     server {{ listen 127.0.0.1:{ingress}; listen [::1]:{ingress};
         ssl_preread on; proxy_protocol {'on' if switched else 'off'};
-        proxy_pass {'$graf_sni_target' if switched else '$old_target'}; }}
+        proxy_pass {'$graf_sni_target' if switched else '$kvn_443_backend'}; }}
 }}
 http {{
     access_log off;
-    error_log /dev/null crit;
+    error_log {root}/http-inherited-error.log info;
     limit_req_zone $binary_remote_addr zone=graf_summary_share:1m rate=100r/s;
-    {rec.replace('server_name rec.2brain.pro;', f'server_name rec.2brain.pro; add_header X-Graf-Probe-Stage {stage} always;') if stage != 'baseline' else ''}
+    {effective_rec.replace('server_name rec.2brain.pro;', f'server_name rec.2brain.pro; add_header X-Graf-Probe-Stage {stage} always;') if stage != 'baseline' else ''}
     server {{ listen 127.0.0.1:{default} ssl; {cert}
         server_name default.invalid; add_header X-Graf-Probe-Stage {stage} always; return 200 'default'; }}
     {f"server {{ listen 127.0.0.1:{default} ssl; {cert} server_name rec.2brain.pro; add_header X-Graf-Probe-Stage {stage} always; return 200 'legacy'; }}" if old_receiver else ''}
     server {{ listen 127.0.0.1:{special} ssl; {cert} add_header X-Graf-Probe-Stage {stage} always; return 200 'special'; }}
+    server {{ listen 127.0.0.1:{mail} ssl; {cert}
+        add_header X-Graf-Probe-Stage {stage} always; return 200 'mail'; }}
     server {{ listen 127.0.0.1:{api};
         return 200 '$http_x_forwarded_for|$http_x_real_ip|$http_x_forwarded_proto'; }}
 }}
@@ -183,12 +247,14 @@ http {{
             return path
 
         path = config("baseline")
-        process = subprocess.Popen([nginx, "-p", directory, "-c", str(path)],
-                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                   start_new_session=True)
+        with (root / "process.log").open("wb") as process_log:
+            process = subprocess.Popen([nginx, "-p", directory, "-c", str(path)],
+                                       stdout=process_log, stderr=subprocess.STDOUT,
+                                       start_new_session=True)
         try:
             def resources(label):
-                routes = (("default.invalid", b"default"), ("www.amazon.com", b"special"))
+                routes = (("default.invalid", b"default"), ("www.amazon.com", b"special"),
+                          ("mail0.invalid", b"mail"))
                 for sni, body in routes:
                     for _ in range(10):
                         if request(sni, host=sni) != (200, body):
@@ -196,8 +262,8 @@ http {{
                 held = []
                 maxima = {}
                 try:
-                    for index in range(100):
-                        sni, body = routes[index % 2]
+                    for index in range(120):
+                        sni, body = routes[index % 3]
                         tls = connect(sni)
                         held.append(tls)
                         tls.sendall((f"GET / HTTP/1.1\r\nHost: {sni}\r\n"
@@ -229,7 +295,7 @@ http {{
                         tls.close()
 
                 def timed(index):
-                    sni, body = routes[index % 2]
+                    sni, body = routes[index % 3]
                     start = time.monotonic()
                     with connect(sni) as tls:
                         tls.sendall((f"GET / HTTP/1.1\r\nHost: {sni}\r\n"
@@ -242,27 +308,28 @@ http {{
                     head, _, actual = b"".join(chunks).partition(b"\r\n\r\n")
                     if head.split(b" ", 2)[1] != b"200" or actual != body:
                         raise ValueError("resource_latency_response_failed")
-                    return index % 2, elapsed * 1000
+                    return index % 3, elapsed * 1000
 
                 start = time.monotonic()
                 with ThreadPoolExecutor(max_workers=16) as pool:
                     futures = []
-                    for index in range(500):
+                    for index in range(600):
                         time.sleep(max(0, start + index / 8 - time.monotonic()))
                         futures.append(pool.submit(timed, index))
                     results = [future.result() for future in futures]
+                time.sleep(max(0, start + 75 - time.monotonic()))
                 p95 = []
-                for route in range(2):
+                for route in range(3):
                     values = sorted(ms for kind, ms in results if kind == route)
-                    if len(values) != 250:
+                    if len(values) != 200:
                         raise ValueError("resource_latency_sample_incomplete")
                     p95.append(values[math.ceil(.95 * len(values)) - 1])
                 measurements[label] = {
                     "worker_maxima": [{"fd": fd, "socket_fd": sockets, "soft_fd": limit,
                                        "worker_connections": 768} for fd, sockets, limit in maxima.values()],
-                    "keepalive_connections": 100, "samples_per_worker": 31,
+                    "keepalive_connections": 120, "samples_per_worker": 31,
                     "latency_count": len(results), "latency_window_seconds": time.monotonic() - start,
-                    "ttfb_p95_ms_default_special": p95,
+                    "ttfb_p95_ms_default_special_mail": p95,
                 }
                 checks[label + "_resource_limits"] = all(
                     fd / limit < .70 and sockets / 768 < .70 for fd, sockets, limit in maxima.values())
@@ -282,15 +349,21 @@ http {{
 
             current_stage = "baseline"
 
-            def reload(stage, expected):
+            def reload(stage, expected, raw_ports=None, log_control=None):
                 nonlocal current_stage
-                # A pre-reload connection has no ClientHello yet. Its old worker
-                # must still be able to open its previous upstream after reload.
-                with socket.create_connection(("127.0.0.1", ingress), timeout=4) as late:
+                # Each old route may receive its ClientHello only after reload.
+                routes = (("rec", "rec.2brain.pro", None),
+                          ("default", "default.invalid", b"default"),
+                          ("special", "www.amazon.com", b"special"),
+                          ("mail", "mail0.invalid", b"mail"))
+                with ExitStack() as stack:
+                    held = [(label, sni, body, stack.enter_context(
+                        socket.create_connection(("127.0.0.1", ingress), timeout=4)))
+                            for label, sni, body in routes]
                     time.sleep(.1)
                     old_workers = Path(
                         f"/proc/{process.pid}/task/{process.pid}/children").read_text().split()
-                    config(stage)
+                    config(stage, raw_ports, log_control)
                     os.kill(process.pid, signal.SIGHUP)
                     for _ in range(80):
                         if request("rec.2brain.pro", stage=stage) == expected:
@@ -298,13 +371,14 @@ http {{
                         time.sleep(.05)
                     else:
                         raise ValueError("isolated_reload_" + stage)
-                    old_expected = ((200, b"127.0.0.1|127.0.0.1|https")
-                                    if current_stage in ("switch", "final")
+                    rec_expected = ((200, b"127.0.0.1|127.0.0.1|https")
+                                    if current_stage in ("switch", "final", "capture")
                                     else (200, b"legacy"))
-                    checks[f"late_hello_{current_stage}_to_{stage}"] = (
-                        request("rec.2brain.pro", raw=late) == old_expected)
+                    for label, sni, body, late in held:
+                        old_expected = rec_expected if label == "rec" else (200, body)
+                        checks[f"late_hello_{label}_{current_stage}_to_{stage}"] = (
+                            request(sni, host=sni, raw=late) == old_expected)
                     current_stage = stage
-                # Readiness is not just reload exit0 or an unchanged response.
                 for _ in range(100):
                     if not any(Path(f"/proc/{pid}").exists() for pid in old_workers):
                         checks["drained_" + stage] = True
@@ -314,6 +388,20 @@ http {{
                     raise ValueError("isolated_workers_not_drained_" + stage)
 
             expected = (200, b"127.0.0.2|127.0.0.2|https")
+            # Removing either source guard must expose the synthetic parser bytes.
+            control_marker = b"GRAF_SYNTHETIC_PP_LOGCONTROL"
+            for label, port, log_name in (("dedicated", graf, "http-inherited-error.log"),
+                                          ("strip", legacy_relay, "inherited-error.log")):
+                reload("control_" + label, (200, b"legacy"), log_control=label)
+                with socket.create_connection(("127.0.0.1", port), timeout=4) as raw:
+                    raw.sendall(b"PROXY " + control_marker + b"\r\n")
+                    try:
+                        raw.recv(1)
+                    except ConnectionResetError:
+                        pass
+                checks["log_guard_negative_control_" + label] = (
+                    control_marker in (root / log_name).read_bytes())
+            reload("baseline", (200, b"legacy"))
             reload("prepare", (200, b"legacy"))
             reload("switch", expected)
             reload("final", expected)
@@ -330,6 +418,8 @@ http {{
                                      ("no_sni", None, b"default"),
                                      ("special_fixture", "www.amazon.com", b"special")):
                 checks[label] = request(sni) == (200, body)
+            for index in range(5):
+                checks[f"mail_sni_{index}"] = request(f"mail{index}.invalid") == (200, b"mail")
             checks["mismatched_host"] = request("rec.2brain.pro", host="other.invalid")[0] == 421
             checks["unknown_source"] = request("rec.2brain.pro", port=graf,
                                                 prefix=b"PROXY UNKNOWN\r\n")[0] == 400
@@ -345,19 +435,116 @@ http {{
                 resources("candidate")
                 checks["latency_delta_below_10ms_each_route"] = all(
                     candidate - baseline < 10 for baseline, candidate in zip(
-                        measurements["baseline"]["ttfb_p95_ms_default_special"],
-                        measurements["candidate"]["ttfb_p95_ms_default_special"], strict=True))
+                        measurements["baseline"]["ttfb_p95_ms_default_special_mail"],
+                        measurements["candidate"]["ttfb_p95_ms_default_special_mail"], strict=True))
             # Roll back with receivers retained until the old PP worker drains.
             reload("switch", expected)
             reload("prepare", (200, b"legacy"))
             reload("baseline", (200, b"legacy"))
             checks["rollback_route"] = True
+            marker = b"GRAF_SYNTHETIC_PP_MARKER"
+            reload("prepare", (200, b"legacy"))
+            for label, port in (("dedicated", graf), ("strip", legacy_relay)):
+                for kind, payload in (("malformed", b"PROXY " + marker + b"\r\n"),
+                                      ("truncated", b"PROXY TCP4 192.0.2.1")):
+                    with socket.create_connection(("127.0.0.1", port), timeout=4) as raw:
+                        raw.sendall(payload)
+                        raw.shutdown(socket.SHUT_WR)
+                        try:
+                            closed = raw.recv(1) == b""
+                        except ConnectionResetError:
+                            closed = True
+                        checks[f"{label}_{kind}_transport_close"] = closed
+                with socket.create_connection(("127.0.0.1", port), timeout=4) as raw:
+                    raw.sendall(b"PROXY TCP4 192.0.2.1")
+                    time.sleep(.03)
+                    try:
+                        raw.sendall(b" 192.0.2.2 1234 443\r\n")
+                        raw.shutdown(socket.SHUT_WR)
+                        closed = raw.recv(1) == b""
+                    except (BrokenPipeError, ConnectionResetError):
+                        closed = True
+                    checks[label + "_fragmented_pp_transport_close"] = closed
+            for mode in ("coalesced", "separate", "fragmented_tls"):
+                prefix = b"PROXY TCP4 192.0.2.1 192.0.2.2 1234 443\r\n"
+                checks["dedicated_" + mode] = bio_request(
+                    "rec.2brain.pro", graf, prefix, mode) == (
+                        200, b"192.0.2.1|192.0.2.1|https")
+                checks["strip_" + mode] = bio_request(
+                    "mail0.invalid", legacy_relay, prefix, mode) == (200, b"mail")
+            checks["strip_unknown_preserves_map"] = request(
+                "mail0.invalid", port=legacy_relay, prefix=b"PROXY UNKNOWN\r\n") == (200, b"mail")
+            checks["strip_ipv6_receiver"] = request(
+                "mail0.invalid", port=legacy_relay, ipv6=True,
+                prefix=b"PROXY TCP6 2001:db8::1 2001:db8::2 1234 443\r\n") == (200, b"mail")
+            reload("baseline", (200, b"legacy"))
+            wire_routes = (("default.invalid", "default"), ("www.amazon.com", "special"),
+                           ("mail0.invalid", "mail"))
+            with ExitStack() as stack, ThreadPoolExecutor(max_workers=3) as pool:
+                listeners = [stack.enter_context(socket.socket()) for _ in wire_routes]
+                for listener in listeners:
+                    listener.bind(("127.0.0.1", 0))
+                    listener.listen(4)
+                    listener.settimeout(5)
+                reload("capture", expected, tuple(sock.getsockname()[1] for sock in listeners))
+                hellos = []
+                for sni, _ in wire_routes:
+                    incoming, outgoing = ssl.MemoryBIO(), ssl.MemoryBIO()
+                    tls = context.wrap_bio(incoming, outgoing, server_hostname=sni)
+                    try:
+                        tls.do_handshake()
+                    except ssl.SSLWantReadError:
+                        pass
+                    hellos.append(outgoing.read())
+
+                def capture(listener, hello):
+                    results = []
+                    for _ in range(4):
+                        connection, _ = listener.accept()
+                        with connection:
+                            connection.settimeout(4)
+                            data = bytearray()
+                            while len(data) < len(hello):
+                                chunk = connection.recv(len(hello) - len(data))
+                                if not chunk:
+                                    break
+                                data.extend(chunk)
+                            results.append(bytes(data) == hello)
+                    return results
+
+                futures = [pool.submit(capture, listener, hello)
+                           for listener, hello in zip(listeners, hellos, strict=True)]
+                for (_, label), hello in zip(wire_routes, hellos, strict=True):
+                    for mode in ("public", "coalesced", "fragmented_tls", "unknown"):
+                        port = ingress if mode == "public" else legacy_relay
+                        with socket.create_connection(("127.0.0.1", port), timeout=4) as raw:
+                            prefix = (b"" if mode == "public" else b"PROXY UNKNOWN\r\n"
+                                      if mode == "unknown" else
+                                      b"PROXY TCP4 192.0.2.1 192.0.2.2 1234 443\r\n")
+                            if mode == "fragmented_tls":
+                                raw.sendall(prefix)
+                                time.sleep(.03)
+                                raw.sendall(hello[:7])
+                                time.sleep(.03)
+                                raw.sendall(hello[7:])
+                            else:
+                                raw.sendall(prefix + hello)
+                            try:
+                                raw.recv(1)
+                            except ConnectionResetError:
+                                pass
+                for (_, label), future in zip(wire_routes, futures, strict=True):
+                    checks[f"wire_exact_no_envelope_{label}"] = all(future.result(timeout=5))
             if not all(checks.values()):
                 raise ValueError("isolated_protocol_matrix:" + ",".join(
                     key for key, passed in checks.items() if not passed))
         finally:
             stop_process_group(process)
         checks["isolated_process_group_stopped"] = process.poll() is not None
+        checks["malformed_envelope_not_in_logs"] = all(
+            marker not in log.read_bytes() for log in root.glob("*.log"))
+        if not checks["malformed_envelope_not_in_logs"]:
+            raise ValueError("malformed_envelope_log_leak")
     checks["temporary_directory_removed"] = not root.exists()
     return {"checks": checks, "all_pass": all(checks.values()), "measurements": measurements,
             "input_sha256": {name: hashlib.sha256((repo / name).read_bytes()).hexdigest()

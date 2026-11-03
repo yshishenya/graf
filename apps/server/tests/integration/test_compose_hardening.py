@@ -137,8 +137,9 @@ def test_nginx_sanitizes_forwarded_client_chain_before_loopback_proxy() -> None:
     http, rec, webhook = nginx.split("\nserver {")
 
     assert "10444" not in rec
-    assert "listen 127.0.0.1:10445 ssl http2 proxy_protocol;" in rec
-    assert "listen [::1]:10445 ssl http2 proxy_protocol;" in rec
+    assert "listen 127.0.0.1:10446 ssl http2 proxy_protocol;" in rec
+    assert "listen [::1]:10446 ssl http2 proxy_protocol;" in rec
+    assert "error_log /dev/null;" in rec.split("location", 1)[0]
     assert 'if ($proxy_protocol_addr = "") { return 400; }' in rec
     assert 'if ($host != rec.2brain.pro) { return 421; }' in rec
     # Check every actual API proxy location, including the private share route.
@@ -156,6 +157,21 @@ def test_nginx_sanitizes_forwarded_client_chain_before_loopback_proxy() -> None:
     assert "listen 8443 ssl http2;" in webhook
     assert "proxy_set_header X-Forwarded-For $remote_addr;" in webhook
     assert "proxy_protocol" not in webhook
+
+
+def test_sni_ingress_preserves_existing_map_through_one_private_strip_relay() -> None:
+    routing = (NGINX_PATH.parent / "graf-sni-routing.conf").read_text()
+    assert "rec.2brain.pro 127.0.0.1:10446;" in routing
+    assert "default 127.0.0.1:10447;" in routing
+    assert "listen 127.0.0.1:10447 proxy_protocol;" in routing
+    assert "listen [::1]:10447 proxy_protocol;" in routing
+    assert "proxy_pass $kvn_443_backend;" in routing
+    assert "ssl_preread on;" in routing
+    assert "proxy_protocol off;" in routing
+    assert "access_log off;" in routing
+    assert "error_log /dev/null;" in routing
+    assert "10445" not in routing
+    assert "www.amazon.com" not in routing
 
 
 def test_runtime_image_copy_sources_exist_in_repository() -> None:
