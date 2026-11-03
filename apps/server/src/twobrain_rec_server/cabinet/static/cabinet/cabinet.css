@@ -6573,8 +6573,8 @@ select:focus, .settings-page select:focus, .calendar-settings select:focus {
 .summary-share-dialog[open] { max-height:calc(100dvh - 24px); z-index:40; }
 .meeting-detail-header:has(.summary-share-dialog[open]) { z-index:40; }
 .summary-share-dialog::backdrop { background:transparent; }
-.sharing-invite-form { display:grid; gap:10px; }
-.sharing-invite-form > label,.summary-share-dialog [data-meeting-sharing-panel=share] > label { display:grid; gap:6px; }
+.sharing-invitation-form { display:grid; gap:10px; }
+.sharing-invitation-form > label,.summary-share-dialog [data-meeting-sharing-panel=share] > label { display:grid; gap:6px; }
 .sharing-access-list { margin:16px 0; padding:16px 0; border-top:1px solid var(--line); border-bottom:1px solid var(--line); }
 .sharing-access-list .share-viewer-row { padding:8px 0; flex-wrap:wrap; }
 .sharing-access-list .share-viewer-row > span:first-child { flex:1; min-width:100px; }
