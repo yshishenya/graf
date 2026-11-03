@@ -72,3 +72,7 @@ T015 после T012/T013; подготовка подписанного macOS-�
 ## Phase 11: Convergence
 
 - [X] T019 Исправить R2: надпись копирования и статус в `static/cabinet/summary-sharing.js` должны соответствовать эффективной аудитории при invite_only с expired/replacement_required ссылкой. Дополнить `tests/browser/sharing-owner.test.cjs` проверкой защищённого копирования без продления/ротации и ложного обещания кнопки. [FR-006/019; contracts UX; partial, MEDIUM]
+
+## Phase 12: Convergence
+
+- [ ] T020 Исправить размещение панели в `static/cabinet/summary-sharing.js`: учитывать доступную область кабинета над проигрывателем, чтобы нижние действия оставались достижимы прокруткой в установленном GRAF Dev. В `tests/browser/sharing-owner.test.cjs` воспроизвести настоящую структуру `.app-shell`/`main`/проигрывателя и проверить границы панели и достижимость кнопки копирования; повторить Chromium/WebKit и установленное приложение. [FR-013/017/023; US4/AC1–2; partial, HIGH]

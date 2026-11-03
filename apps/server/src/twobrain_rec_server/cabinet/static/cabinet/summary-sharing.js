@@ -323,7 +323,14 @@
       if(mode==='export'&&!exportForm){exportForm=document.querySelector('[data-content-export-dialog] [data-content-export-form]');if(exportForm){exportParent=exportForm.parentNode;exportNext=exportForm.nextSibling;exportForm.querySelectorAll('.content-export-header,[data-export-dialog-cancel]').forEach(el=>{el.hidden=true;el.dataset.sharingExportHidden='true';});find('[data-sharing-export-host]').append(exportForm);find('[data-sharing-export-empty]').hidden=true;}}
     }
     dialog.querySelectorAll('[data-meeting-sharing-tab]').forEach(button=>{button.addEventListener('click',()=>mainTab(button.dataset.meetingSharingTab));button.addEventListener('keydown',event=>{if(['ArrowLeft','ArrowRight','Home','End'].includes(event.key)){event.preventDefault();mainTab(event.key==='Home'?'share':event.key==='End'?'export':button.dataset.meetingSharingTab==='share'?'export':'share',true);}});});
-    function place(){const rect=opener?.getBoundingClientRect();if(!rect)return;dialog.style.margin='0';dialog.style.position='fixed';dialog.style.left=`${Math.max(12,Math.min(window.innerWidth-dialog.offsetWidth-12,rect.right-dialog.offsetWidth))}px`;dialog.style.top=`${Math.max(12,Math.min(rect.bottom+8,window.innerHeight-dialog.offsetHeight-12))}px`;}
+    function place(){
+      const rect=opener?.getBoundingClientRect();if(!rect)return;
+      const bottom=Math.min(window.innerHeight,opener.closest('main')?.getBoundingClientRect().bottom??window.innerHeight);
+      dialog.style.maxHeight=`${Math.max(0,bottom-24)}px`;
+      dialog.style.margin='0';dialog.style.position='fixed';
+      dialog.style.left=`${Math.max(12,Math.min(window.innerWidth-dialog.offsetWidth-12,rect.right-dialog.offsetWidth))}px`;
+      dialog.style.top=`${Math.max(12,Math.min(rect.bottom+8,bottom-dialog.offsetHeight-12))}px`;
+    }
     dialog.addEventListener('keydown',event=>{if(event.key==='Escape'&&!event.defaultPrevented){event.preventDefault();close();}});
     document.addEventListener('pointerdown',event=>{if(dialog.open&&!dialog.contains(event.target)&&!opener?.contains(event.target))close();},{signal:eventSignal});
     window.addEventListener('resize',()=>{if(dialog.open)place();},{signal:eventSignal});

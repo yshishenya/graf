@@ -7,7 +7,7 @@ const assets = path.join(__dirname, '../../src/twobrain_rec_server/cabinet/stati
   const browser = await (process.env.GRAF_BROWSER === 'webkit' ? webkit : chromium).launch({headless:true});
   try {
     for (const width of [320, 1440]) {
-      const page = await browser.newPage({viewport:{width,height:900}});
+      const page = await browser.newPage({viewport:{width,height:680}});
       page.setDefaultTimeout(5000);
       const mutations=[], errors=[];
       let version=1, audience='invite_only', scope='summary_only', grants=[], workspaceEnabled=false, linkEnabled=true;
@@ -19,7 +19,7 @@ const assets = path.join(__dirname, '../../src/twobrain_rec_server/cabinet/stati
       page.on('dialog',dialog=>dialog.accept());
       await page.route('**/*',async route=>{
         const request=route.request(), url=new URL(request.url());
-        if(url.pathname==='/share')return route.fulfill({contentType:'text/html',body:'<meta charset="utf-8"><meta name="graf-time-user" content="owner"><meta name="graf-workspace" content="workspace"><link rel="stylesheet" href="/cabinet.css">'+'<div class="meeting-detail-header">'+fs.readFileSync(process.argv[2],'utf8')+'</div><section class="playback-bar" style="position:fixed;bottom:0;left:0;right:0;height:180px">Проигрыватель</section><dialog data-content-export-dialog><form data-content-export-form><label>Формат<select><option>TXT</option></select></label></form></dialog>'});
+        if(url.pathname==='/share')return route.fulfill({contentType:'text/html',body:'<meta charset="utf-8"><meta name="graf-time-user" content="owner"><meta name="graf-workspace" content="workspace"><link rel="stylesheet" href="/cabinet.css">'+'<div class="app-shell desktop-embedded"><main class="main detail-page-main"><div class="meeting-detail-header">'+fs.readFileSync(process.argv[2],'utf8')+'</div></main><section class="playback-bar" style="height:180px">Проигрыватель</section></div><dialog data-content-export-dialog><form data-content-export-form><label>Формат<select><option>TXT</option></select></label></form></dialog>'});
         if(url.pathname==='/cabinet.css')return route.fulfill({contentType:'text/css',body:fs.readFileSync(path.join(assets,'cabinet.css'),'utf8')});
         const base='/api/v1/cabinet/meetings/synthetic-meeting';
         if(request.method()!=='GET')mutations.push({path:url.pathname,method:request.method(),body:request.postDataJSON()});
@@ -50,6 +50,11 @@ const assets = path.join(__dirname, '../../src/twobrain_rec_server/cabinet/stati
       releaseGeneral();
       await page.locator('[data-sharing-audience] option[value=workspace]:disabled').waitFor({state:'attached'});
       await page.locator('[data-sharing-scope]:enabled').waitFor();
+      const panel = page.locator('[data-summary-share-dialog]');
+      const panelBox = await panel.boundingBox(), cabinetBox = await page.locator('main').boundingBox();
+      assert(panelBox.y + panelBox.height <= cabinetBox.y + cabinetBox.height, 'Sharing panel must fit above the player');
+      await panel.evaluate(el=>{el.scrollTop=el.scrollHeight;});
+      await page.locator('[data-summary-share-copy]').click({trial:true});
       assert.equal(mutations.length,0,'Opening must not grant access');
       assert.equal(await page.locator('[data-summary-share-copy]').textContent(),'Скопировать ссылку','Closed audience must not promise renewal or rotation');
       await page.getByRole('combobox',{name:'Что доступно получателю'}).selectOption('full_meeting');
