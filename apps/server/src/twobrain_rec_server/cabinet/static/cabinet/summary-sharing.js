@@ -103,7 +103,7 @@
     dialog.addEventListener('click',event=>{if(event.target===dialog)close();});
     dialog.addEventListener('close',()=>{closed=true;clearTimeout(pollTimer);});
     function setBusy(value) {
-      busy=value;copy.disabled=value||!general||general.capabilities?.link===false;send.disabled=value;
+      busy=value;copy.disabled=value||!general||(general.audience==='link'&&general.capabilities?.link===false);send.disabled=value;
       dialog.querySelectorAll('[data-sharing-audience],[data-sharing-scope],[data-summary-share-expiry]').forEach(control=>{control.disabled=value||!general;});
       dialog.setAttribute('aria-busy',String(value));
     }
@@ -127,21 +127,29 @@
       if(data.state==='replacement_required')setStatus('Чтобы скопировать прежнюю ссылку, нужен её адрес. Здесь можно явно заменить её.');
     }
     async function loadLink(){try{renderLink(await api('/link'));}catch(error){setStatus(errorText(error),true);}}
+    async function copyURL(value) {
+      const shareURL=new URL(value,window.location.origin);
+      if(!['https:','http:'].includes(shareURL.protocol)){setStatus('Ссылка пока недоступна.',true);return;}
+      const field=find('[data-summary-share-url]');field.value=shareURL.href;
+      find('[data-summary-share-url-label]').hidden=false;
+      try{await navigator.clipboard.writeText(shareURL.href);setStatus('Ссылка скопирована');}
+      catch(_){field.focus();field.select();setStatus('Выделите и скопируйте ссылку.');}
+    }
     copy.addEventListener('click',()=>action(async()=>{
+      if(!general){setStatus('Обновите настройки доступа.',true);return;}
+      if(general.audience!=='link'){
+        const shareURL=new URL(`/shared-meetings/${encodeURIComponent(meetingId)}`,window.location.origin);
+        shareURL.searchParams.set('workspace_id',workspace);
+        find('[data-sharing-link-label]').textContent='Ссылка с проверкой доступа';
+        await copyURL(shareURL.href);return;
+      }
       if(link?.state==='replacement_required'&&!window.confirm('Заменить ссылку? Прежняя ссылка перестанет работать.'))return;
       if(link?.state==='expired'&&!window.confirm('Продлить срок ссылки? Итоги снова станут доступны по прежнему адресу.'))return;
-      if (general?.audience !== 'link') {
-        if (!general) { setStatus('Обновите настройки доступа.',true); return; }
-        renderGeneral(await meetingAPI('/sharing/general-access',{method:'POST',body:{audience:'link',expected_fingerprint:general.fingerprint,content_scope:find('[data-sharing-scope]').value,template_key:templateKey(),expires_in_days:Number(find('[data-summary-share-expiry]').value)}}));
-      }
       const options={template_key:templateKey(),content_scope:find('[data-sharing-scope]').value,expires_in_days:Number(find('[data-summary-share-expiry]').value)};
       const data=link&&link.state!=='active'?await api(link.state==='expired'?'/link/expiry':'/link/rotate',{method:'POST',body:{grant_id:link.grant_id,expected_version:link.version,...options}}):await api('/link',{method:'POST',body:options});
       renderLink(data);await loadGeneral();
       if(data.state!=='active'||!data.share_url){setStatus('Ссылка пока недоступна. Проверьте её настройки.',true);return;}
-      const shareURL=new URL(data.share_url,window.location.origin);
-      if(!['https:','http:'].includes(shareURL.protocol)){setStatus('Ссылка пока недоступна.',true);return;}
-      try{await navigator.clipboard.writeText(shareURL.href);setStatus('Ссылка скопирована');}
-      catch(_){find('[data-summary-share-url]').focus();find('[data-summary-share-url]').select();setStatus('Выделите и скопируйте ссылку.');}
+      await copyURL(data.share_url);
     }));
     dialog.querySelectorAll('[data-summary-link-action]').forEach(button=>button.addEventListener('click',()=>action(async()=>{
       if(!link)return;const operation=button.dataset.summaryLinkAction;
@@ -251,7 +259,7 @@
         const option=audience.querySelector(`[value="${value}"]`);
         if(option)option.disabled=data.capabilities?.[value]===false;
       }
-      copy.disabled=busy||data.capabilities?.link===false;
+      copy.disabled=busy||(data.audience==='link'&&data.capabilities?.link===false);
       find('[data-sharing-audience-description]').textContent=descriptions[data.audience];
       if(data.link)renderLink(data.link);
     }
