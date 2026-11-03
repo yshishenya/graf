@@ -446,7 +446,7 @@ def test_legacy_visibility_and_disabled_audiences_are_truthful(client, tmp_path)
 
 
 def test_external_full_view_without_file_permissions_opens_recording(client, tmp_path):
-    from tests.fakes.auth_contexts import USER_ID, DEVICE_ID
+    from tests.fakes.auth_contexts import DEVICE_ID, USER_ID
     from tests.integration.test_recording_share_public_link import _independent_invitation_login
     from twobrain_rec_server.cabinet.access import create_share_invitation, open_invitation_delivery
     from twobrain_rec_server.db.models import Meeting
