@@ -67,8 +67,8 @@ T015 после T012/T013; подготовка подписанного macOS-�
 
 ## Phase 10: Convergence
 
-- [ ] T018 Исправить R1 в `static/cabinet/summary-sharing.js`: копирование при invite_only/workspace сохраняет аудиторию и копирует существующий защищённый маршрут без публикации; публичный доступ включается только отдельным подтверждённым выбором. Дополнить `tests/browser/sharing-owner.test.cjs` отрицательными сценариями обеих аудиторий, отменой подтверждения и стабильным повторным копированием; обновить живую проверку `sharing-live.test.cjs` и повторить приёмку до T012/T013. [FR-003/006/024; US1/AC3; contracts UX; partial, HIGH]
+- [X] T018 Исправить R1 в `static/cabinet/summary-sharing.js`: копирование при invite_only/workspace сохраняет аудиторию и копирует существующий защищённый маршрут без публикации; публичный доступ включается только отдельным подтверждённым выбором. Дополнить `tests/browser/sharing-owner.test.cjs` отрицательными сценариями обеих аудиторий, отменой подтверждения и стабильным повторным копированием; обновить живую проверку `sharing-live.test.cjs` и повторить приёмку до T012/T013. [FR-003/006/024; US1/AC3; contracts UX; partial, HIGH]
 
 ## Phase 11: Convergence
 
-- [ ] T019 Исправить R2: надпись копирования и статус в `static/cabinet/summary-sharing.js` должны соответствовать эффективной аудитории при invite_only с expired/replacement_required ссылкой. Дополнить `tests/browser/sharing-owner.test.cjs` проверкой защищённого копирования без продления/ротации и ложного обещания кнопки. [FR-006/019; contracts UX; partial, MEDIUM]
+- [X] T019 Исправить R2: надпись копирования и статус в `static/cabinet/summary-sharing.js` должны соответствовать эффективной аудитории при invite_only с expired/replacement_required ссылкой. Дополнить `tests/browser/sharing-owner.test.cjs` проверкой защищённого копирования без продления/ротации и ложного обещания кнопки. [FR-006/019; contracts UX; partial, MEDIUM]
