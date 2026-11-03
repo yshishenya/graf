@@ -7,12 +7,18 @@
 #undef NDEBUG
 #endif
 #include <cassert>
+#include "../GeneratedRecordingFixtures.h"
 #include <chrono>
+#include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <memory>
 #include <stdexcept>
 #include <thread>
+#ifdef _MSC_VER
+#include <crtdbg.h>
+#endif
 
 namespace {
 const graf::windows::DesktopAccountIdentity owner{
@@ -305,7 +311,7 @@ void testSyncDecoder() {
     }
     // A meeting that is still being ingested is not finalized, and its absent
     // session is not an instruction to open a new one.
-    for (const auto status : {"created", "uploading", "processing", ""}) {
+    for (const auto status : {"created", "uploading", "processing", "", "   "}) {
         const auto active = DesktopHttpTransport::decodeSyncState(
             std::string(R"({"meeting":{"meeting_id":"meeting-id","status":")") + status +
             R"("},"upload_session":null,"conflict":{"state":"none"}})", "local-id");
@@ -324,21 +330,84 @@ void testSyncDecoder() {
     assert(unclassified && unclassified->blockedByConflict && unclassified->retryClass.empty());
 }
 
-template <typename Predicate> void waitFor(Predicate predicate) {
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+template <typename Predicate> void waitForAt(int callsite, Predicate predicate) {
+    const auto start = std::chrono::steady_clock::now();
+    const auto deadline = start + std::chrono::seconds(3);
     while (!predicate()) {
-        assert(std::chrono::steady_clock::now() < deadline);
+        const auto now = std::chrono::steady_clock::now();
+        if (now >= deadline) {
+            const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - start).count();
+            std::fprintf(stderr, "RECOVERY_WAIT_TIMEOUT callsite=%d elapsed_ms=%lld\n",
+                         callsite, static_cast<long long>(elapsed));
+            std::fflush(stderr);
+        }
+        assert(now < deadline);
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
 }
+#define waitFor(...) waitForAt(__LINE__, __VA_ARGS__)
 
-std::size_t runWorker(graf::windows::DesktopUploadRecoveryScheduler& scheduler,
+std::size_t runWorkerAt(int callsite, graf::windows::DesktopUploadRecoveryScheduler& scheduler,
                       graf::windows::RecoveryTrigger trigger,
                       graf::windows::DesktopUploadRecoveryScheduler::WorkerHandler worker) {
     assert(scheduler.startAsync(trigger, std::move(worker)));
     std::size_t handled = 0;
-    waitFor([&] { handled += scheduler.drain(); return !scheduler.busy(); });
+    waitForAt(callsite, [&] { handled += scheduler.drain(); return !scheduler.busy(); });
     return handled;
+}
+#define runWorker(...) runWorkerAt(__LINE__, __VA_ARGS__)
+
+void testAtomicUploadResult(const std::filesystem::path& root) {
+    using namespace graf::windows;
+    for (const bool refuse : {false, true}) {
+        const auto directory = root / (refuse ? "refused" : "accepted");
+        const auto path = directory / "queue.json";
+        const auto package = directory / "package";
+        std::filesystem::create_directories(package);
+        unsigned writes = 0, expiries = 0;
+        bool reject = false, effectBeforeCommit = false;
+        DesktopUploadQueueService queue(path, directory, [&](const auto& custodyRoot, const auto& ledger, auto json) {
+            ++writes;
+            return !reject && AtomicFileStore::writeWithinRoot(custodyRoot, ledger, json).ok();
+        });
+        assert(queue.load());
+        assert(queue.enqueue({"atomic", "directory", "session", package, UploadQueueStatus::pending,
+            {}, 2, "", owner.userId, owner.workspaceId}));
+        const auto read = [&] {
+            std::ifstream input(path, std::ios::binary);
+            return std::string(std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>());
+        };
+        const auto before = read();
+        writes = 0; reject = refuse;
+        DesktopUploadRecoveryScheduler scheduler(queue);
+        scheduler.setSessionExpiryHandler([&](auto seconds) {
+            assert(seconds == 123456);
+            ++expiries;
+            effectBeforeCommit = read() == before;
+        });
+        assert(runWorker(scheduler, RecoveryTrigger::scheduled, [](const auto& item, auto) {
+            UploadServerTruth truth{item.localRecordingId, true, true, {11, 22, 33}, false};
+            truth.meetingId = "meeting-id";
+            return DesktopTransportResult{DesktopTransportStatus::retryableFailure,
+                truth, {}, {}, 60, 123456};
+        }) == 1);
+        std::fprintf(stderr, "UPLOAD_RESULT atomic_write_count=%u refused=%u\n", writes, refuse ? 1U : 0U);
+        std::fflush(stderr);
+        assert(writes == 1 && "upload_result_requires_one_durable_write");
+        DesktopUploadQueueService restarted(path, directory);
+        assert(restarted.load() && restarted.items().size() == 1);
+        const auto& row = restarted.items()[0];
+        if (refuse) {
+            assert(queue.quarantined() && read() == before && row.status == UploadQueueStatus::pending);
+            assert((row.acceptedBytes == std::array<std::uint64_t, 3>{}) && row.meetingId.empty());
+            assert(expiries == 0 && scheduler.deferralRemainingMs() == 0 && "upload_result_effects_require_durable_ack");
+        } else {
+            assert(row.status == UploadQueueStatus::retry && row.safeReason == "rate_limited" && row.attempts == 2);
+            assert((row.acceptedBytes == std::array<std::uint64_t, 3>{11, 22, 33}) && row.meetingId == "meeting-id");
+            assert(expiries == 1 && !effectBeforeCommit && scheduler.deferralRemainingMs() > 0);
+        }
+    }
+    std::fputs("UPLOAD_RESULT atomic_truth_status_and_effect_ack=pass\n", stderr);
 }
 
 void testPermanentRejectionDurability(const std::filesystem::path& root) {
@@ -473,9 +542,9 @@ void testManualRetry(const std::filesystem::path& root) {
     }) == 1);
 }
 
-// Exercise the production upload sequence with local v5 bytes and synthetic HTTP
-// answers. Only the wire is replaced: create, part receipts, finalize, scheduler
-// and durable queue transitions are the same as in the app.
+// Exercise legacy-package compatibility and the production upload sequence
+// with generated input and synthetic HTTP answers. Windows' AAC input comes
+// from the genuine protected writer, exported only into this test root.
 void testUploadProblemResponses(const std::filesystem::path& root) {
     using namespace graf::windows;
     using Response = DesktopHttpTransport::UploadResponse;
@@ -485,17 +554,14 @@ void testUploadProblemResponses(const std::filesystem::path& root) {
         const auto directory = root / std::to_string(++caseNumber);
         const auto package = directory / "package";
         std::filesystem::create_directories(package);
-        V5LocalRecordingWriter writer(package, [](const auto& path, const auto&, std::uint64_t) {
-            std::ofstream output(path, std::ios::binary);
-            output << "synthetic-playback";
-            return output.good();
-        });
-        CanonicalAudioFrame frame; frame.mixed.fill(0.25F);
-        assert(writer.append(frame));
-        const auto written = writer.finalize();
-        assert(written.ok());
+        const auto written = testing::makeGeneratedLegacyPackage(package, 100);
+        assert(written.durationMs == 1000);
         const auto before = LocalRecordingPackage::inspect(package, directory);
+#ifdef _WIN32
         assert(before.integrity == PackageIntegrity::valid);
+#else
+        assert(before.integrity == PackageIntegrity::malformed && before.durationMs == 1000);
+#endif
         const std::array<std::uint64_t, 3> sizes{
             std::filesystem::file_size(package / "manifest.json"), written.wavBytes, written.playbackBytes};
         DesktopUploadQueueService queue(directory / "queue.json", directory);
@@ -506,6 +572,20 @@ void testUploadProblemResponses(const std::filesystem::path& root) {
         config.sessionToken = "synthetic-session";
         config.workspaceId = owner.workspaceId;
         config.confirmedIdentity = owner;
+#ifndef _WIN32
+        // Portable inspection cannot attest AAC. Exercise the real refusal,
+        // while Windows executes the complete server-stage matrix below.
+        unsigned refusedSends = 0;
+        const auto refused = DesktopHttpTransport(config).upload(queue.items()[0], [&](const auto&, const auto&) {
+            ++refusedSends;
+            return Response{503, ""};
+        });
+        assert(refused.status == DesktopTransportStatus::invalidPackage && refusedSends == 0);
+        assert(std::filesystem::file_size(written.wavPath) == written.wavBytes);
+        assert(std::filesystem::file_size(written.playbackPath) == written.playbackBytes);
+        assert(LocalRecordingPackage::inspect(package, directory).durationMs == before.durationMs);
+        return;
+#endif
         unsigned calls = 0, rangeReads = 0, parts = 0;
         bool failed = false;
         const DesktopHttpTransport::UploadSend send = [&](const DesktopHttpConfig& requestConfig,
@@ -647,15 +727,14 @@ void testSyncNotRetryableRecovery(const std::filesystem::path& root) {
     const auto package = root / "package";
     const auto ledger = root / "queue.json";
     std::filesystem::create_directories(package);
-    V5LocalRecordingWriter writer(package, [](const auto& path, const auto&, std::uint64_t) {
-        std::ofstream output(path, std::ios::binary);
-        output << "synthetic-playback";
-        return output.good();
-    });
-    CanonicalAudioFrame frame; frame.mixed.fill(0.25F);
-    assert(writer.append(frame) && writer.finalize().ok());
+    const auto written = testing::makeGeneratedLegacyPackage(package, 100);
+    assert(written.durationMs == 1000);
     const auto before = LocalRecordingPackage::inspect(package, root);
+#ifdef _WIN32
     assert(before.integrity == PackageIntegrity::valid);
+#else
+    assert(before.integrity == PackageIntegrity::malformed && before.durationMs == 1000);
+#endif
     const auto read = [](const std::filesystem::path& path) {
         std::ifstream input(path, std::ios::binary);
         assert(input.good());
@@ -672,6 +751,18 @@ void testSyncNotRetryableRecovery(const std::filesystem::path& root) {
     config.sessionToken = "synthetic-session";
     config.workspaceId = owner.workspaceId;
     config.confirmedIdentity = owner;
+#ifndef _WIN32
+    unsigned refusedSends = 0;
+    const auto refused = DesktopHttpTransport(config).upload(queue.items()[0], [&](const auto&, const auto&) {
+        ++refusedSends;
+        return DesktopHttpTransport::UploadResponse{503, ""};
+    });
+    assert(refused.status == DesktopTransportStatus::invalidPackage && refusedSends == 0);
+    assert(read(package / "manifest.json") == manifest);
+    assert(read(package / "meeting-transcription.wav") == media);
+    assert(read(package / "meeting-review.m4a") == playback);
+    return;
+#endif
     unsigned calls = 0;
     const DesktopHttpTransport::UploadSend send = [&](const auto& requestConfig, const auto& request) {
         // Only the wire is replaced. A conflict must stop create/parts/finalize.
@@ -716,8 +807,7 @@ void testSyncNotRetryableRecovery(const std::filesystem::path& root) {
     assert(calls == 1 && restarted.pendingItems(32).empty());
     const auto after = LocalRecordingPackage::inspect(package, root);
     assert(after.integrity == before.integrity && after.durationMs == before.durationMs);
-    // Portable inspection cannot attest to AAC decoding; byte readability and
-    // integrity must survive even when playbackAvailable was already false.
+    // The native AAC remains locally playable despite the server rejection.
     assert(after.playbackAvailable == before.playbackAvailable);
     assert(read(package / "manifest.json") == manifest);
     assert(read(package / "meeting-transcription.wav") == media);
@@ -911,6 +1001,41 @@ struct PausedWork {
         return {graf::windows::DesktopTransportStatus::uploaded, decoded->truth};
     }
 };
+
+void testWorkerTeardown(const std::filesystem::path& root) {
+    using namespace graf::windows;
+    std::filesystem::create_directories(root / "package");
+    DesktopUploadQueueService queue(root / "queue.json", root);
+    assert(queue.load());
+    assert(queue.enqueue({"teardown", "directory", "session", root / "package",
+        UploadQueueStatus::pending, {}, 0, "", owner.userId, owner.workspaceId}));
+    auto call = std::make_shared<PausedWork>();
+    auto teardown = std::make_shared<PausedWork>();
+    auto lease = std::shared_ptr<int>(new int{}, [teardown](int* value) {
+        teardown->entered.store(true);
+        waitFor([&] { return teardown->release.load(); });
+        delete value;
+    });
+    DesktopUploadRecoveryScheduler scheduler(queue), replacement(queue);
+    assert(scheduler.startAsync(RecoveryTrigger::launch,
+        [lease, call](const auto&, auto) -> DesktopTransportResult {
+            (void)lease;
+            call->entered.store(true);
+            waitFor([&] { return call->release.load(); });
+            return {DesktopTransportStatus::uploaded, std::nullopt};
+        }));
+    waitFor([&] { return call->entered.load(); });
+    lease.reset();
+    call->release.store(true);
+    waitFor([&] { return teardown->entered.load(); });
+    assert(scheduler.busy() && scheduler.drain() == 0);
+    assert(queue.items()[0].status == UploadQueueStatus::pending);
+    assert(!replacement.startAsync(RecoveryTrigger::launch, [](const auto&, auto) { return DesktopTransportResult{}; }));
+    teardown->release.store(true);
+    std::size_t handled = 0;
+    waitFor([&] { handled += scheduler.drain(); return !scheduler.busy(); });
+    assert(handled == 1 && queue.items()[0].status == UploadQueueStatus::uploaded);
+}
 
 void testWorker(const std::filesystem::path& root) {
     using namespace graf::windows;
@@ -1145,8 +1270,22 @@ void testConfirmedIdentitySnapshot() {
     assert(DesktopHttpTransport::ownerBlockReason(foreign, snapshot.identity) == "account_mismatch");
 }
 
-int main() {
+int main(int argc, char** argv) {
     using namespace graf::windows;
+    if (argc == 2 && std::string_view(argv[1]) == "--atomic-result") {
+#ifdef _MSC_VER
+        _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
+        _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_FILE);
+        _CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);
+#endif
+        const auto root = std::filesystem::temp_directory_path() /
+            ("graf-atomic-result-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+        testAtomicUploadResult(root);
+        testPermanentRejectionDurability(root / "permanent");
+        std::fputs("UPLOAD_RESULT permanent_rejection_durability=pass\n", stderr);
+        std::filesystem::remove_all(root);
+        return 0;
+    }
     testSyncDecoder();
     testAccountIdentity();
     testWorkspaceBootstrap();
@@ -1157,6 +1296,7 @@ int main() {
     const auto path = root / "desktop-upload-queue.json";
     const auto package = root / "recording";
     std::filesystem::create_directories(package);
+    testAtomicUploadResult(root / "atomic-result");
     testManualRetry(root / "manual");
     testPermanentRejectionDurability(root / "permanent-durability");
     testUploadProblemResponses(root / "problem-responses");
@@ -1166,6 +1306,7 @@ int main() {
     testSessionDeadlineHeader();
     testConfirmedIdentitySnapshot();
     testTransientIdentityRecovery(root / "identity-recovery");
+    testWorkerTeardown(root / "worker-teardown");
     testWorker(root / "worker");
     testOwnerRecovery(root / "owner");
     DesktopUploadQueueService queue(path, root); assert(queue.load());

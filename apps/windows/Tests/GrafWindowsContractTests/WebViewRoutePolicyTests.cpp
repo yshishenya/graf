@@ -4,6 +4,150 @@
 #undef NDEBUG
 #endif
 #include <cassert>
+#include <utility>
+#include <vector>
+
+static void safeHistoryContract() {
+    using namespace graf::windows;
+    const WebViewRoutePolicy policy;
+    const auto origin = policy.trustedOrigin();
+    const auto list = origin + "/desktop/meetings";
+    const auto detail = list + "/meeting-1";
+    const auto settings = origin + "/desktop/settings";
+    const auto notifications = origin + "/desktop/notifications";
+    SafeHistory history;
+    const auto admit = [&](std::vector<WebHistoryEntry> entries, std::size_t index,
+                           const std::string& source, std::string_view method = "GET") {
+        assert(history.acceptSnapshot(history.revision(), std::move(entries), index, source));
+        return history.confirmCurrent(policy, history.revision(), source, method);
+    };
+    const auto targetIs = [&](bool back, int id) {
+        const auto target = history.target(policy, back);
+        return target && target->id == id;
+    };
+    assert(!history.current() && !history.target(policy, true) && !history.allGet(policy));
+    assert(admit({{1, list}}, 0, list));
+    assert(history.allGet(policy)); // No target is not quarantine.
+    assert(!history.target(policy, true) && !history.target(policy, false));
+    assert(admit({{1, list}, {2, detail}}, 1, detail));
+    assert(targetIs(true, 1)); // Positive cases forbid an always-deny implementation.
+    assert(admit({{1, list}, {2, detail}}, 0, list));
+    assert(targetIs(false, 2));
+    assert(admit({{1, list}, {2, detail}, {3, detail}}, 2, detail));
+    assert(targetIs(true, 1)); // Nearest distinct, not a duplicate URL.
+    assert(admit({{1, list}, {2, detail}, {3, detail}}, 0, list));
+    assert(targetIs(false, 2));
+
+    history.clear();
+    assert(admit({{1, list}}, 0, list));
+    assert(admit({{1, list}, {2, settings}}, 1, settings));
+    assert(admit({{1, list}, {2, settings}, {3, notifications}}, 2, notifications));
+    assert(admit({{1, list}, {2, settings}, {3, notifications}, {4, detail}}, 3, detail));
+    assert(targetIs(true, 1)); // Meeting Back skips settings and the inbox.
+    assert(admit({{1, list}, {2, settings}, {3, notifications}, {4, detail}}, 2, notifications));
+    assert(targetIs(true, 2)); // Ordinary pages retain ordinary safe history.
+    assert(targetIs(false, 4));
+
+    // Unknown/POST anywhere, even an unrelated forward URL, quarantines ALL BF.
+    assert(history.acceptSnapshot(history.revision(), {{1, list}, {2, settings}, {3, notifications},
+        {4, detail}, {5, origin + "/billing"}}, 2, notifications));
+    assert(!history.allGet(policy));
+    assert(!history.target(policy, true) && !history.target(policy, false));
+    assert(admit({{1, list}, {2, settings}, {3, notifications}, {4, detail},
+        {5, origin + "/billing"}}, 4, origin + "/billing", "POST") == false);
+    assert(!history.target(policy, true));
+    // Renaming the unsafe entry cannot turn it into an earlier confirmed GET.
+    assert(admit({{1, list}, {2, settings}, {3, notifications}, {4, detail}, {5, list}}, 3, detail));
+    assert(!history.target(policy, true));
+    assert(admit({{1, list}, {2, settings}, {3, notifications}, {4, detail}, {5, list},
+        {6, list}}, 5, list)); // A fresh GET does not rehabilitate old POST ID 5.
+    assert(!history.target(policy, true));
+
+    // A reset snapshot alone proves nothing about a different remaining entry.
+    assert(history.acceptSnapshot(history.revision(), {{7, list}}, 0, list));
+    assert(!history.currentIsGet(policy));
+    assert(history.confirmCurrent(policy, history.revision(), list, "GET"));
+    assert(admit({{7, list}, {8, settings}}, 1, settings));
+    assert(targetIs(true, 7));
+    auto revision = history.revision();
+    history.invalidate();
+    assert(!history.allGet(policy));
+    assert(!history.current() && !history.target(policy, true));
+    assert(!history.acceptSnapshot(revision, {{7, list}, {8, settings}}, 1, settings));
+    assert(!history.confirmCurrent(policy, revision, settings, "GET"));
+    assert(admit({{7, list}, {8, settings}}, 1, settings));
+    assert(targetIs(true, 7));
+    // A late callback cannot overwrite a newer accepted snapshot either.
+    revision = history.revision();
+    assert(history.acceptSnapshot(revision, {{7, list}, {8, settings}}, 1, settings));
+    assert(!history.acceptSnapshot(revision, {{7, list}}, 0, list));
+    assert(!history.confirmCurrent(policy, revision, settings, "POST"));
+    assert(targetIs(true, 7));
+    history.forgetEntry(7); // Actual replacement, not a cancelled provisional load.
+    assert(admit({{7, list}, {8, settings}}, 1, settings));
+    assert(!history.target(policy, true));
+    assert(admit({{7, list}, {8, settings}}, 0, list));
+    assert(admit({{8, settings}}, 0, settings)); // Evicted proof cannot reappear.
+    assert(admit({{7, list}, {8, settings}}, 1, settings));
+    assert(!history.target(policy, true));
+    assert(admit({{7, list}, {8, settings}}, 0, list));
+    assert(history.acceptSnapshot(history.revision(), {{7, list + "#new"}, {8, settings}}, 1, settings));
+    assert(!history.target(policy, true)); // Same ID/new URL does not inherit proof.
+    assert(admit({{7, list}, {8, settings}}, 0, list));
+    assert(targetIs(false, 8));
+    history.clear();
+    assert(admit({{7, list}, {8, settings}}, 1, settings));
+    assert(!history.target(policy, true)); // Session clear removes every old proof.
+    assert(admit({{7, list}, {8, settings}}, 0, list));
+    assert(targetIs(false, 8));
+    assert(!history.confirmCurrent(policy, history.revision(), settings, "GET"));
+    assert(!history.target(policy, false)); // Response/source mismatch is not GET.
+
+    const auto malformed = [&](std::vector<WebHistoryEntry> entries, std::size_t index,
+                               const std::string& source) {
+        history.clear();
+        assert(admit({{1, list}}, 0, list));
+        assert(admit({{1, list}, {2, settings}}, 1, settings));
+        assert(targetIs(true, 1));
+        assert(!history.acceptSnapshot(history.revision(), std::move(entries), index, source));
+        assert(!history.current() && !history.target(policy, true));
+    };
+    malformed({}, 0, settings);
+    malformed({{1, list}, {1, settings}}, 1, settings);
+    malformed({{-1, list}}, 0, list);
+    malformed({{1, list}}, 1, list);
+    malformed({{1, list}}, 0, settings);
+    malformed({{1, ""}}, 0, "");
+    malformed({{1, list + "\n"}}, 0, list + "\n");
+    malformed({{1, list + "\\"}}, 0, list + "\\");
+    malformed({{1, std::string(8193, 'x')}}, 0, std::string(8193, 'x'));
+    std::vector<WebHistoryEntry> oversized;
+    for (int i = 0; i < 129; ++i) oversized.push_back({i, list});
+    malformed(std::move(oversized), 0, list);
+    history.clear();
+    const auto login = origin + "/login";
+    assert(history.acceptSnapshot(history.revision(), {{1, login}}, 0, login));
+    assert(!history.confirmCurrent(policy, history.revision(), login, "GET"));
+    assert(!history.currentIsGet(policy));
+    for (const auto& ordinary : {list, origin + "/desktop/shared-with-me", origin + "/desktop/deletion-report"}) {
+        history.clear();
+        assert(admit({{1, settings}}, 0, settings));
+        assert(admit({{1, settings}, {2, ordinary}}, 1, ordinary));
+        assert(history.allGet(policy) && targetIs(true, 1));
+        history.clear();
+        assert(admit({{1, detail}}, 0, detail));
+        assert(admit({{1, detail}, {2, settings}}, 1, settings));
+        assert(admit({{1, detail}, {2, settings}, {3, ordinary}}, 2, ordinary));
+        assert(targetIs(true, 2)); // Lists do not inherit the detail-only Back restriction.
+    }
+    for (const auto& review : {detail, origin + "/desktop/review/meeting-1", detail + "/share", detail + "/deletion-report"}) {
+        history.clear();
+        assert(admit({{1, list}}, 0, list));
+        assert(admit({{1, list}, {2, settings}}, 1, settings));
+        assert(admit({{1, list}, {2, settings}, {3, review}}, 2, review));
+        assert(targetIs(true, 1));
+    }
+}
 
 static void paymentAndResponseContract() {
     using namespace graf::windows;
@@ -121,6 +265,7 @@ static void billingActionParityContract() {
 }
 
 int main() {
+    safeHistoryContract();
     billingActionParityContract();
     paymentAndResponseContract();
     using namespace graf::windows;

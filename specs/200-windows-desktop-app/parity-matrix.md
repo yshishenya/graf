@@ -473,3 +473,646 @@ T104/T105 сохраняют настройки/показ/сроки уведо
 Разрешение существующего события не новая интеграция календарного провайдера
 и не calendar_match_attempt_id записи. Дизайн уточнён, implementation/live
 Windows/Mac parity ещё OPEN. Текущий пакет0.1.0.12 этого изменения не содержит.
+
+## Актуальная сверка и T104 — 2026-10-21
+
+Read-only эталон master `c4dc6d470446f03acfbafb1d3d80d780f8159314`;
+вливание в dirty Windows ветку не выполнялось. Четыре billing routes и native
+notification settings v2 уже присутствуют в текущих исходниках Windows.
+Ранние исторические строки об их отсутствии не описывают этот срез.
+
+Подтверждённое отличие F277: temporary calendar failure закрывал обычную
+видимую карточку. Исправлен current source T104: только текущая карточка до
+исходного wall/steady срока, без второго звука/старой следующей встречи;
+definitive/auth/context/quiet/capture остаются terminal. Native5 Debug6/6,
+source216 `ce0eefe6314465e25c1e620358bc08047ff843f2768887e7252f5ee3b4e2d83d`;
+focused Mac5/5, SOURCE review C0/H0/M0. Не installed/UI acceptance: T104 открыт.
+Полный portable48 имеет2 отказа ожиданий manual-send/ownership; общего PASS нет.
+Подробности — validation-2026-10-02.md, раздел 2026-10-21 T104.
+
+Следующие подтверждённые границы: T120 непрочитанный native WASAPI prefix
+Pause→Resume, T112 approved-release provisioning updater и T071 verified-target
+hardware coverage. Это не наблюдённая утечка или разрешение расширять trust list.
+Установленная версия, внешняя подпись, physical x64 и полный паритет не приняты.
+
+### 2026-10-21 — повторная проверка полного portable набора
+
+Старые ожидания назначения и отправки исправлены только в двух тестах по
+принятому T116 contract: неизвестная/legacy owner pair не получает claim;
+подтверждение prepared signed-out row и свежая проверка callback обязательны.
+Short wiring проверяет retirement/adoption до physical discard и настоящий
+keepablePackage guard. Итоговый portable CTest48/48 PASS; native Debug2/2 PASS,
+включая10 actual native popup cases без timeout. Source216
+`e84da3307ed78e4bd651f51aba5ba56147ae39daf7efa4d00cdfb59ccd2b334a`.
+Это заменяет прежний итог46/48, но не installed/hardware acceptance или полную
+T116. T120 native unread prefix остаётся OPEN; не доказана реальная утечка.
+
+### 2026-10-21 — новый T120 unread RED после снимка48/48
+
+Новый default CaptureFaultStateTests case воспроизводит ненулевой старый mic
+после публичных Pause/Resume при первом чтении source packets после Resume.
+Host и Windows Debug дали ожидаемый named RED после system/PTS/AEC/EOS/finalizer
+guards; три прежних native async/fifo/prefetch controls проходят. Source216
+`e13853cc5a3a374cd671413418558e2fdc5e328d141272c31e1529190ac286bb`.
+Это synthetic consumer failure, не чтение микрофона/COM FIFO и не установленная
+утечка. Предыдущий48/48 — исторический снимок до добавления этой регрессии;
+текущий полный набор не GREEN. Production boundary/fix T120 ещё не приняты.
+
+T120 partial-prefix prerequisite: input-only scalar и zero-before-resample
+проходят full AudioNormalizerTests на host/Windows Debug (160 сочетаний и16
+invalid/sticky случаев). System и свежий suffix сохранены. Source216
+`63fae10e816fc005403783f243b7448a5cbae9ead16b9d9261125247768bbb0e`.
+Текущий full portable47/48: единственный отказ — явный unread RED; три прежних
+native controls проходят. Native frontier пока не подключён: общий T120 OPEN.
+
+### 2026-10-21 — T120 same-stream Resume: synthetic unread GREEN
+
+Worker/controller теперь согласуют logical native frame boundary до смены epoch,
+между освобождёнными пакетами. Старые unread frames подавляются до resampling;
+частичный пакет сохраняет свежий suffix. Exact S_OK/QPC/frequency/rate/overflow,
+deadline/Stop/late ACK и прежние clock/PTS guards не ослаблены. CLOSE получает
+receipt native measurement, не время UI ACK; защищённый OPEN остаётся обязательным.
+
+Current source216 `45c9b7e02d3103260515f7161be45af4baa01b8300d559ea666e935951b6438c`:
+portable48/48 PASS, Windows Debug build0 и7/7 serial groups PASS, включая полный
+CaptureFaultStateTests. Unread/full/partial/delayed-ACK samples проходят после
+EOS/finalizer;13 clock refusals/retry и Stop/late result/throwing handler покрыты.
+Предыдущие47/48 и unread RED — исторические снимки, не текущий итог.
+
+Это synthetic acquisition/clock/checkpoint proof, не actual COM capture или
+durable/UI acceptance установленного MSIX. Actual native clock callback собран,
+но в этих tests заменён источником metadata. T116/T120, physical x64/60min,
+accessibility/install и полный визуальный/функциональный паритет остаются OPEN.
+Подробности и exact hashes — validation-2026-10-02.md, T120 same-stream Resume.
+
+Окончательный snapshot после удаления избыточного поля/условия: source216
+`59ad0f4787682aa19fb7b30b5aa6297ad5b17dc6302b49a46fe8d1b29a34569c`.
+Повторно portable48/48 и Windows Debug7/7, включая full controller; actual PE
+hashes сверены в guest. NativeProtectedPrivacyFlow и actual COM clock ещё нужны:
+старый generatedProducer не обслуживает новый mailbox. Не whole-app PASS.
+
+Уточнение2026-10-21: existing NativeProtectedPrivacyFlow теперь отдельно
+проверен actual RED→GREEN. После test-only opt-in настоящих consumePacket/
+Resume mailbox прошли public Pause/Resume/Pause/Stop, два durable закрытых
+сегмента, cold semantic/hash/AAC/30000ms и exact resources. Source216
+`d995b9cfb313fd651d22c7c61b548cbefb148e787e82824bcfb12a8132a81e5b`;
+production совпадает с native4. Не выдавать этот metadata consumer PASS
+за fresh microphone после Resume: все3000 blocks в нём до Resume.
+Unread/partial→fresh cold canonical proof, actual COM, installed/hardware/
+accessibility/release остаются отдельными открытыми критериями T120/T116.
+
+Уточнение2026-10-21, source216 `396766d44cf35e929a2abe91a2f345f347f2adef140490f93174053d010f5b2d`:
+native sampler механически выделен в private Windows helper, общий для worker
+и отдельной metadata-only диагностики. Windows Debug build/link и две pure
+checks прошли без COM/device; portable48/48 и protected privacy metadata flow
+повторно GREEN. Это подготовка actual-clock proof, не его результат: живой
+запуск не выполнялся из-за locked Mac. Пакет/сервер не обновлялись; прежние
+границы cold fresh audio, installed/hardware и T120/T116 остаются открытыми.
+
+На этом же source216 отдельно завершилась Windows Debug regression7/7,
+включая full controller, postflight216/owned0/outer0. Настоящая clock-проба
+пока не активировала устройство: повторная проверка desktop всё ещё locked.
+
+### 2026-10-21 — T120 synthetic cold fresh-audio proof
+
+Existing protected privacy flow усилен без нового CLI: genuine public
+Pause/Resume между pre-recorded frame0 и двумя unread source packets, checked
+B1200, partial prefix240 и fresh suffix240. После EOS/finalizer/cold reopen
+проверены все1440000 mixed canonical samples, точные length/EOF и прежние
+две CLOSED metadata/30s/hash/AAC/restart/resource gates. Debug build0/test0,
+postflight216/owned0/outer0; source216
+`0de1d3b969115c42c9dc30db1c1a10704b6850206a12fd9f5483fe09cc1445c2`.
+В отличие от прежнего metadata-only smoke свежий generated mic теперь
+действительно достигает cold canonical, а старый участок остаётся подавленным.
+Это не actual COM, отдельные сериализованные дорожки/PTS, реальный AEC или
+installed/hardware/full T120 acceptance. Сервер/пакет не обновлялись.
+
+### 2026-10-21 — новый эталон master: F136, проверка соответствия открыта
+
+Live git ls-remote подтвердил master
+`ec0f636543d939f627e8c124f59340240503e246`, новее утреннего c4dc6d470.
+Изменение Mac `0648784cf9a5365220e421d77c8eb51e3bea6907` (#7668) сохраняет
+кабинет при обычной форме и различает безопасную GET-историю/границу сессии.
+Автоматического merge/cherry-pick в dirty F200 не было. В текущем Windows
+WebView2Host safeRecoveryUrl проверяет метод для восстановления, но native
+back/forward делегируют CoreWebView2 напрямую; этого чтения недостаточно для
+подтверждения соответствия новым сценариям Mac. Нужна отдельная трассировка
+форм, отмены до commit и истории после смены сессии в существующих T088/T103/T097.
+Ни равенство поведения, ни наблюдавшийся повтор POST этой записью не заявлены.
+
+### 2026-10-21 — F136/T103: actual Windows history RED и проверка native entry API
+
+На текущем Windows Runtime fresh fixture собрана из54 TU с /W4 /WX.
+Обычная GET-история A/B/C/B/A/B/C и интерактивный login POST400 проходят;
+host Back после GET-A/POST-B/GET-C приводит к unavailable. Этот отказ повторён
+после исправления oracle: cancelled/failed completion больше не считается
+committed document. Повторного POST сервер не наблюдал.
+Отдельный diagnostic case умеет восстановить A/C по настоящим Chromium entry IDs,
+включая одинаковый URL GET-A/POST-B; POST остаётся1, штатный bootstrap проходит.
+В одном PE history4 итог4PASS/1FAIL, общий exit1 сохранён. Это пригодность API,
+не исправленный host Back. Нужны precommit/session/gesture/stale-callback proof
+и production implementation в T103/T088, затем installed T097. Нормативы,
+master, сервер и установленное приложение не менялись; подробности —
+validation-2026-10-02.md, раздел T103 от2026-10-21.
+
+### 2026-10-22 — подтверждённые препятствия, не приёмка
+
+Тест отменённого перехода воспроизвёл потерю действующего кабинета (T103).
+В общий NavigationStarting добавлена защита от уже выставленного Cancel;
+проверка исправления завершена: cancel-before-start PASS против прежнего RED.
+Свежая native x64 fixture выполнила19 сценариев:18PASS/1FAIL, общий exit1.
+Прежний Back после POST остаётся RED; диагностический выбор browser entry ID
+не подменяет его приёмку. Actual guest PE hash MATCH, profile-owned processes0.
+Один настоящий замер часов микрофона в Parallels отклонён: paired QPC на3.4615ms
+старше интервала вызова. Устройство освобождено за180ms, PCM не читался;
+повтора или ослабления приватности не было. Это не прохождение T120/Resume.
+Подробности и SHA — validation-2026-10-02.md, разделы от2026-10-22.
+
+### 2026-10-22 — настоящий Back при одинаковом адресе, focused 5/7
+
+В существующие тесты добавлен actual-host same-URL случай: GET-A и POST-B
+имеют один URL, но browser IDs5/6; GET-C имеет ID8. Все три документа приняты
+до настоящего host Back. Возврат приводит к unavailable/status0/document0,
+даже когда оба source URL совпадают с ожидаемым. Повторный POST не наблюдался.
+Свежая fixture x64:5PASS/2FAIL из семи выбранных сценариев; второй FAIL —
+прежний history-post. Обычная GET-история, оба diagnostic entry-ID controls,
+login POST400 и исправленная ранняя отмена проходят. Общий exit1 сохранён,
+actual guest PE MATCH/owned0; default20 целиком не запускался. Это test-first
+воспроизведение пробела, не изменение production navigation или установленного
+пакета. T103/T088/T097 остаются открытыми; source/PE/log SHA и подробный oracle
+зафиксированы в validation-2026-10-02.md, отдельный focused5/7 раздел.
+
+### 2026-10-22 — отмена истории и same-document, focused 8/10
+
+Свежая native x64 fixture добавила три положительных доказательства: отмена
+actual host Back, отмена script history.go(-2), replaceState/hash без потери
+native authority. Проверены retained entry, настоящий dispatch со старым nonce
+и следующий новый документ; POST не повторяется. Из десяти выбранных cases
+восемь PASS, оба прежних Back-after-POST FAIL сохраняют общий exit1. Default23
+целиком не запускался. Actual guest PE MATCH, exact-profile owned0; installed
+пакет не обновлялся. Подробности/SHA — validation-2026-10-02.md, focused8/10.
+
+Чтение merged Mac F136 уточнило oracle: safe fresh meetings-list fallback с
+synthetic forward допускается вместо original browser entry. Поэтому прежний
+original-ID case — diagnostic, не единственный критерий Mac parity. Его
+фактический unavailable/document0 всё ещё неисправность, не разрешённый fallback.
+Новый production owner не реализован; T103/T088/T097 остаются открытыми.
+
+2026-10-22 stage9: fresh native build PASS; три controls (entry-same-url,
+cancel-host, same-document) PASS, два конкурирующих traversal опыта
+INCONCLUSIVE/nonzero. В одном конкурент не исполнился из исходной встречи,
+в другом кабинет завершился unavailable; unsafe POST restore не установлен.
+Source216/PE/owned0 квалифицированы отдельно; default23/installed/full T103
+не приняты. Совпадение URL/final GET не выдано за безопасную корреляцию.
+Следующий research-кандидат — conservative unsafe/unknown URL veto с полезной
+native GET history и Mac fallback, ещё не production implementation.
+
+2026-10-22, продолжение T103: same-URL candidate заменён ALL-entries GET guard
+из-за переименования unsafe POST. Portable SafeHistory реализован в existing
+route policy с positive BF/meeting-filter и negative POST/lifetime/bounds tests.
+Обычная сборка, optimized и ASan/UBSan PASS; guard-mutant ожидаемо RED.
+Это не WebView2Host integration и не native/installed PASS. Pre-code C0/H0
+portable-only, source review/API reset/fallback/singleForward следуют отдельно.
+T103/T088/T097 и общий паритет остаются открытыми.
+
+2026-10-22 stage10/11: fresh native x64 build PASS; первый запуск остановился
+на synthetic server readiness до fixture (0 cases), причина не установлена.
+Build-less replay того же exact PE прошёл4/4, включая новый reset mechanism:
+тот же singleton current ID/document после history reset, реальный bridge,
+новая GET-история и actual selected Back/Forward с методом/ID/DOM/latch proof.
+Обычный/optimized policy suite прошёл также MSVC x64. Fixture ALL-navigation
+fence не принимает production безопасность: SafeHistory ещё не подключён к
+host, T103/T088/T097 и установленный пакет/общий паритет не приняты.
+
+2026-10-22 stage12: новые production tests-first дали native build PASS,
+all-GET actual host BF PASS и meaningful quarantine Back RED на прежнем host
+после подтверждённых A/POST-B/C. Неверное начало возврата не считается safe
+fresh-list fallback. Overall1/2, exit1; exact PE/source216/owned0 проверены.
+Default23 migration сохранит все IDs, но заменит несовместимые unsafe traversal
+ожидания production-denial/fresh-fallback oracles по approved plan matrix.
+Actual host и установленный пакет ещё не исправлены; полный паритет открыт.
+
+2026-10-22 stage18: SafeHistory подключён к actual host. После диагностических
+RED исправлены лишний GET при привязке аккаунта и отмена разрешённой GET-истории
+из-за сохранённого browser request marker. Frozen MSVC/WebView2 suite27/27 PASS:
+ordinary useful BF, fresh-list/reset/singleForward/useful new BF без POST replay,
+production unsolicited denial, сохранение authority после cancel и два настоящих
+held-continuation контроля. Source2164b8f57ba…/PE3946e721…/owned0/input/runtime
+проверены; installed пакет не менялся. Это узкий native функциональный результат,
+не общий паритет: fresh-list302login, остальные session/reset/metadata/race
+группы, T103/T088/T097/UI/hardware/E2E/release остаются открытыми.
+
+Дополнение2026-10-22 stage21: host385b/source216cc95af66/PE6db47cee —
+BUILD PASS,28/28 native PASS на одной сборке. Исправлен настоящий same-ID
+fresh-list302→login GET200: видимая редактируемая форма/authRequired без новых
+native прав, counts2 1 0 1 0 0. Прежние27 не ослаблены и прошли заново;
+postterminal source/input/runtime/owned0 сверены. Пакет не устанавливался,
+это не визуальная T097/сквозная/hardware или полная session/reset приёмка.
+
+Stage22 после этого: source2163f375914…/fixturePE5a1b775b…/тот же host385b,
+29/29 native PASS. Настоящее изменение browser current entry во время
+удержанного post-reset readback отзывает права; старый ответ их не возвращает,
+а явный новый GET восстанавливает рабочий кабинет/bridge. Прежние28 сохранены.
+Это один отрицательный класс группы7, не вся session/reset матрица; actual
+postterminal216/input/runtime/owned0 проверены, установленный пакет не менялся.
+
+2026-10-22, T103 stage24: устранено подтверждённое native-тестом зависание
+загрузки при смене workspace во время reset истории. Unchanged RED→GREEN:
+старый readback не возвращает authority, public reload восстанавливает GET/
+ready/bridge с новым контекстом; initial200 остаётся1GET. Полный30/30 Windows
+SDK fixture и48/48 portable PASS, actual app Release/x64 заново compile/link
+с genuine AEC3. Это узкий reset-boundary, не early navigating/все session
+перестановки и не приёмка установленного MSIX/кнопок/звука/T097/внешнего выпуска.
+
+Сверка master9b639a4930a3c7d49bc30d30f00f98f9ac0b06ff (2026-10-22):
+новая кнопка локального прослушивания в карточке встречи ещё не перенесена
+в общий JS этой ветки. T083/T097 остаются открытыми; при интеграции сохранить
+checking/unavailable и неизвестную длительность, использовать платформенный
+текст, проверить Windows native open на странице detail. Уведомления v2/quiet
+уже перенесены, но это не доказательство полного соответствия новому master.
+
+T103 stage25/26: ранний workspace bind на незавершённом HTTP воспроизвёл
+отдельное зависание. Host9308 завершает его немедленно и отклоняет поздний
+redirect, но новый сценарий пока FAIL из-за неожиданного запроса к synthetic
+server. Старые30/30 и свежие portable48/48 прошли; общий31/31 НЕ заявляется.
+Terminal/recovery нового случая, network boundary и redirected downloads
+остаются открытыми. Новый host ещё не собран в real app/MSIX и не установлен.
+
+T103 stage27→28: невмешивающееся измерение подтвердило лишний same-origin
+GET-login Document после workspace bind. Один guard в existing Document veto
+закрыл именно эту передачу: unchanged newcase + old30 =31/31 Windows SDK PASS,
+same-ID terminal14 и public reload/ready/B/bridge4 подтверждены, counts4 0 0 0 0 1.
+Свежие portable48/48 и shared mixed-list browser test PASS; actual appBuild5
+Release/x64 compiled/linked с genuine AEC3 на том же source2164e7dd….
+Stage27 FAIL/поздний AV сохранён, clean failure teardown не принят. Новый EXE
+НЕ установлен/не запущен; живые окна, redirected downloads, оставшаяся session
+матрица, master integration, реальные capture/Resume и внешний выпуск открыты.
+
+### 2026-10-22 — уточнение текущего состояния T083/T097 и T103
+
+Запись выше о неперенесённом detail local playback относится к снимку до
+исправления. Общий `cabinet.js` теперь показывает действие локального
+прослушивания в карточке встречи через прежний native `local_recording/open`.
+Подпись различает Mac и Windows; отзыв доступа/удаление убирает кнопку,
+неизменное состояние сохраняет её узел и фокус. Регрессии общей страницы
+прошли Chromium и WebKit, изолированный pytest wrapper — 7/7. Исходники,
+ограничения и точные SHA записаны в `validation-2026-10-02.md`, разделе
+«T083/T097: прослушивание локальной копии из страницы встречи».
+Это не живая проверка Windows native playback, не deploy и не закрытие T083/T097.
+
+T103: неверное meeting-only ограничение Back из списков исправлено. Тест
+политики сначала воспроизвёл отказ, затем прошёл clang++ и Windows MSVC.
+На исправленном production снимке `558e8055…` заново прошли прежние 31 native
+сценарий. Затем добавлен opt-in ordinary-back: настоящий путь
+list→settings→shared→Back(settings)→Forward(shared) восстановил прежние ID,
+порядок и рабочий bridge. Focused5 на `ef4d5f4c…` прошёл новый и четыре прежних
+сценария; production байты не менялись, изменены только три тестовых файла.
+Это не full32 и не полная приёмка семи групп истории. Отдельный контроль
+намеренного завершения fixture с ошибкой прошёл, но не объясняет Stage27 AV.
+Полные source/receipt/log SHA и независимое C0/H0 — в том же validation.
+
+Установленная development `.14` этими проверками не обновлялась и не
+запускалась; экран/запись/устройства/доступность/внешний выпуск остаются
+непринятыми. T103/T088/T097 и общий паритет не закрываются по этим результатам.
+
+T119: восстановлена отсутствующая метка нативного календарного действия
+в настоящем HTML общей страницы. RED до исправления; оба варианта страницы
+прошли Chromium/WebKit с настоящим Windows JS shim, вместе с прежними
+календарными проверками — 40/40. Это не Mac native, не HTTP fallback,
+не server deploy и не живая приёмка resolver/launcher; T119 открыт.
+
+Пакет `.15` собран на отдельном снимке `f13a9b28…`, подписан прежним
+development-сертификатом и прошёл статические проверки состава/ресурсов.
+Независимый обзор фактического архива и журналов: C0/H0. Установленная `.14`
+не изменена. Общая календарная страница и новые тесты дорабатывались после
+сборки; source SHA пакета не является их доказательством. Установка, живая
+проверка окон и публичный выпуск по-прежнему не приняты.
+
+T109: исправлена подпись пустого календаря, которая называла строку меню macOS
+в Windows. Использован прежний `data-platform-copy`; исходный Mac-текст и
+пользовательское содержимое сохранены. RED → GREEN на настоящем HTML и
+production-фрагменте helper для Windows/Mac/отсутствующего признака платформы,
+оба embedded и Chromium/WebKit; объединённый финальный прогон 40/40 за 6.55с.
+Это не весь кабинет, не живая Mac/Windows приёмка и не deploy; T109 открыт.
+
+### 2026-10-22 — полный браузерный прогон подписей, меню и настроек
+
+Исправлена только устаревшая оснастка извлечения native bootstrap в
+`platform-copy.test.cjs`: RED на C++-разделителе → 29/29 проверок в каждом
+из Chromium/WebKit. Неизменённое меню профиля — 33/33 в каждом движке,
+в том числе 1080×620 и подменю вправо. Неизменённая согласованность настроек —
+224 сочетания страницы/темы/ширины плюс диалоги, подсказки и перенос при
+увеличении — PASS только в Chromium. Подробные границы и SHA — в validation.
+
+Стенд использует настоящие общие templates/assets и искусственные данные;
+после проверок штатно остановлен. Production-код в этом раунде не менялся.
+Это усиливает проверку общих страниц, но не доказывает UI установленного
+Windows MSIX, живой Mac native, устройства или выпуск; T109/T097 открыты.
+Отдельно 37/37 проверок notification v2/пяти настроек/настоящей очереди
+autosave прошли в Node VM с искусственными native-ответами; это не показ
+системного уведомления и не приёмка Windows presenter.
+
+### 2026-10-22 — T103: история с двумя GET одного адреса
+
+Новый opt-in native сценарий GET A→B→A→Back→Back→Forward→Forward прошёл в
+настоящем WebView2Host с IDs `5,6,8,6,5,6,8`, GET7/POST0 и bridge7.
+Focused6 вместе с пятью прежними сценариями — 6/6, route policy — PASS;
+default23 и production код сохранены. Source216 `5ab92566…`, точные SHA и
+границы записаны в validation. Это не полная матрица T103/истории и не живая
+приёмка установленного MSIX. Установленная `.14` не менялась/не запускалась,
+микрофон не включался. T103/T097 и общий паритет остаются открытыми.
+
+### 2026-10-22 — T116: текущие защищённые native регрессии
+
+На source216 `5ab92566…` существующие recovery/normal и degraded privacy history/
+privacy flow/manual send прошли5/5 в MSVC Debug x64 за483.04с. Искусственный
+звук, настоящие локальные шифрование/хранение; без устройств, реальной сети и
+установленного GRAF. Полные журналы, точные SHA и независимая квалификация
+C0/H0 — в validation. Это не полный T116, не T117 и не полная T118; все27
+открытых задач сохранены. Production-код и тесты в этом срезе не менялись.
+
+### 2026-10-22 — T087: подтверждение удаления по новому Mac
+
+Master `4ab1fd49…`, Mac3758e61d/#7726: обязательная сетевая фаза `accepted`
+уже проверяется общим Windows-декодером в прямом ответе и lifecycle fallback.
+Существующий `DesktopDeletionProtocolTests` — PASS в Windows Debug x64,
+без реальной сети/удаления. Правка продукта не понадобилась; полная T087
+остаётся открытой. Точные SHA, цепочка вызовов и границы — в validation.
+
+### 2026-10-22 — T116: настоящее неполное чтение
+
+Существующий terminal-sticky тест расширен одним native short-read после
+recovery BOTH: ReadFile успешно возвращает count−1, production отклоняет
+недобор. Все14 случаев прошли Debug и Release x64; повторные действия того же
+writer/package не меняют артефакты и очередь. Независимые source/runtime
+проверки C0/H0, точные SHA — в validation. Это не правка продукта, не вся
+матрица отказов T116 и не приёмка установленного GRAF; задачи остаются открыты.
+
+### 2026-10-22 — T116: сохранение новой сессии загрузки
+
+Настоящий generated scheduler success выявил потерю нового upload-session ID
+при записи результата. Общий transport теперь переносит проверенный ID в
+server truth до последующих выделений памяти и не наследует ranges истёкшей
+сессии. Debug x641/1: durable result/adoption, точные IDs/bytes и authenticated
+cold restart без повторной отправки. Source216 `5bc725d9…`, точные hashes/RED/
+границы — в validation. Это не реальный сервер, installed UI или весь T116;
+Release и прежние direct/503 регрессии учитываются отдельно.
+
+Тот же scheduler success отдельно прошёл Release x64:1/1 за33.22с на том же
+source216, без пропусков и оставшихся процессов. Это по-прежнему generated
+fresh-create, не live/installed приёмка; старые регрессии учитываются отдельно.
+
+Прежние direct protected upload и scheduler503 CLI отдельно прошли Debug.
+Широкий ordinary recovery Debug превысил240с и не принят; его TIMEOUT сохранён.
+После остановки отдельная проверка подтвердила source216/PE и отсутствие
+оставшихся процессов. Детали и ограничения — в validation; весь T116 открыт.
+
+Отдельный полный ordinary recovery Release затем прошёл за191.22с в прежнем
+лимите240с: весь existing main, source216/PE/inputs неизменны, процессов0.
+Узкий --atomic-result Debug также прошёл. Это не превращает полный Debug
+TIMEOUT в PASS и не принимает устройства, настоящую сеть или установленный UI.
+
+T116, 2026-10-22: добавлен прямой large-parts тест с genuine защищённой записью
+52500 generated кадров. Требует actual media16800044, четыре полных4MiB+tail22828
+и одно полное16MiB+tail22828, exact wire и idle memory; не queue/account-grant E2E.
+Debug и Release source21658032e10… оба превысили240с без HTTP-маркеров. Append
+завершился, последняя метка stage=finalize; возврат finalize отдельно не наблюдался,
+точный участок timeout не установлен. Ни один размер части не принят. Время append против
+finalize пока не разделено; отдельные steady_clock метки добавлены без ослабления
+oracle/64MiB/deadline. Подтверждены terminal failure, source216 до/после и
+owned_processes0; штатный native drain/idle после forced timeout не доказан.
+Полная проверка больших частей, mid-read faults и весь T116 остаются открыты.
+Отдельный Release-профиль source2161ef7d488… также TIMEOUT240.067с: writer_open122мс,
+append_done149505мс, то есть149383мс на создание кадров; возврат finalize и HTTP
+markers не наблюдались в оставшиеся примерно90.6с. Это локализация границ времени,
+не доказательство причины и не PASS отправки; прежние два RED остаются прежними.
+2026-10-26 квалифицирован отдельный сохранённый diagnostic source1ef7d488…:
+existing Release CLI завершился за509979мс в общем пределе600с, genuine normal
+finalize и actual полные4/16MiB+tail22828 прошли, idle memory достигнут.
+Append150566мс, finalize242591мс. Это exact прямой synthetic transport oracle,
+не CTest240 PASS: три TIMEOUT и вопрос производительности остаются открытыми.
+Receipt прямо ctest_acceptance=false. Данный старый source не принимает новый
+nativeRead cut, durable queue/account grant, установленный UI или весь T116.
+
+2026-10-26, source21683247e68…: Debug explicit `--protected-upload` прошёл
+за83124мс. Новый native mid-read cut: первая DATA-запись дочитана, вторая
+однократно отклонена; manifest ACK сохранён, media/playback PUT и finalize0.
+Прежние fault cases и worker-drained idle PASS, source/PE неизменны, процессов0.
+Это прямой synthetic transport, не queue adoption, CTest, текущие большие
+части, реальная сеть/микрофон или весь T116. Три прежних TIMEOUT не переоценены.
+Последующий Release на том же source прошёл за45192мс (внешний82569мс):
+те же четыре общих marker, неизменные216/source/PE, owned0. Debug-only allocation
+case не требовался. Приёмка остаётся scoped CLI, не CTest или installed E2E.
+
+T120, 2026-10-26: новый отдельный probe использует настоящие WASAPI-метаданные
+и generated samples через production consume/mailbox, без чтения device PCM.
+Сборка и pure режимы прошли. Один разрешённый запуск завершился RED до Resume:
+второй packet отвергнут с worker_error7, callbacks0/clock_reads0; точный ClockFault
+не сохранён. Оба buffers освобождены, Stop S_OK, cleanup390мс, source216/owned0.
+Это не доказательство причины в VM и не отказ/приёмка самого handshake.
+Повтора не было; controller/durable/real-audio/installed/hardware и T120 открыты.
+Отдельный C67 с расширенными безопасными полями затем также RED:4/4 packet
+release, callbacks3, clock_fault0, cleanup35мс. Resume serial1 получил один
+stale sample, но не accepted/witness; точное условие отказа неизвестно.
+Это не объясняет старый nS fault и не принимает handshake. Absolute positions
+не экспортировались, guard/лимиты не ослаблены, штатная очистка/source216/owned0
+подтверждены. Нового product fix или закрытия T120 этим опытом нет.
+Отдельный опыт vedenw выявил B<releasedEnd на первом sample при остальных
+наблюдаемых проверках true. Resume остаётся RED;4/4 release, Stop S_OK,
+cleanup41мс, source216/owned0. Изменение порядка stale/B проверок пока только
+предложено для clarify; production, требования и installed acceptance неизменны.
+T097, 2026-10-26: браузерный тест меню расширен до41 сценария/движок:
+открытые light/dark/system-light/system-dark,1080×620/375×620, выбор темы
+клавиатурой, ожидаемая ошибка сохранения, геометрия и Escape/focus. Chromium41
+и WebKit41 PASS; платформенные подписи дополнительно29+29 PASS. Это общий
+HTML с искусственными данными, не установленный MSIX/сохранение/native theme.
+T097 и паритет установленного приложения остаются открытыми.
+T116, 2026-10-26: отдельный Release `--protected-storage-profile` на1000
+искусственных кадрах прошёл с настоящим шифрованием/finalize и idle memory.
+Фазы суммарно11653411мкс; четыре инструментированные файловые операции —
+331617 вызовов/5251301мкс. Source216/PE/input неизменны, exit0/owned0.
+Охват ограничен одним потоком/четырьмя API и включает накладные расходы замера;
+это не CTest acceptance, не причина/исправление прежних больших TIMEOUT,
+не SC-003 или installed acceptance. Product guard/limits не изменены, T116 открыт.
+T116, 2026-10-26: добавлены5 граничных проверок ответа API пути, точной длины,
+ACL short-circuit и сохраняемого отказа. Финальный Debug path CLI и полный
+Release owner PASS, source216/PE/input/owned0 подтверждены. Эксперимент удаления
+обнуления буфера не дал подтверждённого ускорения и отменён побайтно; сохранены
+только тесты. Большие TIMEOUT/SC-003/T116/installed acceptance не закрыты.
+T116, 2026-10-26: измерены четыре настоящих этапа finalize в отдельной
+тестовой сборке, без счётчиков в обычном writer. Release CLI1000 искусственных
+кадров PASS: finalize5882632мкс, AAC2772267мкс (47,13%), WAV578554мкс,
+canonical seal239764мкс, inspection1250505мкс; остаток1041542мкс не распределён.
+Selfcheck возврата/исключения/GetLastError,216source/input/PE/owned0 PASS;
+обычный переносимый writer и три локальных теста PASS. Это измерение, не
+подтверждённое ускорение или PASS больших TIMEOUT; T116/installed остаются открытыми.
+T116, 2026-10-26: bounded AAC read-ahead32 сохраняет отдельные10ms MF samples,
+guards/квоты/отмену. На искусственных данных4 границы порций и3 отказа PASS;
+обычный Release ProtectedRecoveryPlaybackPartial дошёл до финального маркера,
+PASS142,014с при прежних180/child60. Исходный test-first RED и первая ошибка
+ожидания теста сохранены. Подтверждено уменьшение файловых обращений, не
+устойчивое ускорение. Debug TIMEOUT, полная матрица/T116/installed не закрыты.
+Затем5 recovery suites PASS, включая24/24 crash cuts, на том же рабочем коде.
+Новая Windows-only CTest-регистрация отдельноPASS16,05с на source0fc0…3a34;
+общий запуск4 suites превысил240с: tree/files завершены, native interrupted,
+batch тогда не начался. Общий TIMEOUT сохранён, полная матрица не принята.
+Native default затем отдельноPASS221,83с при прежних240с: все7 случаев,
+idle/source216/PE/input/owned0; source0fc0…3a34. Это scoped PASS, не общий
+прогон всех consumers или приёмка T116/установленного приложения.
+
+T097/T103, 2026-10-26: свежая полная MSBuild Rebuild Release/x64 exit0 на
+source2160fc0…3a34, включая AppMain. Первый wrapperFAIL выбрал вместе с GRAF
+четыре vendor dependency MSIX; отказ сохранён. Отдельное проверенное продолжение
+без rebuild подписало точный GRAF и прошло статическую проверку. Новый MSIX
+SHA64d8bc11…1b2d, EXE1a79ab81…4e84 до/после подписи,216pre/post/owned0;
+установленная.14 неизменна, install/launch/device отсутствуют. Это development
+signature, не публичный выпуск/живой UI PASS. Public cabinet CSS/JS отличаются
+от local, но загруженные конкретным WebView bytes ещё не установлены; MSIX
+не обновляет серверные ресурсы. Startup может восстанавливать старую очередь,
+поэтому UI на рабочем профиле не считается безопасно изолированной проверкой.
+T097, миграцияT117 и общая приёмка остаются открытыми.
+
+T116, 2026-10-26: удалена временная копия строки Windows path без изменения
+проверок. Test-first Release RED4 allocations → адресный candidate PASS2 при
+двух прежних compare/ACL;5 path boundary cases PASS. Debug два CLI semantic
+PASS отдельно. Полный Release Owner превысил прежние240с — FAIL сохранён,
+кандидат пока не принят полной регрессией. Добавлены только тестовые метки
+режима/группы вне активного внедрения отказов; один диагностический прогон
+с прежним сроком начат. Это не приёмка приложения/скорости/T116; пакет.15
+собран до новой строки и не является доказательством текущего кода.
+Ограниченная диагностика затем тоже FAIL: внешний300с до logical append,
+а не успешная локализация группы; owned0, оба CLI PASS. Во время прогона
+наблюдалась высокая нагрузка Mac, причинность не доказана. Пределы сохранены;
+полный Owner и принятие новой production-строки остаются HOLD.
+Отдельная финальная инспекция exit0 подтвердила source216/input/PE/owned0
+после остановки; исходный FAIL receipt неизменен и не стал PASS.
+
+T116, 2026-10-26: один отдельный Owner без сборки на том же PE/source216
+снова FAIL по прежним240с, elapsed243843мс; pre/post216/PE/input/owned0.
+Достигнуты4/3 входа/выхода функций и31/30 групп; последняя начатая
+interior262144/throwingRead не доказывает причину. JUnit/PASS отсутствуют,
+полная приёмка прежней path-оптимизации остаётся HOLD.
+
+T109/T097, 2026-10-26: исправлен общий выбор стороны подменю — сначала справа,
+затем слева, inline только если обе стороны не подходят. Настоящий RED
+существующего контракта и браузера сохранён, затем static76 PASS,
+profile43/43 Chromium/WebKit, platform29/29, settings224 Chromium и F27737
+PASS. Добавлена реальная геометрия/клавиатура при CSS zoom1/2; SOURCE/Ponytail
+C0/H0. Только отдельный синтетический loopback, без установленного GRAF,
+рабочего сервера, аккаунта, устройств и системного DPI. Mac bridge v1 этой рабочей
+копии отстаёт от уже существующего F277/v2 в master; безопасная интеграция
+остаётся необходимой, Mac-файлы не исправлялись. T097/T109 не закрыты.
+
+T116, 2026-10-27: исправлена недопустимая fake-модель повторного part0 для
+разных диапазонов; добавлен genuine14000-frame/4480044-byte/default4MiB
+partial-resume case с неизменными server IDs и проверкой no-resend.
+NXK build PASS, прежний short scheduler success PASS43,91с на том же PE;
+новый resume FAIL176,20с до первого HTTP. Отдельный failure-only diagnostic
+на новом PE также FAIL151,41с: generation4/queue error0/flight done0/wire0,
+локальное10-секундное ожидание, не общий CTest240 timeout. Подготовка ещё
+не завершилась; точная операция и причина не локализованы. Source216/PE/input
+до/после и owned0 подтверждены отдельно для обоих этапов. Прежняя fake-модель
+не является interop evidence; aligned/unaligned resume и полный T116 не приняты.
+Production/установленный GRAF/сервер/Mac не обновлялись, звук не читался.
+
+T116, 2026-10-27, уточнение: actual phase observation отделило проверку
+readers/hash от AAC и HTTP. На aWIZ source216/PE большая проверка ещё
+выполняла openProtectedCustodyReaders на10-секундной границе; transport
+не начат. Это не доказательство повреждения или нарушения SC-005:10с
+унаследованы от тестового помощника, а не от продуктового требования.
+Обычные Sha256Tests/NativeHashFailureTests без diagnostic macro2/2 PASS.
+Согласован отдельный30-секундный resultHeld только для нового большого
+partialResume fixture при неизменных общем240/300, остальных ожиданиях
+и всех ACK/байтовых/cold-resume оракулах. Результат этого отдельного
+запуска не переносится из прежнего short PASS; T116 остаётся открыт.
+Размер hash buffer64KiB, сервер/Mac и установленное приложение неизменны.
+
+T116, тот же день: отдельный aligned partialResume на yb1IZa завершился
+PASS176,76с в прежнем CTest240с. Genuine14000 frames, accepted media4MiB,
+503/retry generation5 → cold remaining suffix285740 → uploaded generation7,
+13 точных запросов, authenticated restart без повторной отправки.
+Source216d1c5ea73… / PE3bb5858e… / pre/post216 / owned0. Только функциональный
+fake-wire путь с локальным30с ожиданием, не real-server E2E или доказательство
+быстродействия. Старые FAIL сохранены; полный T116/SC-005 остаётся открытым.
+Тот же PE отдельно прошёл короткий scheduler success36,99с,9 запросов,
+generation5/cold authenticated no-resend при прежнем10с ожидании.
+
+T116, 2026-10-27: неизменённая полная interior262144-функция Owner отдельно
+прошла за46,452с:8/8 fault-групп со всеми порядковыми номерами, итоговый
+возврат учтённой памяти, native exit0, pre/post216, samePE и owned0.
+Это прямой native CLI на source2166df03a22…/PEea1c4e96…, не CTest и
+не весь Owner. Default main и продукт неизменны; прежний полный240с FAIL
+не закрыт. Установленное приложение/сервер/звук не затронуты.
+
+T116, тот же день: полный исходный Owner main без аргументов на том же
+PE/source216 отдельно PASS138,88с:7 сочетаний/56 групп и весь хвост,
+финальные assertions памяти/ресурсов, path cases5 и allocations2 при
+двух прежних compare/ACL, pre/post216/samePE/inputs/owned0. Один настоящий
+CTest/JUnit без пропуска; новый заранее ограниченный диагностический
+бюджет600/620/660 не является продуктовой нормой. Старые240/300 FAIL
+сохранены; новый PASS не устанавливает причину прежних задержек или
+устойчивое ускорение. Полный Owner-пробел текущей функциональной
+регрессии закрыт; T116 целиком, поздняя смена auth при успешном result,
+невыравненный resume и прочие installed/hardware/release gates открыты.
+
+T116, 2026-10-27: добавлен и пройден отдельный поздний logout **после**
+настоящего successful result commit4→5, **до** UI adoption. Native CTest
+PASS33,84с; account/epoch отозваны, physical5 принята без возврата прав,
+cold original-auth и9 wire без повторной отправки. На том же новом
+PE62577227…/source216e5b623a7… обычный success отдельно PASS33,93с.
+Все pre/post216/input/PE/owned0/JUnit проверки пройдены; CTest240 сохранён.
+Это test-only покрытие существующей нормы, не A→B, не prepublish cancel,
+не настоящий сервер/установленное приложение и не закрытие T116.
+
+T116, 2026-10-27: настоящий серверный `accept_part` в изолированном unit-тесте
+подтвердил контрпример: принятые65 536 байт под part0 сохранены, а новый
+диапазон с повторно вычисленным номером0 отклонён409/range_conflict.
+Новый тест и два прежних range-теста —3/3 PASS (`ozH0D3`, exit0,11 source
+hashes before/after неизменны). Формула сопоставлена с исходниками C++/Swift,
+но клиенты не исполнялись; HTTP/БД/MinIO заменены прямым вызовом и doubles.
+Сохранность ACK доказана в этой области, успешный невыравненный resume — нет.
+Общий протокол выбора ключа требует clarify до продуктовых изменений;
+T116 и полная приёмка обеих платформ остаются открытыми.
+
+T097/T109, 2026-10-27: свежий `NbnqfC` с текущим synthetic settings harness
+и проверенными HTTP-served JS/CSS: menu43 + platform29 сценариев на каждом
+из Chromium/WebKit PASS, оба test exit0,556 выбранных source hashes неизменны.
+Подтверждены боковое меню при достаточной ширине, темы/клавиатура/границы,
+платформенные служебные подписи и неизменность пользовательского текста/HTMX.
+Это не server persistence/native bridge/MSIX/DPI/accessibility acceptance;
+Mac locked, installed0.1.0.14/Ok проверен только read-only CLI, процесс не найден.
+T097/T109 открыты, продуктовый код и установленный пакет не менялись.
+
+T083, 2026-10-27: fresh fetch подтвердил master0a1bce3505cd1582ccda552ba4ac10b4c4258d26;
+HEAD...master70/230, basef5cca687a06dc57ad6ccbef840a0be897eaa6336.
+Среди115 dirty tracked-путей4 пересечения с upstream paths: rendering.py,
+cabinet.js, mixed-meeting-list.test.cjs, playback-refresh.test.cjs; это не
+перечень доказанных текстовых конфликтов и не учёт untracked/branch commits.
+Merge/rebase/stash не выполнялись. Современный master содержит новые Mac/common
+изменения; предыдущие synthetic PASS не принимают их интеграцию. Формула
+Mac part number и серверное правило конфликта сохраняются и в этом master,
+но runtime обеих платформ по нему не выполнялся. T083 остаётся открытой.
+
+T083, тот же master audit: подтверждено отсутствие в Windows native-потока
+«Связаться с поддержкой» → номер/pending_sync → «Проверить синхронизацию»,
+имеющегося в Mac ActionStrip/Queue/EmbeddedCabinetWebView. Windows сейчас
+только копирует diagnostics последней завершённой записи. Это независимый
+следующий срез T083, не дубль задачи: сначала scoped plan safe-report,
+protected persistence и context fences, затем gates/реализация. Отправки
+в поддержку и изменения allowlist/server не выполнялись; паритет не достигнут.
+
+
+### 2026-11-04 — сверка видимых записей с master: найдено различие
+
+В проверенном master `e00ffe326d9648732212a065177e6c660b366852` общий кабинет
+передаёт до100 видимых IDs. Mac использует их только для приоритета следующей
+ограниченной серверной сверки lifecycle, сохраняя продвижение фоновой истории;
+подтверждённый ответ затем обновляет локальную очередь и проигрыватель.
+Windows игнорирует этот сигнал; `recordingLifecycle` transport есть, но его
+производственный вызов не найден. Локальная проверка файлов не заменяет этот
+серверный путь. Игнорирование не разрешает удаление/доступ, но полным паритетом
+не считается. После синхронизации master требуется convergence существующей
+области T088/FR-013/FR-022: текущий документ/аккаунт/nonce, ограниченная фоновая
+сверка, принятие внешнего receipt без создания намерения удаления. Не направлять
+видимость в `planDeletionSelection`; до принятого плана это только обнаруженный
+пробел, реализация и живая приёмка отсутствуют.

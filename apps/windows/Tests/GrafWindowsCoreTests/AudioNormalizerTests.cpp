@@ -9,6 +9,8 @@
 #include <cassert>
 #include <cmath>
 #include <cstdio>
+#include <limits>
+#include <string_view>
 #include <utility>
 
 using namespace graf::windows;
@@ -130,6 +132,163 @@ public:
     }
 };
 
+void privacyPartialPrefix() {
+    unsigned cases = 0;
+    for (const auto rate : {8'000U, 44'100U, 48'000U, 192'000U})
+    for (const auto channels : {1U, 2U}) for (const bool single : {false, true})
+    for (const auto source : {AudioSource::microphone, AudioSource::systemRender}) {
+        const auto frames = rate / 100;
+        for (const auto prefix : {0U, 1U, frames / 2, frames - 1, frames}) {
+            AudioNormalizer actual, reference;
+            std::uint64_t position = 0, emitted = 0;
+            for (unsigned stage = 0; stage < 3; ++stage) {
+                const auto end = position + frames;
+                while (position < end) {
+                    const auto count = single ? 1U : frames;
+                    auto input = batch(0, count * channels, rate);
+                    input.source = source;
+                    input.channels = static_cast<std::uint16_t>(channels);
+                    input.microphonePrivacyEpoch = 2;
+                    for (std::size_t i = 0; i < input.samples.size(); ++i)
+                        input.samples[i] = 0.2F + static_cast<float>((position * channels + i) % 53) * 0.001F;
+                    auto ordinary = input;
+                    if (source == AudioSource::systemRender) {
+                        input.microphoneSuppressedPrefixFrames = std::numeric_limits<std::uint32_t>::max();
+                    } else if (stage == 1 && position < frames + prefix) {
+                        input.microphoneSuppressedPrefixFrames = static_cast<std::uint32_t>(
+                            std::min<std::uint64_t>(count, frames + prefix - position));
+                    }
+                    const auto qpc = (position * 10'000'000 + rate / 2) / rate;
+                    AudioBatch output, expected;
+                    assert(reference.normalize(std::move(ordinary), qpc, expected));
+                    assert(actual.normalize(std::move(input), qpc, output));
+                    assert(output.samples.size() == expected.samples.size());
+                    assert(output.ptsFrames == expected.ptsFrames &&
+                        output.normalizedFrameOffset == emitted &&
+                        output.routeGeneration == expected.routeGeneration &&
+                        output.clockDomain == expected.clockDomain && output.channels == 1 &&
+                        output.sampleRate == 48'000 && output.microphoneSuppressedPrefixFrames == 0);
+                    for (std::size_t i = 0; i < output.samples.size(); ++i) {
+                        // Check the source position, not a rounded count of output
+                        // prefix frames. A blend starting in old data is all zero.
+                        const auto left = (emitted + i) * rate / 48'000;
+                        const auto firstOld = frames - (rate == 48'000 ? 0U : 1U);
+                        const bool old = source == AudioSource::microphone && prefix != 0 &&
+                            left >= firstOld && left < frames + prefix;
+                        assert(std::abs(output.samples[i] - (old ? 0.0F : expected.samples[i])) < 0.00001F &&
+                            "partial_privacy_prefix_must_not_blend_or_mute_fresh_suffix");
+                    }
+                    emitted += output.samples.size();
+                    position += count;
+                }
+            }
+            const auto expectedCount = rate == 48'000 ? 1440U :
+                ((3 * frames - 1) * 48'000 + rate - 1) / rate;
+            assert(actual.healthy() && emitted == expectedCount);
+            ++cases;
+        }
+    }
+    unsigned invalid = 0;
+    for (const bool started : {false, true}) for (unsigned mutation = 0; mutation < 8; ++mutation) {
+        AudioNormalizer broken;
+        AudioBatch output;
+        if (started) assert(broken.normalize(batch(0, 480), 0, output));
+        auto input = batch(0, 480);
+        input.source = AudioSource::microphone;
+        input.microphoneSuppressedPrefixFrames = 100;
+        switch (mutation) {
+        case 0: input.microphoneSuppressedPrefixFrames = 481; break;
+        case 1: input.samples[0] = std::numeric_limits<float>::quiet_NaN(); break;
+        case 2: input.samples[99] = std::numeric_limits<float>::infinity(); break;
+        case 3: input.samples[100] = std::numeric_limits<float>::quiet_NaN(); break;
+        case 4: input.sampleRate = 0; break;
+        case 5: input.routeGeneration = 0; break;
+        case 6: input.clockDomain = 0; break;
+        case 7: input.discontinuity = true; break;
+        }
+        assert(!broken.normalize(std::move(input), started ? 100'000 : 0, output));
+        assert(!broken.healthy() && output.samples.empty());
+        assert(!broken.normalize(batch(0, 480), 200'000, output));
+        ++invalid;
+    }
+    std::printf("privacy_prefix cases=%u invalid=%u\n", cases, invalid);
+}
+
+void privacyResamplerBoundary() {
+    bool allCorrect = true;
+    for (const auto source : {AudioSource::microphone, AudioSource::systemRender})
+    for (const auto rate : {44'100U, 48'000U}) for (const bool single : {false, true})
+    for (const bool pausePacket : {false, true}) {
+        AudioNormalizer normalizer;
+        std::uint64_t inputPosition = 0, outputPosition = 0;
+        bool correct = true, audioCorrect = true;
+        std::vector<float> prefix;
+        for (unsigned stage = 0; stage < 4; ++stage) {
+            const auto epoch = stage == 0 ? 0ULL : stage == 1 && pausePacket ? 1ULL : 2ULL;
+            const auto total = rate / 100;
+            std::vector<float> samples;
+            const auto start = inputPosition;
+            while (inputPosition < start + total) {
+                const auto count = single ? 1U : total;
+                auto input = batch(0, count, rate);
+                input.source = source;
+                input.microphonePrivacyEpoch = epoch;
+                input.microphoneSuppressed = source == AudioSource::systemRender; // Must be ignored.
+                AudioBatch output;
+                const auto qpc = static_cast<std::uint64_t>(std::llround(inputPosition * 10'000'000.0 / rate));
+                assert(normalizer.normalize(std::move(input), qpc, output));
+                assert(output.normalizedFrameOffset == outputPosition && output.ptsFrames == static_cast<std::int64_t>(outputPosition));
+                correct = correct && output.microphonePrivacyEpoch ==
+                    (source == AudioSource::microphone ? std::optional<std::uint64_t>{epoch} : std::nullopt);
+                correct = correct && output.microphoneSuppressed == (source == AudioSource::microphone && epoch == 1);
+                outputPosition += output.samples.size();
+                samples.insert(samples.end(), output.samples.begin(), output.samples.end());
+                inputPosition += count;
+            }
+            assert(samples.size() == (stage == 0 && rate == 44'100 ? 479U : 480U));
+            for (std::size_t index = 0; index < samples.size(); ++index) {
+                const bool oldTail = rate == 44'100 && index == 0 &&
+                    (stage == 1 || (stage == 2 && pausePacket));
+                const auto expected = source == AudioSource::microphone && (epoch == 1 || oldTail) ? 0.0F : 0.25F;
+                audioCorrect = audioCorrect && std::abs(samples[index] - expected) < 0.00001F;
+            }
+            if (stage == 0) prefix = samples;
+            for (const auto value : prefix) assert(value == 0.25F);
+        }
+        assert(normalizer.healthy() && outputPosition == (rate == 44'100 ? 1919U : 1920U));
+        correct = correct && audioCorrect;
+        std::printf("privacy_resampler microphone=%d rate=%u single=%d paused_packet=%d correct=%d audio=%d\n",
+            source == AudioSource::microphone, rate, single, pausePacket, correct, audioCorrect);
+        allCorrect = allCorrect && correct;
+    }
+    std::fflush(stdout);
+    assert(allCorrect);
+    // Privacy must not make invalid raw input acceptable, before or after startup.
+    for (const bool started : {false, true}) for (unsigned mutation = 0; mutation < 10; ++mutation) {
+        AudioNormalizer broken;
+        AudioBatch output;
+        if (started) assert(broken.normalize(batch(0, 480), 0, output));
+        auto input = batch(0, 480);
+        input.source = AudioSource::microphone;
+        input.microphonePrivacyEpoch = 1;
+        input.microphoneSuppressed = true;
+        switch (mutation) {
+        case 0: input.samples[0] = std::numeric_limits<float>::quiet_NaN(); break;
+        case 1: input.samples[0] = std::numeric_limits<float>::infinity(); break;
+        case 2: input.sampleRate = 0; break;
+        case 3: input.channels = 0; break;
+        case 4: input.routeGeneration = 0; break;
+        case 5: input.clockDomain = 0; break;
+        case 6: input.discontinuity = true; break;
+        case 7: input.samples.clear(); break;
+        case 8: input.channels = 7; break;
+        case 9: input.samples.resize(4801); break;
+        }
+        assert(!broken.normalize(std::move(input), started ? 100'000 : 0, output));
+        assert(!broken.healthy() && !broken.normalize(batch(0, 480), 200'000, output));
+    }
+}
+
 void pipeline(std::uint32_t microphoneRate, int ppm, bool singleSample = false) {
     PassthroughAec aec;
     TimelineLimits limits;
@@ -187,7 +346,11 @@ void pipeline(std::uint32_t microphoneRate, int ppm, bool singleSample = false) 
 }
 }
 
-int main() {
+int main(int argc, char** argv) {
+    privacyPartialPrefix();
+    if (argc == 2 && std::string_view(argv[1]) == "--privacy-prefix") return 0;
+    privacyResamplerBoundary();
+    if (argc == 2 && std::string_view(argv[1]) == "--privacy-resampler") return 0;
     sourceClockRegressions();
     for (const auto epoch : {0ULL, 113ULL, 1'000'000'113ULL}) {
         const auto whole = partitioned({882}, epoch);

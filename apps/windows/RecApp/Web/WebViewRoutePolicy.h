@@ -4,6 +4,7 @@
 #include <string_view>
 #include <cstdint>
 #include <optional>
+#include <vector>
 
 namespace graf::windows {
 
@@ -92,6 +93,38 @@ public:
     void stop() noexcept { startedAt_.reset(); }
 private:
     std::optional<std::uint64_t> startedAt_;
+};
+
+struct WebHistoryEntry {
+    int id = -1;
+    std::string url;
+};
+
+// Browser-owned order, native-only GET evidence. No URL or snapshot proves GET.
+// The host must fence async reads and supply only a correlated accepted response.
+class SafeHistory final {
+public:
+    [[nodiscard]] std::uint64_t revision() const noexcept { return revision_; }
+    void invalidate() noexcept;
+    void clear() noexcept;
+    void forgetEntry(int id) noexcept;
+    [[nodiscard]] bool acceptSnapshot(std::uint64_t requestRevision,
+        std::vector<WebHistoryEntry> entries, std::size_t currentIndex, std::string_view currentUrl);
+    [[nodiscard]] bool confirmCurrent(const WebViewRoutePolicy& policy, std::uint64_t revision,
+        std::string_view responseUrl, std::string_view method);
+    [[nodiscard]] std::optional<WebHistoryEntry> current() const;
+    [[nodiscard]] bool currentIsGet(const WebViewRoutePolicy& policy) const;
+    [[nodiscard]] bool allGet(const WebViewRoutePolicy& policy) const;
+    [[nodiscard]] std::optional<WebHistoryEntry> target(const WebViewRoutePolicy& policy, bool back) const;
+private:
+    struct Entry {
+        WebHistoryEntry browser;
+        bool confirmedGet = false;
+    };
+    std::vector<Entry> entries_;
+    std::size_t currentIndex_ = 0;
+    std::uint64_t revision_ = 0;
+    bool fresh_ = false;
 };
 
 } // namespace graf::windows

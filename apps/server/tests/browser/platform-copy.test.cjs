@@ -6,8 +6,12 @@ const path = require('node:path');
 const origin = process.env.SETTINGS_PREVIEW_URL || 'http://127.0.0.1:8897';
 assert(['localhost', '127.0.0.1'].includes(new URL(origin).hostname));
 const repo = path.resolve(__dirname, '../../../..');
-const bootstrap = fs.readFileSync(path.join(repo, 'apps/windows/RecApp/Web/WebView2Host.cpp'), 'utf8')
-  .split('constexpr wchar_t kDesktopBridgeScript[] = LR"JS(')[1].split(')JS";')[0];
+const declaration = fs.readFileSync(path.join(repo, 'apps/windows/RecApp/Web/WebView2Host.cpp'), 'utf8')
+  .match(/constexpr wchar_t kDesktopBridgeScript\[\] = ([\s\S]*?)\)JS";/);
+assert(declaration, 'native bootstrap declaration must exist');
+const bootstrap = [...declaration[0].matchAll(/LR"JS\(([\s\S]*?)\)JS"/g)]
+  .map(match => match[1]).join('');
+assert(bootstrap.trim(), 'native bootstrap must not be empty');
 const shim = fs.readFileSync(path.join(repo, 'apps/windows/RecApp/Web/NativeSettingsBridge.cpp'), 'utf8')
   .split('return R"JS(')[1].split(')JS";')[0];
 const userText = 'На этом Mac обсуждали Настройки macOS — синтетическое название';

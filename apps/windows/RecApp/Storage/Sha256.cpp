@@ -11,6 +11,7 @@
 #ifdef _WIN32
 #include <windows.h>
 #include <bcrypt.h>
+#include <wrl/client.h>
 #endif
 
 namespace graf::windows {
@@ -37,13 +38,13 @@ constexpr std::uint32_t rotateRight(std::uint32_t value, std::uint32_t count) no
 
 std::string hexDigest(const std::array<std::uint8_t, 32>& bytes) {
     constexpr char digits[] = "0123456789abcdef";
-    std::string result;
+    std::string result(std::size_t{0}, char{});
     result.reserve(64);
     for (const auto byte : bytes) {
         result += digits[byte >> 4];
         result += digits[byte & 15];
     }
-    return result;
+    return std::string(result);
 }
 
 // Preserve the existing provider-independent digest for in-memory identity callers.
@@ -65,7 +66,7 @@ public:
         return true;
     }
 
-    std::string finish() {
+    std::array<std::uint8_t, 32> finishDigest() {
         std::array<std::uint8_t, 32> digest{};
         buffer_[used_++] = 0x80;
         if (used_ > 56) {
@@ -80,8 +81,9 @@ public:
         compress(buffer_.data());
         for (std::size_t index = 0; index < digest.size(); ++index)
             digest[index] = static_cast<std::uint8_t>(hash_[index / 4] >> (24 - (index % 4) * 8));
-        return hexDigest(digest);
+        return digest;
     }
+    std::string finish() { return hexDigest(finishDigest()); }
 
 private:
     std::array<std::uint32_t, 8> hash_ = kInitial;
@@ -122,7 +124,8 @@ private:
 class NativeHash {
 public:
     NativeHash() {
-        ready_ = BCryptCreateHash(BCRYPT_SHA256_ALG_HANDLE, &hash_, nullptr, 0, nullptr, 0, 0) >= 0;
+        status_ = BCryptCreateHash(BCRYPT_SHA256_ALG_HANDLE, &hash_, nullptr, 0, nullptr, 0, 0);
+        ready_ = status_ >= 0;
     }
     ~NativeHash() {
         if (hash_) BCryptDestroyHash(hash_);
@@ -133,30 +136,42 @@ public:
         if (!ready_) return false;
         while (!bytes.empty()) {
             const auto count = std::min(bytes.size(), std::size_t(64 * 1024));
-            if (BCryptHashData(hash_, reinterpret_cast<PUCHAR>(const_cast<char*>(bytes.data())),
-                               static_cast<ULONG>(count), 0) < 0) return false;
+            status_ = BCryptHashData(hash_, reinterpret_cast<PUCHAR>(const_cast<char*>(bytes.data())),
+                                    static_cast<ULONG>(count), 0);
+            if (status_ < 0) { ready_ = false; return false; }
             bytes.remove_prefix(count);
         }
         return true;
     }
     std::string finish() {
         std::array<std::uint8_t, 32> digest{};
-        if (!ready_ || BCryptFinishHash(hash_, digest.data(), static_cast<ULONG>(digest.size()), 0) < 0)
-            return {};
+        if (!finish(digest)) return {};
         return hexDigest(digest);
     }
+    bool finish(std::array<std::uint8_t, 32>& digest) {
+        if (!ready_) return false;
+        status_ = BCryptFinishHash(hash_, digest.data(), static_cast<ULONG>(digest.size()), 0);
+        ready_ = false;
+        return status_ >= 0;
+    }
+    std::uint32_t error() const noexcept { return static_cast<std::uint32_t>(status_); }
 private:
     BCRYPT_HASH_HANDLE hash_ = nullptr;
     bool ready_ = false;
+    NTSTATUS status_ = 0;
 };
 #endif
 
 } // namespace
 
 std::string sha256(std::string_view bytes) {
+    return hexDigest(sha256Digest(bytes));
+}
+
+std::array<std::uint8_t, 32> sha256Digest(std::string_view bytes) {
     PortableHash hash;
     if (!hash.update(bytes)) throw std::length_error("SHA-256 input too large");
-    return hash.finish();
+    return hash.finishDigest();
 }
 
 std::string sha256Stream(std::istream& input) {
@@ -167,6 +182,10 @@ std::string sha256Stream(std::istream& input) {
     PortableHash hash;
 #endif
     std::array<char, 64 * 1024> buffer{};
+    struct Wipe {
+        std::array<char, 64 * 1024>& bytes;
+        ~Wipe() { for (volatile char* at = bytes.data(); at != bytes.data()+bytes.size(); ++at) *at = 0; }
+    } wipe{buffer};
     for (;;) {
         try {
             input.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
@@ -189,5 +208,49 @@ std::string sha256File(const std::filesystem::path& path) {
     if (!input) return {};
     return sha256Stream(input);
 }
+
+#ifdef _WIN32
+CustodyFileResult<std::array<std::uint8_t, 32>> sha256ProtectedStream(IStream* stream,
+    std::uint64_t length, std::shared_ptr<const std::atomic<bool>> cancelled) try {
+    if (!stream || !cancelled || length > std::numeric_limits<std::uint64_t>::max()/8)
+        return {std::nullopt, CustodyFileError::invalidInput, 0};
+    Microsoft::WRL::ComPtr<IStream> held(stream);
+    const auto cancel = [&] { return cancelled->load(); };
+    if (cancel()) return {std::nullopt, CustodyFileError::ioFailed, ERROR_OPERATION_ABORTED};
+    CustodyNativeJob job;
+    if (!job) return {std::nullopt, CustodyFileError::allocationFailed, ERROR_NOT_ENOUGH_QUOTA};
+    CustodyBytes buffer(64*1024); // Charged BEFORE Read; destructor wipes every exit.
+    LARGE_INTEGER zero{}; ULARGE_INTEGER position{};
+    const auto seek = held->Seek(zero, STREAM_SEEK_CUR, &position);
+    if (FAILED(seek)) return {std::nullopt, CustodyFileError::ioFailed, static_cast<std::uint32_t>(seek)};
+    if (cancel()) return {std::nullopt, CustodyFileError::ioFailed, ERROR_OPERATION_ABORTED};
+    if (seek != S_OK || position.QuadPart) return {std::nullopt, CustodyFileError::invalidInput, 0};
+    NativeHash hash;
+    if (static_cast<NTSTATUS>(hash.error()) < 0)
+        return {std::nullopt, CustodyFileError::hashFailed, hash.error()};
+    for (std::uint64_t done = 0;;) {
+        if (cancel()) return {std::nullopt, CustodyFileError::ioFailed, ERROR_OPERATION_ABORTED};
+        // The final one-byte probe proves EOF even when length came from Stat/JSON.
+        const auto count = static_cast<ULONG>(done == length ? 1 : std::min<std::uint64_t>(buffer.size(), length-done));
+        ULONG got = 0;
+        const auto read = held->Read(buffer.data(), count, &got);
+        if (FAILED(read)) return {std::nullopt, CustodyFileError::ioFailed, static_cast<std::uint32_t>(read)};
+        if (cancel()) return {std::nullopt, CustodyFileError::ioFailed, ERROR_OPERATION_ABORTED};
+        if (done == length) {
+            if (read != S_FALSE || got) return {std::nullopt, CustodyFileError::invalidContent, 0};
+            break;
+        }
+        if (read != S_OK || got != count) return {std::nullopt, CustodyFileError::invalidContent, 0};
+        if (!hash.update({reinterpret_cast<const char*>(buffer.data()), got}))
+            return {std::nullopt, CustodyFileError::hashFailed, hash.error()};
+        if (cancel()) return {std::nullopt, CustodyFileError::ioFailed, ERROR_OPERATION_ABORTED};
+        done += got;
+    }
+    std::array<std::uint8_t, 32> digest{};
+    if (!hash.finish(digest)) return {std::nullopt, CustodyFileError::hashFailed, hash.error()};
+    if (cancel()) return {std::nullopt, CustodyFileError::ioFailed, ERROR_OPERATION_ABORTED};
+    return {digest, CustodyFileError::none, 0};
+} catch (const std::bad_alloc&) { return {std::nullopt, CustodyFileError::allocationFailed, 0}; }
+#endif
 
 } // namespace graf::windows

@@ -2,10 +2,12 @@
 
 #include "../Contracts/WindowsDesktopContracts.h"
 #include "../Upload/DesktopApiClient.h"
+#include "../Shell/MeetingReminderPresenter.h"
 #include <cstdio>
 #include <algorithm>
 #include <random>
 #include <charconv>
+#include <stdexcept>
 
 #if defined(_WIN32) && defined(GRAF_WINDOWS_APP_SDK)
 #include <winrt/Windows.Data.Json.h>
@@ -184,6 +186,9 @@ void logBridgeEvent(std::string_view event) {
 
 std::optional<WebViewBridgeEnvelope> parseEnvelope(std::string_view json, std::string origin) {
     try {
+        // Preserve/validate original calendar JSON BEFORE SDK normalization.
+        const auto join = DesktopApiClient::calendarJoinEnvelopePayload(json, "calendar_join");
+        const auto cancel = DesktopApiClient::calendarJoinEnvelopePayload(json, "calendar_join_cancel");
         const auto object = winrt::Windows::Data::Json::JsonObject::Parse(winrt::to_hstring(json));
         const auto version = object.GetNamedNumber(L"version");
         const auto messageId = object.GetNamedNumber(L"message_id");
@@ -198,13 +203,17 @@ std::optional<WebViewBridgeEnvelope> parseEnvelope(std::string_view json, std::s
         envelope.version = static_cast<std::uint32_t>(version);
         envelope.messageId = static_cast<std::uint64_t>(messageId);
         envelope.nonce = utf8(object.GetNamedString(L"nonce"));
-        envelope.origin = std::move(origin);
+        envelope.origin = origin;
         const auto direction = utf8(object.GetNamedString(L"direction"));
         if (direction == "native_to_web") envelope.direction = BridgeDirection::nativeToWeb;
         else if (direction == "web_to_native") envelope.direction = BridgeDirection::webToNative;
         else return std::nullopt;
         envelope.command = utf8(object.GetNamedString(L"command"));
-        envelope.payloadJson = utf8(object.GetNamedValue(L"payload").Stringify());
+        if (envelope.command == "calendar_join" || envelope.command == "calendar_join_cancel") {
+            const auto& payload = envelope.command == "calendar_join" ? join : cancel;
+            if (!payload || utf8(object.GetNamedString(L"origin")) != origin) return std::nullopt;
+            envelope.payloadJson = *payload;
+        } else envelope.payloadJson = utf8(object.GetNamedValue(L"payload").Stringify());
         envelope.sentAtMonotonicMs = static_cast<std::uint64_t>(sentAt);
         return envelope;
     } catch (...) {
@@ -229,8 +238,11 @@ constexpr wchar_t kDesktopBridgeScript[] = LR"JS(
   window.GRAFPlatform?.refresh();
   let nonce = null;
   let nextMessageId = 1;
+  let calendarAvailable = false;
+  let calendarPending = null;
+  const calendarUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   const send = (command, payload) => {
-    if (!nonce) return;
+    if (!nonce) return false;
       window.chrome.webview.postMessage({
         protocol: 'graf.desktop.bridge',
         version: 1,
@@ -242,8 +254,67 @@ constexpr wchar_t kDesktopBridgeScript[] = LR"JS(
         payload,
         sent_at_monotonic_ms: Math.floor(window.performance.now())
       });
+    return true;
   };
-  // The cabinet's theme is a user setting in the cabinet itself (`data-theme`),
+  const calendarButtons = eventId => [...document.querySelectorAll('[data-calendar-join]')]
+    .filter(button => button.dataset.calendarJoin.toLowerCase() === eventId && button.isConnected);
+  const calendarActionable = button => button.isConnected && !button.hasAttribute('disabled') && !button.closest('[hidden],[inert]');
+  const calendarFeedback = (item, state) => {
+    const busy = state === 'resolving' || state === 'opening';
+    for (const [button, previous] of item.buttons) {
+      if (!button.isConnected) item.buttons.delete(button);
+      else if (!busy && button.getAttribute('aria-disabled') === 'true') {
+        if (previous === null) button.removeAttribute('aria-disabled'); else button.setAttribute('aria-disabled', previous);
+      }
+    }
+    calendarButtons(item.eventId).forEach(button => {
+      let status = button.parentElement.querySelector('[data-calendar-join-status]');
+      if (!status) {
+        status = document.createElement('span'); status.dataset.calendarJoinStatus = ''; button.after(status);
+      }
+      status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite');
+      const messages = {resolving:'Открываем…', opening:'Открываем…', handed_off:'Ссылка передана приложению',
+        failed:'Не удалось открыть. Повторите попытку.', cancelled:'Действие отменено. Повторите попытку.'};
+      if (status.textContent !== messages[state]) status.textContent = messages[state];
+      if (busy && button.getAttribute('aria-disabled') !== 'true') {
+        item.buttons.set(button, button.getAttribute('aria-disabled')); button.setAttribute('aria-disabled', 'true');
+      }
+    });
+  };
+  const cancelCalendar = () => {
+    const item = calendarPending;
+    if (!item) return;
+    calendarPending = null;
+    calendarFeedback(item, 'cancelled');
+    try { send('calendar_join_cancel', {eventId:item.eventId, requestId:item.requestId}); } catch (_) {}
+  };
+  // Presentation only; the host separately validates both handlers and the current document.
+  window.__grafSetCalendarJoinAvailable = available => {
+    calendarAvailable = available === true;
+    if (!calendarAvailable) cancelCalendar();
+  };
+  new MutationObserver(() => {
+    if (!calendarPending) return;
+    if (!calendarButtons(calendarPending.eventId).some(calendarActionable)) cancelCalendar();
+    else calendarFeedback(calendarPending, calendarPending.state);
+  }).observe(document.documentElement, {childList:true, subtree:true, attributes:true,
+    attributeFilter:['data-calendar-join','hidden','inert','disabled']});
+  window.addEventListener('pagehide', cancelCalendar);
+  document.addEventListener('click', event => {
+    const button = event.target instanceof Element ? event.target.closest('[data-calendar-join]') : null;
+    if (!button || !event.isTrusted || !nonce || !calendarAvailable) return;
+    event.preventDefault();
+    if (calendarPending || !calendarActionable(button) || button.getAttribute('aria-disabled') === 'true' ||
+        !calendarUUID.test(button.dataset.calendarJoin || '')) return;
+    const item = {eventId:button.dataset.calendarJoin.toLowerCase(), requestId:crypto.randomUUID(), state:'resolving', buttons:new Map()};
+    calendarPending = item;
+    calendarFeedback(item, item.state);
+    try {
+      if (send('calendar_join', {action:'joinCalendarEvent', eventId:item.eventId, requestId:item.requestId})) return;
+    } catch (_) {}
+    if (calendarPending === item) {calendarPending = null; calendarFeedback(item, 'failed');}
+  }, true);
+)JS" LR"JS(  // The cabinet's theme is a user setting in the cabinet itself (`data-theme`),
   // so the page tells the app which one is in force instead of the app guessing.
   const publishAppearance = () => {
     const theme = document.documentElement.dataset.theme;
@@ -298,12 +369,27 @@ constexpr wchar_t kDesktopBridgeScript[] = LR"JS(
     const message = event.data;
     if (!message) return;
     if (message.command === 'native_ready' && typeof message.nonce === 'string') {
+      if (nonce !== message.nonce) cancelCalendar();
       nonce = message.nonce;
       nextMessageId = 1;
       // The theme is announced with the handshake, not at document start: the
       // envelope needs the nonce, and before the handshake the app would drop it
       // as a message from a document it has not accepted yet.
       publishAppearance();
+    } else if (message.command === 'calendar_join_reply' && calendarPending && nonce && message.nonce === nonce &&
+        message.request_id === calendarPending.requestId) {
+      if (!calendarButtons(calendarPending.eventId).some(calendarActionable)) {cancelCalendar(); return;}
+      const state = message.state;
+      const reasons = ['busy','not_ready','stale','auth_required','event_unavailable','dependency_unavailable',
+        'invalid_target','launch_failed','cancelled'];
+      if (message.reason !== undefined && !reasons.includes(message.reason)) return;
+      if ((state === 'resolving' && calendarPending.state === 'resolving') ||
+          (state === 'opening' && calendarPending.state === 'resolving' && message.reason === undefined)) {
+        calendarPending.state = state; calendarFeedback(calendarPending, state);
+      } else if (state === 'failed' || state === 'cancelled' ||
+          (state === 'handed_off' && calendarPending.state === 'opening' && message.reason === undefined)) {
+        const item = calendarPending; calendarPending = null; calendarFeedback(item, state);
+      }
     } else if (message.command === 'native_reply' && typeof message.request_id === 'number') {
       window.dispatchEvent(new CustomEvent('graf:native-settings-reply', {
         detail: {requestId: message.request_id, payload: message.payload || null}
@@ -313,7 +399,7 @@ constexpr wchar_t kDesktopBridgeScript[] = LR"JS(
       // The deletions in flight and the recovery notice travel with the rows: the
       // cabinet prints them, so a saved request is not merely remembered by the app.
       const operations = Array.isArray(message.operations) ? message.operations : [];
-      window.GRAFLocalRecordings?.update(rows, operations, message.recoveryRequired === true);
+      window.GRAFLocalRecordings?.update(rows, operations, message.recoveryRequired === true, message.state);
       adaptLocalDates();
     }
   });
@@ -350,7 +436,130 @@ WebView2Host::~WebView2Host() {
     close();
 }
 
+void WebView2Host::invalidateUserTime() noexcept {
+    localDocumentIdentity_ = false;
+    userTimeZone_.clear(); userTimeSession_.clear();
+    userTimeAttemptedRevision_.reset();
+    ++userTimeRevision_;
+}
+
+void WebView2Host::bindUserTimeAccount(std::string origin, std::string user, std::string workspace,
+    std::string sessionToken, std::uint64_t authGeneration) {
+    if (origin != policy_.trustedOrigin() || !DesktopApiClient::accountId(user) ||
+        !DesktopApiClient::accountId(workspace) || sessionToken.empty()) {
+        origin.clear(); user.clear(); workspace.clear(); sessionToken.clear();
+    }
+    const bool changed = userTimeAccount_.origin != origin || userTimeAccount_.user != user ||
+        userTimeAccount_.workspace != workspace || userTimeAccount_.token != sessionToken ||
+        userTimeAccount_.authGeneration != authGeneration;
+    if (changed) {
+        const bool interruptedHistory = historyBusy() && runtimeState_ == WebRuntimeState::initializing;
+        clearHistorySession();
+        // History proofs stay revoked until a future actual GET is accepted in this session.
+        invalidateUserTime();
+        userTimeAccount_ = {std::move(origin), std::move(user), std::move(workspace), std::move(sessionToken),
+                            {}, {}, authGeneration, 0, 0};
+        if (interruptedHistory) fail("history-session-changed", 0);
+    }
+    refreshUserTime();
+    if (changed && protectedLocalMode_ && nativePublishLocalRecordings_) nativePublishLocalRecordings_();
+}
+
+bool WebView2Host::userTimeDocumentCurrent() const {
+    if (!alive_ || !alive_->load() || runtimeState_ != WebRuntimeState::ready || documentNonce_.empty() ||
+        currentUrl_ != committedDocumentUrl_ || userTimeAccount_.origin != policy_.trustedOrigin() ||
+        userTimeAccount_.token.empty() || userTimeAccount_.token != userTimeCookieToken_ ||
+        userTimeCookieGeneration_ != documentGeneration_) return false;
+    const auto route = policy_.evaluate(currentUrl_);
+    if (route.decision != RouteDecision::allow || !policy_.sharesOrigin(currentUrl_) ||
+        !policy_.allowsNativeBridge(currentUrl_)) return false;
+    // Billing action URLs are navigation targets, not confirmed display pages.
+    if (route.kind == RouteKind::billing && policy_.safeRecoveryUrl(currentUrl_).empty()) return false;
+    return route.kind == RouteKind::meetings || route.kind == RouteKind::meetingDetail ||
+        route.kind == RouteKind::share || route.kind == RouteKind::deletionReport ||
+        route.kind == RouteKind::settings || route.kind == RouteKind::nativeSettings || route.kind == RouteKind::billing;
+}
+
+bool WebView2Host::userTimeReadCurrent(const UserTimeRead& read) const {
+    return userTimeDocumentCurrent() && read.documentGeneration == documentGeneration_ &&
+        read.revision == userTimeRevision_ && read.nonce == documentNonce_ && read.url == currentUrl_ &&
+        read.origin == userTimeAccount_.origin && read.user == userTimeAccount_.user &&
+        read.workspace == userTimeAccount_.workspace && read.token == userTimeAccount_.token &&
+        read.authGeneration == userTimeAccount_.authGeneration;
+}
+
+void WebView2Host::refreshUserTime() {
+    if (!nativeReadUserTime_ || userTimeAttemptedRevision_ == userTimeRevision_ || !userTimeDocumentCurrent()) return;
+    auto read = userTimeAccount_;
+    read.documentGeneration = documentGeneration_; read.revision = userTimeRevision_;
+    read.nonce = documentNonce_; read.url = currentUrl_;
+    userTimeAttemptedRevision_ = userTimeRevision_;
+    const auto alive = alive_;
+    const auto invoke = nativeReadUserTime_;
+    try { invoke(read); }
+    catch (...) {
+        if (alive->load()) completeUserTimeRead(read, {}, read.url);
+    }
+}
+
+void WebView2Host::reconcileUserTimeCookie(std::uint64_t generation, std::string_view nonce,
+    std::string_view url, std::string token) {
+    if (!alive_ || !alive_->load() || generation != documentGeneration_ || nonce != documentNonce_ ||
+        runtimeState_ != WebRuntimeState::ready || url != currentUrl_ || url != committedDocumentUrl_ ||
+        !policy_.allowsNativeBridge(url)) return;
+    userTimeCookieGeneration_ = generation;
+    userTimeCookieToken_ = std::move(token);
+    refreshUserTime();
+}
+
+void WebView2Host::completeUserTimeRead(const UserTimeRead& read, std::string_view raw, std::string_view source) {
+    if (!userTimeReadCurrent(read) || source != read.url) return;
+    const auto metadata = DesktopApiClient::decodeUserTimeMetadata(raw);
+    const bool identityAccepted = metadata && metadata->userId == read.user && metadata->workspaceId == read.workspace &&
+        metadata->documentUrl == read.url;
+    const bool accepted = identityAccepted && MeetingReminderPresenter::upcomingTime(0, metadata->timeZone).has_value();
+    invalidateUserTime();
+    localDocumentIdentity_ = identityAccepted;
+    if (accepted) { userTimeZone_ = metadata->timeZone; userTimeSession_ = metadata->sessionId; }
+    // One read per confirmed context, including invalid/empty metadata. Same-page
+    // saves are staged until the next confirmed document, just as on macOS.
+    userTimeAttemptedRevision_ = userTimeRevision_;
+    if (protectedLocalMode_ && nativePublishLocalRecordings_) nativePublishLocalRecordings_();
+}
+
+bool WebView2Host::reconcileAuthSessionForDocument(std::uint64_t generation, std::string nonce,
+    std::string url, std::string token, bool reconciled) {
+    const auto alive = alive_;
+    if (!alive || !alive->load() || generation != documentGeneration_ || nonce != documentNonce_ ||
+        runtimeState_ != WebRuntimeState::ready || url != currentUrl_ || url != committedDocumentUrl_ ||
+        !policy_.allowsNativeBridge(url)) return false;
+    if (reconciled && historyCookieObserved_ && historyCookieToken_ != token) {
+        // Cookie changes are an actual session boundary even if the account
+        // owner has not yet finished its asynchronous account confirmation.
+        clearHistorySession();
+    }
+    if (reconciled) { historyCookieToken_ = token; historyCookieObserved_ = true; }
+    const auto revision = userTimeRevision_;
+    const auto handler = authSessionHandler_;
+    try { if (handler) handler(reconciled ? token : std::string{}, reconciled); }
+    catch (...) {
+        if (alive->load() && generation == documentGeneration_ && nonce == documentNonce_ &&
+            runtimeState_ == WebRuntimeState::ready && url == currentUrl_ && url == committedDocumentUrl_ &&
+            revision == userTimeRevision_) bindUserTimeAccount({}, {}, {}, {}, 0);
+        return false;
+    }
+    return alive->load() && reconciled && generation == documentGeneration_ && nonce == documentNonce_ &&
+        runtimeState_ == WebRuntimeState::ready && url == currentUrl_ && url == committedDocumentUrl_;
+}
+
 void WebView2Host::setRuntimeState(WebRuntimeState state) noexcept {
+    if (state == WebRuntimeState::authRequired || state == WebRuntimeState::closed)
+        clearHistorySession();
+    if (state != WebRuntimeState::ready) {
+        invalidateUserTime(); userTimeCookieToken_.clear(); userTimeCookieGeneration_ = 0;
+        nativeReadUserTime_ = {};
+    }
+    if (state != WebRuntimeState::ready) revokeCalendarDocument();
     if (state == WebRuntimeState::authRequired || state == WebRuntimeState::closed ||
         state == WebRuntimeState::unavailable) cancelPaymentPopup();
     if (state != WebRuntimeState::ready) nativeSettingsNonce_.clear();
@@ -360,16 +569,27 @@ void WebView2Host::setRuntimeState(WebRuntimeState state) noexcept {
         bridge_.invalidate();
         nativePublishLocalRecordings_ = {};
         nativeRunScript_ = {};
+        nativeReplyCalendarJoin_ = {};
     }
     try {
         if (runtimeHandler_) runtimeHandler_(state);
     } catch (...) {
+        invalidateUserTime(); userTimeCookieToken_.clear(); userTimeCookieGeneration_ = 0;
+        nativeReadUserTime_ = {};
+        revokeCalendarDocument();
         runtimeState_ = WebRuntimeState::unavailable;
+        documentNonce_.clear();
+        nativeReplyCalendarJoin_ = {};
         bridge_.invalidate();
     }
 }
 
 void WebView2Host::fail(std::string_view stage, std::int32_t code) noexcept {
+    history_.clear();
+    historyNeedsReset_ = true;
+    historySingleForward_.clear();
+    cancelHistoryIntent();
+    revokeCalendarDocument();
     cancelPaymentPopup();
     authContinuation_ = AuthContinuation::none;
     payment_.stop();
@@ -453,6 +673,18 @@ RouteEvaluation WebView2Host::beginDocumentNavigation(std::string_view url, std:
         return route;
     }
     if (route.kind == RouteKind::nativeSettings || route.kind == RouteKind::artifactDownload) return route;
+    if (nativeReadHistory_) {
+        if (historyStage_ == HistoryStage::idle) {
+            ++historyOperation_;
+            historyStartedAt_ = now;
+            historySingleForward_.clear();
+        }
+        if (historyStage_ != HistoryStage::navigating) historyDeparture_ = history_.current();
+        history_.invalidate();
+        historyTerminalValidated_ = false;
+        historyStage_ = HistoryStage::navigating;
+        historyNavigation_ = id;
+    }
     if (startsPayment) (void)payment_.begin(policy_, source, url, now);
     const auto start = policy_.authContinuationForStart(url);
     if (start != AuthContinuation::none && !redirected) {
@@ -475,6 +707,7 @@ RouteEvaluation WebView2Host::beginDocumentNavigation(std::string_view url, std:
     requestedDocumentUrl_.clear();
     navigationUrl_ = std::string(url);
     navigationMethod_ = std::string(method);
+    revokeCalendarDocument();
     resetDocumentResponse();
     committedDocumentUrl_.clear();
     cancelDialog();
@@ -690,7 +923,7 @@ WebResponseDecision WebView2Host::completeDocumentNavigation(std::string_view ur
     } else if (result == D::expiredSession || result == D::workspaceReselection) {
         payment_.stop();
         authContinuation_ = AuthContinuation::none;
-        if (authSessionHandler_) authSessionHandler_({});
+        if (authSessionHandler_) authSessionHandler_({}, false);
         setRuntimeState(WebRuntimeState::authRequired);
     } else {
         fail(result == D::accessDenied ? "access-denied" : result == D::notFound ? "not-found" :
@@ -711,6 +944,7 @@ void WebView2Host::cancelDialog() noexcept {
 }
 
 void WebView2Host::close() noexcept {
+    revokeCalendarDocument();
     if (alive_) alive_->store(false);
     ++documentGeneration_;
     navigationId_ = 0;
@@ -724,22 +958,27 @@ void WebView2Host::close() noexcept {
     try { if (nativeClose_) nativeClose_(); } catch (...) {}
     nativeNavigate_ = {};
     nativeReload_ = {};
-    nativeBack_ = {};
-    nativeForward_ = {};
-    nativeCanGoBack_ = {};
-    nativeCanGoForward_ = {};
     nativeClose_ = {};
     nativeInitialize_ = {};
     nativePublishLocalRecordings_ = {};
     nativeRunScript_ = {};
     nativeExtendAuthCookie_ = {};
     nativeFinishDocument_ = {};
+    nativeActivateDocument_ = {};
+    nativeReadHistory_ = {};
+    nativeSelectHistory_ = {};
+    nativeResetHistory_ = {};
+    nativeFreshHistory_ = {};
+    historyCookieToken_.clear();
+    historyCookieObserved_ = false;
     nativeStopResponseTimer_ = {};
     preferredColorScheme_ = {};
+    userTimeAccount_ = {};
     setRuntimeState(WebRuntimeState::closed);
 }
 
 RouteEvaluation WebView2Host::navigate(std::string url) {
+    if (historyBusy()) return {};
     const auto evaluation = policy_.evaluate(url);
     if (runtimeState_ != WebRuntimeState::closed && evaluation.decision == RouteDecision::allow) {
         // Native callers can request account/login recovery before a control is
@@ -764,7 +1003,7 @@ RouteEvaluation WebView2Host::navigate(std::string url) {
 }
 
 void WebView2Host::reload() {
-    if (runtimeState_ == WebRuntimeState::closed) return;
+    if (runtimeState_ == WebRuntimeState::closed || historyBusy()) return;
     if (paymentPopup_) {
         cancelPaymentPopup();
         (void)navigate(policy_.trustedOrigin() + "/billing");
@@ -795,6 +1034,7 @@ void WebView2Host::handleProcessFailure(WebProcessFailure failure, std::int32_t 
     // document. Invalidating its bridge here strands an otherwise live cabinet.
     if (runtimeState_ == WebRuntimeState::closed ||
         failure == WebProcessFailure::automaticallyRecoverable) return;
+    clearHistorySession();
     const char* stage = "webview-process";
     switch (failure) {
     case WebProcessFailure::browserExited:
@@ -806,6 +1046,7 @@ void WebView2Host::handleProcessFailure(WebProcessFailure failure, std::int32_t 
     case WebProcessFailure::frameRenderExited: stage = "frame-render-process-exited"; break;
     case WebProcessFailure::automaticallyRecoverable: return;
     }
+    revokeCalendarDocument();
     ++documentGeneration_;
     fail(stage, exitCode);
 }
@@ -814,16 +1055,168 @@ void WebView2Host::back() {
     if (paymentPopup_) {
         cancelPaymentPopup();
         (void)navigate(policy_.trustedOrigin() + "/billing");
-    } else if (canGoBack()) nativeBack_();
+    } else if (canGoBack()) requestHistoryNavigation(true);
 }
-void WebView2Host::forward() { if (canGoForward()) nativeForward_(); }
+void WebView2Host::forward() { if (canGoForward()) requestHistoryNavigation(false); }
 bool WebView2Host::canGoBack() const {
     if (paymentPopup_) return true; // One action out even on the first payment page.
-    try { return !recreateRequired_ && nativeCanGoBack_ && nativeCanGoBack_(); } catch (...) { return false; }
+    return !recreateRequired_ && !historyBusy() && navigationId_ == 0 && runtimeState_ == WebRuntimeState::ready &&
+        nativeReadHistory_ && (history_.target(policy_, true).has_value() || meetingHistoryExit());
 }
 bool WebView2Host::canGoForward() const {
     if (paymentPopup_) return false; // Never traverse/replay a checkout action.
-    try { return !recreateRequired_ && nativeCanGoForward_ && nativeCanGoForward_(); } catch (...) { return false; }
+    return !recreateRequired_ && !historyBusy() && navigationId_ == 0 && runtimeState_ == WebRuntimeState::ready &&
+        nativeReadHistory_ && (history_.target(policy_, false).has_value() ||
+            (!historyNeedsReset_ && history_.allGet(policy_) && !historySingleForward_.empty()));
+}
+
+void WebView2Host::cancelHistoryIntent() noexcept {
+    ++historyOperation_;
+    historyStage_ = HistoryStage::idle;
+    historyTarget_.reset();
+    historyFreshTag_.clear();
+    historyDeparture_.reset();
+    historyNavigation_ = 0;
+    historyTraversal_ = historyCommandAcknowledged_ = historyTerminalValidated_ = false;
+}
+
+void WebView2Host::clearHistorySession() noexcept {
+    ++historySession_;
+    history_.clear();
+    historyNeedsReset_ = true;
+    historySingleForward_.clear();
+    cancelHistoryIntent();
+}
+
+bool WebView2Host::meetingHistoryExit() const {
+    const auto kind = policy_.evaluate(currentUrl_).kind;
+    return kind == RouteKind::meetingDetail || kind == RouteKind::review ||
+        kind == RouteKind::share || kind == RouteKind::deletionReport;
+}
+
+void WebView2Host::requestHistoryNavigation(bool back) {
+    if (historyBusy() || navigationId_ != 0 || runtimeState_ != WebRuntimeState::ready || !nativeReadHistory_) return;
+    historyStage_ = HistoryStage::selecting; // Fence before the first asynchronous read.
+    historyStartedAt_ = monotonicMilliseconds();
+    const auto operation = ++historyOperation_, session = historySession_, generation = documentGeneration_;
+    const auto source = currentUrl_;
+    history_.invalidate();
+    const auto revision = history_.revision();
+    nativeReadHistory_(source, [this, operation, session, generation, source, revision, back](auto snapshot) {
+        if (operation != historyOperation_ || session != historySession_ || generation != documentGeneration_ ||
+            historyStage_ != HistoryStage::selecting) return;
+        if (!snapshot || currentUrl_ != source || navigationId_ != 0 || runtimeState_ != WebRuntimeState::ready ||
+            !history_.acceptSnapshot(revision, std::move(snapshot->entries), snapshot->currentIndex, source)) {
+            history_.invalidate(); historySingleForward_.clear(); historyNeedsReset_ = true;
+            cancelHistoryIntent();
+            return; // Keep the current document; never fall back to raw browser traversal.
+        }
+        historyTarget_ = history_.target(policy_, back);
+        historyTraversal_ = historyTarget_.has_value();
+        if (!historyTarget_) {
+            if (back && meetingHistoryExit()) {
+                historySingleForward_ = history_.currentIsGet(policy_) ? source : std::string{};
+                historyTarget_ = WebHistoryEntry{-1, policy_.trustedOrigin() + "/desktop/meetings"};
+            } else if (!back && !historyNeedsReset_ && history_.allGet(policy_) && !historySingleForward_.empty()) {
+                historyTarget_ = WebHistoryEntry{-1, std::exchange(historySingleForward_, {})};
+            } else { cancelHistoryIntent(); return; }
+        } else historySingleForward_.clear();
+        historyStage_ = HistoryStage::permitted;
+        historyCommandAcknowledged_ = !historyTraversal_;
+        try {
+            if (historyTraversal_ && nativeSelectHistory_) {
+                nativeSelectHistory_(historyTarget_->id, [this, operation, session](bool accepted) {
+                    if (operation != historyOperation_ || session != historySession_) return;
+                    if (!accepted) { fail("history-command", 0); return; }
+                    historyCommandAcknowledged_ = true;
+                    if (nativeFinishDocument_) nativeFinishDocument_();
+                });
+            } else if (!historyTraversal_ && nativeFreshHistory_) nativeFreshHistory_(historyTarget_->url);
+            else { historySingleForward_.clear(); cancelHistoryIntent(); }
+        } catch (...) { fail("history-command", 0); }
+    });
+}
+
+bool WebView2Host::admitHistoryNavigation(std::string_view url, std::uint64_t id,
+    bool redirected, bool backOrForward) {
+    if (historyStage_ == HistoryStage::selecting || historyStage_ == HistoryStage::accepting ||
+        historyStage_ == HistoryStage::resetting) return false;
+    if (historyStage_ == HistoryStage::permitted) {
+        if (!historyTarget_ || redirected || url != historyTarget_->url || backOrForward != historyTraversal_)
+            return false;
+    } else if (historyStage_ == HistoryStage::navigating) {
+        if (!redirected || id != historyNavigation_ || historyTraversal_) return false;
+    } else {
+        if (backOrForward || redirected) return false; // No selected entry permit or current redirect owner.
+    }
+    return true;
+}
+
+void WebView2Host::prepareHistoryAcceptance(std::string source) {
+    if (historyStage_ != HistoryStage::navigating || !nativeReadHistory_) return;
+    if (!historyTarget_) historyStartedAt_ = monotonicMilliseconds();
+    historyStage_ = HistoryStage::accepting;
+    const auto operation = historyOperation_, session = historySession_, generation = documentGeneration_;
+    const auto navigation = navigationId_, revision = history_.revision();
+    nativeReadHistory_(source, [this, operation, session, generation, navigation, revision, source](auto snapshot) {
+        if (operation != historyOperation_ || session != historySession_ || generation != documentGeneration_ ||
+            historyStage_ != HistoryStage::accepting || navigation != navigationId_) return;
+        if (!snapshot || currentUrl_ != source || history_.revision() != revision) {
+            fail("history-snapshot", 0); return;
+        }
+        if (snapshot->currentIndex >= snapshot->entries.size()) { fail("history-snapshot", 0); return; }
+        const auto current = snapshot->entries[snapshot->currentIndex];
+        if (historyTraversal_ && (!historyTarget_ || current.id != historyTarget_->id || current.url != historyTarget_->url)) {
+            fail("history-selected-entry", 0); return;
+        }
+        // A retained ID may have been replaced by POST/reload. Do not erase the
+        // outgoing GET merely because another document started (or was cancelled).
+        if (!historyTraversal_ && historyDeparture_ && current.id == historyDeparture_->id)
+            history_.forgetEntry(current.id);
+        if (!history_.acceptSnapshot(history_.revision(), std::move(snapshot->entries), snapshot->currentIndex, source) ||
+            (historyTraversal_ && !history_.allGet(policy_))) { fail("history-snapshot", 0); return; }
+        historyTerminalRevision_ = history_.revision();
+        historyTerminalValidated_ = true;
+        historyStage_ = HistoryStage::navigating;
+        if (nativeFinishDocument_) nativeFinishDocument_();
+    });
+}
+
+void WebView2Host::finishHistoryAcceptance() {
+    const auto current = history_.current();
+    if (!current || !historyTerminalValidated_ || history_.revision() != historyTerminalRevision_) {
+        fail("history-terminal", 0); return;
+    }
+    (void)history_.confirmCurrent(policy_, historyTerminalRevision_, navigationUrl_, navigationMethod_);
+    const auto list = policy_.trustedOrigin() + "/desktop/meetings";
+    const bool reset = policy_.safeRecoveryUrl(current->url) == list && history_.currentIsGet(policy_) &&
+        (historyNeedsReset_ || !history_.allGet(policy_));
+    if (!reset) {
+        historyNeedsReset_ = !history_.allGet(policy_);
+        cancelHistoryIntent();
+        if (nativeActivateDocument_) nativeActivateDocument_();
+        return;
+    }
+    if (!nativeResetHistory_ || !nativeReadHistory_) { fail("history-reset", 0); return; }
+    historyStage_ = HistoryStage::resetting; // Includes ACK and independent singleton readback.
+    const auto operation = historyOperation_, session = historySession_, generation = documentGeneration_;
+    nativeResetHistory_([this, operation, session, generation, expected = *current](bool acknowledged) {
+        if (operation != historyOperation_ || session != historySession_ || generation != documentGeneration_ ||
+            historyStage_ != HistoryStage::resetting) return;
+        if (!acknowledged || currentUrl_ != expected.url || navigationId_ != 0) { fail("history-reset", 0); return; }
+        const auto revision = history_.revision();
+        nativeReadHistory_(expected.url, [this, operation, session, generation, expected, revision](auto snapshot) {
+            if (operation != historyOperation_ || session != historySession_ || generation != documentGeneration_ ||
+                historyStage_ != HistoryStage::resetting) return;
+            if (!snapshot || navigationId_ != 0 || currentUrl_ != expected.url || snapshot->entries.size() != 1 ||
+                snapshot->currentIndex != 0 || snapshot->entries[0].id != expected.id || snapshot->entries[0].url != expected.url ||
+                !history_.acceptSnapshot(revision, std::move(snapshot->entries), 0, expected.url) ||
+                !history_.currentIsGet(policy_)) { fail("history-reset-proof", 0); return; }
+            historyNeedsReset_ = false;
+            cancelHistoryIntent();
+            if (nativeActivateDocument_) nativeActivateDocument_();
+        });
+    });
 }
 
 bool WebView2Host::isAllowedQuitPayload(std::string_view payload) noexcept {
@@ -894,10 +1287,157 @@ void WebView2Host::refreshNativeSettings() {
 
 void WebView2Host::setLocalRecordings(std::vector<WebViewLocalRecordingRow> rows,
                                      std::vector<CabinetDeletionOperation> operations, bool recoveryRequired) {
+    protectedLocalMode_ = false;
+    protectedLocalValue_.reset();
+    protectedLocalTimings_.reset();
     localRecordings_ = std::move(rows);
     localDeletionOperations_ = std::move(operations);
     localRecoveryRequired_ = recoveryRequired;
     if (runtimeState_ == WebRuntimeState::ready && nativePublishLocalRecordings_) nativePublishLocalRecordings_();
+}
+
+void WebView2Host::setProtectedLocalRecordings(std::shared_ptr<const ProtectedUploadQueueValue> value, bool complete,
+    std::string origin, std::string user, std::string workspace, std::uint64_t authGeneration,
+    std::shared_ptr<const ProtectedLocalRecordingTimings> timings, std::string_view activeSession) {
+    if (activeSession.size() > 300) throw std::runtime_error("local_active_session");
+    if (timings && (!value || timings->snapshot != value || timings->rows.size() != value->items().size())) timings.reset();
+    const bool unchanged = protectedLocalMode_ && protectedLocalValue_ == value && protectedLocalComplete_ == complete &&
+        std::string_view(protectedLocalActiveSession_) == activeSession &&
+        protectedLocalTimings_ == timings &&
+        localAccount_.origin == origin && localAccount_.user == user && localAccount_.workspace == workspace &&
+        localAccount_.authGeneration == authGeneration;
+    if (unchanged && (!protectedLocalPublicationPending_ || std::chrono::steady_clock::now() < protectedLocalRetryAt_)) return;
+    protectedLocalMode_ = true;
+    protectedLocalActiveSession_.assign(activeSession.begin(), activeSession.end());
+    protectedLocalValue_ = std::move(value);
+    protectedLocalTimings_ = std::move(timings);
+    protectedLocalComplete_ = complete;
+    localAccount_ = {std::move(origin), std::move(user), std::move(workspace), {}, {}, {}, authGeneration, 0, 0};
+    protectedLocalPublicationPending_ = true;
+    std::vector<WebViewLocalRecordingRow>().swap(localRecordings_);
+    std::vector<CabinetDeletionOperation>().swap(localDeletionOperations_);
+    if (runtimeState_ == WebRuntimeState::ready && nativePublishLocalRecordings_) nativePublishLocalRecordings_();
+}
+
+void WebView2Host::failProtectedLocalPublication() noexcept {
+    protectedLocalPublicationPending_ = true;
+    protectedLocalRetryAt_ = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    try {
+        if (nativeRunScript_) nativeRunScript_("window.GRAFLocalRecordings?.update([],[],false,'unavailable')");
+    } catch (...) { /* The same unavailable WebView may also reject the fallback; keep the pending retry. */ }
+}
+
+std::string_view WebView2Host::localRecordingStatus(const ProtectedUploadQueueValue::Item& item) noexcept {
+    if (isPreparedUnownedRecording(item)) return "Не назначена";
+    switch (item.status) {
+    case UploadQueueStatus::pending: return "Ожидает отправки";
+    case UploadQueueStatus::uploading: return "Отправляется";
+    case UploadQueueStatus::retry: return item.safeReason == "retry_budget_exhausted"
+        ? "Автоматические повторы остановлены" : "Ожидает повторной отправки";
+    case UploadQueueStatus::needsAuth: return "Не удалось подтвердить аккаунт для отправки";
+    case UploadQueueStatus::uploaded: return "Отправлено";
+    case UploadQueueStatus::quarantined: return "Требует проверки · не отправлена";
+    case UploadQueueStatus::blocked: return DesktopUploadQueueService::isPermanentUploadReason(item.safeReason)
+        ? "Сервер отклонил запись без возможности повторной отправки"
+        : item.safeReason == "needs_admin" ? "Ожидает действия администратора рабочего пространства"
+        : "Отправка невозможна без исправления на этом компьютере";
+    }
+    return "Требует проверки";
+}
+
+CustodyString WebView2Host::protectedLocalRecordingsMessage() const {
+    // One charged output and one retained immutable value; no ordinary inventory
+    // DTO, package inspection or filesystem access on the presentation thread.
+    const auto value = protectedLocalValue_;
+    const auto timings = protectedLocalTimings_;
+    const bool current = localPlaybackDocumentCurrent(documentGeneration_, documentNonce_);
+    CustodyString json;
+    const auto append = [&](std::string_view text) {
+        json.append(text.data(), text.size());
+    };
+    const auto quote = [&](std::string_view text) {
+        append("\"");
+        for (const unsigned char c : text) {
+            if (c == '"' || c == '\\') { append("\\"); const char byte = static_cast<char>(c); append({&byte, 1}); }
+            else if (c < 32) {
+                constexpr char hex[] = "0123456789abcdef";
+                const char escaped[]{'\\','u','0','0',hex[c >> 4],hex[c & 15]}; append({escaped, 6});
+            } else { const char byte = static_cast<char>(c); append({&byte, 1}); }
+        }
+        append("\"");
+    };
+    const auto field = [&](std::string_view name, std::string_view text) { append(name); quote(text); };
+    const auto number = [&](std::string_view name, std::uint64_t value) {
+        char digits[32];
+        const auto encoded = std::to_chars(std::begin(digits), std::end(digits), value);
+        if (encoded.ec != std::errc{}) throw std::runtime_error("local_inventory_number");
+        append(name); append({digits, static_cast<std::size_t>(encoded.ptr - digits)});
+    };
+    field("{\"command\":", "local_recordings"); field(",\"nonce\":", documentNonce_);
+    field(",\"state\":", !current ? "checking" : !value ? "unavailable" : protectedLocalComplete_ ? "ready" : "checking");
+    append(",\"rows\":[");
+    bool first = true, recovery = false;
+    if (current && value) for (std::size_t index = 0; index != value->items().size(); ++index) {
+        const auto& item = value->items()[index];
+        if (!protectedLocalActiveSession_.empty() && item.sessionId == protectedLocalActiveSession_) continue;
+        const bool claimable = protectedLocalClaimAllowed(index);
+        if ((item.ownerUserId.empty() || item.ownerWorkspaceId.empty()) && !claimable) { recovery = true; continue; }
+        if (!claimable && (std::string_view(item.ownerUserId) != localAccount_.user || std::string_view(item.ownerWorkspaceId) != localAccount_.workspace)) continue;
+        if (!first) append(",");
+        first = false;
+        field("{\"id\":", item.localRecordingId); field(",\"title\":", "Запись");
+        field(",\"status\":", localRecordingStatus(item));
+        if (timings && timings->rows[index]) {
+            const auto& timing = *timings->rows[index];
+            const auto startedAt = DesktopApiClient::formatUtcInstant<CustodyString>(timing.startedAtMs);
+            if (!startedAt.empty()) {
+                field(",\"startedAt\":", startedAt);
+                field(",\"generatedTitlePrefix\":", "Запись ");
+            }
+            std::optional<std::uint64_t> sessionSeconds;
+            if (timing.durationMs > 0) {
+                sessionSeconds = timing.durationMs / 1000;
+                number(",\"durationSeconds\":", *sessionSeconds);
+            }
+            if (!startedAt.empty() && timing.stoppedAtMs > timing.startedAtMs) {
+                const auto elapsed = timing.stoppedAtMs - timing.startedAtMs;
+                sessionSeconds = std::max(sessionSeconds.value_or(0), elapsed / 1000 + (elapsed % 1000 != 0));
+            }
+            if (sessionSeconds) number(",\"sessionDurationSeconds\":", *sessionSeconds);
+        }
+        append(",\"canOpen\":"); append(current && protectedLocalOpenAllowed(item) ? "true" : "false");
+        append(",\"canSend\":"); append(protectedLocalComplete_ &&
+            value->canManualSend(index, localAccount_.user, localAccount_.workspace, claimable) ? "true" : "false");
+        append(",\"canDelete\":"); append(protectedLocalComplete_ &&
+            value->canLocalRemoval(index, localAccount_.user, localAccount_.workspace) ? "true" : "false");
+        append(",\"showsPartialDuration\":false,\"uploadComplete\":");
+        append(item.status == UploadQueueStatus::uploaded ? "true" : "false");
+        append(",\"localDeletionPending\":"); append(item.safeReason == "local_delete_pending" ? "true" : "false");
+        append(",\"deletionIsLocalOnly\":");
+        append(item.meetingId.empty() && item.attempts == 0 && item.status != UploadQueueStatus::uploaded ? "true" : "false");
+        if (!item.meetingId.empty()) field(",\"meetingId\":", item.meetingId);
+        append("}");
+    }
+    append("],\"operations\":["); first = true;
+    if (current && value) for (const auto& operation : value->deletionOperations()) {
+        if (std::string_view(operation.actorUserId) != localAccount_.user || std::string_view(operation.workspaceId) != localAccount_.workspace ||
+            std::string_view(operation.serverOrigin) != localAccount_.origin) continue;
+        if (!first) append(",");
+        first = false;
+        constexpr std::string_view phases[]{"queued", "sending", "resolving", "accepted", "rejected", "verified"};
+        field("{\"id\":", operation.operationId);
+        if (static_cast<unsigned>(operation.phase) >= std::size(phases)) throw std::invalid_argument("local_inventory_phase");
+        field(",\"phase\":", phases[static_cast<unsigned>(operation.phase)]);
+        field(",\"waitReason\":", pageDeletionWaitReason(operation.safeReason));
+        append(operation.target == DeletionTarget::meeting ? ",\"target\":{\"meeting\":{\"_0\":" : ",\"target\":{\"ownOrigin\":{\"_0\":");
+        quote(operation.targetId); append("}}");
+        if (operation.target == DeletionTarget::meeting && deletionPhaseIsAccepted(operation.phase)) {
+            field(",\"receipt\":{\"meeting_id\":", operation.targetId); append("}");
+        }
+        append("}");
+    }
+    append("],\"recoveryRequired\":"); append(recovery ? "true}" : "false}");
+    return json;
 }
 
 void WebView2Host::applyLocalPackageTiming(WebViewLocalRecordingRow& row, std::uint64_t startedAtMs,
@@ -908,17 +1448,64 @@ void WebView2Host::applyLocalPackageTiming(WebViewLocalRecordingRow& row, std::u
     // instant rather than a date this machine already rendered. A recording with
     // no readable start keeps the plain title instead of an empty date.
     if (!row.startedAt.empty()) row.generatedTitlePrefix = "Запись ";
-    const auto sessionSeconds = stoppedAtMs > startedAtMs ? (stoppedAtMs - startedAtMs + 999) / 1000 : 0;
-    row.sessionDurationSeconds = std::max(row.durationSeconds, sessionSeconds);
+    row.sessionDurationSeconds = row.durationSeconds;
+    if (!row.startedAt.empty() && stoppedAtMs > startedAtMs) {
+        const auto sessionMs = stoppedAtMs - startedAtMs;
+        const auto sessionSeconds = sessionMs / 1000 + (sessionMs % 1000 != 0);
+        row.sessionDurationSeconds = std::max(row.durationSeconds.value_or(0), sessionSeconds);
+    }
     // "Saved X of Y" is a claim about a fault: it is true only for an
     // interrupted recording whose confirmed prefix survived, is playable, and is
     // shorter than the session it came from.
     row.showsPartialDuration = captureInterrupted && row.canOpen &&
-        row.durationSeconds < row.sessionDurationSeconds;
+        row.durationSeconds.has_value() && row.sessionDurationSeconds.has_value() &&
+        *row.durationSeconds < *row.sessionDurationSeconds;
+}
+
+bool WebView2Host::localPlaybackDocumentCurrent(std::uint64_t generation, std::string_view nonce) const noexcept try {
+    return protectedLocalMode_ && generation != 0 && generation == documentGeneration_ &&
+        !nonce.empty() && nonce == documentNonce_ && localDocumentIdentity_ && userTimeDocumentCurrent() &&
+        localAccount_.origin == userTimeAccount_.origin && localAccount_.user == userTimeAccount_.user &&
+        localAccount_.workspace == userTimeAccount_.workspace &&
+        localAccount_.authGeneration == userTimeAccount_.authGeneration;
+} catch (...) { return false; }
+
+bool WebView2Host::protectedLocalOpenAllowed(const ProtectedUploadQueueValue::Item& item) const noexcept {
+    if (!protectedLocalActiveSession_.empty() && item.sessionId == protectedLocalActiveSession_) return false;
+    if (!protectedLocalComplete_ || !protectedLocalValue_ || item.localRecordingId.empty() ||
+        item.localRecordingId.size() > 300 || item.ownerUserId.empty() || item.ownerWorkspaceId.empty() ||
+        std::string_view(item.ownerUserId) != localAccount_.user || std::string_view(item.ownerWorkspaceId) != localAccount_.workspace ||
+        !item.meetingId.empty() || item.safeReason == "local_delete_pending") return false;
+    if (item.status == UploadQueueStatus::quarantined) {
+        const auto& rows = protectedLocalValue_->items();
+        const auto row = std::find_if(rows.begin(), rows.end(), [&](const auto& value) { return &value == &item; });
+        if (!isPreparedOwnedRecording(item) || row == rows.end() || !protectedLocalTimings_ ||
+            !protectedLocalTimings_->playableDegraded(protectedLocalValue_, static_cast<std::size_t>(row - rows.begin()))) return false;
+    }
+    return !protectedLocalValue_->deletionBlocks(item);
+}
+
+bool WebView2Host::protectedLocalClaimAllowed(std::size_t index) const noexcept {
+    return protectedLocalComplete_ && protectedLocalValue_ && index < protectedLocalValue_->items().size() &&
+        isPreparedUnownedRecording(protectedLocalValue_->items()[index]) && protectedLocalTimings_ &&
+        protectedLocalTimings_->assignableNormal(protectedLocalValue_, index) &&
+        protectedLocalValue_->canManualSend(index, localAccount_.user, localAccount_.workspace, true);
 }
 
 bool WebView2Host::localRecordingActionAllowed(std::string_view action, std::string_view id) const noexcept {
     if (runtimeState_ != WebRuntimeState::ready || id.empty() || id.size() > 300) return false;
+    if (protectedLocalMode_) {
+        if (!protectedLocalValue_ || !localPlaybackDocumentCurrent(documentGeneration_, documentNonce_)) return false;
+        const auto& rows = protectedLocalValue_->items();
+        const auto row = std::find_if(rows.begin(), rows.end(), [id](const auto& item) { return std::string_view(item.localRecordingId) == id; });
+        if (row != rows.end() && !protectedLocalActiveSession_.empty() && row->sessionId == protectedLocalActiveSession_) return false;
+        return row != rows.end() && ((action == "open" && protectedLocalOpenAllowed(*row)) ||
+            (action == "delete" && protectedLocalComplete_ && protectedLocalValue_->canLocalRemoval(
+                static_cast<std::size_t>(row - rows.begin()), localAccount_.user, localAccount_.workspace)) ||
+            (action == "send" && protectedLocalComplete_ && protectedLocalValue_->canManualSend(
+                static_cast<std::size_t>(row - rows.begin()), localAccount_.user, localAccount_.workspace,
+                protectedLocalClaimAllowed(static_cast<std::size_t>(row - rows.begin())))));
+    }
     const auto row = std::find_if(localRecordings_.begin(), localRecordings_.end(),
         [id](const auto& item) { return item.id == id; });
     return row != localRecordings_.end() &&
@@ -971,11 +1558,131 @@ std::optional<CabinetDeletionSelection> WebView2Host::deletionSelectionFrom(
 
 void WebView2Host::completeDeletionSelection(const DeletionRequest& request,
                                             const CabinetDeletionOutcome& outcome) {
-    const auto script = RecordingDeletionBridge::completionScript(request.selection.requestId, outcome);
-    if (script.empty() || !nativeRunScript_) return;
+    completeDeletionSelection(request.documentGeneration, request.selection.requestId, outcome);
+}
+bool WebView2Host::completeDeletionSelection(std::uint64_t documentGeneration, std::string_view requestId,
+                                            const CabinetDeletionOutcome& outcome) {
     // A page that has since been replaced is not waiting for this answer.
-    if (request.documentGeneration == 0 || request.documentGeneration != documentGeneration_) return;
+    if (documentGeneration == 0 || documentGeneration != documentGeneration_) return true;
+    if (!nativeRunScript_ || runtimeState_ != WebRuntimeState::ready) return false;
+    const auto script = RecordingDeletionBridge::completionScript<CustodyString>(requestId, outcome);
+    if (script.empty()) return true; // Invalid request ID cannot be delivered as script.
     nativeRunScript_(script);
+    return true;
+}
+
+void WebView2Host::setCalendarJoinHandlers(CalendarJoinHandler join, CalendarJoinHandler cancel) {
+    bridge_.setCalendarJoinEnabled(false);
+    cancelPendingCalendarJoin();
+    try { if (nativeRunScript_) nativeRunScript_("window.__grafSetCalendarJoinAvailable?.(false)"); } catch (...) {}
+    calendarJoinHandler_ = std::move(join);
+    calendarCancelHandler_ = std::move(cancel);
+    bridge_.setCalendarJoinEnabled(calendarJoinHandler_ && calendarCancelHandler_);
+    publishCalendarJoinAvailability();
+}
+
+void WebView2Host::publishCalendarJoinAvailability() {
+    try { if (nativeRunScript_)
+        nativeRunScript_(bridge_.isAllowedWebCommand("calendar_join") && calendarJoinHandler_ && calendarCancelHandler_ &&
+            policy_.evaluate(currentUrl_).kind == RouteKind::meetings
+            ? "window.__grafSetCalendarJoinAvailable?.(true)" : "window.__grafSetCalendarJoinAvailable?.(false)");
+    } catch (...) {
+        bridge_.setCalendarJoinEnabled(false);
+        cancelPendingCalendarJoin();
+    }
+}
+
+bool WebView2Host::calendarDocumentCurrent(const CalendarJoinRequest& request) const {
+    return alive_ && alive_->load() && runtimeState_ == WebRuntimeState::ready && documentGeneration_ != 0 &&
+        request.documentGeneration == documentGeneration_ && !request.nonce.empty() &&
+        request.nonce == documentNonce_ && currentUrl_ == committedDocumentUrl_ &&
+        policy_.allowsNativeBridge(currentUrl_) && policy_.evaluate(currentUrl_).kind == RouteKind::meetings;
+}
+
+void WebView2Host::emitCalendarJoinReply(const CalendarJoinRequest& request, CalendarJoinResult result) {
+    if (nativeReplyCalendarJoin_ && calendarDocumentCurrent(request)) {
+        const auto reply = nativeReplyCalendarJoin_;
+        reply(request, result);
+    }
+}
+
+void WebView2Host::replyCalendarJoin(const CalendarJoinRequest& request, CalendarJoinResult result) {
+    if (!calendarRequestPending(request) || !calendarDocumentCurrent(request)) return;
+    const bool terminal = result.state == CalendarJoinState::handedOff ||
+        result.state == CalendarJoinState::failed || result.state == CalendarJoinState::cancelled;
+    if ((!terminal && (result.state != CalendarJoinState::opening || calendarJoinState_ != CalendarJoinState::resolving)) ||
+        (result.state == CalendarJoinState::handedOff && calendarJoinState_ != CalendarJoinState::opening) ||
+        ((result.state == CalendarJoinState::opening || result.state == CalendarJoinState::handedOff) &&
+            result.reason != CalendarJoinReason::none)) return;
+    calendarJoinState_ = result.state;
+    if (terminal) pendingCalendarJoin_.reset(); // Before any reentrant delivery.
+    emitCalendarJoinReply(request, result);
+}
+
+bool WebView2Host::calendarRequestPending(const CalendarJoinRequest& request) const noexcept {
+    return pendingCalendarJoin_ && request.documentGeneration == pendingCalendarJoin_->documentGeneration &&
+        request.nonce == pendingCalendarJoin_->nonce && request.intent.eventId == pendingCalendarJoin_->intent.eventId &&
+        request.intent.requestId == pendingCalendarJoin_->intent.requestId;
+}
+
+void WebView2Host::cancelPendingCalendarJoin() noexcept {
+    if (calendarInvalidating_) return;
+    calendarInvalidating_ = true;
+    const auto request = std::exchange(pendingCalendarJoin_, std::nullopt);
+    if (request) {
+        calendarJoinState_ = CalendarJoinState::cancelled;
+        try {
+            const auto cancel = calendarCancelHandler_;
+            if (cancel) cancel(*request);
+        } catch (...) {} // Still deliver the terminal to its original document.
+        try { emitCalendarJoinReply(*request, {CalendarJoinState::cancelled, CalendarJoinReason::cancelled}); }
+        catch (...) {}
+    }
+    calendarInvalidating_ = false;
+}
+
+void WebView2Host::revokeCalendarDocument() noexcept {
+    cancelPendingCalendarJoin();
+    try { if (nativeRunScript_) nativeRunScript_("window.__grafSetCalendarJoinAvailable?.(false)"); } catch (...) {}
+    calendarRequestIds_.clear();
+}
+
+void WebView2Host::handleCalendarJoinMessage(const WebViewBridgeEnvelope& message, std::string_view sourceUrl) {
+    if (message.command != "calendar_join" && message.command != "calendar_join_cancel") return;
+    const CalendarJoinRequest document{{}, documentGeneration_, documentNonce_};
+    if (sourceUrl != currentUrl_ || !calendarDocumentCurrent(document) ||
+        bridge_.validate(message) != BridgeValidationError::none) return;
+    const auto intent = DesktopApiClient::decodeCalendarJoinIntent(message.payloadJson, message.command);
+    if (!intent) return;
+    if (message.command == "calendar_join_cancel") {
+        if (pendingCalendarJoin_ && pendingCalendarJoin_->intent.eventId == intent->eventId &&
+            pendingCalendarJoin_->intent.requestId == intent->requestId) cancelPendingCalendarJoin();
+        return;
+    }
+    if (calendarRequestIds_.count(intent->requestId)) return;
+    const CalendarJoinRequest request{*intent, documentGeneration_, documentNonce_};
+    if (calendarRequestIds_.size() == 1024) {
+        emitCalendarJoinReply(request, {CalendarJoinState::cancelled, CalendarJoinReason::notReady});
+        return;
+    }
+    calendarRequestIds_.insert(intent->requestId);
+    if (calendarInvalidating_ || !calendarJoinHandler_ || !calendarCancelHandler_) {
+        emitCalendarJoinReply(request, {CalendarJoinState::cancelled, CalendarJoinReason::notReady});
+    } else if (pendingCalendarJoin_) {
+        emitCalendarJoinReply(request, {CalendarJoinState::cancelled, CalendarJoinReason::busy});
+    } else {
+        pendingCalendarJoin_ = request;
+        calendarJoinState_ = CalendarJoinState::resolving;
+        try {
+            emitCalendarJoinReply(request, {CalendarJoinState::resolving, CalendarJoinReason::none});
+            // Delivery can synchronously navigate/cancel. Do not dispatch its old intent.
+            if (!calendarRequestPending(request) || !calendarDocumentCurrent(request)) return;
+            const auto join = calendarJoinHandler_;
+            if (join) join(request);
+        } catch (...) {
+            if (calendarRequestPending(request)) cancelPendingCalendarJoin();
+        }
+    }
 }
 
 #if defined(_WIN32) && defined(GRAF_WINDOWS_APP_SDK)
@@ -1267,7 +1974,33 @@ void WebView2Host::attach(winrt::Microsoft::UI::Xaml::Controls::WebView2 control
     control.NavigationStarting([this, alive, control](auto const&, auto const& args) {
         if (!alive->load()) return;
         try {
+            // An earlier subscriber cancelled without replacing the committed page.
+            if (args.Cancel()) {
+                if (historyStage_ == HistoryStage::permitted) cancelHistoryIntent();
+                return;
+            }
             const auto url = utf8(args.Uri());
+            const auto headers = args.RequestHeaders();
+            const bool markedFresh = headers.Contains(L"X-GRAF-History-Intent");
+            const auto id = args.NavigationId();
+            const bool backOrForward = args.NavigationKind() ==
+                winrt::Microsoft::Web::WebView2::Core::CoreWebView2NavigationKind::BackOrForward;
+            if (!admitHistoryNavigation(url, id, args.IsRedirected(), backOrForward)) {
+                args.Cancel(true);
+                return; // No begin, response reset, generation change or nonce revocation.
+            }
+            // A selected native BF may retain a marker; it is not a fresh GET permit.
+            if (!historyTraversal_ && (markedFresh || historyTarget_ || historyStage_ == HistoryStage::permitted)) {
+                const bool freshStart = historyStage_ == HistoryStage::permitted && !args.IsRedirected();
+                const bool freshRedirect = historyStage_ == HistoryStage::navigating && args.IsRedirected() &&
+                    id == historyNavigation_ && id == navigationId_;
+                if ((!freshStart && !freshRedirect) || id == 0 || backOrForward || !historyTarget_ ||
+                    historyFreshTag_.empty() || !markedFresh ||
+                    utf8(headers.GetHeader(L"X-GRAF-History-Intent")) != historyFreshTag_) {
+                    args.Cancel(true);
+                    return; // A same-URL form is not the native fresh GET.
+                }
+            }
             const auto source = control.CoreWebView2() ? utf8(control.CoreWebView2().Source()) : std::string{};
             // A download never becomes the privileged document or a retry URL.
             if (runtimeState_ == WebRuntimeState::ready && source == currentUrl_ &&
@@ -1275,6 +2008,7 @@ void WebView2Host::attach(winrt::Microsoft::UI::Xaml::Controls::WebView2 control
             const auto evaluation = beginDocumentNavigation(url, args.NavigationId(), args.IsRedirected(),
                 monotonicMilliseconds(), ""); // Browser method is not exposed by NavigationStarting.
             if (evaluation.decision == RouteDecision::openExternal) {
+                if (historyStage_ == HistoryStage::permitted) cancelHistoryIntent();
                 args.Cancel(true);
                 if (args.IsUserInitiated() && !args.IsRedirected() && runtimeState_ != WebRuntimeState::unavailable)
                     (void)::ShellExecuteW(nullptr, L"open", winrt::to_hstring(evaluation.normalizedUrl).c_str(), nullptr, nullptr, SW_SHOWNORMAL);
@@ -1282,6 +2016,7 @@ void WebView2Host::attach(winrt::Microsoft::UI::Xaml::Controls::WebView2 control
                 args.Cancel(true);
                 if (navigationHandler_) navigationHandler_(evaluation);
             } else if (evaluation.decision != RouteDecision::allow) {
+                if (historyStage_ == HistoryStage::permitted) cancelHistoryIntent();
                 args.Cancel(true);
                 if (args.IsRedirected() || authContinuation_ != AuthContinuation::none) {
                     navigationId_ = 0;
@@ -1324,10 +2059,88 @@ void WebView2Host::attach(winrt::Microsoft::UI::Xaml::Controls::WebView2 control
                 // Retry the approved requested route without deleting user data.
                 core.Navigate(winrt::to_hstring(requestedDocumentUrl_.empty() ? recoveryUrl() : requestedDocumentUrl_));
             };
-            nativeBack_ = [core] { core.GoBack(); };
-            nativeForward_ = [core] { core.GoForward(); };
-            nativeCanGoBack_ = [core] { return core.CanGoBack(); };
-            nativeCanGoForward_ = [core] { return core.CanGoForward(); };
+            nativeFreshHistory_ = [this, core](std::string_view url) {
+                historyFreshTag_ = newNonce();
+                if (historyFreshTag_.empty()) throw std::runtime_error("history_intent");
+                const auto request = core.Environment().CreateWebResourceRequest(winrt::to_hstring(url), L"GET", nullptr,
+                    winrt::to_hstring("X-GRAF-History-Intent: " + historyFreshTag_));
+                core.NavigateWithWebResourceRequest(request);
+            };
+            nativeReadHistory_ = [this, alive, dispatcher, core](std::string source, HistoryRead complete) {
+                try {
+                    core.CallDevToolsProtocolMethodAsync(L"Page.getNavigationHistory", L"{}").Completed(
+                        [this, alive, dispatcher, core, source, complete](auto const& operation, auto const&) {
+                            dispatcher.TryEnqueue([this, alive, core, source, complete, operation] {
+                                if (!alive->load()) return;
+                                std::optional<HistorySnapshot> snapshot;
+                                try {
+                                    const auto raw = operation.GetResults();
+                                    if (raw.size() > 1'100'000 || utf8(core.Source()) != source)
+                                        throw std::runtime_error("history_snapshot");
+                                    const auto value = winrt::Windows::Data::Json::JsonObject::Parse(raw);
+                                    const auto entries = value.GetNamedArray(L"entries");
+                                    const auto index = value.GetNamedNumber(L"currentIndex");
+                                    if (entries.Size() == 0 || entries.Size() > 128 || !isJsonUnsignedInteger(index, 127) ||
+                                        index >= entries.Size()) throw std::runtime_error("history_snapshot");
+                                    HistorySnapshot parsed;
+                                    parsed.currentIndex = static_cast<std::size_t>(index);
+                                    for (std::uint32_t entryIndex = 0; entryIndex < entries.Size(); ++entryIndex) {
+                                        const auto item = entries.GetObjectAt(entryIndex);
+                                        const auto id = item.GetNamedNumber(L"id");
+                                        const auto url = item.GetNamedString(L"url");
+                                        if (!isJsonUnsignedInteger(id, 2'147'483'647) || url.size() > 8192)
+                                            throw std::runtime_error("history_snapshot");
+                                        parsed.entries.push_back({static_cast<int>(id), utf8(url)});
+                                    }
+                                    snapshot = std::move(parsed);
+                                } catch (...) {}
+                                try { complete(std::move(snapshot)); }
+                                catch (...) { fail("history-snapshot", E_FAIL); }
+                            });
+                        });
+                } catch (...) { complete(std::nullopt); }
+            };
+            nativeSelectHistory_ = [alive, dispatcher, core](int id, std::function<void(bool)> complete) {
+                try {
+                    core.CallDevToolsProtocolMethodAsync(L"Page.navigateToHistoryEntry",
+                        winrt::to_hstring("{\"entryId\":" + std::to_string(id) + "}")).Completed(
+                        [alive, dispatcher, complete](auto const& operation, auto const&) {
+                            dispatcher.TryEnqueue([alive, complete, operation] {
+                                if (!alive->load()) return;
+                                bool accepted = false;
+                                try { accepted = winrt::Windows::Data::Json::JsonObject::Parse(operation.GetResults()).Size() == 0; }
+                                catch (...) {}
+                                complete(accepted);
+                            });
+                        });
+                } catch (...) { complete(false); }
+            };
+            nativeResetHistory_ = [alive, dispatcher, core](std::function<void(bool)> complete) {
+                try {
+                    core.CallDevToolsProtocolMethodAsync(L"Page.resetNavigationHistory", L"{}").Completed(
+                        [alive, dispatcher, complete](auto const& operation, auto const&) {
+                            dispatcher.TryEnqueue([alive, complete, operation] {
+                                if (!alive->load()) return;
+                                bool accepted = false;
+                                try { accepted = winrt::Windows::Data::Json::JsonObject::Parse(operation.GetResults()).Size() == 0; }
+                                catch (...) {}
+                                complete(accepted);
+                            });
+                        });
+                } catch (...) { complete(false); }
+            };
+            const auto historyTimer = dispatcher.CreateTimer();
+            historyTimer.Interval(std::chrono::milliseconds(100));
+            historyTimer.IsRepeating(true);
+            historyTimer.Tick([this, alive](auto const& timer, auto const&) {
+                if (!alive->load()) { timer.Stop(); return; }
+                if (!historyBusy() || (historyStage_ == HistoryStage::navigating && !historyTarget_)) return;
+                const auto now = monotonicMilliseconds();
+                if (now < historyStartedAt_ || now - historyStartedAt_ >= kResponseWaitMs)
+                    fail("history-timeout", 0);
+            });
+            historyTimer.Start();
+            nativeClose_ = [control, historyTimer] { historyTimer.Stop(); control.Close(); };
             core.Settings().AreHostObjectsAllowed(false);
             core.Settings().IsStatusBarEnabled(false);
             core.Settings().AreDefaultScriptDialogsEnabled(false);
@@ -1350,6 +2163,17 @@ void WebView2Host::attach(winrt::Microsoft::UI::Xaml::Controls::WebView2 control
                 if (!alive->load()) return;
                 try {
                     const auto source = utf8(core.Source());
+                    if (!args.IsNewDocument()) {
+                        if (historyStage_ == HistoryStage::resetting || historyStage_ == HistoryStage::accepting) {
+                            fail("history-mutation", 0); return;
+                        }
+                        if (const auto current = history_.current()) history_.forgetEntry(current->id);
+                        else history_.invalidate();
+                        historyNeedsReset_ = true;
+                        historySingleForward_.clear();
+                        if (historyStage_ == HistoryStage::selecting || historyStage_ == HistoryStage::permitted)
+                            cancelHistoryIntent();
+                    }
                     const auto route = policy_.evaluate(source, true, activeAuthContinuation(), payment_.live(monotonicMilliseconds()));
                     if (route.decision != RouteDecision::allow || route.kind == RouteKind::artifactDownload ||
                         route.kind == RouteKind::nativeSettings) {
@@ -1369,14 +2193,43 @@ void WebView2Host::attach(winrt::Microsoft::UI::Xaml::Controls::WebView2 control
                     }
                 } catch (...) { fail("source", E_FAIL); }
             });
+            core.HistoryChanged([this, alive](auto const&, auto const&) {
+                if (!alive->load()) return;
+                history_.invalidate();
+                historyTerminalValidated_ = false;
+                if (historyStage_ == HistoryStage::selecting || historyStage_ == HistoryStage::permitted) {
+                    historySingleForward_.clear();
+                    cancelHistoryIntent();
+                }
+            });
             core.AddWebResourceRequestedFilter(winrt::to_hstring(policy_.trustedOrigin() + "/*"),
                 winrt::Microsoft::Web::WebView2::Core::CoreWebView2WebResourceContext::Document);
-            core.WebResourceRequested([this, alive](auto const&, auto const& args) {
+            core.WebResourceRequested([this, alive](auto const& core, auto const& args) {
                 if (!alive->load()) return;
                 try {
                     const auto request = args.Request();
                     const auto url = utf8(request.Uri());
                     if (!policy_.sharesOrigin(url)) return;
+                    const auto headers = request.Headers();
+                    const bool freshIntent = historyTarget_ && !historyTraversal_ && !historyFreshTag_.empty();
+                    const bool markedFresh = headers.Contains(L"X-GRAF-History-Intent");
+                    const bool ownedGet = freshIntent && historyStage_ == HistoryStage::navigating &&
+                        historyNavigation_ != 0 && historyNavigation_ == navigationId_ &&
+                        url == navigationUrl_ && utf8(request.Method()) == "GET" && markedFresh &&
+                        utf8(headers.GetHeader(L"X-GRAF-History-Intent")) == historyFreshTag_;
+                    const bool selectedHistoryGet = historyTraversal_ && historyStage_ == HistoryStage::navigating &&
+                        historyNavigation_ == navigationId_ && historyTarget_ && url == historyTarget_->url &&
+                        utf8(request.Method()) == "GET";
+                    headers.RemoveHeader(L"X-GRAF-History-Intent"); // Never expose the native permit to the server/page.
+                    if (((freshIntent || markedFresh) && !ownedGet && !selectedHistoryGet) ||
+                        (runtimeState_ == WebRuntimeState::unavailable && navigationId_ == 0) ||
+                        (historyTraversal_ && utf8(request.Method()) != "GET") ||
+                        historyStage_ == HistoryStage::selecting ||
+                        historyStage_ == HistoryStage::accepting || historyStage_ == HistoryStage::resetting) {
+                        args.Response(core.Environment().CreateWebResourceResponse(nullptr, 403, L"Navigation unavailable",
+                            L"Content-Length: 0"));
+                        return; // No competing POST reaches the server.
+                    }
                     if (policy_.evaluate(url).decision == RouteDecision::allow)
                         request.Headers().SetHeader(L"X-GRAF-Client", L"desktop");
                     request.Headers().RemoveHeader(L"X-GRAF-Desktop-Navigation");
@@ -1385,7 +2238,11 @@ void WebView2Host::attach(winrt::Microsoft::UI::Xaml::Controls::WebView2 control
                     // final browser-owned destination in ResponseReceived.
                     const auto tag = documentRequestTag(url);
                     if (!tag.empty()) request.Headers().SetHeader(L"X-GRAF-Desktop-Navigation", winrt::to_hstring(tag));
-                } catch (...) { fail("request-metadata", E_FAIL); }
+                } catch (...) {
+                    try { args.Response(core.Environment().CreateWebResourceResponse(nullptr, 403, L"Navigation unavailable",
+                        L"Content-Length: 0")); } catch (...) {}
+                    fail("request-metadata", E_FAIL);
+                }
             });
             core.WebResourceResponseReceived([this, alive](auto const&, auto const& args) {
                 if (!alive->load()) return;
@@ -1393,7 +2250,8 @@ void WebView2Host::attach(winrt::Microsoft::UI::Xaml::Controls::WebView2 control
                     const auto request = args.Request();
                     const auto headers = request.Headers();
                     if (!headers.Contains(L"Sec-Fetch-Dest") ||
-                        !headers.Contains(L"X-GRAF-Desktop-Navigation")) return;
+                        !headers.Contains(L"X-GRAF-Desktop-Navigation") ||
+                        !headers.Contains(L"Sec-Fetch-Mode") || headers.GetHeader(L"Sec-Fetch-Mode") != L"navigate") return;
                     const auto tag = utf8(headers.GetHeader(L"X-GRAF-Desktop-Navigation"));
                     const auto response = args.Response();
                     const auto responseHeaders = response.Headers();
@@ -1465,7 +2323,7 @@ void WebView2Host::attach(winrt::Microsoft::UI::Xaml::Controls::WebView2 control
             });
             core.NewWindowRequested([this, alive, control](auto const& core, auto const& args) {
                 args.Handled(true);
-                if (!alive->load()) return;
+                if (!alive->load() || historyBusy()) return;
                 const auto url = utf8(args.Uri());
                 if (payment_.started() || policy_.evaluate(committedDocumentUrl_).kind == RouteKind::billing) {
                     openPaymentPopup(control, args);
@@ -1555,6 +2413,10 @@ void WebView2Host::attach(winrt::Microsoft::UI::Xaml::Controls::WebView2 control
                     const auto message = parseEnvelope(rawJson, originFromUrl(sourceUrl));
                     if (!message) {
                         logBridgeEvent("envelope-rejected");
+                        return;
+                    }
+                    if (message->command == "calendar_join" || message->command == "calendar_join_cancel") {
+                        handleCalendarJoinMessage(*message, sourceUrl);
                         return;
                     }
                     const auto validation = bridge_.validate(*message);
@@ -1656,7 +2518,8 @@ void WebView2Host::attach(winrt::Microsoft::UI::Xaml::Controls::WebView2 control
                         if (payload.Size() != 2) return;
                         const auto action = utf8(payload.GetNamedString(L"action"));
                         const auto id = utf8(payload.GetNamedString(L"id"));
-                        if (localRecordingActionAllowed(action, id) && localRecordingHandler_) localRecordingHandler_(action, id);
+                        if (localRecordingActionAllowed(action, id) && localRecordingHandler_)
+                            localRecordingHandler_({action, id, documentGeneration_, documentNonce_});
                     } else if (message->command == "delete_selection") {
                         const auto payload = winrt::Windows::Data::Json::JsonObject::Parse(winrt::to_hstring(message->payloadJson));
                         // Exactly the five fields the cabinet's deletion message
@@ -1691,21 +2554,16 @@ void WebView2Host::attach(winrt::Microsoft::UI::Xaml::Controls::WebView2 control
                     // Malformed browser messages have no native side effects.
                 }
             });
-            // Both native events and the nonblocking deadline use this one
-            // finalizer. No nonce/cookies/bootstrap before the two-event latch.
-            nativeFinishDocument_ = [this, alive, dispatcher, core] {
-                if (!alive->load() || navigationId_ == 0 || !documentCompletion_) return;
+            // Only the ordinary response/completion latch and native history
+            // readback may reach this continuation. Reset never fabricates finish.
+            nativeActivateDocument_ = [this, alive, dispatcher, core] {
+                if (!alive->load() || navigationId_ != 0 || historyBusy() || committedDocumentUrl_.empty()) return;
                 try {
                     const auto source = utf8(core.Source());
-                    const auto& completedUrl = documentCompletion_->url;
-                    if (source.substr(0, source.find('#')) != completedUrl.substr(0, completedUrl.find('#'))) {
+                    if (source != currentUrl_ || source != committedDocumentUrl_) {
                         fail("document-changed", E_ACCESSDENIED);
                         return;
                     }
-                    const auto result = tryFinishDocumentNavigation(monotonicMilliseconds());
-                    // Auth recovery waits for the same explicit user action as macOS.
-                    // The shell distinguishes it from an already open sign-in form.
-                    if (result != WebResponseDecision::cabinet) return;
                     // Native acceptance must prove request/response correlation
                     // on WebView2. Never ignore a possible recovery header and
                     // install a bridge merely because NavigationCompleted says 200.
@@ -1718,17 +2576,44 @@ void WebView2Host::attach(winrt::Microsoft::UI::Xaml::Controls::WebView2 control
                     if (nonce.empty()) { fail("nonce", E_FAIL); return; }
                     setRuntimeState(WebRuntimeState::ready);
                     if (!alive->load() || generation != documentGeneration_ || runtimeState_ != WebRuntimeState::ready) return;
+                    revokeCalendarDocument();
                     bridge_.rotateNonce(nonce);
                     documentNonce_ = nonce;
+                    nativeReplyCalendarJoin_ = [this, alive, core, generation](const CalendarJoinRequest& request, CalendarJoinResult result) {
+                        if (!alive->load() || generation != documentGeneration_ || !calendarDocumentCurrent(request) ||
+                            utf8(core.Source()) != currentUrl_) return;
+                        using namespace winrt::Windows::Data::Json;
+                        const auto state = result.state == CalendarJoinState::resolving ? L"resolving" :
+                            result.state == CalendarJoinState::opening ? L"opening" :
+                            result.state == CalendarJoinState::handedOff ? L"handed_off" :
+                            result.state == CalendarJoinState::failed ? L"failed" : L"cancelled";
+                        const auto reason = result.reason == CalendarJoinReason::busy ? L"busy" :
+                            result.reason == CalendarJoinReason::notReady ? L"not_ready" :
+                            result.reason == CalendarJoinReason::stale ? L"stale" :
+                            result.reason == CalendarJoinReason::authRequired ? L"auth_required" :
+                            result.reason == CalendarJoinReason::eventUnavailable ? L"event_unavailable" :
+                            result.reason == CalendarJoinReason::dependencyUnavailable ? L"dependency_unavailable" :
+                            result.reason == CalendarJoinReason::invalidTarget ? L"invalid_target" :
+                            result.reason == CalendarJoinReason::launchFailed ? L"launch_failed" : L"cancelled";
+                        JsonObject reply;
+                        reply.Insert(L"command", JsonValue::CreateStringValue(L"calendar_join_reply"));
+                        reply.Insert(L"nonce", JsonValue::CreateStringValue(winrt::to_hstring(request.nonce)));
+                        reply.Insert(L"request_id", JsonValue::CreateStringValue(winrt::to_hstring(request.intent.requestId)));
+                        reply.Insert(L"state", JsonValue::CreateStringValue(state));
+                        if (result.reason != CalendarJoinReason::none) reply.Insert(L"reason", JsonValue::CreateStringValue(reason));
+                        core.PostWebMessageAsJson(reply.Stringify());
+                    };
                     // Completion delegates have no UI-apartment guarantee. Marshal
                     // every WinUI/WebView access, including GetResults, to its owner.
                     core.CookieManager().GetCookiesAsync(winrt::to_hstring(policy_.trustedOrigin())).Completed(
-                        [this, alive, dispatcher, core, generation](auto const& operation, auto const&) {
-                            dispatcher.TryEnqueue([this, alive, core, generation, operation] {
+                        [this, alive, dispatcher, core, generation, nonce](auto const& operation, auto const&) {
+                            dispatcher.TryEnqueue([this, alive, core, generation, nonce, operation] {
                                 if (!alive->load() || generation != documentGeneration_ || runtimeState_ != WebRuntimeState::ready) return;
+                                std::string token;
+                                bool reconciled = false;
                                 try {
-                                    if (!policy_.allowsNativeBridge(utf8(core.Source()))) return;
-                                    std::string token;
+                                    if (nonce != documentNonce_ || utf8(core.Source()) != currentUrl_ ||
+                                        !policy_.allowsNativeBridge(currentUrl_)) return;
                                     for (const auto& cookie : operation.GetResults()) {
                                         const auto name = utf8(cookie.Name());
                                         if (name == "__Host-twobrain_rec_owner_session") {
@@ -1736,14 +2621,42 @@ void WebView2Host::attach(winrt::Microsoft::UI::Xaml::Controls::WebView2 control
                                             break;
                                         }
                                     }
-                                    if (authSessionHandler_) authSessionHandler_(std::move(token));
+                                    reconciled = true;
+                                } catch (...) { token.clear(); }
+                                const auto revision = userTimeRevision_;
+                                try {
+                                    if (!reconcileAuthSessionForDocument(generation, nonce, utf8(core.Source()), token, reconciled)) return;
+                                    // Read actual native Source again after the
+                                    // handler; a requested navigation is not proof.
+                                    reconcileUserTimeCookie(generation, nonce, utf8(core.Source()), std::move(token));
                                 } catch (...) {
-                                    if (authSessionHandler_) authSessionHandler_({});
+                                    if (alive->load() && generation == documentGeneration_ && nonce == documentNonce_ &&
+                                        runtimeState_ == WebRuntimeState::ready && revision == userTimeRevision_) invalidateUserTime();
                                 }
                             });
                         });
                     nativePublishLocalRecordings_ = [this, core, nonce, generation] {
                         if (generation != documentGeneration_ || runtimeState_ != WebRuntimeState::ready) return;
+                        if (protectedLocalMode_) {
+                            try {
+                                if (utf8(core.Source()) != currentUrl_ || !policy_.allowsNativeBridge(currentUrl_)) return;
+                                const auto json = protectedLocalRecordingsMessage();
+                                const auto length = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
+                                    json.data(), static_cast<int>(json.size()), nullptr, 0);
+                                if (length <= 0) throw std::runtime_error("local_inventory_encoding");
+                                CustodyWideString wide(static_cast<std::size_t>(length), L'\0');
+                                if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, json.data(), static_cast<int>(json.size()),
+                                    wide.data(), length) != length) throw std::runtime_error("local_inventory_encoding");
+                                // param::hstring references this NUL-terminated buffer
+                                // until the synchronous call returns; no owned native
+                                // whole-inventory HSTRING/JsonArray duplicate.
+                                core.PostWebMessageAsJson(std::wstring_view(wide.data(), wide.size()));
+                                protectedLocalPublicationPending_ = false;
+                            } catch (...) {
+                                failProtectedLocalPublication();
+                            }
+                            return;
+                        }
                         if (utf8(core.Source()) != currentUrl_ || !policy_.allowsNativeBridge(currentUrl_)) return;
                         using namespace winrt::Windows::Data::Json;
                         JsonArray rows;
@@ -1759,8 +2672,10 @@ void WebView2Host::attach(winrt::Microsoft::UI::Xaml::Controls::WebView2 control
                             if (!item.generatedTitlePrefix.empty())
                                 row.Insert(L"generatedTitlePrefix", JsonValue::CreateStringValue(winrt::to_hstring(item.generatedTitlePrefix)));
                             row.Insert(L"status", JsonValue::CreateStringValue(winrt::to_hstring(item.status)));
-                            row.Insert(L"durationSeconds", JsonValue::CreateNumberValue(static_cast<double>(item.durationSeconds)));
-                            row.Insert(L"sessionDurationSeconds", JsonValue::CreateNumberValue(static_cast<double>(item.sessionDurationSeconds)));
+                            if (item.durationSeconds.has_value())
+                                row.Insert(L"durationSeconds", JsonValue::CreateNumberValue(static_cast<double>(*item.durationSeconds)));
+                            if (item.sessionDurationSeconds.has_value())
+                                row.Insert(L"sessionDurationSeconds", JsonValue::CreateNumberValue(static_cast<double>(*item.sessionDurationSeconds)));
                             row.Insert(L"showsPartialDuration", JsonValue::CreateBooleanValue(item.showsPartialDuration));
                             row.Insert(L"canOpen", JsonValue::CreateBooleanValue(item.canOpen));
                             row.Insert(L"canSend", JsonValue::CreateBooleanValue(item.canSend));
@@ -1824,6 +2739,32 @@ void WebView2Host::attach(winrt::Microsoft::UI::Xaml::Controls::WebView2 control
                             !policy_.allowsNativeBridge(currentUrl_)) return;
                         core.ExecuteScriptAsync(winrt::to_hstring(std::string(script)));
                     };
+                    nativeReadUserTime_ = [this, alive, dispatcher, core](UserTimeRead read) {
+                        if (!alive->load() || !userTimeReadCurrent(read) || utf8(core.Source()) != read.url) return;
+                        // Execute on the main document, not a page message/frame.
+                        // Missing metadata remains missing and fails strict decoding.
+                        constexpr auto script = LR"JS((() => {
+                            const read = name => document.querySelector('meta[name="' + name + '"]')?.content;
+                            return {userId: read('graf-time-user'), workspaceId: read('graf-workspace'),
+                                sessionId: read('graf-time-session'), timeZone: read('graf-time-preferred'),
+                                documentURL: document.URL};
+                        })())JS";
+                        core.ExecuteScriptAsync(script).Completed(
+                            [this, alive, dispatcher, core, read](auto const& operation, auto const&) {
+                                dispatcher.TryEnqueue([this, alive, core, read, operation] {
+                                    if (!alive->load() || !userTimeReadCurrent(read)) return;
+                                    std::string raw, source;
+                                    try {
+                                        source = utf8(core.Source());
+                                        if (source != read.url) return;
+                                        const auto result = operation.GetResults();
+                                        if (result.size() <= 2048) raw = utf8(result);
+                                    } catch (...) { raw.clear(); source = read.url; }
+                                    completeUserTimeRead(read, raw, source);
+                                });
+                            });
+                    };
+                    refreshUserTime();
                     core.ExecuteScriptAsync(winrt::to_hstring(kDesktopBridgeScript)).Completed(
                         [this, alive, dispatcher, core, nonce, generation](auto const& operation, auto const&) {
                             dispatcher.TryEnqueue([this, alive, dispatcher, core, nonce, generation, operation] {
@@ -1844,6 +2785,7 @@ void WebView2Host::attach(winrt::Microsoft::UI::Xaml::Controls::WebView2 control
                                     ready.Insert(L"payload", winrt::Windows::Data::Json::JsonObject{});
                                     ready.Insert(L"sent_at_monotonic_ms", Value::CreateNumberValue(static_cast<double>(GetTickCount64())));
                                     core.PostWebMessageAsJson(ready.Stringify());
+                                    publishCalendarJoinAvailability();
                                     setAppUpdateAvailable(appUpdateAvailable_);
                                     // Тема читается у самой страницы, а не ждётся
                                     // объявлением: объявление приходит только после
@@ -1895,6 +2837,52 @@ void WebView2Host::attach(winrt::Microsoft::UI::Xaml::Controls::WebView2 control
                 } catch (const winrt::hresult_error& error) {
                     fail("document", error.code().value);
                 } catch (...) { fail("document", E_FAIL); }
+            };
+            // Both native events and the response deadline use this finalizer.
+            // Selected entry/session/generation/revision are checked BEFORE the
+            // response latch is consumed, not after nonce/bridge publication.
+            nativeFinishDocument_ = [this, alive, core] {
+                if (!alive->load() || navigationId_ == 0 || !documentCompletion_) return;
+                try {
+                    const auto now = monotonicMilliseconds();
+                    const auto source = utf8(core.Source());
+                    const auto& completion = *documentCompletion_;
+                    if (source.substr(0, source.find('#')) != completion.url.substr(0, completion.url.find('#'))) {
+                        fail("document-changed", E_ACCESSDENIED); return;
+                    }
+                    const bool httpDocument = completion.succeeded ||
+                        (completion.httpErrorDocument && completion.status >= 400 && completion.status <= 599);
+                    auto response = documentResponse_.value_or(WebDocumentResponse{});
+                    response.status = completion.status;
+                    response.transportSucceeded = httpDocument;
+                    const bool cabinet = documentResponse_ &&
+                        policy_.response(source, response, activeAuthContinuation(), payment_.live(now)).decision ==
+                            WebResponseDecision::cabinet;
+                    if (cabinet) {
+                        if (now < completion.observedAt || now - completion.observedAt >= kResponseWaitMs) {
+                            fail("response-metadata-timeout", 0); return;
+                        }
+                        if (historyStage_ == HistoryStage::accepting) return;
+                        if (historyStage_ != HistoryStage::navigating || historyNavigation_ != navigationId_) {
+                            fail("history-owner", 0); return;
+                        }
+                        if (historyTraversal_ && !historyCommandAcknowledged_) return;
+                        if (!historyTerminalValidated_ || history_.revision() != historyTerminalRevision_) {
+                            prepareHistoryAcceptance(source); return;
+                        }
+                        const auto current = history_.current();
+                        if (!current || current->url != source ||
+                            (historyTraversal_ && (!historyTarget_ || current->id != historyTarget_->id ||
+                                current->url != historyTarget_->url || !history_.allGet(policy_)))) {
+                            fail("history-terminal", 0); return;
+                        }
+                    }
+                    const auto result = tryFinishDocumentNavigation(now);
+                    if (result == WebResponseDecision::ignore) return;
+                    if (result == WebResponseDecision::cabinet) finishHistoryAcceptance();
+                    else { historySingleForward_.clear(); cancelHistoryIntent(); }
+                } catch (const winrt::hresult_error& error) { fail("document", error.code().value); }
+                catch (...) { fail("document", E_FAIL); }
             };
             core.NavigationCompleted([this, alive, responseTimer](auto const& core, auto const& args) {
                 if (!alive->load() || navigationId_ == 0 || args.NavigationId() != navigationId_) return;

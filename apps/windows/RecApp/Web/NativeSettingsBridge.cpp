@@ -31,7 +31,7 @@ std::string escape(std::string_view value) {
     return result;
 }
 
-std::string quoted(std::string_view value) {
+std::string quoteJson(std::string_view value) {
     std::string result = "\"";
     result += escape(value);
     result += "\"";
@@ -102,11 +102,11 @@ std::string settingsReply(const std::vector<Target>& targets) {
         if (!first) result += ",";
         first = false;
         result += "{\"id\":";
-        result += quoted(target.id);
+        result += quoteJson(target.id);
         result += ",\"name\":";
-        result += quoted(target.name.empty() ? target.id : target.name);
+        result += quoteJson(target.name.empty() ? target.id : target.name);
         result += ",\"rule\":";
-        result += quoted(target.rule);
+        result += quoteJson(target.rule);
         result += "}";
     }
     result += "]}";
@@ -120,7 +120,7 @@ std::optional<NotificationRequest> parseNotificationRequest(std::string_view jso
     const auto value = [&](std::string_view key) -> std::string_view {
         const auto it = fields->find(key); return it == fields->end() ? std::string_view{} : it->second;
     };
-    if (value("version") != "2" || value("nonce") != quoted(currentNonce)) return std::nullopt;
+    if (value("version") != "2" || value("nonce") != quoteJson(currentNonce)) return std::nullopt;
     NotificationRequest result;
     const auto action = value("action");
     if (action == "\"read\"") result.action = NotificationAction::read;
@@ -178,15 +178,15 @@ std::string notificationSettingsReply(const NotificationPreferences& preferences
     result += ",\"quiet\":"; result += boolean(preferences.quiet);
     result += ",\"offsetMinutes\":" + std::to_string(preferences.offsetMinutes) + "},\"canEdit\":";
     result += boolean(canEdit);
-    result += ",\"message\":" + quoted(message.substr(0, 512));
-    if (!error.empty()) result += ",\"error\":" + quoted(error.substr(0, 512));
+    result += ",\"message\":" + quoteJson(message.substr(0, 512));
+    if (!error.empty()) result += ",\"error\":" + quoteJson(error.substr(0, 512));
     result += "}";
     return result;
 }
 
 std::string failureReply(std::string_view message) {
     std::string result = "{\"version\":1,\"error\":";
-    result += quoted(message.empty() ? "Не удалось выполнить действие." : message);
+    result += quoteJson(message.empty() ? "Не удалось выполнить действие." : message);
     result += "}";
     return result;
 }

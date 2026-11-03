@@ -2,10 +2,12 @@
 
 #include "RecordingIndicator.h"
 #include "InteractionPermit.h"
+#include "MeetingReminderPresenter.h"
 
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -14,6 +16,7 @@ namespace graf::windows {
 class WindowsTray final {
 public:
     using Handler = std::function<void()>;
+    using CalendarHandler = std::function<void(UpcomingMeetingRow)>;
 
     WindowsTray(std::uintptr_t ownerWindow, Handler openHandler, Handler stopHandler,
                 Handler quitHandler, Handler pauseResumeHandler = {},
@@ -34,12 +37,12 @@ public:
     };
     // Projection only: readiness comes from the same native gate as Record.
     [[nodiscard]] static MenuAvailability menuAvailability(
-        const RecordingIndicatorSnapshot& snapshot, bool recordingReady, bool exiting) noexcept {
+        const RecordingIndicatorSnapshot& snapshot, bool recordingReady, bool exiting, bool privacyPending = false) noexcept {
         return {recordingReady && !isCaptureState(snapshot.state) && !exiting,
-                !exiting && (snapshot.state == SessionState::recording || snapshot.state == SessionState::paused),
+                !exiting && !privacyPending && (snapshot.state == SessionState::recording || snapshot.state == SessionState::paused),
                 snapshot.stopAvailable, !exiting};
     }
-    void setState(const RecordingIndicatorSnapshot& snapshot, bool recordingReady = false, bool exiting = false);
+    void setState(const RecordingIndicatorSnapshot& snapshot, bool recordingReady = false, bool exiting = false, bool privacyPending = false);
 
     // Revalidate registration with Explorer on the UI thread before hiding the
     // shell. An allocated object (or a previous NIM_ADD) is not availability.
@@ -55,6 +58,12 @@ public:
     // Only neutral history labels/time from the current in-memory context.
     // These menu rows never replay actions or navigate to old events.
     void setNotificationState(bool visible, std::vector<std::wstring> history);
+    // Owning presentation only. AppMain rechecks the frozen source and resolves
+    // the target afresh; a popup selection never grants launch/Record authority.
+    void setCalendarHandler(CalendarHandler handler);
+    void setCalendarState(std::optional<std::vector<UpcomingMeetingRow>> rows,
+                          std::uint64_t authGeneration, std::uint64_t timeRevision,
+                          bool showTime, bool showTitle);
 
 private:
     struct Impl;

@@ -17,7 +17,7 @@
 #endif
 
 namespace {
-void testNativeRecycle(const std::filesystem::path& root) {
+void testNativeRecycle(const std::filesystem::path& root, bool serverRequested = false) {
     using namespace graf::windows;
     const auto package = root / "native-recycle-fixture";
     std::filesystem::create_directories(package);
@@ -27,18 +27,42 @@ void testNativeRecycle(const std::filesystem::path& root) {
     assert(SUCCEEDED(initialized));
     DesktopUploadQueueService queue(root / "native-queue.json", root);
     assert(queue.load());
-    assert(queue.enqueue({"native-fixture", "directory", "session", package, UploadQueueStatus::pending, {}, 0, ""}));
+    UploadCustodyItem item{"native-fixture", "directory", "session", package,
+        serverRequested ? UploadQueueStatus::uploaded : UploadQueueStatus::pending, {}, 0, ""};
+    LocalPurgeTask task;
+    task.taskId = "66666666-6666-4666-8666-666666666666";
+    task.meetingId = "33333333-3333-4333-8333-333333333333";
+    task.taskType = "purge_local_buffers"; task.state = "pending";
+    task.expiresAt = "2026-10-20T00:00:00Z";
+    if (serverRequested) item.meetingId = task.meetingId;
+    assert(queue.enqueue(std::move(item)));
     constexpr auto proof = LocalPurgeProof::userConfirmedLocalCopy;
     const auto recycle = [](const auto& path) { return DesktopLocalPurgeService::recycle(path, 0); };
+    const auto remove = [&](DesktopUploadQueueService& target) {
+        if (!serverRequested) return target.removeLocalCopy("native-fixture", proof, recycle);
+        const auto result = target.completeLocalPurgeTask(task, recycle);
+        assert(result.ack == (result.verification == DesktopUploadQueueService::LocalPurgeVerification::deleted ?
+            LocalPurgeAckState::acknowledged : LocalPurgeAckState::failed));
+        return result.ack == LocalPurgeAckState::acknowledged ? LocalCopyRemovalResult::removed : LocalCopyRemovalResult::recycleFailed;
+    };
 
     // No-delete sharing makes the real Shell operation fail. It must not lose
     // the copy or remove the durable row, even with confirmation/error UI off.
     const auto file = package / "synthetic.txt";
     HANDLE held = CreateFileW(file.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
     assert(held != INVALID_HANDLE_VALUE);
-    assert(queue.removeLocalCopy("native-fixture", proof, recycle) == LocalCopyRemovalResult::recycleFailed);
+    assert(remove(queue) == LocalCopyRemovalResult::recycleFailed);
     assert(std::filesystem::exists(file));
     assert(queue.items().size() == 1 && queue.pendingItems(32).empty());
+    if (serverRequested) {
+        assert(queue.items()[0].status == UploadQueueStatus::uploaded && queue.localPurgeAcknowledgements().empty());
+        DesktopUploadQueueService restarted(root / "native-queue.json", root);
+        assert(restarted.load());
+        assert(restarted.items().size() == 1 && restarted.items()[0].status == UploadQueueStatus::uploaded &&
+            restarted.items()[0].safeReason == "local_delete_pending" && restarted.localPurgeAcknowledgements().empty());
+        queue = std::move(restarted);
+        assert(queue.pendingLocalDeletionIds().empty()); // Not the user-confirmed recovery route.
+    }
     assert(CloseHandle(held));
 
     // UNC storage must be refused before any operation, even if it names the
@@ -50,15 +74,20 @@ void testNativeRecycle(const std::filesystem::path& root) {
 
     // This is the production IFileOperation path, not the rename mock below.
     // Success requires PostDeleteItem's non-null Recycle Bin destination.
-    assert(queue.removeLocalCopy("native-fixture", proof, recycle) == LocalCopyRemovalResult::removed);
+    assert(remove(queue) == LocalCopyRemovalResult::removed);
     assert(!std::filesystem::exists(package) && queue.items().empty());
     DesktopUploadQueueService reopened(root / "native-queue.json", root);
     assert(reopened.load() && reopened.items().empty());
+    if (serverRequested) {
+        assert(remove(reopened) == LocalCopyRemovalResult::removed && reopened.localPurgeAcknowledgements().size() == 1);
+        std::cout << "native_server_purge_restart=passed; cached_ack=acknowledged\n";
+    }
     CoUninitialize();
     // Leave only our tiny synthetic folder recoverable in the bin. Never empty
     // or enumerate the user's bin as test cleanup.
     std::cout << "native_recycle=passed; locked_source_preserved=passed; nonlocal_refused=passed\n";
 #else
+    (void)serverRequested;
     assert(!DesktopLocalPurgeService::recycle(package, 0));
     assert(std::filesystem::exists(package / "synthetic.txt"));
 #endif
@@ -174,6 +203,9 @@ int main() {
     assert(!custody.isSafePackageDirectory(file));
     assert(std::filesystem::exists(file) && std::filesystem::exists(directory / "nested"));
     testNativeRecycle(root / "native");
+#ifdef _WIN32
+    testNativeRecycle(root / "native-server", true);
+#endif
     testLocalCopyRemoval(root / "local-copies");
     std::error_code linkError;
     std::filesystem::create_directory_symlink(root / "local-copies", directory / "link", linkError);

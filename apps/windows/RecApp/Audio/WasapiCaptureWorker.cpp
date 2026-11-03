@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <condition_variable>
 #include <limits>
 #include <mutex>
 #include <thread>
@@ -46,12 +47,45 @@ PcmFormat inspectFormat(const WAVEFORMATEX& format) {
     }
     return result;
 }
+
+std::optional<std::uint64_t> counter100ns(LONGLONG counter, LONGLONG frequency) {
+    if (counter < 0 || frequency <= 0) return std::nullopt;
+    constexpr std::uint64_t units = 10'000'000;
+    const auto ticks = static_cast<std::uint64_t>(counter), rate = static_cast<std::uint64_t>(frequency);
+    const auto whole = ticks / rate, remainder = ticks % rate;
+    const auto maximum = std::numeric_limits<std::uint64_t>::max();
+    if (whole > maximum / units || remainder > maximum / units) return std::nullopt;
+    const auto fraction = remainder * units / rate;
+    if (whole * units > maximum - fraction) return std::nullopt;
+    return whole * units + fraction;
+}
 }
 #endif
 
 namespace graf::windows {
 
 #ifdef _WIN32
+WasapiCaptureWorker::ResumeClockSample WasapiCaptureWorker::readResumeClockSample(
+    ::IAudioClock* clock, std::uint64_t audioClockFrequency, std::uint32_t sampleRate) {
+    ResumeClockSample sample;
+    LARGE_INTEGER frequency{}, before{}, after{};
+    sample.wall = std::chrono::system_clock::now();
+    sample.steady = std::chrono::steady_clock::now();
+    if (!QueryPerformanceFrequency(&frequency) || frequency.QuadPart <= 0 ||
+        !QueryPerformanceCounter(&before)) return sample;
+    sample.result = static_cast<std::int32_t>(clock->GetPosition(&sample.position, &sample.paired100ns));
+    if (!QueryPerformanceCounter(&after)) { sample.result = -1; return sample; }
+    const auto first = counter100ns(before.QuadPart, frequency.QuadPart);
+    const auto last = counter100ns(after.QuadPart, frequency.QuadPart);
+    if (!first || !last) { sample.result = -1; return sample; }
+    sample.before100ns = *first;
+    sample.after100ns = *last;
+    sample.qpcFrequency = static_cast<std::uint64_t>(frequency.QuadPart);
+    sample.frequency = audioClockFrequency;
+    sample.sampleRate = sampleRate;
+    return sample;
+}
+
 std::wstring WasapiCaptureWorker::utf8ToWide(const std::string& value) {
     if (value.empty() || value.size() > static_cast<std::size_t>(std::numeric_limits<int>::max()) ||
         value.find('\0') != std::string::npos) return {};
@@ -84,6 +118,21 @@ struct WasapiCaptureWorker::Impl {
     std::size_t traceSize = 0;
     std::uint64_t nextTraceSequence = 0;
     std::thread thread;
+    enum class ResumeStatus { rejected, pending, ready, accepted };
+    std::mutex resumeMutex;
+    std::condition_variable resumeCondition;
+    ResumeStatus resumeStatus = ResumeStatus::rejected;
+    std::uint64_t resumeSerial = 0, acceptedResumeSerial = 0, requestedEpoch = 0;
+    std::chrono::steady_clock::time_point resumeDeadline{};
+    ResumeReceipt resumeReceipt;
+    std::uint64_t resumeQpcFrequency = 0, resumeLower100ns = 0;
+    // Written/read only by the acquisition thread, including while it waits
+    // for the dispatcher ACK. An accepted boundary survives future requests.
+    std::optional<std::uint64_t> resumeFrame;
+    std::uint64_t resumeFrameEpoch = 0;
+    std::optional<std::uint64_t> releasedEnd;
+    std::uint64_t lastClockPosition = 0, streamFrequency = 0;
+    std::uint32_t streamSampleRate = 0;
 
     void recordTrace(CaptureStage stage, std::int32_t hresult = 0, std::uint32_t flags = 0,
                      std::uint32_t frameCount = 0, std::uint64_t devicePosition = 0,
@@ -220,6 +269,9 @@ struct WasapiCaptureWorker::Impl {
                 const auto releaseResult = capture->ReleaseBuffer(consumed);
                 return CaptureReleaseResult{SUCCEEDED(releaseResult), static_cast<std::int32_t>(releaseResult)};
             };
+            const std::function<ResumeClockSample()> readResumeClock = [&] {
+                return readResumeClockSample(audioClock.Get(), audioClockFrequency, format->nSamplesPerSec);
+            };
             const auto startResult = client->Start();
             if (FAILED(startResult)) {
                 error.store(startResult == E_ACCESSDENIED ? CaptureWorkerError::accessDenied
@@ -232,6 +284,8 @@ struct WasapiCaptureWorker::Impl {
             ClockMapper clockMapper;
             AudioNormalizer normalizer(config.maxBatchFrames * 6);
             while (running.load() && error.load() == CaptureWorkerError::none) {
+                owner.servicePrivacyResume(readResumeClock);
+                if (!running.load() || error.load() != CaptureWorkerError::none) break;
                 const auto waitResult = WaitForSingleObject(eventHandle, 500);
                 recordTrace(CaptureStage::wait, static_cast<std::int32_t>(waitResult));
                 if (waitResult == WAIT_TIMEOUT) continue;
@@ -248,6 +302,11 @@ struct WasapiCaptureWorker::Impl {
                     break;
                 }
                 while (frames > 0 && running.load()) {
+                    owner.servicePrivacyResume(readResumeClock);
+                    if (!running.load() || error.load() != CaptureWorkerError::none) break;
+                    // Preserve provenance across GetBuffer/audio clock/release
+                    // and normalization; Resume must not rejuvenate this packet.
+                    const auto privacyEpoch = owner.capturePrivacyEpoch();
                     BYTE* data = nullptr; UINT32 count = 0; DWORD flagsRead = 0;
                     UINT64 devicePosition = 0; UINT64 qpcPosition = 0;
                     const auto bufferResult = capture->GetBuffer(&data, &count, &flagsRead,
@@ -282,7 +341,7 @@ struct WasapiCaptureWorker::Impl {
                     if (!owner.consumePacket(clockMapper, normalizer,
                             {qpcPosition, devicePosition, format->nSamplesPerSec, flagsRead, count,
                              audioClockPosition, audioClockFrequency, static_cast<std::int32_t>(positionResult)},
-                            data, format->nChannels, pcmFormat.float32, releasePacket)) break;
+                            data, format->nChannels, pcmFormat.float32, releasePacket, privacyEpoch)) break;
                     packetResult = capture->GetNextPacketSize(&frames);
                     recordTrace(CaptureStage::nextPacketSize, static_cast<std::int32_t>(packetResult),
                                 0, frames);
@@ -310,9 +369,120 @@ void WasapiCaptureWorker::completeNativeStop(std::int32_t hresult) noexcept {
     }
 }
 
+std::optional<std::uint64_t> WasapiCaptureWorker::capturePrivacyEpoch() const noexcept {
+    if (impl_->renderLoopback || !microphonePrivacyEpoch_) return std::nullopt;
+    return microphonePrivacyEpoch_->load(std::memory_order_acquire);
+}
+
+std::uint64_t WasapiCaptureWorker::resumeRequestSerial() const {
+    std::lock_guard<std::mutex> lock(impl_->resumeMutex);
+    return impl_->resumeSerial;
+}
+
+std::optional<WasapiCaptureWorker::ResumeReceipt> WasapiCaptureWorker::resumeMicrophone(
+    const std::function<bool(const ResumeReceipt&, std::chrono::steady_clock::time_point)>& apply) {
+    auto& state = *impl_;
+    std::unique_lock<std::mutex> lock(state.resumeMutex);
+    const auto epoch = capturePrivacyEpoch();
+    if (!apply || !running() || lastError() != CaptureWorkerError::none || !epoch || !(*epoch & 1U) ||
+        *epoch == std::numeric_limits<std::uint64_t>::max() ||
+        state.resumeSerial == std::numeric_limits<std::uint64_t>::max()) return std::nullopt;
+    const auto serial = ++state.resumeSerial;
+    state.requestedEpoch = *epoch;
+    state.resumeDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+    state.resumeQpcFrequency = 0;
+    const auto deadline = state.resumeDeadline;
+    state.resumeStatus = Impl::ResumeStatus::pending;
+    state.resumeCondition.wait_until(lock, deadline, [&] {
+        return state.resumeSerial != serial || state.resumeStatus != Impl::ResumeStatus::pending || !running();
+    });
+    if (state.resumeSerial != serial) return std::nullopt;
+    bool accepted = false;
+    try {
+        if (state.resumeStatus == Impl::ResumeStatus::ready && running() &&
+            lastError() == CaptureWorkerError::none && std::chrono::steady_clock::now() <= deadline)
+            accepted = apply(state.resumeReceipt, deadline);
+    } catch (...) {
+        // Epoch might already have committed. Never continue capture without
+        // a known boundary or leave the acquisition thread waiting for ACK.
+        state.error.store(CaptureWorkerError::initializationFailed);
+        state.resumeStatus = Impl::ResumeStatus::rejected;
+        state.resumeCondition.notify_all();
+        throw;
+    }
+    state.resumeStatus = accepted ? Impl::ResumeStatus::accepted : Impl::ResumeStatus::rejected;
+    if (accepted) state.acceptedResumeSerial = serial; // Irreversible after epoch commit, even past deadline.
+    state.resumeCondition.notify_all();
+    return accepted ? std::optional<ResumeReceipt>{state.resumeReceipt} : std::nullopt;
+}
+
+void WasapiCaptureWorker::servicePrivacyResume(const std::function<ResumeClockSample()>& readClock) {
+    auto& state = *impl_;
+    std::unique_lock<std::mutex> lock(state.resumeMutex);
+    if (state.resumeStatus != Impl::ResumeStatus::pending) return;
+    const auto serial = state.resumeSerial, epoch = state.requestedEpoch;
+    const auto deadline = state.resumeDeadline;
+    lock.unlock();
+    ResumeClockSample sample;
+    try { sample = readClock(); } catch (...) { /* Reject this control; normal capture fault gates remain. */ }
+    lock.lock();
+    if (state.resumeSerial != serial || state.resumeStatus != Impl::ResumeStatus::pending) return;
+    const auto reject = [&] {
+        state.resumeStatus = Impl::ResumeStatus::rejected;
+        state.resumeCondition.notify_all();
+    };
+    const auto maximum = std::numeric_limits<std::uint64_t>::max();
+    if (!running() || lastError() != CaptureWorkerError::none || capturePrivacyEpoch() != epoch ||
+        std::chrono::steady_clock::now() > deadline || sample.result != 0 ||
+        sample.frequency < 8'000 || sample.frequency > 10'000'000 ||
+        sample.sampleRate < 8'000 || sample.sampleRate > 192'000 ||
+        sample.frequency != state.streamFrequency || sample.sampleRate != state.streamSampleRate ||
+        !state.releasedEnd || sample.position < state.lastClockPosition ||
+        sample.before100ns > sample.after100ns || sample.qpcFrequency == 0 ||
+        sample.qpcFrequency > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()) ||
+        (state.resumeQpcFrequency && sample.qpcFrequency != state.resumeQpcFrequency) ||
+        sample.paired100ns > sample.after100ns || sample.wall < std::chrono::system_clock::time_point{} ||
+        sample.steady < deadline - std::chrono::seconds(1) || sample.steady > std::chrono::steady_clock::now()) {
+        reject(); return;
+    }
+    // The frequency bounds make remainder*rate safe; the integral part and
+    // inclusive-current-frame +1 still need their own overflow checks.
+    const auto quotient = sample.position / sample.frequency;
+    const auto fraction = (sample.position % sample.frequency) * sample.sampleRate / sample.frequency;
+    if (quotient > maximum / sample.sampleRate ||
+        quotient * sample.sampleRate > maximum - fraction - 1) { reject(); return; }
+    const auto boundary = quotient * sample.sampleRate + fraction + 1;
+    if (boundary < *state.releasedEnd) { reject(); return; }
+    if (!state.resumeQpcFrequency) {
+        // Fixed post-T0 fence: ceil(one QPC tick), 100ns quantization,
+        // and strict ordering. Never move it on a later clock attempt.
+        const auto padding = 10'000'000 / sample.qpcFrequency +
+            (10'000'000 % sample.qpcFrequency != 0) + 2;
+        if (sample.before100ns > maximum - padding) { reject(); return; }
+        state.resumeLower100ns = sample.before100ns + padding;
+        state.resumeQpcFrequency = sample.qpcFrequency;
+        state.resumeReceipt = {epoch, sample.wall, sample.steady};
+    }
+    state.lastClockPosition = sample.position;
+    if (sample.paired100ns < state.resumeLower100ns) return; // Drain paused packets; original deadline remains.
+    state.resumeFrame = boundary;
+    state.resumeFrameEpoch = epoch + 1;
+    state.resumeStatus = Impl::ResumeStatus::ready;
+    state.resumeCondition.notify_all();
+    state.resumeCondition.wait_until(lock, deadline, [&] {
+        return state.resumeSerial != serial || state.resumeStatus != Impl::ResumeStatus::ready || !running();
+    });
+    // A later request may already reuse the slot. Its status cannot overwrite
+    // the committed result of this request before the worker observes ACK.
+    if (state.acceptedResumeSerial == serial) return;
+    state.resumeFrame.reset();
+    if (state.resumeSerial == serial) reject();
+}
+
 bool WasapiCaptureWorker::consumePacket(ClockMapper& mapper, AudioNormalizer& normalizer,
     ClockObservation packet, const void* data, std::uint16_t channels, bool float32,
-    const std::function<CaptureReleaseResult(std::uint32_t)>& releaseBuffer) {
+    const std::function<CaptureReleaseResult(std::uint32_t)>& releaseBuffer,
+    std::optional<std::uint64_t> privacyEpoch) {
     const auto release = [&] {
         const auto result = releaseBuffer(packet.frameCount);
         impl_->recordTrace(CaptureStage::releaseBuffer, result.hresult, packet.flags,
@@ -323,6 +493,12 @@ bool WasapiCaptureWorker::consumePacket(ClockMapper& mapper, AudioNormalizer& no
         return false;
     };
     if (impl_->error.load() != CaptureWorkerError::none) { (void)release(); return false; }
+    if (!impl_->renderLoopback && microphonePrivacyEpoch_ &&
+        (!privacyEpoch || *privacyEpoch > microphonePrivacyEpoch_->load(std::memory_order_acquire))) {
+        impl_->error.store(CaptureWorkerError::normalizationFailed);
+        (void)release();
+        return false; // A bound native source requires an existing, not future epoch.
+    }
     if (packet.audioClockResult != 0) {
         impl_->error.store(CaptureWorkerError::audioClockFailed);
         (void)release();
@@ -333,6 +509,12 @@ bool WasapiCaptureWorker::consumePacket(ClockMapper& mapper, AudioNormalizer& no
         impl_->error.store(CaptureWorkerError::bufferOverflow);
         (void)release();
         return false;
+    }
+    if (packet.deviceFrames > std::numeric_limits<std::uint64_t>::max() - packet.frameCount ||
+        (impl_->releasedEnd && packet.audioClockPosition < impl_->lastClockPosition)) {
+        impl_->clockFault.store(ClockFault::nonMonotonic);
+        impl_->error.store(CaptureWorkerError::clockDiscontinuity);
+        (void)release(); return false;
     }
     const auto mapping = mapper.observe(packet);
     if (mapping.discardStartup) {
@@ -373,6 +555,15 @@ bool WasapiCaptureWorker::consumePacket(ClockMapper& mapper, AudioNormalizer& no
         return false;
     }
     if (!release()) return false;
+    if (!impl_->renderLoopback) {
+        batch.microphonePrivacyEpoch = privacyEpoch;
+        batch.microphoneSuppressed = privacyEpoch &&
+            ((*privacyEpoch & 1U) || privacyEpoch != capturePrivacyEpoch());
+        if (impl_->resumeFrame && privacyEpoch == impl_->resumeFrameEpoch &&
+            *impl_->resumeFrame > packet.deviceFrames)
+            batch.microphoneSuppressedPrefixFrames = static_cast<std::uint32_t>(
+                std::min<std::uint64_t>(*impl_->resumeFrame - packet.deviceFrames, packet.frameCount));
+    }
     AudioBatch normalized;
     // The normalizer validates finite samples as well as the packet format.
     const auto normalizedOk = normalizer.normalize(std::move(batch), mapping.qpc100ns, normalized);
@@ -383,6 +574,10 @@ bool WasapiCaptureWorker::consumePacket(ClockMapper& mapper, AudioNormalizer& no
         impl_->error.store(CaptureWorkerError::normalizationFailed);
         return false;
     }
+    impl_->releasedEnd = packet.deviceFrames + packet.frameCount;
+    impl_->lastClockPosition = packet.audioClockPosition;
+    impl_->streamFrequency = packet.audioClockFrequency;
+    impl_->streamSampleRate = packet.sampleRate;
     if (impl_->running.load() && !normalized.samples.empty()) {
         try {
             const auto accepted = impl_->callback(std::move(normalized));
@@ -414,6 +609,10 @@ WasapiCaptureWorker::WasapiCaptureWorker(WasapiEndpointSnapshot endpoint, bool r
 }
 
 WasapiCaptureWorker::~WasapiCaptureWorker() {
+    joinStopped();
+}
+
+void WasapiCaptureWorker::joinStopped() {
     stop();
     // Destruction is the final ownership fence, not a cancellable UI operation.
     // A driver/COM call cannot safely be force-terminated or detached with its sink.
@@ -431,6 +630,14 @@ CaptureWorkerError WasapiCaptureWorker::start(CaptureBatchCallback callback) {
         return CaptureWorkerError::invalidEndpoint;
     }
     if (impl_->thread.joinable()) impl_->thread.join();
+    {
+        std::lock_guard<std::mutex> lock(impl_->resumeMutex);
+        impl_->resumeStatus = Impl::ResumeStatus::rejected;
+        impl_->resumeFrame.reset();
+        impl_->releasedEnd.reset();
+        impl_->lastClockPosition = impl_->streamFrequency = 0;
+        impl_->streamSampleRate = 0;
+    }
     impl_->callback = std::move(callback);
     impl_->error.store(CaptureWorkerError::none);
     impl_->clockFault.store(ClockFault::none);
@@ -454,6 +661,7 @@ CaptureWorkerError WasapiCaptureWorker::start(CaptureBatchCallback callback) {
                 }
             } catch (...) { impl_->error.store(CaptureWorkerError::initializationFailed); }
             impl_->running.store(false);
+            impl_->resumeCondition.notify_all();
             // run() has returned: native resources and the final callback are
             // gone. Publish their actual completion, not a later UI poll time.
             impl_->finishedAt = std::chrono::steady_clock::now();
@@ -472,6 +680,7 @@ CaptureWorkerError WasapiCaptureWorker::start(CaptureBatchCallback callback) {
 void WasapiCaptureWorker::stop() noexcept {
     if (impl_ == nullptr) return;
     impl_->running.store(false);
+    impl_->resumeCondition.notify_all(); // Bounded waits tolerate a lost notification; UI never waits for its mutex.
 }
 
 bool WasapiCaptureWorker::ready() const noexcept { return impl_->ready.load() && impl_->running.load(); }

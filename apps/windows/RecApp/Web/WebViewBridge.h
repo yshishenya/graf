@@ -46,6 +46,7 @@ public:
 
     void rotateNonce(std::string nonce);
     void invalidate() noexcept;
+    void setCalendarJoinEnabled(bool enabled) noexcept { calendarJoinEnabled_ = enabled; }
     [[nodiscard]] BridgeValidationError validate(const WebViewBridgeEnvelope& message) noexcept;
     [[nodiscard]] bool isAllowedWebCommand(std::string_view command) noexcept;
     [[nodiscard]] std::uint64_t lastMessageId() const noexcept { return lastMessageId_; }
@@ -58,6 +59,7 @@ private:
     std::string nonce_;
     std::uint64_t lastMessageId_ = 0;
     bool valid_ = false;
+    bool calendarJoinEnabled_ = false;
 };
 
 } // namespace graf::windows

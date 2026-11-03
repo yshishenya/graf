@@ -148,6 +148,52 @@ if(process.argv.includes('--notification-contract')){
   assert(f.requests.every(request=>request.action==='read'));
   f.window.GRAFNotificationSettings.disconnect();
  });
+ test('F200 notification refresh during an older read requests current context once',async()=>{
+  let state={...snapshot(),canEdit:false},hold=false,release;
+  const f=fixture(async()=>{
+   const reply=structuredClone(state);
+   if(hold)await new Promise(resolve=>{release=resolve;});
+   return reply;
+  },{realQueue:true});
+  try{
+   await f.ready;assert.equal(f.controls.disabled,true);
+   const before=f.requests.length;
+   hold=true;f.window.GRAFNotificationSettings.refresh();await settle();
+   assert.equal(typeof release,'function');
+   state={...snapshot(),canEdit:true};hold=false;
+   for(let i=0;i<3;i++)f.window.GRAFNotificationSettings.refresh();
+   release();await settle();
+   assert.equal(f.requests.length,before+2,'The pending read must be followed by one fresh read');
+   assert.equal(f.controls.disabled,false,'Confirmed native context must enable the open page');
+   assert(f.requests.slice(before).every(request=>request.action==='read'&&request.nonce==='current'));
+  }finally{release?.();f.window.GRAFNotificationSettings.disconnect();await settle();}
+ });
+ for(const scope of ['disconnect','new-nonce','same-nonce']){
+  test(`F200 delayed notification refresh is retired by ${scope}`,async()=>{
+   let state=snapshot(),hold=false,release;
+   const f=fixture(async()=>{
+    const reply=structuredClone(state);
+    if(hold)await new Promise(resolve=>{release=resolve;});
+    return reply;
+   },{realQueue:true});
+   try{
+    await f.ready;
+    state={...snapshot(),canEdit:false};hold=true;
+    f.window.GRAFNotificationSettings.refresh();await settle();
+    assert.equal(typeof release,'function');
+    f.window.GRAFNotificationSettings.refresh();
+    f.window.GRAFNotificationSettings.disconnect();
+    hold=false;state=snapshot();
+    if(scope!=='disconnect')f.window.GRAFNotificationSettings.connect(scope==='new-nonce'?'next':'current');
+    await settle();
+    const beforeRelease=f.requests.length;
+    release();await settle();
+    assert.equal(f.requests.length,beforeRelease,'Old generation cannot replay its queued refresh');
+    assert.equal(f.controls.disabled,scope==='disconnect','Old response cannot change current availability');
+    if(scope==='new-nonce')assert.equal(f.requests.at(-1).nonce,'next');
+   }finally{release?.();f.window.GRAFNotificationSettings.disconnect();await settle();}
+  });
+ }
  test('F277 pending preview cannot replace the account-change message',async()=>{
   let release;const f=fixture(request=>request.action==='test'?new Promise(resolve=>{release=resolve;}):Promise.resolve(snapshot()));
   await f.ready;f.preview.listeners.get('click')();await settle();

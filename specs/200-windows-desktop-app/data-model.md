@@ -48,6 +48,36 @@ active only while the user can still invoke Stop; it cannot be advertised as a
 normal session. There is no state in which capture is active but the indicator is
 hidden.
 
+### Приватные сегменты сессии — T120, 2026-10-04
+
+`privacySegments` принадлежит логическому v5 manifest той же сессии/пакета,
+не серверному разрешению или отдельному журналу. Модель и Codable names —
+Mac `ProductPrivacySegment`/`LocalRecordingManifest` на c8d67c…:
+
+| Поле | Представление | Правило |
+| --- | --- | --- |
+| segmentId/sessionId | строка | неизменная привязка к текущей сессии; ID сегмента уникален |
+| control | pause/resume/stop | новый Pause создаёт pause, финализация не выдумывает новый control |
+| startedAt/endedAt | ISO8601 UTC | дата начала обязательна; endedAt отсутствует для OPEN |
+| startMonotonicMs/endMonotonicMs | неотрицательное целое | отсчёт от начала записи; end отсутствует для OPEN, не раньше start |
+| durationMs | неотрицательное целое | OPEN0, закрытый max(0,end−start), без overflow |
+| localMicTreatment | silenced/redacted/ended | пользовательская Pause — silenced |
+| initiator | RecordingEvidenceInitiator | пользовательская Pause — user |
+| diagnosticSafe | bool | новый продуктовый сегмент true; не содержит samples/paths |
+
+Mac Codable опускает nil endedAt/endMonotonicMs; Windows fixtures должны
+сохранять этот смысл и known legacy отсутствие privacySegments. ISO8601
+кодирование определено LocalRecordingManifestService, а не угадывается по
+wall-clock числу. JSON whitespace/key order не являются новой authority.
+Полный manifest≤64KiB по local custody §3; не вводится отдельный cap числа
+сегментов или потеря старой истории. Несовместимая/повреждённая форма blocked.
+
+Принятый OPEN предшествует подавлению. Принятый Resume требует точной FIFO
+границы; failed CLOSE сохраняет прежний durable OPEN. Storage completion
+привязан к session/generation; Stop остаётся доступным и late result не
+возобновляет запись. T116 внедряет защищённую запись, T120 — этот control flow;
+наличие модели не означает выполненную интеграцию.
+
 ## 2. PermissionSnapshot
 
 ```json
@@ -271,7 +301,8 @@ Rules:
 - native validates `Source`, exact origin, route kind, version, direction,
   message id, payload size and command-specific payload before action;
 - only `request_app_quit`, `local_recording`, `app_appearance`,
-  `native_settings`, `delete_selection`, `request_app_update` and `calendar_join` are accepted as requests;
+  `native_settings`, `delete_selection`, `request_app_update`, `calendar_join`
+  and cancellation-only `calendar_join_cancel` are accepted as requests;
   their exact payloads and current-state checks are defined in the bridge
   contract; obsolete settings/diagnostics/repair/acknowledgement aliases fail;
 - web receives `native_ready`, typed settings replies, deletion outcomes and
@@ -289,6 +320,63 @@ Session token/https_url нужны только в памяти текущей �
 и не проецируются в web reply/history. Один busy owner для всех Join entrypoints;
 terminal/stale callback не изменяет новую операцию. Record не является payload
 моста; native joinAndRecord проходит отдельную проверку после handoff.
+
+Document Join correlation: canonical event/request UUID, pinned generation/nonce,
+до1024 consumed request UUID без вытеснения. Join consumes UUID даже при busy/
+not-ready; replay не создаёт flight. Cap-отказ — исключение: UUID не admitted/
+consumed, его повтор даёт только cancelled/not_ready без work/history growth;
+replay saved UUID проверяется первым. Cancel содержит только те же два UUID,
+не создаёт request и относится лишь к matching document pending. Новый document
+сбрасывает consumed set, но не завершает actual SDK/worker child прежней операции.
+
+Recovery сохраняет operation/request identity и внешний opening до результата.
+Новый deadline относится только к свежему resolver после явного подтверждения;
+исходный action expiry не продлевается. Terminal UI и actual pending-work drain
+раздельны; новое действие не принимается до drain. State/fence owner не хранит
+ссылку и не считает вызов cancellation доказательством завершения работы.
+
+CalendarNativeLauncher — один ephemeral owned query/launch SDK handle без
+HTTP/dialog/auth/capture authority. State owner сохраняет operation/work ticket.
+Discard-only cancellation удерживает handle; natural Completed/Error означает
+owned API child completion, indeterminate Status/Canceled — busy без разрешения
+drain. StartFailed завершает только синхронный dispatch scope без полученного
+handle, не доказывает отсутствие OS effect. Current/receiver/handoff/Record
+остаются отдельными доказательствами; неопределённая работа не пересоздаётся.
+
+T119 native upcoming projection: CalendarReminderSnapshot дополнен server
+showUpcomingTime/showUpcomingTitle (default true для missing/null), event.allDay
+(default false для missing/null). Present non-bool отвергает весь ответ. Это
+эфемерные поля существующего snapshot, не новые local preferences. Privacy
+titleState и прежняя owner/UUID/instant/link validation остаются обязательными.
+Menu rows — startsAt/eventId sorted prefix12, независимо от card canSurface,
+dismissal/quiet/capture; source current берётся только из доступного принятого
+snapshot. Ошибка refresh очищает menu, даже если card сохраняет failed Retry.
+
+Native menu selection хранит frozen event target (eventId/startsAt/endsAt/link
+availability/URL identity), owner epoch и native action UUID; не свежий row index
+и не card pendingAction. Original endsAt один раз преобразуется из remaining
+wall duration в checked steady_clock expiry на принятии выбора; invalid/expired/
+overflow отвергаются. Current требует неизменного target/owner, доступной текущей
+проекции и исходного expiry. Presentation-only flags/title refresh прекращает
+popup tracking, но не меняет target уже принятого flight. Normal popup close
+после selection — не отмена flight. Ни один из этих фактов не actual drain.
+
+Menu failure Retry — dialog work общего operation owner до terminal, отдельный
+purpose от browser recovery. После matching dialog drain + explicit current
+Primary прежний attempt становится failed, новый request/operation получает тот
+же source/expiry и новый resolver budget click+15s. Не возобновлять terminal,
+не переиспользовать URL, не освобождать busy между попытками для другого Join.
+Cancelled/stale/unknown exit не начинает новую попытку. Menu never Record;
+card/document sources и их lifetime остаются прежними.
+
+T119 display-time context (Round243): ephemeral origin/native owner/workspace/
+auth generation/token identity/document generation/nonce/context revision плюс
+metadata session UUID и optional preferred IANA zone. Metadata не auth authority
+и не persisted preference; принятие только по plan «T119: пользовательское время»
+и bridge§10. Invalid current data сбрасывают preference в system fallback;
+stale completion не стирает более новый context. Account/session/origin switch
+сбрасывает его до нового accepted document. Display revision влияет на popup
+tracking, но не заменяет event/Join identity и immutable action expiry.
 
 ## 9. VerifiedTargetIdentity
 
@@ -453,6 +541,9 @@ Migration делает ledger source/range stamp по whole logical hash/length;
 Initial prepared/fence/destination birth и cuts определены contract §8: closing
 fence не является уже открытой queue. Mutable queue после switch может иметь
 новые generations/ranges; migration copy receipt не отменяет current authority.
+Package-state v1/v2 использует единственный JSON key версии `schema` и ровно
+девять top-level fields базового §8.1. `schema_version` не является alias;
+это уточнение не переименовывает поле версии существующего logical v5 manifest.
 cleanup receipt не заменяет свежую проверку owner/delete rights. Все temp/
 quarantine роли замкнуты §8.2; plaintext leftovers исключают encrypted claim.
 
@@ -487,3 +578,145 @@ stamp и strict codec по packed contract §6.1 до подключения к 
 packed decode. Persistent root stamps обоих metadata slots восстанавливаются
 и full-verified до GC даже вне current media heads. Migration gates T117
 остаются отдельными, новый field list не принимается как runtime implementation.
+
+## T116: runtime ownership полного V5-пути — 2026-10-07
+
+Новых persistent schemas/полей нет: package.v2/queue v3-read-v2 и typed ticket
+определены существующими contracts. Private package owner удерживает настоящую
+root-часть, package-state lease/accepted generation и generated member identities;
+не account/effect authority. Capturing → finalizing → sealed normal/degraded
+или discard pending проверяется существующим codec, с BOTH slots и exact refs.
+Charged recording work удерживается native worker через capture/finalizer/queue
+ACK; UI получает только values. Mutable writer имеет одного serial mutator:
+dispatcher до EOS, finalizer после fence, MF calls через закрытый serial adapter
+без прямого параллельного доступа. Worker очищает native refs до terminal values.
+Short intent не означает removed; codec result не означает saved; stale epoch
+принимает physical generation, но не account/network capability. Это design,
+не утверждение о текущей реализации; допуск следующего кода проверяется отдельно.
+
+## T116: HTTP-flight и результат очереди — 2026-10-10
+
+Persistent schema не меняется. Construction source: `plan.md`, раздел
+«T116: защищённая HTTP-отправка и принятие результата».
+
+- Flight: charged выбранные строки/результаты≤32, captured row identity,
+  store/queue context/base generation, auth epoch/cancel и busy/lease.
+  Retained package inspection принадлежит network worker, не UI completion.
+- Prepare: current protected value → private candidate → committed/adoption →
+  current-context dispatch. Непустой flight сохраняет full candidate и при
+  неизменном payload; пустой выбор не создаёт flight/commit/network.
+  Display snapshot и false от domain helper не дают dispatch authority.
+- Result: network terminal → проверка свежей row/epoch → private full candidate
+  (server truth + status) → committed/adoption → retired. Pending и lost poll
+  сохраняют result/busy; ambiguous закрывает продолжение до reconciliation.
+- Protected HTTP-body: shared immutable CustodyBytes и charged control block;
+  обычный string body пуст. Копирование request удерживает тот же owner, не bytes.
+  Logical chunks≤256KiB не меняют wire part4MiB/clamp64KiB–16MiB.
+
+Это конструкция перед независимым review, не наличие реализации или новое
+разрешение на upload/playback/delete/публичный выпуск.
+
+## T116: durable Start-owner — 2026-10-16
+
+Нового schema/поля/статуса нет. Existing protected v3 row сохраняет original
+local/directory/session IDs, confined path и captured owner pair до первого
+блока. quarantined/capture_prepared — новая reservation с confirmed owner или
+proven no-login; quarantined/capture_owner_unknown — unresolved auth. Legacy
+отсутствие fields/row/default пустой token не создаёт no-login reservation.
+Known no-login/unknown markers сохраняются до разрешённого claim; для unknown
+claim запрещён. Они не дают Saved, content/account или effect authority.
+Full candidate commit/readback/adoption предшествует package preparation.
+Finalizer/recovery обновляют exact row без смены owner/server/deletion truth;
+short intent допускает лишь verified metadata retirement перед unchanged
+no-alias physical discard. Logical identity не объявляется durable FileId.
+Полная state/ACK/failure модель — plan §T116 от 2026-10-16.
+
+## T116: эфемерный UnfinishedInspection — 2026-10-16
+
+Worker-only private-constructed lifetime: genuine readonly package pair +
+BOTH whole-group readers + тот же cancellation + complete480 frame count.
+Input только StoreOwner/directory/cancellation; root и retained pair получаются
+через этот StoreOwner, не через standalone Pair/path от вызывающего кода.
+Создаётся только при selected capturing/finalizing и успешной полной cold
+проверке committed canonical/finite samples; все streams возвращены в cursor0.
+Число frames — floor(validated logical length/1920), не accepted count/EOF.
+Это не persistent entity, не ProtectedInspection и не normal/degraded seal;
+не доказывает session, время, privacy history, аккаунт или effect authority.
+Никакой сериализации/изменения queue/package-state/codec. Файлы и прежние
+metadata остаются неизменны. Освобождение native readers — на worker.
+Следующее sealing/history/playback требует отдельной конструкции, не cast
+этого результата и не повторный CREATE_NEW по прежнему пути.
+
+## 2026-10-16 / T116 construction B — existing package recovery
+
+Новых persistent fields/схем нет. Existing-only acquired recording package
+удерживает исходные context/role IDs/root и текущие metadata generations;
+canonical owner readonly. Runtime-only verified history содержит точный charged
+privacy JSON fragment и уже сохранённые optional times. Это не account proof.
+Terminal V5 recovery выдаёт только фактически проверенный sealedDegraded после
+AAC decode и full semantic closure. Ни normalPackage/keepablePackage, ни queue
+promotion от этого не возникают. Неиспользованные roles определяются по BOTH
+refs И точному inventory, не по одному отсутствующему ref. Partial/orphan
+состояния сохраняются как отказ. Детали и границы — plan construction B.
+
+## 2026-10-16 / T116 — native recovery handoff
+
+Только runtime: существующий ProtectedNetworkWork может временно удерживать
+terminal V5 writer между acquisition на storage worker и передачей recovery
+executor. Не StoreOwner, не UI proof, не persistent поле. Writer используется
+однократно и освобождается до recoveryDone. Исходная reservation остаётся
+quarantined/capture_prepared с прежним owner; ни queue schema/generation, ни
+доступ normal upload/playback этим handoff не изменяются.
+
+## 2026-10-16 / T116 — display-only degraded playback
+
+Existing ProtectedLocalRecordingTiming получает runtime-only playableDegraded:
+полный sealedDegraded/AAC inspection и fresh package-generation adoption,
+привязанные к существующим immutable queue snapshot и auth epoch. Не persistent
+поле, не proof и не право доступа. Новое owned-degraded local исключение требует
+native fresh validation; quarantine, original owner и Send=false не меняются.
+
+## 2026-10-19 / T116 — начатый AAC, проект462
+
+Runtime-only private layout playbackStarted: сразу writable existing playback
+owner с container ID из того же HANDLE. Persistent fields/IDs/schema прежние.
+Nonempty→0 reset создаёт следующее HEAD generation; empty→0 — проверенный no-op
+того же поколения без HEAD write. Старые records/orphan tail не удаляются.
+Canonical/WAV/history/queue/owner неизменны; только прежний полный
+sealedDegraded ACK/inspection разрешает завершение, не normal/upload/claim.
+Admission и повторный crash — plan462/packed contract; это ещё не реализация.
+
+## T116 / 468-U2 — terminal manifest, recovery exact unused
+
+Только private runtime layout; persistent fields/schema/IDs прежние. Existing
+package держит непрерывные leases: canonical/media/playback/manifest readonly,
+recovery и package-state writable existing. Admission требует полного bound
+terminal/history/content proof и recovery ровно id.bin без refs в BOTH union.
+Пять значений recovery JSON до birth — не metadata pair/ref/proof. Только
+actual recovery g1 BOTH/readback, затем прежний completed final seal и fresh
+inspection дают sealedDegraded result. Четыре готовых member/queue/original owner
+не меняются. Partial/orphan recovery остаётся D, не новый repair state.
+Ни normal/upload/claim authority, ни отмена actual retirement не возникают;
+точные переходы U/D/C/S и tests-first evidence — plan/quickstart468-U2.
+
+Уточнение469: предварительный normal/terminal dispatch — только private
+ReasonCode из bounded metadata, не новое persistent поле или proof. Все
+metadata leases освобождаются до fresh acquisition. none требует explicit
+unfinished parse bound histories, non-none — terminal BOTH/history binding;
+ошибка не является normal. Terminal acquisition не открывает audio на запись.
+Full executor preflight/actual g1 BOTH/final inspection остаются обязательными.
+
+### T103 SafeHistory — только память процесса, 2026-10-22
+
+BrowserEntry: integer ID + точный URL; snapshot — полный browser-owned порядок
+и currentIndex. GET proof относится только к неизменной паре ID/URL после actual
+final GET response и успешного cabinet latch текущей сессии. Unknown/POST не
+получают proof. Смена URL/исчезновение ID уничтожает proof; revision запрещает
+принять старый async snapshot. Session reset очищает всё. Все записи должны
+иметь GET proof для BF; unknown в любом месте закрывает выбор. Это ограниченные
+security metadata, не persistent история или собственный navigation stack.
+Native intent хранит session/generation/revision/selected ID/URL/phase/deadline;
+singleForward — один безопасный fresh-GET адрес той же сессии, не старый ID.
+Reset проверяет тот же accepted GET/current ID/URL и единственный entry; не
+переносит proof на другой ID. Тела страниц/форм/cookies/персональные URL/entry
+IDs не пишутся в diagnostics/evidence.

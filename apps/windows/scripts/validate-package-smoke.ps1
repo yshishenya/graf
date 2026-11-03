@@ -36,6 +36,11 @@ try {
         if ($required -notin $capabilities) { throw "Required capability is missing: $required" }
     }
 
+    $languages = @($manifest.SelectNodes('/a:Package/a:Resources/a:Resource/@Language', $ns) | ForEach-Object Value)
+    if ('ru' -notin $languages -and 'ru-RU' -notin $languages) {
+        throw 'MSIX has no Russian resource language (ru or ru-RU).'
+    }
+
     $forbiddenEntries = @($archive.Entries | Where-Object {
         $_.FullName -match '(?i)(\.sys$|\.msi$|service|driver|elevat|setup\.exe$)'
     })

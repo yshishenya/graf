@@ -2844,3 +2844,647 @@ first-only measurement error, changing rate и шуме. Одного числе
 Следующий проект — общий causal clock расчёт с неизвестной первой опорой и
 изменением частоты; реальные требования, bounded memory и Stop сохраняются.
 Source/VM verdicts/failure history/fingerprints — validation200–202.
+
+## T120 — приватная пауза и вместимость manifest, 2026-10-04
+
+**Decision:** сохранить existing owner/dispatcher/timeline/writer и Mac FIFO
+границу; OPEN до accepted Pause, failed boundary остаётся paused, CLOSE
+best-effort после accepted Resume. Подавление должно оставаться в ожидающих
+данных после Resume. Durable интеграция использует T116, не plaintext journal.
+
+**Rationale:** настоящий Windows Timeline в synthetic проверке выдал mic0.50
+после paused mic→Resume→late render, хотя ожидалось0.00. Это не VM/audio read.
+Mac c8d67c… PrivacySuppressingSampleSource удерживает один lock на read/update,
+snapshot в producer FIFO, replacement count/partial prefix/prefetched zero;
+V5 writer различает mandatory OPEN и best-effort CLOSE. Fixed source доступен
+через git show; локальный старый Mac bool callback не выбран новым эталоном.
+
+Manifest limit4096 присутствует одновременно в Codec и LocalRecordingPackage.
+Массив ProductPrivacySegment содержит даты/идентичность/временные границы;
+повторные паузы нельзя вместить удалением предыдущих сегментов. Точечный cap64KiB
+переиспользует существующий служебный metadata bound, остаётся одним block
+и не повышает owned/job/cache/root/queue/audio budgets. Exact/limit+1 и
+allocation failures проверяются до consumer adoption; старые доказательства
+4096 не принимают новую норму. FixedMac model/service подтверждают Codable
+camelCase и ISO8601/отсутствие nil dates; не требуется второй логический формат.
+
+**Alternatives rejected:** bool только при drain; ожидание пустой очереди;
+суммирование повторных snapshots; raw mic/padding/новый capture backend;
+потеря privacy history, новые plaintext metadata или увеличение всех budgets.
+Выбор64KiB — проектирование с новым independent gate, не runtime evidence
+готовой паузы или всего защищённого приложения.
+
+## T119 operation lifecycle — 2026-10-04
+
+**Decision:** reuse AppMain timer/future/alive/DispatcherQueue и WinRT async;
+один небольшой native state/fence owner, без нового interface/factory framework.
+До/после внешнего ожидания сверяется exact context. UI terminal не доказывает
+actual completion; отдельные operation/work IDs защищают от позднего callback
+первого resolver во время recovery. Source helper не выполняет I/O и не
+подменяет worker/native/installed evidence.
+
+**Rationale:** GRAF Mac на pinned F279
+`721b5125d799ea798a4af0b3625e18d3c1109039`, собственные
+EmbeddedCabinetCalendarJoinBridge.join и CalendarMeetingOpener.open/recoverInBrowser,
+возвращает terminal только после всего open, включая explicit recovery.
+Fresh resolver начинается после подтверждения. Windows сохраняет тот же
+нетерминальный opening и тот же lease, с новым15s resolver budget, не продлевая
+исходный action expiry. Нет нового выбора продукта, нового native target или
+автоматической browser попытки. Cancellation сама по себе не подтверждает exit.
+
+**Alternatives rejected:** failed→resolving того же request; повтор cached URL;
+автоматическое освобождение busy по таймеру/Cancel; общий15s таймер для ожидания
+пользовательского выбора; перенос старого early card close/slot release.
+
+## T119 cancellation wire — 2026-10-05
+
+**Decision:** cancellation-only calendar_join_cancel с exact event/request UUID;
+strict existing reader исходного envelope до SDK collapse; request UUID одноразовый
+за документ, bounded1024 без eviction. Остальная authority проверяется native host.
+**Rationale:** текущий SDK payload.Stringify теряет duplicate keys; только новый
+message_id не защищает следующий flight при повторном request UUID. HTMX removal
+уже отменяет действие по §10, но wire ранее не был определён. Независимое read-only
+design review подтвердило пробел до кода; это техническое уточнение того же T119.
+**Alternatives rejected:** DOM observer без native cancellation, reuse request UUID,
+LRU eviction старых UUID, Cancel как drain, второй JSON parser/service/factory.
+
+## T119 native API lifecycle — 2026-10-05
+
+**Decision:** один concrete SDK adapter и discard-only отмена; natural terminal
+отделён от неизвестного состояния и synchronous startFailed. Параметры Zoom
+формируются по собственному pinned Mac; provider_family не выбирает приложение.
+**Rationale:** Microsoft прямо показывает раннее завершение RemoteAsync proxy
+при Cancel до underlying completion; поэтому update Cancel pattern не переносим.
+[RemoteAsync cancellation](https://devblogs.microsoft.com/oldnewthing/20250212-00/?p=110857),
+[C++/WinRT cancellation cleanup](https://devblogs.microsoft.com/oldnewthing/20220916-00/?p=107191).
+Query Available не доказывает получателя, AppUnavailable/Unknown не отсутствие:
+[SDK statuses](https://learn.microsoft.com/en-us/uwp/api/windows.system.launchquerysupportstatus?view=winrt-26100).
+Browser recovery использует [IgnoreAppUriHandlers](https://learn.microsoft.com/en-us/uwp/api/windows.system.launcheroptions.ignoreappurihandlers?view=winrt-26100).
+**Alternatives rejected:** Cancel proxy как actual drain, restart по таймеру,
+автоматический fallback после unknown start, второй HTTP/dialog owner, factory.
+
+## T119 upcoming native menu — 2026-10-05
+
+**Decision:** использовать уже принятый upcoming snapshot и общий Join owner;
+дополнить decoder server presentation flags/all_day, затем существующие model,
+presenter и WindowsTray. Собственный Mac reference:
+`721b5125d799ea798a4af0b3625e18d3c1109039`, CalendarTrayModel.refresh/
+rebuildMenu/timeText/openMeetingLink и CalendarMeetingOpener.openEventFromMenu.
+**Rationale:** Mac sort startsAt/eventId prefix12, server flags, all-day/private
+labels и explicit failure Retry независимы от reminder-card eligibility.
+Read-only current server api/calendar.py list_desktop_calendar_upcoming уже
+передаёт flags/events; CalendarContextModels decodeIfPresent сохраняет defaults.
+Сервер/API менять не требуется. Original endsAt переводится в monotonic action
+expiry, чтобы выполнить обязательный stale-action gate без card120s timer;
+это документированная Windows lifetime конкретизация, не таймер Mac opener.
+**Alternatives rejected:** две кнопки текущей card вместо списка; quiet/dismissed
+как запрет явного Join; отдельный endpoint/HTTP service; stale row index после
+refresh; IgnoreEnd или подмена original expiry; cached URL Retry/terminal revival;
+early busy release по Hide/Cancel. Menu source/Retry implementation и installed
+приёмка ещё впереди; reference inspection не выдаётся за evidence Windows.
+
+### T119: пользовательский часовой пояс — Round243, 2026-10-05
+
+**Evidence:** pinned GRAF CalendarTray.timeText и DesktopUserTimeContext.swift
+на `721b5125d799ea798a4af0b3625e18d3c1109039` прочитаны из Git; zone берётся из
+account preference trusted document, system только fallback. Existing server
+cabinet/base.html предоставляет graf-time-user/session/preferred и workspace;
+settings-autosave.js применяет successful timezone к GRAFTime, но это не само
+по себе новый native confirmed metadata read. Same-page save проверяется отдельно.
+
+**Decision:** ephemeral account/document-bound context в existing native owner,
+strict existing metadata decoder/read; Windows.Globalization.Calendar для IANA,
+DST на дату события и 24-hour HH:mm. Никаких новых endpoint/library/tz database.
+**Primary sources:** [Microsoft Calendar.ChangeTimeZone](https://learn.microsoft.com/en-us/uwp/api/windows.globalization.calendar.changetimezone?view=winrt-26100)
+явно принимает IANA ID; [Calendar constructors](https://learn.microsoft.com/en-us/uwp/api/windows.globalization.calendar.-ctor?view=winrt-26100)
+задают язык/calendar/clock/timezone. Это выбор API, не native/app acceptance.
+**Rejected:** always-system localtime, текущее fixed offset для будущей даты,
+своя таблица зон/новая библиотека, доверие несохранённой форме, raw metadata как
+auth/Join authority, перенос зоны через logout/диск, имитация named-zone proof
+на portable. Недостающее техническое сопоставление закрывается review норм,
+не игнорируется ради ранее проходящих tests. Product code этого раунда ещё нет.
+
+## T116: retained package и настоящий MF output — 2026-10-07
+
+**Decision:** полный V5 vertical переиспользует Files State/openRole,
+Metadata commitImpl, PackedOwner/Tree/Writer и actual NativeCapture controller.
+Нужны закрытые входы от retained root/prepared role, committed snapshot и один
+сериализованный writable IStream; существующий readonly Reader не выдаётся за
+output. Root ownership отделяется от mutable queue authority без нового backend.
+**Rationale:** сегодняшние path-based PackedOwner/PackagePair повторно открывают
+store/role leases; V5 пишет plaintext float/WAV/AAC и enqueue возвращает bool.
+Они не могут стать защищённым путём лишь сменой extension или readiness flag.
+**Primary sources:** [MFCreateMFByteStreamOnStream](https://learn.microsoft.com/en-us/windows/win32/api/mfidl/nf-mfidl-mfcreatemfbytestreamonstream)
+оборачивает IStream; [MFCreateSinkWriterFromURL](https://learn.microsoft.com/en-us/windows/win32/api/mfreadwrite/nf-mfreadwrite-mfcreatesinkwriterfromurl)
+при URL=null/writable byte stream требует container attribute и пишет в поток.
+Эти API не доказывают same-thread обращения: защищается целиком writer/cursor
+lifecycle, а не только packed physical IO. Finalize не вызывается под adapter
+mutex; worker сохраняет native ownership до закрытия доступа и active-call drain.
+**Alternatives rejected:** plaintext temp/re-encryption, caller-chosen contexts,
+публичный READY setter, повторный metadata publisher, второй dispatcher/ledger,
+COM-only last native release, тест markReady вместо настоящего controller flow.
+**Status:** решение конструкции для независимого requirements/analyze review,
+не код, native test/installed acceptance или разрешение открыть рабочий профиль.
+
+## T116: HTTP-body и сохранение результата — 2026-10-10
+
+**Decision:** уточнение конструкции в `plan.md`, раздел «T116: защищённая
+HTTP-отправка и принятие результата». Сохраняются existing transport/scheduler,
+partSize и серверная схема; один charged owning body без string-копии.
+Network executor отделён от storage worker; full candidate результата ждёт ACK.
+**Rationale:** actual `packageTracks/uploadFile` читают plaintext и копируют
+часть в UploadRequest.body; actual scheduler drain делает отдельные bool
+reconcile/status writes. Одной замены ifstream недостаточно. 256KiB logical
+read и 4MiB HTTP-part — разные уровни, не противоречие требований.
+**Alternatives rejected:** уменьшить wire part до256KiB; borrowed body с
+неопределённым сроком жизни; второй upload backend; сеть на единственном
+storage worker; открытие global admission ради теста одного consumer.
+**Status:** конкретная конструкция перед независимой приёмкой H1/H2;
+не реализация, не проверка Windows и не закрытие T116.
+**Primary source:** [WinHttpSendRequest](https://learn.microsoft.com/en-us/windows/win32/api/winhttp/nf-winhttp-winhttpsendrequest)
+требует сохранять optional buffer до завершения ReceiveResponse либо закрытия
+request handle. Поэтому owning body переживает оба native вызова и отмену,
+а не освобождается после SendRequest; существующий синхронный режим сохраняется.
+**Prepare без domain changes:** для непустого flight сохраняется тот же full
+payload следующим generation с обычным ACK. Это один дополнительный metadata
+commit вместо нового no-change state/протокола; пустой выбор не пишет ничего.
+Existing commitImpl принимает full payload и base+1, не требует изменения строк.
+
+### T116: cold inspection и свободный storage worker — 2026-10-11
+
+Decision для независимого review: genuine pair получает existing storage
+worker, неизменный полный inspection/hash/AAC и HTTP выполняет existing
+network executor. Source trace показывает, что нынешний requestProof занимает
+storage worker полным просмотром старого пакета; обычный Stop ставит команду,
+но не прерывает inspection. Это source-only риск обслуживания finalizer,
+не измеренный runtime RED и не доказанная задержка самого EOS.
+
+Rationale: уже есть отдельный executor и worker-only slot. Перенос владения
+тем же pair устраняет привязку тяжёлой проверки к единственному исполнителю
+prepare/finalize без нового потока, повторного publisher или ослабления proof.
+Alternatives rejected: только проверка заголовка теряет integrity/codec truth;
+один cancel не доказывает длительность native вызова; отдельный pool избыточен.
+Открытое измерение — qualified packed-read concurrency RED/GREEN и60min SC-003,
+не новый NEEDS CLARIFICATION о пользовательском поведении. План/quickstart
+задают cut, ownership, release, cancel и границы acceptance до product change.
+
+### T116: Start-owner carrier — 2026-10-16
+
+Decision для независимого review: исходная принадлежность — в existing protected
+v3 queue row до package preparation/первого блока, с full commit/readback/adoption.
+Existing quarantined + reserved safe_reason capture_prepared различает новый
+Start known-owner/proven-no-login; capture_owner_unknown — unresolved auth.
+Последний не равен signed-out и не блокирует offline local Record, но не даёт
+права назначения/отправки. Никакого credential/hash в carrier нет.
+
+Rationale: owner pair, bounded string и encrypted BOTH publisher уже существуют.
+Не нужно менять logical v5, ровно девять package-state keys или заводить журнал.
+В выбранном Mac 721b5125d799ea798a4af0b3625e18d3c1109039 enqueueSaving и
+preservingQueueState показывают queue-before-seal/owner preservation, но вызов
+на Stop не доказывает Start-before-audio. Это reuse образец, не runtime proof.
+
+Alternatives rejected: назначение active account после restart нарушает исходную
+принадлежность; пустые fields + capture_interrupted не отличают утрату binding;
+manifest/recovery имеют строгий другой смысл/shape, новые fields/format/service
+не нужны. Marker не подтверждает sealed content или account/delete authority.
+Short требует проверенного retirement exact Start row до прежнего no-alias
+discard; guard не ослабляется. Plan/quickstart той же даты задают переходы и
+failure cuts. Квалифицированные RED/GREEN и текущий review ещё обязательны.
+
+## T116: cold prefix, construction A — 2026-10-16
+
+Decision: сначала отдельный read-only `UnfinishedInspection` в существующем
+LocalRecordingPackage. Переиспользовать BOTH `openProtectedCustodyReaders` и
+streaming finite-sample validation, не добавлять writer/encoder/authority.
+Rationale: V5 writer open вызывает createPackage и предназначен только для
+новой записи. retainPrefix зависит от живого writer State, которого после
+crash нет. Cold package reader уже умеет full verify live packed refs; это
+достаточная основа проверки complete480 prefix, но не sealed package.
+Alternatives rejected: вызов новой writer factory для старого пути; снятие
+sealedNormal guard; преобразование readonly pair в writable capability;
+SetSize/checkpoint canonical после restart; повторная AEC; normal promotion
+по одному факту readable bytes. Все они добавляют неверную authority/мутацию.
+Cold metadata sealing/history/output остаются отдельным construction B,
+не скрытым допущением A. Подробные границы и проверки — новые разделы plan,
+data-model и quickstart. Новых внешних зависимостей/публичных API нет.
+
+## 2026-10-16 / T116 construction B: cold playable degraded
+
+Decision: existing-only owner-private acquisition и terminal recovery через
+существующий V5 writer, сначала только для пакетов с ещё не начатыми outputs.
+Rationale: read-only A не даёт права на запись; createPackage — только новый
+birth. Existing BOTH refs плюс фактический inventory отличают unused role от
+partial/orphan. Связанный manifest должен совпадать с действующим metadata
+generation; его privacy array сохраняется после closed parsing без пересборки
+OPEN/CLOSE и без текущего аккаунта/времени восстановления. AAC/WAV и конечный
+degraded inspector/player уже существуют. Полный протокол — plan construction B.
+Alternatives rejected: readonly→writable capability; повтор CREATE_NEW поверх
+partial birth; новый JSON parser/формат/journal; normal promotion; encoder
+дубликат; принятие unbound metadata как подтверждённой истории. Начатые outputs
+пока требуют сохранённого отказа, а не притворной гарантии crash continuation.
+
+## 2026-10-16 / T116 — native startup B
+
+Decision: private prepare/finish разделение существующего V5 recovery; acquisition
+на storage worker, encoding на существующем inspectRecovery executor.
+Rationale: StoreOwner содержит mutable queue/short-discard state и не должен
+заимствоваться параллельным executor. Полный recovery на storage worker задержит
+следующий Start/Stop. Текущий handshake уже обеспечивает передачу и drain.
+Alternatives rejected: новый поток/очередь/manager; публичный writable пакет из
+readonly proof; promotion degraded в normal; обход quarantine playback guard.
+Fresh reservation comparison и cancellation/drain расширяют существующие
+границы, а не заменяют их. Точный объём и проверки — plan, раунд448.
+
+## 2026-10-16 / T116 P2 — terminal continuation без повторной записи
+
+Actual returned fault before final seal (раунд456) оставляет bound degraded
+manifest, исправные WAV/AAC и recovery, но package phase finalizing. Existing
+unused-output recovery правильно отказывает. Решение: отдельный private readonly
+completed-layout preflight и одна existing package-state publication; не вызывать
+retainPrefix повторно. Store/object/role устанавливаются native identity, prefix
+container ID — только candidate до authenticated BOTH tree verification и exact
+bound artifact checks. Общая value-only semantic validation переиспользует sealed
+inspector, но не создаёт sealed proof до durable publication. Recovery generation1
+birth pair и original history обязательны. Arbitrary orphan/partial/newer metadata
+не ремонтируются. Alternatives rejected: generic writer reopen/readonly upgrade,
+reset generation, re-encode, новый ledger, fake sealed pair, принятие JSON как
+authority. Конструкция/acceptance — plan раунд457; это не runtime evidence.
+
+### Раунд458 — public Record и protected readiness
+
+Decision: derive one current value-only readiness from adopted protected startup
+and completed command/result state; retain genuine factory ACK as audio authority.
+Rationale: current public Record returns storageUnavailable before hardware or
+reservation despite the integrated protected chain. localObservation already
+contains most state checks. Update requires queue completeness even after clean
+owner stop, while new Record must reject that stopped owner. Reuse existing
+ReadinessInputs and mutex rather than another capability, cached flag or ledger.
+Rejected: setting storageWritable at startup, using legacy queue quarantine,
+requiring login/network or T117 migration, blocking independent readers, or
+substituting localObservation.complete in update callers. Public generated test
+may use real metadata-only native probes and install existing generated worker
+functions after public accepted starting, before pollHealth; no product test hook
+or real audio is necessary. Construction and runnable acceptance: plan458 and
+quickstart; this research itself is not execution evidence.
+
+### Раунд461 — interrupted recovery после WAV
+
+Decision: узкий private mixed acquisition и полная проверка готового WAV до
+первого нового эффекта; продолжать только AAC через существующий finalizer.
+Rationale: actual physical role1/op6 оставляет возможный готовый WAV, но flush
+ещё не ACK. BOTH closure, same-Guard exact physical EOF и побайтовое сравнение
+с существующей canonical→WAV конверсией должны заново доказать пригодность.
+Alternatives rejected: пропуск unused guard без нового proof, writable reopen
+readonly media, доверие одному header/hash, truncate unknown tail, общий repair
+произвольных outputs, новый encoder/owner/pool. Wire/data model/contracts не
+меняются; точная конструкция и границы — plan461, приёмка — quickstart461.
+
+WAV29 уточнение: physical op5 hook стоит после WriteFile HEAD, op6 — после
+FlushFileBuffers. После TerminateProcess без потери OS cache обе точки могут
+оставить готовый WAV. Выбран допуск только по тому же свежему полному proof,
+не по недоказуемой из durable bytes истории flush. В fixture полный HEAD
+transfer обязателен; ожидания full matrix включают обе exact WAV границы,
+filtered tests-first остаётся op6. Не добавлять persistence flag, повторный
+flush существующего WAV, общий retry/repair или произвольное принятие partial
+output. Факт process-crash acceptance не означает сохранность при потере питания.
+
+### Раунд462 — начатый AAC: проект повторного построения
+
+Decision: existing packed Writer → logical setSize(0) → прежний MF encoder,
+append после actual EOF, старые records сохраняются. Это ещё не реализация.
+Rationale: openUnfinished отвергает промежуточный playback. Writer::open(Tree)
+уже проверяет capability/HEAD; resize не делает physical truncate. Tree::commitBlock
+берёт actual size для append, Guard::reserve включает physicalBytes всего store
+и95% cap. Не хватает private prepared playback writeExisting с правами сразу
+при acquisition, не readonly upgrade. Source: ProtectedCustodyMetadata.cpp
+openUnfinished; ProtectedCustodyFiles.cpp Owner::openImpl/checkWriteReserve;
+ProtectedCustodyWriter.cpp open/resize; ProtectedPackedCustodyTree.cpp commitBlock.
+Независимая feasibility: review-2026-10-19-round460-diagnostic-gate.md, Partial AAC.
+
+Rejected: продолжение MF state, доверие одному HEAD, truncate/reuse orphan
+offsets, новый контейнер поверх старого ID, birth repair, новый backend. DPAPI
+не имеет нашего nonce counter; RAM owner epoch не криптографический nonce.
+Отдельный decode-only путь для готового unsealed AAC добавил бы вторую ветку:
+на этом этапе один re-encode покрывает partial и готовый до metadata AAC.
+Sealed artifacts и migration T117 не перекодируются. Неполный birth/torn metadata
+остаются открытой работой, не объявляются решёнными отказом. Точный проект —
+plan462, требования до кода оценивает независимый reviewer; wire не меняется.
+
+Reviewer462-I1 уточнение: empty→0 не публикует новое поколение/HEAD; это прежний
+проверенный no-op. Nonempty→0 создаёт+1, менять Writer ради формулировки нельзя.
+Reviewer462-U1: конечная таблица R/C/D/S в plan462 сохраняет exact inventory и
+unfinishedHistory parser. Orphan/newer-unbound metadata и bound terminal manifest
+без recovery требуют отказа, complete terminal members — existing completed,
+sealed — readonly inspection, не новое перекодирование. Ни историческая
+feasibility, ни исправленный проект ещё не являются source/runtime GO.
+
+Уточнение464: AAC44 измерил baseline recovery~91s и child WAIT_TIMEOUT60s.
+Первый кандидат — существующее writeWav порциями до32 кадров (plan464),
+а не новый cache/encoder/ослабление Guard. Source показывает вытеснение shared
+256KiB cache при frame-by-frame canonical/WAV comparison; вклад во время ещё
+не измерен отдельно. Пакетная обработка уменьшает число native обращений и
+переключений, сохраняет прежний converter и форматы. Альтернативы: повышение
+сроков отвергнуто; изменение shared cache/Guard шире необходимого; batching
+canonical в writePlayback оставлено отдельным следующим решением после замера.
+Новых сущностей/состояний/контрактов/пользовательских ответов не требуется;
+нынешние clarification/constitution gates и R/C/D/S сохраняются. Это план
+проверки гипотезы, не утверждение исправления причины или ускорения.
+
+Уточнение465: AAC45 достиг реального partial и recovery result, но не полного
+fresh audit в180s. Прежний writePlayback читает1920bytes на каждый10ms sample;
+каждое обращение имеет прежние native guards. Выбран минимальный следующий
+кандидат — bounded canonical read-ahead32, без объединения MF samples и без
+смены cache/Guard/decoder. Число refill уменьшается, фактические обращения
+полностью проверяются; первый реально обнаруженный fault остаётся sticky.
+Plan465 фиксирует размеры, последний refill и происхождение ошибок.
+Иной encoder/shared cache/увеличение сроков не нужны и не разрешены этим
+шагом. Data-model/contracts/clarification/product gates не меняются. Runtime
+и соответствие общему сроку ещё не доказаны.
+
+### 468-U2 — terminal manifest с exact unused recovery
+
+Decision: отдельный private acquisition layout с readonly canonical/WAV/AAC/
+manifest и writable existing recovery/package-state; reuse completeUnfinished,
+writeWav comparison и value-only semantic validation. После полного preflight
+создать только recovery g1 BOTH, прочитать actual pair и завершить прежний seal.
+Rationale: текущий terminal-bound cut13 уже содержит готовые WAV/AAC и bound
+degraded manifest, но unused recovery отвергается completed acquisition, а
+unfinishedHistory намеренно не принимает terminal artifacts. Ослабление parser
+или re-encode здесь неверно; нового persistent состояния не требуется.
+Actual callers: V5LocalRecordingWriter::finishRecovery — единственный вызывающий
+private LocalRecordingPackage::completeUnfinished; тот уже проверяет BOTH history,
+hashes/AAC/session/privacy/times и финализирует genuine package-state. Existing
+writeWav с готовым media snapshot сравнивает PCM/EOF без writer. Existing
+commitMetadata recovery не меняет manifest binding и даёт прежний birth/readback.
+
+Recovery JSON перед birth — только значение из проверенных reason/frames/
+canonical tuple; оно не создаёт ref/ProtectedInspection. После записи нужен
+настоящий completedMetadata/readback; failed lease никогда не повторяется.
+Alternatives rejected: более разрешающий unfinished parser; повторный encode
+готовых immutable artifacts; fake recovery index/ref/proof; repair singleton,
+новая schema/encoder/pool. Все они шире нужного или нарушают trust boundary.
+Это техническое уточнение прежнего Session2026-10-16/T116, продуктовых вопросов0.
+Plan468-U2 заменяет только текущую строку terminal-bound unused D→U; прежние
+462-U1 reviewer conclusions и runtime D остаются историческими. Новый проект
+ещё не source/runtime GO, старые AAC47/56 TIMEOUT не объяснены и не исправлены.
+
+### 469 — bounded metadata dispatch перед приобретением audio rights
+
+Decision: reuse readPackage/openPackageMember/readValidatedMetadataPair и общий
+private closed RecordingJson helper до первого openUnfinished. Возвращать только
+значение reason: explicit unfinished → none, verified terminal BOTH → reason,
+любая ошибка → отказ. После освобождения metadata leases — fresh normal либо
+terminal-only acquisition; full validation повторяется executor.
+Rationale: порядок structural layouts не различает normal R и terminal U;
+старый unused также заранее открывает playback на запись. Metadata cap64KiB,
+charged buffers/job4/pin32 и прежние bind/hash checks позволяют ограниченную
+классификацию без audio scan или нового owner/proof API. Для normal проверяются
+bound histories без новых equality constraints; для terminal — оба slots и
+прежние строгие privacy/times. Alternatives rejected: перестановка fallback,
+substring/current.reason, любой parse failure как normal, readonly upgrade.
+Plan469 уточняет прежнее распределение worker/executor, не переносит full
+history/audio validation на storage worker и не меняет продуктовый Session.
+
+### 2026-10-22 — T120: отклонённый замер и проект причинной границы
+
+Один native metadata-only замер same-stream clock отклонён: paired QPC на
+3.4615ms раньше call-before при S_OK; PCM не читался, cleanup180ms/owned0.
+Это не доказательство неисправности только VM и не основание увеличить допуск.
+Сохранённый исходный отказ и SHA — validation-2026-10-02.md от2026-10-22.
+
+Независимое исследование — review-2026-10-22-resume-boundary-research.md.
+Простая замена call bracket на fixed post-request QPC lower bound недостаточна:
+unread suffix после witness может предшествовать позднему receipt/CLOSE (H1).
+Выбранное техническое уточнение plan2026-10-22: native wall/steady receipt T0 до неизменной
+консервативной QPC границы, затем bounded ожидание same-stream witness после
+неё и CLOSE(T0). Это исключает старый H1 при достоверной корреляции, но может
+дать лишнюю подавленную часть; точный физический PCM-cut не обещается.
+Reset/reopen, вычисление UTC из QPC, новые audio tolerances и PTS repair не выбраны.
+Mac writer/FIFO и ранний caller Date на текущем master9b286f6… не изменились
+от c8d67c…; точное PCM/CLOSE/UI ACK совпадение не является обещанием образца.
+Поэтому новых продуктовых вопросов нет (clarify2026-10-22), конституция
+не меняется. L фиксируется направленно с integer tick/100ns запасом;
+только старый q<L допускает bounded pending, не ошибка/чужая или future пара.
+Microsoft GetPosition документирует коррелированную p/q в100ns и exact S_OK;
+не даёт общего разрешения считать кэшированную пару вне call достоверной.
+Ссылки: https://learn.microsoft.com/en-us/windows/win32/api/audioclient/nf-audioclient-iaudioclock-getposition
+и https://learn.microsoft.com/en-us/windows/win32/api/audioclient/nf-audioclient-iaudiocaptureclient-getbuffer .
+До текущего независимого requirements/checklist/analyze gate и RED в
+существующем mailbox/controller production audio changes не разрешены.
+Реальный повтор захвата требует отдельного актуального узкого разрешения.
+Исследование не закрывает T120/T116, installed или physical x64 acceptance.
+
+### 2026-10-22 — T103: не подменять Mac fallback восстановлением старого entry
+
+Read-only `git show 0648784cf9a5365220e421d77c8eb51e3bea6907` подтвердил в
+`EmbeddedCabinetWebView.swift`: unsafe item и unsafe URL учитываются отдельно
+(:486–520,825–887). В последовательности GET-A/POST-A/GET-C без нового GET-A
+старый URL A остаётся unsafe. Из meeting detail C `backDecision` допускает
+безопасный fresh meetings-list fallback; `goBack` сохраняет synthetic forward C,
+а `goForward` загружает его отдельным GET (:214–311). Это не восстановление
+исходных A/C browser IDs. Напротив, Mac native test
+`Shared/Tests/DesktopCabinetWorkspaceTests.swift:179–272` сначала добавляет
+настоящий новый GET по URL старого POST и лишь затем проверяет useful history.
+
+Следовательно, прежний Windows history7 same-URL oracle на исходные A/C IDs
+доказывает более узкую механическую возможность/дефект raw Back, но не является
+самостоятельным полным oracle Mac parity. Не следует навязывать production
+новую семантику только для его прохождения: разрешённый Mac fallback и synthetic
+forward нужно различать с actual entry traversal. Сохранённый status0/unavailable
+всё равно не удовлетворяет ни одному рабочему варианту. Нужна отдельная
+квалификация ожидаемого поведения до production owner. Это чтение исходников,
+не новый Mac/Windows runtime, изменение норм или принятие fallback реализации.
+
+### 2026-10-22 — T103: корреляция CDP и допуска истории пока не доказана
+
+Decision: до production провести один same-URL permit-race в двух порядках,
+описанный в plan/quickstart. Независимые Hooke и Bohr подтвердили необходимость
+не считать первый следующий NavigationStarting принадлежащим CDP-команде.
+Это test-only исследование, не выбор production history owner.
+
+Rationale: публичные NavigationStartingEventArgs содержат NavigationId,
+NavigationKind и Uri, но не target entry ID; Page.navigateToHistoryEntry принимает
+entryId и не возвращает NavigationId. Наличие последующего правильного URL не
+доказывает, что разрешён нужный GET, а не cached POST того же URL.
+Источники: [Microsoft API](https://learn.microsoft.com/en-us/microsoft-edge/webview2/reference/winrt/microsoft_web_webview2_core/corewebview2navigationstartingeventargs?view=webview2-winrt-1.0.4129.50)
+и [официальный CDP protocol JSON](https://raw.githubusercontent.com/ChromeDevTools/devtools-protocol/master/json/browser_protocol.json).
+Protocol master не заменяет проверку фактической версии WebView2.
+
+Alternatives rejected: признать URL/kind достаточным без проверки; всегда
+отменять историю; заменить всю историю fresh GET; собственный URL-стек;
+считать один удачный порядок доказательством отсутствия гонки. Mac fallback и
+single-forward сохраняются в критериях, но не подменяют useful safe history.
+
+### 2026-10-22 — T103: результат stage9 и следующий ограниченный кандидат
+
+Один fresh native stage9 завершён: build PASS, три прежних controls PASS,
+оба race INCONCLUSIVE/nonzero. В native-first получен fresh GET10, но script
+из C не исполнен; в script-first разрешённый nav7 не загрузился, следующий
+nav8 отменён, остался C12/state unavailable. Нет доказательства ни безопасного
+permit, ни unsafe POST restore. Точные source/PE/receipt — validation от этой
+даты, section stage9. Повторов этого опыта не планируется.
+
+Candidate для следующего production design: browser-owned history плюс
+поэлементные native GET/session metadata, без собственного URL-стека. Не
+переносить Mac controllerTargetURL exception для неоднозначного URL: если в
+свежем полном снимке есть хотя бы одна unsafe/unknown запись этого адреса,
+BF permit не выдаётся даже после нового GET по тому же адресу. Native выбор
+пропускает такую цель, но сохраняет actual CDP traversal к остальным доказанным
+GET. Если из просмотра встречи подходящей цели нет — обычный Mac fresh-list
+fallback с одним безопасным synthetic Forward. Это не замена всей истории GET.
+
+Причина: запрещая неоднозначный URL до допуска, не требуется вымышленная
+предварительная привязка CDP-команды к NavigationId. Terminal selected-ID check
+до nonce остаётся обязательным: даже множество безопасных GET не доказывает,
+что восстановлена именно выбранная запись. Native pending не допускает новый
+конкурирующий non-BF document/form; изменение generation/session/history
+отзывает intent до допуска, не только после commit. Старые unsafe IDs не могут
+получить GET metadata через same-document URL change: изменённая запись unknown
+до согласования, а новый адрес unsafe entry также блокирует URL. HistoryChanged
+revision — отзыв, не доказательство полноты/актуальности снимка.
+
+Независимые read-only ответы Hooke/Bohr: направление конструктивно, конкретного
+POST-пути при полном актуальном учёте не названо; stale snapshot и перенос GET
+metadata на изменённую unsafe запись — обязательные H-риски следующего проекта.
+Нужна явная security-motivated platform deviation от Mac exception в spec/plan,
+не утверждение о доказанном Mac race и не молчаливое ослабление полного паритета.
+До production edits: текущие requirements/analyze gates и RED в существующих
+тестах для useful actual GET Back/Forward, unsafe URL skip, fresh fallback /
+single-forward, stale/same-document/session отказов. Это кандидат research,
+не завершение Phase1/plan, не SOURCE GO и не разрешение реализации.
+
+### T103: решение после проверки candidate, 2026-10-22
+
+Decision: выбранный план в plan.md использует более строгий all-entries GET
+guard, не прежний all-same-URL candidate. Unknown/unsafe запись ЛЮБОГО URL
+закрывает native BF. Phase1 — ограниченная pure policy в существующих файлах;
+Phase2 — native integration и проверяемый reset только после принятого GET.
+
+Rationale: независимый read-only review назвал конкретный пробел старого
+candidate: POST-U может быть переименован в S и восстановлен до доставки
+уведомлений о мутации. Новый guard не зависит от адреса U и запрещает такой
+permit изначально. Pending ставится до snapshot, новые document navigation
+блокируются, незавершённого prior navigation быть не должно. Безопасные GET
+могут конкурировать, поэтому terminal selectedID до authority всё ещё нужен.
+Reset держит полный запрет навигации до того же singleton ID/URL/generation;
+иначе чужой текущий документ мог бы унаследовать GET proof. SingleForward
+содержит fresh-GET цель, не старый browser ID; её срок — текущая сессия/цепочка.
+
+Alternatives considered: один URL-permit и same-URL veto отклонены; terminal
+проверка после unsafe commit не предотвращает восстановление; собственный стек,
+новые зависимости и замена всей истории fresh GET не требуются. All-GET actual
+история сохраняется, очистка после карантина — явное защитное отличие Windows.
+
+API: официальный Chrome DevTools Protocol Page описывает getNavigationHistory,
+navigateToHistoryEntry и resetNavigationHistory:
+https://chromedevtools.github.io/devtools-protocol/tot/Page/#method-resetNavigationHistory
+Документация протокола не доказывает поведение установленного runtime; его
+проверка включена в native tests перед включением host и MSIX. Не менять safety
+условия при неподдерживаемом reset: сохранять карантин и безопасный fresh route.
+Кандидат прошёл constructive read-only review при этих условиях, но code/source
+GO выдаётся отдельно после requirements/analyze и tests-first проверки.
+
+### T083: исследование обращения в поддержку Windows, 2026-10-27
+
+Статус: Phase0, **не завершённый план и не разрешение реализации**. Исследован
+Mac на `0a1bce3505cd1582ccda552ba4ac10b4c4258d26`; Windows — dirty source при
+HEAD `b1eb3d5f847645ac41ad4163f1bc0f22e4c26ed1`. Эталон — native action →
+queue service → доверенный embedded-cabinet fetch, а не отдельный Windows
+кабинет. Существующая кнопка Windows копирует последнюю диагностику захвата;
+это не отправка обращения и не сохранение его номера.
+
+Проверенные источники:
+
+- Mac `Sources/Upload/DesktopUploadQueueService.swift`,
+  `Sources/Upload/DesktopUploadCustodyProjection.swift` и
+  `Sources/Cabinet/EmbeddedCabinetWebView.swift` на указанном master: выбранные
+  записи проходят lifecycle/account/workspace проверки; состояние обращения
+  сохраняется, `pending_sync` не равно полному отказу, sync использует CUST-ID.
+- Общий `contracts/support-incident-v2.md` F114 и server
+  `support/redaction.py`, `support/incidents.py`, `support/github_issues.py`:
+  v2 metadata-only admission не ограничен Mac, но GitHub draft безусловно
+  получает `area:macos`. Windows-версию нельзя помещать в `macos_version`;
+  разрешённая архитектура нынешней x64-сборки — `x86_64`, не `x64`.
+- Windows `Upload/DesktopUploadQueueService.h/.cpp`: постоянного состояния
+  обращения нет. Старый v3 reader допускает неизвестное поле внутри строки,
+  но writer его не сохраняет. Новый необязательный блок поэтому НЕ доказывает
+  сохранность состояния при откате и последующем обновлении. Неизвестный
+  top-level хвост отвергается; это отказ чтения, а не работоспособный откат.
+
+Результат исследования / rationale: повторно использовать защищённую очередь
+и существующий commit/adoption, без второго незашифрованного реестра. Однако
+FR-013 прямо сохраняет совместимый v3/v2 контракт. Изменение версии либо
+критического расширения требует отдельного согласованного compatibility
+решения; здесь такое решение не принято. Смена версии сама по себе не
+доказывает миграцию, сохранность старых записей или возможность отката.
+
+Alternatives considered: только UI callback не сохраняет номер после restart;
+произвольный sidecar создаёт второй источник истины; неизвестное row-поле
+теряется старым writer; подмена платформы в отчёте или принятие `area:macos`
+за Windows parity скрывают дефект. Эти варианты не принимаются как готовность.
+
+Открытая граница clarify: запросить согласование совместимого расширения
+защищённого состояния и общих правил поддержки, не меняя молча FR-013 и не
+выдавая ранее принятый `schema` package-state за разрешение новой версии
+logical queue. Требование сохранности данных/проверенного отката не ослаблять.
+Общий upload part-number protocol — отдельный нерешённый вопрос, не часть
+этого обращения. Пока ответа нет, Phase1 и production edits не начинаются.
+
+После согласования до реализации требуется конкретный bounded data model,
+persist-before-POST и persist-before-success, idempotency/lost-reply/restart,
+все selected rows и account/document fences, ограниченный async fetch result,
+серверная классификация без Mac regression, независимые checklist/analyze и
+существующий tracker T083. Полный отчёт не следует неограниченно сохранять в
+4 MiB ledger: он имеет отдельный предел 256 KiB, очередь и копии расходуют
+64 MiB учитываемой памяти. CSRF/cookies остаются внутри доверенного документа.
+Ни настоящих обращений, ни API/GitHub writes, ни изменения сервера/установки
+приложения в ходе этого исследования не выполнялось. T083 не закрыта.
+
+### T116: повторные чтения двух активных источников — 2026-11-03
+
+Решение для независимого review: ограниченные два ReaderState, один блок
+на каждый, по последнему разделу plan; до gates это кандидат, не реализация.
+Actual baseline8 пар дал32 дополнительных native DATA-read с верными bytes;
+полный FilesTests Debug PASS344.13s. Prepare занимает63/109ms против
+finish53359/65188ms; доля кэша в finish пока не измерена. Это не объяснение
+всего timeout и не основание пропускать повторный full partial recovery.
+
+Альтернативы: cache на каждый state теряет фиксированный общий предел;
+два произвольных блока добавляют ненужное удержание двух блоков одного state;
+128KiB части усложняют аутентифицированный блок256KiB; перестановка WAV compare
+меняет алгоритм семантической проверки. Optional bytes дают allocation-free
+cleanup; существующий CustodyVector/CustodyBytes уже использует throwing
+zero-count constructor перед переносом и позволяет перехватить отказ proxy
+в MSVC Debug. Повторять эту обёртку не нужно: emplace принимает прежний
+CustodyBytes с потенциально throwing move. Сигнатуры самого std::vector
+не следует переносить на этот проектный тип.
+Точные замеры/pins и ограничения находятся в validation-2026-11-03-partial-performance.md.
+Новые entities, wire contracts, tasks, зависимости и продуктовые решения
+не требуются; общие privacy/capture/delete/release gates сохраняются.
+
+
+### T116 native finalize: минимальный следующий кандидат — 2026-11-03
+
+Два неизменённых180deadline отказа, второй с фазами: ingest95.217s,
+seal4.046s/WAV9.888s/AAC53.072s, inspection ещё активен. Это не причинность VM.
+Проверяется уменьшение повторного admission внутри одного Write без новых
+состояний/кэша и без удаления public entry/post/native-effect guards;
+конкретные callers и proposed test описаны в последнем разделе plan.
+Альтернатива MF_SINK_WRITER_DISABLE_THROTTLING действительно управляет
+блокированием WriteSample по [документации Microsoft](https://learn.microsoft.com/en-us/windows/win32/medfound/mf-sink-writer-disable-throttling),
+но снятие backpressure может изменить накопление MF buffers. На этом шаге
+не выбирать его по одному времени AAC и не менять sample cadence/budgets.
+
+
+### T116: отличие общего test timeout от product performance
+
+Readonly tracing и actual full Debug diagnostic показали, что унаследованные
+240s не вмещают large-parts correctness workflow: сам append173909ms, весь
+путь646632ms, два exact-wire oracle и idle прошли. Это не доказанный дефект
+HTTP или reader cache; текущие timings и предел выводов сохранены в
+validation-2026-11-03-partial-performance.md. Выбран ограниченный one-case
+CTest cap900 по уточнению plan; production guards, SC-003, fixture и остальные
+лимиты не меняются. Альтернативы — удалить guards, сократить реальную16MiB
+часть или объявить long CLI прежним CTest PASS — не выполняют исходную цель.
+Фактический новый CTest ещё требуется; один успешный diagnostic не даёт
+гарантии времени на любой машине.

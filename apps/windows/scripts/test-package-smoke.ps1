@@ -15,6 +15,7 @@ try {
         $writer.Write(@'
 <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10">
   <Identity Name="com.graf.desktop" Publisher="CN=GRAF" Version="0.1.0.0" />
+  <Resources><Resource Language="ru-RU" /></Resources>
   <Applications><Application Executable="GrafWindowsApp.exe" /></Applications>
   <Capabilities><Capability Name="internetClient" /><Capability Name="microphone" /><Capability Name="runFullTrust" /></Capabilities>
 </Package>
@@ -71,6 +72,34 @@ try {
         try { $archive.GetEntry($projectionPath).Delete() } finally { $archive.Dispose() }
     }
     Write-Output "Native WebView2 payload tests: $($projectionPaths.Count)/$($projectionPaths.Count) PASS."
+    $archive = [IO.Compression.ZipFile]::OpenRead($testPackage)
+    try {
+        $reader = New-Object IO.StreamReader($archive.GetEntry('AppxManifest.xml').Open())
+        try { $fixtureManifest = $reader.ReadToEnd() } finally { $reader.Dispose() }
+    } finally { $archive.Dispose() }
+    $languageCases = @(
+        @{ Language = 'en-US'; Pass = $false },
+        @{ Language = $null; Pass = $false },
+        @{ Language = ''; Pass = $false },
+        @{ Language = 'ru'; Pass = $true },
+        @{ Language = 'RU-ru'; Pass = $true },
+        @{ Language = 'ru-RU'; Pass = $true }
+    )
+    foreach ($case in $languageCases) {
+        $archive = [IO.Compression.ZipFile]::Open($testPackage, [IO.Compression.ZipArchiveMode]::Update)
+        try {
+            $archive.GetEntry('AppxManifest.xml').Delete()
+            $writer = New-Object IO.StreamWriter($archive.CreateEntry('AppxManifest.xml').Open())
+            $language = if ($null -eq $case.Language) { '' } else { 'Language="' + $case.Language + '"' }
+            try { $writer.Write($fixtureManifest.Replace('Language="ru-RU"', $language)) }
+            finally { $writer.Dispose() }
+        } finally { $archive.Dispose() }
+        $passed = $true
+        try { & (Join-Path $PSScriptRoot 'validate-package-smoke.ps1') -Package $testPackage | Out-Null }
+        catch { $passed = $false }
+        if ($passed -ne $case.Pass) { throw "Package resource language gate failed: $($case.Language)" }
+    }
+    Write-Output "Package resource language tests: $($languageCases.Count)/$($languageCases.Count) PASS."
 } finally {
     # Only the exact generated fixture and its now-empty directory are removed.
     [IO.File]::Delete($testPackage)

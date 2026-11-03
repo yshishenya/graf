@@ -194,6 +194,11 @@
       focused.focus({preventScroll: true});
     }
   };
+  const localRecordingDurationLabel = (value) =>
+    typeof value === "number" && Number.isFinite(value) && value >= 0
+      ? window.GRAFTime.formatDuration(value) : "";
+  const localRecordingDateLabel = (value) => value && Number.isFinite(Date.parse(value))
+    ? formatMeetingListDate(value) : platformText(formatMeetingListDate(value), 'На этом компьютере');
   const localRecordingMatches = (item) => {
     const access = document.querySelector("#meeting-access")?.value;
     const status = document.querySelector("#meeting-status")?.value;
@@ -202,8 +207,8 @@
     const query = (document.querySelector("#meeting-search")?.value || "").trim().toLowerCase().replace(/\s+/g, " ");
     if (!query) return true;
     const title = localRecordingDisplayTitle(item);
-    const duration = window.GRAFTime.formatDuration(item.durationSeconds);
-    const time = formatMeetingListDate(meetingListSort().startsWith("updated") ? item.updatedAt : item.startedAt);
+    const duration = localRecordingDurationLabel(item.durationSeconds);
+    const time = localRecordingDateLabel(meetingListSort().startsWith("updated") ? item.updatedAt : item.startedAt);
     return [title, duration, time, `${title} ${duration}`, `${title} ${time}`, `${duration} ${time}`, `${title} ${duration} ${time}`]
       .some((text) => text.toLowerCase().replace(/\s+/g, " ").includes(query));
   };
@@ -217,13 +222,17 @@
       empty.textContent = "Записей пока нет.";
       host.append(empty);
     } else if (allRows().length) { empty?.remove(); }
+    if (host) for (const state of host.querySelectorAll('.empty-state')) state.hidden = localRecordingState !== 'ready' || allRows().length > 0;
     const count = document.querySelector("[data-meeting-result-count]");
     if (count) {
       const incomplete = document.querySelector('[data-meeting-result-complete="false"]');
-      count.textContent = `Найдено: ${incomplete ? "больше " : ""}${allRows().length}`;
+      const localState = localRecordingState === 'ready' ? '' : localRecordingState === 'checking'
+        ? ' · локальные записи проверяются' : ' · локальные записи недоступны';
+      count.textContent = `Найдено: ${incomplete ? "больше " : ""}${allRows().length}${localState}`;
     }
   };
   let localRecordingRows = [];
+  let localRecordingState = 'ready';
   const pendingLocalRecordingHandoffs = new Set();
   const requestedLocalRecordingHandoffs = new Set();
   const localRecordingIsRenderable = (item) =>
@@ -304,7 +313,8 @@
       row.dataset.grafLocalRecordingId = item.id;
       row.dataset.sortStarted = item.startedAt || "";
       row.dataset.sortUpdated = item.updatedAt || "";
-      row.dataset.sortDuration = String(item.durationSeconds);
+      const savedDuration = localRecordingDurationLabel(item.durationSeconds);
+      row.dataset.sortDuration = savedDuration ? String(item.durationSeconds) : "";
 
       const selection = document.createElement("label");
       selection.className = "row-select-hit";
@@ -338,10 +348,10 @@
       }
       const duration = document.createElement("span");
       duration.className = "meeting-duration muted";
-      const durationLabel = window.GRAFTime.formatDuration;
-      duration.textContent = item.showsPartialDuration
-        ? `Сохранено ${durationLabel(item.durationSeconds)} из ${durationLabel(item.sessionDurationSeconds)}`
-        : durationLabel(item.durationSeconds);
+      const sessionDuration = localRecordingDurationLabel(item.sessionDurationSeconds);
+      duration.textContent = item.showsPartialDuration && savedDuration && sessionDuration
+        ? `Сохранено ${savedDuration} из ${sessionDuration}`
+        : savedDuration || "Длительность неизвестна";
       heading.append(title, duration);
       const meta = document.createElement("span");
       meta.className = "row-meta";
@@ -374,7 +384,9 @@
       if (item.canOpen) title.setAttribute("aria-describedby", time.id);
       const timeValue = meetingListSort().startsWith("updated") ? item.updatedAt : item.startedAt;
       if (timeValue && Number.isFinite(Date.parse(timeValue))) time.dateTime = timeValue;
-      time.textContent = `${timeValue && meetingListSort().startsWith("updated") ? "Обновлено " : ""}${formatMeetingListDate(timeValue)}`;
+      time.textContent = timeValue && Number.isFinite(Date.parse(timeValue))
+        ? `${meetingListSort().startsWith("updated") ? "Обновлено " : ""}${localRecordingDateLabel(timeValue)}`
+        : localRecordingDateLabel(timeValue);
       row.append(selection, icon, content, actions, time);
       // Compare the complete rendered output, including localized dates and sort
       // context, while ignoring transient selection/focus mutations on the live row.
@@ -451,12 +463,43 @@
       list.append(row);
     }
   };
+  const renderDetailLocalPlayback = () => {
+    const detail = document.querySelector('main[data-meeting-id]');
+    const existing = document.querySelector('[data-detail-local-playback]');
+    const playback = detailPlayback(detail);
+    const row = localRecordingRows.find(item => item.canOpen && item.meetingId?.toLowerCase() === detail?.dataset.meetingId?.toLowerCase());
+    if (!row || !playback || ['deleted', 'deleting'].includes(playback.dataset.playbackState) || playback.dataset.playbackReason === 'access_denied') { existing?.remove(); return; }
+    if (existing?.dataset.grafLocalRecordingId === row.id && existing.parentElement === playback) return;
+    existing?.remove();
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'button';
+    button.dataset.detailLocalPlayback = '';
+    button.dataset.grafLocalRecordingAction = 'open';
+    button.dataset.grafLocalRecordingId = row.id;
+    button.textContent = platformText('Слушать запись с этого Mac', 'Слушать запись с этого компьютера');
+    playback.append(button);
+  };
   window.GRAFLocalRecordings = {
     deletionCompleted(requestId, result) {
       nativeDeletionReplies.get(requestId)?.(result);
       nativeDeletionReplies.delete(requestId);
     },
-    update(rows, operations = [], recoveryRequired = false) {
+    update(rows, operations = [], recoveryRequired = false, state = 'ready') {
+      localRecordingState = ['ready', 'checking', 'unavailable'].includes(state) ? state : 'unavailable';
+      let inventoryState = document.querySelector('[data-local-inventory-state]');
+      if (localRecordingState === 'ready') inventoryState?.remove();
+      else {
+        if (!inventoryState) {
+          inventoryState = document.createElement('p');
+          inventoryState.dataset.localInventoryState = '';
+          inventoryState.setAttribute('role', 'status');
+          document.querySelector('#meeting-list-region')?.after(inventoryState);
+        }
+        inventoryState.textContent = localRecordingState === 'checking'
+          ? 'Локальные записи проверяются. Показано последнее подтверждённое состояние.'
+          : 'Не удалось подтвердить список локальных записей. Это не означает, что записей нет. Используйте диагностику GRAF.';
+      }
       const nextRows = Array.isArray(rows) ? rows : [];
       const previousRowsById = new Map(localRecordingRows.map(item => [item.id, item]));
       const visibleServerMeetingIds = new Set(allRows().map(row => row.dataset.meetingId).filter(Boolean));
@@ -502,6 +545,7 @@
       localRecordingRows = nextRows;
       renderLocalRecordingRows();
       applyNativeDeletionOperations(nativeDeletionOperations);
+      renderDetailLocalPlayback();
       renderNativeDeletionStatus(nativeDeletionOperations);
       updateMixedResultCount();
       reconcileMeetingSelection();
@@ -6212,7 +6256,7 @@
       renderAvailability(snapshot);
     };
     // This document has one v2 transport and the shared autosave draft queue.
-    let queue=null,snapshot=null,loading=null,identity=notificationSettingsNonce,generation=0,serial=Promise.resolve();
+    let queue=null,snapshot=null,loading=null,refreshPending=false,identity=notificationSettingsNonce,generation=0,serial=Promise.resolve();
     const renderRemote=response=>{
       // Edits may arrive while read/preview waits. Only the draft queue owns
       // their displayed values and save status until they are confirmed.
@@ -6225,7 +6269,7 @@
     status.id||='grafNotificationSettings-status';
     fields.forEach(input=>input.setAttribute('aria-describedby',[input.getAttribute('aria-describedby'),status.id].filter(Boolean).join(' ')));
     const current=(owner,epoch)=>root.isConnected&&owner===notificationSettingsNonce&&epoch===generation;
-    const disconnect=()=>{generation++;queue?.dispose();queue=null;snapshot=null;loading=null;serial=Promise.resolve();};
+    const disconnect=()=>{generation++;queue?.dispose();queue=null;snapshot=null;loading=null;refreshPending=false;serial=Promise.resolve();};
     const post=(action='read',patch={})=>{
       const owner=notificationSettingsNonce,epoch=generation;
       const operation=serial.then(async()=>{
@@ -6244,7 +6288,7 @@
     };
     const load=async()=>{
       if(identity!==notificationSettingsNonce){disconnect();identity=notificationSettingsNonce;}
-      if(loading)return loading;
+      if(loading){refreshPending=true;return loading;}
       if(queue?.pending()){if(await queue.flush())return load();return;}
       const editing=root.querySelector('input[role="combobox"][aria-expanded="true"]:focus');
       if(editing){editing.addEventListener('blur',load,{once:true});return;}
@@ -6282,7 +6326,7 @@
           status.textContent=response.error||response.message||(!response.canEdit?'Настройки недоступны. Обновите окно настроек после входа в GRAF.':'');
           retry.hidden=!response.error;
         }catch(_){if(current(owner,epoch)){controls.disabled=true;initSettingsComboboxes();status.textContent=platformText('Не удалось загрузить настройки этого Mac. Обновите окно настроек или повторите попытку.', 'Не удалось загрузить настройки этого компьютера. Обновите окно настроек или повторите попытку.');retry.hidden=false;}}
-        finally{if(current(owner,epoch))loading=null;}
+        finally{if(current(owner,epoch)){loading=null;if(refreshPending){refreshPending=false;void load();}}}
       })();return loading;
     };
     const preview=async()=>{
@@ -7165,8 +7209,9 @@
           if (!submenu.matches(":popover-open")) submenu.showPopover();
           const anchor = details.querySelector("summary").getBoundingClientRect();
           const rect = submenu.getBoundingClientRect();
-          const left = anchor.right + 8;
-          if (left + rect.width > window.innerWidth - 8) { inline(); return; }
+          let left = anchor.right + 8;
+          if (left + rect.width > window.innerWidth - 8) left = anchor.left - rect.width - 8;
+          if (left < 8) { inline(); return; }
           const bounds = menu.getBoundingClientRect();
           if (anchor.bottom <= bounds.top || anchor.top >= bounds.bottom) {
             details.open = false;
@@ -7485,12 +7530,21 @@
       }
       clearPlaybackRecoveryNotice(detail);
       detail.dataset.playbackPollActive = nextDetail.dataset.playbackPollActive || "false";
-      const recoverySignature = (node) => [
-        node.dataset.playbackState || "",
-        node.dataset.sourceMode || "",
-        ...["meetingId", "workspaceId", "mediaRevisionId", "processingResultId", "commentsAvailable", "commentsCanComment"].map(key => node.dataset[key] || ""),
-        (node.textContent || "").trim()
-      ].join("\u001f");
+      const recoverySignature = (node) => {
+        // The native-only action is reconciled separately from the server fragment.
+        const text = document.createTreeWalker(node, NodeFilter.SHOW_TEXT, {
+          acceptNode: child => child.parentElement?.closest("[data-detail-local-playback]")
+            ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT,
+        });
+        let serverText = "";
+        while (text.nextNode()) serverText += text.currentNode.textContent;
+        return [
+          node.dataset.playbackState || "",
+          node.dataset.sourceMode || "",
+          ...["meetingId", "workspaceId", "mediaRevisionId", "processingResultId", "commentsAvailable", "commentsCanComment"].map(key => node.dataset[key] || ""),
+          serverText.trim()
+        ].join("\u001f");
+      };
       const playbackUnchanged = recoverySignature(currentPlayback) === recoverySignature(nextPlayback);
       const playbackChanged = !playbackUnchanged;
       const transcriptChanged = currentTranscript.innerHTML !== nextTranscript.innerHTML;
@@ -7499,6 +7553,7 @@
         currentLiveStatus.textContent = nextLiveStatus.textContent || "";
       }
       if (!playbackChanged && !transcriptChanged) {
+        renderDetailLocalPlayback();
         initPlaybackRecoveryPolling();
         return;
       }
@@ -7507,6 +7562,7 @@
         currentPlayback.replaceWith(nextPlayback);
       }
       if (transcriptChanged) currentTranscript.replaceWith(nextTranscript);
+      renderDetailLocalPlayback();
       initPlayback();
       initSpeakerTimelineResize();
       initSpeakerNameForms();
@@ -8943,6 +8999,7 @@
     initPlayback();
     initSpeakerTimelineResize();
     initMeetingDetailAuthorizationRecovery();
+    renderDetailLocalPlayback();
     initPlaybackRecoveryPolling();
     initSpeakerNameForms();
     initContentExport();
@@ -9028,6 +9085,7 @@
   });
 
   document.body.addEventListener("htmx:afterSwap", (event) => {
+    renderDetailLocalPlayback();
     const target = event.detail?.target;
     const copyRoot = event.detail?.elt || target;
     if (copyRoot instanceof Element) applyPlatformCopy(copyRoot);

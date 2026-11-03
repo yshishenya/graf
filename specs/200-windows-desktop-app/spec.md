@@ -423,7 +423,8 @@ meeting-приложений с обратимой настройкой и ви�
   `local_recordings` display messages use the separate `command/nonce/rows/operations/recoveryRequired`
   shape, bound to the current approved document and nonce, and grant no native
   authority. Only typed `request_app_quit`, `local_recording`, `app_appearance`,
-  `native_settings`, `delete_selection`, `request_app_update` and `calendar_join` requests are accepted, each on its
+  `native_settings`, `delete_selection`, `request_app_update`, `calendar_join`
+  and cancellation-only `calendar_join_cancel` requests are accepted, each on its
   exact approved route with its own payload/capability checks; no web
   acknowledgement establishes capture, upload or deletion truth.
   `request_app_update` is only a bounded intent to open the native update UI;
@@ -433,6 +434,9 @@ meeting-приложений с обратимой настройкой и ви�
   calendar action, never a URL or process command. Native code resolves the
   authorized target afresh and cancels stale actions; bounded replies reveal
   no meeting link and grant no recording authority. See bridge contract §10.
+  `calendar_join_cancel` carries only the matching event/request UUIDs of the
+  current document's pending action. It cannot cancel a native card/menu action,
+  start anything, release an unfinished worker, or affect a later request.
 - **FR-007**: The Feature 200 baseline system track MUST use WASAPI shared-mode loopback on the
   current/default render endpoint and MUST NOT require `Stereo Mix`, a hardware
   loopback device, a virtual driver or exclusive mode.
@@ -469,6 +473,10 @@ meeting-приложений с обратимой настройкой и ви�
   creating an unprotected temporary audio copy. Protection/key/integrity failure
   MUST preserve existing artifacts, block unsafe writes and report a recoverable
   storage failure; it MUST NOT substitute an empty ledger or claim normal saving.
+  Protected package-state JSON v1/v2 MUST use the single version key `schema`
+  and the exact nine top-level fields defined in custody contract §8.1;
+  `schema_version`, aliases, unknown and duplicate fields MUST be rejected.
+  This does not rename or change the existing logical v5 manifest format.
   For the packed media representation, a live checkpoint MAY inherit the proof
   of unchanged data only while the same verified file owner remains continuously
   held. New data and the publication MUST be independently read back and checked
@@ -483,6 +491,21 @@ meeting-приложений с обратимой настройкой и ви�
   replacement is permitted. Verified local deletion does not imply forensic
   erasure or cryptographic unrecoverability without separately proven key scope
   and destruction.
+- **Start-owner recovery (FR-012/FR-013/FR-014)**: Before accepting the first
+  audio block, Windows MUST durably preserve the recording's initial ownership:
+  confirmed user/workspace, proven signed-out, or unresolved authentication.
+  An unavailable account check MUST NOT be mistaken for signed-out or prevent
+  local offline recording; unresolved ownership grants no assignment/upload.
+  Recovery
+  MUST preserve that original binding, not substitute the account active after
+  restart. Existing packages without proven ownership MUST remain preserved;
+  absence of a queue row or account fields MUST NOT authorize reassignment,
+  automatic upload or the ordinary `confirmUnowned` action. This does not add a
+  user confirmation dialog or require connectivity for local recording. A
+  storage acknowledgment failure MUST prevent audio admission and a normal
+  saving claim, without deleting existing artifacts. The carrier and its
+  crash-safe transitions belong to the scoped T116 plan; this requirement does
+  not itself authorize a new persistent format or weaken short/delete fences.
 - **FR-013**: The Windows queue MUST reuse the compatible v3 ledger with a v2
   reader (the historical filename remains `desktop-upload-queue.v2`) and
   preserve immutable local identity, server truth, accepted ranges, retry records,
@@ -635,6 +658,88 @@ Classification: remove
 
 ## Clarifications
 
+### Session 2026-10-22 — безопасная история кабинета T103
+
+- Новых вопросов пользователю нет: FR-002/005/006 и полный паритет уже задают
+  результат. Для истории образец — merged Mac F136
+  `0648784cf9a5365220e421d77c8eb51e3bea6907`; выбранный F277 остаётся эталоном
+  уведомлений. Это уточнение не меняет общий кабинет и не разрешает deployment.
+- Назад/Вперёд сохраняют полезную безопасную историю браузера, исключают
+  повторную отправку/восстановление небезопасной POST-записи и не выводят метод
+  запроса из адреса. Одинаковые URL GET и POST не означают одинаковую запись.
+  Нельзя заменить всю историю новыми GET или навсегда выключить навигацию.
+- Как в Mac, при отсутствии подходящей безопасной записи назад из просмотра
+  встречи допускается новый переход к списку встреч и один безопасный возврат
+  вперёд в текущей сессии. Это отдельный путь, не произвольная загрузка URL
+  старой формы и не требование сохранить исходный browser entry ID.
+- Выход, истечение входа, смена аккаунта/пространства и пересоздание WebView
+  не позволяют восстановить полномочия прежней сессии через историю или
+  отложенный результат. Отменённый до замены документа переход сохраняет
+  действующий документ; настоящий новый документ проходит обычную проверку
+  ответа и получает новое поколение/nonce. Same-document изменение не создаёт
+  нового документа и не превращает POST в безопасный GET.
+- Область, роли, состояния, безопасность, доступность, отказы и критерии
+  завершения определены; механизм выбора записи и корреляция событий остаются
+  технической работой plan/research. Это не принятие нового history owner,
+  нынешних двух отказов Back или всей T103/T088/T097.
+- Уточнение после исследования: Windows не переносит исключение Mac по одному
+  `controllerTargetURL` при наличии старой формы. Обычная история реальных GET
+  сохраняется. Если есть неподтверждённая запись или форма, из встречи доступен
+  безопасный возврат к списку с одним новым GET-возвратом вперёд. После принятия
+  списка прежняя история очищается, следующие обычные переходы снова образуют
+  рабочую историю. Это ограниченное защитное отличие WebView2, не замена всей
+  истории новыми загрузками. Старые страницы форм могут исчезнуть из «Назад»,
+  но не восстанавливаются скрытно. Cookies, аккаунт, записи и пользовательские
+  данные не очищаются. Ошибка очистки не разрешает старую историю; безопасные
+  кнопки «Встречи»/повторной загрузки сохраняются. Полная приёмка остаётся открытой.
+
+### Session 2026-10-04
+
+- Q: Используем ли `schema` как единственное имя поля версии нового внутреннего
+  формата защищённых записей? → A: Да, `schema`; подтверждено владельцем.
+
+### Session 2026-10-04 — приватная пауза T120
+
+- Повторный продуктовый вопрос не требуется: владелец уже подтвердил полный
+  паритет с новым GRAF Dev. Для Pause/Resume FR-002/009 применяется поведение
+  Mac F284 на `c8d67ccefe7848f731798b23d72d37757ad812f5`, не переключение
+  одного признака при выдаче кадра. Записанный до Pause доверенный участок
+  не переписывается. Накопленный во время паузы микрофон не восстанавливается
+  после Resume, включая ожидающие, извлечённые и частично обработанные данные.
+- Начало privacy segment обязательно сохраняется до принятия Pause;
+  ошибка не даёт успешной паузы. Resume требует надёжной границы очереди;
+  без неё остаётся paused и доступен Stop. Сохранение конца сегмента после
+  успешного Resume — best-effort: его ошибка не отменяет Resume и оставляет
+  прежнюю сохранённую открытую отметку. Это не разрешение потерять сегмент
+  или признать неизвестную границу успешной.
+- Сведения сохраняются только через защищённый путь T116. Текущий открытый
+  V5 writer не разрешает новый временный plaintext journal. Управление
+  асинхронно, не блокирует UI/Stop и не ждёт опустошения непрерывной очереди.
+- Выявлено ограничение представления: manifest≤4096B несовместим с историей
+  повторных пауз. Проектная поправка — manifest≤64KiB, как существующие
+  служебные metadata, с проверкой полного сериализованного размера до
+  сохранения OPEN. Это не увеличение аудиодопусков, общей памяти или размеров
+  root/cache/queue. Изменение предела и приёмка существующих/новых manifest
+  требуют отдельного независимого review перед кодом; молчаливое обрезание
+  истории, новый открытый файл и произвольный предел количества пауз запрещены.
+  Полная T120 остаётся зависимой от T116 и проверки установленного приложения.
+
+### Session 2026-10-22 — техническая сверка T120 с текущим Mac
+
+- `$speckit-clarify`: новых продуктовых вопросов нет; используется уже
+  подтверждённый паритет Mac. На `origin/master`
+  `9b286f6d9df01f4b948d7db1673aff99c78635ff` соответствующие writer/FIFO и
+  порядок Pause/Resume не изменились относительно образца c8d67c….
+- Конец сегмента паузы — ранняя логическая отметка управления, не обещание
+  точного времени нажатия, физического ADC кадра или переключения UI. Windows
+  фиксирует её на native worker после запроса и до подтверждаемой границы
+  потока. Дополнительная тишина допустима; возвращение накопленного до этой
+  отметки микрофона — нет. Исходный доверенный pre-Pause участок не меняется.
+- Пока надёжная граница не получена, UI остаётся paused/pending и Stop доступен.
+  Неуспех ограниченного ожидания не закрывает OPEN и не принимает Resume;
+  сохранение CLOSE после принятия по-прежнему best-effort. Никаких новых
+  разрешений, диалогов, вычисленных UTC из QPC или послаблений целостности.
+
 ### Session 2026-10-03
 
 - Q: Разрешается ли вместо полного перечитывания всех ранее сохранённых
@@ -681,7 +786,46 @@ Classification: remove
 - Это уточнение требований, не подтверждение реализации T119, общего analyze
   или исправления аудиочасов.
 
+### Session 2026-10-05 — корреляция отмены T119
+
+- Нового продуктового решения нет: исчезновение/замена действия уже отменяет
+  переход по §10. Уточняется только транспорт `calendar_join_cancel` с двумя
+  UUID и без новых полномочий; исходный JSON проверяется до SDK-нормализации.
+- Request UUID принимается не более одного раза за жизнь документа, включая
+  busy/not-ready отказ. Предел — 1024 принятых UUID; по достижении новый корректный
+  запрос получает cancelled/not_ready до обновления документа. Память ограничена,
+  старые UUID не вытесняются ради повторного использования. Отмена не расходует
+  новый request UUID и не освобождает actual pending-work lease.
+- Сначала проверяется replay уже сохранённого UUID (нет ответа). Новый UUID,
+  отклонённый именно из-за cap, не admitted/consumed: его повтор получает только
+  cancelled/not_ready, без work и роста history. Это исключение из consume-on-
+  not-ready, не разрешение последующего flight в том же документе.
+
+### Session 2026-10-05 — ближайшие встречи в нативном меню T119
+
+- Clarify: новых вопросов и ответов пользователя нет. Область, роли, общий
+  путь подключения, приватность, ошибки, доступность и критерии завершения
+  остаются определены US2/FR-002/005/006 и выбранным Mac. Недостающее техническое
+  сопоставление CalendarTray относится к plan, а не к новому продуктовому выбору.
+- Меню показывает ближайшие встречи отдельно от карточки напоминания: закрытая
+  карточка, «Тихий режим» или текущая запись не запрещают явное подключение из
+  меню. Название и время подчиняются серверным настройкам. Ошибка допускает
+  только явный повтор с новой проверкой доступа; меню не начинает запись.
+- Образец: собственный GRAF CalendarTray/CalendarMeetingOpener на
+  `721b5125d799ea798a4af0b3625e18d3c1109039`. Native conventions отличаются, но
+  список не заменяется двумя кнопками текущей карточки. Lifetime и admission
+  определены в дополнении plan «T119: ближайшие встречи»; готовность исходников
+  или установленного приложения этим не подтверждается.
+- Уточнение Round243: «пользовательский часовой пояс» — выбранная в аккаунте
+  зона, как DesktopUserTimeContext выбранного Mac; системная зона используется
+  только при отсутствии принятой настройки. Зона принадлежит текущему
+  подтверждённому аккаунту/сеансу/документу, не переносится между аккаунтами и
+  не восстанавливается с диска. Переход летнего времени определяется зоной на
+  момент самой встречи, не текущим фиксированным смещением. Нового выбора
+  пользователя нет; источник и проверки Windows конкретизируются в plan.
+
 ### Session 2026-09-30 — часы и унаследованная защита хранения
+
 
 - Дополнительных продуктовых вопросов не требуется: пользователь уже выбрал
   полный паритет, внешних клиентов и отсутствие новых препятствий. Требование
@@ -702,6 +846,27 @@ Classification: remove
   и завершение определены. Техническая модель часов и механизм хранения ещё
   требуют исследовательского доказательства; это не разрешение начать их
   производственную реализацию и не подтверждение готовности выпуска.
+
+### Session 2026-10-16 — принадлежность записи после сбоя
+
+- Q: Сохранять ли владельца до первого аудиоблока, а старые записи без
+  доказанной принадлежности сохранять без отправки и переназначения?
+  → A: «Подтверждаю этот порядок восстановления».
+- Подтверждённый при начале user/workspace сохраняется до audio admission и
+  не меняется при Stop, выходе, новом входе или restart. Доказанное начало без
+  входа отличается от утраты сведений о владельце: только первое может
+  использовать прежнее отдельное подтверждение назначения текущему аккаунту.
+- Недоступная проверка аккаунта не равна выходу: исходная принадлежность остаётся
+  явно неподтверждённой, а не автоматически `unowned`. Это не блокирует локальную
+  запись без сети и не разрешает последующее назначение/отправку такой записи.
+- Файлы, уже потерявшие эту связь, не удаляются и не становятся `unowned`
+  для повторного назначения. Их наличие/успешная расшифровка/проверенный sealed
+  state не являются доказательством аккаунта. Полноценное восстановление
+  использует исходную local identity и прежние deletion/server-truth fences.
+- Уточнение относится к существующей T116/#7444. Перед кодом требуется узкий
+  план durable carrier, ACK, restart и short/delete переходов, затем независимые
+  checklist/analyze gates. Конституция, logical v5/package-state schema,
+  сервер, Mac и публичный допуск этим ответом не изменены.
 
 ### Session 2026-09-28 — фактический эталон GRAF Dev F277
 

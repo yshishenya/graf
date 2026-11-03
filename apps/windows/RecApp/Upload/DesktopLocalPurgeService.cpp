@@ -2,6 +2,7 @@
 
 #include <system_error>
 #include <utility>
+#include <algorithm>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -30,15 +31,36 @@ bool isLinkOrReparsePoint(const std::filesystem::path& path) {
 class RecycleOnlySink final : public Microsoft::WRL::RuntimeClass<
     Microsoft::WRL::RuntimeClassFlags<Microsoft::WRL::ClassicCom>, IFileOperationProgressSink> {
 public:
+    HANDLE expectedDirectory = nullptr; // Borrowed until PerformOperations returns.
     bool recycled = false;
     bool failed = false;
-    HRESULT STDMETHODCALLTYPE PreDeleteItem(DWORD flags, IShellItem*) override {
-        if ((flags & TSF_DELETE_RECYCLE_IF_POSSIBLE) != 0) return S_OK;
+    bool sameItem(IShellItem* item) const {
+        if (!expectedDirectory) return true; // Existing legacy, queue-validated caller.
+        if (!item) return false;
+        PWSTR path = nullptr;
+        if (FAILED(item->GetDisplayName(SIGDN_FILESYSPATH, &path))) return false;
+        const auto file = CreateFileW(path, FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            nullptr, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+        CoTaskMemFree(path);
+        if (file == INVALID_HANDLE_VALUE) return false;
+        FILE_ID_INFO expected{}, actual{};
+        FILE_ATTRIBUTE_TAG_INFO attributes{};
+        const bool same = GetFileInformationByHandleEx(expectedDirectory, FileIdInfo, &expected, sizeof(expected)) &&
+            GetFileInformationByHandleEx(file, FileIdInfo, &actual, sizeof(actual)) &&
+            GetFileInformationByHandleEx(file, FileAttributeTagInfo, &attributes, sizeof(attributes)) &&
+            (attributes.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) && !(attributes.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) &&
+            expected.VolumeSerialNumber == actual.VolumeSerialNumber &&
+            std::equal(std::begin(expected.FileId.Identifier), std::end(expected.FileId.Identifier), std::begin(actual.FileId.Identifier));
+        CloseHandle(file);
+        return same;
+    }
+    HRESULT STDMETHODCALLTYPE PreDeleteItem(DWORD flags, IShellItem* item) override {
+        if ((flags & TSF_DELETE_RECYCLE_IF_POSSIBLE) != 0 && sameItem(item)) return S_OK;
         failed = true;
         return E_ABORT;
     }
     HRESULT STDMETHODCALLTYPE PostDeleteItem(DWORD, IShellItem*, HRESULT result, IShellItem* inRecycleBin) override {
-        if (FAILED(result) || !inRecycleBin) { failed = true; return E_ABORT; }
+        if (FAILED(result) || !inRecycleBin || !sameItem(inRecycleBin)) { failed = true; return E_ABORT; }
         // The Shell contract supplies this item only for an actual Recycle Bin
         // destination; a permanently deleted item has no destination.
         recycled = true;
@@ -92,10 +114,12 @@ bool DesktopLocalPurgeService::isSafePackageDirectory(const std::filesystem::pat
     return !error;
 }
 
-bool DesktopLocalPurgeService::recycle(const std::filesystem::path& packageDirectory, std::uintptr_t owner) {
+bool DesktopLocalPurgeService::recycle(const std::filesystem::path& packageDirectory, std::uintptr_t owner,
+    std::uintptr_t expectedDirectory) {
 #ifndef _WIN32
     (void)packageDirectory;
     (void)owner;
+    (void)expectedDirectory;
     return false;
 #else
     // GRAF custody is local. Reject UNC/network/removable storage before Shell
@@ -104,9 +128,13 @@ bool DesktopLocalPurgeService::recycle(const std::filesystem::path& packageDirec
         !DesktopLocalPurgeService(packageDirectory.parent_path()).isSafePackageDirectory(packageDirectory)) return false;
     wchar_t volume[MAX_PATH]{};
     if (!GetVolumePathNameW(packageDirectory.c_str(), volume, MAX_PATH) || GetDriveTypeW(volume) != DRIVE_FIXED) return false;
+    const auto initialized = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+    if (FAILED(initialized)) return false;
+    struct Apartment { ~Apartment() { CoUninitialize(); } } apartment;
     Microsoft::WRL::ComPtr<IFileOperation> operation;
     Microsoft::WRL::ComPtr<IShellItem> item;
     const auto sink = Microsoft::WRL::Make<RecycleOnlySink>();
+    if (sink) sink->expectedDirectory = reinterpret_cast<HANDLE>(expectedDirectory);
     if (!sink || FAILED(CoCreateInstance(__uuidof(FileOperation), nullptr, CLSCTX_INPROC_SERVER,
             IID_PPV_ARGS(operation.GetAddressOf()))) ||
         FAILED(operation->SetOperationFlags(FOFX_RECYCLEONDELETE | FOF_ALLOWUNDO | FOF_NOCONFIRMATION |

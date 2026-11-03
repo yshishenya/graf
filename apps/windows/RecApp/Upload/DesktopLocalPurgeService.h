@@ -22,9 +22,14 @@ public:
 
     [[nodiscard]] bool isSafePackageDirectory(const std::filesystem::path& packageDirectory,
                                               bool allowMissing = false) const;
-    // Called only for a queue-validated package after native confirmation, on
-    // an initialized COM STA. No permanent-delete fallback or server proof.
-    [[nodiscard]] static bool recycle(const std::filesystem::path& packageDirectory, std::uintptr_t owner);
+    // Only after native confirmation/durable queue intent, or the owner has
+    // verified protected short-discard intent and drained all consumers.
+    // STA is initialized here (an incompatible apartment is refused). The
+    // optional held directory binds protected callers to the actual object;
+    // it remains caller-owned through the synchronous Shell operation.
+    // No permanent-delete fallback or server proof.
+    [[nodiscard]] static bool recycle(const std::filesystem::path& packageDirectory, std::uintptr_t owner,
+        std::uintptr_t expectedDirectory = 0);
 
 private:
     std::filesystem::path custodyRoot_;

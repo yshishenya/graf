@@ -54,6 +54,9 @@ ${ready ? '<div data-speaker-timeline-shell>' : ''}<div data-speaker-timeline da
     await page.addScriptTag({ content: `(() => {
       let processingRecoveryGeneration = 1, processingRecoveryPollTimer = null, playbackRecoveryRequest = null;
       const initPlaybackRecoveryPolling = () => {}, initSpeakerNameForms = () => {};
+      const localRecordingRows = [{ id: 'local-meeting', meetingId: 'meeting', canOpen: true }];
+      const platformText = mac => mac;
+      ${section('const renderDetailLocalPlayback =', 'window.GRAFLocalRecordings =')}
       const processingTranscriptReady = () => true;
       const clearMeetingHistoryCache = () => {};
       const csrfToken = 'synthetic-csrf';
@@ -69,7 +72,7 @@ ${ready ? '<div data-speaker-timeline-shell>' : ''}<div data-speaker-timeline da
       ${section('const scrollTranscriptTurnIntoView =', 'const initSourceNavigation =')}
       ${section('const DEFAULT_TIMELINE_HEIGHT =', 'const initCalendarSettings =')}
       ${section('const playbackRecoveryCopy =', 'const initPlaybackRecoveryPolling =')}
-      const initCabinet = () => { initMeetingTitleEditor(); initPlayback(); initSpeakerTimelineResize(); };
+      const initCabinet = () => { initMeetingTitleEditor(); initPlayback(); initSpeakerTimelineResize(); renderDetailLocalPlayback(); };
       window.refreshTest = (summary_status) => refreshProcessingDetailContentOnce(document.querySelector('main'), { state: 'processed', attempt_ordinal: 1, summary_status });
       window.recoveryTest = () => { document.querySelector('main').dataset.playbackPollActive = 'true'; return refreshPlaybackRecovery(); };
       initCabinet();
@@ -92,6 +95,7 @@ ${ready ? '<div data-speaker-timeline-shell>' : ''}<div data-speaker-timeline da
     assert.equal(await page.locator('[data-playback-avatar]').count(), 2);
     assert.equal(await page.locator('[data-playback-next]').isEnabled(), true);
     assert.equal(await page.locator('[data-playback-shell]').getAttribute('data-processing-result-id'), 'result');
+    assert.equal(await page.locator('[data-detail-local-playback]').count(), 1, 'processing fragment refresh retains local playback action');
     assert.deepEqual(await page.evaluate(() => [savedAudio === document.querySelector('audio'), !savedAudio.paused, savedAudio.currentTime >= startTime, pauseEvents, loadEvents, savedDraft === document.querySelector('textarea'), savedDraft === document.activeElement]), [true, true, true, 0, 0, true, true]);
     assert.equal(await draft.inputValue(), 'Незавершённый комментарий');
     await page.evaluate(async () => {
@@ -138,6 +142,17 @@ ${ready ? '<div data-speaker-timeline-shell>' : ''}<div data-speaker-timeline da
     nextHtml = (await page.evaluate(() => stableHtml)).replace('data-media-revision-id="other-media"', 'data-media-revision-id="third-media"');
     await page.evaluate(() => window.recoveryTest());
     assert.deepEqual(await page.evaluate(() => [savedAudio.isConnected, savedAudio.paused, savedAudio === document.querySelector('audio')]), [false, true, false], 'recovery must retire a changed media revision even when visible text is unchanged');
+    assert.equal(await page.locator('[data-detail-local-playback]').count(), 1, 'media replacement during polling restores local playback action');
+    await page.evaluate(() => {
+      window.savedPlayback = document.querySelector('[data-playback-shell]');
+      window.stableHtml = document.querySelector('main').outerHTML + savedPlayback.outerHTML;
+      window.contextUpdates = 0;
+      savedPlayback.addEventListener('graf:playback-context-updated', () => contextUpdates++);
+    });
+    nextHtml = (await page.evaluate(() => stableHtml)).replace(/<button[^>]*data-detail-local-playback[^>]*>.*?<\/button>/, '');
+    await page.evaluate(() => window.recoveryTest());
+    assert.equal(await page.evaluate(() => savedPlayback === document.querySelector('[data-playback-shell]')), true, 'native-only button text does not replace unchanged playback');
+    assert.equal(await page.evaluate(() => contextUpdates), 0, 'native-only button text does not trigger a false context refresh');
     // A real title editor must not prevent automatic publication or save on refresh.
     nextHtml = html(true).replace('data-summary-rendered-state="processing"', 'data-summary-rendered-state="available"').replace('Published', 'New published summary');
     await page.locator('[data-meeting-title-open]').click();

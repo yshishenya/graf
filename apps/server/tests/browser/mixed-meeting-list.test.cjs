@@ -37,6 +37,43 @@ const assets = path.join(__dirname, '../../src/twobrain_rec_server/cabinet/stati
       await update();
       assert.deepEqual(await order(),ids,`${sort} stable update`);
     }
+    // Missing/invalid native metadata is unknown, not a measured zero.
+    const zero = {...local, id:'local-0', title:'Нулевая', durationSeconds:0};
+    const localIds = () => page.locator('[data-graf-local-recording-row]').evaluateAll(rows => rows.map(row => row.dataset.grafLocalRecordingId));
+    const unknownRow = page.locator('[data-graf-local-recording-id="local-u"][data-graf-local-recording-row]');
+    for (const value of [undefined, null, false, -1, '60', NaN, Infinity]) {
+      const unknown = {...local, id:'local-u', title:'Неизмерено', showsPartialDuration:true, sessionDurationSeconds:120};
+      delete unknown.durationSeconds;
+      delete unknown.startedAt;
+      if (value !== undefined) unknown.durationSeconds = value;
+      await update([unknown, local, zero]);
+      assert.equal(await unknownRow.locator('.meeting-duration').textContent(), 'Длительность неизвестна', `unknown duration: ${value}`);
+      assert.equal(await unknownRow.getAttribute('data-sort-duration'), '', 'unknown sort key is absent, not zero');
+      assert.equal(await page.locator('[data-graf-local-recording-id="local-0"] .meeting-duration').textContent(), '0 с', 'measured zero stays known');
+      for (const [sort, ids] of [
+        ['duration_asc', ['local-0','server-z','local-b','server-a','local-u']],
+        ['duration_desc', ['server-a','local-b','server-z','local-0','local-u']],
+      ]) {
+        await page.locator('#meeting-sort').selectOption(sort);
+        await update([unknown, zero, local]);
+        assert.deepEqual(await order(), ids, `${sort}: unknown last (${value})`);
+      }
+      await page.getByRole('textbox').fill('0 с'); await update([unknown, local, zero]);
+      assert.deepEqual(await localIds(), ['local-0'], 'unknown is not searchable as zero');
+      await page.getByRole('textbox').fill('1 мин'); await update([unknown, local, zero]);
+      assert.deepEqual(await localIds(), ['local-b'], 'invalid numeric string is not a measured minute');
+      await page.getByRole('textbox').fill('Неизмерено'); await update([unknown, local, zero]);
+      assert.deepEqual(await localIds(), ['local-u'], 'unknown row remains searchable by its title');
+      await page.getByRole('textbox').fill('');
+    }
+    await update([{...local, durationSeconds:30, sessionDurationSeconds:120, showsPartialDuration:true}]);
+    assert.equal(await page.locator('[data-graf-local-recording-row] .meeting-duration').textContent(), 'Сохранено 30 с из 2 мин', 'known Mac partial duration is unchanged');
+    await update([{...local, showsPartialDuration:true}]);
+    assert.equal(await page.locator('[data-graf-local-recording-row] .meeting-duration').textContent(), '1 мин', 'partial label needs both measured lengths');
+    await update([{...local, durationSeconds:undefined}]);
+    assert.equal(await page.locator('[data-graf-local-recording-row] .meeting-duration').textContent(), 'Длительность неизвестна', 'same-id refresh revokes the old duration');
+    await page.locator('#meeting-sort').selectOption('title_asc'); await update();
+    assert.equal(await page.locator('[data-graf-local-recording-row] .meeting-duration').textContent(), '1 мин', 'known duration restores on refresh');
     assert.equal(await page.locator('[data-graf-local-recording-row] time').textContent(),'06.09.2026, 02:30');
     assert.equal(await page.locator('[data-graf-local-recording-row] time').getAttribute('datetime'),local.startedAt);
     assert.equal(await page.locator('[data-graf-local-recording-row] .meeting-title').getAttribute('aria-describedby'),'graf-local-time-local-b');
@@ -141,6 +178,34 @@ const assets = path.join(__dirname, '../../src/twobrain_rec_server/cabinet/stati
     assert.deepEqual(await page.evaluate(() => window.syntheticDeletionRequest.localIds),['local-b']);
     assert.equal(await page.locator('[data-delete-dialog]').evaluate(node => node.open),false);
     assert.match(await page.locator('#delete-feedback-region').textContent(),/Ожидают подтверждения: 1/);
+    await page.evaluate(() => { window.GRAFDesktopPlatform = 'windows'; window.GRAFLocalRecordings.update([
+      {id:'protected-unknown',title:'Запись',status:'Ожидает отправки',canOpen:false,canSend:false,canDelete:false}
+    ], [], false); });
+    assert.equal(await page.locator('[data-graf-local-recording-row] time').textContent(), 'На этом компьютере', 'protected inventory has no recording date');
+    assert.equal(await page.locator('[data-graf-local-recording-row] .meeting-duration').textContent(), 'Длительность неизвестна');
+    assert.equal(await page.locator('[data-graf-local-recording-row] button').count(), 0, 'no unimplemented actions');
+    await page.getByRole('textbox').fill('На этом компьютере');
+    await page.evaluate(() => window.GRAFLocalRecordings.update([{id:'protected-unknown',title:'Запись'}]));
+    assert.equal(await page.locator('[data-graf-local-recording-row]').count(), 1, 'search uses the displayed unknown-date label');
+    await page.getByRole('textbox').fill('');
+    for (const state of ['checking','unavailable',null,42,'unknown']) {
+      await page.evaluate(state => window.GRAFLocalRecordings.update([], [], false, state), state);
+      assert.match(await page.locator('[data-local-inventory-state]').textContent(), state === 'checking' ? /проверяются/ : /Не удалось/);
+      assert.match(await page.locator('[data-meeting-result-count]').textContent(), /локальные записи/);
+    }
+    await page.evaluate(() => window.GRAFLocalRecordings.update([], [], false));
+    assert.equal(await page.locator('[data-local-inventory-state]').count(), 0, 'existing Mac call defaults to ready');
+    const serverMarkup = await page.locator('ol.meeting-list').innerHTML();
+    await page.locator('ol.meeting-list').evaluate(list => { list.innerHTML = ''; list.insertAdjacentHTML('afterend', '<p class="empty-state">Записей пока нет.</p>'); });
+    for (const state of ['ready', 'checking', 'unavailable', 'ready']) {
+      await page.evaluate(state => window.GRAFLocalRecordings.update([{id:'synthetic-only',title:'Запись'}],[],false,state), state);
+      assert.equal(await page.locator('.empty-state:visible').count(), 0, 'local rows never coexist with healthy empty state');
+      await page.evaluate(state => window.GRAFLocalRecordings.update([],[],false,state), state);
+      assert.equal(await page.locator('.empty-state:visible').count(), state === 'ready' ? 1 : 0, 'empty success only after complete ready');
+    }
+    await page.locator('ol.meeting-list').evaluate((list, markup) => { list.innerHTML = markup; }, serverMarkup);
+    await page.evaluate(() => window.GRAFLocalRecordings.update([],[],false));
+    await page.evaluate(() => { delete window.GRAFDesktopPlatform; });
     await page.evaluate(() => window.GRAFLocalRecordings.update([], [], true));
     assert.match(await page.locator('[data-local-account-recovery]').textContent(),/аккаунт не подтвержден/);
     await page.evaluate(() => window.GRAFLocalRecordings.update([], [], false));

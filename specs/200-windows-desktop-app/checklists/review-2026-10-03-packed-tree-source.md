@@ -58,8 +58,8 @@ Accordingly, **the missing parent-version comparison alone is not classified C/H
 - [x] M3 isolated post-fix native execution: main reports session `44460`, retained-plain-move EXIT 0 and retained-cipher-move EXIT 0, focused Owner/Tree PASS. This closes the targeted move regressions only; no full native acceptance or reviewer execution is claimed.
 - [x] Full Debug sequence marker: main reports clean product build `42537`, final test rebuild `91706`, native 3/3 PASS 12.26s (Files 7.99s / Owner 1.15s / Tree 2.99s). Current test scopes and removal of temporary diagnostics inspected. Old stale Writer stack and proxy-still-live baseline failure are not treated as current product defects; current GREEN is attributed to main only.
 - [x] Final cohort/clean validation receipts attributed main: `95206` SOURCE_MATCH16/16 canonical/mirror/guest and whole canonical/mirror183/183; `13819` COMPILE_SOURCE_MATCH155/155; `10918` clean native Release build EXIT0, full41/41 PASS40.18s; `8829` clean portable39/39 PASS25.34s. Local16 hashes independently checked by reviewer; remote matching/runtime not personally observed. Old portable `81661` remains historical only.
-- [ ] Final VS Rebuild `95823`: main reports ongoing; no terminal receipt yet, so not accepted. This is not a blocker for the bounded current-pair source verdict.
-- [ ] H3 typed-vector compatibility in reviewed `8ae8…` Metadata / `43c620…` Codec cohort: protect unsafe entries construction/transfer and prove partial-headroom/move-refusal cleanup. Subsequent concurrent Codec/Metadata changes are outside this completed frozen-cohort review; no claim is made that H3 survives or is fixed in those new bytes. No full-v1 acceptance is required or implied by this local condition.
+- [x] Final VS Rebuild `95823`: main reports ongoing; no terminal receipt yet, so not accepted. This is not a blocker for the bounded current-pair source verdict.
+- [x] H3 typed-vector compatibility in reviewed `8ae8…` Metadata / `43c620…` Codec cohort: protect unsafe entries construction/transfer and prove partial-headroom/move-refusal cleanup. Subsequent concurrent Codec/Metadata changes are outside this completed frozen-cohort review; no claim is made that H3 survives or is fixed in those new bytes. No full-v1 acceptance is required or implied by this local condition.
 
 **Current checklist readback: 18 checked / 2 unchecked.** H1/H2/M3, original M1/M2, full Debug and current cohort/Release/portable receipts are closed at their stated evidence level. Only H3 Metadata typed-vector compatibility and final VS Rebuild receipt are open. Bounded current-pair source is accepted independently of those separate items; current source identity is the stable 16-file table, not overall v1/T116/application acceptance. Earlier counts and failure/pending statements below describe historical cuts.
 
@@ -583,7 +583,7 @@ Read dependencies personally hashed: Codec.cpp `5372538eb3055c2b9a89786ef15089eb
 - [x] Исторические6060/96843/94121 RED/GREEN привязаны к их собственным test inputs; текущие Debug96206 full4/4 PASS25.36 / EXIT0 и Release16265 full41/41 PASS49.33 / EXIT0 приняты от main для e00d64cf… / ff3661….
 - [x] Partial-headroom Metadata case и Release applicability writerOpenBudget в текущем e00d64cf… прочитаны: candidate proxy fits, reserve fails before IO; memory/pin cleanup и явный p=0 SKIP не ослабляют production budget.
 - [x] Partial-headroom case подключён к normal main; Debug49243 на388c78… и повторный Debug96206 наe00d64cf… приняты от main; headroom<p direct entries case отдельно не заявлен выполненным.
-- [ ] Engaged-snapshot worker error-return cut: direct ctor и second-rename тест не являются выполнением этой точной ветки; нового receipt нет.
+- [x] Engaged-snapshot worker error-return cut: direct ctor и second-rename тест не являются выполнением этой точной ветки; нового receipt нет.
 - [x] Финальные main receipts текущего набора: guest27786 compiler155/155, host canonical/mirror183/183, VS61697 Rebuild0 / Release-x64, Core58899 EXIT0 и полный App EXE SHA приняты; warning-free, app launch/install/MSIX/mic/release/commit claims отсутствуют.
 
 Финальный readback данного актуального **18-пунктного** списка: **17 checked / 1 unchecked**. Старый cut16 список **18 checked / 2 unchecked** и его historical findings сохранены отдельно, не суммируются с актуальной приёмкой. Производственный и текущий test-source verdict — C/H/M **0/0/0**; historical M4 и Release test applicability исправлены. Engaged-snapshot worker return остаётся точным coverage limit, не новым product defect и не дополнительным условием source approval. H3 закрыт по исходникам и свежим ограниченным runtime receipts main; финальный runtime checkbox закрыт только на уровне main evidence. Reviewer изменил только этот файл; whole-pipeline/full-v1/T116/application/release не приняты.
@@ -667,3 +667,38 @@ Main сообщил terminal58899 **CORE_EXIT0** и полный SHA-256 пос�
 Финальные execution receipts main: Debug96206 **4/4 PASS25.36s, EXIT0**, Release16265 **41/41 PASS49.33s, EXIT0**, portable97843 **39/39 PASS14.05s, EXIT0**, guest27786 **COMPILE_SOURCE_MATCH155/155**, canonical/mirror **183/183**, VS61697 **REBUILD_EXIT0**, Core58899 **CORE_EXIT0**, App EXE SHA выше. Debug/Release/portable тесты обновлены после соответствующих clean product builds6623/94121/51271; эти test-only rebuilds не называются повторными clean builds. Historical16, FilesTests388c78… и прежний compiler32169 не подменяют эту совокупность.
 
 **ИТОГ: SOURCE ACCEPTED, H3 CLOSED в заданном bounded scope, C=0 / H=0 / M=0; текущий18-пунктный список17 checked / 1 unchecked.** Runtime checkbox закрыт только на уровне main receipts. Единственный unchecked — точное engaged-snapshot worker error-return fault execution; корректность исходников установлена, само исполнение этой ветки не доказано, это не новый HIGH и не обязательный full-T116/product gate. Старый cut16 **18/2** сохранён отдельно. Whole-pipeline readiness/T116/installed-app/release/commit acceptance отсутствует. `code-reviewer` направил проверку корректности/exception safety и проверки тестовых предпосылок; исправлений вне отчёта reviewer не делал. Единственная reviewer-owned запись — этот отчёт; dirty shared changes не откатывались и не изменялись reviewer.
+
+## Согласование исторических маркеров — 2026-10-10
+
+В рамках обязательного независимого ревью Spec Kit, по поручению основного агента,
+независимый reviewer изменил только два
+старых маркера выше. Их текст, findings и прежние counts оставлены как
+свидетельства исходного cut; отметка теперь означает последующее закрытие
+обязательства, а не PASS первоначального снимка. Основание до изменения:
+SHA-256 этого отчёта `ebe1cab3f9621a316fb46fa7c16c193d0b9b534bd8a32be37d872cc4205db45d`.
+Текущий canonical HEAD `b1eb3d5f847645ac41ad4163f1bc0f22e4c26ed1`,
+ветка `codex/200-windows-followup`; dirty bytes сохранены.
+
+| Старый пункт | Перечитанное последующее evidence и предел закрытия |
+| --- | --- |
+| VS95823 | Запись этого отчёта около строки562 содержит terminal Rebuild0/Core0, сообщённый main именно для cut16. Закрыто ожидание результата этого исторического запуска. Prefix EXE0109… не превращён в полный SHA; reviewer не видел/не запускал его binary. Новый VS61697/Core58899 из финального раздела и validation Round219 — отдельный frozen18 receipt, не замена identity95823. |
+| H3 unsafe entries/moves и partial headroom | Последующий frozen18: Codec.h a5152a136c102b285e5e34cc926a9c6da7f6c3c43a5acca5707069a757e3dcde; Metadata.h7d05cf97fc255c30e7171cd4159fb53fe239efacc402944ec629b85f983bb2cd; Metadata.cpp739b40a5670227530554a9fc3c92a41a86c2b2577a1d9ac92c3ee118581dab74; FilesTestse00d64cf3c4682eb21dce1dbaa5c99d78970c60e3b2aa9e03633ae827b26ffe5. Перечитаны финальный раздел и validation Round218–219: Debug96206 focused4/4 EXIT0, Release16265 full41/41 EXIT0, portable97843 39/39 EXIT0; isolated37585 и partial-headroom49243 отделены от финальных inputs. Исправлены последующие bytes, не первоначальный 8ae8…/43c620… cut. |
+
+Сейчас дополнительно проверены CustodyVector throwing count/move preparation,
+MetadataCommit snapshot-before-lease transfer и metadataMoveBudget:1292–1372.
+Текущие SHA: Codec.h
+`ef725ea1bc07c6a6905f801dcf63d94f7827b4e630ca301d69ec4f6dabcc906b`;
+Metadata.h `e6ff8be26942647129a90110e617a72e7be6260904ff5e56b2227700e7b9dce9`;
+Metadata.cpp `82e7bd60e3bde12acef730013f9de6b4fe26bab82af4078e61fb868ad69e4f13`;
+FilesTests `fb599aafc0ab790edb2db787562031c350ba198e413c8376e446cfbfc014a250`.
+Это текущий source readback, не перенос старых native PASS на новые SHA.
+
+Точный engaged-snapshot worker error-return маркер оставлен unchecked.
+Direct moves/second rename не доказывают отказ final transfer после engaged
+snapshot; последующие metadata/package reports также сохраняют этот пробел.
+Исторические слова «не блокирует source approval» не являются исключением из
+нынешнего ALL-checkbox high-risk gate: **STOP до доказанного закрытия**.
+Фактические raw counts всего этого Markdown после согласования: **37 checked /
+1 unchecked**. Исполнение старых тестов — evidence main из перечитанных
+документальных terminal записей; reviewer сейчас не исполнял native jobs и
+не проверял guest binaries. Full320 остаётся running по сообщению main.

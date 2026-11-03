@@ -1,6 +1,7 @@
 #include "WebViewRoutePolicy.h"
 
 #include <algorithm>
+#include <utility>
 
 namespace graf::windows {
 namespace {
@@ -429,6 +430,99 @@ bool PaymentNavigation::live(std::uint64_t now) const noexcept {
 
 void PaymentNavigation::loaded(const WebViewRoutePolicy& policy, std::string_view url, std::uint64_t now) {
     if (!live(now) || policy.sharesOrigin(url)) stop();
+}
+
+void SafeHistory::invalidate() noexcept {
+    fresh_ = false;
+    ++revision_;
+}
+
+void SafeHistory::clear() noexcept {
+    entries_.clear();
+    currentIndex_ = 0;
+    invalidate();
+}
+
+void SafeHistory::forgetEntry(int id) noexcept {
+    for (auto& entry : entries_) if (entry.browser.id == id) entry.confirmedGet = false;
+    invalidate();
+}
+
+bool SafeHistory::acceptSnapshot(std::uint64_t requestRevision,
+    std::vector<WebHistoryEntry> entries, std::size_t currentIndex, std::string_view currentUrl) {
+    if (requestRevision != revision_) return false; // A late read must not replace a newer one.
+    invalidate();
+    if (entries.empty() || entries.size() > 128 || currentIndex >= entries.size() ||
+        entries[currentIndex].url != currentUrl) return false;
+    std::vector<Entry> next;
+    next.reserve(entries.size());
+    for (auto& entry : entries) {
+        if (entry.id < 0 || entry.url.empty() || entry.url.size() > 8192 || !safeUrl(entry.url) ||
+            std::any_of(next.begin(), next.end(), [&](const auto& prior) { return prior.browser.id == entry.id; }))
+            return false;
+        const auto prior = std::find_if(entries_.begin(), entries_.end(), [&](const auto& old) {
+            return old.browser.id == entry.id && old.browser.url == entry.url;
+        });
+        const bool confirmed = prior != entries_.end() && prior->confirmedGet;
+        next.push_back({std::move(entry), confirmed});
+    }
+    entries_ = std::move(next);
+    currentIndex_ = currentIndex;
+    fresh_ = true;
+    return true;
+}
+
+bool SafeHistory::confirmCurrent(const WebViewRoutePolicy& policy, std::uint64_t revision,
+    std::string_view responseUrl, std::string_view method) {
+    if (!fresh_ || revision != revision_) return false;
+    auto& entry = entries_[currentIndex_];
+    entry.confirmedGet = entry.browser.url == responseUrl && method == "GET" &&
+        policy.allowsNativeBridge(responseUrl);
+    return entry.confirmedGet;
+}
+
+std::optional<WebHistoryEntry> SafeHistory::current() const {
+    return fresh_ ? std::optional<WebHistoryEntry>(entries_[currentIndex_].browser) : std::nullopt;
+}
+
+bool SafeHistory::currentIsGet(const WebViewRoutePolicy& policy) const {
+    return fresh_ && entries_[currentIndex_].confirmedGet &&
+        policy.allowsNativeBridge(entries_[currentIndex_].browser.url);
+}
+
+bool SafeHistory::allGet(const WebViewRoutePolicy& policy) const {
+    return fresh_ && std::all_of(entries_.begin(), entries_.end(), [&](const auto& entry) {
+        return entry.confirmedGet && policy.allowsNativeBridge(entry.browser.url);
+    });
+}
+
+std::optional<WebHistoryEntry> SafeHistory::target(const WebViewRoutePolicy& policy, bool back) const {
+    if (!allGet(policy)) return std::nullopt;
+    const auto meetingRoute = [&](std::string_view url) {
+        const auto kind = policy.evaluate(url).kind;
+        const auto parsed = parseHttps(url);
+        return kind == RouteKind::meetingDetail || kind == RouteKind::review || kind == RouteKind::share ||
+            (parsed && (parsed->path == "/desktop/meetings" || parsed->path == "/desktop/shared-with-me" ||
+                        meetingAction(parsed->path, "deletion-report")));
+    };
+    const auto& currentUrl = entries_[currentIndex_].browser.url;
+    const auto currentKind = policy.evaluate(currentUrl).kind;
+    const auto currentParsed = parseHttps(currentUrl);
+    const bool restrictBack = currentKind == RouteKind::meetingDetail || currentKind == RouteKind::review ||
+        currentKind == RouteKind::share || (currentParsed && meetingAction(currentParsed->path, "deletion-report"));
+    const auto eligible = [&](const auto& entry) {
+        return entry.browser.url != currentUrl && (!back || !restrictBack || meetingRoute(entry.browser.url));
+    };
+    if (back) {
+        for (auto i = currentIndex_; i > 0;) {
+            const auto& entry = entries_[--i];
+            if (eligible(entry)) return entry.browser;
+        }
+    } else {
+        for (auto i = currentIndex_ + 1; i < entries_.size(); ++i)
+            if (eligible(entries_[i])) return entries_[i].browser;
+    }
+    return std::nullopt;
 }
 
 } // namespace graf::windows

@@ -4,6 +4,7 @@
 #include "../../RecApp/Permissions/WindowsReadinessGate.h"
 #include "../../RecApp/Storage/AtomicFileStore.h"
 #include "../../RecApp/Storage/Sha256.h"
+#include "../../RecApp/Storage/ProtectedCustodyCodec.h"
 #include "../../RecApp/Upload/DesktopApiClient.h"
 
 #ifdef NDEBUG
@@ -114,6 +115,29 @@ int main() {
     // 2026-09-18T09:05:00Z at UTC+03:00 displays as 12:05 the same day. The label
     // and both instants are fixed regardless of the machine time zone.
     const std::uint64_t startedAtMs = 1789722300000ULL;
+    // Changing the owner/allocator must not change the bytes sent to the server.
+    for (const auto instant : {std::uint64_t{0}, startedAtMs}) for (const int offset : {-840, -300, 0, 180, 840, 841}) {
+        auto ordinary = DesktopApiClient::createMeetingRequest("recording-001", "recording-001--initial", 60,
+            instant, instant + 61'000, offset);
+        auto charged = DesktopApiClient::createMeetingRequest<CustodyString>("recording-001", "recording-001--initial", 60,
+            instant, instant + 61'000, offset);
+        assert(ordinary && charged && ordinary->hasTimeline() == charged->hasTimeline());
+        if (ordinary->hasTimeline()) { ordinary->title += "\\\"\n\r\t"; charged->title += "\\\"\n\r\t"; }
+        assert(std::string_view(DesktopApiClient::createMeetingBody(*charged)) == DesktopApiClient::createMeetingBody(*ordinary));
+        assert(std::string_view(DesktopApiClient::formatDisplayMinute<CustodyString>(instant, offset)) ==
+            DesktopApiClient::formatDisplayMinute(instant, offset));
+        assert(std::string_view(DesktopApiClient::formatUtcInstant<CustodyString>(instant)) == DesktopApiClient::formatUtcInstant(instant));
+    }
+    assert(std::string_view(DesktopApiClient::idempotencyKey<CustodyString>("meeting", "recording-001", "session-001")) ==
+        DesktopApiClient::idempotencyKey("meeting", "recording-001", "session-001"));
+    {
+        CustodyBytes exhausted;
+        exhausted.resize(CustodyOwnedMemory::limit - CustodyOwnedMemory::usedBytes());
+        bool refused = false;
+        try { (void)DesktopApiClient::idempotencyKey<CustodyString>("meeting", "recording-001", "session-001"); }
+        catch (const std::bad_alloc&) { refused = true; }
+        assert(refused && CustodyOwnedMemory::usedBytes() == CustodyOwnedMemory::limit);
+    }
     const auto timed = DesktopApiClient::createMeetingRequest(
         "recording-001", "recording-001--initial", 60, startedAtMs, startedAtMs + 61'000, 180);
     assert(timed.has_value());
@@ -150,7 +174,87 @@ int main() {
         "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
     assert(upload.has_value());
     assert(upload->expectedTracks[1] == "media");
+    const auto chargedUpload = DesktopApiClient::uploadSessionRequest<CustodyString>(upload->expectedTrackSizes, upload->manifestSha256);
+    assert(chargedUpload && chargedUpload->expectedTracks == upload->expectedTracks &&
+        chargedUpload->expectedTrackSizes == upload->expectedTrackSizes &&
+        std::string_view(chargedUpload->manifestSha256) == upload->manifestSha256);
     assert(DesktopApiClient::idempotencyKey("meeting", "recording-001", "session-001") ==
            "desktop-upload:meeting:recording-001:session-001");
+
+    // T119: untrusted resolver data, not permission to open a URL or record.
+    constexpr auto eventId = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+    constexpr auto upperId = "AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE";
+    const auto joinBody = [](std::string_view id, std::string_view family, std::string_view url) {
+        return "{\"event_id\":\"" + std::string(id) + "\",\"provider_family\":\"" +
+            std::string(family) + "\",\"https_url\":\"" + std::string(url) + "\"}";
+    };
+    const auto body = joinBody(eventId, "calendar", "https://example.test:443/meeting?room=1#join");
+    assert(DesktopApiClient::calendarJoinTargetPath(upperId) ==
+        "/api/v1/calendar/events/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee/join-target");
+    for (const auto invalidId : {"", "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee?x=1",
+         "{aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee}", "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeeg"}) {
+        assert(DesktopApiClient::calendarJoinTargetPath(invalidId).empty());
+        assert(!DesktopApiClient::decodeCalendarJoinTarget(body, invalidId));
+    }
+    const auto target = DesktopApiClient::decodeCalendarJoinTarget(body, upperId);
+    assert(target && target->eventId == eventId && target->providerFamily == "calendar");
+    assert(target->httpsUrl == "https://example.test:443/meeting?room=1#join");
+    assert(DesktopApiClient::decodeCalendarJoinTarget(joinBody(upperId, "unknown", "https://zoom.us/j/1"), eventId));
+    assert(DesktopApiClient::decodeCalendarJoinTarget(
+        joinBody("00000000-0000-0000-0000-000000000000", "calendar", "https://example.test"),
+        "00000000-0000-0000-0000-000000000000"));
+    assert(!DesktopApiClient::decodeCalendarJoinTarget(body, "11111111-2222-4333-8444-555555555555"));
+    assert(!DesktopApiClient::decodeCalendarJoinTarget(joinBody("bad", "calendar", "https://example.test"), eventId));
+    for (const auto invalidBody : {"{}", "[]", "null", "{\"event_id\":true}",
+        "{\"event_id\":\"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee\",\"provider_family\":null,\"https_url\":\"x\"}",
+        "{\"event_id\":\"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee\",\"provider_family\":\"calendar\",\"https_url\":{}}"}) {
+        assert(!DesktopApiClient::decodeCalendarJoinTarget(invalidBody, eventId));
+    }
+    for (const auto suffix : {",\"event_id\":\"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee\"}",
+         ",\"provider_family\":\"calendar\"}", ",\"https_url\":\"https://example.test\"}"}) {
+        assert(!DesktopApiClient::decodeCalendarJoinTarget(body.substr(0, body.size() - 1) + suffix, eventId));
+    }
+    assert(!DesktopApiClient::decodeCalendarJoinTarget(body + "{}", eventId));
+    assert(!DesktopApiClient::decodeCalendarJoinTarget(joinBody(eventId, "\xc0\xaf", "https://example.test"), eventId));
+    assert(!DesktopApiClient::decodeCalendarJoinTarget(joinBody(eventId, "calendar", "\\uD800"), eventId));
+    assert(!DesktopApiClient::decodeCalendarJoinTarget(joinBody(eventId, "calendar", "\\u0000"), eventId));
+    const auto unicode = DesktopApiClient::decodeCalendarJoinTarget(
+        joinBody(eventId, "\\u043a", "https:\\/\\/example.test/?x=\\uD83D\\uDE00#join"), eventId);
+    assert(unicode && unicode->providerFamily == "\xd0\xba" &&
+        unicode->httpsUrl == "https://example.test/?x=\xf0\x9f\x98\x80#join");
+    assert(DesktopApiClient::decodeCalendarJoinTarget(joinBody(eventId, std::string(64, 'c'), "x"), eventId));
+    assert(!DesktopApiClient::decodeCalendarJoinTarget(joinBody(eventId, std::string(65, 'c'), "x"), eventId));
+    std::string escapedUrl;
+    for (int i = 0; i < 8192; ++i) escapedUrl += "\\u0061";
+    const auto longTarget = DesktopApiClient::decodeCalendarJoinTarget(joinBody(eventId, "calendar", escapedUrl), eventId);
+    assert(longTarget && longTarget->httpsUrl == std::string(8192, 'a'));
+    assert(!DesktopApiClient::decodeCalendarJoinTarget(joinBody(eventId, "calendar", std::string(8193, 'a')), eventId));
+    const auto boundedBody = body + std::string(65536 - body.size(), ' ');
+    assert(DesktopApiClient::decodeCalendarJoinTarget(boundedBody, eventId));
+    assert(!DesktopApiClient::decodeCalendarJoinTarget(boundedBody + " ", eventId));
+    // Future response metadata is ignored, never interpreted as authority.
+    std::string nested = "0";
+    for (int i = 0; i < 7; ++i) nested = "[" + nested + "]";
+    const auto withExtra = [&](std::string_view value) {
+        return body.substr(0, body.size() - 1) + ",\"extra\":" + std::string(value) + "}";
+    };
+    assert(DesktopApiClient::decodeCalendarJoinTarget(withExtra(nested), eventId));
+    assert(!DesktopApiClient::decodeCalendarJoinTarget(withExtra("[" + nested + "]"), eventId));
+    assert(!DesktopApiClient::decodeCalendarJoinTarget(withExtra("{\"a\":1,\"a\":2}"), eventId));
+    assert(!DesktopApiClient::decodeCalendarJoinTarget(withExtra("\"\xc0\xaf\""), eventId));
+    assert(DesktopApiClient::decodeCalendarJoinTarget(withExtra("\"\\u0000\""), eventId));
+    const auto extraRoot = [&](std::string_view fields) {
+        return body.substr(0, body.size() - 1) + "," + std::string(fields) + "}";
+    };
+    assert(DesktopApiClient::decodeCalendarJoinTarget(extraRoot("\"\\u0065xtra\":0"), eventId));
+    assert(DesktopApiClient::decodeCalendarJoinTarget(withExtra("{\"\\u0061\":0}"), eventId));
+    assert(!DesktopApiClient::decodeCalendarJoinTarget(extraRoot("\"extra\":0,\"\\u0065xtra\":1"), eventId));
+    assert(!DesktopApiClient::decodeCalendarJoinTarget(withExtra("{\"a\":0,\"\\u0061\":1}"), eventId));
+    assert(!DesktopApiClient::decodeCalendarJoinTarget(extraRoot("\"\\u0065vent_id\":\"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee\""), eventId));
+    auto escapedKnown = body;
+    escapedKnown.replace(2, 1, "\\u0065");
+    assert(DesktopApiClient::decodeCalendarJoinTarget(escapedKnown, eventId));
+    // Existing auth/upload callers keep the old raw-key policy.
+    assert(!DesktopApiClient::jsonObjectFields("{\"\\u0061\":0}"));
     return 0;
 }

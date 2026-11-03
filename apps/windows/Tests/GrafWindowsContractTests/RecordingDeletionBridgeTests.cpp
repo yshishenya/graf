@@ -146,6 +146,19 @@ void testCompletionScript() {
     outcome.pending = 1;
     outcome.rejected = 0;
     const auto script = RecordingDeletionBridge::completionScript(kRequest, outcome);
+    const auto protectedScript = RecordingDeletionBridge::completionScript<graf::windows::CustodyString>(kRequest, outcome);
+    assert(std::string_view(protectedScript) == script);
+    {
+        graf::windows::CustodyAllocator<char> allocator;
+        const auto count = graf::windows::CustodyOwnedMemory::limit - graf::windows::CustodyOwnedMemory::usedBytes();
+        auto* reserved = allocator.allocate(count);
+        bool refused = false;
+        try { (void)RecordingDeletionBridge::completionScript<graf::windows::CustodyString>(kRequest, outcome); }
+        catch (const std::bad_alloc&) { refused = true; }
+        allocator.deallocate(reserved, count);
+        assert(refused);
+        assert(RecordingDeletionBridge::completionScript<graf::windows::CustodyString>(kRequest, outcome) == protectedScript);
+    }
     assert(script == "window.GRAFLocalRecordings?.deletionCompleted('" + std::string(kRequest) +
         "', {\"saved\":true,\"accepted\":2,\"pending\":1,\"rejected\":0})");
     // The page decides between "check the deletion list" and "try again" from

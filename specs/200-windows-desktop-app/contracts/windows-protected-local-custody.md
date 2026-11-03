@@ -121,9 +121,20 @@ length0 имеет count0, не является пустым восстанов
 явного SetSize/seek extension, никогда вместо отсутствующих/битых DATA.
 Plain index≤4096+count×16, max4198400B; physical index≤это+65536.
 Physical block≤payload+4096; native выход сверх bound — отказ без публикации.
-Метаданные: manifest≤4096B, queue≤4MiB (существующий writer cap), служебные
+Метаданные: manifest≤64KiB, queue≤4MiB (существующий writer cap), служебные
 bootstrap/package-state/intent/recovery≤64KiB каждый. Это пределы нового
 кодека; oversized legacy сохраняется blocked, не обрезается/не «исправляется».
+
+Поправка 2026-10-04 для T120: прежний manifest≤4096B не вмещал повторные
+privacySegments Mac. Меняется только logical limit роли manifest; один
+64KiB payload остаётся в существующем256KiB block, physical envelope/index
+bounds, owned64MiB, job2MiB, cache/pins и аудиодопуски не увеличиваются.
+Проверяется весь сериализованный manifest до OPEN, не приблизительный размер
+или число сегментов. Decoder/reader/writer/legacy validator согласуют один
+предел, exact/limit+1 и allocation/failure проверки обязательны. Новая форма
+не принимается прежней exact regex через ослабление substring checks.
+Эта проектная поправка требует свежего независимого gate перед изменением
+кодека/потребителей; исторические приёмки4096B остаются историческими.
 
 ## 4. Commit, неопределённый результат и восстановление
 
@@ -420,6 +431,13 @@ index; direct historical barrier имеет отдельный validator ниж�
 Запись payload для target generation готовится
 до публикации. Это не изменение существующих logical v5 manifest/v3/v2 codecs.
 
+Уточнение владельца 2026-10-04: package-state имеет **ровно девять** top-level
+полей `schema`, `store_id`, `object_id`, `generation`, `directory_id`, `phase`,
+`reason`, `short_recording_discarded`, `refs`. Единственный ключ версии —
+`schema`, строка с точным schema string из таблицы. `schema_version`, aliases,
+unknown/missing/duplicate decoded keys отвергаются; правила других records
+и существующего logical v5 manifest этим уточнением не меняются.
+
 | Record / точный schema string | Остальные точные поля и типы |
 | --- | --- |
 | bootstrap / `graf.custody.bootstrap.v1` | store_id:id, object_id:id, generation:u64, mode:`migrating\|protected`, queue_object_id:id, transaction_id:id/null, subject:`queue\|package`/null, directory_id:identity/null |
@@ -583,3 +601,52 @@ UI/callback latency/SC003 и lifetime owned/MF memory peaks. App prerequisites
 [IStream](https://learn.microsoft.com/en-us/windows/win32/api/objidl/nn-objidl-istream),
 [MediaEngine byte stream](https://learn.microsoft.com/en-us/windows/win32/api/mfmediaengine/nf-mfmediaengine-imfmediaengineex-setsourcefrombytestream).
 Wire/authority/bounds выше — проект GRAF, не стандарт Microsoft.
+
+### Уточнение внутренней HTTP-интеграции T116 — 2026-10-10
+
+Конструкция без изменения wire/schema/лимитов: `../plan.md`, раздел «T116:
+защищённая HTTP-отправка и принятие результата». Применяются §5–7 выше.
+Network не исполняется на единственном storage worker; UI не владеет native
+inspection. Prepare changes и result truth/status публикуются каждый одним
+full candidate с adoption ACK. Existing retry/account/server-truth правила
+сохраняются. HTTP-body имеет одного charged immutable owner; request copies
+не копируют logical content и не продлевают неучтённую plaintext allocation.
+До независимого принятия конструкции и отказных RED production HTTP не меняется.
+
+### Start-owner/recovery T116 — 2026-10-16
+
+Spec Session 2026-10-16 и scoped plan той же даты заменяют прежнее добавление row
+лишь после seal: до первого блока existing protected v3 queue содержит original
+IDs/path/owner и quarantined/capture_prepared (known owner/proven-no-login),
+либо quarantined/capture_owner_unknown (unresolved auth, не signed-out).
+Это reserved bounded string values, не новые records/fields/status/schema.
+Full BOTH commit/readback/polling adoption обязательны до package preparation.
+Потеря auth/network не блокирует offline Record, но не создаёт no-login/claim.
+Known-unbound marker сохраняется до существующего explicit claim; unknown
+не назначается. Старые missing fields/row не получают ни один Start marker.
+Manifest/package-state/DPAPI wire не меняются; partial birth не исправляется.
+
+Finalizer/restart обновляют exact row без нового UUID/owner и не обходят
+server/deletion truth. Marker не даёт package/content/effect authority;
+normal требует full sealed inspection и обычный queue ACK. Early short-row
+retirement — только при genuine current BOTH positive intent, full semantic
+evidence, exact reservation, отсутствии server identities/ranges/attempts,
+deletion intent и ВСЕХ прочих aliases. Retire только её private candidate →
+commit/readback/adoption → неизменный no-queue-alias physical discard Round430.
+Ambiguous/Stop/lost poll сохраняют ownership/fence до reconciliation. Restart
+не выводит remove authority/ACK из одной отсутствующей row/path. Active/partial
+reservation закрыта от conflicting effects на worker, не только в UI.
+Это construction для независимого review, не новое ordinary delete permission.
+
+### Owned-degraded local playback после B (T116, 2026-10-16)
+
+Для exact original-owned quarantined/capture_prepared допустим local open только
+после verified-playable sealedDegraded display inspection. Display bool не даёт
+authority: storage worker заново проверяет queue/reservation/aliases/deletion,
+только sealedDegraded pair; executor получает прежний full inspection/AAC proof
+и использует тот же protected player. Current user/workspace, auth/document,
+active-session, command serial, retained-pair revalidation и actual drain fences
+сохраняются. Unknown/unowned/foreign/nonplayable/unfinished не включаются.
+Ни row/status/reason/owner/generation, ни Send/normal/upload authority не меняются.
+До source edit нужен отдельный scoped requirements/analyze gate по plan451;
+предыдущий B GO не является приёмкой этого пользовательского пути.

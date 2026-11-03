@@ -3,6 +3,7 @@
 #include "../Contracts/WindowsDesktopContracts.h"
 
 #include <mutex>
+#include <memory>
 #include <string>
 
 namespace graf::windows {
@@ -35,6 +36,11 @@ public:
     [[nodiscard]] ReasonCode reason() const noexcept { return reason_; }
 
 private:
+    friend class NativeCapture;
+    struct ActiveLease {
+        bool armed = false;
+        ~ActiveLease();
+    };
     [[nodiscard]] TransitionResult transition(SessionState next, ReasonCode reason);
     [[nodiscard]] static bool allowed(SessionState from, SessionState to) noexcept;
     void releaseActiveLeaseIfNeeded() noexcept;
@@ -42,7 +48,8 @@ private:
     std::string sessionId_;
     SessionState state_ = SessionState::idle;
     ReasonCode reason_ = ReasonCode::none;
-    bool ownsActiveLease_ = false;
+    // A native finalizer can retain this existing slot after the UI is gone.
+    std::shared_ptr<ActiveLease> activeLease_;
 
     static std::mutex activeLeaseMutex_;
     static bool activeLeaseHeld_;

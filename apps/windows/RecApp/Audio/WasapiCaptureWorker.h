@@ -14,6 +14,10 @@
 #include <mutex>
 #include <string>
 
+#ifdef _WIN32
+struct IAudioClock;
+#endif
+
 namespace graf::windows {
 
 class AudioNormalizer;
@@ -79,16 +83,43 @@ public:
     [[nodiscard]] CaptureClockDiagnostics clockDiagnostics() const noexcept;
 
 private:
+    friend class WindowsCaptureSessionController;
+    void joinStopped(); // Forced owner teardown only; ordinary Stop never joins.
     friend struct CaptureSessionTestPeer;
+    // Bound before Start; the controller joins this worker before destruction.
+    const std::atomic<std::uint64_t>* microphonePrivacyEpoch_ = nullptr;
+    [[nodiscard]] std::optional<std::uint64_t> capturePrivacyEpoch() const noexcept;
+    struct ResumeClockSample {
+        std::int32_t result = -1;
+        std::uint64_t position = 0, frequency = 0;
+        std::uint32_t sampleRate = 0;
+        std::uint64_t before100ns = 0, paired100ns = 0, after100ns = 0, qpcFrequency = 0;
+        std::chrono::system_clock::time_point wall{};
+        std::chrono::steady_clock::time_point steady{};
+    };
+    struct ResumeReceipt {
+        std::uint64_t expectedEpoch = 0;
+        std::chrono::system_clock::time_point wall{};
+        std::chrono::steady_clock::time_point steady{};
+    };
+    [[nodiscard]] std::optional<ResumeReceipt> resumeMicrophone(
+        const std::function<bool(const ResumeReceipt&, std::chrono::steady_clock::time_point)>& apply);
+    // Acquisition thread only, between released packets. The callback reads
+    // the existing stream clock; no COM interface crosses to the dispatcher.
+    void servicePrivacyResume(const std::function<ResumeClockSample()>& readClock);
+    [[nodiscard]] std::uint64_t resumeRequestSerial() const;
     // Shared by the native Stop call and fault-injection tests. Never clears
     // an earlier capture failure; published before the completion fence.
     void completeNativeStop(std::int32_t hresult) noexcept;
     // The device loop and packet regressions share copy/release/normalization.
     [[nodiscard]] bool consumePacket(ClockMapper& mapper, AudioNormalizer& normalizer,
         ClockObservation packet, const void* data, std::uint16_t channels, bool float32,
-        const std::function<CaptureReleaseResult(std::uint32_t)>& releaseBuffer);
+        const std::function<CaptureReleaseResult(std::uint32_t)>& releaseBuffer,
+        std::optional<std::uint64_t> privacyEpoch);
 #ifdef _WIN32
     [[nodiscard]] static std::wstring utf8ToWide(const std::string& value);
+    [[nodiscard]] static ResumeClockSample readResumeClockSample(
+        ::IAudioClock* clock, std::uint64_t frequency, std::uint32_t sampleRate);
 #endif
     // Tests replace only the device body, retaining the real thread, cancellation,
     // exception and completion lifecycle. No production device adapter is needed.

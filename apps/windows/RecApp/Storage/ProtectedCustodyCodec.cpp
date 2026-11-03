@@ -108,14 +108,33 @@ CustodyCodecResult<CustodyBytes> open(
     return nativeTransform(c, kind, selector, version, envelope.data() + envelopeHeader,
                             envelope.size() - envelopeHeader, plainLimit, false);
 }
+CustodyCodecResult<CustodyBytes> openBlockPayload(
+    const CustodyContext& c, std::uint64_t position, std::uint64_t version,
+    std::optional<std::uint32_t> expected, const CustodyBytes& envelope) {
+    const auto cap = expected.value_or(65536); // Only the migration-only entry infers a size.
+    if (!blockRequest(c, position, version, cap)) return failure<CustodyBytes>(Error::invalidInput);
+    auto result = open(c, blockKind, position, version, envelope, Codec::blockEnvelopeLimit(cap), blockHeader + cap);
+    if (!result.ok()) return result;
+    auto& plain = *result.value; WipeBytes wipe{plain};
+    if (!headerMatches(plain, "GRAFBL01", c, blockHeader) ||
+        get(plain, 48, 8) != position || get(plain, 56, 8) != version || get(plain, 68, 4) != 0)
+        return failure<CustodyBytes>(Error::invalidPlaintext);
+    const auto length = static_cast<std::uint32_t>(get(plain, 64, 4));
+    if (!length || length > cap || (expected && length != *expected) ||
+        plain.size() != blockHeader + length || !blockRequest(c, position, version, length) ||
+        envelope.size() > Codec::blockEnvelopeLimit(length)) return failure<CustodyBytes>(Error::invalidPlaintext);
+    const auto hash = digest(plain.data() + blockHeader, length);
+    if (!hash) return failure<CustodyBytes>(Error::hashFailed);
+    if (!std::equal(hash->begin(), hash->end(), plain.begin() + 72)) return failure<CustodyBytes>(Error::invalidPlaintext);
+    return {CustodyBytes(plain.begin() + blockHeader, plain.end()), Error::none, 0};
+}
 } // namespace
 
 std::uint64_t ProtectedCustodyCodec::logicalLimit(CustodyRole role) noexcept {
     switch (role) {
     case CustodyRole::canonical: case CustodyRole::media: case CustodyRole::playback: return std::uint64_t{64} << 30;
-    case CustodyRole::manifest: return 4096;
     case CustodyRole::queue: return 4 * 1024 * 1024;
-    case CustodyRole::recovery: case CustodyRole::packageState:
+    case CustodyRole::manifest: case CustodyRole::recovery: case CustodyRole::packageState:
     case CustodyRole::bootstrap: case CustodyRole::migrationIntent: return 64 * 1024;
     }
     return 0;
@@ -145,19 +164,14 @@ CustodyCodecResult<CustodyBytes> ProtectedCustodyCodec::sealBlock(
 CustodyCodecResult<CustodyBytes> ProtectedCustodyCodec::openBlock(
     const CustodyContext& c, std::uint64_t position, std::uint64_t version,
     std::uint32_t expected, const CustodyBytes& envelope) try {
-    if (!blockRequest(c, position, version, expected)) return failure<CustodyBytes>(Error::invalidInput);
-    auto result = open(c, blockKind, position, version, envelope, blockEnvelopeLimit(expected), blockHeader + expected);
-    if (!result.ok()) return result;
-    auto& plain = *result.value; WipeBytes wipe{plain};
-    if (plain.size() != blockHeader + expected || !headerMatches(plain, "GRAFBL01", c, blockHeader) ||
-        get(plain, 48, 8) != position || get(plain, 56, 8) != version ||
-        get(plain, 64, 4) != expected || get(plain, 68, 4) != 0)
-        return failure<CustodyBytes>(Error::invalidPlaintext);
-    const auto hash = digest(plain.data() + blockHeader, expected);
-    if (!hash) return failure<CustodyBytes>(Error::hashFailed);
-    if (!std::equal(hash->begin(), hash->end(), plain.begin() + 72))
-        return failure<CustodyBytes>(Error::invalidPlaintext);
-    return {CustodyBytes(plain.begin() + blockHeader, plain.end()), Error::none, 0};
+    return openBlockPayload(c, position, version, expected, envelope);
+} catch (const std::bad_alloc&) {
+    return failure<CustodyBytes>(Error::allocationFailed);
+}
+CustodyCodecResult<CustodyBytes> ProtectedCustodyCodec::openMigrationBirthBlock(
+    const CustodyContext& c, std::uint64_t version, const CustodyBytes& envelope) try {
+    if (c.role != CustodyRole::migrationIntent) return failure<CustodyBytes>(Error::invalidInput);
+    return openBlockPayload(c, 0, version, std::nullopt, envelope);
 } catch (const std::bad_alloc&) {
     return failure<CustodyBytes>(Error::allocationFailed);
 }

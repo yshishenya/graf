@@ -11,6 +11,11 @@ namespace graf::windows {
 
 template<class T> class CustodyAllocator;
 
+inline void wipeCustodyMemory(void* memory, std::size_t bytes) noexcept {
+    auto* target = static_cast<volatile unsigned char*>(memory);
+    for (std::size_t i = 0; i < bytes; ++i) target[i] = 0;
+}
+
 // Shared admission for packed native worker operations, including mutex wait.
 // The operation keeps its owner/buffers until actual synchronous completion.
 class CustodyNativeJob final {
@@ -70,6 +75,9 @@ private:
 // One process-wide charge for actual owned allocations, including capacity and
 // retained results. Not a pin/GC registry or proof of the still-unconnected
 // metadata/hash/upload/cache pipeline; native DPAPI/MF allocations are separate.
+// Complete the specialization before the inline counter: MSVC/LTCG otherwise
+// emits C4744 when another TU first instantiates this atomic as a class member.
+static_assert(alignof(std::atomic<std::size_t>) >= alignof(std::size_t));
 class CustodyOwnedMemory final {
 public:
     static constexpr std::size_t limit = 64 * 1024 * 1024;
@@ -100,6 +108,9 @@ public:
         catch (...) { CustodyOwnedMemory::bytes_.fetch_sub(bytes, std::memory_order_relaxed); throw; }
     }
     void deallocate(T* memory, std::size_t count) noexcept {
+        // Object lifetimes have ended; erase the entire retiring allocation,
+        // including former tails, before releasing storage or its charge.
+        wipeCustodyMemory(memory, count * sizeof(T));
         std::allocator<T>{}.deallocate(memory, count);
         CustodyOwnedMemory::bytes_.fetch_sub(count * sizeof(T), std::memory_order_relaxed);
     }

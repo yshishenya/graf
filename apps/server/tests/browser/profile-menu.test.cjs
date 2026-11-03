@@ -68,6 +68,45 @@ const origin = process.env.SETTINGS_PREVIEW_URL || 'http://127.0.0.1:8897';
         await page.keyboard.press('Escape');
         checks++;
       }
+      // Synthetic right-edge placement exercises the real fallback, including CSS zoom.
+      for (const zoom of [1, 2]) {
+        await page.setViewportSize({width: 1200, height: 620});
+        await page.mouse.move(1199, 619);
+        await page.goto(`${origin}/desktop/meetings?theme=light`);
+        await page.addStyleTag({content: `html { zoom: ${zoom}; } [data-profile-menu] { left: auto; right: 8px; }`});
+        const edgeTrigger = page.getByRole('button', {name: 'Открыть меню профиля', exact: true});
+        await edgeTrigger.click();
+        const edgeMenu = page.locator('[data-profile-menu]');
+        const edgeView = edgeMenu.locator('summary').filter({hasText: /^Вид$/});
+        await edgeView.click();
+        await page.waitForFunction(() => {
+          const details = document.querySelector('.sidebar-profile-menu__disclosure');
+          return details.open && (details.classList.contains('is-inline')
+            || details.querySelector('[data-profile-menu-submenu]').matches(':popover-open'));
+        });
+        const edge = await edgeView.evaluate(summary => {
+          const details = summary.closest('details');
+          return {open: details.open, inline: details.classList.contains('is-inline'),
+            anchor: summary.getBoundingClientRect().toJSON(),
+            panel: details.querySelector('[data-profile-menu-submenu]').getBoundingClientRect().toJSON(),
+            count: document.querySelectorAll('[data-profile-menu-submenu]:popover-open').length,
+            overflow: document.documentElement.scrollWidth > innerWidth};
+        });
+        assert(edge.open && !edge.inline, `${name} zoom=${zoom}: available left side must not become inline`);
+        assert(edge.anchor.right + 8 + edge.panel.width > 1192, 'right side does not fit');
+        assert(edge.anchor.left - edge.panel.width - 8 >= 8, 'left side fits');
+        assert.equal(edge.count, 1);
+        assert(Math.abs(edge.panel.right - (edge.anchor.left - 8)) <= 2, `${name}: panel opens left`);
+        assert(!edge.overflow && edge.panel.left >= 7 && edge.panel.right <= 1193
+          && edge.panel.top >= 7 && edge.panel.bottom <= 613);
+        await edgeView.press(name === 'webkit' ? 'Alt+Tab' : 'Tab');
+        assert(await page.evaluate(() => document.activeElement?.matches('input[name="theme"]')));
+        await page.keyboard.press('Escape');
+        assert(await edgeMenu.isHidden());
+        assert(await edgeTrigger.evaluate(el => el === document.activeElement));
+        assert.equal(await page.locator('[data-profile-menu-submenu]:popover-open').count(), 0);
+        checks++;
+      }
       for (const width of [1440, 375]) {
         await page.setViewportSize({width, height: 620});
         await page.goto(`${origin}/meetings?theme=light`);
@@ -80,6 +119,60 @@ const origin = process.env.SETTINGS_PREVIEW_URL || 'http://127.0.0.1:8897';
         await page.keyboard.press('Escape');
         assert(await page.locator('[data-profile-menu]').isHidden());
         checks++;
+      }
+      // Open-menu theme and keyboard parity, not native app or persistence proof.
+      for (const width of [1080, 375]) {
+        const styles = {};
+        for (const [theme, colorScheme] of [['light', 'light'], ['dark', 'dark'], ['system', 'light'], ['system', 'dark']]) {
+          await page.emulateMedia({colorScheme});
+          await page.setViewportSize({width, height: 620});
+          await page.mouse.move(width - 1, 619); // Do not let a previous pointer hover open the keyboard target.
+          assert.equal((await page.goto(`${origin}/desktop/meetings?theme=${theme}`)).status(), 200);
+          const trigger = page.getByRole('button', {name: 'Открыть меню профиля', exact: true});
+          await trigger.press('Enter');
+          const menu = page.locator('[data-profile-menu]');
+          const view = menu.locator('summary').filter({hasText: /^Вид$/});
+          await view.press('Enter');
+          await page.getByRole('radio', {name: /^Системная(?: ✓)?$/}).waitFor({state: 'visible'});
+          const appearance = await menu.evaluate(el => ({
+            background: getComputedStyle(el).backgroundColor, color: getComputedStyle(el).color
+          }));
+          if (theme === 'system') assert.deepEqual(appearance, styles[colorScheme], `${name}: system ${colorScheme}`);
+          else styles[theme] = appearance;
+          if (theme === 'dark') assert.notDeepEqual(styles.dark, styles.light, 'theme actually changes menu colors');
+          await view.press(name === 'webkit' ? 'Alt+Tab' : 'Tab');
+          assert(await page.evaluate(() => document.activeElement?.matches('input[name="theme"]:checked')));
+          await page.keyboard.press(theme === 'light' ? 'ArrowDown' : 'ArrowUp');
+          const selected = theme === 'dark' ? 'light' : 'dark';
+          await page.waitForFunction(value => document.querySelector('input[name="theme"]:checked')?.value === value
+            && document.documentElement.dataset.theme === value, selected);
+          await page.getByRole('button', {name: 'Повторить', exact: true}).waitFor({state: 'visible'});
+          // Error copy resizes the panel; wait for its ResizeObserver/rAF positioning.
+          const positioned = await page.waitForFunction(() => {
+            const el = document.querySelector('[data-profile-menu]');
+            const details = el.querySelector('.sidebar-profile-menu__disclosure');
+            const geometry = {menu: el.getBoundingClientRect().toJSON(), inline: details.classList.contains('is-inline'),
+              panel: details.querySelector('[data-profile-menu-submenu]').getBoundingClientRect().toJSON(),
+              overflow: document.documentElement.scrollWidth > innerWidth};
+            return !geometry.overflow && geometry.menu.top >= 7 && geometry.menu.bottom <= innerHeight - 7
+              && geometry.inline === (innerWidth === 375) && (geometry.inline ||
+                (geometry.panel.left >= geometry.menu.right - 2 && geometry.panel.right <= innerWidth - 7
+                  && geometry.panel.top >= 7 && geometry.panel.bottom <= innerHeight - 7)) ? geometry : false;
+          }, undefined, {timeout: 5000});
+          const geometry = await positioned.jsonValue();
+          await positioned.dispose();
+          assert(!geometry.overflow);
+          assert(geometry.menu.top >= 7 && geometry.menu.bottom <= 613);
+          assert.equal(geometry.inline, width === 375);
+          if (!geometry.inline) assert(geometry.panel.left >= geometry.menu.right - 2
+            && geometry.panel.right <= width - 7 && geometry.panel.top >= 7 && geometry.panel.bottom <= 613,
+            `${name} ${theme}/${colorScheme} ${width}: ${JSON.stringify(geometry)}`);
+          await page.keyboard.press('Escape');
+          assert(await menu.isHidden());
+          assert(await trigger.evaluate(el => el === document.activeElement));
+          assert.equal(await page.locator('[data-profile-menu-submenu]:popover-open').count(), 0);
+          checks++;
+        }
       }
       // Scrolling the owner row away must not leave a detached floating panel.
       await page.setViewportSize({width: 744, height: 300});
