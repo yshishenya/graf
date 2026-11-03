@@ -3,11 +3,13 @@
 
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
 import signal
 import stat
+import subprocess
 import sys
 import time
 import unicodedata
@@ -204,7 +206,172 @@ def verify(root, expected, client, bucket, *, deadline):
 
 
 def interrupted(number, frame):
-    raise InterruptedError("object_restore_interrupted")
+    # selectors used by subprocess/HTTP may swallow InterruptedError as a syscall retry.
+    raise RuntimeError("object_restore_interrupted")
+
+
+def cleanup_budget(manifest, notify_fd=None, *, expected_parent):
+    """Persist one host-monotonic deadline so supervisor loss cannot renew it."""
+    manifest = Path(manifest)
+    require(manifest.parent.resolve(strict=True) == manifest.parent and not manifest.is_symlink())
+    parent = os.open(manifest.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        private(os.fstat(parent), True)
+        info = os.fstat(parent)
+        require((info.st_dev, info.st_ino, info.st_uid) == expected_parent)
+        name = manifest.name + ".deadline"
+        try:
+            fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=parent)
+        except FileExistsError:
+            fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
+            with os.fdopen(fd) as stream:
+                before = os.fstat(stream.fileno())
+                private(before, False)
+                require(0 < before.st_size <= 128)
+                deadline = float(stream.read(128))
+                require(identity(os.fstat(stream.fileno())) == identity(before))
+        else:
+            deadline = time.monotonic() + 60
+            with os.fdopen(fd, "w") as stream:
+                stream.write(str(deadline))
+                stream.flush()
+                os.fsync(stream.fileno())
+        require(math.isfinite(deadline) and 0 < deadline <= time.monotonic() + 60)
+    finally:
+        os.close(parent)
+    notified = True
+    if notify_fd is not None:
+        require(stat.S_ISFIFO(os.fstat(int(notify_fd)).st_mode))
+        try:
+            os.write(int(notify_fd), (str(deadline) + "\n").encode("ascii"))
+        except BrokenPipeError:
+            notified = False
+    return deadline, notified
+
+
+def container_readback(root, manifest, bucket, image, user, password, *, deadline):
+    """Own one read-only SDK container; publish cleanup proof only after removal."""
+    require(re.fullmatch(r"twobrain-rec-restore-rehearsal-[0-9a-f]{32}", bucket)
+            and re.fullmatch(r"sha256:[0-9a-f]{64}", image))
+    manifest = Path(manifest)
+    private(manifest.parent.stat(), True)
+    require(manifest.is_absolute() and manifest.resolve(strict=True) == manifest)
+    marker = Path(str(manifest) + ".cleanup")
+    require(not marker.exists() and not marker.is_symlink())
+    manifest_identity = identity(manifest.lstat())
+    parent_identity = identity(manifest.parent.lstat())[:5]
+    expected = read_manifest(manifest)
+    name = "graf-rec-readback-" + bucket.rsplit("-", 1)[1]
+    label = "org.2brain.graf.restore-readback"
+    attempted = cli_unknown = stopped = False
+
+    def command(args, until):
+        nonlocal cli_unknown
+        remaining(until)
+        child = subprocess.Popen(["docker", *args], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        try:
+            output, _ = child.communicate(timeout=max(0.001, until - time.monotonic()))
+        except BaseException:
+            cli_unknown = True
+            try:
+                child.kill()
+            except ProcessLookupError:
+                pass
+            try:
+                child.communicate(timeout=max(0.001, min(3, until - time.monotonic())))
+                cli_unknown = False
+            except subprocess.TimeoutExpired:
+                pass
+            raise
+        require(child.returncode == 0)
+        remaining(until)
+        return output.decode("utf-8").strip()
+
+    def owned(until):
+        rows = json.loads(command(["container", "inspect", name], until))
+        require(isinstance(rows, list) and len(rows) == 1)
+        row = rows[0]
+        require(row["Name"] == "/" + name and row["Image"] == image
+                and row["Config"]["Labels"].get(label) == bucket
+                and re.fullmatch(r"[0-9a-f]{64}", row["Id"]))
+        return row
+
+    try:
+        require(file_manifest(root, deadline=deadline) == expected)
+        mounts = []
+        for source, target in ((root, "/source"), (manifest, "/manifest"),
+                               (Path(__file__).resolve(), "/checker.py"),
+                               (user, "/run/secrets/user"), (password, "/run/secrets/password")):
+            source = Path(source)
+            require(source.is_absolute() and source.resolve(strict=True) == source and "," not in str(source))
+            if target.startswith("/run/secrets/"):
+                fd = os.open(source, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+                try:
+                    info = os.fstat(fd)
+                    require(stat.S_ISREG(info.st_mode) and info.st_nlink == 1 and info.st_size > 0)
+                finally:
+                    os.close(fd)
+            mounts.extend(["--mount", f"type=bind,source={source},destination={target},readonly"])
+        attempted = True
+        created = command(["create", "--pull", "never", "--name", name, "--label", f"{label}={bucket}",
+                           "--network", "twobrain-rec-private", "--user", f"{os.geteuid()}:{os.getegid()}",
+                           "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
+                           *mounts, "--entrypoint", "python", image,
+                           "/checker.py", "verify", "/source", "/manifest", bucket], deadline)
+        row = owned(deadline)
+        require(created == row["Id"] and not row["State"]["Running"])
+        output = command(["start", "--attach", row["Id"]], deadline)
+        final = owned(deadline)
+        require(final["Id"] == row["Id"] and final["State"]["Running"] is False
+                and final["State"]["Status"] == "exited" and final["State"]["ExitCode"] == 0
+                and output == "object_restore_result=pass")
+        require(read_manifest(manifest) == expected)
+    finally:
+        # Finish our cleanup despite repeated stop signals, then reject the operation.
+        signal.alarm(0)
+        def remember_stop(number, frame):
+            nonlocal stopped
+            stopped = True
+        for number in (signal.SIGHUP, signal.SIGINT, signal.SIGTERM):
+            signal.signal(number, remember_stop)
+        require(identity(manifest.parent.lstat())[:5] == parent_identity)
+        cleanup_deadline, notified = cleanup_budget(
+            manifest, os.environ.get("GRAF_RESTORE_CLEANUP_FD"),
+            expected_parent=(parent_identity[0], parent_identity[1], parent_identity[3]))
+        stopped = stopped or not notified
+        signal.setitimer(signal.ITIMER_REAL, max(0.001, cleanup_deadline - time.monotonic()))
+        try:
+            require(not cli_unknown)
+            if attempted:
+                target = owned(cleanup_deadline)
+                command(["rm", "--force", target["Id"]], cleanup_deadline)
+                require(command(["container", "ls", "--all", "--quiet", "--no-trunc",
+                                 "--filter", f"name=^/{name}$"], cleanup_deadline) == "")
+            require(identity(manifest.lstat()) == manifest_identity
+                    and manifest.resolve(strict=True) == manifest)
+            parent_fd = os.open(manifest.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            try:
+                require(identity(os.fstat(parent_fd))[:5] == parent_identity)
+                fd = os.open(marker.name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                             0o600, dir_fd=parent_fd)
+                with os.fdopen(fd, "w") as stream:
+                    stream.write("container_cleanup=pass\n")
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                require(identity(manifest.parent.lstat())[:5] == parent_identity)
+            finally:
+                os.close(parent_fd)
+            remaining(cleanup_deadline)
+        finally:
+            signal.alarm(0)
+            for number in (signal.SIGHUP, signal.SIGINT, signal.SIGTERM):
+                signal.signal(number, interrupted)
+    require(not stopped)
+    require(file_manifest(root, deadline=deadline) == expected
+            and read_manifest(manifest) == expected
+            and identity(manifest.lstat()) == manifest_identity
+            and identity(manifest.parent.lstat())[:5] == parent_identity
+            and manifest.resolve(strict=True) == manifest)
 
 
 def main(argv):
@@ -229,15 +396,19 @@ def main(argv):
         elif action == "source":
             require(len(argv) == 3)
             require(file_manifest(root, deadline=deadline) == read_manifest(manifest))
+        elif action == "container":
+            require(len(argv) == 7)
+            container_readback(root, manifest, *argv[3:], deadline=deadline)
         else:
             require(action == "verify" and len(argv) == 4
                     and re.fullmatch(r"twobrain-rec-restore-rehearsal-[0-9a-f]{32}", argv[3]))
-            from minio import Minio
+            import minio
             import urllib3
 
+            require(minio.__version__ == "7.2.20" and urllib3.__version__ == "2.7.0")
             pool = urllib3.PoolManager(timeout=urllib3.Timeout(connect=5, read=15), retries=False)
             # Pin the local MinIO region: SDK region-cache HEAD redirects must not retry.
-            client = Minio("rec-minio:9000", secure=False, region="us-east-1",
+            client = minio.Minio("rec-minio:9000", secure=False, region="us-east-1",
                            access_key=Path("/run/secrets/user").read_text().strip(),
                            secret_key=Path("/run/secrets/password").read_text().strip(), http_client=pool)
             value = read_manifest(manifest)

@@ -24,7 +24,7 @@ description: "Список задач фичи 273 — готовность ан
    по O5–O8, со своим контейнером, корректной отменой и подтверждённым
    завершением. Callers scheduled/workflow сохраняют прежний договор.
 4. Полные профильные проверки shell/backup/snapshot, независимое code review,
-   convergence, собственный fragment `changes/unreleased/F273-object-readback.yaml`,
+   convergence, собственный fragment `changes/unreleased/F273.yaml`,
    exact-SHA PR и штатный выпуск. Перед реальной операцией — отдельные
    ресурсный допуск, две последовательные копии и cleanup каждой.
 
@@ -33,6 +33,20 @@ description: "Список задач фичи 273 — готовность ан
 независимое code review checker — scoped PASS после исправления gzip P1.
 Shell-интеграция, итоговое ревью всех файлов, convergence, PR и выпуск ещё
 не выполнены. [Доказательства](validation/t113-object-readback-validation-20261103.md).
+Текущий локальный результат03.11 после интеграции:165PASS/0FAIL/0skip,
+2warnings,201.27с pytest/exit0 на окончательном FD9-срезе;
+настоящий MinIO9сценариев/cleanupPASS на окончательных пяти хешах.
+Общий cleanup использует один сохраняемый абсолютный срок60с и унаследованный
+pipe; замена parent/manifest и неизвестное завершение не дают proof/PASS.
+[Отчёт интеграции](validation/t113-object-readback-integration-validation-20261103.md).
+Независимое окончательное ревью scoped PASS,P1=0/P2=0. Scoped convergence
+O1–O8 новых buildable gaps не выявила; полная F273 остаётся открытой.
+Frozen doctor в изолированной
+specify1.0.7 прошёл; общий development-process удерживает истёкшее исключение
+T098 (владелец03.11 выбрал полное закрытие T098 без продления;
+[история предложения и решение](validation/t098-expiry-decision-20261103.md)).
+Нового PR/выпуска и реального восстановления нет.
+
 Checkbox T113 и issue7804 остаются открытыми до полной
 исходной приёмки. Удаления backup и рабочая T0 не входят в этот кодовый срез.
 

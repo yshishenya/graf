@@ -45,6 +45,7 @@ def native(minio_image, sdk_image):
         (root / name).write_text("synthetic-user" if name == "user" else "synthetic-password")
         (root / name).chmod(0o600)
     token = uuid.uuid4().hex
+    reader_buckets = []
     network = container = None
     try:
         network = docker("network", "create", "--internal", "--subnet", "10.246.82.0/28",
@@ -69,16 +70,23 @@ def native(minio_image, sdk_image):
             time.sleep(0.2)
 
         def verify(bucket, manifest):
-            return docker("run", "--rm", "--pull", "never", "--network", network,
-                          "--user", f"{os.geteuid()}:{os.getegid()}", "--read-only",
-                          "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
-                          "--label", "graf.object-test=" + token,
-                          "-v", f"{source}:/source:ro", "-v", f"{manifest}:/manifest:ro",
-                          "-v", f"{CHECKER}:/checker.py:ro",
-                          "-v", f"{root / 'user'}:/run/secrets/user:ro",
-                          "-v", f"{root / 'password'}:/run/secrets/password:ro",
-                          "--entrypoint", "python", sdk_image,
-                          "/checker.py", "verify", "/source", "/manifest", bucket, check=False)
+            reader_buckets.append(bucket)
+            # Translate only the production network name into this fixture's own network.
+            bindir = root / "bin"
+            bindir.mkdir(mode=0o700, exist_ok=True)
+            launcher = bindir / "docker"
+            launcher.write_text("#!" + sys.executable + "\nimport os,sys\na=sys.argv[1:]\n"
+                                "if '--network' in a and a[a.index('--network')+1]=='twobrain-rec-private':\n"
+                                " a[a.index('--network')+1]=" + repr(network) + "\n"
+                                "os.execv(" + repr(shutil.which("docker")) + ",['docker',*a])\n")
+            launcher.chmod(0o700)
+            result = subprocess.run([sys.executable, str(CHECKER), "container", str(source), str(manifest),
+                                     bucket, sdk_image, str(root / "user"), str(root / "password")],
+                                    text=True, capture_output=True, timeout=40,
+                                    env={**os.environ, "PATH": str(bindir) + os.pathsep + os.environ["PATH"]})
+            assert Path(str(manifest) + ".cleanup").read_text() == "container_cleanup=pass\n"
+            assert not docker("ps", "-aq", "--filter", "label=org.2brain.graf.restore-readback=" + bucket).stdout.strip()
+            return result
 
         yield root, source, sdk, verify, lambda: docker("stop", "--time", "5", container)
     finally:
@@ -87,6 +95,11 @@ def native(minio_image, sdk_image):
             assert re.fullmatch(r"[0-9a-f]{12,64}", owned_id)
             docker("rm", "-fv", owned_id)
         assert not docker("ps", "-aq", "--filter", "label=graf.object-test=" + token).stdout.strip()
+        for bucket in reader_buckets:
+            ids = docker("ps", "-aq", "--filter", "label=org.2brain.graf.restore-readback=" + bucket).stdout.split()
+            for owned_id in ids:
+                docker("rm", "-fv", owned_id)
+            assert not docker("ps", "-aq", "--filter", "label=org.2brain.graf.restore-readback=" + bucket).stdout.strip()
         if network:
             docker("network", "rm", network)
             assert docker("network", "inspect", network, check=False).returncode != 0

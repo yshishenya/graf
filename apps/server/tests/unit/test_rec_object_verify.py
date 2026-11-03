@@ -3,6 +3,7 @@
 import gzip
 import importlib.util
 import io
+import json
 import os
 import signal
 import subprocess
@@ -115,6 +116,83 @@ def test_complete_readback_with_unicode_spaces_and_empty_file(checker, source):
     assert result == initial["files"]
     assert client.list_calls >= 2
     assert all(r.closed and r.released for r in client.responses)
+
+
+def test_repeated_interrupt_cannot_confirm_unsettled_docker_cli(checker, source, tmp_path, monkeypatch):
+    source = source.resolve()
+    manifest = tmp_path.resolve() / "manifest.json"
+    manifest.parent.chmod(0o700)
+    manifest.write_text(json.dumps(checker.file_manifest(source, deadline=time.monotonic() + 10)))
+    manifest.chmod(0o600)
+    secret = tmp_path.resolve() / "synthetic-secret"
+    secret.write_text("synthetic")
+    calls = []
+
+    class InterruptedCLI:
+        def __init__(self, args, **kwargs):
+            calls.append(args[1])
+
+        def communicate(self, **kwargs):
+            raise RuntimeError("synthetic repeated stop")
+
+        def kill(self):
+            calls.append("kill")
+
+    monkeypatch.setattr(checker.subprocess, "Popen", InterruptedCLI)
+    monkeypatch.setattr(checker.signal, "signal", lambda *args: None)
+    monkeypatch.setattr(checker.signal, "alarm", lambda seconds: None)
+    monkeypatch.setattr(checker.signal, "setitimer", lambda *args: None)
+    monkeypatch.delenv("GRAF_RESTORE_CLEANUP_FD", raising=False)
+    with pytest.raises(ValueError, match="object_restore_contract_mismatch"):
+        checker.container_readback(source, manifest, "twobrain-rec-restore-rehearsal-" + "a" * 32,
+                                   "sha256:" + "b" * 64, secret, secret, deadline=time.monotonic() + 10)
+    assert calls == ["create", "kill"]
+    assert not Path(str(manifest) + ".cleanup").exists()
+
+
+def test_cleanup_reuses_absolute_deadline_after_supervisor_loss(checker, tmp_path, monkeypatch):
+    parent = tmp_path.resolve()
+    parent.chmod(0o700)
+    info = parent.stat()
+    owner = (info.st_dev, info.st_ino, info.st_uid)
+    manifest = parent / "manifest.json"
+    monkeypatch.setattr(checker.time, "monotonic", lambda: 10)
+    assert checker.cleanup_budget(manifest, expected_parent=owner) == (70, True)
+    monkeypatch.setattr(checker.time, "monotonic", lambda: 25)
+    reader, writer = os.pipe()
+    os.close(reader)
+    try:
+        assert checker.cleanup_budget(manifest, writer, expected_parent=owner) == (70, False)
+    finally:
+        os.close(writer)
+    monkeypatch.setattr(checker.time, "monotonic", lambda: 90)
+    assert checker.cleanup_budget(manifest, expected_parent=owner) == (70, True)
+
+
+@pytest.mark.parametrize("invalid", ["nan", "inf", "garbage", "71", "symlink", "hardlink", "mode", "parent", "long"])
+def test_unknown_cleanup_deadline_is_rejected(checker, tmp_path, monkeypatch, invalid):
+    parent = tmp_path.resolve()
+    parent.chmod(0o700)
+    info = parent.stat()
+    owner = (info.st_dev, info.st_ino, info.st_uid)
+    manifest = parent / "manifest.json"
+    budget = parent / "manifest.json.deadline"
+    target = parent / "unrelated"
+    target.write_text("50")
+    target.chmod(0o600)
+    if invalid == "symlink":
+        budget.symlink_to(target)
+    elif invalid == "hardlink":
+        os.link(target, budget)
+    else:
+        budget.write_text("50" + " " * 128 if invalid == "long" else invalid if invalid not in {"mode", "parent"} else "50")
+        budget.chmod(0o644 if invalid == "mode" else 0o600)
+    if invalid == "parent":
+        owner = (info.st_dev, info.st_ino + 1, info.st_uid)
+    monkeypatch.setattr(checker.time, "monotonic", lambda: 10)
+    with pytest.raises((ValueError, OSError)):
+        checker.cleanup_budget(manifest, expected_parent=owner)
+    assert target.read_text() == "50"
 
 
 def test_gzip_metadata_never_substitutes_decoded_bytes(checker, tmp_path):

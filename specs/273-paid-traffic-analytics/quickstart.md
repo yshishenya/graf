@@ -9,6 +9,7 @@
 
 ```sh
 apps/server/.venv/bin/python -m pytest -q \
+  apps/server/tests/unit/test_rec_object_verify.py \
   apps/server/tests/integration/test_deployment_restore_safety.py \
   apps/server/tests/integration/test_deployment_backup_restore_rehearsal.py
 ```
@@ -25,11 +26,12 @@ same-size corruption, missing/extra и сетевой отказ. Fake Docker н
 apps/server/.venv/bin/python -m pytest -q apps/server/tests/unit/test_rec_object_verify.py
 python3 apps/server/tests/integration/test_deployment_object_restore.py \
   --minio-image sha256:460b46057cbcf8d01c2f7ceae9209290334b75dc1912235b10ad9bd35de056db \
-  --sdk-image sha256:b52eb3adc2991fa93ca66e626f3382428a41a9802e9f32e982333ee00e2ab83b
+  --sdk-image sha256:48a65586a6a6ceb9359372fabdb325a113f1f109709b3acfefd281ff8bf59959
 ```
 
 Снимок результатов и пределы приёмки:
-[проверка checker](validation/t113-object-readback-validation-20261103.md).
+[проверка checker](validation/t113-object-readback-validation-20261103.md),
+[интеграция](validation/t113-object-readback-integration-validation-20261103.md).
 После штатного выпуска отдельно проверяются обе выбранные копии с ресурсным
 допуском, cleanup и здоровьем продукта. T0/полная F273 и удаление38 не приняты.
 
