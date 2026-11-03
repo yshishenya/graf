@@ -58,9 +58,12 @@
   }
   const date = value => value ? new Intl.DateTimeFormat('ru',{day:'numeric',month:'long',year:'numeric',hour:'2-digit',minute:'2-digit'}).format(new Date(value)) : '';
   const emailValid = value => /^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/.test(value) && value.length <= 254;
+  let dialogEvents=null;
   function initDialog(dialog) {
     if (dialog.dataset.summaryReady === 'true') return;
     dialog.dataset.summaryReady='true';
+    dialogEvents?.abort();dialogEvents=new AbortController();
+    const eventSignal=dialogEvents.signal;
     const find = selector => dialog.querySelector(selector);
     const meetingId=dialog.dataset.meetingId, workspace=dialog.dataset.shareWorkspaceId || currentWorkspace;
     const base=`/api/v1/cabinet/meetings/${meetingId}/summary-sharing`;
@@ -73,6 +76,7 @@
     const formatControls=document.querySelector('[data-summary-format-controls]');
     const templateKey=()=>formatControls?.dataset.currentTemplateKey || formatControls?.dataset.currentSummaryFormatKey || 'meeting_minutes';
     find('[data-summary-share-format]').textContent=formatControls?.dataset.currentTemplateName || 'Выбранные итоги';
+    let general=null;
     let link=null, batch=null, auto=null, selected=[], busy=false, pollTimer=null, searchTimer=null, searchRevision=0, closed=false;
     const storageKey=`graf-summary-send:${actor}:${workspace}:${meetingId}`;
     let sendKey=null, frozenPayload=null, retryUnconfirmed=false;
@@ -80,7 +84,7 @@
     const setStatus=(text,error=false)=>{status.textContent=text;status.dataset.tone=error?'error':'neutral';};
     const rememberKey=value=>{sendKey=value;if(!value)frozenPayload=null;try{value?sessionStorage.setItem(storageKey,value):sessionStorage.removeItem(storageKey);}catch(_){}};
     function close() {
-      closed=true;clearTimeout(pollTimer);dialog.close();opener?.setAttribute('aria-expanded','false');opener?.focus({preventScroll:true});
+      restoreExport();closed=true;clearTimeout(pollTimer);dialog.close();opener?.setAttribute('aria-expanded','false');opener?.focus({preventScroll:true});
     }
     function tab(mode,focus=false) {
       dialog.querySelectorAll('[data-summary-share-tab]').forEach(button=>{
@@ -98,15 +102,19 @@
     dialog.addEventListener('cancel',event=>{event.preventDefault();close();});
     dialog.addEventListener('click',event=>{if(event.target===dialog)close();});
     dialog.addEventListener('close',()=>{closed=true;clearTimeout(pollTimer);});
-    function setBusy(value) {busy=value;copy.disabled=value;send.disabled=value;dialog.setAttribute('aria-busy',String(value));}
+    function setBusy(value) {busy=value;copy.disabled=value||general?.capabilities?.link===false;send.disabled=value;dialog.setAttribute('aria-busy',String(value));}
     async function action(fn) {
       if(busy)return;setBusy(true);setStatus('');
-      try {await fn();}catch(error){if(error.status===409){await loadLink();await loadAuto();}setStatus(errorText(error),true);}
+      try {await fn();}catch(error){if(error.status===409){await loadLink();await loadGeneral();await loadAccess();await loadAuto();}setStatus(errorText(error),true);}
       finally {setBusy(false);}
     }
     function renderLink(data) {
       link=['active','expired','replacement_required'].includes(data.state)?data:null;
       find('[data-summary-link-controls]').hidden=!link;
+      const full=data.content_scope==='full_meeting';
+      find('[data-sharing-link-label]').textContent=full?'Ссылка на встречу':'Ссылка на итоги';
+      find('[data-summary-link-action="update"]').hidden=full;
+      find('[data-sharing-update-description]').textContent=full?'По ссылке доступны текущие итоги, расшифровка и запись.':'Изменения итогов появятся по ссылке только после обновления.';
       const field=find('[data-summary-share-url]');field.value=data.share_url||'';
       find('[data-summary-share-url-label]').hidden=!data.share_url;
       find('[data-summary-share-expiry-date]').textContent=data.expires_at?`До ${date(data.expires_at)}`:'';
@@ -118,9 +126,13 @@
     copy.addEventListener('click',()=>action(async()=>{
       if(link?.state==='replacement_required'&&!window.confirm('Заменить ссылку? Прежняя ссылка перестанет работать.'))return;
       if(link?.state==='expired'&&!window.confirm('Продлить срок ссылки? Итоги снова станут доступны по прежнему адресу.'))return;
-      const options={template_key:templateKey(),expires_in_days:Number(find('[data-summary-share-expiry]').value)};
+      if (general?.audience !== 'link') {
+        if (!general) { setStatus('Обновите настройки доступа.',true); return; }
+        renderGeneral(await meetingAPI('/sharing/general-access',{method:'POST',body:{audience:'link',expected_fingerprint:general.fingerprint,content_scope:find('[data-sharing-scope]').value,template_key:templateKey(),expires_in_days:Number(find('[data-summary-share-expiry]').value)}}));
+      }
+      const options={template_key:templateKey(),content_scope:find('[data-sharing-scope]').value,expires_in_days:Number(find('[data-summary-share-expiry]').value)};
       const data=link&&link.state!=='active'?await api(link.state==='expired'?'/link/expiry':'/link/rotate',{method:'POST',body:{grant_id:link.grant_id,expected_version:link.version,...options}}):await api('/link',{method:'POST',body:options});
-      renderLink(data);
+      renderLink(data);await loadGeneral();
       if(data.state!=='active'||!data.share_url){setStatus('Ссылка пока недоступна. Проверьте её настройки.',true);return;}
       const shareURL=new URL(data.share_url,window.location.origin);
       if(!['https:','http:'].includes(shareURL.protocol)){setStatus('Ссылка пока недоступна.',true);return;}
@@ -132,7 +144,7 @@
       const confirmation={rotate:'Заменить ссылку? Прежняя ссылка перестанет работать.',revoke:'Отключить ссылку? Итоги по ней станут недоступны.',update:'Обновить итоги по ссылке? Получатели увидят выбранную редакцию.'};
       if(confirmation[operation]&&!window.confirm(confirmation[operation]))return;
       const data=await api(operation==='revoke'?'/link':`/link/${operation}`,{method:operation==='revoke'?'DELETE':'POST',body:{grant_id:link.grant_id,expected_version:link.version,template_key:templateKey(),expires_in_days:Number(find('[data-summary-share-expiry]').value)}});
-      renderLink(data);setStatus(operation==='revoke'?'Ссылка отключена':operation==='update'?'Итоги обновлены':'Настройки ссылки сохранены');
+      renderLink(data);await loadGeneral();setStatus(operation==='revoke'?'Ссылка отключена':operation==='update'?'Итоги обновлены':'Настройки ссылки сохранены');
     })));
     find('[data-summary-share-preview]').addEventListener('click',()=>action(async()=>{
       const preview=find('[data-summary-share-preview-content]');if(!preview.hidden){preview.hidden=true;return;}
@@ -225,8 +237,85 @@
     find('[data-summary-auto-enable]').addEventListener('click',()=>action(()=>saveAuto(true)));
     find('[data-summary-auto-disable]').addEventListener('click',()=>action(()=>saveAuto(false)));
     find('[data-summary-auto-cancel]').addEventListener('click',()=>action(async()=>{await api(`/batches/${auto.batch.batch_id}/cancel`,{method:'POST',body:{}});await loadAuto();setStatus('Отправка отменена');}));
+    const meetingBase=`/api/v1/cabinet/meetings/${meetingId}`;
+    const meetingAPI=(path,options={})=>request(meetingBase+path,{workspace,...options});
+    const audience=find('[data-sharing-audience]'), scope=find('[data-sharing-scope]');
+    const descriptions={invite_only:'Доступ есть только у приглашённых людей.',workspace:'Материалы смогут прочитать все участники вашего пространства.',link:'Любой человек с этой ссылкой сможет прочитать выбранные материалы без входа.'};
+    function renderGeneral(data) {
+      general=data;audience.value=data.audience;scope.value=data.content_scope;
+      for(const value of ['workspace','link']) {
+        const option=audience.querySelector(`[value="${value}"]`);
+        if(option)option.disabled=data.capabilities?.[value]===false;
+      }
+      copy.disabled=busy||data.capabilities?.link===false;
+      find('[data-sharing-audience-description]').textContent=descriptions[data.audience];
+      if(data.link)renderLink(data.link);
+    }
+    async function loadGeneral(){renderGeneral(await meetingAPI('/sharing/general-access'));}
+    audience.addEventListener('change',()=>action(async()=>{
+      const value=audience.value;
+      if(!general)return;
+      if(value!==general.audience&&!window.confirm(descriptions[value]+' Сохранить общий доступ?')){audience.value=general.audience;return;}
+      renderGeneral(await meetingAPI('/sharing/general-access',{method:'POST',body:{audience:value,expected_fingerprint:general.fingerprint,content_scope:scope.value,template_key:templateKey(),expires_in_days:Number(find('[data-summary-share-expiry]').value)}}));
+      setStatus('Общий доступ сохранён');
+    }));
+    scope.addEventListener('change',()=>action(async()=>{
+      const value=scope.value;
+      if(general?.audience==='invite_only'){setStatus('Этот состав будет опубликован после включения общего доступа.');return;}
+      if(!window.confirm(value==='full_meeting'?'Открыть получателям также расшифровку и запись?':'Оставить получателям только итоги?')){scope.value=general.content_scope;return;}
+      if(general?.audience==='link'&&link){renderLink(await api('/link/scope',{method:'POST',body:{grant_id:link.grant_id,expected_version:link.version,content_scope:value,template_key:templateKey()}}));await loadGeneral();}
+      else {renderGeneral(await meetingAPI('/sharing/general-access',{method:'POST',body:{audience:general.audience,expected_fingerprint:general.fingerprint,content_scope:value,template_key:templateKey()}}));}
+      setStatus('Состав материалов изменён');
+    }));
+    const accessList=find('[data-sharing-access-list]');
+    async function loadAccess(){
+      const data=await meetingAPI('/access');accessList.replaceChildren();
+      for(const grant of data.share.active_grants||[]){
+        const row=node('div',null,'share-viewer-row'), identity=node('span');identity.append(node('strong',grant.display_name),node('small',grant.content_scope==='full_meeting'?'Вся встреча':'Только итоги','muted'));row.append(identity);
+        const role=node('select');role.setAttribute('aria-label',`Права ${grant.display_name}`);
+        for(const [value,label] of [['summary','Только итоги'],['viewer','Просмотр встречи'],['commenter','Комментирование'],['editor','Редактирование']]){const option=node('option',label);option.value=value;role.append(option);}
+        role.value=grant.content_scope==='summary_only'?'summary':grant.can_edit?'editor':grant.can_comment?'commenter':'viewer';role.disabled=!data.share.can_manage_roles;
+        role.addEventListener('change',()=>action(async()=>{await meetingAPI(`/shares/${grant.grant_id}/permissions`,{method:'PATCH',body:{content_scope:role.value==='summary'?'summary_only':'full_meeting',can_comment:['commenter','editor'].includes(role.value),can_edit:role.value==='editor'}});await loadAccess();setStatus('Права изменены');}));
+        const revoke=node('button','Отозвать');revoke.type='button';revoke.addEventListener('click',()=>action(async()=>{await meetingAPI(`/shares/${grant.grant_id}`,{method:'DELETE'});await loadAccess();setStatus('Доступ отозван');}));row.append(role,revoke);accessList.append(row);
+      }
+      for(const invitation of data.share.active_invitations||[]){
+        const row=node('div',null,'share-viewer-row');row.append(node('span',invitation.display_label),node('small',invitation.status==='outcome_unknown'?'Отправка не подтверждена':'Приглашение отправлено','muted'));
+        const revoke=node('button','Отменить');revoke.type='button';revoke.addEventListener('click',()=>action(async()=>{await meetingAPI(`/share-invitations/${invitation.invitation_id}`,{method:'DELETE'});await loadAccess();setStatus('Приглашение отменено');}));row.append(revoke);accessList.append(row);
+      }
+    }
+    const person=find('[data-sharing-person]'), people=find('[data-sharing-people]');let chosen=null,peopleRevision=0,peopleTimer;
+    person.addEventListener('input',()=>{chosen=null;clearTimeout(peopleTimer);const revision=++peopleRevision;peopleTimer=setTimeout(async()=>{
+      try{const data=await api(`/recipients?query=${encodeURIComponent(person.value)}`);if(revision!==peopleRevision)return;
+        people.replaceChildren();for(const candidate of data.recipients||[]){const button=node('button',candidate.display_label===candidate.email?candidate.email:`${candidate.display_label} · ${candidate.email}`);button.type='button';button.setAttribute('role','option');button.addEventListener('click',()=>{chosen=candidate;person.value=candidate.email;people.hidden=true;person.setAttribute('aria-expanded','false');person.focus();});people.append(button);}
+        people.hidden=!people.children.length;person.setAttribute('aria-expanded',String(!people.hidden));
+      }catch(error){setStatus(errorText(error),true);}
+    },250);});
+    person.addEventListener('keydown',event=>{if(event.key==='ArrowDown'&&!people.hidden){event.preventDefault();people.querySelector('button')?.focus();}if(event.key==='Escape'&&!people.hidden){event.preventDefault();event.stopPropagation();people.hidden=true;person.setAttribute('aria-expanded','false');}});
+    people.addEventListener('keydown',event=>{const buttons=[...people.querySelectorAll('button')], index=buttons.indexOf(document.activeElement);if(['ArrowDown','ArrowUp'].includes(event.key)){event.preventDefault();buttons[(index+(event.key==='ArrowDown'?1:buttons.length-1))%buttons.length]?.focus();}if(event.key==='Escape'){event.preventDefault();event.stopPropagation();people.hidden=true;person.setAttribute('aria-expanded','false');person.focus();}});
+    const inviteRole=find('[data-sharing-invite-role]'),exportCheck=find('[data-sharing-invite-export]');
+    inviteRole.addEventListener('change',()=>{exportCheck.disabled=inviteRole.value==='summary';if(exportCheck.disabled)exportCheck.checked=false;});exportCheck.disabled=true;
+    find('[data-sharing-invite-form]').addEventListener('submit',event=>{event.preventDefault();action(async()=>{
+      if(!emailValid(person.value.trim())){setStatus('Введите почту или выберите человека из списка.',true);return;}
+      const role=inviteRole.value,body={content_scope:role==='summary'?'summary_only':'full_meeting',can_comment:role==='commenter'||role==='editor',can_edit:role==='editor',can_download:exportCheck.checked,can_export:exportCheck.checked};
+      if(chosen?.user_id){await meetingAPI('/shares',{method:'POST',body:{...body,audience_type:'user',audience_id:chosen.user_id}});setStatus('Доступ предоставлен');}
+      else {try{await meetingAPI('/share-invitations',{method:'POST',body:{...body,address:person.value.trim()}});setStatus('Приглашение отправлено');}catch(error){await loadAccess();throw error;}}
+      chosen=null;person.value='';await loadAccess();
+    });});
+    let exportForm=null,exportParent=null,exportNext=null;
+    function restoreExport(){if(exportForm&&exportParent){exportParent.insertBefore(exportForm,exportNext);exportForm.querySelectorAll('[data-sharing-export-hidden]').forEach(el=>{el.hidden=false;delete el.dataset.sharingExportHidden;});exportForm=null;}}
+    function mainTab(mode,focus=false){
+      if(mode!=='export')restoreExport();
+      dialog.querySelectorAll('[data-meeting-sharing-tab]').forEach(button=>{const active=button.dataset.meetingSharingTab===mode;button.setAttribute('aria-selected',String(active));button.tabIndex=active?0:-1;if(active&&focus)button.focus();});
+      dialog.querySelectorAll('[data-meeting-sharing-panel]').forEach(panel=>panel.hidden=panel.dataset.meetingSharingPanel!==mode);
+      if(mode==='export'&&!exportForm){exportForm=document.querySelector('[data-content-export-dialog] [data-content-export-form]');if(exportForm){exportParent=exportForm.parentNode;exportNext=exportForm.nextSibling;exportForm.querySelectorAll('.content-export-header,[data-export-dialog-cancel]').forEach(el=>{el.hidden=true;el.dataset.sharingExportHidden='true';});find('[data-sharing-export-host]').append(exportForm);find('[data-sharing-export-empty]').hidden=true;}}
+    }
+    dialog.querySelectorAll('[data-meeting-sharing-tab]').forEach(button=>{button.addEventListener('click',()=>mainTab(button.dataset.meetingSharingTab));button.addEventListener('keydown',event=>{if(['ArrowLeft','ArrowRight','Home','End'].includes(event.key)){event.preventDefault();mainTab(event.key==='Home'?'share':event.key==='End'?'export':button.dataset.meetingSharingTab==='share'?'export':'share',true);}});});
+    function place(){const rect=opener?.getBoundingClientRect();if(!rect)return;dialog.style.margin='0';dialog.style.position='fixed';dialog.style.left=`${Math.max(12,Math.min(window.innerWidth-dialog.offsetWidth-12,rect.right-dialog.offsetWidth))}px`;dialog.style.top=`${Math.max(12,Math.min(rect.bottom+8,window.innerHeight-dialog.offsetHeight-12))}px`;}
+    dialog.addEventListener('keydown',event=>{if(event.key==='Escape'&&!event.defaultPrevented){event.preventDefault();close();}});
+    document.addEventListener('pointerdown',event=>{if(dialog.open&&!dialog.contains(event.target)&&!opener?.contains(event.target))close();},{signal:eventSignal});
+    window.addEventListener('resize',()=>{if(dialog.open)place();},{signal:eventSignal});
     async function open(mode='link') {
-      closed=false;tab(mode);if(!dialog.open)dialog.showModal();title.focus({preventScroll:true});await loadLink();await loadAuto();
+      closed=false;tab(mode);if(!dialog.open)dialog.show();place();title.focus({preventScroll:true});try{await loadGeneral();await loadAccess();}catch(error){setStatus(errorText(error),true);}await loadAuto();place();
       if(sendKey)try{await checkBatch();}catch(error){setStatus(errorText(error),true);}
     }
     const requestedMode=opener?.dataset.summaryShareMode||'link';

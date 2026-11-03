@@ -54,6 +54,7 @@ from twobrain_rec_server.api.schemas import (
     MeetingShareInvitationResponse,
     OutcomeItemView,
     OutcomeSourceReferenceView,
+    PublicShareMeetingResponse,
     PublicShareSummaryResponse,
     RefreshSummaryTypeRequest,
     RetentionRunRequest,
@@ -2735,7 +2736,7 @@ async def resolve_login_required_share_link_route(
 
 @router.get(
     "/cabinet/public-shares/{share_token}",
-    response_model=PublicShareSummaryResponse,
+    response_model=PublicShareMeetingResponse | PublicShareSummaryResponse,
     operation_id="resolvePublicMeetingShare",
 )
 async def resolve_public_meeting_share_route(
@@ -2744,53 +2745,14 @@ async def resolve_public_meeting_share_route(
     workspace_id: Annotated[UUID, Query()],
     db: AsyncSession | None = PublicShareDbDependency,
 ) -> Response | PublicShareSummaryResponse:
+    from twobrain_rec_server.cabinet.public_sharing import (
+        full_projection,
+        reader_is_signed_in,
+        resolve_public_share,
+    )
     settings = request.app.state.settings
-    if (
-        not settings.share_public_links_enabled
-        or not settings.share_public_links_abuse_gate_approved
-        or db is None
-    ):
-        raise ProblemDetail(status=404, code="share_not_found", title="Share not found")
-    grant = await db.scalar(
-        select(MeetingShareGrant).where(
-            MeetingShareGrant.workspace_id == workspace_id,
-            MeetingShareGrant.audience_type == "link",
-            MeetingShareGrant.share_token_hash == hash_share_token(share_token),
-            MeetingShareGrant.status == "active",
-            MeetingShareGrant.content_scope == "summary_only",
-            (
-                MeetingShareGrant.expires_at.is_(None)
-                | (MeetingShareGrant.expires_at > datetime.now(UTC))
-            ),
-        )
-    )
-    if grant is None:
-        raise ProblemDetail(status=404, code="share_not_found", title="Share not found")
-    try:
-        meeting = await lock_shareable_meeting(
-            db, workspace_id=workspace_id, meeting_id=grant.meeting_id
-        )
-    except ProblemDetail:
-        raise ProblemDetail(status=404, code="share_not_found", title="Share not found") from None
-    grant = await db.scalar(
-        select(MeetingShareGrant)
-        .where(
-            MeetingShareGrant.id == grant.id,
-            MeetingShareGrant.workspace_id == workspace_id,
-            MeetingShareGrant.audience_type == "link",
-            MeetingShareGrant.share_token_hash == hash_share_token(share_token),
-            MeetingShareGrant.status == "active",
-            MeetingShareGrant.content_scope == "summary_only",
-            (
-                MeetingShareGrant.expires_at.is_(None)
-                | (MeetingShareGrant.expires_at > datetime.now(UTC))
-            ),
-        )
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
-    if grant is None:
-        raise ProblemDetail(status=404, code="share_not_found", title="Share not found")
+    meeting, grant, proof = await resolve_public_share(db, settings=settings, workspace_id=workspace_id, token=share_token)
+    grant.last_used_at = datetime.now(UTC)
     items = []
     outcome_set = await _shared_summary_outcome(db, meeting=meeting, grant=grant)
     if outcome_set is not None:
@@ -2813,27 +2775,37 @@ async def resolve_public_meeting_share_route(
         summary_sections=[{"category": item.category, "text": item.text or ""} for item in items],
     )
     projection = (await load_shared_summary_projection(db, workspace_id=meeting.workspace_id, meeting=meeting, grant=grant)) or projection
-    grant.last_used_at = datetime.now(UTC)
-    if "text/html" in request.headers.get("accept", "").lower():
-        display_title, display_time, uploaded = await shared_meeting_display_metadata(
-            db, meeting=meeting
-        )
-    if grant.published_summary_id:
-        display_title, display_time, uploaded = projection["meeting_label"], datetime.fromisoformat(str(projection["occurred_at"])), False
+    if grant.content_scope == "full_meeting":
+        from urllib.parse import urlencode, urlsplit
+
+        from twobrain_rec_server.cabinet.rendering import render_public_meeting_reader
+        projection = await full_projection(db, meeting=meeting, summary=projection, outcome_set=outcome_set, outcome_items=items)
+        await db.commit()
+        if "text/html" not in request.headers.get("accept", "").lower():
+            response = JSONResponse(content=PublicShareMeetingResponse.model_validate(projection).model_dump(mode="json"))
+        else:
+            base = f"/api/v1/cabinet/public-shares/{share_token}"
+            query = urlencode({"workspace_id":str(workspace_id)})
+            origin = urlsplit(str(settings.public_base_url))
+            scheme = "grafrec-dev" if origin.hostname in ("localhost", "127.0.0.1", "::1") else "grafrec"
+            native = scheme + "://shared-meeting?" + urlencode({"v":"1", "workspace_id":str(workspace_id), "share_token":share_token, "tab":"outcomes", "media_version":projection["media_version"]})
+            response = cabinet_html_response(render_public_meeting_reader(
+                projection=projection, embedded=request.headers.get("X-GRAF-Client", "").lower() == "desktop", authenticated=await reader_is_signed_in(request), playback_url=base+"/playback?"+query+"&media_version="+projection["media_version"],
+                continue_url=base+"/continue?"+query, native_url=native,
+                source_changed=bool(request.query_params.get("media_version") and request.query_params["media_version"] != projection["media_version"])))
+        _mark_share_secret_response(response)
+        return response
     await db.commit()
     if "text/html" in request.headers.get("accept", "").lower():
-        response = cabinet_html_response(
-            render_shared_meeting_summary_page(
-                meeting_title=display_title,
-                occurred_at=display_time,
-                time_is_upload=uploaded,
-                duration_seconds=int(projection["duration_seconds"]),
-                summary_sections=projection["summary_sections"],
-                protocol=projection["protocol"],
-                generator_version=outcome_set.generator_version if outcome_set else None,
-                authenticated=False,
-            )
-        )
+        from urllib.parse import urlencode, urlsplit
+
+        from twobrain_rec_server.cabinet.rendering import render_public_meeting_reader
+        base = f"/api/v1/cabinet/public-shares/{share_token}"
+        query = urlencode({"workspace_id":str(workspace_id)})
+        scheme = "grafrec-dev" if urlsplit(str(settings.public_base_url)).hostname in ("localhost", "127.0.0.1", "::1") else "grafrec"
+        response = cabinet_html_response(render_public_meeting_reader(projection=projection, embedded=request.headers.get("X-GRAF-Client", "").lower() == "desktop", authenticated=await reader_is_signed_in(request),
+            continue_url=base+"/continue?"+query,
+            native_url=scheme+"://shared-meeting?"+urlencode({"v":"1","workspace_id":str(workspace_id),"share_token":share_token,"tab":"outcomes"})))
         _mark_share_secret_response(response)
         return response
     return PublicShareSummaryResponse.model_validate(projection)
@@ -2886,7 +2858,7 @@ async def accept_meeting_share_invitation_route(
             raise ProblemDetail(
                 status=404, code="invitation_not_found", title="Invitation not found"
             )
-        if grant.content_scope == "full_meeting" and grant.can_download and grant.can_export and not (grant.published_summary_id or getattr(grant, "_shared_publication_override", None)):
+        if grant.content_scope == "full_meeting" and not (grant.published_summary_id or getattr(grant, "_shared_publication_override", None)):
             await db.commit()
             return RedirectResponse(
                 url=(f"/shared-meetings/{meeting.id}?workspace_id={workspace_id}"),
@@ -5078,6 +5050,7 @@ class CommentGrantPermissions(BaseModel):
     model_config = ConfigDict(extra="forbid")
     can_comment: bool
     can_edit: bool
+    content_scope: Literal["summary_only", "full_meeting"] | None = None
 
 
 @router.patch(
@@ -5112,10 +5085,8 @@ async def update_comment_grant_permissions(
         discussion.problem(422, "invalid_comment_permission")
     # An explicit role change includes granting the full meeting; a legacy
     # request cannot reach this endpoint without owner/editor authority.
-    scope = (
-        "full_meeting"
-        if payload.can_comment or payload.can_edit
-        else grant.content_scope
+    scope = payload.content_scope or (
+        "full_meeting" if payload.can_comment or payload.can_edit else grant.content_scope
     )
     validate_comment_grant(
         decision,
@@ -5124,6 +5095,9 @@ async def update_comment_grant_permissions(
         can_edit=payload.can_edit,
     )
     grant.content_scope = scope
+    if scope == "summary_only":
+        grant.can_download = grant.can_export = False
+    grant.publication_version += 1
     grant.can_comment = payload.can_comment
     grant.can_edit = payload.can_edit
     await record_egress_audit_event(
@@ -5163,3 +5137,55 @@ async def ensure_desktop_local_purge_task_route(
     )
     await db.commit()
     return task
+
+
+@router.get("/cabinet/public-shares/{share_token}/playback", response_class=StreamingResponse)
+async def play_public_meeting_audio(request: Request, share_token: str,
+    workspace_id: Annotated[UUID, Query()], media_version: Annotated[str, Query(pattern=r"^[0-9a-f]{24}$")],
+    range_header: Annotated[str | None, Header(alias="Range")] = None,
+    storage: object = StorageDependency, db: AsyncSession | None = PublicShareDbDependency):
+    from twobrain_rec_server.cabinet.public_sharing import public_access, resolve_public_share
+    meeting, grant, proof = await resolve_public_share(db, settings=request.app.state.settings,
+                                                     workspace_id=workspace_id, token=share_token)
+    if grant.content_scope != "full_meeting":
+        raise ProblemDetail(status=404, code="share_not_found", title="Share not found")
+    artifact = await playback_artifact(db, storage=storage, meeting=meeting, access=public_access(),
+          actor_user_id=None, device_id=None, range_header=range_header,
+          public_proof=proof, media_version=media_version)
+    await db.commit()
+    response = StreamingResponse(artifact.body, media_type=artifact.media_type,
+                                 status_code=artifact.status_code, headers=artifact.headers)
+    _mark_share_secret_response(response)
+    return response
+
+
+@router.get("/cabinet/public-shares/{share_token}/continue")
+async def continue_public_meeting(request: Request, share_token: str,
+    workspace_id: Annotated[UUID, Query()], action: Literal["sign-in", "sign-up"] = "sign-in",
+    tab: Literal["outcomes", "recording"] = "outcomes",
+    position_ms: Annotated[int | None, Query(ge=0,le=86400000)] = None,
+    media_version: Annotated[str | None, Query(pattern=r"^[0-9a-f]{24}$")] = None,
+    db: AsyncSession | None = PublicShareDbDependency):
+    from urllib.parse import urlencode
+
+    from twobrain_rec_server.cabinet.public_sharing import (
+        CONTINUATION_COOKIE,
+        resolve_public_share,
+        share_fragment,
+    )
+    from twobrain_rec_server.cabinet.summary_sharing import encryption_key, seal
+    await resolve_public_share(db, settings=request.app.state.settings, workspace_id=workspace_id, token=share_token)
+    if position_ms is not None and tab != "recording":
+        raise ProblemDetail(status=422, code="invalid_share_position", title="Некорректная позиция записи")
+    query = {"workspace_id":str(workspace_id)}
+    if media_version:
+        query["media_version"] = media_version
+    target = f"/api/v1/cabinet/public-shares/{share_token}?"+urlencode(query)
+    if tab != "outcomes" or position_ms is not None:
+        target += share_fragment(tab, position_ms)
+    cookie = seal(target, encryption_key(request.app.state.settings))
+    destination = "/sign-up" if action == "sign-up" else "/sign-in"
+    response = RedirectResponse(destination+"?"+urlencode({"next":"/shared-meeting/continue"}),status_code=303)
+    response.set_cookie(CONTINUATION_COOKIE, cookie, max_age=600, httponly=True, samesite="lax", secure=request.url.scheme=="https")
+    _mark_share_secret_response(response)
+    return response

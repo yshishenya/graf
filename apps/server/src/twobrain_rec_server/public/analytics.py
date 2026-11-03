@@ -543,7 +543,7 @@ def build_public_analytics_context(
         "page_path": path if surface else None,
         "surface": surface,
         "campaign_attribution": campaign_attribution,
-        "product_activation_bridge": build_public_bridge_context(campaign_attribution),
+        "product_activation_bridge": build_public_bridge_context(campaign_attribution, app_scheme="grafrec-dev" if urlparse(str(settings.public_base_url)).hostname in ("localhost", "127.0.0.1", "::1") else "grafrec"),
         "consent_states": list(public_analytics_consent_states()),
         "consent_transitions": {
             key: list(values) for key, values in public_analytics_consent_transitions().items()

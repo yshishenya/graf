@@ -7,7 +7,11 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from hashlib import sha256
+from typing import TYPE_CHECKING
 from uuid import UUID
+
+if TYPE_CHECKING:
+    from twobrain_rec_server.cabinet.public_sharing import PublicShareProof
 
 from anyio import to_thread
 from sqlalchemy import nullslast, select, tuple_
@@ -2081,10 +2085,12 @@ async def playback_artifact(
     storage: object,
     meeting: Meeting,
     access: AccessDecision,
-    actor_user_id: UUID,
-    device_id: UUID,
+    actor_user_id: UUID | None,
+    device_id: UUID | None,
     range_header: str | None = None,
     recipient_proof: ShareRecipientAccessProof | None = None,
+    public_proof: PublicShareProof | None = None,
+    media_version: str | None = None,
 ) -> PlaybackArtifact:
     locked_meeting = await lock_meeting_fence(
         db, workspace_id=meeting.workspace_id, meeting_id=meeting.id
@@ -2092,13 +2098,22 @@ async def playback_artifact(
     if locked_meeting is None:
         raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
     meeting = locked_meeting
-    access = await _refresh_egress_access(
-        db,
-        meeting=meeting,
-        access=access,
-        actor_user_id=actor_user_id,
-        recipient_proof=recipient_proof,
-    )
+    if public_proof is not None:
+        from twobrain_rec_server.cabinet.public_sharing import (
+            current_media,
+            public_access,
+            validate_public_proof,
+        )
+        if public_proof.meeting_id != meeting.id or public_proof.workspace_id != meeting.workspace_id or actor_user_id is not None:
+            raise ProblemDetail(status=404, code="share_not_found", title="Share not found")
+        await validate_public_proof(db, proof=public_proof, require_full=True)
+        _, current_version = await current_media(db, meeting=meeting)
+        if media_version != current_version:
+            raise ProblemDetail(status=409, code="shared_media_changed", title="Shared recording changed")
+        access = public_access()
+    else:
+        access = await _refresh_egress_access(db, meeting=meeting, access=access,
+            actor_user_id=actor_user_id, recipient_proof=recipient_proof)
     if meeting_deletion_active(meeting):
         await _record_playback_denied(
             db,
@@ -2170,9 +2185,10 @@ async def playback_artifact(
             offset=offset,
             length=length,
         )
-        response_body = iter(
-            (await _materialize_storage_stream(response_body, expected_length=length),)
-        )
+        if public_proof is None:
+            response_body = iter((await _materialize_storage_stream(response_body, expected_length=length),))
+        else:
+            response_body = _bounded_public_stream(response_body, expected_length=length)
     except (KeyError, ReviewAudioBuildError) as exc:
         reason = exc.reason if isinstance(exc, ReviewAudioBuildError) else "storage_unavailable"
         status = 503 if reason in {"storage_unavailable", "storage_timeout"} else 409
@@ -2201,6 +2217,7 @@ async def playback_artifact(
         metadata={
             "artifact_class": "audio",
             "viewer_access_state": access.state,
+            **({"share_grant_id": str(public_proof.grant_id)} if public_proof is not None else {}),
             "request_class": "playback",
             "source_mode": "stored_review_m4a",
         },
@@ -2932,3 +2949,22 @@ def _export_manifest(
     if summary_pin is not None:
         manifest["summary_revision"] = summary_pin
     return manifest
+
+
+def _bounded_public_stream(body, *, expected_length):
+    """Storage yields bounded chunks; validate length without buffering the representation."""
+    received = 0
+    try:
+        for chunk in body:
+            if not isinstance(chunk, bytes) or len(chunk) > 4 * 1024 * 1024:
+                raise ReviewAudioBuildError("storage_object_size_mismatch")
+            received += len(chunk)
+            if received > expected_length:
+                raise ReviewAudioBuildError("storage_object_size_mismatch")
+            yield chunk
+        if received != expected_length:
+            raise ReviewAudioBuildError("storage_object_size_mismatch")
+    finally:
+        close = getattr(body, "close", None)
+        if close:
+            close()

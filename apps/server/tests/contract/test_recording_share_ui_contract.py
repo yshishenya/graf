@@ -8,22 +8,24 @@ STATIC = REPO_ROOT / "apps/server/src/twobrain_rec_server/cabinet/static/cabinet
 TEMPLATES = REPO_ROOT / "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet"
 
 
-def test_share_fragment_is_summary_only_and_accessible() -> None:
+def test_share_fragment_exposes_explicit_materials_and_personal_roles_accessibly() -> None:
     html = render_template(
         "cabinet/fragments/meeting_share.html", meeting_id="synthetic-meeting",
         share_workspace_id=None, share=SimpleNamespace(),
     )
-    for text in ("Поделиться итогами", "По ссылке", "По почте", "Скопировать ссылку", "Отправить"):
+    for text in ("Поделиться встречей", "Экспорт", "Пригласить человека", "По ссылке", "По почте", "Скопировать ссылку", "Отправить"):
         assert text in html
-    assert 'aria-modal="true"' in html
+    assert 'aria-modal="false"' in html
     assert 'role="combobox"' in html
     assert 'role="listbox"' in html
     assert 'aria-controls="share-recipient-results-synthetic-meeting"' in html
     assert 'aria-live="polite"' in html
-    assert "Любой со ссылкой сможет прочитать итоги" in html
-    assert "Запись и расшифровка останутся закрыты" in html
+    assert "Итоги, расшифровка и запись" in html
+    assert "Только приглашённые" in html
+    assert "Все в пространстве" in html
+    assert "Любой со ссылкой" in html
     assert "can_download" not in html and "can_export" not in html
-    assert "Редактирование" not in html and "Комментирование" not in html
+    assert "Редактирование" in html and "Комментирование" in html
     assert 'data-summary-link-action="revoke"' in html
     assert 'data-summary-link-action="rotate"' in html
     assert 'data-summary-share-result hidden' in html
@@ -33,13 +35,14 @@ def test_only_one_sharing_handler_owns_dialog() -> None:
     legacy = (STATIC / "cabinet.js").read_text()
     script = (STATIC / "summary-sharing.js").read_text()
     assert 'dialog.hasAttribute("data-summary-share-dialog")' in legacy
-    assert "dialog.showModal()" in script and "opener?.focus" in script
+    assert "dialog.show()" in script and "opener?.focus" in script
     assert "navigator.clipboard.writeText" in script
     assert "data-summary-share-url" in script
     assert "idempotency_key:sendKey" in script
     assert "recipient.can_retry" in script
     assert "window.confirm" in script
-    assert "full_meeting" not in script
+    assert "expected_fingerprint:general.fingerprint" in script
+    assert "expected_version:link.version" in script
     assert "summary-sharing.js" in (TEMPLATES / "base.html").read_text()
 
 

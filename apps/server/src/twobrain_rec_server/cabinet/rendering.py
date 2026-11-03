@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
+from hashlib import sha256
 from html import escape
 from urllib.parse import parse_qs, urlencode, urlsplit
 from uuid import UUID
@@ -474,6 +475,7 @@ def _localized_shared_summary_sections(
         grouped[category].append(
             {
                 "text": text,
+                "sources": row.get("sources", []),
                 "owner_text": str(row.get("owner_text") or "").strip(),
                 "due_date_text": str(row.get("due_date_text") or "").strip(),
             }
@@ -1163,6 +1165,7 @@ def _render_meeting_detail_content(
     )
     return render_template(
         "cabinet/pages/meeting_detail_content.html",
+        share_media_version=(sha256(f"{review.provenance.media_revision_id or 'absent'}:{next((turn.processing_result_id for turn in review.transcript.speaker_turns if turn.processing_result_id), None) or 'absent'}".encode()).hexdigest()[:24] if shared_workspace_id is not None else ""),
         embedded=embedded,
         base_path=_base_path(embedded),
         meeting_title=review.meeting.title,
@@ -2634,7 +2637,7 @@ def _render_revision_status(review: MeetingReviewResponse) -> str:
     """
 
 
-def _render_full_protocol(document, *, source_destination_available: bool, base_heading_level: int = 3, source_targets: frozenset[tuple[str, str]] = frozenset()) -> str:
+def _render_full_protocol(document, *, source_destination_available: bool, base_heading_level: int = 3, source_targets: frozenset[tuple[str, str]] = frozenset(), public_sources: bool = False) -> str:
     def render_row(row):
         item = OutcomeItemView(
             category="summary", sequence=0, text=row.get("text", row.get("task")),
@@ -2643,7 +2646,10 @@ def _render_full_protocol(document, *, source_destination_available: bool, base_
                 **ref, seekable=(str(ref["processing_result_id"]), str(ref["transcript_segment_id"])) in source_targets,
             ) for ref in row.get("source_refs", [])],
         )
-        return _render_outcome_item(item, source_destination_available=source_destination_available)
+        rendered = _render_outcome_item(item, source_destination_available=source_destination_available)
+        if public_sources:
+            rendered += " ".join(f'<a class="notes-source-link" href="#recording?position_ms={int(ref["start_ms"])}" data-public-seek="{int(ref["start_ms"])}">{escape(str(ref["time"]))}</a>' for ref in row.get("sources", []))
+        return rendered
 
     heading = base_heading_level
     blocks = []
@@ -2977,3 +2983,18 @@ def _empty_body(review: MeetingReviewResponse) -> str:
 def _timecode(seconds: int) -> str:
     minutes, second = divmod(max(0, seconds), 60)
     return f"{minutes:02d}:{second:02d}"
+
+
+def render_public_meeting_reader(*, projection, playback_url=None, continue_url, native_url, source_changed=False, authenticated=False, embedded=False):
+    if isinstance(projection["occurred_at"], str):
+        projection = {**projection, "occurred_at":datetime.fromisoformat(projection["occurred_at"])}
+    return _page_shell(
+        projection["meeting_label"], embedded=embedded,
+        page_template="cabinet/pages/public_reader_shell.html",
+        content_template="cabinet/pages/shared_meeting_reader.html",
+        meeting=projection, full_meeting="transcript" in projection, summary_sections=_localized_shared_summary_sections(projection["summary_sections"]),
+        protocol_html=_render_full_protocol(projection["protocol"], source_destination_available=False,
+                                          base_heading_level=2, public_sources="transcript" in projection) if projection.get("protocol") else None,
+        playback_url=playback_url, continue_url=continue_url, native_url=native_url,
+        source_changed=source_changed, authenticated=authenticated,
+    )

@@ -1,0 +1,101 @@
+# F292 — независимое ревью требований
+
+Дата: 2026-11-03. Reviewer: `/root/sharing_requirements_review`. Основание — обязательный независимый просмотр из AGENTS.md, constitution §VI/Development Workflow и spec-kit-flow.md. Проверка только читаемых артефактов; продуктовый код, Git/GitHub, сборки, приложение и выпуск не изменялись.
+
+**Результат итоговой независимой проверки требований и tasks: PASS.** `security.md`: 7 checked / 0 unchecked; `ux.md`: 7 checked / 0 unchecked. Всего 14 checked / 0 unchecked. Пять первоначальных замечаний исправлены основным агентом и перечитаны reviewer. Созданный tasks.md повторно прочитан и согласован с требованиями/планом/контрактами. Независимый reviewer gate удовлетворён; analyze и issue sync проверяются основным агентом отдельно. Реализация и живая приёмка этим PASS не объявляются завершёнными.
+
+## Прочитанные источники
+
+- `spec.md`, `plan.md`, `research.md`, `data-model.md`, `contracts/sharing.md`, `quickstart.md` и оба reviewer-owned checklist F292.
+- `.specify/memory/constitution.md` v7.1.0: собственная инфраструктура/секреты, lifecycle и metadata-only evidence, §VI и §VII, независимое ревью.
+- `docs/agent-guidance/README.md`, `product-gates.md`, `spec-kit-flow.md`, `release-and-validation.md`.
+- `docs/prd-voice-layer-final.md` §22–23, §25 и §30; `docs/current-product-status.md` вводный статус и F125 direct invitation update. Исторический статус не использовался как приёмка F292.
+
+Первичная проверка выполнена до tasks.md, поскольку skill запрещает его генерацию до PASS checklist. После создания tasks.md выполнена отдельная итоговая сверка ниже. Порядок сохранён без обхода независимого reviewer gate.
+
+## Проверка каждого пункта
+
+| Пункт | Результат | Конкретное основание |
+|---|---|---|
+| SEC001 | checked | spec FR-003/004/006 и Clarifications задают explicit scope и summary_only legacy; data-model §MeetingShareGrant задаёт default/версию/стабильный token и отсутствие миграции в full. Смена общей аудитории отдельно рассмотрена как пробел SEC002. |
+| SEC002 | checked после исправления | Owner/Public API задают actor/tenant/CSRF/версию/fence и повторный resolver. Исправленный FR-024 и contracts §Атомарная общая аудитория закрывают F1: переключение отзывает несовместимые общие grants и сохраняет адресные права. |
+| SEC003 | checked | spec FR-008, US2.2–3; data-model §Публикация итогов/§Доказательство перечисляют разрешённые поля и запрещают owner impersonation; contracts Public API запрещает private поля и audio для summary_only. |
+| SEC004 | checked после исправления | Сроки/отзыв/замена/fence/headers заданы; исправленный FR-020 определяет полный200/no-Range и206/Range с буфером≤4MiB, FR-025 привязывает playback к media_version и409 при замене. F2/F3 закрыты требованиями. |
+| SEC005 | checked | US1.4, FR-005/019 и Clarifications запрещают отправку при поиске/выборе, членство при чтении и включение auto-send; data-model §Приглашения закрепляет текущую нормализацию/identity/CSRF/idempotency/unknown delivery. |
+| SEC006 | checked после исправления | TTL600/HttpOnly/SameSite/Secure, собственный origin/session и разделение схем заданы; исправленный FR-025/data-model/contracts задают token32..128 URL-safe ASCII, точный fragment и позицию0..86400000, запрет unknown/duplicate полей. F4 закрыто требованиями. |
+| SEC007 | checked | quickstart задаёт конкретные pytest/node/Swift группы и отрицательные/живые сценарии; plan отделяет no-deploy, exact-SHA PR checks и отдельный release gate. Отметка означает наличие требований к проверкам, не их выполнение. |
+| UX001 | checked | research таблица различает owner/anonymous/authenticated/app, отдельно исправляет ошибочное предположение об IAB, описывает ограничения исследования и отклонения GRAF. |
+| UX002 | checked после исправления | FR-017/018/023 измеряют геометрию/типографику/ширины/player; исправленный SC-001 считает audience/scope/copy после открытия Share. F5 закрыто. |
+| UX003 | checked | FR-010/011/016, US3 и contracts UX задают свободный просмотр, persistent header, начало своей встречи, безопасный вход/возврат и browser/install fallback. |
+| UX004 | checked | FR-019, Edge Cases и quickstart содержат network/loading/clipboard/stale409/empty/delivery unknown; Clarifications исключают несуществующие аудитории и неподтверждённые повышенные публичные роли. |
+| UX005 | checked | FR-013/023 и contracts UX определяют AA/фокус/Escape/labels/keyboard/no-JS/reduced-motion и 320/390/1440/light/dark; quickstart задаёт их приёмку на двух поверхностях. |
+| UX006 | checked | FR-014/016, research и contracts UX запрещают исходники/assets Krisp, используют собственные ресурсы и правдивую пользу GRAF, нейтральное приглашение вместо раскрытия имени/аватара владельца. |
+| UX007 | checked | US1–4 и quickstart пп.1–5 задают отдельную проверку owner/recipient, full/summary, export, адресные роли, F286 delivery, browser и единственный GRAF Dev. |
+
+## Первоначальные замечания (исправлены в повторной проверке)
+
+### F1 — HIGH: общая аудитория не имеет определённой машины состояний
+
+Доказательства: contracts/sharing.md:5 перечисляет существующие workspace grants, :23 — audience selector. spec Clarifications задают начальное «Только приглашённые», но ни spec/contract/data-model не говорят, какие старые общие grants закрываются при переключении.
+
+Требуется: явно определить, что general access — одно состояние из invited/workspace/link; переход под тем же fence отзывает прежний общий доступ и сохраняет конкретные адресные grants/invitations. «Только приглашённые» не оставляет workspace/public grant. Назвать пределы версии/409 для смены audience и не использовать обычное копирование как неявную смену. Если одновременно несколько общих аудиторий намеренны, нужен другой ясный интерфейс и согласованный spec, а не одиночный dropdown.
+
+### F2 — HIGH: ограничение 4 MiB на ответ ломает запрос без Range
+
+Доказательства: spec FR-020 требует до 4MiB на ответ, включая запрос без Range; contracts/sharing.md:11 допускает только 206/416 и cap. HTTP206 — частичный ответ на запрос диапазона; обычный запрос без Range должен получить полноценное представление 200. Обрезанный 200 не гарантирует догрузку, а unsolicited206 не является корректной обычной моделью воспроизведения.
+
+Требуется: ограничить память/буфер чтения, а не длину представления. Для no-Range определить полный 200 с ограниченным потоковым буфером; для Range — корректные 206/416 и тот же предел памяти. Либо обосновать иной совместимый протокол и его браузерную приёмку. Включить длинный файл >4MiB и no-Range в обязательные проверки. Не менять действующие пользовательские пути глобальным обходом ACL.
+
+### F3 — HIGH: временная ссылка не привязана к показанной версии аудио
+
+Доказательства: data-model.md:9 обещает текущий accepted transcript и отсутствие смешения версий; :13 proof содержит только grant/workspace/meeting/scope/version. contracts/sharing.md:11 проверяет доступ, но не совпадение медиа-версии на странице и у аудио. При замене принятого аудио между загрузкой страницы и seek по прежнему playback URL можно получить другое содержимое с прежними таймкодами.
+
+Требуется: закрепить согласованную медиа-версию для transcript/time links/playback текущей страницы; при несовпадении закрыть новый playback/seek и предложить обновить страницу (либо атомарно обновить весь набор). Указать проверку гонки source replacement, а не только tenant/result filtering одной загрузки.
+
+### F4 — HIGH: внешняя грамматика недоопределена
+
+Доказательства: data-model.md:17 — URL-safe token bounded length без числовых пределов; contracts/sharing.md:19 — точный native query, но без token bounds; :25 — «безопасный fragment» без точного syntax. Веб/Swift/login могут интерпретировать вкладку/время по-разному.
+
+Требуется: задать допустимый alphabet и min/max token length, точную каноническую грамматику fragment для tab/position, отсутствие/умолчания, дубликаты/unknown/percent encodings и одинаковый диапазон позиции. Зафиксировать преобразования web↔native↔return и отрицательные проверки. Это уточнение контракта, нового продуктового решения от пользователя не требует.
+
+### F5 — MEDIUM (блокирует UX002): предел действий не согласован с явным выбором
+
+Доказательства: SC-001 считает ≤3 явных действия после открытия страницы; contracts/sharing.md:23 задаёт open Share → audience → scope → copy, при начальном invite-only и явном выборе full требуется минимум четыре.
+
+Требуется: уточнить измеряемое начало/конец и отдельный сценарий для новой summary/full ссылки или изменить предел. Не убирать explicit full choice и безопасное начальное состояние ради метрики.
+
+## Повторная проверка
+
+Исправления выполняет основной агент только в требованиях/плане/контрактах. Reviewer повторно читает изменённое, отмечает только подтверждённые пункты и пересчитывает totals. После создания tasks сверяет зависимости/полноту, оставаясь в прежних правах только на checklist/report. До полного PASS, analyze и issue sync реализация high-risk F292 не начинается.
+
+
+## Повторная проверка исправлений
+
+Перечитаны свежие spec/plan/research/data-model/contracts/quickstart после сообщения основного агента об исправлениях; затем перечитаны оба изменённых checklist.
+
+- F1 закрыто требованиями FR-024 и contracts §Атомарная общая аудитория: ровно один общий режим, атомарный отзыв несовместимых grants, сохранение user grants/invitations, fingerprint64hex под fence и stale409. SEC002 → checked.
+- F2 закрыто FR-020, plan Performance Goals и contracts Public API: 4MiB — предел буфера потока, no-Range полный200, Range полный допустимый206; quickstart включает 200/206/416/буфер. SEC004 → checked по этому аспекту.
+- F3 закрыто FR-025/data-model/contracts: непрозрачная media_version текущего accepted media/result, каждый playback требует её, при замене409 до выдачи и предложение обновить. SEC004 → checked. При генерации tasks явно включить тест source replacement между показом transcript и следующим playback/seek.
+- F4 закрыто FR-025/data-model/contracts Native: token32..128 ASCII A-Z/a-z/0-9/_/-, exact fragment #outcomes/#recording/#recording?position_ms=N, integer0..86400000, неизвестные/повторные поля запрещены; TTL/схемы/собственный origin/session сохраняются. SEC006 → checked. Canonical parser implementation обязан трактовать пустой fragment как исходную вкладку и не превращать некорректный ввод в внешний redirect; точные тесты проверяются на следующем этапе.
+- F5 закрыто SC-001: ≤3 действия теперь отсчитываются после открытия окна Share и явно перечислены audience/scope/copy. UX002 → checked; безопасное начальное состояние и явный full choice сохранены.
+
+Уточнение для final tasks review: добавить явные no-Range и файл >4MiB, исходную media replacement гонку и все три перехода аудитории с сохранением адресных получателей. Это уже следует из требований, но не должно потеряться при разбиении работ. Связь media_version при переходе во встроенный кабинет должна исключать автоматическое применение прежнего времени к неожиданно заменённой записи: либо сверка версии, либо явное обновление/подтверждение актуального содержимого. Реализацию этого поведения сейчас не проверяли.
+
+
+## Итоговая независимая сверка tasks до реализации
+
+Повторно прочитаны все 13 строк T001–T013, раздел зависимостей, свежие spec/plan/contracts и оба checklist. Перечитано уточнение native/media_version в конце contracts. Проверен канон фрагмента `changes/unreleased/README.md`; основной агент исправил T011 на `changes/unreleased/F292.yaml`, исправление перечитано.
+
+| Требования / риск | Задачи и конкретное покрытие |
+|---|---|
+| FR-001/014/015, независимые требования/источник | T001, T012–T013: исследование/clarify/analyze/GitHub до кода, финальная сверка/живые доказательства |
+| FR-002–006/017/019/022/024, owner/аудитории/совместимость | T002 до T003: все переходы invite_only/workspace/link, сохранение адресных прав, stale409/tenant/CSRF/legacy. T007: окно/роли/отзыв/export и F286 email/auto/idempotency/unknown |
+| FR-007–009/012/020/025, публичная граница и аудио | T004 до T005: summary-only/чужие workspace/result, все способы закрытия, media replacement между страницей и playback, файл>4MiB no-Range200/Range206/416/headers/анонимный audit. T005: resolver/fence/accepted result/version409/буфер без materialize |
+| FR-007/008/013/018/019/022/023, reader/доступность | T006: tabs/copy/search/таймкоды/player/empty, размеры/темы/keyboard/no-JS с предметными contract/browser проверками; T012 — живая приёмка |
+| FR-010/011/016/021, добровольное вовлечение и возврат | T008: первое приглашение/шапка/своя встреча/browser/install, encrypted cookieTTL600, safe return/expiry/tamper/no membership |
+| FR-010/021/025, внешние URI/сессия/позиция | T009 до T010: strict parser, bounds/unknown/duplicate/credentials/origin, pending cold/warm, own session, full route, схемы Dev/production и attribution. media_version переносится, при замене нет автоматического старого seek; это теперь явно закреплено и contracts |
+| SC-001–005 и final gates | T011–T013: focused checks, канонический русский changelog, exact-SHA Dev/browser матрица, converge/review/PR checks и честная сверка tracker. no deploy сохранён |
+
+Зависимости согласованы: основа доступа до reader; reader до owner/вовлечения; native tests до реализации перехода; итоговые focused/live/PR проверки после всех историй. Общие файлы не объявлены параллельными `[P]`. Все четыре пользовательские истории имеют отдельную независимую проверку; завершение одной истории не выдаётся за выполнение всего запроса. Продуктовая реализация ещё не проверялась.
+
+**Повторный подсчёт после перечитывания:** security 7 checked / 0 unchecked; ux 7 checked / 0 unchecked. Всего14/0. Блокирующих пробелов качества требований/планирования в проверенном наборе не осталось. Окончательная приёмка кода/поведения, analyze и GitHub-state этим отчётом не подменяются.

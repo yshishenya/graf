@@ -1,0 +1,42 @@
+<div class="public-reader" data-public-sharing data-media-version="{{ meeting.media_version|default('') }}" data-authenticated="{{ 'true' if authenticated else 'false' }}" data-source-changed="{{ 'true' if source_changed else 'false' }}">
+  <a class="skip-link" href="#cabinet-main">К содержимому</a>
+  <header class="public-reader__header">
+    <a href="{{ '/desktop/meetings' if embedded else '/' }}" class="public-reader__brand" aria-label="GRAF — главная"><img src="{{ cabinet_static_url }}/graf-icon.png" width="32" height="32" alt=""><strong>GRAF</strong><span>Запись, расшифровка и итоги встреч</span></a>
+    <nav aria-label="Начать пользоваться GRAF">{% if authenticated %}<a class="button primary" href="{{ '/desktop/meetings' if embedded else '/meetings' }}">Мои встречи</a>{% else %}<a data-public-auth="sign-in" href="{{ continue_url }}&amp;action=sign-in">Войти</a><a class="button primary" data-public-auth="sign-up" href="{{ continue_url }}&amp;action=sign-up">Начать пользоваться GRAF</a>{% endif %}</nav>
+  </header>
+  <main id="cabinet-main" class="public-reader__main" tabindex="-1">
+    <p class="eyebrow">С вами поделились встречей</p>
+    <h1>{{ meeting.meeting_label }}</h1>
+    <p class="muted">{{ user_time_element(meeting.occurred_at, show_zone=True) }} · {{ meeting.duration_seconds // 60 }} мин</p>
+    <div class="public-reader__toolbar">
+      <div class="public-reader__tabs" aria-label="Материалы встречи">
+        <a href="#outcomes" data-public-tab="outcomes">Итоги</a>
+        {% if full_meeting %}<a href="#recording" data-public-tab="recording">Расшифровка</a>{% endif %}
+      </div>
+      <button type="button" class="button quiet" data-public-copy hidden>Копировать</button>
+      <details class="public-reader__more"><summary aria-label="Действия со встречей">Ещё</summary><div><button type="button" data-public-copy-link>Скопировать ссылку</button><a href="{{ native_url }}" data-public-native{% if embedded %} hidden{% endif %}>Открыть в GRAF</a>{% if not embedded %}<a href="/download">Установить GRAF</a>{% endif %}</div></details>
+    </div>
+    <p role="status" aria-live="polite" data-public-status></p>
+    {% if source_changed %}<aside class="public-reader__notice" role="status">Запись обновилась. Старая позиция не применена. <button type="button" data-public-refresh>Слушать новую запись с начала</button></aside>{% endif %}
+    <section id="outcomes" data-public-panel="outcomes" aria-label="Итоги встречи">
+      {% if protocol_html %}{{ protocol_html | safe }}{% elif summary_sections %}
+        {% for section in summary_sections %}<article><h2>{{ section.label }}</h2>{% for item in section['items'] %}<p>{{ item.text }}{% for source in item.sources|default([]) %} <a href="#recording?position_ms={{ source.start_ms }}" data-public-seek="{{ source.start_ms }}">{{ source.time }}</a>{% endfor %}</p>{% endfor %}</article>{% endfor %}
+      {% else %}<div class="public-reader__empty"><h2>Итоги пока не подготовлены</h2><p>Расшифровка и запись доступны на соседней вкладке, если владелец уже подготовил их.</p></div>{% endif %}
+    </section>
+    {% if full_meeting %}<section id="recording" data-public-panel="recording" aria-label="Расшифровка встречи">
+      <label class="public-reader__search" data-public-search-label hidden>Найти в расшифровке<input type="search" placeholder="Поиск по словам" data-public-search><span role="status" data-public-search-count></span></label>
+      <div data-public-transcript>{% for turn in meeting.transcript %}
+        <article class="public-reader__turn" data-public-turn data-start-ms="{{ turn.start_ms }}" data-end-ms="{{ turn.end_ms }}">
+          <div><strong>{{ turn.speaker }}</strong><a href="#recording?position_ms={{ turn.start_ms }}" data-public-seek="{{ turn.start_ms }}" aria-label="К записи {{ turn.time }}">{{ turn.time }}</a></div><p>{{ turn.text }}</p>
+        </article>
+      {% else %}<div class="public-reader__empty"><h2>Расшифровка пока недоступна</h2><p>Владелец встречи сможет поделиться ей после обработки.</p></div>{% endfor %}</div>
+    </section>
+    {% endif %}<aside class="public-reader__cta"><strong>Следующая встреча — с GRAF</strong><p>Сохраняйте запись, находите нужные слова и делитесь решениями с коллегами.</p><a class="button primary" href="{{ '/desktop/meetings' if embedded else '/meetings' if authenticated else '/sign-up?next=%2Fmeetings' }}">Начать со своей встречи</a></aside>
+    <aside class="public-reader__app-help" data-public-app-help hidden><strong>Переход в приложение</strong><p>Подтвердите открытие GRAF в браузере. Если приложение не открылось, продолжайте читать здесь или установите GRAF.</p><a href="/download">Установить GRAF</a><button type="button" data-public-app-dismiss>Продолжить в браузере</button></aside>
+  </main>
+  {% if full_meeting and meeting.playback_available and playback_url %}<footer class="public-reader__player" aria-label="Запись встречи">
+    <audio controls preload="none" src="{{ playback_url }}" data-public-audio aria-label="Аудиозапись встречи"></audio>
+    <div data-public-player-controls hidden><button type="button" data-public-skip="-15" aria-label="Назад на 15 секунд">−15 с</button><button type="button" data-public-skip="15" aria-label="Вперёд на 15 секунд">+15 с</button><label>Скорость<select data-public-speed><option value="0.75">0,75×</option><option value="1" selected>1×</option><option value="1.25">1,25×</option><option value="1.5">1,5×</option><option value="2">2×</option></select></label></div>
+  </footer>{% elif full_meeting %}<p class="public-reader__audio-empty muted">Аудиозапись пока недоступна.</p>{% endif %}
+  <dialog class="public-reader__welcome" data-public-welcome aria-labelledby="public-welcome-title"><button type="button" class="icon-button" data-public-welcome-close aria-label="Закрыть приглашение">×</button><img src="{{ cabinet_static_url }}/graf-icon.png" width="48" height="48" alt=""><p class="eyebrow">GRAF</p><h2 id="public-welcome-title">С вами поделились встречей</h2><p>{% if full_meeting %}Прочитайте итоги, найдите нужный момент в расшифровке и послушайте запись.{% else %}Прочитайте решения и задачи. В GRAF вы сможете сохранять итоги и своих встреч.{% endif %}</p><a class="button primary" data-public-auth="sign-up" href="{{ continue_url }}&amp;action=sign-up">Начать пользоваться GRAF</a><button type="button" class="button quiet" data-public-welcome-close>Посмотреть встречу</button></dialog>
+</div>

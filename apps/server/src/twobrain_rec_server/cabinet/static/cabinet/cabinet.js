@@ -2356,7 +2356,7 @@
       });
     });
     if (window.location.hash === "#outcomes") activateDetailTab("outcomes", { updateUrl: false });
-    if (window.location.hash === "#recording") activateDetailTab("recording", { updateUrl: false });
+    if (/^#recording(?:\?position_ms=[0-9]{1,8})?$/.test(window.location.hash)) activateDetailTab("recording", { updateUrl: false });
   };
 
   const processingOwnsField = (object, field) => (
@@ -5615,6 +5615,25 @@
         if (live) live.textContent = `Открыт источник ${formatTime(seconds)} в расшифровке.`;
       });
     });
+    const sharedMain = document.querySelector('[data-share-media-version]');
+    if (sharedMain?.dataset.shareMediaVersion) {
+      const fragment = /^#recording(?:\?position_ms=([0-9]{1,8}))?$/.exec(window.location.hash);
+      const expected = new URLSearchParams(window.location.search).get('media_version');
+      const changed = expected && expected !== sharedMain.dataset.shareMediaVersion;
+      if (changed) {
+        const notice = document.createElement('aside');notice.className='public-reader__notice';notice.setAttribute('role','status');
+        notice.append(document.createTextNode('Запись обновилась. Старая позиция не применена. '));
+        const refresh=document.createElement('a');refresh.textContent='Открыть новую запись с начала';
+        const target=new URL(window.location.href);target.searchParams.delete('media_version');target.hash='recording';refresh.href=target.href;notice.append(refresh);sharedMain.prepend(notice);
+      } else if (fragment?.[1] && Number(fragment[1]) <= 86400000) {
+        const seconds=Number(fragment[1])/1000,player=document.querySelector('[data-playback-player]');
+        const apply=()=>{try{player.currentTime=Math.max(0,Math.min(Number.isFinite(player.duration)?player.duration:seconds,seconds));}catch(_){reportPlaybackFailure(player);}};
+        if(player){if(player.readyState>=1)apply();else player.addEventListener('loadedmetadata',apply,{once:true});}
+        const turns=[...sharedMain.querySelectorAll('[data-transcript-turn]')];
+        const turn=turns.find(row=>Number(row.dataset.startSeconds)<=seconds&&Number(row.dataset.endSeconds)>seconds);
+        if(turn)window.requestAnimationFrame(()=>{scrollTranscriptTurnIntoView(turn);turn.focus({preventScroll:true});});
+      }
+    }
     const sourceId = new URLSearchParams(window.location.hash.slice(1)).get("graf-source");
     if (sourceId) {
       const target = Array.from(document.querySelectorAll("[data-transcript-turn]")).find(

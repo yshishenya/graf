@@ -1914,6 +1914,22 @@ class PublicShareSummaryResponse(BaseModel):
     protocol: dict[str, Any] | None = None
 
 
+class PublicTranscriptTurn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    speaker: str
+    text: str
+    start_ms: int = Field(ge=0)
+    end_ms: int = Field(ge=0)
+    time: str
+
+
+class PublicShareMeetingResponse(PublicShareSummaryResponse):
+    model_config = ConfigDict(extra="forbid")
+    transcript: list[PublicTranscriptTurn]
+    media_version: str = Field(pattern=r"^[0-9a-f]{24}$")
+    playback_available: bool
+
+
 class MeetingAccessState(BaseModel):
     can_comment: bool = False
     can_edit: bool = False
