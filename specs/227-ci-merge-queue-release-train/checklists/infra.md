@@ -1,15 +1,136 @@
 # Infrastructure Checklist: CI merge queue и provenance release train
 
-**Purpose**: Reviewer-owned infrastructure gate
+**Purpose**: Reviewer-owned infrastructure requirements-quality gate
 
-- [ ] Event-specific target and base SHA contract is complete.
-- [ ] `merge_group` synthetic checkout is fail-closed and traceable to PRs.
-- [ ] Concurrency keys cancel only superseded logical targets.
-- [ ] Cancellation and stale evidence cannot satisfy a required check.
-- [ ] Final tracked/untracked cleanliness runs after all artifact generation.
-- [ ] Receipts are metadata-only and schema-validated.
-- [ ] Release train separates synthetic SHA from post-merge release SHA.
-- [ ] Exactly one authoritative Full CI is accepted per frozen candidate.
-- [ ] Actions/branch protection changes remain operator-owned after merge.
+- [x] Event-specific target and base SHA contract is complete.
+- [x] `merge_group` synthetic checkout is fail-closed and traceable to PRs.
+- [x] Concurrency keys cancel only superseded logical targets.
+- [x] Cancellation and stale evidence cannot satisfy a required check.
+- [x] Final tracked/untracked cleanliness runs after all artifact generation.
+- [x] Receipts are metadata-only and schema-validated.
+- [x] Release train separates synthetic SHA from post-merge release SHA.
+- [x] Exactly one authoritative Full CI is accepted per frozen candidate.
+- [x] Actions/branch protection changes remain operator-owned after merge.
 
 Implementation agents MUST NOT mark these boxes complete.
+
+## Текущий срез T032–T033: качество требований
+
+- [x] CHK010 Различены ли действующие serial условия и будущая приёмка native queue без объявления T029/T031 завершёнными? [Completeness, Spec §Уточнения, FR-009]
+- [x] CHK011 Определено ли обязательное base → actual source независимо от synthetic, включая недоступную историю и отсутствие выходных записей при отказе? [Clarity, FR-011, SC-007]
+- [x] CHK012 Разделены ли доказательства изолированного Git fixture, настоящих PR проверок и выпуска? [Consistency, Plan §Текущий срез, Quickstart]
+- [x] CHK013 Указана ли воспроизводимая pinned Python matrix и предел её применимости? [Traceability, Research §R8, SC-006]
+
+## Независимое ревью 2026-10-17
+
+Результат: **13 checked / 0 unchecked**. Проверено качество требований перед
+реализацией T032–T033, а не завершение инфраструктуры F227. Пункты 1–9 читаются
+как требования к соответствующим защитам; доказательства и ограничения каждого
+пункта приведены в [отчёте](../review-provenance-20261017.md).
+
+На момент предреализационного ревью FR-011/SC-007 задавали исправление отказа:
+связь base с synthetic могла ошибочно заменить связь с source. Результат
+последующей независимой проверки исправления приведён ниже. T029/T031, настоящая очередь, три проверки будущего
+PR и выпуск этим ревью не подтверждены. Исходные открытые tasks сохранены.
+
+## Независимая проверка реализации T033
+
+Минимальный diff и новая регрессия проверены; actionable findings **0**.
+Независимый прогон `test_release_train.py`: **9 passed / 21.15 s**; shell syntax
+и самопроверка train validator — PASS. Прежние schema/CLI/PR/Full CI/current/
+cleanliness gates сохранены. Положительный serial и отрицательные случаи
+происхождения/отсутствующего commit подтверждены только изолированным fixture.
+Все 13 пунктов требований перечитаны: **13 checked / 0 unchecked**. Настоящие
+GitHub PR checks, native T029/T031, merge и release этим не подтверждены.
+
+## Текущая независимая сверка 19.10.2026
+
+Все13 пунктов повторно прочитаны и сопоставлены с требованиями и текущим
+порядком train-freeze: **13 checked / 0 unchecked**. Base→actual source
+проверяется до создания train/identity; serial commit-tree не объявляется
+GitHub merge-group доказательством. Новых противоречий требований текущему
+срезу не найдено. Свежие локальные результаты, исторические проверки и
+будущая настоящая приёмка различены в
+[review-current-20261019.md](../review-current-20261019.md).
+
+## Итоговое независимое ревью 21.10.2026
+
+Все 13 пунктов перечитаны после устранения замечаний потребителей train
+и refs/replace: **13 отмечено / 0 не отмечено**. Отметки не менялись.
+APPROVE относится к текущему исправлению T033; исходные T001–T031,
+настоящие GitHub/очередь/выпуск и закрытие #7645 требуют своих доказательств.
+Код, исходные RED, итоговые журналы 11/103 и независимый повтор трёх
+сценариев проверены в [итоговом отчёте](../review-final-20261021.md).
+
+## Предреализационная проверка документальной сверки 27.10.2026
+
+Все 13 пунктов перечитаны по текущим требованиям: **13 отмечено / 0 не отмечено**.
+Отметки сохранены. PASS относится к полноте требований для подготовки сверки;
+будущая матрица и реализация требуют отдельного итогового чтения.
+T014/T015/T016/T026/T028/T029/T030/T031 не объявляются завершёнными. Настоящая
+native очередь, protection и выпуск не проверялись.
+Основания каждого пункта и пределы:
+[независимый отчёт](../review-reconciliation-20261027.md).
+
+Окончательная матрица и diff tasks перечитаны независимо: **APPROVE
+документальной сверки**, итог задач 25 выполненных / 8 открытых.
+T014/T015/T016 и остальные неподтверждённые условия сохранены открытыми.
+Все 13 пунктов снова прочитаны: **13/0**, отметки не менялись.
+Изолированные проверки и 393 результата из журнала/XML не подменяют
+настоящую очередь, Full CI, выпуск или будущие проверки нового SHA.
+
+## Независимое итоговое чтение T026 — 27.10.2026
+
+Все 13 пунктов перечитаны и сопоставлены с фактическим новым разделом анализа:
+**13 отмечено / 0 не отмечено**. Отметки не менялись.
+Покрытие 18/18 требований и 33 уникальных задач подтверждено;
+CRITICAL 0 / HIGH 0 относятся к согласованности артефактов, а не к завершению
+инфраструктуры. MEDIUM I1 и исходные T014/T015/T016/T028/T029/T030/T031 сохранены.
+Serial/native, source/synthetic, exact SHA/base, one-Full и metadata-only
+границы не ослаблены; исторические 393 проверки не названы новым прогоном.
+Допустима последующая отметка только T026. Проверки нового PR, live-closeout,
+настоящая очередь и весь остаток F227 требуют собственных доказательств.
+Подробности — внешний отчёт `f227-t026-final-review.md` в операторском каталоге
+за 27.10.2026.
+
+## Независимое предреализационное ревью T014 — 28.10.2026
+
+Все 13 пунктов перечитаны по текущим требованиям и фактическим границам
+producer/consumer: **13 отмечено / 0 не отмечено**. Маркеры сохранены.
+**PASS требований**: известные failure/cancelled перекрывают локальный PASS,
+success не повышает локальный отказ, unknown/отсутствие evidence не дают PASS;
+поздний неуспех проверяется отдельно по фактическим GitHub run/job/attempt.
+Это не приёмка кода, настоящей очереди, закрытия #6221 или выпуска.
+Основания всех пунктов и пределы —
+[независимый отчёт](../review-terminal-status-20261028.md).
+
+## Независимое итоговое ревью T014 — 28.10.2026
+
+Все 13 пунктов снова прочитаны: **13 отмечено / 0 не отмечено**, маркеры
+сохранены. **APPROVE локального исправления T014**, замечаний 0.
+Независимо прошли 56 сочетаний настоящего terminal step/receipt CLI/validator и
+самопроверка workflow. Consumer/schema/release-full побайтово неизменны;
+поздний неуспех по-прежнему проверяется отдельно по фактическим GitHub данным.
+Native очередь, остальные 6 задач, PR/merge/closeout и выпуск не принимаются.
+Основания и контрольные суммы —
+[итоговый раздел отчёта](../review-terminal-status-20261028.md#итоговое-независимое-ревью-реализации--28102026).
+
+## Предреализационное ревью завершающего объёма — 28.10.2026
+
+Все 13 пунктов перечитаны: **13 отмечено / 0 не отмечено**, маркеры сохранены.
+**PASS требований**: schema-valid stale/superseded проверяется именно конечным
+consumer; native отмена сохраняет условные fail-closed gates; T028 требует
+настоящий exact-SHA/base fast, T030 — всю сверку. Очередь и выпуск не приняты.
+Основания каждого пункта и пределы — [отчёт](../review-final-scope-20261028.md).
+
+
+## Итоговое независимое ревью завершающего среза — 28.10.2026
+
+Все 13 пунктов повторно прочитаны: **13 отмечено / 0 не отмечено**.
+Маркеры сохранены. **APPROVE локальной реализации T015 и решения об отмене
+T016/T029/T031**, замечаний 0. Независимо: два новых consumer случая и workflow
+self-test PASS; широкий журнал/XML603 и финальный XML2 проверены без суммирования.
+Все 33 описания/ID/порядок/owners сохранены; отмечена только T015.
+T028/T030, принятый PR, live-closeout всех детей и umbrella остаются отдельными
+условиями. Native очередь, выпуск и CD не приняты; окно без слияний сохраняется.
+Основания и версии — [итоговый раздел отчёта](../review-final-scope-20261028.md#итоговое-независимое-ревью-реализации--28102026).

@@ -54,8 +54,22 @@
 
 - Classification: `remove` / `retain-with-exception` / `untouched`
 - Removed or preserved paths:
-- Exception owner/expiry/removal trigger/retirement task (если применимо):
 - Нового legacy alias/fallback/flag/dependency/fixture/test/docs path не добавлено:
+
+Оставь ровно одну Classification. Только для `retain-with-exception` заполни
+каждое поле ниже ровно один раз, без пустых значений или шаблонных заглушек;
+для остальных классификаций удали эти поля. Expiry — дата YYYY-MM-DD строго
+позже текущей даты UTC. Retirement task содержит одну F###, одну T### и один
+#issue; проверка формата не подтверждает существование или приёмку задачи.
+
+- owner:
+- expiry:
+- reason:
+- compatibility boundary:
+- removal trigger:
+- risk:
+- validation:
+- retirement task:
 
 ## Release / versioning
 

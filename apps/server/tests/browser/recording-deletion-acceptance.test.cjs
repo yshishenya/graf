@@ -120,9 +120,9 @@ async function threeTypesOneConfirmation(browser) {
       await page.locator('[data-graf-local-recording-row] [data-meeting-select]').check();
       await page.locator('[data-selection-delete]').click();
       const copy = await page.locator('[data-delete-count]').textContent();
-      if (provenLocal) assert.match(copy, /Только на этом Mac: 1.*ещё не отправлялись на сервер/);
+      if (provenLocal) assert.match(copy, /Только на этом Mac: 1.*еще не отправлялись на сервер/);
       else {
-        assert.doesNotMatch(copy, /Только на этом Mac|ещё не отправлялись/);
+        assert.doesNotMatch(copy, /Только на этом Mac|еще не отправлялись/);
         assert.match(copy, /На сервере или ожидают его подтверждения: 1/);
       }
       await page.locator('[data-delete-cancel]').click();

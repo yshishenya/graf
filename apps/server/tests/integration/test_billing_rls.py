@@ -4,7 +4,7 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import select, text, update
+from sqlalchemy import func, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
@@ -14,7 +14,12 @@ from tests.integration.test_rls_postgres_policies import (
     _seed_probe_rows,
     apply_tenant_context_to_connection,
 )
-from twobrain_rec_server.billing.reconciliation import PaymentObservation, ProviderScope
+from twobrain_rec_server.billing import webhook_reconciliation
+from twobrain_rec_server.billing.reconciliation import (
+    PaymentObservation,
+    ProviderObservationError,
+    ProviderScope,
+)
 from twobrain_rec_server.billing.referral_binding import bind_referral_attribution
 from twobrain_rec_server.billing.referral_rewards import (
     create_pending_credit,
@@ -25,7 +30,9 @@ from twobrain_rec_server.billing.referrals import ReferralRiskSignals
 from twobrain_rec_server.billing.webhook_reconciliation import (
     _enqueue_deferred_referral_reconciliation,
 )
+from twobrain_rec_server.config import Settings
 from twobrain_rec_server.db.models import (
+    BillingEntitlementGrant,
     BillingInvoice,
     BillingOperation,
     BillingWebhookEvent,
@@ -635,3 +642,209 @@ async def test_status_refresh_defers_cross_workspace_referral_reward_to_inbox(rl
         assert event is not None
         assert event.state == "pending_reconciliation"
         assert event.metadata_json["referral_reward_deferred"] is True
+
+
+def _reconciliation_probe_context() -> MaintenanceTenantContext:
+    return MaintenanceTenantContext(
+        operation_name="billing_reconciliation",
+        actor_id="test-payment-worker",
+        reason_category="payment_role_regression",
+        feature_area="billing",
+    )
+
+
+async def _seed_reconciliation_probe(engine):
+    ids = await _seed_probe_rows(engine)
+    operation_id, invoice_id, event_id = uuid4(), uuid4(), uuid4()
+    payment_id = f"synthetic-payment-{uuid4().hex}"
+    safe_number = f"synthetic-invoice-{uuid4().hex}"
+    now = datetime.now(UTC)
+    async with async_sessionmaker(engine, expire_on_commit=False)() as db:
+        await apply_tenant_context(db, _reconciliation_probe_context())
+        await db.execute(
+            text("update workspaces set kind='personal', owner_user_id=:user where id=:id"),
+            {"user": ids["user_a"], "id": ids["workspace_a"]},
+        )
+        db.add(WorkspaceSubscription(
+            workspace_id=ids["workspace_a"], state="free", plan_code="free",
+        ))
+        db.add(BillingOperation(
+            id=operation_id, workspace_id=ids["workspace_a"], kind="initial_checkout",
+            idempotency_key=f"synthetic-return-{operation_id}", provider_id=payment_id,
+            state="provider_pending",
+            request_snapshot={
+                "purchase_schema": 2, "plan_code": "personal", "cycle": "month",
+                "billing_actor_user_id": str(ids["user_a"]), "recurring_consent": False,
+                "provider_shop_id": "shop-1", "provider_environment": "test",
+            },
+        ))
+        await db.flush()
+        db.add(BillingInvoice(
+            id=invoice_id, workspace_id=ids["workspace_a"], operation_id=operation_id,
+            safe_number=safe_number, amount_minor=1000, currency="RUB", status="pending",
+            plan_snapshot={"plan_code": "personal", "cycle": "month"},
+        ))
+        db.add(BillingWebhookEvent(
+            id=event_id, workspace_id=ids["workspace_a"],
+            provider_event_id=f"synthetic-event-{event_id}", event_type="payment.succeeded",
+            object_id=payment_id, occurred_at=now, payload_hash="a" * 64,
+            state="pending_reconciliation",
+        ))
+        await db.commit()
+    payment = {
+        "id": payment_id, "status": "succeeded", "paid": True, "test": True,
+        "amount": {"value": "10.00", "currency": "RUB"},
+        "created_at": now.isoformat(), "captured_at": now.isoformat(),
+        "recipient": {"account_id": "shop-1"}, "receipt_registration": "succeeded",
+        "metadata": {"workspace_id": str(ids["workspace_a"]),
+                     "operation_id": str(operation_id), "invoice_number": safe_number},
+    }
+    return {**ids, "operation_id": operation_id, "invoice_id": invoice_id,
+            "event_id": event_id, "payment": payment}
+
+
+def _install_synthetic_reconciliation_provider(monkeypatch, payment):
+    calls = {"get": 0, "create": 0}
+
+    class Provider:
+        def __init__(self, _settings):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            pass
+
+        async def get_payment(self, payment_id):
+            if payment_id != payment["id"]:
+                raise ProviderObservationError("another synthetic probe")
+            calls["get"] += 1
+            return payment
+
+        async def create_payment(self, **_kwargs):
+            calls["create"] += 1
+            raise AssertionError("reconciliation must never create a payment")
+
+    monkeypatch.setattr(webhook_reconciliation, "YooKassaClient", Provider)
+    return calls
+
+
+def _reconciliation_probe_settings(tmp_path: Path) -> Settings:
+    provider_secret = tmp_path / "synthetic-provider-secret"
+    webhook_secret = tmp_path / "synthetic-webhook-secret"
+    provider_secret.write_text("synthetic-provider-secret", encoding="utf-8")
+    webhook_secret.write_text("synthetic-webhook-secret", encoding="utf-8")
+    return Settings(
+        billing_yookassa_environment="test", billing_yookassa_shop_id="shop-1",
+        billing_yookassa_base_url="https://api.yookassa.test",
+        billing_yookassa_secret_file=provider_secret,
+        billing_yookassa_webhook_secret_file=webhook_secret,
+        billing_provider_observation_enabled=True, billing_checkout_enabled=False,
+    )
+
+
+@pytest.mark.asyncio
+async def test_reconciliation_activity_rejects_real_app_role_before_empty_success(
+    monkeypatch, rls_engine, migrated_postgres_urls, tmp_path,
+) -> None:
+    from twobrain_rec_server.workflows import worker
+
+    probe = await _seed_reconciliation_probe(rls_engine)
+    calls = _install_synthetic_reconciliation_provider(monkeypatch, probe["payment"])
+    settings = _reconciliation_probe_settings(tmp_path)
+    monkeypatch.setattr(worker, "get_settings", lambda: settings)
+    async with _exact_app_role_engine(migrated_postgres_urls.migration_url) as app_engine:
+        async with app_engine.connect() as conn:
+            await apply_tenant_context_to_connection(conn, _reconciliation_probe_context())
+            assert await conn.scalar(text("select session_user")) == "twobrain_rec_app"
+            assert await conn.scalar(text("select rec_maintenance_allowed()")) is False
+            assert await conn.scalar(
+                select(func.count()).select_from(BillingWebhookEvent).where(
+                    BillingWebhookEvent.id == probe["event_id"],
+                )
+            ) == 0
+        monkeypatch.setattr(worker, "create_engine", lambda _settings: app_engine)
+        with pytest.raises(RuntimeError, match="maintenance database role"):
+            await worker.run_billing_reconciliation_activity({"run_id": str(uuid4())})
+    assert calls == {"get": 0, "create": 0}
+    async with async_sessionmaker(rls_engine, expire_on_commit=False)() as db:
+        await apply_tenant_context(db, _reconciliation_probe_context())
+        assert (await db.get(BillingInvoice, probe["invoice_id"])).status == "pending"
+        assert (await db.get(BillingWebhookEvent, probe["event_id"])).state == "pending_reconciliation"
+        assert await db.scalar(
+            select(func.count()).select_from(BillingEntitlementGrant).where(
+                BillingEntitlementGrant.invoice_id == probe["invoice_id"],
+            )
+        ) == 0
+
+
+@pytest.mark.asyncio
+async def test_reconciliation_activity_real_maintenance_role_grants_once_on_replay(
+    monkeypatch, rls_engine, tmp_path,
+) -> None:
+    from twobrain_rec_server.workflows import worker
+
+    probe = await _seed_reconciliation_probe(rls_engine)
+    calls = _install_synthetic_reconciliation_provider(monkeypatch, probe["payment"])
+    settings = _reconciliation_probe_settings(tmp_path)
+    monkeypatch.setattr(worker, "get_settings", lambda: settings)
+    monkeypatch.setattr(worker, "create_engine", lambda _settings: rls_engine)
+    async with rls_engine.connect() as conn:
+        await apply_tenant_context_to_connection(conn, _reconciliation_probe_context())
+        assert await conn.scalar(text("select session_user")) == "twobrain_rec_maintenance"
+        assert await conn.scalar(text("select rec_maintenance_allowed()")) is True
+        assert await conn.scalar(
+            select(func.count()).select_from(BillingWebhookEvent).where(
+                BillingWebhookEvent.id == probe["event_id"],
+            )
+        ) == 1
+    await worker.run_billing_reconciliation_activity({"run_id": str(uuid4())})
+    async with async_sessionmaker(rls_engine, expire_on_commit=False)() as db:
+        await apply_tenant_context(db, _reconciliation_probe_context())
+        invoice = await db.get(BillingInvoice, probe["invoice_id"])
+        event = await db.get(BillingWebhookEvent, probe["event_id"])
+        subscription = await db.get(WorkspaceSubscription, probe["workspace_a"])
+        assert invoice.status == "succeeded"
+        assert event.state == "reconciled"
+        assert subscription.state == "personal"
+        assert subscription.paid_through > datetime.now(UTC)
+        paid_through = subscription.paid_through
+        event.state = "pending_reconciliation"  # Replay of the same durable provider signal.
+        await db.commit()
+    await worker.run_billing_reconciliation_activity({"run_id": str(uuid4())})
+    async with async_sessionmaker(rls_engine, expire_on_commit=False)() as db:
+        await apply_tenant_context(db, _reconciliation_probe_context())
+        assert await db.scalar(
+            select(func.count()).select_from(BillingEntitlementGrant).where(
+                BillingEntitlementGrant.invoice_id == probe["invoice_id"],
+            )
+        ) == 1
+        assert (await db.get(WorkspaceSubscription, probe["workspace_a"])).paid_through == paid_through
+        assert (await db.get(BillingWebhookEvent, probe["event_id"])).state == "reconciled"
+        assert await db.scalar(
+            select(func.count()).select_from(BillingOperation).where(
+                BillingOperation.workspace_id == probe["workspace_a"],
+            )
+        ) == 1
+        assert await db.scalar(
+            select(func.count()).select_from(BillingInvoice).where(
+                BillingInvoice.workspace_id == probe["workspace_a"],
+            )
+        ) == 1
+    assert calls == {"get": 2, "create": 0}
+
+
+@pytest.mark.asyncio
+async def test_reconciliation_startup_checks_actual_database_role(
+    monkeypatch, rls_engine, migrated_postgres_urls,
+) -> None:
+    from twobrain_rec_server.billing import database
+
+    settings = Settings()
+    monkeypatch.setattr(database, "create_engine", lambda _settings: rls_engine)
+    await database.verify_billing_maintenance_database(settings)
+    async with _exact_app_role_engine(migrated_postgres_urls.migration_url) as app_engine:
+        monkeypatch.setattr(database, "create_engine", lambda _settings: app_engine)
+        with pytest.raises(database.BillingMaintenanceDatabaseError):
+            await database.verify_billing_maintenance_database(settings)

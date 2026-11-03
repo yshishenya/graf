@@ -5,7 +5,7 @@ from twobrain_rec_server.billing.entitlements import entitlement_for_plan, proce
 def test_paid_plans_are_unlimited_for_processing_but_not_for_storage() -> None:
     personal = plan_descriptor("personal")
     assert personal.processing_mode == "unlimited"
-    assert personal.storage_bytes == 2_000_000_000
+    assert personal.storage_bytes == 5_000_000_000
     assert FREE_PROCESSING_SECONDS == 18_000
 
 

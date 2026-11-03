@@ -1,8 +1,15 @@
 # Feature Specification: Управляемое поэтапное retirement legacy
 
+> **Пересмотр объёма 26.10.2026:** действующий объём и индивидуальные решения
+> заданы в [решении для ранней стадии](scope-decision-20261026.md).
+> До его слияния это предложение. После слияния перечисленные там задачи
+> отменены как NOT_PLANNED, сохраняют `[ ]` и не подлежат реализации по старому
+> плану. Принятые защиты и предметные требования безопасности сохраняются.
+
+
 **Feature Branch**: `codex/228-legacy-retirement-process`
 **Created**: 2026-08-31
-**Status**: Draft — planning only; no runtime removal is authorized by this feature.
+**Status**: Реализация T009/T019 возобновлена 26.10.2026; удаление рабочего кода и данных этой фичей не разрешено.
 
 **Input**: После настройки общего Dev/CI/release процесса GRAF должен прекращать
 накапливать legacy и безопасно уменьшать уже существующий долг. Владелец работает
@@ -26,7 +33,8 @@ production rollback. Одновременно рискованно помеща�
 - **Feature agent** получает только контекст одного contour/slice и не может
   удалить чужую совместимость, данные или историю «заодно».
 - **Reviewer** подтверждает классификацию, cutover/rollback и checklist quality;
-  его отметки не меняются агентом.
+  отметки по доказательствам ставит отдельный независимый reviewer-агент,
+  а агент реализации их не меняет.
 - **Release operator** включает только готовые slices в замороженный release
   train и проводит один authoritative Full CI для точного candidate SHA.
 - **Dev operator** репетирует только изолированные Dev/local операции и не
@@ -155,8 +163,13 @@ receipt; stale/cancelled/synthetic merge receipt отклоняется.
 - **FR-016**: Release manifest MUST связывать inclusion contour/slice с
   exact merged SHA, PR/issue/task, changelog fragment digest и одной
   authoritative Full CI receipt; individual fast receipts не заменяют её.
-- **FR-017**: Checklists остаются reviewer-owned; automation/agents MUST NOT
-  отмечать требования checked и MUST NOT закрывать issue без evidence.
+- **FR-017**: Checklists остаются reviewer-owned. До реализации отдельный
+  независимый reviewer-агент MUST проверить каждый пункт, отметить только
+  подтверждённые доказательствами требования, оставить остальные открытыми
+  с причиной, перечитать чеклисты и записать итоги checked/unchecked.
+  Он MAY менять только чеклисты и отдельный отчёт ревью; агент реализации
+  MUST NOT менять эти отметки. Неподтверждённое ревью блокирует реализацию;
+  ни один агент MUST NOT закрывать issue без требуемых доказательств.
 - **FR-018**: Feature 228 MUST NOT удалять runtime code, migrations, Temporal
   histories, customer data, volumes или legacy files; это program-planning
   slice, который создаёт только contracts, validators, guidance, fixtures и
@@ -180,7 +193,10 @@ receipt; stale/cancelled/synthetic merge receipt отклоняется.
 - **SC-007**: Release candidate, включающий retirement slices, отклоняется без
   immutable Full CI evidence на exact candidate SHA и fragment manifest digest.
 - **SC-008**: По завершении Feature 228 отсутствует удаление legacy runtime,
-  production mutation или изменение reviewer-owned checkbox state.
+  production mutation или изменение reviewer-owned checkbox state агентом
+  реализации. Независимый отчёт связывает каждую отметку с доказательствами
+  и содержит итоги после повторного чтения обоих чеклистов; неподтверждённые
+  пункты остаются открытыми и блокируют реализацию.
 
 ## Scope
 
@@ -202,7 +218,10 @@ receipt; stale/cancelled/synthetic merge receipt отклоняется.
   deletion, TCC reset, publication или изменение Apple signing trust.
 - Изменение capture, auth, billing, transcription, deletion или user-visible
   product behavior без отдельного approved Feature.
-- Закрытие GitHub issues, reviewer checklists или implementation commits.
+- Самостоятельная приёмка чеклистов агентом реализации. Обязательное
+  независимое ревью требований выполняется по FR-017. Исторический этап
+  планирования не закрывал задачи реализации; возобновлённый T009/T019
+  принимается отдельно после реализации, проверок и слияния.
 
 ## Assumptions
 
@@ -226,3 +245,16 @@ receipt; stale/cancelled/synthetic merge receipt отклоняется.
 - **Protected boundaries**: migrations, Temporal history, MediaScribe historical
   records, Sparkle/update continuity, Developer ID signing и production rollback
   остаются отдельными approved slices.
+
+## Действующий срез пересмотра — T037, 26.10.2026
+
+- **FR-019**: По указанию владельца о ранней стадии пересмотреть потребность в
+  незапущенной общей автоматизации. Каждую отмену связать с исходной задачей,
+  её issue, причиной и условием возвращения в `scope-decision-20261026.md`.
+  Отмена не является реализацией, не снимает предметные проверки безопасности
+  и требует принятого versioned решения до закрытия NOT_PLANNED.
+- **SC-009**: Сверены все исходные 36 task-owner связей: 7 принятых результатов
+  сохранены, для 29 незавершённых планов даны индивидуальные решения, исходные
+  описания и `[ ]` сохранены. Дополнительная документальная T037 принадлежит
+  только родителю #6238 вместо T000. После PR проверяется фактический reason
+  каждой отмены; полный исходный реестр и глобальные нулевые метрики не заявляются.

@@ -66,8 +66,8 @@ def test_renewal_and_storage_addon_are_bounded() -> None:
     paid_through = datetime(2026, 9, 1, tzinfo=UTC)
     assert renewal_due(now=paid_through - timedelta(hours=72), paid_through=paid_through)
     assert resolve_renewal(now=paid_through, paid_through=paid_through, provider_status="declined") == "free"
-    addon = choose_storage_addon(capacity_bytes=5_000_000_000, starts_at=paid_through, ends_at=paid_through + timedelta(days=30))
-    assert effective_storage_capacity(plan_code="personal", addon=addon) == 5_000_000_000
+    addon = choose_storage_addon(capacity_bytes=10_000_000_000, starts_at=paid_through, ends_at=paid_through + timedelta(days=30))
+    assert effective_storage_capacity(plan_code="personal", addon=addon) == 10_000_000_000
 
 
 def test_receipt_history_and_notification_copy_is_safe() -> None:
@@ -109,7 +109,11 @@ def test_notification_outbox_is_idempotent_and_keeps_finance_notices() -> None:
     assert first is not None
     assert outbox.enqueue(event, recipient_id="user-1", marketing_allowed=False) == first
     assert outbox.mark_delivered(event_id="evt-1", recipient_id="user-1", channel="email").state == "delivered"
-    assert notification_copy(event) == ("Платеж подтвержден", "Оплата прошла успешно. Номер платежа: INV-1.")
+    title, body = notification_copy(event)
+    assert title == "Платеж подтвержден"
+    assert "Номер платежа: INV-1." in body
+    assert "Сумма: указана в кабинете" in body
+    assert "Период указан в истории платежей" in body
     unsafe = build_notification(
         event_id="evt-2",
         kind=BillingNotification.PAYMENT_SUCCEEDED,

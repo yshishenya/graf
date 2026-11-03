@@ -23,6 +23,8 @@ from twobrain_rec_server.api.problems import (
 from twobrain_rec_server.api.processing import router as processing_router
 from twobrain_rec_server.api.product_analytics import router as product_analytics_router
 from twobrain_rec_server.api.product_analytics_guard import ProductAnalyticsIngressGuard
+from twobrain_rec_server.api.summary_autosend import router as summary_autosend_router
+from twobrain_rec_server.api.summary_sharing import router as summary_sharing_router
 from twobrain_rec_server.api.support_incidents import router as support_incidents_router
 from twobrain_rec_server.auth.session_renewal import session_renewal_middleware
 from twobrain_rec_server.cabinet.templates import CABINET_STATIC_URL, cabinet_static_dir
@@ -109,6 +111,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(support_incidents_router)
     app.include_router(admin_api_router)
     app.include_router(cabinet_api_router)
+    app.include_router(summary_sharing_router)
+    app.include_router(summary_autosend_router)
     app.include_router(admin_web_router)
     app.include_router(cabinet_web_router)
     return app

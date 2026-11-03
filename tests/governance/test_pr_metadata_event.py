@@ -49,6 +49,7 @@ def snapshot(tmp_path: Path) -> tuple[Path, dict, dict]:
     script = tmp_path / "scripts/validate-pr-metadata.py"
     script.parent.mkdir()
     shutil.copyfile(SCRIPT, script)
+    shutil.copyfile(ROOT / "scripts/validate-legacy-impact.py", script.with_name("validate-legacy-impact.py"))
     git(tmp_path, "add", ".")
     git(tmp_path, "commit", "-qm", "base")
     base = git(tmp_path, "rev-parse", "HEAD")
@@ -270,7 +271,7 @@ def test_metadata_workflow_is_trusted_read_only_and_bounded() -> None:
         "contents: read", "pull-requests: read", "timeout-minutes: 5",
         "group: graf-pr-metadata-${{ github.event.pull_request.number }}",
         "cancel-in-progress: true", "fetch-depth: 0", "persist-credentials: false",
-        "uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
+        "uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
         "ref: ${{ github.workflow_sha }}", "python3 -I scripts/validate-pr-metadata.py",
         "retention-days: 90", "--current-pr-after",
     ):
@@ -367,7 +368,7 @@ def run_trusted(root, event, current, after=None, *, policy=None):
     result_path = root / "trusted-result.json"
     result_path.unlink(missing_ok=True)
     return subprocess.run([
-        sys.executable, "-I", str(SCRIPT), "--event", str(root / "event.json"),
+        sys.executable, "-I", str(root / "scripts/validate-pr-metadata.py"), "--event", str(root / "event.json"),
         "--current-pr", str(root / "current-pr.json"), "--current-pr-after", str(root / "after.json"),
         "--trusted-policy-sha", policy or git(root, "rev-parse", "HEAD"),
         "--repository", "example/project", "--result", str(result_path),
@@ -392,6 +393,43 @@ def test_trusted_metadata_uses_policy_checkout_and_redacted_double_snapshot(snap
     assert "body" not in proof and "title" not in proof
     assert "private" not in json.dumps(proof)
     assert not (root / "injected").exists()
+
+
+@pytest.mark.parametrize("complete", [False, True])
+def test_trusted_exception_uses_sibling_policy_not_pr_helper_or_cwd(snapshot, complete):
+    root, event, current = snapshot
+    current = trusted_pr(current)
+    policy = current["base"]["sha"]
+    # The PR's helper is executable attacker-controlled source, read only as Git objects.
+    (root / "scripts/validate-legacy-impact.py").write_text(
+        "from pathlib import Path; Path('injected').touch(); raise RuntimeError('private-source')"
+    )
+    git(root, "add", "scripts/validate-legacy-impact.py")
+    git(root, "commit", "-qm", "untrusted PR helper")
+    current["head"]["sha"] = git(root, "rev-parse", "HEAD")
+    current["commits"] = 2
+    declaration = "Classification: `retain-with-exception`"
+    if complete:
+        declaration += """
+- owner: platform
+- expiry: 2099-12-31
+- reason: supported clients
+- compatibility boundary: clients before migration
+- removal trigger: migration complete
+- risk: bounded compatibility
+- validation: focused migration test
+- retirement task: F228 T017 #6255
+"""
+    current["body"] = body(current["head"]["sha"]).replace("Classification: `untouched`", declaration)
+    event.update(repository={"full_name": "example/project"}, pull_request=copy.deepcopy(current))
+    git(root, "checkout", "-q", "--detach", policy)
+    (root / "validate-legacy-impact.py").write_text("raise RuntimeError('private-cwd')")
+    result = run_trusted(root, event, current)
+    assert result.returncode == (0 if complete else 1), result.stderr
+    assert (root / "trusted-result.json").exists() == complete
+    assert not (root / "injected").exists()
+    assert "private" not in result.stderr and "Traceback" not in result.stderr
+    assert git(root, "rev-parse", "HEAD") == policy
 
 
 def test_open_pr_background_test_merge_is_not_source_identity(snapshot):
@@ -474,7 +512,9 @@ def test_merged_metadata_binds_actual_history_not_moving_master(snapshot, kind):
         assert proof["api_base_sha"] == api_base
 
 
-def test_squash_accepts_pr_that_merged_an_updated_master(snapshot):
+@pytest.mark.parametrize("followups", [0, 1, 2])
+@pytest.mark.parametrize("mutation", [None, "wrong-tree", "wrong-count", "wrong-parent"])
+def test_squash_accepts_pr_that_merged_an_updated_master(snapshot, followups, mutation):
     root, event, current = snapshot
     current = trusted_pr(current)
     base, first = current["base"]["sha"], current["head"]["sha"]
@@ -485,19 +525,33 @@ def test_squash_accepts_pr_that_merged_an_updated_master(snapshot):
     checked_base = git(root, "rev-parse", "HEAD")
     git(root, "checkout", "-q", "--detach", first)
     git(root, "merge", "--no-ff", "-qm", "update PR from master", checked_base)
+    for index in range(followups):
+        (root / "follow-up.txt").write_text(f"source follow-up {index}\n")
+        git(root, "add", "follow-up.txt")
+        git(root, "commit", "-qm", "source follow-up")
     head = git(root, "rev-parse", "HEAD")
     count = int(git(root, "rev-list", "--count", f"{checked_base}..{head}"))
     tree = git(root, "rev-parse", f"{head}^{{tree}}")
-    merge = git(root, "commit-tree", tree, "-p", checked_base, "-m", "squashed PR")
+    if mutation == "wrong-tree":
+        tree = git(root, "rev-parse", f"{checked_base}^{{tree}}")
+    parent = base if mutation == "wrong-parent" else checked_base
+    merge = git(root, "commit-tree", tree, "-p", parent, "-m", "squashed PR")
+    if mutation == "wrong-count":
+        count += 1
     current.update(state="closed", merged=True, merge_commit_sha=merge, commits=count)
     current["head"]["sha"] = head
-    current["base"]["sha"] = merge
+    current["base"]["sha"] = git(root, "commit-tree", tree, "-p", merge, "-m", "later master")
     current["body"] = body(head)
     event.update(repository={"full_name": "example/project"}, pull_request=copy.deepcopy(current))
     git(root, "checkout", "-q", "--detach", base)
+    before = (git(root, "rev-parse", "HEAD"), git(root, "for-each-ref"), (root / ".git/index").read_bytes())
     result = run_trusted(root, event, current)
-    assert result.returncode == 0, result.stderr
-    assert json.loads((root / "trusted-result.json").read_text())["base_sha"] == checked_base
+    assert (result.returncode == 0) == (mutation is None), result.stderr
+    if mutation is None:
+        assert json.loads((root / "trusted-result.json").read_text())["base_sha"] == checked_base
+    else:
+        assert not (root / "trusted-result.json").exists()
+    assert before == (git(root, "rev-parse", "HEAD"), git(root, "for-each-ref"), (root / ".git/index").read_bytes())
 
 
 @pytest.fixture
@@ -750,3 +804,150 @@ def test_squash_rejects_edited_tree_when_target_advanced(snapshot):
 
     result = run_trusted(root, event, current)
     assert result.returncode == 1
+
+
+
+def replay_history(snapshot, *, advance=True):
+    root, event, original = snapshot
+    current = trusted_pr(original)
+    base = current["base"]["sha"]
+    sources = [current["head"]["sha"]]
+    for index in range(2, 5):
+        (root / "specs/211-example/spec.md").write_text(f"source revision {index}\n")
+        git(root, "add", "specs/211-example/spec.md")
+        git(root, "commit", "-qm", f"source {index}")
+        sources.append(git(root, "rev-parse", "HEAD"))
+    git(root, "checkout", "-q", "--detach", base)
+    if advance:
+        (root / "target-only.txt").write_text("independent target advance\n")
+        git(root, "add", "target-only.txt")
+        git(root, "commit", "-qm", "advance target")
+    target_start = git(root, "rev-parse", "HEAD")
+    targets = []
+    for index, source in enumerate(sources):
+        git(root, "cherry-pick", "--no-commit", source)
+        git(root, "commit", "-qm", f"replayed {index}")
+        targets.append(git(root, "rev-parse", "HEAD"))
+    current.update(state="closed", merged=True, commits=4, merge_commit_sha=targets[-1])
+    current["head"]["sha"] = sources[-1]
+    current["body"] = body(sources[-1])
+    current["base"]["sha"] = git(root, "commit-tree", "HEAD^{tree}", "-p", targets[-1], "-m", "later master")
+    event.update(repository={"full_name": "example/project"}, pull_request=copy.deepcopy(current))
+    git(root, "checkout", "-q", "--detach", base)
+    return root, event, current, base, target_start, sources, targets
+
+
+@pytest.mark.parametrize("advance", [False, True])
+def test_linear_replay_proves_each_tree_without_changing_checkout(snapshot, advance):
+    root, event, current, base, _, _, _ = replay_history(snapshot, advance=advance)
+    before = (git(root, "rev-parse", "HEAD"), git(root, "for-each-ref"),
+              (root / ".git/index").read_bytes(), (root / "scripts/validate-pr-metadata.py").read_bytes())
+    result = run_trusted(root, event, current)
+    assert result.returncode == 0, result.stderr
+    assert json.loads((root / "trusted-result.json").read_text())["base_sha"] == base
+    assert before == (git(root, "rev-parse", "HEAD"), git(root, "for-each-ref"),
+                      (root / ".git/index").read_bytes(), (root / "scripts/validate-pr-metadata.py").read_bytes())
+
+
+@pytest.mark.parametrize("mutation", [
+    "count", "dropped", "extra", "order", "intermediate", "final", "source-merge",
+    "target-merge", "unrelated", "missing-head", "missing-merge", "conflict",
+])
+@pytest.mark.parametrize("advance", [False, True])
+def test_linear_replay_rejects_unproved_histories(snapshot, mutation, advance):
+    root, event, current, base, start, sources, targets = replay_history(snapshot, advance=advance)
+    trees = [git(root, "rev-parse", f"{sha}^{{tree}}") for sha in targets]
+    parent = start
+    if mutation == "count":
+        current["commits"] += 1
+    elif mutation == "dropped":
+        trees = trees[1:]
+    elif mutation == "extra":
+        trees.append(trees[-1])
+    elif mutation == "order":
+        trees[0], trees[1] = trees[1], trees[0]
+    elif mutation == "intermediate":
+        trees[0] = git(root, "rev-parse", f"{start}^{{tree}}")
+    elif mutation == "final":
+        trees[-1] = git(root, "rev-parse", f"{start}^{{tree}}")
+    elif mutation == "source-merge":
+        current["head"]["sha"] = git(root, "commit-tree", f"{sources[-1]}^{{tree}}",
+                                     "-p", sources[-1], "-p", start, "-m", "unproved source merge")
+    elif mutation == "target-merge":
+        parent = git(root, "commit-tree", trees[0], "-p", start, "-p", sources[0], "-m", "target merge")
+        trees = trees[1:]
+    elif mutation == "unrelated":
+        parent = git(root, "commit-tree", f"{start}^{{tree}}", "-m", "unrelated root")
+    elif mutation == "missing-head":
+        current["head"]["sha"] = "f" * 40
+    elif mutation == "conflict":
+        git(root, "checkout", "-q", "--detach", start)
+        path = root / "specs/211-example/spec.md"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("conflicting target content\n")
+        git(root, "add", "specs/211-example/spec.md")
+        git(root, "commit", "-qm", "conflicting target")
+        parent = git(root, "rev-parse", "HEAD")
+    for tree in trees:
+        parent = git(root, "commit-tree", tree, "-p", parent, "-m", "replayed")
+    current["merge_commit_sha"] = "f" * 40 if mutation == "missing-merge" else parent
+    current["body"] = body(current["head"]["sha"])
+    event["pull_request"] = copy.deepcopy(current)
+    git(root, "checkout", "-q", "--detach", base)
+    result = run_trusted(root, event, current)
+    assert result.returncode == 1, result.stdout
+    assert not (root / "trusted-result.json").exists()
+
+
+@pytest.mark.parametrize("overlap", [None, "same", "transient", "rename", "directory", "source-transient", "whitespace"])
+def test_squash_requires_all_intermediate_paths_to_be_independent(snapshot, overlap):
+    root, event, original = snapshot
+    current = trusted_pr(original)
+    base = current["base"]["sha"]
+    (root / "specs/211-example/source-only.txt").write_text("source-only\n")
+    unusual_path = " \nsource\t "
+    if overlap == "whitespace":
+        (root / unusual_path).write_text("reviewed unusual name\n")
+        git(root, "add", unusual_path)
+    git(root, "add", "specs/211-example/source-only.txt")
+    git(root, "commit", "-qm", "second source")
+    if overlap == "source-transient":
+        (root / "transient.txt").write_text("source transient\n")
+        git(root, "add", "transient.txt")
+        git(root, "commit", "-qm", "source transient add")
+        git(root, "rm", "transient.txt")
+        git(root, "commit", "-qm", "source transient remove")
+    head = git(root, "rev-parse", "HEAD")
+    count = int(git(root, "rev-list", "--count", f"{base}..{head}"))
+    git(root, "checkout", "-q", "--detach", base)
+    if overlap:
+        name = unusual_path if overlap == "whitespace" else "specs" if overlap == "directory" else (
+            "transient.txt" if overlap == "source-transient" else "specs/211-example/spec.md")
+        path = root / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("example\n" if overlap == "same" else "transient target\n")
+        git(root, "add", name)
+        git(root, "commit", "-qm", "target overlap")
+        if overlap in {"transient", "rename", "directory", "whitespace"}:
+            if overlap == "rename":
+                git(root, "mv", name, "renamed.txt")
+            else:
+                git(root, "rm", name)
+            git(root, "commit", "-qm", "target removes overlap")
+    # End the prefix with independent changes; a net-diff-only check would
+    # miss the earlier transient paths and a final-tree shortcut would pass.
+    for index in range(2):
+        (root / "target-only.txt").write_text(f"independent revision {index}\n")
+        git(root, "add", "target-only.txt")
+        git(root, "commit", "-qm", "independent target update")
+    parent = git(root, "rev-parse", "HEAD")
+    tree = git(root, "merge-tree", "--write-tree", f"--merge-base={base}", parent, head)
+    merge = git(root, "commit-tree", tree, "-p", parent, "-m", "squash or ambiguous replay")
+    current.update(state="closed", merged=True, commits=count, merge_commit_sha=merge)
+    current["head"]["sha"], current["body"] = head, body(head)
+    event.update(repository={"full_name": "example/project"}, pull_request=copy.deepcopy(current))
+    git(root, "checkout", "-q", "--detach", base)
+    result = run_trusted(root, event, current)
+    assert (result.returncode == 0) == (overlap is None), result.stderr
+    if result.returncode == 0:
+        assert json.loads((root / "trusted-result.json").read_text())["base_sha"] == base

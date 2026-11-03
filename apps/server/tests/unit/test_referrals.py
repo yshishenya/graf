@@ -411,7 +411,7 @@ def test_referral_routes_keep_contract_alias_and_gate_unissued_link() -> None:
     assert "PublicDbDependency" in route_source
     assert "ReferralLandingLookupContext" in route_source
     assert "referral_expires_at_label" in template_source
-    assert "Поделиться" in template_source
+    assert "Скопировать ссылку" in template_source
     assert "Обратиться в поддержку" in template_source
     assert "referral_history" in route_source
     assert "existing_valid" in route_source
@@ -419,7 +419,7 @@ def test_referral_routes_keep_contract_alias_and_gate_unissued_link() -> None:
     assert "expires_at > landing_now" in route_source
     assert "if not request.app.state.settings.billing_checkout_enabled" in route_source
     assert "referral_enabled and secret_path" in route_source
-    assert "Одна ссылка может использоваться несколькими приглашенными" in template_source
+    assert "По ссылке можно пригласить несколько друзей" in template_source
     landing_template = (
         Path(__file__).parents[2]
         / "src/twobrain_rec_server/cabinet/templates/cabinet/auth/referral_landing.html"

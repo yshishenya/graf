@@ -25,10 +25,9 @@ What that means for every value that reaches a bucket:
 * buckets smaller than :data:`MINIMUM_AGGREGATE_BUCKET_SIZE` are not disclosed
   in reports (FR-057), so a lone visitor cannot be read out of a report.
 
-Writing follows research.md §2 and §3: one synchronous PostgreSQL
-``INSERT ... ON CONFLICT DO UPDATE`` by bucket key, no network call, no queue
-and no dependency on the analytics stack, so the public page never waits for
-analytics.
+Writing uses one awaited PostgreSQL ``INSERT ... ON CONFLICT DO UPDATE`` by
+bucket key, without a queue or analytics provider. The safe request-path writer
+bounds database waiting; a timeout leaves the measurement outcome unknown.
 
 Internal, support, test and automated traffic is still counted, but it carries
 its own ``traffic_class`` and reports read only the reported classes (FR-013).
@@ -36,6 +35,7 @@ its own ``traffic_class`` and reports read only the reported classes (FR-013).
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from collections.abc import Mapping
@@ -64,6 +64,10 @@ from twobrain_rec_server.product_analytics.traffic_class import (
     is_reportable_traffic,
     normalize_traffic_class,
 )
+from twobrain_rec_server.public.content import (
+    PUBLIC_ANONYMOUS_CONTENT_SURFACES,
+    PUBLIC_CONTENT_SURFACES,
+)
 
 # Public routes of the marketing site. A path outside this list is never
 # counted: the aggregate covers public pages only, and an unknown path is a
@@ -73,6 +77,7 @@ from twobrain_rec_server.product_analytics.traffic_class import (
 PUBLIC_PAGE_SURFACES = {
     "/": "public_landing",
     "/download": "public_download",
+    **PUBLIC_CONTENT_SURFACES,
     "/privacy": "public_privacy",
     "/cookies": "public_cookies",
     "/terms": "public_terms",
@@ -81,8 +86,12 @@ PUBLIC_PAGE_SURFACES = {
     "/sign-up": "public_signup",
     "/login": "public_login",
 }
-PUBLIC_PAGE_PATHS = tuple(PUBLIC_PAGE_SURFACES)
-ANONYMOUS_AGGREGATE_SURFACES = tuple(PUBLIC_PAGE_SURFACES.values())
+# L2 attribution and cookie validation retain PUBLIC_PAGE_SURFACES above.
+# Anonymous-only content must never enter their shared allowlist.
+ANONYMOUS_PAGE_SURFACES = {**PUBLIC_PAGE_SURFACES, **PUBLIC_ANONYMOUS_CONTENT_SURFACES}
+# This path inventory is consumed only by level 1 coverage checks.
+PUBLIC_PAGE_PATHS = tuple(ANONYMOUS_PAGE_SURFACES)
+ANONYMOUS_AGGREGATE_SURFACES = tuple(ANONYMOUS_PAGE_SURFACES.values())
 # Steps of web registration (FR-020) are counted by the same anonymous counter
 # as a visit, but they carry their own surface. The published page list does not
 # change: a registration step is not a page of the site, so it can never be read
@@ -103,6 +112,7 @@ WEB_REGISTRATION_STEPS = tuple(WEB_REGISTRATION_STEP_SURFACES)
 # while the number of files that really reached the browser is a different fact,
 # and only the two together show a link that is clicked but does not work.
 INSTALLER_DELIVERY_SURFACE = "public_installer_delivery"
+REGIONS = ("ru", "non_ru", "unknown")
 DEVICE_CLASSES = ("desktop", "mobile", "tablet", "unknown")
 REFERRER_CATEGORIES = ("direct", "organic", "paid", "referral", "unknown")
 CAMPAIGN_LABEL_FIELDS = ("source", "medium", "campaign", "content", "term")
@@ -133,6 +143,7 @@ _LABEL_NAME_RE = re.compile(
 _UNSAFE_LABEL_MARKERS = ("://", "/", "\\", "?", "#", "@", " ")
 
 logger = logging.getLogger(__name__)
+ANONYMOUS_AGGREGATE_WRITE_TIMEOUT_SECONDS = 0.25
 
 _TABLET_MARKERS = ("ipad", "tablet", "kindle", "silk/", "playbook", "nexus 7", "nexus 10")
 _MOBILE_MARKERS = (
@@ -149,6 +160,11 @@ _MOBILE_MARKERS = (
 def surface_for_public_path(path: str) -> str | None:
     """Return the surface of a public route, or ``None`` for a private one."""
     return PUBLIC_PAGE_SURFACES.get(_normalized_path(path))
+
+
+def surface_for_anonymous_page(path: str) -> str | None:
+    """Return a level 1 surface without expanding cookie or account attribution."""
+    return ANONYMOUS_PAGE_SURFACES.get(_normalized_path(path))
 
 
 def registration_step_surface(step: str) -> str:
@@ -202,13 +218,9 @@ def sanitize_anonymous_aggregate_label(value: Any) -> str | None:
     return stripped
 
 
-def is_disclosed_bucket(
-    visits: int,
-    *,
-    minimum_bucket_size: int = MINIMUM_AGGREGATE_BUCKET_SIZE,
-) -> bool:
+def is_disclosed_bucket(visits: int) -> bool:
     """Return whether a bucket may appear in a report (FR-057)."""
-    return visits >= minimum_bucket_size
+    return visits >= MINIMUM_AGGREGATE_BUCKET_SIZE
 
 
 @dataclass(frozen=True, slots=True)
@@ -220,6 +232,7 @@ class AnonymousAggregateBucket:
     landing_path: str
     device_class: str
     referrer_category: str
+    region: str = "unknown"
     traffic_class: str = DEFAULT_TRAFFIC_CLASS
     bucket_hour: int | None = None
     source: str | None = None
@@ -241,6 +254,7 @@ class AnonymousAggregateBucket:
             "content": self.content,
             "term": self.term,
             "device_class": self.device_class,
+            "region": self.region,
             "referrer_category": self.referrer_category,
             "traffic_class": self.traffic_class,
             "visits": self.visits,
@@ -260,6 +274,7 @@ class AnonymousAggregateBucket:
             "content": self.content,
             "term": self.term,
             "device_class": self.device_class,
+            "region": self.region,
             "referrer_category": self.referrer_category,
             "traffic_class": self.traffic_class,
             "visits": self.visits,
@@ -277,6 +292,7 @@ class AnonymousAggregateBucket:
             self.content,
             self.term,
             self.device_class,
+            self.region,
             self.referrer_category,
             self.traffic_class,
         )
@@ -297,12 +313,13 @@ def build_anonymous_aggregate_bucket(
     term: Any = None,
     referrer_category: Any = None,
     device_class: Any = None,
+    region: Any = None,
     traffic_class: Any = None,
     visits: int = 1,
 ) -> AnonymousAggregateBucket:
     """Build one bucket from request-time values, dropping anything unsafe."""
     normalized_path = _normalized_path(path)
-    surface = surface_for_public_path(normalized_path)
+    surface = surface_for_anonymous_page(normalized_path)
     if surface is None:
         raise ValueError("anonymous aggregate covers public pages only")
     moment = occurred_at or datetime.now(UTC)
@@ -324,6 +341,7 @@ def build_anonymous_aggregate_bucket(
         content=sanitize_anonymous_aggregate_label(content),
         term=sanitize_anonymous_aggregate_label(term),
         device_class=_known_value(device_class, DEVICE_CLASSES, "unknown"),
+        region=_known_value(region, REGIONS, "unknown"),
         referrer_category=_known_value(referrer_category, REFERRER_CATEGORIES, "unknown"),
         traffic_class=normalize_traffic_class(traffic_class),
         visits=int(visits),
@@ -368,9 +386,9 @@ async def record_anonymous_aggregate_bucket(
 ) -> int | None:
     """Insert or increment one bucket with a single statement and return its count.
 
-    One ``INSERT ... ON CONFLICT DO UPDATE`` by bucket key: no network call, no
-    queue and no background worker, so the public page never depends on the
-    analytics stack. The counter is committed immediately by default, because a
+    One awaited PostgreSQL ``INSERT ... ON CONFLICT DO UPDATE`` by bucket key,
+    without an analytics provider or background worker. The counter is committed
+    immediately by default, because a
     visit rolled back at the end of the request was never counted; pass
     ``commit=False`` only when the caller already owns the transaction.
     """
@@ -408,38 +426,33 @@ async def record_anonymous_aggregate_bucket_safely(
 ) -> int | None:
     """Count one bucket without ever letting measurement break the page (FR-058).
 
-    The write itself stays exactly one synchronous ``INSERT ... ON CONFLICT DO
-    UPDATE`` with no network call, no queue and no provider access. This wrapper
-    only adds the failure rule the public page needs: an unavailable database, a
-    closed session or a rejected statement is logged and swallowed, so a visitor
-    still gets the page while the missing count stays a measurement gap.
+    One database upsert and its commit share a 250 ms budget. Database failures
+    are logged and swallowed; external cancellation still propagates.
 
-    ``None`` means "not counted"; the caller must not retry, retry would turn one
-    broken write into a request-path loop.
+    ``None`` means "not confirmed": commit may have completed before timeout.
+    The caller must not retry and must discard the request session afterwards.
     """
     if session is None:
         return None
     try:
-        return await record_anonymous_aggregate_bucket(
-            session,
-            bucket,
-            commit=commit,
-            settings=settings,
-            environ=environ,
-        )
+        async with asyncio.timeout(ANONYMOUS_AGGREGATE_WRITE_TIMEOUT_SECONDS):
+            return await record_anonymous_aggregate_bucket(
+                session,
+                bucket,
+                commit=commit,
+                settings=settings,
+                environ=environ,
+            )
     except Exception as exc:  # noqa: BLE001 - measurement must never reach the visitor
         logger.warning(
-            "anonymous aggregate bucket was not recorded: surface=%s error=%s",
+            "anonymous aggregate write unconfirmed: surface=%s error=%s",
             bucket.surface,
             exc.__class__.__name__,
         )
         return None
 
 
-def reportable_aggregate_criteria(
-    *,
-    minimum_bucket_size: int = MINIMUM_AGGREGATE_BUCKET_SIZE,
-) -> tuple[Any, ...]:
+def reportable_aggregate_criteria() -> tuple[Any, ...]:
     """Return the SQL criteria every report over the aggregate must apply.
 
     Two rules are inseparable from a report (FR-013, FR-057): only reported
@@ -449,7 +462,7 @@ def reportable_aggregate_criteria(
     table = AnonymousPageAggregateBucketRow.__table__
     return (
         table.c.traffic_class.in_(tuple(REPORTED_TRAFFIC_CLASSES)),
-        table.c.visits >= int(minimum_bucket_size),
+        table.c.visits >= MINIMUM_AGGREGATE_BUCKET_SIZE,
     )
 
 
@@ -470,14 +483,11 @@ async def select_reportable_aggregate_buckets(
     *,
     bucket_date_from: date | None = None,
     bucket_date_to: date | None = None,
-    minimum_bucket_size: int = MINIMUM_AGGREGATE_BUCKET_SIZE,
     limit: int = 5000,
 ) -> list[dict[str, Any]]:
     """Read report rows: reported traffic classes only, disclosed buckets only."""
     table = AnonymousPageAggregateBucketRow.__table__
-    statement = select(table).where(*reportable_aggregate_criteria(
-        minimum_bucket_size=minimum_bucket_size
-    ))
+    statement = select(table).where(*reportable_aggregate_criteria())
     if bucket_date_from is not None:
         statement = statement.where(table.c.bucket_date >= bucket_date_from)
     if bucket_date_to is not None:
@@ -496,6 +506,7 @@ async def select_reportable_aggregate_buckets(
             "content": row.content,
             "term": row.term,
             "device_class": row.device_class,
+            "region": row.region,
             "referrer_category": row.referrer_category,
             "traffic_class": row.traffic_class,
             "visits": row.visits,
@@ -507,7 +518,7 @@ async def select_reportable_aggregate_buckets(
     return [
         row
         for row in rows
-        if is_disclosed_bucket(row["visits"], minimum_bucket_size=minimum_bucket_size)
+        if is_disclosed_bucket(row["visits"])
     ]
 
 
@@ -517,7 +528,6 @@ async def sum_reportable_aggregate_visits(
     surface: str | None = None,
     bucket_date_from: date | None = None,
     bucket_date_to: date | None = None,
-    minimum_bucket_size: int = MINIMUM_AGGREGATE_BUCKET_SIZE,
 ) -> int:
     """Сумма визитов по раскрытым корзинам уровня 1 (FR-009, FR-012, FR-057).
 
@@ -528,7 +538,7 @@ async def sum_reportable_aggregate_visits(
     """
     table = AnonymousPageAggregateBucketRow.__table__
     statement = select(func.coalesce(func.sum(table.c.visits), 0)).where(
-        *reportable_aggregate_criteria(minimum_bucket_size=minimum_bucket_size)
+        *reportable_aggregate_criteria()
     )
     if surface is not None:
         statement = statement.where(table.c.surface == surface)
@@ -546,7 +556,6 @@ async def sum_reportable_aggregate_visits_by_campaign(
     surface: str,
     bucket_date_from: date | None = None,
     bucket_date_to: date | None = None,
-    minimum_bucket_size: int = MINIMUM_AGGREGATE_BUCKET_SIZE,
 ) -> dict[str, int]:
     """Визиты по метке кампании для одного разреза уровня 1.
 
@@ -559,7 +568,7 @@ async def sum_reportable_aggregate_visits_by_campaign(
     statement = (
         select(table.c.campaign, func.coalesce(func.sum(table.c.visits), 0))
         .where(
-            *reportable_aggregate_criteria(minimum_bucket_size=minimum_bucket_size),
+            *reportable_aggregate_criteria(),
             table.c.surface == surface,
             table.c.campaign.is_not(None),
         )

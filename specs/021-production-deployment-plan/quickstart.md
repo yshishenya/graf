@@ -161,3 +161,9 @@ Expected:
 - Production Compose config scan does not expose live secret values in service environment.
 - Runtime container environment scan does not expose secret values after rebuild/up.
 - Production smoke returns `readiness_verdict=infra_smoke_ready`.
+
+## Изолированная проверка bounded deadlock recovery
+
+Запускать только через существующий loopback PostgreSQL fixture/harness, с generated test DB name, случайным ephemeral password без вывода. Focused: tests/integration/test_smoke_cleanup_deadlock.py, tests/unit/test_smoke_cleanup.py, tests/integration/test_rls_smoke_cleanup_context.py. Ни MinIO, ни MediaScribe, ни production fixtures: storage monkeypatch только проверяет synthetic prefix и момент commit.
+
+Критерии: старый helper воспроизводимо40P01; новый retry transient PASS, соседние данные byte/value unchanged; persistent40P01 max3/failure/no storage; non40P01 singlefailure; postcommit failure no retry. Ruff/compile/process/context/diffcheck и independent review. Required GitHub exact-SHA CI; no merge/deploy в этом этапе.

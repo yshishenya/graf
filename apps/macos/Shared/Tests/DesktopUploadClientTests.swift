@@ -6,6 +6,223 @@ import TwoBrainRecShared
 import XCTest
 
 final class DesktopUploadClientTests: XCTestCase {
+    func testStartAcceptanceRejectsInvalidLiveManifestBeforeUploadAndReconcile() async throws {
+        for invalidation in ["pending", "unknown", "session", "directory", "missing", "read-error", "malformed"] {
+            for entry in ["upload", "reconcile"] {
+                let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+                defer { try? FileManager.default.removeItem(at: root) }
+                let item = try makeStartAcceptancePackage(at: root)
+                XCTAssertTrue(item.isUploadEligible)
+                let manifestURL = root.appendingPathComponent("manifest.json")
+                switch invalidation {
+                case "missing": try FileManager.default.removeItem(at: manifestURL)
+                case "read-error":
+                    try FileManager.default.removeItem(at: manifestURL)
+                    try FileManager.default.createDirectory(at: manifestURL, withIntermediateDirectories: false)
+                case "malformed": try Data("{".utf8).write(to: manifestURL, options: .atomic)
+                default:
+                    var object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: manifestURL)) as? [String: Any])
+                    switch invalidation {
+                    case "session": object["sessionId"] = "other-session"
+                    case "directory": object["directoryId"] = "other-directory"
+                    default: object["startAcceptance"] = invalidation
+                    }
+                    try JSONSerialization.data(withJSONObject: object).write(to: manifestURL, options: .atomic)
+                }
+                let transport = SyntheticV5UploadTransport()
+                let client = DesktopUploadClient(baseURL: URL(string: "https://synthetic-upload.invalid")!,
+                    headers: [:], partSizeBytes: 64 * 1024, authSessionTokenProvider: { _ in nil },
+                    requestExecutor: { try await transport.data(for: $0) })
+                if entry == "upload" {
+                    do {
+                        _ = try await client.upload(item)
+                        XCTFail("Invalid live manifest must refuse direct upload: \(invalidation)")
+                    } catch {
+                        // The decisive assertion is zero requests, regardless of the local error type.
+                    }
+                } else {
+                    _ = try? await client.reconcile(item)
+                }
+                let requests = await transport.recordedRequests()
+                XCTAssertTrue(requests.isEmpty, "\(invalidation)/\(entry)")
+            }
+        }
+    }
+
+    func testStartAcceptanceAcceptedAndLegacyManifestAllowDirectUpload() async throws {
+        for acceptance in [nil, "accepted"] as [String?] {
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            defer { try? FileManager.default.removeItem(at: root) }
+            let item = try makeStartAcceptancePackage(at: root, acceptance: acceptance)
+            let transport = SyntheticV5UploadTransport()
+            let client = DesktopUploadClient(baseURL: URL(string: "https://synthetic-upload.invalid")!,
+                headers: [:], partSizeBytes: 64 * 1024, authSessionTokenProvider: { _ in nil },
+                requestExecutor: { try await transport.data(for: $0) })
+            let result = try await client.upload(item)
+            let requests = await transport.recordedRequests()
+            XCTAssertEqual(result.state, .uploaded)
+            XCTAssertEqual(requests.count, 9)
+            XCTAssertEqual(requests.last?.url?.lastPathComponent, "finalize")
+        }
+    }
+
+    func testStartAcceptanceServerOnlyGETWithoutManifestDoesNotAuthorizeUpload() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        var item = try makeStartAcceptancePackage(at: root)
+        item.meetingId = "synthetic-known-meeting"
+        item.ownerScope = try RecordingDeletionScope(serverOrigin: "https://synthetic-upload.invalid",
+            workspaceID: "synthetic-workspace", actorUserID: "synthetic-owner")
+        try FileManager.default.removeItem(at: URL(fileURLWithPath: item.manifestPath))
+        XCTAssertTrue(item.isUploadEligible, "The cached profile remains allowed after local manifest removal")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: item.manifestPath))
+
+        let responseData = try JSONSerialization.data(withJSONObject: [
+            "local_recording_id": item.directoryId,
+            "local_media_revision_id": item.localMediaRevisionId,
+            "meeting": ["meeting_id": "synthetic-known-meeting", "status": "uploading", "access_state": "owner"],
+            "media_revision": ["track_sha256_by_role": [:]],
+            "upload_session": ["accepted_bytes_by_track": [:], "missing_ranges_by_track": [:]],
+            "processing": ["status": "not_submitted"],
+            "conflict": ["state": "none", "next_action": "continue_upload"],
+        ] as [String: Any])
+        let recorder = StartAcceptanceRequestRecorder()
+        let client = DesktopUploadClient(baseURL: URL(string: "https://synthetic-upload.invalid")!,
+            headers: [:], partSizeBytes: 64 * 1024, authSessionTokenProvider: { _ in nil },
+            requestExecutor: { request in
+                await recorder.record(request)
+                return (responseData, try XCTUnwrap(HTTPURLResponse(url: try XCTUnwrap(request.url),
+                    statusCode: 200, httpVersion: nil, headerFields: nil)))
+            })
+
+        let serverTruth = try await client.reconcileServerTruth(item)
+        let reconciliation = try XCTUnwrap(serverTruth)
+        XCTAssertTrue(reconciliation.canContinueUpload)
+        let requests = await recorder.snapshot()
+        XCTAssertEqual(requests.count, 1)
+        XCTAssertEqual(requests.first?.httpMethod, "GET")
+        XCTAssertEqual(requests.first?.url?.path, "/api/v1/desktop/recordings/\(item.directoryId)/sync-state")
+        XCTAssertEqual(requests.first?.value(forHTTPHeaderField: "X-Graf-Expected-Actor"), "synthetic-owner")
+        XCTAssertEqual(requests.first?.value(forHTTPHeaderField: "X-Graf-Expected-Workspace"), "synthetic-workspace")
+        XCTAssertNil(requests.first?.httpBody)
+
+        // Applying permissive server truth still cannot replace local start admission.
+        item.serverTruth = reconciliation.serverTruth
+        do {
+            _ = try await client.upload(item)
+            XCTFail("Server-only reconciliation must not authorize an upload without its live manifest")
+        } catch RecordingStartAcceptanceGate.Refusal.manifestUnavailable {
+        } catch {
+            XCTFail("Expected local manifest refusal, got \(error)")
+        }
+        let afterUpload = await recorder.snapshot()
+        XCTAssertEqual(afterUpload.count, 1, "The failed upload must add no transport requests")
+        XCTAssertEqual(afterUpload.first?.httpMethod, "GET")
+    }
+
+    func testStartAcceptanceRechecksLiveManifestAfterEveryProgressAwait() async throws {
+        for permittedRequests in 0...8 {
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            defer { try? FileManager.default.removeItem(at: root) }
+            let item = try makeStartAcceptancePackage(at: root)
+            let manifestURL = root.appendingPathComponent("manifest.json")
+            let pending = try Self.startAcceptanceJSON(Data(contentsOf: manifestURL), value: "pending")
+            let transport = SyntheticV5UploadTransport()
+            let client = DesktopUploadClient(baseURL: URL(string: "https://synthetic-upload.invalid")!,
+                headers: [:], partSizeBytes: 64 * 1024, authSessionTokenProvider: { _ in nil },
+                requestExecutor: { try await transport.data(for: $0) })
+            do {
+                _ = try await client.upload(item, onProgress: { _ in
+                    if await transport.recordedRequests().count >= permittedRequests {
+                        // Do not cancel from the observer: the live admission check must stop upload.
+                        try pending.write(to: manifestURL, options: .atomic)
+                    }
+                })
+                XCTFail("Pending at boundary \(permittedRequests) must stop remaining requests")
+            } catch {}
+            XCTAssertEqual(try Data(contentsOf: manifestURL), pending)
+            let requests = await transport.recordedRequests()
+            XCTAssertEqual(requests.count, permittedRequests, "boundary \(permittedRequests)")
+            XCTAssertFalse(requests.contains { $0.url?.path.hasSuffix("/finalize") == true })
+        }
+    }
+
+    func testStartAcceptanceRechecksLiveManifestAfterTransportAwait() async throws {
+        for permittedRequests in 1...8 {
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            defer { try? FileManager.default.removeItem(at: root) }
+            let item = try makeStartAcceptancePackage(at: root)
+            let manifestURL = root.appendingPathComponent("manifest.json")
+            let pending = try Self.startAcceptanceJSON(Data(contentsOf: manifestURL), value: "pending")
+            let transport = SyntheticV5UploadTransport()
+            let client = DesktopUploadClient(baseURL: URL(string: "https://synthetic-upload.invalid")!,
+                headers: [:], partSizeBytes: 64 * 1024, authSessionTokenProvider: { _ in nil },
+                requestExecutor: { request in
+                    let response = try await transport.data(for: request)
+                    if await transport.recordedRequests().count == permittedRequests {
+                        try pending.write(to: manifestURL, options: .atomic)
+                    }
+                    return response
+                })
+            do {
+                _ = try await client.upload(item)
+                XCTFail("Pending after response \(permittedRequests) must stop remaining requests")
+            } catch {}
+            XCTAssertEqual(try Data(contentsOf: manifestURL), pending)
+            let requests = await transport.recordedRequests()
+            XCTAssertEqual(requests.count, permittedRequests, "response \(permittedRequests)")
+            XCTAssertFalse(requests.contains { $0.url?.path.hasSuffix("/finalize") == true })
+        }
+    }
+
+    private func makeStartAcceptancePackage(at root: URL, acceptance: String? = nil) throws -> DesktopUploadQueueItem {
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let media = Data(repeating: 1, count: 128 * 1024)
+        let playback = Data(repeating: 2, count: 32 * 1024)
+        var manifest = try makeRuntimeManifest(canonicalWAV: media, reviewM4A: playback)
+        if let acceptance { manifest = try Self.startAcceptanceJSON(manifest, value: acceptance) }
+        try manifest.write(to: root.appendingPathComponent("manifest.json"))
+        try media.write(to: root.appendingPathComponent("meeting-transcription.wav"))
+        try playback.write(to: root.appendingPathComponent("meeting-review.m4a"))
+        return makeV5QueueItem(at: root, manifest: manifest, canonicalWAV: media, reviewM4A: playback)
+    }
+
+    // Inject the field as JSON so these regression tests also compile before the model gains it.
+    private static func startAcceptanceJSON(_ data: Data, value: String) throws -> Data {
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        object["startAcceptance"] = value
+        return try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+    }
+
+    private func makeRuntimeManifest(canonicalWAV: Data, reviewM4A: Data) throws -> Data {
+        let startedAt = Date(timeIntervalSince1970: 10)
+        let manifest = LocalRecordingManifest(
+            sessionId: "synthetic-v5-session", createdAt: startedAt, startedAt: startedAt,
+            stoppedAt: startedAt.addingTimeInterval(1), status: .saved,
+            directoryId: "synthetic-v5-directory", transcriptionReadiness: .ready,
+            tracks: [
+                LocalRecordingTrack(trackId: "canonical-media", role: .mixedMeetingAudio,
+                    sourceKind: .canonicalMix, mediaScribeField: .mediaFile, status: .saved,
+                    fileName: "meeting-transcription.wav", format: "wav-pcm-s16le",
+                    sampleRate: 16_000, channelCount: 1, bitsPerSample: 16, durationMs: 1_000,
+                    byteCount: Int64(canonicalWAV.count), sha256: DesktopUploadClient.sha256Hex(data: canonicalWAV),
+                    frameCount: 16_000, timelineStartMs: 0, timelineAligned: true),
+                LocalRecordingTrack(trackId: "review-playback", role: .reviewPlayback,
+                    sourceKind: .canonicalMix, mediaScribeField: .playbackFile, status: .saved,
+                    fileName: "meeting-review.m4a", format: "m4a-aac-lc",
+                    sampleRate: 48_000, channelCount: 1, bitsPerSample: 0, durationMs: 1_000,
+                    byteCount: Int64(reviewM4A.count), sha256: DesktopUploadClient.sha256Hex(data: reviewM4A),
+                    frameCount: 48_000, aacPresentationFrameDelta: 0, timelineStartMs: 0, timelineAligned: true)
+            ], scopeApproval: CaptureScopeApproval(scopeApprovalId: "synthetic-scope", scopeKind: .display,
+                sourceDisplayName: "Synthetic Meeting", approvedAt: startedAt,
+                approvalMode: .userConfirmedSuggestedScope, eligibleReason: .manualMeetingScope),
+            permissions: SystemAudioPermissionSnapshot(microphone: .granted, systemAudio: .granted,
+                evaluatedAt: startedAt))
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        return try encoder.encode(manifest)
+    }
+
     func testLocalRolesMapToBackendTrackRoles() {
         XCTAssertNil(DesktopUploadClient.backendRole(for: .localMic))
         XCTAssertNil(DesktopUploadClient.backendRole(for: .remoteSpeaker))
@@ -137,7 +354,8 @@ final class DesktopUploadClientTests: XCTestCase {
             }
         )
 
-        let reconciliation = try await client.reconcile(makeQueueItem())
+        // Server-only status/deletion reads must work after the local package is gone.
+        let reconciliation = try await client.reconcileServerTruth(makeQueueItem())
 
         XCTAssertEqual(reconciliation?.serverTruth.deletionState, "complete")
         XCTAssertEqual(reconciliation?.serverTruth.accessState, "owner")
@@ -190,9 +408,9 @@ final class DesktopUploadClientTests: XCTestCase {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        let manifest = Data("synthetic manifest".utf8)
         let media = Data(repeating: 1, count: 128 * 1024)
         let playback = Data(repeating: 2, count: 32 * 1024)
+        let manifest = try makeRuntimeManifest(canonicalWAV: media, reviewM4A: playback)
         try manifest.write(to: root.appendingPathComponent("manifest.json"))
         try media.write(to: root.appendingPathComponent("meeting-transcription.wav"))
         try playback.write(to: root.appendingPathComponent("meeting-review.m4a"))
@@ -227,9 +445,9 @@ final class DesktopUploadClientTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
 
-        let manifest = Data("{\"schema_version\":\"local-recording-manifest.v5\"}".utf8)
         let canonicalWAV = Data(repeating: 1, count: 128 * 1024)
         let reviewM4A = Data(repeating: 2, count: 32 * 1024)
+        let manifest = try makeRuntimeManifest(canonicalWAV: canonicalWAV, reviewM4A: reviewM4A)
         try manifest.write(to: root.appendingPathComponent("manifest.json"))
         try canonicalWAV.write(to: root.appendingPathComponent("meeting-transcription.wav"))
         try reviewM4A.write(to: root.appendingPathComponent("meeting-review.m4a"))
@@ -1199,6 +1417,13 @@ final class DesktopUploadClientTests: XCTestCase {
             )
         )
     }
+}
+
+private actor StartAcceptanceRequestRecorder {
+    private var requests: [URLRequest] = []
+
+    func record(_ request: URLRequest) { requests.append(request) }
+    func snapshot() -> [URLRequest] { requests }
 }
 
 private actor SyntheticV5UploadProgressRecorder {

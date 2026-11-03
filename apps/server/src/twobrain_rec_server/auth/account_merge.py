@@ -1504,6 +1504,9 @@ async def confirm_merge_intent(
         meeting.workspace_id = survivor_personal_workspace.id
         if meeting.created_by_user_id == intent.source_user_id:
             meeting.created_by_user_id = intent.survivor_user_id
+    # Flush parent scope first so FK cascades move the fixed summary graph
+    # before metadata updates its remaining workspace-scoped meeting rows.
+    await db.flush()
     await _move_meeting_workspace_rows(
         db,
         source_workspace_ids=source_personal_workspace_ids,

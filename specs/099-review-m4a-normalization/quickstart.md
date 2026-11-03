@@ -480,3 +480,17 @@ and cleanup are required.
 
 Every completed task and evidence receipt references its covered FR/SC IDs. A
 green command without requirement/scenario mapping is not closeout evidence.
+
+
+## 2026-10-17 — попытка A не затрагивает B
+
+Штатный `apps/server/scripts/run_local_postgres_tests.sh --focused`:
+restart, retry, workflow, deletion, incidents, audit persistence, postgres.
+Новые restart случаи обязаны сначала воспроизвести RED исходного source,
+затем PASS исправления: late exception со старым/повторным owner, B в
+local_preparing/uploaded с reservation; delayed job-wide/direct cleanup;
+истёкшая lease, READY winner, обычный настоящий отказ каталога.
+Проверять неизменность B lease/reason/due/counters/reservation/object и
+исходных source bytes; все барьеры bounded, контейнер/temp очищены.
+Детерминированные часы/fake pipeline/storage/Temporal не доказывают живое
+автоматическое восстановление и post-deploy PASS. Никакой production записи.

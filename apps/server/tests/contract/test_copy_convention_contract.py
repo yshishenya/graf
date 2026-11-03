@@ -78,3 +78,10 @@ def test_cabinet_python_copy_has_no_forbidden_variants(relative_path: str) -> No
         for term in FORBIDDEN_TERMS:
             assert term not in literal, f"forbidden copy «{term}» in {relative_path}: {literal!r}"
         assert YO not in literal, f"user copy must use «е», not «ё»: {relative_path}: {literal!r}"
+
+
+def test_calendar_series_dynamic_copy_has_no_forbidden_variants() -> None:
+    copy = (SRC / "cabinet/static/cabinet/calendar-series.js").read_text(encoding="utf-8")
+    assert YO not in copy, "calendar series user copy must use «е», not «ё»"
+    for term in FORBIDDEN_TERMS:
+        assert term not in copy, f"forbidden calendar series copy «{term}»"

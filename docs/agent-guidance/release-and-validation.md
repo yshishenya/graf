@@ -758,9 +758,7 @@ push the branch and tags only when the user approves the release action.
 ## Git Safety
 
 - Never reset or discard user changes.
-- Do not auto-commit implementation code, generated build outputs, secrets, or
-  unrelated changes.
-- Implementation commits require explicit user approval after validation.
+- Do not commit generated build outputs, secrets, or unrelated changes.
 - Spec Kit documentation auto-commits may run only through user-approved Spec
   Kit hooks.
 

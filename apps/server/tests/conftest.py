@@ -53,6 +53,15 @@ pytest_plugins = (
     "tests.fixtures.test_resources",
 )
 
+
+@pytest.fixture
+def public_basis_register(tmp_path, monkeypatch):
+    """Explicit valid initial state for tests that enable public measurement."""
+    path = tmp_path / "public-basis-withdrawals"
+    path.write_text("legal_basis_state_version=1\n", encoding="utf-8")
+    monkeypatch.setenv("GRAF_PRODUCT_ANALYTICS_LEGAL_BASIS_STATE_FILE", str(path))
+    return path
+
 REGISTRY_DATA = (
     Path(__file__).resolve().parents[1]
     / "src/twobrain_rec_server/db/migrations/data/0030_meeting_target_registry.json"

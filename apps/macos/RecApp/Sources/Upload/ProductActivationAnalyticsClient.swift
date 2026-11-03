@@ -9,10 +9,17 @@ public struct ProductActivationAnalyticsClient: Sendable {
         guard let url = URL(string: rawBaseURL),
               let scheme = url.scheme?.lowercased(),
               scheme == "http" || scheme == "https",
-              let origin = URL(string: "\(scheme)://\(url.host ?? "")")
+              let host = url.host,
+              url.user == nil,
+              url.password == nil
         else {
             return nil
         }
+        var originComponents = URLComponents()
+        originComponents.scheme = scheme
+        originComponents.host = host
+        originComponents.port = url.port
+        guard let origin = originComponents.url else { return nil }
         self.baseURL = origin
         self.headers = headers
     }
@@ -44,6 +51,15 @@ public struct ProductActivationAnalyticsClient: Sendable {
         guard let endpoint = config.posthogCaptureEndpoint else {
             return nil
         }
+        // Session credentials belong only to this exact first-party proxy.
+        guard endpoint.scheme?.lowercased() == baseURL.scheme?.lowercased(),
+              endpoint.host?.lowercased() == baseURL.host?.lowercased(),
+              (endpoint.port ?? (endpoint.scheme == "https" ? 443 : 80)) ==
+                (baseURL.port ?? (baseURL.scheme == "https" ? 443 : 80)),
+              endpoint.path == "/api/v1/product-analytics/posthog-desktop-capture",
+              endpoint.query == nil, endpoint.fragment == nil,
+              endpoint.user == nil, endpoint.password == nil
+        else { return nil }
         guard let distinctId = payload.stablePseudonymousUserId else {
             return nil
         }
@@ -52,6 +68,9 @@ public struct ProductActivationAnalyticsClient: Sendable {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(config.posthogProjectKeyState, forHTTPHeaderField: "X-GRAF-PostHog-Project-Key-State")
         request.setValue("first_party_posthog_desktop_proxy", forHTTPHeaderField: "X-GRAF-Analytics-Route")
+        for (key, value) in headers {
+            request.setValue(value, forHTTPHeaderField: key)
+        }
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         request.httpBody = try encoder.encode(PostHogDesktopCaptureEnvelope(payload: payload, distinctId: distinctId))

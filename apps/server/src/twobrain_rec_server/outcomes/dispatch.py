@@ -581,6 +581,7 @@ async def list_due_dispatch_intents(
     rows = await db.scalars(
         select(DispatchIntent)
         .where(
+            DispatchIntent.intent_kind == "summary_generation",
             (
                 DispatchIntent.state.in_({"created", "retryable_failed"})
                 | (

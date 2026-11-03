@@ -26,19 +26,20 @@ SIGNING_CUSTODY_TEST = ROOT / "apps/macos/Installer/Scripts/test-release-signing
 
 def test_macos_workflows_cache_swift_build_without_gating_validation() -> None:
     expected_key = (
-        "swift-${{ runner.os }}-${{ runner.arch }}-spm6.0.3-"
+        "swift-macos15-${{ runner.os }}-${{ runner.arch }}-spm6.0.3-xcode16.2-"
         "${{ hashFiles('apps/macos/Package.resolved') }}-"
         "${{ hashFiles('apps/macos/**/*.swift', 'apps/macos/Package.swift') }}-v2"
     )
     for workflow in (MACOS_PR_WORKFLOW, FULL_CI_WORKFLOW):
         text = workflow.read_text(encoding="utf-8")
-        assert "actions/cache@v4" in text
+        assert "actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9" in text
         assert "id: swift-cache" in text
         assert "apps/macos/.build" in text
         assert "~/.cache/org.swift.swiftpm" in text
         assert "~/Library/Caches/org.swift.swiftpm" in text
         assert expected_key in text
-        assert "swift-version: \"6.0.3\"" in text
+        assert "restore-keys: |\n            swift-macos15-${{ runner.os }}-${{ runner.arch }}-spm6.0.3-xcode16.2-\n" in text
+        assert "Select installed Swift 6.0.3" in text
         # A cache hit must never replace or skip a validation step; it only
         # refreshes timestamps so llbuild can honor incremental state.
         assert "if: steps.swift-cache.outputs.cache-hit == 'true'" in text
@@ -210,17 +211,190 @@ def behavior_repo(tmp_path: Path) -> Path:
         "contract/test_cabinet_static_assets_contract.py",
         "contract/test_settings_ui_contract.py",
         "unit/test_settings_view_models.py",
+        "contract/test_calendar_auto_context_contract.py",
+        "integration/test_calendar_auto_context_match.py",
     ):
         target = tmp_path / "apps/server/tests" / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         name = ("test_cabinet_rail_node_harness_keeps_responsive_defaults_and_manual_state"
-                if "static_assets" in relative else "test_fixture")
+                if "static_assets" in relative else
+                "test_sc017_one_hundred_warmed_atomic_consumptions_are_within_50ms_p95"
+                if "integration/test_calendar" in relative else "test_fixture")
         target.write_text(f"def {name}():\n    assert True\n")
     (tmp_path / ".gitignore").write_text(".venv/\n.pytest_cache/\n__pycache__/\n")
     for args in (("init", "-q"), ("config", "user.email", "ci-contract@example.test"),
                  ("config", "user.name", "CI Contract"), ("add", "."), ("commit", "-qm", "base")):
         assert run("git", *args, cwd=tmp_path).returncode == 0
     return tmp_path / "infra/scripts/ci-local.sh"
+
+
+CALENDAR_PROOFS = [
+    "tests/contract/test_calendar_auto_context_contract.py",
+    "tests/integration/test_calendar_auto_context_match.py",
+]
+
+
+@pytest.mark.parametrize("path", [
+    "src/twobrain_rec_server/calendar/matching.py",
+    "src/twobrain_rec_server/calendar/consumption.py",
+    "src/twobrain_rec_server/api/calendar.py",
+    "src/twobrain_rec_server/db/models/calendar.py",
+    "src/twobrain_rec_server/db/migrations/versions/0021_calendar_auto_context_match.py",
+    *CALENDAR_PROOFS,
+])
+def test_calendar_changes_select_existing_contract_and_integration(path: str) -> None:
+    result = run_stubbed_ci("apps/server/" + path, "--plan")
+    assert result.returncode == 0, result.stdout
+    plan = json.loads(result.stdout)
+    assert plan["tests"] == CALENDAR_PROOFS
+    assert [group["name"] for group in plan["groups"]] == ["calendar-auto-context"]
+    assert "PostgreSQL" in plan["environment"] and "Docker" in plan["environment"]
+    assert plan["coverage"] == "partial"
+
+
+def test_mixed_calendar_behavior_files_have_one_owner_and_keep_unit_checks() -> None:
+    paths = "\n".join([
+        "apps/server/src/twobrain_rec_server/calendar/matching.py",
+        "apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js",
+        *("apps/server/" + target for target in CALENDAR_PROOFS),
+        "unknown/file.bin",
+    ])
+    result = run_stubbed_ci(paths, "--fast")
+    assert result.returncode == 0, result.stdout
+    plan = next(json.loads(line) for line in result.stdout.splitlines() if line.startswith('{"'))
+    assert len(plan["tests"]) == len(set(plan["tests"])) == 4
+    assert set(CALENDAR_PROOFS) <= set(plan["tests"])
+    assert plan["covered_tests"] == ["tests/unit/test_settings_view_models.py"]
+    assert "unknown/file.bin" in plan["changed_paths"]
+    assert "ci_stage=changed server tests" not in result.stdout
+    assert "ci_stage=calendar performance proof" not in result.stdout
+    assert result.stdout.count("ci_stage=related behavior tests status=pass") == 1
+    assert result.stdout.count("ci_stage=server tests status=pass") == 1
+    assert "coverage=partial next_gate=full_before_release" in result.stdout
+
+
+@pytest.mark.parametrize("covered", [CALENDAR_PROOFS[0], "tests/unit", "tests"])
+def test_calendar_covered_union_is_disjoint_and_validated(tmp_path: Path, covered: str) -> None:
+    behavior_repo(tmp_path)
+    paths = ["apps/server/src/twobrain_rec_server/calendar/matching.py",
+             "apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js"]
+    result = subprocess.run(
+        [sys.executable, str(tmp_path / "scripts/ci-behavior-tests.py"), "--plan", "--covered", covered],
+        input="\n".join(paths + paths), text=True, capture_output=True, check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    plan = json.loads(result.stdout)
+    selected = set(plan["tests"])
+    already = set(plan["covered_tests"])
+    assert not selected & already
+    assert len(plan["tests"]) + len(plan["covered_tests"]) == len(selected | already) == 5
+    assert set(CALENDAR_PROOFS) <= selected | already
+    assert plan["changed_paths"] == sorted(paths)
+    assert already == {target for target in selected | already
+                       if target == covered or target.startswith(covered + "/")}
+
+
+def test_calendar_source_rename_keeps_old_path_and_unknown_destination(tmp_path: Path) -> None:
+    runner = behavior_repo(tmp_path)
+    source = tmp_path / "apps/server/src/twobrain_rec_server/calendar/matching.py"
+    source.parent.mkdir(parents=True)
+    source.write_text("# source\n")
+    assert run("git", "add", ".", cwd=tmp_path).returncode == 0
+    assert run("git", "commit", "-qm", "source", cwd=tmp_path).returncode == 0
+    destination = tmp_path / "unknown calendar.py"
+    source.rename(destination)
+    result = run(str(runner), "--plan", cwd=tmp_path, env={"GRAF_CI_BASE_REF": "HEAD"})
+    assert result.returncode == 0, result.stdout
+    plan = json.loads(result.stdout)
+    assert plan["changed_paths"] == sorted([str(source.relative_to(tmp_path)), destination.name])
+    assert plan["tests"] == CALENDAR_PROOFS and plan["coverage"] == "partial"
+
+
+@pytest.mark.parametrize("condition", ["missing", "empty", "syntax", "symlink",
+                                       "performance_removed", "performance_renamed"])
+def test_calendar_missing_or_invalid_proof_fails_before_runtime(tmp_path: Path, condition: str) -> None:
+    runner = behavior_repo(tmp_path)
+    source = tmp_path / "apps/server/src/twobrain_rec_server/calendar/matching.py"
+    source.parent.mkdir(parents=True)
+    source.write_text("# changed source\n")
+    target = tmp_path / "apps/server" / CALENDAR_PROOFS[int(condition.startswith("performance_"))]
+    if condition == "missing":
+        target.unlink()
+    elif condition == "empty":
+        target.write_text("# no tests\n")
+    elif condition == "syntax":
+        target.write_text("def test_broken(:\n")
+    elif condition.startswith("performance_"):
+        original = target.read_text()
+        target.write_text("def test_other():\n    assert True\n" if condition == "performance_removed"
+                          else original.replace("test_sc017_", "test_renamed_"))
+    else:
+        outside = tmp_path.parent / (tmp_path.name + "-outside.py")
+        outside.write_text(target.read_text())
+        target.unlink()
+        target.symlink_to(outside)
+    result = run(str(runner), "--focused", cwd=tmp_path, env={"GRAF_CI_BASE_REF": "HEAD"})
+    assert result.returncode != 0, result.stdout
+    assert "ci_focused_result=fail" in result.stdout
+    assert "server_venv_missing" not in result.stdout
+
+
+@pytest.mark.parametrize("condition", ["pass", "skip", "deselect", "failure", "runner_failure",
+                                       "performance_deselect", "performance_wrong_module"])
+def test_calendar_executor_uses_isolated_runner_and_requires_execution(tmp_path: Path, condition: str) -> None:
+    runner = behavior_repo(tmp_path)
+    source = tmp_path / "apps/server/src/twobrain_rec_server/calendar/matching.py"
+    source.parent.mkdir(parents=True)
+    source.write_text("# changed source\n")
+    target = tmp_path / "apps/server" / CALENDAR_PROOFS[0]
+    if condition == "skip":
+        target.write_text("import pytest\n@pytest.mark.skip(reason='fixture')\n" + target.read_text())
+    elif condition == "failure":
+        target.write_text(target.read_text().replace("assert True", "assert False"))
+    elif condition == "deselect":
+        (target.parent / "conftest.py").write_text(
+            "def pytest_collection_modifyitems(items):\n"
+            "    items[:] = [i for i in items if 'contract/test_calendar' not in i.nodeid]\n"
+        )
+    elif condition.startswith("performance_"):
+        integration = tmp_path / "apps/server" / CALENDAR_PROOFS[1]
+        integration.write_text(integration.read_text() + "\ndef test_other():\n    assert True\n")
+        (integration.parent / "conftest.py").write_text(
+            "def pytest_collection_modifyitems(items):\n"
+            "    items[:] = [i for i in items if not ('integration/test_calendar' in i.nodeid "
+            "and 'sc017' in i.name)]\n"
+        )
+        if condition == "performance_wrong_module":
+            target.write_text(target.read_text() +
+                              "\ndef test_sc017_one_hundred_warmed_atomic_consumptions_are_within_50ms_p95():\n"
+                              "    assert True\n")
+    python = tmp_path / "apps/server/.venv/bin/python"
+    python.parent.mkdir(parents=True)
+    python.symlink_to(sys.executable)
+    spy = tmp_path / "apps/server/scripts/run_local_postgres_tests.sh"
+    spy.parent.mkdir(parents=True)
+    # This contract proves command wiring only; real PostgreSQL acceptance is separate.
+    spy.write_text("#!/bin/bash\nexec " + shlex.quote(sys.executable) + " -c " + shlex.quote(
+        "import json,os,subprocess,sys; from pathlib import Path; "
+        "Path('runner-command.json').write_text(json.dumps({'args':sys.argv[1:],"
+        "'gate':os.environ.get('GRAF_PERFORMANCE_GATE'),'filters':os.environ.get('PYTEST_ADDOPTS')})); "
+        + ("sys.exit(17)" if condition == "runner_failure" else
+           "sys.exit(subprocess.call([sys.executable,'-m','pytest',*sys.argv[2:]]))")
+    ) + ' "$@"\n')
+    result = run(str(runner), "--focused", cwd=tmp_path, env={
+        "GRAF_CI_BASE_REF": "HEAD", "GRAF_PERFORMANCE_GATE": "report",
+        "PYTEST_ADDOPTS": "-k should_not_filter",
+    })
+    command = json.loads((tmp_path / "apps/server/runner-command.json").read_text())
+    assert command["args"][0] == "--focused" and "--partitioned" not in command["args"]
+    assert command["gate"] == "required" and command["filters"] == ""
+    assert command["args"].count("--junitxml") == 1
+    assert command["args"][-2:] == CALENDAR_PROOFS
+    if condition == "pass":
+        assert result.returncode == 0 and "2 passed" in result.stdout, result.stdout
+    else:
+        assert result.returncode == (17 if condition == "runner_failure" else 1 if condition == "failure" else 2)
+        assert "ci_focused_result=fail" in result.stdout
 
 
 def test_local_plan_and_fast_share_groups_without_repeating_changed_files() -> None:
@@ -358,7 +532,7 @@ def test_server_static_checks_precede_tests_and_fail_fast(mode: str, fail_stage:
         mode, fail_stage=fail_stage,
     )
     stages = re.findall(r"ci_stage=(.*?) status=", result.stdout)
-    server_tests = {"server tests", "changed server tests", "calendar performance proof"}
+    server_tests = {"server tests", "changed server tests", "calendar performance proof", "related behavior tests"}
     assert stages.count("server lint") == 1
     assert "static_command=server lint bash -c cd apps/server && PYTHONPATH=src uv run --extra dev ruff check ." in result.stdout
     if fail_stage != "server lint":
@@ -370,7 +544,7 @@ def test_server_static_checks_precede_tests_and_fail_fast(mode: str, fail_stage:
         assert result.stdout.count("ci_local_result=fail") == 1
     else:
         assert result.returncode == 0, result.stdout
-        selected = server_tests if mode == "--fast" else {"server tests"}
+        selected = {"server tests", "changed server tests", "related behavior tests"} if mode == "--fast" else {"server tests"}
         assert selected.issubset(stages)
         assert stages.index("server lint") < stages.index("python compile")
         assert all(stages.index("python compile") < stages.index(stage) for stage in selected)
@@ -492,7 +666,7 @@ def test_macos_xctest_process_boundary_matches_local_and_github() -> None:
 
     assert local_ci.count(command) == 2
     assert command in workflow
-    assert 'swift-version: "6.0.3"' in workflow
+    assert 'Select installed Swift 6.0.3' in workflow
     assert "unset _SWIFTPM_SKIP_TESTS_LIST" in runner
     assert "swift test --package-path apps/macos list" in runner
     assert '[[ -z "$test_list" ]]' in runner
@@ -606,8 +780,12 @@ def test_ci_contracts_have_one_owner(infra: bool, fail_stage: str) -> None:
     result = run_stubbed_ci(changed, "--fast", fail_stage=fail_stage)
     # Each selected file occurs in exactly one executable test command.
     commands = result.stdout.split("test_command=", 1)[1]
-    for path in [*contracts, other]:
+    plan = next(json.loads(line) for line in result.stdout.splitlines() if line.startswith('{"'))
+    for path in contracts:
         assert commands.count(path) == 1, result.stdout
+    assert plan["tests"].count(other) == 1
+    assert commands.count(other) == 0, result.stdout
+    assert result.stdout.count("ci_stage=related behavior tests status=pass") == 1
     assert result.returncode == (17 if infra and fail_stage else 0), result.stdout
     if infra and fail_stage:
         assert "ci_stage=production compose config" not in result.stdout
@@ -750,7 +928,7 @@ def test_release_full_artifacts_and_aggregate_prove_shard_coverage() -> None:
         step["with"]["name"]
         for job in jobs.values()
         for step in job.get("steps", [])
-        if step.get("uses") == "actions/upload-artifact@v4" and step.get("with", {}).get("name")
+        if step.get("uses") == "actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9" and step.get("with", {}).get("name")
     ]
     # Duplicate artifact names fail the matrix job, so the split must keep them unique.
     assert len(uploads) == len(set(uploads))
@@ -761,7 +939,7 @@ def test_release_full_artifacts_and_aggregate_prove_shard_coverage() -> None:
     assert "server-shard-${{ matrix.shard }}-result.json" in shard_upload["with"]["path"]
     assert "parallel-full-nodeids-${{ matrix.shard }}.txt" in shard_upload["with"]["path"]
     assert "shard-nodeids-${{ matrix.shard }}.txt" in shard_upload["with"]["path"]
-    download = next(step for step in jobs["aggregate"]["steps"] if step.get("uses") == "actions/download-artifact@v4")
+    download = next(step for step in jobs["aggregate"]["steps"] if step.get("uses") == "actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333")
     assert download["with"]["merge-multiple"] == "true"
     assert download["with"]["pattern"] == "graf-full-component-*-${{ needs.reserve.outputs.artifact_key }}-*"
 
@@ -985,7 +1163,10 @@ def test_fast_calendar_lane_runs_bounded_required_performance_proof() -> None:
     assert "reason=performance_path_requires_focused_proof" in result.stdout
     assert "requested=fast effective=fast components=server" in result.stdout
     assert "performance_gate=required" in result.stdout
-    assert "ci_stage=calendar performance proof status=pass" in result.stdout
+    plan = next(json.loads(line) for line in result.stdout.splitlines() if line.startswith('{"'))
+    assert plan["tests"] == CALENDAR_PROOFS
+    assert "ci_stage=related behavior tests status=pass" in result.stdout
+    assert "ci_stage=calendar performance proof" not in result.stdout
 
 
 def test_missing_calendar_performance_proof_is_not_passed_to_pytest() -> None:
@@ -1192,8 +1373,8 @@ def test_github_full_workflow_is_manual_exact_sha_and_metadata_only() -> None:
     assert "permissions:\n  contents: read\n  actions: read" in workflow
     assert "ref: ${{ inputs.requested_sha }}" in workflow
     assert '[[ "${master_sha,,}" == "${REQUESTED_SHA,,}" ]]' in workflow
-    assert "actions/upload-artifact@v4" in workflow
-    assert "actions/download-artifact@v4" in workflow
+    assert "actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9" in workflow
+    assert "actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333" in workflow
     assert "candidate_already_reserved" in workflow
     assert "graf-full-lock-${{ steps.identity.outputs.artifact_key }}" in workflow
     assert "graf-full-ci-${{ needs.reserve.outputs.artifact_key }}" in workflow
@@ -1234,8 +1415,8 @@ def test_macos_diagnostic_workflow_is_exact_sha_and_non_authoritative() -> None:
     assert '[[ "$REQUESTED_SHA" =~ ^[0-9a-f]{40}$ ]]' in workflow
     assert '[[ "$checkout_sha" == "$REQUESTED_SHA" ]]' in workflow
     assert not re.search(r"\$\{[^}\n]*,,[^}\n]*\}", workflow)
-    assert "runs-on: macos-14" in workflow
-    assert 'swift-version: "6.0.3"' in workflow
+    assert "runs-on: macos-15" in workflow
+    assert 'Select installed Swift 6.0.3' in workflow
     assert "bash apps/macos/Scripts/run-swift-tests.sh" in workflow
     assert "run_local_postgres_tests.sh" not in workflow
     assert "emit-ci-evidence.py" not in workflow

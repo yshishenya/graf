@@ -122,3 +122,6 @@ docs/evidence/**/private-appshots/
 # Рабочие каталоги инструментов агента (снимки, артефакты проверок).
 /.dsh-computer-use/
 /.dsh-vision-toolkit/
+
+# Local SEO audit cache
+.seo-cache/

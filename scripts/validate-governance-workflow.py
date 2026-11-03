@@ -27,7 +27,7 @@ def validate(path: Path) -> list[str]:
     checkout_refs: list[str] = []
     lines = text.splitlines()
     for index, line in enumerate(lines):
-        if not re.search(r"uses:\s*actions/checkout@v4\s*$", line):
+        if not re.search(r"uses:\s*actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\s*$", line):
             continue
         step_indent = len(line) - len(line.lstrip())
         for following in lines[index + 1:]:
@@ -61,7 +61,7 @@ def validate(path: Path) -> list[str]:
         "evidence validator": r"scripts/validate-ci-evidence\.py",
         "authoritative merge-group API mapping": r"gh\s+api\s+--paginate\s+--slurp",
         "authoritative response passed to verifier": r"--authoritative-response\s+\"?\$RUNNER_TEMP/graf-merge-group-api\.json",
-        "artifact upload": r"actions/upload-artifact@v4",
+        "artifact upload": r"actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9",
         "read-only permissions": r"(?ms)^permissions:\s*\n\s*contents:\s*read\s*$",
     }
     for label, pattern in required.items():
@@ -114,7 +114,7 @@ def validate(path: Path) -> list[str]:
             continue
         if name and name.group(1) == "Checkout current workflow tools":
             if not all(item in step for item in (
-                "if: needs.scope.outputs.text_only == 'true'", "uses: actions/checkout@v4",
+                "if: needs.scope.outputs.text_only == 'true'", "uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
                 "ref: ${{ github.workflow_sha }}", "path: .ci-tools", "persist-credentials: false",
                 "sparse-checkout-cone-mode: false",
             )):
@@ -125,13 +125,16 @@ def validate(path: Path) -> list[str]:
         elif "needs.scope.outputs.text_only == 'false'" not in step:
             errors.append("heavy/evidence step must be restricted to code scope")
     validator_at = code_job.find("scripts/validate-ci-evidence.py")
-    upload_at = code_job.find("actions/upload-artifact@v4")
+    upload_at = code_job.find("actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9")
     if validator_at >= 0 and upload_at >= 0 and validator_at > upload_at:
         errors.append("artifact upload must follow evidence validation")
-    if re.search(r"(?mi)^\s*-\s*uses:\s*actions/checkout@v[0-3]\b", text):
-        errors.append("checkout action must use v4")
-    if re.search(r"(?mi)^\s*-\s*uses:\s*actions/upload-artifact@v[0-3]\b", text):
-        errors.append("artifact action must use v4")
+    for action, expected in {
+        "checkout": "3d3c42e5aac5ba805825da76410c181273ba90b1",
+        "upload-artifact": "cf430e030ddbb5b0abf93d22962f4752f3646cd9",
+    }.items():
+        for actual in re.findall(rf"uses:\s*actions/{action}@([^\s#]+)", text):
+            if actual != expected:
+                errors.append(f"actions/{action} must use its reviewed Node24 commit")
     if "if: always()" in text and upload_at >= 0:
         errors.append("artifact upload must not bypass validation with if: always()")
     return errors

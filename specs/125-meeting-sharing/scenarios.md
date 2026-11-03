@@ -423,8 +423,13 @@ sharing_policy_version)` или эквивалентный canonical distributio
   создаёт server-side contact index.
 - Calendar pointer, Slack и Teams получают только ссылку, уже защищённую
   grant authorization. Channel membership не считается GRAF grant.
-- Referral attribution начинается после summary view и setup, а не после click
-  или email open; повторная атрибуция идемпотентна.
+- При отдельно разрешённом измерении signup conversion подтверждается после
+  явного auth-действия, создавшего новый аккаунт, и разрешённого summary view
+  тем же получателем. Аккаунт может быть создан при принятии приглашения до
+  просмотра. CTA, setup и первая собственная запись — отдельные дальнейшие
+  этапы, не условие конверсии и не повторная регистрация. Click/email open,
+  существующий аккаунт и повтор не дают новую signup conversion; contract §9.1
+  задаёт идемпотентность и остальные ограничения T043.
 
 ## 9. Метрики и guardrails
 

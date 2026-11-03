@@ -53,6 +53,48 @@ one scoped guidance file and verify the active chain from a fresh Codex run;
 never copy the whole repository history into always-on instructions. See the
 [official AGENTS.md guidance](https://developers.openai.com/codex/guides/agents-md).
 
+## Делегирование вспомогательным агентам
+
+Если делегирование разрешено действующими инструкциями или пользователем,
+основной агент до начала работы задаёт вопрос и ожидаемый результат, роль,
+владельца и рабочую копию, разрешённые файлы и действия, проверки и запрещённые
+побочные действия. Внутри активной фичи обязательны Feature ID и task IDs.
+Для разрешённого прямого задания только для чтения или docs/mechanical без фичи
+указать репозиторий, точный SHA, lane и «feature/task: не применимо — активная
+фича не требуется»; создавать фиктивную фичу или issue ради делегирования нельзя.
+Эта процедура сама по себе не даёт разрешения создавать агентов.
+
+- **Исследователь только для чтения** возвращает вывод, проверенные факты,
+  точные источники (SHA, строки или ссылки), результаты проверок и ограничения.
+  Он не меняет файлы, Git, GitHub, приложение или данные и не выполняет выпуск
+  или развёртывание. Проверку, которая создаёт файлы или меняет состояние,
+  передаёт основному агенту для отдельного назначения исполнителю.
+- **Исполнитель** получает одного явного владельца и одну рабочую копию задания,
+  перечень разрешённых файлов и проверок. Ему сообщают, что другие участники
+  также работают в репозитории: их изменения нужно сохранить. Несколько
+  исполнителей могут писать только непересекающиеся файлы. При пересечении или
+  неясном владении запись затронутых файлов останавливается до явной передачи
+  владения; отменять чужие изменения или присваивать соседний файл нельзя.
+  Остальная разрешённая работа может продолжаться.
+- **Новая задача вне назначения** передаётся основному агенту с фактами и
+  предлагаемым следующим шагом. Найденная проблема не расширяет полномочия:
+  для её изменения нужно новое явное назначение.
+- **Независимый проверяющий** получает отдельное явное право менять только
+  назначенный reviewer-owned checklist и свой отчёт по правилам Spec Kit.
+  Это исключение не разрешает исследователю запись в проект или проверяющему
+  изменение кода, spec/plan/tasks, Git, GitHub, приложения или данных.
+
+Ответ агента краток: вывод; источники и точная версия; изменённые файлы, если
+запись разрешена; команды, результаты и пропуски проверок; ограничения и
+неопределённость; следующий шаг. Не передавать секреты, личные данные,
+содержимое встреч или весь диалог.
+
+Основной агент сверяет фактические файлы, источники и результаты проверок с
+назначением, а не принимает сообщение PASS за доказательство. Ответ другого
+агента не заменяет обязательное независимое ревью. Делегирование не расширяет
+разрешения на commit, merge, release или deploy: действуют отдельные разрешения
+пользователя и существующие ворота проверки.
+
 ## Parallel development and Dev testing
 
 Development is parallel; manual end-to-end verification is serialized:
@@ -110,15 +152,22 @@ cancelled, superseded or drifted receipts are not release evidence.
 
 Do not edit root `CHANGELOG.md` during feature work. Do not add current feature
 or task pointers to root `AGENTS.md`. Do not auto-commit implementation code;
-commit only after validation, convergence and explicit owner approval.
+commit only after validation and convergence.
 
 ## Legacy Definition of Done
 
 Every spec and PR has one `Legacy Impact` classification: `remove`,
 `retain-with-exception` or `untouched`. New aliases, fallback names, flags,
 dependencies, fixtures, tests or docs that preserve an old path are forbidden.
-An exception requires owner, expiry, removal trigger, risk, validation and a
-retirement task. The closeout target is:
+An exception requires exactly one nonempty, non-placeholder value for each of:
+owner, expiry, reason, compatibility boundary, removal trigger, risk, validation
+and retirement task. Expiry is an exact YYYY-MM-DD date strictly after today's
+UTC date. Retirement task names one `F###`, one `T###` and one positive `#issue`;
+format validation does not prove that the linked work exists or is accepted.
+The spec and PR validators reuse the same finite-exception check from the
+trusted policy checkout; they never execute code from the PR to validate its
+description. The text check does not discover active compatibility paths or prove ownership;
+review those consumers and links for each concrete change. The closeout target is:
 
 ```text
 legacy_new=0
@@ -142,7 +191,7 @@ retired in separate small features with cutover and rollback evidence.
 | Checklist/analyze blocker | reviewer updates requirements/design; implementation does not bypass |
 | Legacy exception expired | block merge/release and create/execute retirement task |
 
-Before closing a task-backed issue, export its metadata and run
+Before closing a task-backed issue as `COMPLETED`, export its metadata and run
 `python3 scripts/validate-issue-closeout.py --issue-json /tmp/issue.json
 --tasks specs/<feature>/tasks.md --expected-sha <PR-SHA>`. It must pass for every issue named by the
 feature. A closed issue without a detailed Russian closure comment is a process
@@ -150,6 +199,10 @@ failure even when GitHub closed it automatically; add the comment and reconcile
 the task state before declaring the feature complete.
 The individual JSON command is only a structural pre-close check; it does not
 authenticate GitHub URLs.
-For final feature closeout, use the same script's live feature mode so checked
+For completed feature closeout, use the same script's live feature mode so checked
 tasks cannot coexist with open, missing, duplicate or orphan task-backed
 issues. Task issues close first; the umbrella closes last.
+
+For `NOT_PLANNED`, use the separate cancellation procedure in
+[tracker-policy.md](tracker-policy.md#отмена-запланированной-работы); it does
+not accept implementation or waive product/release evidence.

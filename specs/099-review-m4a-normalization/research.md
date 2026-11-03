@@ -442,3 +442,14 @@ untouched. Feature 099 still requires its ordinary authorization, RLS,
 untrusted-media isolation, redaction, deletion-race, and dependency/version
 acceptance tests because those are product requirements. Passing them must not
 be represented as completion of the deferred repository security scan.
+
+
+## 2026-10-17: поздняя ошибка и прямая очистка
+
+F290 одноразовый PG17: 3 опыта / 1 PASS / 2 нарушения безопасного инварианта.
+SE01: stale catch(job_id) выбрал B и очистил её lease. SE02: cleanup(job_id)
+после commit A удалил B. Source сохранился; storage/pipeline doubles и
+управляемые часы не являются production. Оба caller failure и все пять
+путей cleanup прослежены. Решение — существующие scalar номер/owner под
+job lock и защита последней активной попытки в общей cleanup; без схемы
+и нового runtime. F290 frozen CI не меняется. SE03 не признан дефектом.

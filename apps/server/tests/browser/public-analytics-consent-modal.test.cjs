@@ -45,7 +45,24 @@ function readConfig(pagePath) {
 }
 
 function serveStatic() {
-  const server = http.createServer((request, response) => {
+  const rows = new Map();
+  const server = http.createServer(async (request, response) => {
+    if (request.url === "/analytics/public-consent" && request.method === "POST") {
+      let text = ""; for await (const chunk of request) text += chunk;
+      const body = JSON.parse(text);
+      response.setHeader("Content-Type", "application/json");
+      let result;
+      if (body.action === "read") result = rows.has(body.consent_id)
+        ? { ...rows.get(body.consent_id), state: "known" } : { state: "unknown" };
+      else {
+        result = { accepted: true, state: body.action === "grant" ? "granted" : "revoked",
+          epoch: require("node:crypto").randomUUID(),
+          categories: body.action === "grant" ? body.categories : ["necessary"],
+          copy_version: body.action === "grant" ? body.copy_version : null };
+        rows.set(body.consent_id, result);
+      }
+      response.end(JSON.stringify(result)); return;
+    }
     if (request.url === "/" || request.url.startsWith("/?")) {
       response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
       response.end('<!doctype html><html lang="ru"><head></head><body></body></html>');
@@ -69,9 +86,7 @@ function serveStatic() {
 
 // A fresh page per decision: the library stores its decision, so a shared page
 // would answer the second question with the first answer.
-async function openDecisionPage(browser, origin, config) {
-  const page = await browser.newPage();
-  await page.goto(`${origin}/`);
+async function loadController(page, config) {
   await page.evaluate((pageConfig) => {
     const holder = document.createElement("script");
     holder.type = "application/json";
@@ -92,7 +107,27 @@ async function openDecisionPage(browser, origin, config) {
       "});",
   });
   await page.addScriptTag({ path: CONTROLLER });
+  await page.waitForFunction(() => window.GRAFPublicAnalytics.consentReady);
+}
+
+async function openDecisionPage(browser, origin, config, previousCookie) {
+  const page = await browser.newPage();
+  await page.goto(`${origin}/`);
+  if (previousCookie) {
+    await page.evaluate(({ key, cookie }) => {
+      window.localStorage.setItem(key, JSON.stringify(cookie));
+    }, { key: CONSENT_STORAGE_KEY, cookie: previousCookie });
+  }
+  await loadController(page, config);
   await page.waitForSelector(".cm__btns", { timeout: 5000 });
+  // The vendored modal moves initial focus asynchronously after showing itself.
+  // Wait for that move before testing keyboard focus, otherwise it can steal
+  // focus back between refusal.focus() and the assertion on a loaded runner.
+  await page.waitForFunction(
+    () => document.querySelector(".cm").contains(document.activeElement),
+    null,
+    { timeout: 5000 },
+  );
   return page;
 }
 
@@ -119,7 +154,8 @@ async function decisionButtons(page) {
 // wrapper stays in the document, so the visible state is what has to be checked.
 function waitForDecision(page) {
   return page.waitForFunction(
-    () => !document.documentElement.classList.contains("show--consent"),
+    () => !document.documentElement.classList.contains("show--consent") &&
+      window.GRAFPublicAnalytics.currentConsentState !== "unknown" && !window.GRAFPublicAnalytics.consentPending,
     undefined,
     { timeout: 5000 },
   );
@@ -244,6 +280,62 @@ async function main() {
     console.log("ok refusal_is_the_same_action_on_the_signup_page");
     await signupPage.close();
 
+    // CookieConsent keeps custom data across a revision change. A new explicit
+    // choice must replace that metadata; merely reopening the page must not.
+    const oldCookie = {
+      ...accepted,
+      revision: 202609151,
+      data: {
+        ...accepted.data,
+        graf_consent_copy_version: "2026-09-15.1",
+        graf_consent_revision: 202609151,
+      },
+    };
+    for (const choice of ["all", "necessary", "customized"]) {
+      const revisionPage = await openDecisionPage(browser, origin, config, oldCookie);
+      assert.equal(await revisionPage.evaluate(
+        () => window.GRAFPublicAnalytics.currentConsentState), "unknown");
+      assert.equal((await storedConsent(revisionPage)).data.graf_consent_copy_version,
+        "2026-09-15.1", "old consent is not silently promoted");
+      assert.equal(await revisionPage.evaluate(() => window.sessionStorage.length), 0);
+      assert.equal(await revisionPage.evaluate(
+        () => window.GRAFPublicAnalytics.sentEvents.length), 0);
+      if (choice === "customized") {
+        await revisionPage.locator('.cm__btns button[data-role="show"]').click();
+        await revisionPage.locator('.pm input[value="analytics"]').check();
+        await revisionPage.locator('.pm input[value="advertising_attribution"]').uncheck();
+        await revisionPage.locator('.pm input[value="behavior_replay"]').uncheck();
+        await revisionPage.locator('.pm button[data-role="save"]').click();
+      } else {
+        await revisionPage.locator(`.cm__btns button[data-role="${choice}"]`).click();
+      }
+      await waitForDecision(revisionPage);
+      const state = choice === "all" ? "accepted_all"
+        : choice === "necessary" ? "revoked" : "customized";
+      const decision = await storedConsent(revisionPage);
+      assert.equal(decision.revision, config.consent_revision);
+      assert.equal(decision.data.graf_consent_copy_version, config.consent_copy_version);
+      assert.equal(decision.data.graf_consent_revision, config.consent_revision);
+      assert.equal(decision.data.graf_consent_state, state);
+      assert.equal(await revisionPage.evaluate(
+        () => window.GRAFPublicAnalytics.currentConsentState), state);
+      assert.deepEqual(decision.categories, choice === "all" ? accepted.categories
+        : choice === "necessary" ? ["necessary"] : ["necessary", "analytics"]);
+      await revisionPage.reload();
+      await loadController(revisionPage, config);
+      await revisionPage.waitForFunction(() => window.GRAFPublicAnalytics.currentConsentState !== "unknown");
+      assert.equal(await revisionPage.evaluate(
+        () => window.GRAFPublicAnalytics.currentConsentState), state);
+      assert.equal(await revisionPage.evaluate(
+        () => document.documentElement.classList.contains("show--consent")), false);
+      if (choice === "necessary") {
+        assert.equal(await revisionPage.evaluate(
+          () => window.GRAFPublicAnalytics.sentEvents.length), 0);
+      }
+      console.log(`ok revision_change_${choice}_and_reload`);
+      await revisionPage.close();
+    }
+
     console.log("public_analytics_consent_modal_harness=pass");
   } finally {
     await browser.close();
@@ -251,7 +343,11 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error(error && error.stack ? error.stack : String(error));
-  process.exit(1);
-});
+module.exports = { readConfig, loadController };
+
+if (require.main === module) {
+  main().catch((error) => {
+    console.error(error && error.stack ? error.stack : String(error));
+    process.exit(1);
+  });
+}

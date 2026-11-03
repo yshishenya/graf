@@ -1,0 +1,34 @@
+[
+  {
+    "path": "/transcription",
+    "status": 200,
+    "final_url": "https://rec.2brain.pro/transcription",
+    "set_cookie": false,
+    "canonical": "https://rec.2brain.pro/transcription",
+    "title": "Расшифровка аудио и видео в текст — ГРАФ"
+  },
+  {
+    "path": "/meeting-minutes",
+    "status": 200,
+    "final_url": "https://rec.2brain.pro/meeting-minutes",
+    "set_cookie": false,
+    "canonical": "https://rec.2brain.pro/meeting-minutes",
+    "title": "Протокол встречи из записи: итоги, решения и задачи — ГРАФ"
+  },
+  {
+    "path": "/record-without-bot",
+    "status": 200,
+    "final_url": "https://rec.2brain.pro/record-without-bot",
+    "set_cookie": false,
+    "canonical": "https://rec.2brain.pro/record-without-bot",
+    "title": "Запись и расшифровка звонков без бота — ГРАФ"
+  },
+  {
+    "path": "/sitemap.xml",
+    "status": 200,
+    "final_url": "https://rec.2brain.pro/sitemap.xml",
+    "set_cookie": false,
+    "urls": 17,
+    "new_pages_present": true
+  }
+]

@@ -7,7 +7,8 @@ def test_public_landing_is_tracked_as_a_separate_manual_gate() -> None:
     review = (ROOT / "docs/evidence/140-user-account-billing/landing-review.md").read_text(encoding="utf-8")
     assert "не выполнено" in review or "partial manual pass" in review
     assert "200%" in review
-    assert "clean-room" in review
+    assert "код независимый" in review
+    assert "права на сторонние материалы подтверждены" in review
 
 
 def test_billing_ia_contract_names_recoverable_states() -> None:
@@ -77,7 +78,9 @@ def test_usage_surface_does_not_fall_back_to_raw_storage_threshold() -> None:
         ROOT / "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_usage_content.html"
     ).read_text(encoding="utf-8")
     assert "storage_threshold_label|default(storage_threshold)" not in usage
-    assert 'storage_threshold_label|default("Состояние уточняется")' in usage
+    assert "{{ storage_threshold" not in usage
+    assert "Место заканчивается." in usage
+    assert 'else "Архив заполнен"' in usage
 
 
 def test_operation_status_does_not_offer_checkout_when_billing_is_disabled() -> None:
@@ -87,9 +90,9 @@ def test_operation_status_does_not_offer_checkout_when_billing_is_disabled() -> 
     ).read_text(encoding="utf-8")
     route = (ROOT / "apps/server/src/twobrain_rec_server/cabinet/web_routes/billing.py").read_text(encoding="utf-8")
     assert "billing_enabled|default(False)" in template
-    assert "Проверить статус" in template
+    assert "Проверить оплату" in template
     assert "Проверить в ЮKassa" not in template
-    assert "billing_enabled=bool(request.app.state.settings.billing_checkout_enabled)" in route
+    assert "billing_enabled=billing_checkout_allowed(request.app.state.settings, tenant_scope.workspace_id)" in route
 
 
 def test_status_refresh_defers_cross_workspace_referral_reward() -> None:
@@ -121,7 +124,8 @@ def test_subscription_and_discount_surfaces_gate_disabled_checkout_actions() -> 
         ROOT / "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_discounts_content.html"
     ).read_text(encoding="utf-8")
     assert 'billing_enabled|default(False)' in subscription
-    assert 'href="/billing/checkout">Выбрать тариф</a>' in subscription
+    assert "manual_checkout_url" in subscription
+    assert "Выбрать тариф" in subscription
     assert "{% if billing_enabled|default(True) %}<form action=\"/billing/discounts/apply\"" in discounts
 
 
@@ -136,8 +140,8 @@ def test_billing_surfaces_keep_contextual_non_coercive_upgrade_copy() -> None:
     ).read_text(encoding="utf-8")
     assert "Использовано 80% месячного лимита обработки" in overview
     assert "Осталось {{ processing_remaining_label }} до сброса {{ processing_reset_at_label }}" in overview
-    assert "После окончания автоматически включится Free" in overview
-    assert "Платный режим закончился" in overview
+    assert "После окончания автоматически включится «Бесплатный»" in overview
+    assert "Пробный период закончился" in overview
     assert "через {{ trial_remaining_label }}" in overview
     assert "обработка без сохранения аудио также недоступна до этого момента" in overview
     assert 'href="/meetings?archive_audio=false#manual-upload"' not in overview
@@ -146,7 +150,7 @@ def test_billing_surfaces_keep_contextual_non_coercive_upgrade_copy() -> None:
     assert "Увеличить хранилище" in usage
     assert "удалить старые записи" in usage
     assert "обработать без сохранения аудио" in usage
-    assert "Управлять архивом" in usage
+    assert '<a href="{{ meetings_href }}">Открыть записи</a>' in usage
 
 
 def test_billing_navigation_uses_approved_russian_labels() -> None:
@@ -158,9 +162,9 @@ def test_billing_navigation_uses_approved_russian_labels() -> None:
         ROOT
         / "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_plans_content.html"
     ).read_text(encoding="utf-8")
-    assert "Управлять хранилищем" in overview
-    assert 'href="/billing/payment-method"' in overview
-    assert '"Изменить" if payment_method_label' in overview
+    assert "Изменить объем" in overview
+    assert 'id="billing-card-settings"' in overview
+    assert 'id="billing-method-title">Способ оплаты</h2>' in overview
     assert "Настроить хранилище" in plans
 
 

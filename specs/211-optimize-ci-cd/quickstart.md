@@ -1,5 +1,37 @@
 # Quickstart: проверка быстрого и доказуемого CI/CD
 
+## T112–T114: приёмка слитого среза — 01.11.2026
+
+[PR #7863](https://github.com/yshishenya/graf/pull/7863) слит защищённым
+squash 01.11 в 01:29:15 UTC. Проверены source
+`e977e4cb7536e87f9927be6385dc83aeb55e6d1f`, base
+`208e0aee20629c0770ad6ce0457fc1ebfcb6a631` и merge
+`724a937507b42f10f3c0e45e38c72166a3cd549f`. Общий
+`validate-pr-checks.py --repository yshishenya/graf --pr 7863
+--expected-sha e977e4cb7536e87f9927be6385dc83aeb55e6d1f` завершился EXIT0
+до и после слияния; после слияния он подтвердил указанную merge identity.
+
+| Обязательное подтверждение | Результат |
+| --- | --- |
+| Настоящий Prepare на GitHub-hosted Ubuntu | PASS: helper сообщил `CI APT sources: official Ubuntu HTTPS archives`; APT и Playwright завершены |
+| [governance-fast](https://github.com/yshishenya/graf/actions/runs/41259850266) | PASS, attempt 1; 2092 passed/2 skipped и отдельно 228 passed; fast остаётся частичным профилем перед Full |
+| [macos-pr](https://github.com/yshishenya/graf/actions/runs/41259850345) | PASS, attempt 1; настоящий Swift build и tests |
+| [pr-metadata](https://github.com/yshishenya/graf/actions/runs/41259851008) | PASS, attempt 1; окончательные описание и source SHA |
+
+Валидатор также проверил последние обязательные проверки после правок
+описания; их ожидание исходного исполнения не выдано за отдельный запуск
+кода. Локальные 528 PASS/8 статических проверок и независимое ревью ниже
+остаются отдельными доказательствами; прежние неуспешные запуски сохранены.
+Журнал настоящего выполнения: SHA256
+`bc7b5cf0720cbb3a2135c53c22d68cfcd314b2c5dacf8449acd1831afeac4ffd`.
+
+T112/T113/T114 приняты в своей области CI; это основание документальной
+сверки issue #7859. Историческая T110 не закрывается. Один новый frozen
+`release-full`, общий выпуск, рабочая аналитика F273, фиксированный T0,
+внешние публикации, трафик и продажи остаются отдельными результатами.
+Ни title/body слитого PR, ни код, workflow, production или приложение
+этой документальной записью не меняются. Полоса записи: docs-only.
+
 ## A4 acceptance — 2026-09-13
 
 Lane: high-risk CI/governance. First slice: FR-031–FR-033. Use the prepared server environment for standalone contracts; `--confcutdir` intentionally excludes unrelated application DB fixtures for these CLI-only checks.
@@ -813,3 +845,619 @@ macOS34767005071, оба attempt2, SUCCESS; trusted metadata34888235153 SUCCESS.
 checks старого PR, но не исполнение на нём нового YAML. T063/T087 остаются
 ограниченными этой границей. Документы F264 уже включены отдельным #7000;
 release-prep #6999 не имеет F264 diff и не закрывает её задачи повторно.
+
+
+## Сверка T094/T095 и границ #6986/#6992 — 2026-10-17
+
+Повторная проверка принятого PR #6990 штатным общим validator: PASS на
+head `2557bcebe428a7c469508ab1247dc312fbfb7b43`, исторической базе
+`1592a7f750b96c36c5a120795fda6018031c4c7f` и merge
+`829074ea8e931744f960aa21625d7165201c9072`. Свежие адресные проверки:
+280 governance + 6 changelog/preflight/docs + 23 классификации = 309 PASS,
+без пропусков. Реальный release-full38933940635/attempt1 и прочитанные обе
+квитанции артефакта12061095483 подтверждают полный набор без skipped gates
+для опубликованной v2026.10.16.6 на
+`834bdc87e3c83ebd86e1afd2c6e7760229b7297d`. Все десять проверенных файлов
+совпадают с этим выпущенным исходником. T094 завершена этим доказательством;
+старое упоминание подготовки .15.1 не выдано за опубликованный выпуск.
+
+T063/T087 и #6986 остаются открытыми: локальные регрессии не заменяют живой
+блок слияния, а старый YAML #6991 не становится новым после восстановления
+исторических checks. Полные команды, точные identities и границы:
+[validation-reconciliation-20261017.md](validation-reconciliation-20261017.md).
+Дополнительно для T095: 35 PASS/6,21 с без пропусков в существующем
+test_release_artifacts.py; helper и tests совпадают с исходником того же
+Full. Ветка восстановления без record сохранилась с принятого #6990,
+изменения остальных частей helper не выданы за неизменность всего файла.
+T095 завершена; T077 и #6992 остаются открытыми. Совокупно два набора
+дают 344 разных PASS. Новых запусков CI, выпуска или развёртывания для этой
+сверки не было.
+
+## T098 — точный набор PR выпуска, 2026-10-06
+
+```sh
+python -m pytest -q tests/governance/test_pr_checks.py \
+  tests/governance/test_release_candidate.py tests/governance/test_release_train.py
+ruff check scripts/validate-pr-checks.py tests/governance/test_pr_checks.py
+python scripts/check-development-process.py
+python scripts/check_spec_kit_governance.py
+python scripts/validate-changelog-fragments.py
+```
+
+Проверки используют настоящий временный Git и синтетическую API границу.
+Они не подтверждают production/CD или установленную macOS совместимость.
+Source b8d56ea должен содержать proofs для #7545/#7576/#7577; после merge
+новый train также содержит PR исправления и подготовки. Актуальные результаты
+и ссылки записываются после выполнения.
+
+Локально: `test_pr_checks.py` **135 PASS / 24,18 с**; два соседних consumer
+файла **28 PASS / 64,81 с**. Ruff, diff, agent-context, process/changelog,
+Spec Kit frozen governance **PASS**. Doctor использовал закреплённый bootstrap
+0.9.10 (SHA-256 совпадает с workflow) и Specify1.0.7 в отдельном PATH;
+tracked tooling не менялся, PYTHONDONTWRITEBYTECODE=1. Первый запуск consumers
+не прошёл из-за глобального python3/UV-cache sandbox; после корректного PATH
+выполнен полный consumer набор, ошибок кода не осталось.
+
+До исправления доказаны overlapping-checked-ranges и принятие списка только
+позднего PR; отдельные два отрицательных контроля показали скрытие точной
+ошибки missing/unsuccessful proof раннего PR. Первоначальный новый rebase fixture
+имел неточный checked base, замечание независимого reviewer устранено:
+original/rebased по3 Git commits, disjoint SHA, равные конечные деревья,
+checked base first для PR8. Существующая проверка checked_base/merged receipt
+и все прежние негативные сценарии сохранены. Это локальные синтетические
+проверки и review; hosted merge/Full/CD еще не объявляются пройденными.
+
+### T098 — hosted и release приемка завершена
+
+[PR7579](https://github.com/yshishenya/graf/pull/7579) merged21:48:04Z:
+head `a958270bd2184d46ed6f5a0d026f97cea26043f6`, checked baseb8d56ea9,
+merge9f8872bc. Required governance37535047449/macOS37535047378/
+metadata37535047505 SUCCESS; common current exact validator PASS. Final prep
+PR7580 также получил все3 required SUCCESS и собственный exact proof.
+
+Новый train `train-20261006T215826Z-ad597c114e3b` сохранил весь набор
+#7545/#7576/#7577/#7579/#7580 и каждый отдельный proof. Candidate
+`rc-20261006T220142Z-95a12ddbc931`, source
+`ad597c114e3bf9e627525c578ec68e353d54a44e`.
+[Единственный Full37537979359](https://github.com/yshishenya/graf/actions/runs/37537979359)
+SUCCESS; authoritative receipt passed, requested/observed/component SHA
+совпадают, skipped gates пусты; train и decision go.
+
+Штатные dry-run/execute PASS, attempt `599561ecaa474082b65ce28cfe345373`,
+backup `/opt/projects/2brain-rec/backups/20261006T221459Z`, infra_smoke_ready,
+rollback не потребовался. Отдельная стандартная restore rehearsal предыдущего
+backup и уборка временных DB/bucket PASS.
+[v2026.10.07.1](https://github.com/yshishenya/graf/releases/tag/v2026.10.07.1)
+опубликован22:25:10Z; tag разрешается в точный source, immutable attestation
+создана22:25:18Z. Продуктовый source не меняется от docs closeout.
+
+Live Help/canonical/sitemap/navigation, public health, runtime/workers/F286
+flags и SHA map175 macOS файлов PASS. Production HTML проверен Chromium на
+320/390/768/1440,text200%,keyboard/noJS. Protected15 live source SHA совпадают;
+шаблоны/обработчики/аналитика/статика прежние. Стабильный HTTP ответ сравнен
+отдельно от случайных bridge ID/expiry; равенство полного HTML-хеша не заявлено.
+Полная причинная проверка — `specs/281-mac-meeting-guide/audio-help-evidence.md`.
+Native capture совместимость и реальные письма этим выпуском не проверялись.
+
+
+## T099 — повторная проверка источника APT, 2026-10-23
+
+1. `python -m pytest -q tests/governance/test_governance_workflow.py`
+   в уже подготовленном окружении: настоящий shell трёх resource steps,
+   временный mirror-list/deb822, сохранность trust fields, порядок, повтор
+   и отказ каждого этапа. Сеть, реальные sudo/APT и Docker не используются.
+2. `bash -n infra/scripts/prepare-ci-apt.sh`; workflow validator/self-test,
+   Ruff, development-process/governance и `git diff --check`.
+3. Независимое requirements/code review и converge T099. Затем required
+   governance-fast/macos-pr/pr-metadata на точных PR SHA/base, общий validator.
+4. После принятия обновить server-change PR до новой основы и сохранить
+   настоящий endpoint, длительность подготовки и полный успешный результат.
+   До этого локальная реализация не подтверждает исправление hosted задержки.
+   Release-full не запускается ради повторения локальных проверок; frozen
+   release gate сохраняется. Production и приложение не меняются.
+
+
+## T101/T102 — приёмка historical replay, 2026-10-26
+
+Точная матрица — spec T101.5; независимый checklist `checklists/rebase-proof.md`.
+Сначала регрессия на старом коде, затем те же проверки с исправлением:
+
+```sh
+python -m pytest -q tests/governance/test_pr_metadata_event.py tests/governance/test_pr_scope.py tests/governance/test_pr_checks.py tests/governance/test_sync_pr_metadata.py
+ruff check scripts/validate-pr-metadata.py tests/governance/test_pr_metadata_event.py
+python scripts/check-development-process.py
+python scripts/check_spec_kit_governance.py
+python scripts/validate-changelog-fragments.py
+```
+
+Локальная Git/API матрица не является hosted/production приёмкой. После merge
+нового PR: общий verifier всех точных PR диапазона, новый frozen candidate,
+один authoritative Full на его SHA, штатный dry-run/backup/CD и публичная
+приёмка. Неоднозначный overlapping squash блокируется, не обходится whitelist.
+Окончательный focused-набор26.10:288 PASS/95.40s; Ruff/process/governance/
+changelog/diff PASS. Независимый code reviewer снял первоначальный BLOCK
+после11 собственных проверок конечных байтов; requirements checklist6/0.
+Scoped converge:6 групп T101 покрыты или уже учтены T101/T102, новых задач0.
+Настоящий PR #7714 принят общим live verifier; полный диапазон и новый
+выпуск ещё не приняты. Подробности:
+[`validation-rebase-proof-20261026.md`](validation-rebase-proof-20261026.md).
+На момент этого локального прогона T101 до exact-SHA/base PR checks и merge,
+T102 до выпуска оставались открытыми.
+
+Приёмка26.10 после слияния: T101 завершена в PR #7745 на head
+`960569e04d577d648e8479f3d4b37640a31dd39f` и checked base
+`ac81b17f193469a18f661eafd0d1fd5c4f86d29b`; общий validator принял три
+обязательных GitHub proof. Merge tip
+`6d4b121db9c8c0bae1444e5a2719e68ac112b8b9`. T102 и issue #7742
+остаются открытыми до общей сверки диапазона и выпуска. Точные runs,
+независимое ревью и ограничение GitHub API — в
+[отчёте](validation-rebase-proof-20261026.md#приёмка-t101-после-слияния--26102026).
+
+
+## A6: итог T063/T087, 28.10.2026
+
+На неизменных A6 workflows/helpers и девяти файлах матрицы подтверждены
+673 различных PASS без пропусков; это исполнение на
+`ce459d98b6a4f929eba5c4101e2b0afb4e4e4844`, а не повтор на другом SHA.
+Независимый reviewer сверил XML и применимые требования: 15/0.
+
+Живая приёмка завершена на современном PR #7779: описание изменено во время
+source, после source при открытом PR и после обычного squash. Исходные
+40598361588/40598361627 прошли с attempt1, не отменялись и не повторялись.
+Все три текстовых набора прошли без тяжёлых команд и новых source receipts.
+Авторизованный блок GitHub после after-source edit показал три успешных
+required имени, отсутствие expected и доступное обычное Squash and merge.
+Общий verifier PASS до/после merge и после postmerge text сохранил source
+`a6578c550496d32d8085df6fcdcf7e8bfb1e9109`, checked base
+`c2185bb252f7cb4f3fb069fd5fdf7b2133997938` и merge
+`f6b611e106f1d605b6d58debd4740ec8b24bafc9`; правила защиты не менялись.
+
+Точные runs, отрицательные результаты до готовности, границы наблюдения
+интерфейса и происхождение матрицы:
+[validation-a6-live-closeout-20261028.md](validation-a6-live-closeout-20261028.md).
+T063/T087 завершены в этой области. #6986 закрывается после принятия данной
+документальной сверки и отдельного live closeout. Общая F211, T077/A9 и
+выпуск macOS остаются открытыми. Исторический отказ нового workflow на старом
+#6991 сохранён; старый PR повторно не редактировался.
+
+## T103/T104 — изоляция роли и download429,28.10.2026
+
+- tests/governance/test_test_resources.py: реальный pytest collection с прямой
+  и косвенной migrated_postgres_urls, обычным DB и pure control; до исправления
+  отсутствие strict должно давать FAIL. После — тот же union, disjoint фаз.
+- unit/test_processing_temporal_workflow.py: точный429→успех, исчерпание3,
+  немедленный иной отказ, отмена, отсутствие повтора после успеха. Паузы5/15
+  в этих пробах подменяются; настоящий workflow не подменяется.
+- Реальный runner: --focused --partitioned -q
+  tests/integration/test_rls_postgres_migrations.py
+  tests/contract/test_activation_milestone_ledger.py
+  tests/unit/test_processing_temporal_workflow.py.
+  Сохранить phase inventories и итог, нет skip выбранных проверок, cleanup PASS.
+- Профильный существующий runner/resource контракт, Ruff/process/governance/diff.
+  Не запускать локальный Full вместо focused. Независимый review/converge,
+  PR checks на финальном SHA/base, новый frozen hosted Full до production.
+
+### T103 — локальная приёмка, 28.10.2026
+
+Причинный RED, 16 GREEN, настоящий профиль 49 PASS без пропусков и 228 runner/CI
+contracts PASS. Прежние 7721 node IDs сохранены, добавлены 9 startup cases;
+два migration caller переведены в strict. Проверены все 74 shared-role callers
+из 8 файлов и неизменность 19 прежних определений Temporal по AST.
+[Отчёт и команда](validation/t103-test-resources-2026-10-28.md).
+Независимое implementation review — SCOPED PASS; SHA256 отчёта:
+`666ce3660d9724c49090db990cb321d8f51df8f54cd5648518f3de5fd3802879`.
+Scoped convergence T103: 4 требования, 2 решения плана, обязательные ограничения
+реальных ресурсов/неизменных проверок рассмотрены; новых обязательных задач нет.
+T104 уже описывает exact PR/merge и новый frozen Full и остаётся открытым.
+Общая F211 и коммерческая приёмка не закрыты.
+
+
+### T104 — новая основа и authoritative Full, 28.10.2026
+
+T104 принята после #7790/#7791 и общего validator до/после каждого merge.
+Новый source `0cecb0b47b006bdf5cfff4f568d8b90aee230201`, train
+`train-20261028T021642Z-0cecb0b47b00`, candidate
+`rc-20261028T021836Z-826f398259e2`, Full40620162666 SUCCESS,
+все компоненты совпали, skipped_gates=[]; decision go.
+[Точная цепочка и границы](validation/t104-release-2026-10-28.md).
+Прежний failed candidate не переиспользован. Общая F211 и коммерческая
+приёмка остаются открытыми; этот документ не меняет код и правила проверок.
+
+
+## A14: поддерживаемый образ CI — 2026-10-31
+
+T105/T106, #7834, полоса `active Spec Kit slice`. Продуктовый код не меняется.
+Проверка требований — `checklists/runner-image.md`, actual YAML shell —
+`tests/governance/test_governance_workflow.py::test_actual_native_toolchain_selection`.
+После её PASS: весь существующий workflow-набор, профильный CI contract,
+Full validator/self-test, actionlint трёх изменённых workflow и проектные
+проверки. Новый PR должен действительно исполнить macOS native job на macos15,
+а не только scope/result; три обязательных SHA/base checks сверяет общий
+`validate-pr-checks.py`. Старые source proofs не подставляются за новый SHA.
+Результаты и непроверенные границы записываются в
+`validation-runner-image-20261031.md`; выпуск/production/установленная приёмка
+и ускорение F269/T031 этим срезом не принимаются.
+
+A14/T107: первый hosted native run41215353665 воспроизвёл compile failure
+трёх WebKit conformances на правильном Swift6.0.3/SDK15.2. После удаления
+неверных старых typealias branches проверить оба файла и всех consumers,
+локальную компиляцию/существующие XCTest и новые hosted build/XCTest/
+ContractValidation на закреплённой среде. Другие code bodies не меняются;
+новые tests/guards поверх существующей compilation не нужны.
+
+
+### A14/T108
+
+До изменения тестов: independent requirements review и analyze FR062/063 →
+T108. В обоих файлах никакого product edit или skip; исходные отказавшие
+предпосылки проверяются на ограниченном настоящем viewport/готовности sheet.
+Исполнить обе полные группы XCTest, затем общий XCTest/ContractValidation;
+отдельно настоящий pinned native на точном SHA. Все real Stop coverage,
+collision/gap/panel/deadline/action и Return/Escape false assertions остаются.
+
+
+### A14/T109: optional requirement вместо потерянного selector
+
+До реализации прочитать настоящий compiler nearly-matches и отказ selector
+в41222159260, затем независимый CHK008 и scoped analyze. Использовать
+стандартный async requirement WKUIDelegate; все guards и существующие шесть
+confirm cases сохраняются. Локальный focused → полный XCTest и
+ContractValidation → независимый implementation review → новый exact-SHA
+макOS native и общий validator. Прежний FAIL сохраняется, новые skip или
+подмена настоящего диалога недопустимы. T106/#7834 ждут полного PASS.
+
+
+## T110 — безопасная диагностика APT
+
+До кода: независимое `checklists/ci-apt-diagnosis.md`, узкий analyze и issue sync.
+Профиль `.dev/ci-apt-diagnosis/check.py` исполняет настоящий inline Python
+на временных путях: mirror+file, прямой учебный Ubuntu URI, unknown/credential
+URI, управляющая строка GitHub, missing/symlink/oversize; stdout разбирается
+как JSON и проверяется отсутствие закрытого исходного значения. Затем
+actionlint временного workflow, process/governance и diff check, независимое
+code review. Draft PR запускает8 коротких Ubuntu24.04 задач без сети/sudo.
+Принять только полученный фактический формат; при отсутствии AWS оставить
+пробел открытым. Сохранить run/source/hash, удалить временный файл до merge.
+Новый формат helper не включается без отдельного уточнения и review.
+
+
+### T110 — второй ограниченный набор с настоящей меткой Full
+
+Первый [run41240805226](https://github.com/yshishenya/graf/actions/runs/41240805226),
+source5d42971c40625997ccc49a8b0d438a263f7fc523:8/8 Azure, Ubuntu24.04
+image20261025.353.1, прежний mirror_list. Фактический AWS остался неизвестным.
+В отказавшем Full и всех трёх callers используется `ubuntu-latest`, тогда
+как первый диагностический набор использовал `ubuntu-24.04`. Это разные
+выборки; причина различия облаков не доказана. Следующий набор ровно8 jobs
+использует ту же метку `ubuntu-latest`. Это разрешает только чтение той же
+ограниченной пары файлов на актуальном GitHub Ubuntu, не установку пакетов
+или изменение доверия. Всего в двух наборах не более16 jobs; остальные
+ограничения, код вывода,5min/permissions и удаление до merge сохраняются.
+До изменения runs-on требуется повторное независимое requirements review;
+локально проверить точную метку и прежние14 сценариев. Если AWS снова не
+встретится, не объявлять его формат установленным и не повторять Full.
+
+
+## T111 — сообщение отказа APT
+
+Before-code: checklist ci-apt-failure-diagnosis, analyze и issue#7849 sync.
+Сначала новый профиль должен FAIL на отсутствии JSON прежнего helper, затем
+тот же весь `tests/governance/test_governance_workflow.py` PASS с новым.
+Каждый из3 caller: прямой учебный Ubuntu URI/unknown/credentials/некорректный
+DNS/NUL/empty-port/long остаётся отказом, stdout JSON безопасен, bytes
+source/mirror/third-party неизменны, после failure только событие mirror.
+Затем bash syntax, actionlint существующих workflow, process/governance/
+fragment/diff, независимое implementation review/converge. Удалённый
+временный workflow не заменяется новой инфраструктурой. Три обязательных
+PR gates остаются, AWS критерий открыт, release-full не запускается ради
+выборки машины.
+
+
+## T112 — официальные источники CI
+
+Before-code: независимый checklists/ci-official-sources.md, scoped analyze,
+issue sync. Один существующий test_actual_media_resource_preparation исполняет
+все три YAML callers и настоящий helper на временных files без сети/sudo.
+Новый cloud-URI/mixed-suites профиль сначала RED на прежнем helper, затем
+весь tests/governance/test_governance_workflow.py GREEN с T112. Assert package
+tuples и metadata/mtime, две фиксированные HTTPS цели, source/mirror/thirdparty
+на отказах, отсутствие APT/npm/Playwright после ошибки. Непривилегированный
+fixture явно моделирует root metadata, в том числе в hosted тесте. Настоящие
+права проверяет внешний helper при server-change или Full: infra-only PR
+сохраняет прежний server-scope и не выдаёт модель за native/root proof.
+
+Матрица: исходный/нормализованный/mixed/security-only/no-security/deb-src,
+optional fields; unknown/credential URI не читается и не печатается; неверные
+platform/native/foreign arch, unsafe owner/mode/source parent/keyring,
+missing/symlink/oversize/malformed/повторы/unknown fields/disabled; полный
+prewrite отказ, replace/readback failure и temp cleanup. bash -n, Ruff,
+actionlint прежних workflows, governance/process/fragment/diff, независимое
+review/converge и exact PR gates. T110 historical unknown сохраняется, отдельной
+случайной выборки нет. Full/CD/рабочая аналитика/T0 принимаются отдельно.
+
+### T112: локальная проверка 01.11.2026
+
+На основе master `a20ce7fc008de6df21967361317ed668ce29238b`:
+новые mixed/unknown сценарии дали RED6/6 на прежнем helper; найденный review
+случай с 5000 пробелами дал отдельный RED1, после исправления GREEN3/3.
+Окончательный весь `tests/governance/test_governance_workflow.py`:
+**402 passed, 0 skipped, 157,22с**. Скрипт и тест во время этого повтора
+не изменялись. Ранний промежуточный запуск с ошибкой сравнения mtime каталога
+не считается успехом; финальный код сравнивает идентичность/права parent,
+а изменение каталога от собственного tempfile не выдаёт за подмену.
+
+Bash syntax, Ruff helper/test, actionlint обоих неизменённых workflows,
+development-process, governance workflow self-test, Spec Kit governance,
+changelog-fragments и diff-check PASS. Зависимости/сеть/APT/production не
+запускались; root metadata и native платформа явно моделировались. Обязательные
+GitHub проверки и merge ещё должны подтвердиться для коммита; настоящий
+helper/root/native и новый Full принимаются в штатном выпуске отдельно.
+
+- Helper SHA256: `2364d3e6d5d66ef4b9081ae7d411380cdab37d09ca0dcaa1ca2f2670a7b9123f`.
+- Test SHA256: `64223c8b65a55c227b6789dd7d2db1355e000da0718b974536120477e11d5f99`.
+
+
+## T113 — реальный выбор helper и отказ metadata
+
+До кода: native-ci-metadata checklist PASS, analyze, sync существующей #7859.
+Existing test_actual_media_resource_preparation: новые helper-only/docs и
+source/keyring metadata assertions сначала RED на прежнем helper/selector;
+затем весь tests/governance/test_governance_workflow.py, bash syntax/Ruff/
+actionlint, process/governance/fragment/diff, независимые review/converge.
+Draft PR исполняет настоящий Prepare при изменении helper и получает точные
+числа фиксированных файлов на runner. Native failure остаётся failure;
+после фактов функциональная адаптация требует повторного проекта/review.
+Нельзя сливать по моделируемому root профилю, повторять Full ради диагностики,
+угадывать условие metadata или ослаблять guard без обоснования.
+
+
+### T113: локальная проверка диагностического среза, 01.11.2026
+
+На base208e0aee20629c0770ad6ce0457fc1ebfcb6a631 новые assertions сначала
+дали RED7 failures/2PASS/399deselected; после изменения выбранный профиль
+9PASS/399deselected. Затем весь модуль: **408 passed, 0 skipped, 152,53с**.
+Helper/test/YAML во время полного прогона не менялись. Восемь статических и
+процессных проверок PASS: bash syntax, Ruff извлечённого heredoc и теста,
+actionlint, development-process, workflow self-test, Spec Kit governance,
+fragment, diff-check. Сеть/sudo/APT/production не запускались.
+
+Новый вывод строго ограничен fixed source/keyring и числовыми stat metadata;
+guard type/uid/mode/size прежний. Выбор helper/server/docs/other-infra
+исполнен через настоящий YAML. Источники и ключи остаются временной моделью
+root/native; реальный Prepare должен дать числа в draft PR, его отказ не
+будет принят как PASS или разрешение merge. T112/T113/#7859 остаются открытыми;
+функциональная адаптация, конечные exact gates/Full/измерение отдельно.
+
+- Helper SHA256: `b16a0c322e976a03c55cd60560e96b82bb97f2fce077a06951262118019d195f`.
+- Test SHA256: `47a509fceddc090b652f05cc8287942f63cbf61940e5959958960b4eee4a2861`.
+- YAML SHA256: `dfd738473dc9f8f47ea1a6c9e8e5f64dfcfda9e0fceb676a21a4995925dee258`.
+
+
+## T114 — приёмка узкого исправления прав ключа
+
+Для дополнения directory0777 обязательны оба known key modes0644/0777 и
+повторный no-op; unknown hash, malformed source, dir owner/group/mode/type,
+ancestors unsafe/symlink, open mismatch, chmod/fsync/readback failure и
+изменение key/source перед/после ужесточения. До invalid-input отказа
+directory/key/source не меняются; после частичного ужесточения ошибка не
+разрешает APT/npm/Playwright. Прежние cases и все три callers сохраняются.
+
+До кода: ci-keyring-permissions review, analyze, sync #7859. Тот же actual
+shell тест трёх callers: RED known-key-mode, затем whole module GREEN.
+Известный keyring0777 с точным public hash атомарно становится root:root0644
+с теми же bytes, следующий запуск no-op. Unknown/tampered key0777, прочие
+modes/owner/group/type/size, parent unsafe/symlink/change, source0777,
+read/write/replace/readback failures отказывают; нет дальнейших APT/npm/
+Playwright, temp очищен. Root/native остаются явной моделью. Official hash
+в fixture заменяется учебным hash, production pin не вычисляется из входа.
+Static/process + independent code review/converge перед update draft7863;
+настоящий Prepare проверяет actual bytes через тот же pin. Промежуточный
+failure не merge, новые факты рассматриваются отдельно. Full не диагностика.
+
+
+### T114: локальная реализация и независимое code review
+
+Новые actual-shell assertions сначала RED5 failures/2PASS/446deselected;
+после минимального изменения45PASS/408deselected. Весь существующий модуль:
+**453 passed,0 skipped,160,89с**. Helper/test во время прогона не менялись.
+Восемь static/process команд PASS. Combined known-key0777+malformed-source
+сохранил inode/mode/bytes ключа; unknown/owner/group/other-mode/parent/races
+и write/replace/readback дают отказ без следующих действий, temp очищен.
+Known-key0777 success и старый открытый writer подтверждают новую inode0644
+с теми же bytes; повтор сохраняет inode/mode/mtime обоих файлов.
+
+Независимый read-only `codex review --uncommitted`: no actionable defects,
+все текущие изменения и untracked source/checklist/review файлы прочитаны.
+Его попытка pytest не стартовала из-за read-only tempfile; это не повтор
+тестов и не замена приведённого прогона исполнителя. Shell/Python syntax,
+workflow validator/diff у reviewer успешны. Полный журнал SHA256
+078ac3c2e03323ee88767cf7513d2e0399e3c32e8e6cea8e9cacbed5424b0217.
+Обзор не подтверждает фактический hash runner или native PASS; они впереди.
+
+Scoped converge6/6: обязательной новой задачи до update draft не найдено;
+нативная проверка pin и конечные exact gates уже находятся в T114. Tasks
+оставлены открытыми; T112/T113/T114/#7859 и Full/T0 не приняты по локальной модели.
+
+- Helper SHA256: `e621ac1d9e4f67f7b0b8f92f29f01be4a0cc5f81987f1724221b2053bcd5e00e`.
+- Test SHA256: `40de319b3f2a4117736a2e70fa3e1bd8fcd815dc11465c13ecac95f55ff09eed`.
+
+
+### T114: native отказ parent до проверки pin
+
+Run41256850185/job124701772801 на e118223edac681a0fa90ea502ba11feba8596665
+отказал `unsafe keyring directory`. Actual hash ещё не проверен, успеха нет.
+Для следующего наблюдения разрешён только fixed keyring-directory + числовые
+metadata при прежнем отказе. Existing3key-parent×3callers: RED→GREEN/whole
+module/static/independent review. Guard не менять, промежуточный отказ не merge.
+
+### T114: проверка восстановления directory0777
+
+Native source08329a279f80bae9935405b511cdb63026ba7092,
+run41257402120/job124703432330 установил directory type16384/uid0/gid0/
+mode777. Независимый before-code checklist `ci-keyring-directory.md`:5/0,
+analyze5/5 C/H/M0, sync #7859/канон250PASS. Existing positive три случая
+на трёх callers: RED9fail с прежним unsafe-directory, GREEN63PASS/23,26с.
+Весь модуль504PASS/0skips/191,01с. После этого добавлен только unknown-key644
+при directory777: отдельно3PASS/504deselected/0,95с; это не один507-case run.
+Ruff окончательного теста PASS; прежние8 static/process PASS, helper неизменен.
+Safe ancestors/metadata, full input до записи, fd identity/chmod/fsync/readback,
+повторные snapshots и atomic replacement для644/777 проверены; source/third-party
+не изменяются при отказе до записи. Частичная ошибка блокирует следующие шаги.
+Независимое source-review:0P1/P2/HIGH, отчёт
+`validation-ci-keyring-directory-code-review-20261101.md`.
+Scoped converge5/5: дополнительной задачи реализации не найдено; фактический
+pin на GitHub, финальные exact gates/merge и T112–T114/#7859 пока открыты.
+Helper SHA256`879306f087c4809fea3a3c26d004f78914e5541ac8490d9e3334058020e48023`,
+final test`4ffb95eb130da7a60e46cd6af0cd005d6ad310f415ad7e3c9dc404e033a9fcbd`.
+Логи `.dev/ci-official-sources/directory-{red,green,module,safe-unknown,static}.log`.
+Full/production/F273/T0/трафик и продажи этим срезом не принимаются.
+
+### T114: фактический отказ предков и конечная диагностика
+
+Sourcec8275c5d2f3db7e6f5a22327979b01db8cd82cc7,
+run41258326161/job124706213937,01.11 00:48:45UTC отказал `unsafe keyring
+ancestor` до pin/записи. Подготовка не принята. Следующая правка только
+добавляет к прежнему отказу numeric lstat share/usr/root, guard не меняется.
+Before-code independent requirements PASS, scoped analyze3/3 C/H/M0,
+sync #7859/canon250PASS; exact negative assertions RED12fail→GREEN66PASS/
+441deselected/23,15с,8static/processPASS. Это ограниченный диагностический
+прогон, не новый whole507; настоящий native Prepare получает metadata.
+Repair предков остаётся отдельным проектом после фактов; draft не merge.
+
+### T114: итог share0777 и закрытие найденного P2
+
+Native fbb5604c2ba0f03255bf9ede3c23882015cbbecd/run41258703244 установил
+share/root:root0777 при root/usr0755. Новый независимый requirements checklist
+ci-keyring-share5/0, analyze5/5 C/H/M0, sync #7859/canon250PASS.
+Existing RED12fail/6PASS→focused84PASS. Первое code review нашло P2:
+изначально безопасный child сверялся после temp. Дополнены требования,
+before-code уточнение PASS, analyze2/2 C/H/M0 и sync/canon250PASS.
+Причинный regression с temp-event: RED3FAIL→GREEN24PASS, включая missing-source.
+Теперь child fingerprint сверяется сразу после directory loop до reads/temp.
+Fixture compiled filename `<prepare-ci-apt>` соответствует native stdin;
+строгий private-marker assert сохранён. Прежний whole522PASS/3FAIL не принят.
+Окончательный неизменный helper/test: **528PASS/0skip/204,72с**,8static/process
+PASS. Scoped converge5/5: дополнительных задач локальной реализации не найдено.
+Отчёты `validation-ci-keyring-share-{review,code-review}-20261101.md`;
+helper SHA256`4aa4f2aa7ccaaa5f1b8010d04d662290afa6871a89142cd3fa1155bc3ed010a1`,
+test`bd7f3f0720f68b8e628c89f47f6f6390332bd09c6eee331e7fd6c6f5f1cfb0b9`.
+Final logs `.dev/ci-official-sources/share-final-{module,static}.log`.
+Настоящий pin/Prepare, конечные exact gates и protected merge остаются
+отдельными; T112–T114/#7859, Full/production/F273/T0/продажи пока открыты.
+
+
+Parent diagnostic: RED9/3PASS→GREEN12; весь модуль453PASS/0skips/162,81с,
+source helper/test неизменны во время прогона. Static8PASS, независимые
+requirements и code review без замечаний, scoped converge4/4 без новых задач.
+HelperSHA2562f7b24b90edf3d0be8d5a498c1d055c79787ea0bc4f37899531688eca2d36b8e,
+test0d5248820e4beb21bc026075b7d7d8daeffe059c288169c5af614292f8747f2d.
+Native metadata/functional adaptation/exact gates/merge остаются открытыми.
+
+
+## T115 — воспроизведение и проверка целевого курсора
+
+Исходный authoritative Full41273275580: failure строгой части,0 найденных
+совпадений вместо1; остальные компоненты PASS. Driver exit1, candidate
+`rc-20261101T042905Z-e980dd0d1ef7` abandoned, CD не запускался.
+
+После принятия требований выполнить штатным disposable runner один и тот же
+временный wrapper с51 меньшим workspace до и после исправления. После GREEN:
+
+```sh
+apps/server/scripts/run_local_postgres_tests.sh --focused -q \
+  tests/integration/test_playback_normalization_postgres.py \
+  tests/integration/test_rls_maintenance_context.py
+```
+
+Нужны отсутствие новых skips, `postgres_test_cleanup=isolated_container_removed`,
+Ruff для изменённого теста, process/governance/fragment/diff и независимое ревью.
+Локальное доказательство не заменяет exact PR checks и новый frozen Full.
+
+Before-code analyze T115: 3 условия/1 задача, покрытие100%, unmapped0,
+ambiguity0, duplication0, CRITICAL/HIGH/MEDIUM0/0/0. Checklist3/0 PASS.
+Issue sync: T115→#7873, существующих владельцев/дублей не найдено.
+RED:1failed/3.82s на исходном assertion1091, cleanupPASS.
+
+### T115 — фактическое RED/GREEN и воспроизводимый рецепт
+
+Один wrapper до правки на125b:1failed/3.82s, тот же assert0==1.
+После одной строки:1passed/3.90s. В обоих случаях runner очистил собственный
+контейнер. Две предварительные ошибки запуска (неверный import plugin и
+отсутствие collection plugin), затем ошибка setup с одинаковыми slug
+сохранены как неуспех; они не считаются содержательным RED.
+Правильный wrapper меняет старшие UUID bits и был одинаков до/после.
+
+Для повторения сохранить следующий учебный файл во временный каталог;
+исполнить `run_local_postgres_tests.sh --focused -p tests.conftest -q`
+с абсолютным путём этого файла. Штатный runner сам выделяет БД и удаляет её.
+
+```python
+from tests.integration import test_playback_normalization_postgres as normalization
+from tests.integration.test_playback_normalization_postgres import (migrated_postgres_url, media_postgres_url, test_postgres_inventory_function_returns_only_bounded_scope_ids)
+import pytest
+from uuid import UUID
+from sqlalchemy.ext.asyncio import create_async_engine
+import pytest_asyncio
+
+@pytest_asyncio.fixture(autouse=True)
+async def inventory_population(request, migrated_postgres_url, monkeypatch):
+    module = normalization
+    if request.node.name != "test_postgres_inventory_function_returns_only_bounded_scope_ids":
+        return
+    sequence = iter(UUID(int=value << 96) for value in range(1, 10000))
+    monkeypatch.setattr(module, "uuid4", lambda: next(sequence))
+    engine = create_async_engine(migrated_postgres_url)
+    try:
+        for _ in range(51):
+            await module._seed_revision(engine)
+    finally:
+        await engine.dispose()
+```
+
+Ruff изменённого теста, process, bootstrap governance, fragment и diff — PASS.
+Полный focused профиль двух файлов:33passed/0skipped; итог и длительность
+уточнены ниже из фактического журнала. Это локальная проверка, не Full.
+
+Полный профиль:33passed/0skipped/18.30s, runner22s,
+`postgres_test_cleanup=isolated_container_removed`.
+Хеши локальных доказательств: RED6880da537db56d69a7e2277e45ceba315e262c2cd32f6ae18a88b40ad8e87ff9;
+GREENb70318ac8efc235bab28aed7f91cc7fa9282b569a4f23ce50e654f0ab3d627a0;
+profile92593f8d7fc31a8ba30ecae00274000dbfab023ca6f561b003b4980b94533341;
+wrappera73d3176beba977b2041af3ffca4880b552393af1cf0284aa274389aae0d0911.
+
+Независимый code review/converge:3/3 PASS, P1/P2/HIGH0/0/0,
+невыполненного кода0. Отчёт: validation-inventory-cursor-code-review-20261101.md.
+T115 остаётся `[ ]` до принятия exact PR gates и защищённого merge; это
+не новый Full/CD/T0 и не коммерческий результат.
+
+### T115 — приёмка реализации и слияния
+
+PR #7874 защищённо слит01.11.2026 05:02:32UTC в
+`cc7d47cb67cdebdff4ecd79be49abcf2c6f2fa6e`.
+Source `0d22863abeefdb632477799747cb2849af595b46`, checked base
+`125b51042ff39a1a7b1d4d051ce2503ea8d1250c`.
+Обязательные проверки: governance-fast41274841371, macos-pr41274841360,
+pr-metadata41274841409 — PASS. Общий `validate-pr-checks.py` до и после
+слияния завершился EXIT0 и подтвердил фактический merge.
+
+T115 принимается в своей области; issue #7873 закрывается после принятия
+этой документальной сверки с проверенным closure comment. Новый frozen Full,
+рабочий выпуск, аналитика/T0 и коммерческие результаты остаются отдельными.
+
+
+## T116 — отказ настоящего тела отката БД
+
+До исправления новый параметризованный тест должен показать потерю ошибки
+в условном Bash-контексте. После трёх явных возвратов выполнить:
+
+```sh
+PYTHONPATH=apps/server/src apps/server/.venv/bin/python -m pytest --noconftest -q apps/server/tests/integration/test_deployment_readiness_gates.py
+PATH="$PWD/apps/server/.venv/bin:$PATH" PYTHONPATH=apps/server/src apps/server/.venv/bin/python -m pytest --noconftest -q tests/governance/test_release_images.py apps/server/tests/integration/test_production_smoke_boundary.py apps/server/tests/integration/test_deployment_backup_restore_rehearsal.py apps/server/tests/contract/test_rls_production_boundary.py
+bash -n infra/scripts/cd-remote-runtime.sh
+```
+
+Ожидаются отсутствие пропусков, остановка перед следующей операцией при
+каждом отказе, совместимое окружение вместо старого, ошибка при неудачном
+восстановлении и прежний путь при полном успехе. Docker/сервер/настоящие
+данные тест не меняет. Затем независимые code review/converge и exact-SHA
+PR gates. Full/CD/рабочее измерение и T0 остаются отдельной приёмкой.

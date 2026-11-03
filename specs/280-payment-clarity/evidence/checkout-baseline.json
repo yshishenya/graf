@@ -1,0 +1,46 @@
+{
+  "source_sha": "04768db6d3bac13ea3121b1171f605aa32062c14",
+  "synthetic": true,
+  "template": "cabinet/pages/billing_checkout_content.html",
+  "viewport": {
+    "width": 1280,
+    "height": 900
+  },
+  "theme": "light",
+  "zoom": 1,
+  "selector": "p, label.billing-consent, summary",
+  "visibility": "Element.checkVisibility()",
+  "word_pattern": "[А-Яа-яЁёA-Za-z]+",
+  "context": {
+    "billing_enabled": true,
+    "catalog_ready": true,
+    "checkout_idempotency_key": "synthetic",
+    "checkout_quote_id": "synthetic-quote",
+    "monthly_price_label": "1 000 ₽",
+    "annual_price_label": "10 000 ₽",
+    "csrf_token": "synthetic",
+    "embedded": false,
+    "checkout_cycle": "month",
+    "catalog_storage_label": "5 ГБ",
+    "checkout_base_price_label": "1 000 ₽",
+    "checkout_period_label": "29.09.2026 — 29.10.2026",
+    "checkout_next_attempt_label": "26.10.2026",
+    "receipt_contact_label": "demo@example.test",
+    "checkout_preview": {
+      "payable_amount_label": "1 000 ₽",
+      "list_amount_label": "1 000 ₽",
+      "discount_label": "0 ₽",
+      "discount_amount_minor": 0,
+      "list_amount_minor": 100000,
+      "payable_amount_minor": 100000,
+      "next_amount_label": "1 000 ₽",
+      "cycle_label": "месяц"
+    }
+  },
+  "baseline": {
+    "text": "Проверьте итог. Оплата откроется на защищенной странице ЮKassa. 1 000 ₽\nв месяц Без лимита по минутам и встречам · 5 ГБ хранения. Скидка действует только на эту оплату. Досрочная оплата добавляет период к уже оплаченному времени. Автопродление можно отключить в разделе «Подписка». Добавить промокод Принимаю оферту версии personal-2026-09-27. Согласен на регулярное списание: оплата списывается автоматически, отключить автопродление можно в кабинете.",
+    "words": 56,
+    "buttonTop": 975.484375,
+    "visibleBody": "Оформление тарифа\n\nПроверьте итог. Оплата откроется на защищенной странице ЮKassa.\n\nТариф\nЛичный\n\n1 000 ₽\nв месяц\n\nБез лимита по минутам и встречам · 5 ГБ хранения.\n\nМесяц\n1 000 ₽\nГод\n10 000 ₽\nТариф «Личный» · 5 ГБ включено\n1 000 ₽\nОплачиваемый период\n29.09.2026 — 29.10.2026\nСтоимость покупки\n1 000 ₽\nСкидка\n0 ₽\nК оплате сегодня\n1 000 ₽\nСледующее списание\n1 000 ₽ за месяц, пока автопродление не отключено\nПервая попытка автопродления\n26.10.2026\nЧек отправится на\ndemo@example.test\n\nСкидка действует только на эту оплату. Досрочная оплата добавляет период к уже оплаченному времени. Автопродление можно отключить в разделе «Подписка».\n\nДобавить промокод\nПринимаю оферту версии personal-2026-09-27.\nСогласен на регулярное списание: оплата списывается автоматически, отключить автопродление можно в кабинете.\nОплатить 1 000 ₽ в ЮKassa — месяц\nНазад к тарифам\nНужна помощь с оплатой?"
+  }
+}

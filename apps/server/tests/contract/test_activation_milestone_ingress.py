@@ -1,0 +1,302 @@
+"""Trusted admission on disposable PostgreSQL; never enable a real provider."""
+
+import asyncio
+from datetime import UTC, datetime
+from types import SimpleNamespace
+from uuid import uuid4
+
+import pytest
+from sqlalchemy import func, select, text
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
+
+from tests.contract.test_ingest_openapi_contract import auth_headers
+from tests.fakes.auth_contexts import USER_ID, principal
+from twobrain_rec_server.config import Settings
+from twobrain_rec_server.db.models import ProductActivationMilestone, UserIdentity
+from twobrain_rec_server.product_analytics import ingest, legal_basis_gate
+from twobrain_rec_server.product_analytics.identity import build_safe_identity
+from twobrain_rec_server.product_analytics.ingest import ProductAnalyticsIngestService
+from twobrain_rec_server.product_analytics.legal_basis_lifecycle import (
+    BASIS_WITHDRAWAL_STATE_FILE_ENV,
+)
+
+
+def payload(name="first_recording_completed", user_id=USER_ID):
+    return {
+        "event_name": name,
+        "stable_pseudonymous_user_id": build_safe_identity(
+            user_source_id=str(user_id)
+        ).stable_pseudonymous_user_id,
+        "properties": {},
+    }
+
+
+@pytest.fixture
+def isolated_admission(monkeypatch):
+    # Replace only the still-blocked operating receipts in this test process.
+    # The real resolver stays fail-closed pending T110/T113 recovery verification.
+    monkeypatch.setattr(ingest, "activation_milestone_write_blockers", lambda settings: ())
+    monkeypatch.setattr(
+        ingest, "resolve_provider_delivery_gate", lambda *a, **kw: SimpleNamespace(allowed=True)
+    )
+    monkeypatch.setattr(
+        ingest.YandexOfflineConversionExporter, "transfer_decision",
+        lambda *a, **kw: SimpleNamespace(allowed=True),
+    )
+
+    def forbidden(*a, **kw):
+        raise AssertionError("admission must never enter provider transport")
+
+    monkeypatch.setattr(
+        "twobrain_rec_server.product_analytics.posthog_client.PostHogClientWrapper.capture_event",
+        forbidden,
+    )
+    monkeypatch.setattr(
+        "twobrain_rec_server.product_analytics.router.ParallelMeasurementRouter.dispatch", forbidden
+    )
+
+
+def run(url, scenario):
+    async def execute():
+        engine = create_async_engine(url, poolclass=NullPool)
+        try:
+            await scenario(async_sessionmaker(engine, expire_on_commit=False), engine)
+        finally:
+            await engine.dispose()
+
+    asyncio.run(execute())
+
+
+def test_concurrent_ingress_owns_commit_and_keeps_original_decision(
+    postgres_seeded_database_url, isolated_admission
+):
+    async def scenario(sessions, engine):
+        async def accept():
+            return await ProductAnalyticsIngestService(
+                Settings(product_analytics_enabled=True)
+            ).ingest_authenticated(
+                payload(), principal=principal(), sessionmaker=sessions, source_kind="desktop"
+            )
+
+        results = await asyncio.gather(*(accept() for _ in range(5)))
+        assert sum(item.status == "accepted" for item in results) == 1
+        assert all(item.accepted and not item.provider_results for item in results)
+        assert len({item.event.occurred_at for item in results}) == 1
+        async with sessions() as db:
+            rows = (await db.scalars(select(ProductActivationMilestone))).all()
+            assert len(rows) == 1
+            assert rows[0].account_id == USER_ID
+            assert rows[0].posthog_state == "pending"
+            # This event is not in the Yandex offline conversion catalog.
+            assert rows[0].yandex_state == "not_requested"
+
+    run(postgres_seeded_database_url, scenario)
+
+
+@pytest.mark.parametrize("purpose_only", [False, True])
+def test_withdrawal_while_waiting_for_account_lock_is_rechecked_before_insert(
+    postgres_seeded_database_url, isolated_admission, monkeypatch, purpose_only
+):
+    async def scenario(sessions, engine):
+        withdrawn = False
+        entered = asyncio.Event()
+        pid = None
+        original_context = ingest.apply_tenant_context
+
+        async def context(db, value):
+            nonlocal pid
+            await original_context(db, value)
+            pid = await db.scalar(text("select pg_backend_pid()"))
+            entered.set()
+
+        monkeypatch.setattr(ingest, "apply_tenant_context", context)
+        monkeypatch.setattr(ingest, "activation_milestone_write_blockers", lambda s: (
+            ("legal_basis_withdrawn",) if withdrawn and not purpose_only else ()
+        ))
+        monkeypatch.setattr(
+            ingest.YandexOfflineConversionExporter, "transfer_decision",
+            lambda *a, **kw: SimpleNamespace(allowed=not withdrawn),
+        )
+        async with sessions() as blocker:
+            await blocker.scalar(select(UserIdentity.id).where(
+                UserIdentity.id == USER_ID
+            ).with_for_update())
+            waiting = asyncio.create_task(ProductAnalyticsIngestService(
+                Settings(product_analytics_enabled=True)
+            ).ingest_authenticated(
+                payload("desktop_account_connected"), principal=principal(),
+                sessionmaker=sessions, source_kind="server",
+            ))
+            await asyncio.wait_for(entered.wait(), timeout=3)
+            # Observe a real PostgreSQL lock wait, not a patched admission call.
+            for _ in range(100):
+                state = await blocker.scalar(text(
+                    "select wait_event_type from pg_stat_activity where pid=:pid"
+                ), {"pid": pid})
+                if state == "Lock":
+                    break
+                await asyncio.sleep(0.01)
+            else:
+                waiting.cancel()
+                await asyncio.gather(waiting, return_exceptions=True)
+                raise AssertionError("admission did not wait for the account lock")
+            withdrawn = True
+            released_at = datetime.now(UTC)
+            await blocker.rollback()
+            result = await asyncio.wait_for(waiting, timeout=3)
+        async with sessions() as db:
+            rows = (await db.scalars(select(ProductActivationMilestone))).all()
+        if purpose_only:
+            assert result.accepted and len(rows) == 1
+            assert rows[0].posthog_state == "pending"
+            assert rows[0].yandex_state == "not_requested"
+            assert rows[0].accepted_at >= released_at
+        else:
+            assert not result.accepted and result.status == "admission_blocked"
+            assert rows == []
+
+    run(postgres_seeded_database_url, scenario)
+
+
+def test_both_http_shapes_share_one_durable_decision(client, isolated_admission, monkeypatch):
+    settings = client.app.state.settings
+    for key in (
+        "product_analytics_enabled", "product_analytics_posthog_enabled",
+        "product_analytics_posthog_desktop_direct_enabled", "product_analytics_direct_desktop_egress_enabled",
+    ):
+        monkeypatch.setattr(settings, key, True)
+    value = payload()
+    first = client.post("/api/v1/product-analytics/events", json=value, headers=auth_headers())
+    second = client.post(
+        "/api/v1/product-analytics/posthog-desktop-capture",
+        json={"event": value["event_name"], "distinct_id": value["stable_pseudonymous_user_id"]},
+        headers=auth_headers(),
+    )
+    assert first.status_code == 200, first.text
+    assert second.status_code == 200, second.text
+    assert first.json()["status"] == "accepted"
+    assert second.json()["status"] == "duplicate"
+    assert first.json()["event"] == second.json()["event"]
+    assert first.json()["provider_results"] == second.json()["provider_results"] == []
+
+
+@pytest.mark.parametrize("proxy", [False, True])
+def test_http_rejects_missing_account_forged_account_and_unverified_triggers(
+    client, isolated_admission, monkeypatch, proxy
+):
+    for key in (
+        "product_analytics_enabled", "product_analytics_posthog_enabled",
+        "product_analytics_posthog_desktop_direct_enabled", "product_analytics_direct_desktop_egress_enabled",
+    ):
+        monkeypatch.setattr(client.app.state.settings, key, True)
+    path = "/api/v1/product-analytics/" + ("posthog-desktop-capture" if proxy else "events")
+
+    def send(value, headers):
+        body = value if not proxy else {
+            "event": value["event_name"],
+            "distinct_id": value["stable_pseudonymous_user_id"],
+            "properties": value["properties"],
+        }
+        return client.post(path, json=body, headers=headers)
+
+    assert send(payload(), {}).status_code == 403
+    assert send(payload(user_id=uuid4()), auth_headers()).status_code == 403
+    for name in (
+        "desktop_first_opened", "desktop_account_connected", "first_result_viewed", "first_value_session_completed",
+    ):
+        response = send(payload(name), auth_headers())
+        assert response.status_code == 403, response.text
+
+    async def count():
+        async with client.app.state.db_sessionmaker() as db:
+            return await db.scalar(select(func.count()).select_from(ProductActivationMilestone))
+
+    assert asyncio.run(count()) == 0
+
+
+def test_withdrawal_after_connection_and_commit_failure_leave_no_decision(
+    postgres_seeded_database_url, isolated_admission, monkeypatch
+):
+    async def scenario(sessions, engine):
+        service = ProductAnalyticsIngestService(Settings(product_analytics_enabled=True))
+        checks = iter(((), ("legal_basis_withdrawn",)))
+        monkeypatch.setattr(ingest, "activation_milestone_write_blockers", lambda s: next(checks))
+        result = await service.ingest_authenticated(
+            payload(), principal=principal(), sessionmaker=sessions, source_kind="desktop"
+        )
+        assert not result.accepted and result.status == "admission_blocked"
+        monkeypatch.setattr(ingest, "activation_milestone_write_blockers", lambda s: ())
+
+        class FailedCommit(AsyncSession):
+            async def commit(self):
+                raise RuntimeError("synthetic commit failure")
+
+        result = await service.ingest_authenticated(
+            payload(), principal=principal(),
+            sessionmaker=async_sessionmaker(engine, class_=FailedCommit), source_kind="desktop",
+        )
+        assert not result.accepted and result.status == "database_unavailable"
+        async with sessions() as db:
+            assert await db.scalar(select(func.count()).select_from(ProductActivationMilestone)) == 0
+
+    run(postgres_seeded_database_url, scenario)
+
+
+def test_server_auth_uses_the_same_account_ledger(postgres_seeded_database_url, isolated_admission):
+    from twobrain_rec_server.api.auth import record_account_connected_milestone
+
+    async def scenario(sessions, engine):
+        user = principal()
+        results = [await record_account_connected_milestone(
+            settings=Settings(product_analytics_enabled=True), user_id=user.user_id,
+            organization_id=user.organization_id, workspace_id=next(iter(user.workspace_ids)),
+            sessionmaker=sessions, provider="synthetic", handoff=None,
+        ) for _ in range(2)]
+        assert [item.status for item in results] == ["accepted", "duplicate"]
+        async with sessions() as db:
+            row = await db.scalar(select(ProductActivationMilestone))
+            assert row.source_kind == "server"
+            assert row.posthog_state == row.yandex_state == "pending"
+
+    run(postgres_seeded_database_url, scenario)
+
+
+def test_auth_milestone_builder_failure_is_best_effort(monkeypatch):
+    from twobrain_rec_server.api import auth
+
+    def broken(**kwargs):
+        raise ValueError("synthetic builder failure")
+
+    monkeypatch.setattr(auth, "build_account_connected_product_analytics_payload", broken)
+    user = principal()
+    result = asyncio.run(auth.record_account_connected_milestone(
+        settings=Settings(product_analytics_enabled=True), user_id=user.user_id,
+        organization_id=user.organization_id, workspace_id=next(iter(user.workspace_ids)),
+        sessionmaker=None, provider="synthetic", handoff=None,
+    ))
+    assert result is None
+
+
+@pytest.mark.parametrize("record", [
+    "", "basis_withdrawal level=attribution_profiles state=withdrawn withdrawn_at=broken",
+    "basis_withdrawal level=attribution_profiles state=withdrawn withdrawn_at=2026-01-01 reason=owner_decision",
+])
+def test_runtime_gate_never_opens_on_missing_or_partial_recovery(tmp_path, monkeypatch, record):
+    path = tmp_path / "basis"
+    monkeypatch.setenv(BASIS_WITHDRAWAL_STATE_FILE_ENV, str(path))
+    settings = Settings(
+        product_analytics_enabled=True, product_analytics_validation_mode="live_safe",
+        product_analytics_legal_approved=True, product_analytics_disclosure_approved=True,
+    )
+    monkeypatch.setattr(
+        legal_basis_gate, "build_analytics_operations_readiness", lambda s: SimpleNamespace(blockers=())
+    )
+    assert "basis_unavailable" in legal_basis_gate.activation_milestone_write_blockers(settings)
+    path.write_text("legal_basis_state_version=1\n" + record)
+    blockers = legal_basis_gate.activation_milestone_write_blockers(settings)
+    assert "activation_recovery_unverified" in blockers
+    if "broken" in record:
+        assert "basis_unavailable" in blockers
+    elif record:
+        assert "legal_basis_withdrawn" in blockers

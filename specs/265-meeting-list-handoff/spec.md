@@ -8,6 +8,12 @@
 
 **Input**: User description: "Когда прошла запись и она отправилась на сервер, в интерфейсе я ее не вижу. Чтобы увидеть записи, нужно принудительно обновить интерфейс. Изучи внимательно, в чем проблема. Найди все корни. Продумай, как сделать правильно, чтобы был единый беспроблемный пользовательский путь, чтобы интерфейс был понятный в этой части и при этом простой. Без переусложнений. Также проверь что код не дает проблем, и чтобы вообще все было так, как правильно, по лучшим практикам и точно правильно работало."
 
+## Clarifications
+
+### Session 2026-10-16
+
+- Уточнение по уже заданным US2/сценарию 3, FR-006, Assumptions и контракту: SC-001 требует одну строку, только когда текущий авторитетный результат включает встречу. Если поиск, фильтр или граница результата исключает ее, строк и повторно созданных локальных заместителей нет. Нового продуктового решения или изменения поведения это уточнение не вводит; дополнительных вопросов пользователю не потребовалось.
+
 ## User Scenarios & Testing
 
 ### User Story 1 - Новая запись появляется сама (Priority: P1)
@@ -87,7 +93,7 @@
 
 ### Measurable Outcomes
 
-- **SC-001**: In every automated handoff scenario with a successful list response, the new meeting is visible without a full-page reload and the DOM contains exactly one row for its `meetingId`.
+- **SC-001**: In every automated handoff scenario with a successful authoritative list response that includes the new meeting in the current search, filter, and visible-result context, the meeting is visible without a full-page reload and the DOM contains exactly one row for its `meetingId`. If that response excludes the meeting, FR-006 applies: neither a server row nor a resurrected local alias is shown in that context.
 - **SC-002**: One handoff publication causes no more than one authoritative list request; 100 repeated progress publications after the same handoff cause zero additional automatic list requests.
 - **SC-003**: In all supported sort, search, and filter scenarios, the list controls retain their pre-handoff values and the resulting list matches the requested context.
 - **SC-004**: In selection and keyboard-focus scenarios, the selected identity and connected focus target are preserved or transferred to the matching server row, unless the user moved focus during the request.

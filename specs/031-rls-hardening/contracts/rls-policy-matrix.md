@@ -181,6 +181,17 @@ These optimizer tables are global operator data, not tenant-owned data. Request
 and worker contexts receive no rows; only an approved maintenance context can
 read or mutate them.
 
+`billing_registry_imports` and `billing_registry_gaps` are separate global
+maintenance-only registry tables from `0107_billing_registry`, with RLS enabled
+and forced. Both require `session_user = current_user = twobrain_rec_maintenance`,
+`row_security = on`, `rec_context_kind() = maintenance`,
+`rec_maintenance_allowed()`, operation `billing_reconciliation` and feature area
+`billing`. Ordinary request and worker contexts have no access. The maintenance
+role receives SELECT/INSERT/UPDATE, not DELETE. History triggers reject updates
+to import receipts and deletion from either table; gap updates preserve their
+immutable fields and require an accepted receipt to resolve a gap. Downgrade is
+blocked while registry history exists.
+
 `workspace_invitations` and `admin_audit_events` use the direct workspace policy
 for normal request and worker contexts, and additionally allow `auth_bootstrap` only when
 `workspace_id = current_workspace_id()` and the bootstrap workspace belongs to

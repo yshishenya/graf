@@ -1,0 +1,254 @@
+{
+  "schema_version": 1,
+  "feature": "281",
+  "task": "T018",
+  "issue": 7635,
+  "scope": "Документальная сверка существующей публикации, без нового выпуска или изменения приложения",
+  "pr_checks": {
+    "base_sha": "c6c5441c930b8c1ecffed6de9b80773aa0e757e5",
+    "checks": {
+      "governance-fast": {
+        "proof_digest": "sha256:3b744f54f43f129edfed77c7e5363a125306e1190e08c533054a47e3bb1c3db0",
+        "run_attempt": 2,
+        "run_id": "39011846917"
+      },
+      "macos-pr": {
+        "proof_digest": "sha256:ac6d5a8ce4c4c84844eb1347175474cec8eee7b7af86c7d82c15aeeb5bffc389",
+        "run_attempt": 2,
+        "run_id": "39011846882"
+      },
+      "pr-metadata": {
+        "proof_digest": "sha256:bc0df2bc50889cdd772d4528d603a944d57163b30cbe03d6650bb5bfe7a70e0d",
+        "run_attempt": 1,
+        "run_id": "39011846945"
+      }
+    },
+    "merge_commit_sha": "431a7857221c2bad1fe27bf1d5b80fee385670fc",
+    "metadata_digest": "88da3a5c80b1b6fd256e3d91ccf01e593da6572750f0bf07607fdbe589dd5d04",
+    "policy": "separate",
+    "pr_number": 7637,
+    "repository": "yshishenya/graf",
+    "schema_version": 1,
+    "target_sha": "71f44385611f96a43740416a22d96fefe10c999e"
+  },
+  "existing_release_verification": {
+    "checked_at": "2026-10-18T09:07:28.617725+00:00",
+    "status": "PASS",
+    "source_sha": "f9ed447e878581f7ec49003d5ab10864426071db",
+    "candidate_id": "rc-20261017T091007Z-8b77e6c0cda8",
+    "train_id": "train-20261017T090846Z-f9ed447e8785",
+    "release_full_run": 39020099599,
+    "release_tag": "v2026.10.17.1",
+    "live_authoritative_artifact_bytes_equal": true,
+    "github_release_and_tag_verified": true,
+    "metadata_identity_sidecars_verified": [
+      "candidate",
+      "decision",
+      "train"
+    ],
+    "cross_record_digests_and_changelog_verified": true,
+    "records": {
+      "candidate": "sha256:3c06a0f70d81e945c6b9522c0b46df0145917536e8b969cc42189a10e6d771c5",
+      "decision": "sha256:d466df341c78dbd48d494ddc86848f284feb50037b17d05b5eccff4459790d10",
+      "evidence": "sha256:337e893757e84af97c99435d406f0ecd554933355f4577fdc3bf89715a75858f",
+      "publication": "sha256:9e686054c2edebc4852d103c5f5f46df2b1db19c383be69866ab21adb8fcafe4",
+      "train": "sha256:1ef79bfd055748fc1a534f06f7eeb9b54cabb35c2480f9de76138cfbfe7629b8"
+    },
+    "cd_log_digests": {
+      "cd-dry-run.log": "sha256:a076b55aed76b826cddf3f979731523a876be89246577e581bee435d32f89a97",
+      "cd-execute.log": "sha256:b8829d5cd6f27a2b48520d2f72bb770c0d4a4afbd2edfce5df29548b01c2ef62"
+    },
+    "cd_markers": {
+      "cd-dry-run.log": {
+        "release_candidate": [
+          "go"
+        ],
+        "deploy_result": [
+          "dry_run"
+        ],
+        "local_ci": [
+          "authoritative_full_reused"
+        ],
+        "candidate_gates": [
+          "passed"
+        ]
+      },
+      "cd-execute.log": {
+        "release_candidate": [
+          "go"
+        ],
+        "local_ci": [
+          "authoritative_full_reused"
+        ],
+        "backup_result": [
+          "pass"
+        ],
+        "smoke_result": [
+          "pass"
+        ],
+        "readiness_verdict": [
+          "infra_smoke_ready",
+          "infra_smoke_ready"
+        ],
+        "automatic_dispatch_result": [
+          "pass"
+        ],
+        "public_download_smoke_result": [
+          "pass"
+        ],
+        "public_update_feed_smoke_result": [
+          "pass"
+        ],
+        "final_temporal_readiness_result": [
+          "pass"
+        ],
+        "final_processing_worker_readiness_result": [
+          "pass"
+        ],
+        "automatic_retry_result": [
+          "required_post_deploy"
+        ],
+        "backfill_inventory_result": [
+          "required_post_deploy"
+        ],
+        "range_playback_result": [
+          "required_post_deploy"
+        ],
+        "normalization_cleanup_result": [
+          "required_post_deploy"
+        ],
+        "deploy_result": [
+          "pass"
+        ],
+        "deployed_sha": [
+          "f9ed447e878581f7ec49003d5ab10864426071db"
+        ],
+        "runtime_sha": [
+          "f9ed447e878581f7ec49003d5ab10864426071db"
+        ]
+      }
+    },
+    "verification_source_sha256": "sha256:bd63654fbde7b6ae1ce4320566dcec9db11f60938fe08b68e4769885e6d6aa51",
+    "limitations": [
+      "CD markers revalidated from preserved original logs; no new deploy or rollback was executed.",
+      "required_post_deploy markers are separate uncompleted gates and do not assert acceptance of F290.",
+      "No new macOS distribution or installed-app acceptance is claimed."
+    ]
+  },
+  "public_readback": {
+    "checked_at": "2026-10-18T08:59:34.213669+00:00",
+    "url": "https://rec.2brain.pro/guides/protokol-vstrechi-iz-zapisi",
+    "http_status": 200,
+    "source_sha": "f9ed447e878581f7ec49003d5ab10864426071db",
+    "live_html_sha256": "1d0e30987251ff9f1bd9c340720bbc933e79a56344884a7929330728957b5c71",
+    "client_section_exact_source_match": true,
+    "section_sha256": "3e139d998e7aa4538ddf608465a7f2cdaf0a4bb99be624c7b6d83f11c2eb8d93",
+    "h1_count": 1,
+    "canonical": [
+      "https://rec.2brain.pro/guides/protokol-vstrechi-iz-zapisi"
+    ],
+    "anchors_all_exist": true,
+    "links": [
+      {
+        "url": "https://rec.2brain.pro/",
+        "status": 200,
+        "final_url": "https://rec.2brain.pro/",
+        "h1_count": 1,
+        "canonical": [
+          "https://rec.2brain.pro/"
+        ],
+        "sha256": "33ad4aea5ddc54c781d55aa64094a6c71370f63824b49bb8537c9415f9444508"
+      },
+      {
+        "url": "https://rec.2brain.pro/analytics-consent",
+        "status": 200,
+        "final_url": "https://rec.2brain.pro/analytics-consent",
+        "h1_count": 1,
+        "canonical": [
+          "https://rec.2brain.pro/analytics-consent"
+        ],
+        "sha256": "1f522a5baa7484259ca0dc8121d344a08e8ddc7e0d2fedb697e932d4310173a6"
+      },
+      {
+        "url": "https://rec.2brain.pro/download",
+        "status": 200,
+        "final_url": "https://rec.2brain.pro/download",
+        "h1_count": 1,
+        "canonical": [
+          "https://rec.2brain.pro/download"
+        ],
+        "sha256": "115f926de631e907337b61dde65e235be670a7d3c21d774c7db932164662a7fc"
+      },
+      {
+        "url": "https://rec.2brain.pro/guides",
+        "status": 200,
+        "final_url": "https://rec.2brain.pro/guides",
+        "h1_count": 1,
+        "canonical": [
+          "https://rec.2brain.pro/guides"
+        ],
+        "sha256": "637b2d57cadbe3c19c84bcc7d9851ee941fd44341836a99452819657407d5ba2"
+      },
+      {
+        "url": "https://rec.2brain.pro/guides/proverka-kachestva-rasshifrovki-vstrechi",
+        "status": 200,
+        "final_url": "https://rec.2brain.pro/guides/proverka-kachestva-rasshifrovki-vstrechi",
+        "h1_count": 1,
+        "canonical": [
+          "https://rec.2brain.pro/guides/proverka-kachestva-rasshifrovki-vstrechi"
+        ],
+        "sha256": "8517667c18c0079f0d961486d713acf7e779489d7f803fa73798ef559794fee0"
+      },
+      {
+        "url": "https://rec.2brain.pro/guides/zapis-vstrechi-na-mac-bez-bota",
+        "status": 200,
+        "final_url": "https://rec.2brain.pro/guides/zapis-vstrechi-na-mac-bez-bota",
+        "h1_count": 1,
+        "canonical": [
+          "https://rec.2brain.pro/guides/zapis-vstrechi-na-mac-bez-bota"
+        ],
+        "sha256": "e6e9be4eb2e3017fc79b1e82c531b67380c5dbb6fbd91ad94cbb3234c5702d37"
+      },
+      {
+        "url": "https://rec.2brain.pro/help",
+        "status": 200,
+        "final_url": "https://rec.2brain.pro/help",
+        "h1_count": 1,
+        "canonical": [
+          "https://rec.2brain.pro/help"
+        ],
+        "sha256": "aef80747c62980eb01df1fa221d491133f1b2a0b7728d4d2be1c473c57366033"
+      },
+      {
+        "url": "https://rec.2brain.pro/privacy",
+        "status": 200,
+        "final_url": "https://rec.2brain.pro/privacy",
+        "h1_count": 1,
+        "canonical": [
+          "https://rec.2brain.pro/privacy"
+        ],
+        "sha256": "31e1a4c7ac9a2512485f04f0788f2638281752e74531d42c03d597950c38b0a3"
+      }
+    ]
+  },
+  "protected_source_check": {
+    "pr": 7637,
+    "merge_sha": "431a7857221c2bad1fe27bf1d5b80fee385670fc",
+    "changed_paths": [
+      "apps/server/src/twobrain_rec_server/public/templates/public/meeting_protocol_guide.html",
+      "changes/unreleased/F281.yaml",
+      "specs/281-mac-meeting-guide/client-followup-evidence-20261016.md",
+      "specs/281-mac-meeting-guide/plan.md",
+      "specs/281-mac-meeting-guide/quickstart.md",
+      "specs/281-mac-meeting-guide/spec.md",
+      "specs/281-mac-meeting-guide/tasks.md"
+    ],
+    "only_product_template_changed": true
+  },
+  "status": "publication_verified_tracker_pending",
+  "limits": [
+    "Общая F281 и T011/T013 отдельно.",
+    "Индексация, трафик, продажи, платежи и установленное приложение не приняты этим срезом.",
+    "Сохранённые журналы CD проверены по исходным записям, без повторного развёртывания."
+  ]
+}

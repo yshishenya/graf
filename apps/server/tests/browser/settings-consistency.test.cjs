@@ -410,7 +410,8 @@ const pages=['account','workspace','recording','summaries','integrations/calenda
    await page.setViewportSize({width,height:900});
    await page.goto(`${origin}/settings/billing?theme=dark&plan=free&payments=off`);
    assert.equal(await page.locator('[data-billing-primary]').count(),1,'One trial action when payments unavailable');
-   assert.equal(await page.locator('a[href="/billing/plans"]').count(),0,'Unavailable payment is not offered');
+   assert.equal(await page.getByRole('link',{name:'Сравнить тарифы',exact:true}).getAttribute('href'),'/billing/plans','Plan comparison remains available when payments are off');
+   assert.equal(await page.locator('a[href^="/billing/checkout"],form[action^="/billing/checkout"]').count(),0,'Unavailable checkout is not offered');
    assert.equal(await page.locator('#billing-options-title,.settings-scope-badge').count(),0,'No duplicate plan section');
    const trial=page.locator('[data-trial-confirmation]');
    assert.equal(await trial.evaluate(el=>getComputedStyle(el).borderTopWidth),'0px','No lines around trial action');

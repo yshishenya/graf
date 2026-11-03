@@ -55,7 +55,7 @@ def test_product_analytics_is_disabled_by_default() -> None:
     assert settings.product_analytics_posthog_enabled is False
     assert settings.product_analytics_yandex_all_pages_enabled is False
     assert settings.product_analytics_yandex_offline_enabled is False
-    assert settings.product_analytics_retention_min_days == 90
+    assert settings.product_analytics_consent_copy_version == "2026-10-22.1"
     assert settings.product_analytics_direct_desktop_egress_enabled is False
 
 
@@ -64,8 +64,6 @@ def test_product_analytics_validation_modes_are_restricted() -> None:
         Settings(product_analytics_validation_mode="live")
     with pytest.raises(ValidationError, match="product_analytics_provider_mode"):
         Settings(product_analytics_provider_mode="all_providers")
-    with pytest.raises(ValidationError, match="product_analytics_retention_min_days"):
-        Settings(product_analytics_retention_min_days=89)
 
 
 def test_production_rejects_enabled_product_analytics_without_explicit_gates() -> None:
@@ -241,3 +239,27 @@ def test_no_live_product_analytics_secrets_are_committed() -> None:
     )
     for pattern in secret_patterns:
         assert re.search(pattern, combined) is None
+
+
+def test_registered_user_disclosure_and_posthog_config_share_current_retention() -> None:
+    from fastapi.testclient import TestClient
+
+    from twobrain_rec_server.cabinet.web import cabinet_product_telemetry_gate_context
+    from twobrain_rec_server.main import create_app
+    from twobrain_rec_server.product_analytics.provider_config import ProductAnalyticsProviderConfig
+    from twobrain_rec_server.product_analytics.telemetry_gate import build_required_disclosure
+
+    with TestClient(create_app(Settings())) as client:
+        response = client.get("/api/v1/product-analytics/telemetry-gate/disclosure")
+    assert response.status_code == 200
+    disclosure = response.json()
+    assert disclosure == build_required_disclosure() == cabinet_product_telemetry_gate_context()
+    assert disclosure["copy_version"] == ProductTelemetryGateRecord().copy_version == Settings().product_analytics_consent_copy_version == "2026-10-22.1"
+    assert disclosure["retention_mode"] == "until_decision"
+    assert disclosure["minimum_retention_days"] is None
+    assert disclosure["deletion_policy"] == "separate_decision_or_mandatory_requirement"
+    provider = ProductAnalyticsProviderConfig.from_settings(Settings()).posthog.as_redacted_dict()
+    assert provider["retention_mode"] == disclosure["retention_mode"]
+    assert provider["retention_min_days"] is None
+    assert disclosure["direct_desktop_egress_disclosed"] is False
+    assert cabinet_product_telemetry_gate_context(direct_desktop_egress=True)["direct_desktop_egress_disclosed"] is True

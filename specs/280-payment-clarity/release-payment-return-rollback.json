@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "record_kind": "operator_normalized_release_closeout",
+  "calver": "v2026.10.03.3",
+  "candidate_id": "rc-20261003T090820Z-ec2855e03f27",
+  "source_sha": "bbe1fc772896e1d88fb9f601daefba4b6e5609b2",
+  "full_ci_result": "pass",
+  "full_ci_run_id": 37112054115,
+  "deploy_result": "pass",
+  "backup_result": "pass",
+  "readiness_verdict": "infra_smoke_ready",
+  "rollback_status": "not_required",
+  "rollback_exercised_in_production": false,
+  "rollback_guard_evidence_kind": "candidate_source_and_successful_execute_log",
+  "rollback_guard": "installed_before_runtime_change_and_disarmed_after_success",
+  "rollback_guard_observation_limit": "Installation follows from the executed candidate script and its successful completion, not a separate runtime telemetry field. Live rollback was not exercised.",
+  "execute_log_sha256": "5072fe3fc1ac165bbaa312b50566e1e3690488aaeb20b5a62c317cf848c9cf42",
+  "runtime_script_sha256": "48428a85cb326de2f6a1ebb48992eff554978ab93a997693e47a66c81519b57c",
+  "runtime_script_url": "https://github.com/yshishenya/graf/blob/bbe1fc772896e1d88fb9f601daefba4b6e5609b2/infra/scripts/cd-remote-runtime.sh",
+  "normalized_by": "release_operator",
+  "normalization_date": "2026-10-03"
+}

@@ -1,0 +1,98 @@
+{
+  "status": "implementation ready; tracker pending",
+  "closed": 0,
+  "remaining": 13,
+  "issues": [
+    {
+      "number": 7366,
+      "task": "T000",
+      "state": "OPEN",
+      "comment_url": "https://github.com/yshishenya/graf/issues/7366#issuecomment-5900001925",
+      "comment_sha256": "0a994ea78f4b7e70b50e3a142524452fc8e92b7339fb2d1e0abd8e4aca5ee3a2"
+    },
+    {
+      "number": 7368,
+      "task": "T001",
+      "state": "OPEN",
+      "comment_url": "https://github.com/yshishenya/graf/issues/7368#issuecomment-5899966898",
+      "comment_sha256": "4fd3b09bc4ce88db493faf5eae4dee9f64b4a88f98cc16854a3ecf389158ca67"
+    },
+    {
+      "number": 7369,
+      "task": "T002",
+      "state": "OPEN",
+      "comment_url": "https://github.com/yshishenya/graf/issues/7369#issuecomment-5899988914",
+      "comment_sha256": "d096241ff9a55b7a4d9b006a758361b313d31819f1f3c782f30cb41106c12a41"
+    },
+    {
+      "number": 7370,
+      "task": "T003",
+      "state": "OPEN",
+      "comment_url": "https://github.com/yshishenya/graf/issues/7370#issuecomment-5899990287",
+      "comment_sha256": "260a4e2c28aa3c487b2288ec05ed413986fb35d6c205c76a54a73fb82801909b"
+    },
+    {
+      "number": 7371,
+      "task": "T004",
+      "state": "OPEN",
+      "comment_url": "https://github.com/yshishenya/graf/issues/7371#issuecomment-5899991587",
+      "comment_sha256": "a71f1222d10cde910fec7fd099315d298f30e8a369bba9300ece9f10987ccf8f"
+    },
+    {
+      "number": 7372,
+      "task": "T005",
+      "state": "OPEN",
+      "comment_url": "https://github.com/yshishenya/graf/issues/7372#issuecomment-5899992754",
+      "comment_sha256": "5b61265a0fcda09973881b223672c533af1cf0944fdb1d04f26fcce245ebbdb4"
+    },
+    {
+      "number": 7373,
+      "task": "T006",
+      "state": "OPEN",
+      "comment_url": "https://github.com/yshishenya/graf/issues/7373#issuecomment-5899994003",
+      "comment_sha256": "9d67d5812652727507a98ff4dc0371c935de7900635657c697829ac1cf787add"
+    },
+    {
+      "number": 7374,
+      "task": "T007",
+      "state": "OPEN",
+      "comment_url": "https://github.com/yshishenya/graf/issues/7374#issuecomment-5899995202",
+      "comment_sha256": "4ce5e493a72c2ada370a4ec2b4a962d5d923dd37121353fb66cce7885687cfdb"
+    },
+    {
+      "number": 7375,
+      "task": "T008",
+      "state": "OPEN",
+      "comment_url": "https://github.com/yshishenya/graf/issues/7375#issuecomment-5899996273",
+      "comment_sha256": "1ded5700ed5d8faadf77d4b055205b2842e629fc9194c8f8c488a87a6ac4bfb2"
+    },
+    {
+      "number": 7376,
+      "task": "T009",
+      "state": "OPEN",
+      "comment_url": "https://github.com/yshishenya/graf/issues/7376#issuecomment-5899997425",
+      "comment_sha256": "7018556de28cf4cdf671d2c2a001e0d923e453e7091af29d3a2b869befde4e52"
+    },
+    {
+      "number": 7377,
+      "task": "T010",
+      "state": "OPEN",
+      "comment_url": "https://github.com/yshishenya/graf/issues/7377#issuecomment-5899998688",
+      "comment_sha256": "32d32693dc6e30a485bc73f5d716dfba87c5bed6c841af23d2e411a00aed3105"
+    },
+    {
+      "number": 7378,
+      "task": "T011",
+      "state": "OPEN",
+      "comment_url": "https://github.com/yshishenya/graf/issues/7378#issuecomment-5899999693",
+      "comment_sha256": "4b69c2cf98ee7de7da4a241335e4c6852fd5f185322214e1b3de0bc2b98e9c50"
+    },
+    {
+      "number": 7379,
+      "task": "T012",
+      "state": "OPEN",
+      "comment_url": "https://github.com/yshishenya/graf/issues/7379#issuecomment-5900000611",
+      "comment_sha256": "2de81db5d6668a5542e7bd2c68c91417164cd250fa0018b45d9ecf571eb76b2a"
+    }
+  ]
+}

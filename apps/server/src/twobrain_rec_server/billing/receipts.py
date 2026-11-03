@@ -4,6 +4,26 @@ from collections.abc import Mapping
 from enum import StrEnum
 from typing import Literal
 
+from sqlalchemy import select
+
+from twobrain_rec_server.db.models import ExternalIdentity
+
+
+async def verified_receipt_contact(db, user_id):
+    if db is None:
+        return None
+    return await db.scalar(
+        select(ExternalIdentity.email)
+        .where(
+            ExternalIdentity.user_id == user_id,
+            ExternalIdentity.is_active.is_(True),
+            ExternalIdentity.is_verified.is_(True),
+            ExternalIdentity.email.is_not(None),
+        )
+        .order_by(ExternalIdentity.created_at.asc())
+        .limit(1)
+    )
+
 
 class ReceiptState(StrEnum):
     UNKNOWN = "unknown"

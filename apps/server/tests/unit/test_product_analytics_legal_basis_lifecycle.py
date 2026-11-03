@@ -157,7 +157,7 @@ def test_withdrawal_state_file_path_follows_the_environment(tmp_path: Path) -> N
 
 
 def test_unsupported_state_version_is_reported(tmp_path: Path) -> None:
-    register = _register(tmp_path, WITHDRAWAL_LINE, version="2")
+    register = _register(tmp_path, WITHDRAWAL_LINE, version="9")
 
     assert register.file_errors == ("legal_basis_state_version_unsupported",)
     assert len(register.withdrawals) == 1, "a protective record must not be dropped"
@@ -189,12 +189,13 @@ def test_a_withdrawal_dated_in_the_future_is_not_effective_yet(tmp_path: Path) -
 # --- The stop, and the term it has to happen in ----------------------------
 
 
-def test_erasure_deadline_is_taken_from_the_retention_rules() -> None:
+def test_erasure_deadline_is_recorded_separately_from_storage_policy() -> None:
     lost_at = datetime(2026, 9, 18, 12, 0, tzinfo=UTC)
     disposition = plan_processing_stop(
         level_key="provider_analytics",
         basis_lost_at=lost_at,
         reason="consent_withdrawn_by_visitors",
+        deletion_deadlines={category: lost_at + timedelta(days=7) for category in PROVIDER_CATEGORIES},
     )
 
     assert disposition.processing_state == "stopped"
@@ -202,14 +203,13 @@ def test_erasure_deadline_is_taken_from_the_retention_rules() -> None:
     for action in disposition.actions:
         rule = retention_rule(action.category)
         assert action.retention_days == rule.enforced_retention_days()
-        assert action.due_at == lost_at + timedelta(days=rule.enforced_retention_days())
+        assert action.due_at == lost_at + timedelta(days=7)
         assert action.disposition == CATEGORY_DISPOSITIONS[action.category]
         assert action.method == rule.provider_delete_method
         assert action.execution == (
             EXECUTION_LOCAL if rule.storage == "graf_postgres" else EXECUTION_PROVIDER_REQUEST
         )
-    # FR-048 introduces no new number: the binding deadline is the shortest term.
-    assert disposition.deadline == lost_at + timedelta(days=90)
+    assert disposition.deadline == lost_at + timedelta(days=7)
 
 
 def test_naive_basis_loss_moment_is_read_as_utc() -> None:
@@ -220,7 +220,8 @@ def test_naive_basis_loss_moment_is_read_as_utc() -> None:
     )
 
     assert disposition.basis_lost_at == datetime(2026, 9, 18, 12, 0, tzinfo=UTC)
-    assert disposition.deadline == datetime(2026, 9, 18, 12, 0, tzinfo=UTC) + timedelta(days=1095)
+    assert disposition.deadline is None
+    assert disposition.as_dict()["deadline"] is None
 
 
 def test_provider_held_categories_are_ordered_from_the_provider() -> None:
@@ -264,7 +265,7 @@ def test_lost_basis_dispositions_are_dated_by_the_records(tmp_path: Path) -> Non
 
     assert [plan.level_key for plan in plans] == ["provider_analytics"]
     assert plans[0].basis_lost_at == datetime(2026, 9, 18, tzinfo=UTC)
-    assert plans[0].deadline == datetime(2026, 9, 18, tzinfo=UTC) + timedelta(days=90)
+    assert plans[0].deadline is None
 
 
 def test_no_withdrawal_means_no_erasure_plan(tmp_path: Path) -> None:
@@ -406,7 +407,7 @@ def test_category_dispositions_cover_every_level_category() -> None:
     for categories in LEVEL_RETENTION_CATEGORIES.values():
         for category in categories:
             assert category in CATEGORY_DISPOSITIONS
-            assert retention_rule(category).enforced_retention_days() > 0
+            assert retention_rule(category).retention_mode in {"until_decision", "provider_controlled"}
 
 
 # --- The approved deployment, and the same deployment after a withdrawal ----
@@ -498,3 +499,16 @@ def test_a_recorded_withdrawal_stops_a_level_even_after_its_approvals(
     assert report.states["legal_basis_lifecycle"].startswith(
         "processing_stopped_erasure_required:"
     )
+
+
+def test_withdrawal_helper_preserves_separately_recorded_deadlines(tmp_path: Path) -> None:
+    register = _register(tmp_path, WITHDRAWAL_LINE)
+    now = datetime(2026, 9, 25, tzinfo=UTC)
+    deadlines = {category: now + timedelta(days=index + 1) for index, category in enumerate(PROVIDER_CATEGORIES)}
+    plans = lost_basis_dispositions(_config(), withdrawals=register, now=now, deletion_deadlines=deadlines)
+    assert len(plans) == 1
+    assert {action.category: action.due_at for action in plans[0].actions} == deadlines
+    assert plans[0].deadline == min(deadlines.values())
+    partial = lost_basis_dispositions(_config(), withdrawals=register, now=now, deletion_deadlines={PROVIDER_CATEGORIES[0]: now})
+    assert partial[0].processing_state == "stopped"
+    assert partial[0].deadline is None

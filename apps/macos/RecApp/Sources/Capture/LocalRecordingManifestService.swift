@@ -1,15 +1,25 @@
 import Foundation
+import Darwin
 import TwoBrainRecShared
 
 public struct LocalRecordingManifestService: Sendable {
     public typealias Clock = @Sendable () -> Date
+    typealias BeforeCommit = @Sendable (LocalRecordingManifest, URL) throws -> Void
 
     private let clock: Clock
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
+    private let beforeCommit: BeforeCommit?
 
     public init(clock: @escaping Clock = Date.init) {
+        self.init(clock: clock, beforeCommit: nil)
+    }
+
+    /// Fault injection observes a protected staging file; it cannot replace
+    /// the production commit or report a failure after a successful rename.
+    init(clock: @escaping Clock = Date.init, beforeCommit: BeforeCommit?) {
         self.clock = clock
+        self.beforeCommit = beforeCommit
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         encoder.dateEncodingStrategy = .iso8601
@@ -188,7 +198,26 @@ public struct LocalRecordingManifestService: Sendable {
 
     public func write(_ manifest: LocalRecordingManifest, to url: URL) throws {
         let data = try encoder.encode(manifest)
-        try LocalCustodyFileProtection.write(data, to: url)
+        let temporaryURL = url.deletingLastPathComponent()
+            .appendingPathComponent(".manifest-\(UUID().uuidString).tmp")
+        defer { try? FileManager.default.removeItem(at: temporaryURL) }
+        // All fallible protection, data writes, flushes and closes precede
+        // the commit. In particular chmod must not fail *after* acceptance.
+        try LocalCustodyFileProtection.write(data, to: temporaryURL)
+        let handle = try FileHandle(forWritingTo: temporaryURL)
+        do {
+            try handle.synchronize()
+            try handle.close()
+        } catch {
+            try? handle.close()
+            throw error
+        }
+        try beforeCommit?(manifest, temporaryURL)
+        guard rename(temporaryURL.path, url.path) == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        // No throwing operation after this linearization point. This is a
+        // process-crash boundary, not a claim about power-loss durability.
     }
 
     public func read(from url: URL) throws -> LocalRecordingManifest {

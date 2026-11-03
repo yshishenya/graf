@@ -1,4 +1,172 @@
+## T077/O16: решения плана после исследования — 03.11.2026
+
+- Decision: первый шаг — одна append-only таблица наблюдений actual Temporal
+  attempts с уникальностью identity+event_kind и агрегатами; независимые2с
+  транзакции вокруг существующей activity. Rationale: переживает restart,
+  сохраняет конфликт и unknown после финансового commit, без UPDATE истории,
+  нового service и подмены tenant audit. Model/plan/quickstart задают точную
+  форму и проверки. Это проект, ещё не reviewer-owned допуск к коду.
+- Decision: реальные namespace/workflow_id/workflow_run_id/activity_id/attempt
+  из SDK1.30.0 ActivityInfo; workflow_namespace deprecated, использовать
+  namespace. ActivityEnvironment предоставляет официальный synthetic context.
+  Payload UUID/номер bucket, last_failure и retained history не заменяют
+  постоянный журнал всех наблюдений; внешнего Temporal RPC в CLI нет.
+- Decision: уже существующие rec-maintenance и Postal _post_message пригодны
+  для дальнейших внутренних тревог. Независимое исследование почты завершено;
+  транспорт выполняет один POST и различает known rejection и unknown
+  timeout/network/5xx/malformed. Customer financial sender не возвращает
+  acceptance ID, customer outbox требует workspace/user, unknown не повторяет.
+  Новый internal unknown retry≥5мин должен быть отдельной caller policy;
+  общий классификатор и клиентские письма не менять. X-2brain-Delivery-Key
+  не доказательство Postal dedup; accepted не mailbox delivery/read.
+- Alternatives rejected: fake tenant, generic incident/outbox, новый mail
+  service/dependency, изменение финансового retry, пересбор истории через
+  Temporal RPC и claims exactly-once. Реакция O6 требует собственного
+  узкого сохраняемого состояния/попытки до POST и next_allowed_at; crash после
+  приёма до commit остаётся unknown. Этот дальнейший шаг остаётся в T077,
+  принятие owner/email/порядка не выдаётся за настроенную доставку.
+
+## T077/O16: источник попыток и принятые ответы — 03.11.2026
+
+- Исследован существующий scheduler worker.py608–630, workflow
+  billing_reconciliation_workflow.py и activity worker.py910–956. Период5мин,
+  ALLOW_DUPLICATE, один workflow/одна activity, retry policy12 — описания кода,
+  а не приёмка постоянных metrics, heartbeat или отсутствия пропущенных циклов.
+  Два финансовых COMMIT не отменяются последующей ошибкой activity.
+- Candidate: узкий журнал наблюдаемых фактических попыток в существующей
+  PostgreSQL/maintenance. Actual identity берётся из Temporal ActivityInfo;
+  bucket UUID не execution run ID. Повтор доставки/противоречащий исход и
+  авария после финансового commit должны сохранять неизвестность и прежние
+  подтверждения, а не повторять деньги. Это выбор для уточнения, не дизайн
+  модели/миграции и не принятое разрешение новой записи.
+- Alternatives: retained Temporal execution/history пригодны для bounded
+  наблюдения, но не доказывают постоянную полную историю errors/retries.
+  Installed SDK1.30.0 предоставляет attempt/last_failure, не все ошибки;
+  Compose Temporal1.27.2 сам по себе не подтверждает live retention/visibility/
+  read-only ACL. Describe без exactrun может описать latest unrelated run;
+  fetch_history собирает все события. Новый retained-execution inventory
+  не включается в этот срез. Настройки retry и строки grant/operation не
+  принимаются за постоянные показатели заданий.
+- Исследование02.11 не подтвердило owner/channel в проверенных feature/config
+  и соседнем операторском контексте; это не доказывало отсутствия решения везде.
+  Ответы03.11 закрыли этот вопрос: оператор — сам владелец GRAF, канал — почта
+  на указанный им адрес, который не публикуется. Приняты проверка5мин,
+  подтверждённый failure/противоречие и gap15мин, повтор failed/unknown отправки
+  не чаще5мин без повторения одинакового принятого почтовым сервером сообщения,
+  сохраняемые owner/severity/evidence/deadline и реакция до resolved либо явно
+  accepted_risk. Unknown исход не financial failure; прежние сроки сохранены.
+- Это решение требований, не configured/delivered evidence. F273 analytics
+  channel/tenant SupportIncident не переносятся; финансовые mail retry правила
+  не меняются. До реализации — согласованные plan/model/quickstart/tasks,
+  независимый reviewer-owned checklist и scoped analyze. FR-089/O6 остаётся
+  открытым, старые результаты не повторяются.
+
+## T077: источники storage projection — 02.11.2026
+
+- Decision: существующие effective_paid_storage (purchases.py311–408),
+  _active_reserved_bytes (storage.py184–202) и project_active_playback_storage
+  (storage.py81–115), общий as_of/явные аргументы, прежний collector. Rationale:
+  O4 требует настоящие источники capacity/reserved/used; один count таблицы
+  storage этого не выполняет. Узкое исследование helpers/callers после PR7897
+  выполнено отдельно, прежние source fingerprints совпали; старый общий audit
+  не повторён. Новая схема/duplicate object inventory не нужны.
+- Decision: outer join всех видимых Workspace, максимум500/SELECT501 с отказом
+  целого отчёта. Missing subscription/неизвестный plan/nonfinite нужная дата/
+  неположительный capacity явно unavailable. Нельзя известный subtotal назвать
+  итогом; null всех byte totals при неполноте источника. Rationale: guard15с
+  остаётся общим, per-workspace helpers могут делать несколько SELECT; это
+  явный ограниченный полный inventory, не молчаливый maintenance batch100.
+- Decision: state/count/expired-active/invalid values SQL-агрегация отдельно от
+  byte projections. Текущие model/writers storage.py используют active,
+  committed, released; старый data-model pending не новый runtime state.
+  NULL/nonfinite/неположительные/перерасходованные bytes не скрываются clamp.
+- Decision: capacity сохраняет действующую семантику trial/free/bonus/grants/
+  invoice/cache fallback без её переопределения. Helper выбирает финансовый
+  JSON в Python; нельзя утверждать обратное. Snapshot/ref не пересекают
+  monitoring output/log boundary. Существующая falsy-нормализация обоих
+  plan_snapshot/catalog_snapshot через `or {}` сохраняется. Только форма,
+  которую helper не может обработать, например truthy nonobject без `.get`,
+  завершает отчёт прежним безопасным report_unavailable/exit1; отдельный
+  более строгий валидатор финансового JSON не вводится.
+- Alternatives rejected: maintenance.py330–375 — writer release-expired/cache
+  mutation и defaultreserved0, не read-only источник; кабинетная IA/HTTP не
+  нужны. Молчаливый limit100, Free/default1 для отсутствующей подписки,
+  произвольные counts, собственная копия capacity расчёта и MinIO egress
+  отвергнуты. Общие alarm/job/reconciliation механизмы остаются O6, не
+  имитируются этим чтением. Источники и acceptance — O15/S1–S6/quickstart.
+
+## T077: источник запросов удаления — 01.11.2026
+
+- Decision: только MeetingDeletionRequest/meeting_deletion_requests, state/count,
+  D1–D6/O14. Это следующая узкая область, старый source audit не повторяется.
+- Evidence: db/models/deletion.py11–29; migrations0007 (полностью прочитана)
+  сохраняет NOT NULLstate/defaultrequested и FORCE RLS/rec_maintenance_allowed.
+  Модель сама не отмечает nullable=False для state; положительная fixture
+  остаётся по настоящим миграциям. Billing operation разрешён текущей общей
+  maintenance policy; новые grants/политики не требуются в продукте.
+- Writers: единственный constructor deletion/service.py225 создаёт deleting;
+  присваивания371/685/1673 дают retryable_failed,433/797 active_purge_complete.
+  requested — объявленный default схемы/модели. DeletionState шире; остальные
+  значения безопасно unrecognized, не proof завершения. Поиск по server source
+  не доказывает отсутствия динамических/historical writers или liveinventory.
+- Truth: service.py430–439/794–802 отдельно сохраняет active purge, не все
+  артефакты. ConstitutionIV/PRD25 требуют различать backup/local/external и
+  сохраняемую observability; timestamps не подтверждают фактический результат.
+- Alternatives: generic _groups/возраст, полный DeletionState allowlist,
+  чтение request/report JSON, запуск purge, новая служба/таблица/права отвергнуты.
+  Одна агрегация/повторное _closed/_source достаточны. Сроки/attempts/details/
+  reaction остаются null; всегда partial. До кода независимый допуск/analyze.
+
+## T077: источник наблюдений чеков — 01.11.2026
+
+- **Decision**: читать существующую invoice.plan_snapshot.receipt_observations,
+  которую сохраняют record_observed_receipt/merge_receipt_observation_snapshot
+  (billing/reconciliation.py324–499); текущий writer ограничивает map16entries,
+  payment/refund сосуществуют. Это не доказательство формы всей исторической БД.
+- **Rationale**: parent_kind/status/source дают закрытые совместные группы;
+  ключ/ID/shop/JSON не выбираются. Две SQL-агрегации отдельно учитывают invoice
+  containers и entries; CASE перед json_each сохраняет безопасный malformed
+  исход без JSON parsing в Python. Missing map и invalid container не ноль.
+  Число entries не число уникальных чеков, immutable связи здесь не проверяются.
+- **Decision**: не использовать observed_at/registered_at/created_at как
+  pending_since; duplicate status не обновляет observed_at. Возраст/эскалация/
+  финансовая сверка null, canceled немедленно/pending3дня остаются O6.
+- **Alternatives**: top-level receipt_registration теряет отдельные refund
+  observations и не заменяет map; новая таблица/служба/JSONB миграция/полный
+  Python JSON и ложная shop привязка отвергнуты. Старый source audit не повторён.
+  Уточнения Q1–Q6/O13 требуют независимого допуска и analyze до кода.
+
 # Research: личный кабинет, биллинг и growth mechanics
+
+## Дополнение T075 — 2026-10-30
+
+- Решение B1: переиспользовать `billing/database.py` и фиксированную реальную
+  maintenance role/context; общий отчёт магазина хранить отдельно от workspace
+  с узкой RLS. Существующие audit/incident таблицы требуют workspace и для
+  общего receipt не подходят. Не ослаблять их ограничение и не создавать API.
+- Решение B2: один профиль официальных русских framed CSV, без SFTP/Excel и
+  догадок о недокументированных столбцах. UTF-8 — явное ограничение GRAF;
+  настройка/реальный экспорт магазина проверяются отдельно. Официальное
+  [описание реестров](https://yookassa.ru/docs/support/merchant/payments/reports/reports-new)
+  проверено 30.10; оно описывает раздельные виды, footer, multipart и даты,
+  но не удостоверяет кодировку или test/production по содержимому файла.
+- Решение B3: два небольших metadata store по [контракту](contracts/registry-operator-import.md),
+  атомарный receipt/gaps и сравнение ожидаемого текущего digest. Альтернативы
+  отклонены: случайный workspace нарушает изоляцию; память теряет результат
+  после restart; blind replace теряет историю; raw CSV retention добавляет PII.
+- Ограничение финансовой сверки: `PaymentObservation.captured_at` существует
+  в памяти; сохранённый `provider_paid_at` допускает fallback на created time,
+  а `ObservedProviderRefund.observed_at` — локальное время наблюдения.
+  Эти поля не доказывают день операции. Текущий `list_payments` фильтрует
+  создание, не подтверждение; `list_refunds` не принимает временной фильтр.
+  Дальнейшая сверка должна расширять существующий адаптер authenticated
+  captured/created filters и обходить все страницы с GET/scope проверками.
+  Усечение, unknown object и недоступный API оставляют owned gap/pending.
+  Импорт с `financial_status=not_checked` не закрывает T075.
+
+Новая запись — исследование и принятый дизайн, не runtime/merchant evidence.
+Исторические решения ниже применяются с заменами F199/F272/F278/конституции,
+описанными в текущем `spec.md`.
 
 **Дата проверки**: 2026-08-06
 
@@ -136,9 +304,14 @@
   CTA, а не новые постоянные разделы.
 - **Rationale**: Krisp объединяет plan, renewal, method и invoice history;
   Otter/Granola/Fireflies отделяют cancellation от конца уже оплаченного
-  периода. Это подтверждает знакомую IA, но не задаёт визуальный стиль GRAF.
-- **Alternatives considered**: отдельные `Подписка`/`Биллинг`/`Платежи`, team
-  seats в personal launch, копирование competitor card/layout/copy. Отклонены.
+  периода. По действующей конституции §VII наблюдаемые Krisp UX/UI/IA,
+  включая композицию и функциональные подписи, разрешено воспроизводить
+  точно. Первоначальный запрет совпадения интерфейса заменён этим решением;
+  историческое исследование 06.08.2026 не объявляется новой приёмкой.
+- **Alternatives considered**: отдельные `Подписка`/`Биллинг`/`Платежи` и team
+  seats в personal launch отклонены. Заимствование исходников, извлечённых
+  ресурсов или частных данных запрещено. Сторонние материалы требуют прав;
+  согласия, юридические тексты, цены и обещания остаются применимыми к GRAF.
 
 Источники: [Krisp subscription](https://help.krisp.ai/hc/en-us/articles/5626527210908-How-Krisp-subscription-works),
 [Krisp pricing](https://krisp.ai/pricing/),
@@ -315,6 +488,99 @@ monthly/annual или региональный selector, аудитория и s
 не закрыты без интервью/comprehension/WTP и telemetry-backed COGS.
 
 ## Resolved unknowns and launch gates
+
+### T077/fair-use inventory — 01.11.2026
+
+- Decision: FairUseReviewRecord/fair_use_reviews, пять состояний и отдельные
+  pending=notice/restricted/appealed; confirmed остаётся в _RESTRICTED_STATES.
+  persist_review создаёт переданный state, но существующую строку им не
+  обновляет; appeal_persisted_review сохраняет appealed. resolve_review меняет
+  только dataclass, поэтому не доказывает сохраняемого решения. Поле state
+  само по себе не доказывает owner/evidence/closure общего incident.
+- Evidence: узко прочитаны fair_use.py, модель, migrations0068–0071 и текущая
+  lineage/maintenance RLS policy0074, cabinet fair_use и account_merge reader.
+  На base46251467 даты NOT NULL, deadline CHECK задаёт starts_at<=review_by
+  <=starts_at+interval'24 hours'. PostgreSQL infinity может пройти этот CHECK;
+  классификация чтения должна отделять не конечные даты без арифметической
+  ошибки. Наличие такой строки в рабочей БД не утверждается.
+- Decision: одна агрегирующая SQL-операция с CASE: конечность/NULL раньше
+  numeric epoch difference, затем границы по единому as_of. 24ч=86400секунд
+  независимо от timezone/DST; будущие starts/review_by нормальны. Без возраста,
+  дат/частных полей в выходе, фильтра report_date, joins или запуска writers.
+- Alternatives: generic _groups с future-invalid/возрастом created_at не
+  подходит; новая таблица/служба/изменение ограничений/уведомления отвергнуты.
+  Deletion и сохраняемая реакция остаются null; всегда partial. FR107,
+  operations/security/deletion и F278 FR041/полный O6 сохраняют сроки и границы.
+
+### T077/refund inventory — 01.11.2026
+
+- Decision: читать только ObservedProviderRefund/observed_provider_refunds
+  одной агрегацией status/source; известна пара succeeded/provider_observation.
+  Прочие пары — unrecognized, без исходных значений. В модели/миграции0044
+  status/source NOT NULL; observed_at nullable/default now(), shop_id нет.
+- Rationale: record_observed_refund проверяет родительскую operation/invoice,
+  сумму/валюту/дубли и создаёт именно эту пару после GET-подтверждения;
+  webhook _reconcile_event вызывает этот writer для refund.succeeded.
+  Это проверенный статический путь, не доказательство всех динамических
+  writers или live inventory. Collector writer и его reversal не вызывает.
+  Несколько частичных возвратов — несколько строк, не разные платежи.
+- Decision: не выбирать observed_at и не строить возраст. Это локальное
+  время наблюдения/начала транзакции, не provider/bank time. Inventory
+  независимо от дня и environment; Settings не доказывает shop-привязку.
+- Alternatives: сумму/дни/финансовую сверку из count отвергнуть. Receipt
+  observations реально хранятся в ограниченном invoice.plan_snapshot JSON
+  (до16), не в таблице BillingReceiptState; подключение требует отдельного
+  контракта. Receipts/reconciliation_gaps остаются null, всегда partial.
+  Нового старого source audit, provider/network/write или службы не нужно.
+- Dependencies: исходные reconciliation.py record/extract_refund_observation,
+  webhook_reconciliation.py _reconcile_event, db/models/billing.py и
+  db/migrations/versions/0044_user_account_billing.py проверены узко;
+  существующие O1–O10, operations/security/registry/lifecycle и F278 FR041
+  сохраняют финансовые/приватностные границы и сроки полного O6.
+
+### T077/credit ledger — 01.11.2026
+
+- **Decision**: подключить только сохраняемый TimeCreditLedgerEntry внутри
+  addon_and_time_credit, database_inventory/current_state. Семейство partial,
+  add-on/job_attempts/errors/retries остаются null; источник не доказывает
+  работу maintenance или готовность к применению награды.
+- **Evidence**: на source458e874ddb40b3eb56dbc6535d84ef2e6bd2f8df
+  referral_rewards.py создаёт pending, сохраняет available/applied/expired/
+  rejected/reversed. matured — только TimeCredit вспомогательного расчёта,
+  не writer состояния БД. Миграция0044 требует NOT NULL maturity_at/expires_at.
+  Reversal может добавить отрицательные days и поменять прежнюю строку:
+  count — строки, не награды/дни/денежный баланс. Историческое требование
+  append-only не выдаётся за доказанную неизменность каждого поля writer.
+- **Rationale**: maturity в будущем нормальна; достигнутая maturity не сбой:
+  security hold, Free/отсутствующая подписка и cap влияют на применение.
+  Четыре закрытых временных группы C3 не требуют joins/частных полей и
+  не объявляют строки заданиями. Целая часть максимального возраста
+  допустимой maturity — наблюдение, не SLA или доказательство eligibility.
+- **Alternatives**: generic _groups с created_at/future-invalid не подходит
+  к этой модели. Запуск mature_pending_credits ради наблюдения, сумма days,
+  второй реестр/баланс, объединение storage/receipts и новая служба отвергнуты.
+  Существующий maintenance вызывает mature_pending_credits; его возвращённое
+  matured_credits — число применённых дней за проход, не постоянный счётчик
+  успешных заданий. Здесь не инструментируется и остаётся отдельным O6.
+
+### T077/free_projection — 01.11.2026
+
+- **Decision**: подключить только видимый audit-event count точного
+  renewal.cutoff_projected_free по P1–P6 контракта O9. Источники:
+  renewal_charge.project_renewal_cutoffs, BillingAuditEvent и миграция0044.
+  Три пары и target_kind проверяются совместно; NULL created_at допускается
+  реальной миграцией. now() отражает начало транзакции, не commit/cutoff.
+- **Rationale**: отдельное event_window честно измеряет сохраняемый источник,
+  не меняет деньги и не выводит своевременность либо все Free paths из
+  неполных данных. record_renewal_decline пишет другой action. as_of
+  фиксируется CLI до подключения, поэтому поздняя видимая строка >=as_of
+  не является доказанной ошибкой часов; прошлый дневной итог может измениться.
+- **Alternatives considered**: месячный usage.moscow_window_for не подходит
+  для дня; две полуночи stdlib/ZoneInfo достаточно. Объединение storage/
+  receipts/time-credit требует иных источников и отложено внутри той же T077.
+  Новые таблицы/служба/сохранение отчёта и чтение приватного JSON не нужны.
+  Крайние непредставимые границы дают честный unavailable, не исключение
+  всего отчёта или произвольное ограничение коммерческой даты.
 
 Архитектурных research unknowns нет. Product-market hypotheses
 о целевом сегменте/JTBD, WTP, base/add-on packaging, campaign economics и

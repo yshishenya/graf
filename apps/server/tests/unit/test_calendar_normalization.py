@@ -401,3 +401,23 @@ def test_duration_measures_elapsed_time_across_dst_transition() -> None:
         )
     )
     assert event.duration_seconds == 3 * 3600
+
+
+def test_google_auto_distribution_completeness_is_explicit_and_protected():
+    from twobrain_rec_server.calendar.google import _normalize_google_event
+
+    item = {"id": "synthetic", "iCalUID": "synthetic@example.test", "status": "confirmed",
+            "start": {"dateTime": "2026-10-06T09:00:00Z"},
+            "end": {"dateTime": "2026-10-06T10:00:00Z"},
+            "organizer": {"email": "owner@example.test", "self": True},
+            "attendees": [{"email": "member@example.test", "responseStatus": "accepted"}]}
+    complete = normalize_calendar_event(_normalize_google_event(item, calendar_id="primary"))
+    assert complete.provider_extras["google_attendees_complete"] is True
+    assert complete.provider_extras["google_organizer_self"] is True
+    item["attendeesOmitted"] = True
+    incomplete = normalize_calendar_event(_normalize_google_event(item, calendar_id="primary"))
+    assert incomplete.provider_extras["google_attendees_complete"] is False
+    item.pop("attendeesOmitted")
+    item["attendees"][0]["additionalGuests"] = 1
+    guests = normalize_calendar_event(_normalize_google_event(item, calendar_id="primary"))
+    assert guests.provider_extras["google_attendees_complete"] is False

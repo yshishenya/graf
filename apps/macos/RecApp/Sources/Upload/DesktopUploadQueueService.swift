@@ -132,11 +132,19 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
     private let clock: Clock
     private let queue = DispatchQueue(label: "pro.2brain.graf.desktop-upload-queue", qos: .utility)
     private var document: DesktopUploadQueueDocument?
+    private var activeSupportIncidentItemIDs: Set<String> = []
     private var deletionExecutionInProgress = false
     private var localPurgeInProgress = false
     private var allowsOfflineScopeRestore = true
     private var deletionScopeGeneration = 0
     private var activeDeletionScope: RecordingDeletionScope?
+    private var lifecycleSyncTask: (id: UUID, task: Task<Void, Error>)?
+    private var lifecyclePriorityItemIDs: Set<String> = []
+    private var visibleLifecycleItemIDs: Set<String> = []
+    private var lifecycleBackgroundCursor: String?
+    private var legacyOwnershipCursor: String?
+    private var legacyOwnershipTask: (id: UUID, task: Task<Void, Error>)?
+    private var deletionScopeRefreshTask: (id: UUID, task: Task<Bool, Error>)?
 
     public init(
         queueURL: URL? = nil,
@@ -182,11 +190,12 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
 
     public func loadItems() throws -> [DesktopUploadQueueItem] {
         try queue.sync {
-            let document = try loadDocumentOnQueue()
+            var document = try loadDocumentOnQueue()
             if allowsOfflineScopeRestore, activeDeletionScope == nil,
                let context = document.lastAuthenticatedContext,
                context.sessionFingerprint == client?.recordingSessionFingerprint {
                 activeDeletionScope = context.scope
+                document = try loadDocumentOnQueue()
             }
             return document.items.filter { !isShortRecordingDiscarded($0) }.map { projectLifecycle($0, in: document) }.sortedForDisplay()
         }
@@ -194,7 +203,25 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
 
     /// Called with an authenticated native context, never a WebView supplied account.
     public func setDeletionScope(_ scope: RecordingDeletionScope?) {
-        queue.sync { activeDeletionScope = scope; allowsOfflineScopeRestore = false; deletionScopeGeneration += 1 }
+        let cancelled = queue.sync { () -> ([Task<Void, Error>], Task<Bool, Error>?) in
+            activeDeletionScope = scope; allowsOfflineScopeRestore = false; deletionScopeGeneration += 1
+            let cancelled = [legacyOwnershipTask?.task, lifecycleSyncTask?.task].compactMap { $0 }
+            legacyOwnershipTask = nil
+            lifecycleSyncTask = nil
+            lifecyclePriorityItemIDs.removeAll()
+            visibleLifecycleItemIDs.removeAll()
+            lifecycleBackgroundCursor = nil
+            legacyOwnershipCursor = nil
+            let refresh = deletionScopeRefreshTask?.task
+            deletionScopeRefreshTask = nil
+            return (cancelled, refresh)
+        }
+        cancelled.0.forEach { $0.cancel() }
+        cancelled.1?.cancel()
+    }
+
+    public func setVisibleRecordingItemIDs(_ ids: [String]) {
+        queue.sync { visibleLifecycleItemIDs = Set(ids.prefix(100)) }
     }
 
     private func projectLifecycle(_ item: DesktopUploadQueueItem, in document: DesktopUploadQueueDocument) -> DesktopUploadQueueItem {
@@ -215,11 +242,36 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         return projected
     }
 
-    public func refreshDeletionScope() async throws {
-        guard let client else { return }
+    public func refreshDeletionScope(recoverLegacy: Bool = true) async throws {
+        // Activation/manual refresh joins an ongoing lookup instead of adding a third HTTP.
+        if recoverLegacy, let sync = queue.sync(execute: { lifecycleSyncTask?.task }) {
+            try await sync.value
+            if let recovery = queue.sync(execute: { legacyOwnershipTask?.task }) { try await recovery.value }
+            return
+        }
+        let refresh = queue.sync { () -> Task<Bool, Error> in
+            if let existing = deletionScopeRefreshTask { return existing.task }
+            let id = UUID(), generation = deletionScopeGeneration
+            let task = Task {
+                defer { self.queue.sync { if self.deletionScopeRefreshTask?.id == id { self.deletionScopeRefreshTask = nil } } }
+                return try await self.refreshDeletionScopeContext(generation: generation)
+            }
+            deletionScopeRefreshTask = (id, task)
+            return task
+        }
+        guard try await refresh.value, recoverLegacy,
+              let scope = queue.sync(execute: { activeDeletionScope }) else { return }
         let generation = queue.sync { deletionScopeGeneration }
+        try await startLegacyOwnershipRecovery(scope: scope, generation: generation).value
+    }
+
+    private func refreshDeletionScopeContext(generation: Int) async throws -> Bool {
+        guard let client else { return false }
+        try Task.checkCancellation()
         let fingerprint = client.recordingSessionFingerprint
         let scope = try await client.recordingDeletionScope()
+        try Task.checkCancellation()
+        var oldLegacyTask: Task<Void, Error>?
         let applied = try queue.sync { () -> Bool in
             guard deletionScopeGeneration == generation, fingerprint == client.recordingSessionFingerprint else { return false }
             var document = try loadDocumentOnQueue()
@@ -228,18 +280,55 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
             }
             document.updatedAt = clock()
             try saveDocumentOnQueue(document)
+            if activeDeletionScope != scope {
+                lifecycleBackgroundCursor = nil; legacyOwnershipCursor = nil
+                oldLegacyTask = legacyOwnershipTask?.task; legacyOwnershipTask = nil
+            }
             activeDeletionScope = scope
             allowsOfflineScopeRestore = true
             return true
         }
-        guard applied, let scope else { return }
+        oldLegacyTask?.cancel()
+        return applied
+    }
+
+    private func startLegacyOwnershipRecovery(scope: RecordingDeletionScope, generation: Int) -> Task<Void, Error> {
+        queue.sync {
+            if let existing = legacyOwnershipTask { return existing.task }
+            let id = UUID()
+            let task = Task {
+                defer { self.queue.sync { if self.legacyOwnershipTask?.id == id { self.legacyOwnershipTask = nil } } }
+                try await self.recoverLegacyDeletionOwnership(scope: scope, generation: generation)
+            }
+            legacyOwnershipTask = (id, task)
+            return task
+        }
+    }
+
+    private func recoverLegacyDeletionOwnership(scope: RecordingDeletionScope, generation: Int) async throws {
+        guard let client else { return }
         let scopedClient: any DesktopUploadClientProtocol = try (client as? DesktopUploadClient)?.scoped(to: scope) ?? client
         // Legacy ownership needs positive server evidence for the already known meeting ID.
-        let candidates = try loadItems().filter { $0.ownerScope == nil && $0.isLocalUnbound != true && $0.meetingId != nil }
-        for item in candidates {
-            guard let reconciled = try await scopedClient.reconcile(item),
+        let candidate = try queue.sync { () throws -> DesktopUploadQueueItem? in
+            guard deletionScopeGeneration == generation, activeDeletionScope == scope else { throw CancellationError() }
+            let candidates = try loadDocumentOnQueue().items
+                .filter { $0.ownerScope == nil && $0.isLocalUnbound != true && $0.meetingId != nil }.sorted { $0.id < $1.id }
+            let item = candidates.first { $0.id > (legacyOwnershipCursor ?? "") } ?? candidates.first
+            // A failed legacy lookup must not starve the other unknown owners.
+            legacyOwnershipCursor = item?.id
+            return item
+        }
+        if let item = candidate {
+            try Task.checkCancellation()
+            let serverTruth = if let native = scopedClient as? DesktopUploadClient {
+                try await native.reconcileServerTruth(item)
+            } else {
+                try await scopedClient.reconcile(item)
+            }
+            try Task.checkCancellation()
+            guard let reconciled = serverTruth,
                   reconciled.serverTruth.meetingId == item.meetingId,
-                  reconciled.serverTruth.accessState == "owner" else { continue }
+                  reconciled.serverTruth.accessState == "owner" else { return }
             try queue.sync {
                 guard activeDeletionScope == scope, deletionScopeGeneration == generation else { return }
                 var document = try loadDocumentOnQueue()
@@ -256,18 +345,80 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         }
     }
 
-    public func synchronizeRecordingLifecycle() async throws {
+    public func synchronizeRecordingLifecycle(priorityItemIDs: [String] = []) async throws {
+        guard client != nil else { return }
+        let task = queue.sync { () -> Task<Void, Error> in
+            lifecyclePriorityItemIDs.formUnion(priorityItemIDs)
+            lifecyclePriorityItemIDs.formUnion(visibleLifecycleItemIDs)
+            if let existing = lifecycleSyncTask { return existing.task }
+            let id = UUID()
+            let generation = deletionScopeGeneration
+            let task = Task { try await self.runRecordingLifecycleSync(id: id, generation: generation) }
+            lifecycleSyncTask = (id, task)
+            return task
+        }
+        try await task.value
+    }
+
+    private func runRecordingLifecycleSync(id: UUID, generation: Int) async throws {
+        defer {
+            queue.sync {
+                if lifecycleSyncTask?.id == id { lifecycleSyncTask = nil }
+            }
+        }
         guard let client else { return }
-        try await refreshDeletionScope()
+        try Task.checkCancellation()
+        try await refreshDeletionScope(recoverLegacy: false)
         guard let scope = queue.sync(execute: { activeDeletionScope }) else { return }
-        let items = try loadItems().filter { $0.ownerScope == scope && !$0.hasConfirmedDeletion }
-        let generation = queue.sync { deletionScopeGeneration }
-        let origins = Array(Set(items.map(\.directoryId))).sorted()
-        for offset in stride(from: 0, to: origins.count, by: 100) {
-            let batch = Array(origins[offset..<min(origins.count, offset + 100)])
+        // One independent legacy lookup cannot hold up known visible/open origins.
+        // The same periodic trigger advances mixed histories without another timer.
+        let recovery = startLegacyOwnershipRecovery(scope: scope, generation: generation)
+        if try loadItems().allSatisfy({ $0.ownerScope != scope || $0.hasConfirmedDeletion }) {
+            try await recovery.value
+        }
+        var checked: Set<String> = []
+        var checkedBackground = false
+        while true {
+            try Task.checkCancellation()
+            var backgroundPage = false
+            let batch = try queue.sync { () throws -> [String] in
+                guard deletionScopeGeneration == generation, activeDeletionScope == scope else { throw CancellationError() }
+                let document = try loadDocumentOnQueue()
+                let items = document.items.map { projectLifecycle($0, in: document) }
+                    .filter { $0.ownerScope == scope && !$0.hasConfirmedDeletion }
+                let origins = Set(items.map(\.directoryId)).subtracting(checked).sorted()
+                let priority = Set(items.filter { lifecyclePriorityItemIDs.contains($0.id) || $0.deletionOperation != nil }.map(\.directoryId)).subtracting(checked)
+                // Each origin is checked once; repeated opens cannot starve history.
+                if !priority.isEmpty {
+                    return Array(origins.filter { priority.contains($0) }.prefix(100))
+                }
+                if !checkedBackground {
+                    checkedBackground = true
+                    let following = origins.filter { $0 > (lifecycleBackgroundCursor ?? "") }
+                    let page = Array((following.isEmpty ? origins : following).prefix(100))
+                    if !page.isEmpty { backgroundPage = true; return page }
+                }
+                // Clear atomically: a trigger arriving after this point starts a new cycle.
+                lifecyclePriorityItemIDs.removeAll()
+                if lifecycleSyncTask?.id == id { lifecycleSyncTask = nil }
+                return []
+            }
+            guard !batch.isEmpty else { return }
             let entries = try await client.recordingLifecycle(origins: batch, scope: scope)
+            try Task.checkCancellation()
+            guard entries.count == batch.count,
+                  Set(entries.filter { $0.target_type == "own_origin" }.map(\.target_id)) == Set(batch),
+                  entries.allSatisfy({ entry in
+                      switch entry.state {
+                      case "allowed", "unavailable": return true
+                      case "deletion_accepted", "canceled_before_creation":
+                          return entry.receipt?.matches(.ownOrigin(entry.target_id)) == true
+                      default: return false
+                      }
+                  })
+            else { throw DesktopUploadClientError.invalidResponse }
             try queue.sync {
-                guard activeDeletionScope == scope, deletionScopeGeneration == generation else { return }
+                guard activeDeletionScope == scope, deletionScopeGeneration == generation else { throw CancellationError() }
                 var document = try loadDocumentOnQueue()
                 for entry in entries where entry.target_type == "own_origin" && batch.contains(entry.target_id) {
                     if ["deletion_accepted", "canceled_before_creation"].contains(entry.state), let receipt = entry.receipt {
@@ -297,19 +448,32 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                 }
                 document.updatedAt = clock()
                 try saveDocumentOnQueue(document)
+                if backgroundPage { lifecycleBackgroundCursor = batch.last }
+            }
+            checked.formUnion(batch)
+        }
+    }
+
+    private func checkingDeletionContext(_ client: any DesktopUploadClientProtocol,
+                                         scope: RecordingDeletionScope, generation: Int) -> any DesktopUploadClientProtocol {
+        guard let native = client as? DesktopUploadClient else { return client }
+        return native.checkingRecordingContext { [self] in
+            guard queue.sync(execute: { activeDeletionScope == scope && deletionScopeGeneration == generation }) else {
+                throw CancellationError()
             }
         }
     }
 
     public func processDeletionRequests(onProgress: @escaping ProgressObserver = { _ in }) async throws {
-        guard let client else { return }
-        let scope = queue.sync { () -> RecordingDeletionScope? in
+        guard let configuredClient = client else { return }
+        let context = queue.sync { () -> (RecordingDeletionScope, Int)? in
             guard !deletionExecutionInProgress, let scope = activeDeletionScope else { return nil }
             deletionExecutionInProgress = true
-            return scope
+            return (scope, deletionScopeGeneration)
         }
-        guard let scope else { return }
+        guard let (scope, generation) = context else { return }
         defer { queue.sync { deletionExecutionInProgress = false } }
+        let client = checkingDeletionContext(configuredClient, scope: scope, generation: generation)
         var firstFailure: Error?
         for operation in try loadDeletionOperations(scope: scope) where !operation.phase.isAccepted && operation.phase != .rejected && (operation.nextAttemptAt ?? .distantPast) <= clock() {
             guard queue.sync(execute: { activeDeletionScope == scope }) else { return }
@@ -715,6 +879,9 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         try updateItem(itemId: itemId) { item, now in
             guard !item.hasUnsupportedRecordingSource else { return item.retiringUnsupportedUpload(at: now) }
             guard !item.lifecycleBlocksContent else { return item }
+            guard RecordingStartAcceptanceGate.allows(item) else {
+                return Self.refusingUnacceptedStart(item, now: now)
+            }
             let blockedFailureReason = item.failureReason ?? "local_artifacts_not_uploadable"
             var next = item.withTransition(
                 to: item.isUploadEligible ? .queued : .blocked,
@@ -891,13 +1058,22 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
     ) async throws -> DesktopSupportIncidentResponse {
         let context = client?.supportIncidentContext() ?? .unknown
         let submission = try markSupportIncidentSending(itemIds: itemIds, context: context)
-
+        defer { queue.sync { activeSupportIncidentItemIDs.subtract(submission.itemIds) } }
+        let requestContext = supportIncidentRequestContext(
+            execution: submission.execution, itemIds: submission.itemIds
+        )
         do {
-            let response = try await submitter.submitSupportIncident(report: submission.report)
-            try markSupportIncidentResponse(itemIds: submission.itemIds, report: submission.report, response: response)
+            let response = try await submitter.submitSupportIncident(report: submission.report, context: requestContext)
+            try queue.sync {
+                try validateSupportIncidentExecution(submission.execution, itemIds: submission.itemIds)
+                try markSupportIncidentResponse(itemIds: submission.itemIds, report: submission.report, response: response)
+            }
             return response
         } catch {
-            try markSupportIncidentFailed(itemIds: submission.itemIds, report: submission.report, error: error)
+            try queue.sync {
+                try validateSupportIncidentExecution(submission.execution, itemIds: submission.itemIds)
+                try markSupportIncidentFailed(itemIds: submission.itemIds, report: submission.report, error: error)
+            }
             throw error
         }
     }
@@ -908,15 +1084,9 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         let context = client?.supportIncidentContext() ?? .unknown
         return try queue.sync {
             let document = try loadDocumentOnQueue()
-            guard let primaryID = itemIds.first,
-                  let primary = document.items.first(where: { $0.id == primaryID })
-            else {
-                throw DesktopUploadQueueServiceError.packageNotFound(itemIds.first ?? "unknown")
-            }
+            let affectedItems = try supportIncidentItems(itemIds: itemIds, in: document)
+            let primary = affectedItems[0]
             let projection = DesktopUploadCustodyProjection(item: primary, now: clock())
-            let affectedItems = itemIds.compactMap { itemID in
-                document.items.first(where: { $0.id == itemID })
-            }
             return DesktopSupportIncidentReport(
                 item: primary,
                 projection: projection,
@@ -940,17 +1110,25 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         using submitter: any DesktopSupportIncidentSubmitting
     ) async throws -> DesktopSupportIncidentResponse {
         let draft = try markSupportIncidentSyncing(itemIds: itemIds)
+        defer { queue.sync { activeSupportIncidentItemIDs.subtract(draft.itemIds) } }
+        let requestContext = supportIncidentRequestContext(
+            execution: draft.execution, itemIds: draft.itemIds
+        )
         do {
-            let response = try await submitter.syncSupportIncident(incidentID: draft.incidentNumber)
-            try markSupportIncidentResponse(
-                itemIds: draft.itemIds,
-                reportFingerprint: draft.reportFingerprint,
-                dedupeKey: draft.dedupeKey,
-                response: response
-            )
+            let response = try await submitter.syncSupportIncident(incidentID: draft.incidentNumber, context: requestContext)
+            try queue.sync {
+                try validateSupportIncidentExecution(draft.execution, itemIds: draft.itemIds)
+                try markSupportIncidentResponse(
+                    itemIds: draft.itemIds, reportFingerprint: draft.reportFingerprint,
+                    dedupeKey: draft.dedupeKey, response: response
+                )
+            }
             return response
         } catch {
-            try markSupportIncidentPendingAfterSyncFailure(draft: draft, error: error)
+            try queue.sync {
+                try validateSupportIncidentExecution(draft.execution, itemIds: draft.itemIds)
+                try markSupportIncidentPendingAfterSyncFailure(draft: draft, error: error)
+            }
             throw error
         }
     }
@@ -1046,7 +1224,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         let (scope, generation) = queue.sync { (activeDeletionScope, deletionScopeGeneration) }
         let client: any DesktopUploadClientProtocol = try (configuredClient as? DesktopUploadClient).map {
             guard let scope else { throw RecordingDeletionError.invalidIdentity }
-            return try $0.scoped(to: scope)
+            return checkingDeletionContext(try $0.scoped(to: scope), scope: scope, generation: generation)
         } ?? configuredClient
         await reconcileUploadedItemsIfNeeded(client: client, excludingItemIds: [])
         var tasks = try await client.listLocalPurgeTasks()
@@ -1130,7 +1308,12 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
     ) async throws -> [DesktopUploadQueueItem] {
         var purgeable: [DesktopUploadQueueItem] = []
         for item in items {
-            guard let reconciliation = try await client.reconcile(item) else {
+            let serverTruth = if let native = client as? DesktopUploadClient {
+                try await native.reconcileServerTruth(item)
+            } else {
+                try await client.reconcile(item)
+            }
+            guard let reconciliation = serverTruth else {
                 continue
             }
             let reconciled = try applyLocalPurgeReconciliation(itemId: item.id, reconciliation: reconciliation)
@@ -1434,11 +1617,17 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         onProgress: @escaping ProgressObserver
     ) async throws {
         let generation = queue.sync { deletionScopeGeneration }
+        guard RecordingStartAcceptanceGate.allows(item) else {
+            _ = try updateItem(itemId: item.id, expectedGeneration: generation) { current, now in
+                Self.refusingUnacceptedStart(current, now: now)
+            }
+            return
+        }
         let started = try updateItem(itemId: item.id, expectedGeneration: generation) { current, now in
             guard current.state != .saving, !current.state.isTerminal,
                   current.retryMode == .automatic, current.isUploadEligible,
                   !isShortRecordingDiscarded(current), !current.lifecycleBlocksContent else { return current }
-            var next = current.withTransition(
+            return current.withTransition(
                 to: .uploading,
                 now: now,
                 failureCategory: UploadFailureCategory.none,
@@ -1446,26 +1635,25 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                 retryMode: .automatic,
                 nextRetryAt: nil
             )
-            next.serverCreationAttempted = true
-            next.attemptCount += 1
-            next.retryRecords.append(
-                RetryRecord(
-                    attemptNumber: next.attemptCount,
-                    startedAt: now,
-                    stateBefore: current.state,
-                    stateAfter: .uploading,
-                    failureCategory: .none
-                )
-            )
-            return next
         }
         guard started.state == .uploading, started.isUploadEligible, !isShortRecordingDiscarded(started),
               !started.lifecycleBlocksContent else { return }
         try await publishProgress(onProgress)
 
         do {
+            let attemptClient: any DesktopUploadClientProtocol
+            if let native = client as? DesktopUploadClient {
+                attemptClient = native.checkingRecordingStartAcceptance(for: started) { [self] in
+                    try recordUploadAttempt(started: started, stateBefore: item.state, generation: generation)
+                }
+            } else {
+                // Protocol test clients are themselves the observable transport boundary.
+                _ = try currentUploadItem(itemId: started.id, generation: generation)
+                try recordUploadAttempt(started: started, stateBefore: item.state, generation: generation)
+                attemptClient = client
+            }
             let current = try currentUploadItem(itemId: started.id, generation: generation)
-            let reconciled = try await reconcileBeforeUpload(current, client: client)
+            let reconciled = try await reconcileBeforeUpload(current, client: attemptClient)
             try await publishProgress(onProgress)
             guard reconciled.syncConflictState == .none, !reconciled.lifecycleBlocksContent else {
                 return
@@ -1474,7 +1662,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                 return
             }
             let eligible = try currentUploadItem(itemId: started.id, generation: generation)
-            let result = try await client.upload(eligible) { [self] reportedProgress in
+            let result = try await attemptClient.upload(eligible) { [self] reportedProgress in
                 _ = try currentUploadItem(itemId: started.id, generation: generation)
                 let currentProgress = try updateItem(itemId: reconciled.id, expectedGeneration: generation) { current, now in
                     guard current.state == .uploading, current.isUploadEligible else {
@@ -1490,6 +1678,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                 try await publishProgress(onProgress)
                 _ = try currentUploadItem(itemId: started.id, generation: generation)
             }
+            _ = try currentUploadItem(itemId: started.id, generation: generation)
             _ = try updateItem(itemId: started.id, expectedGeneration: generation) { current, now in
                 guard current.state == .uploading, current.retryMode == .automatic,
                       current.isUploadEligible, !current.lifecycleBlocksContent else { return current }
@@ -1521,6 +1710,11 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                     )
                 )
                 return next
+            }
+            try await publishProgress(onProgress)
+        } catch is RecordingStartAcceptanceGate.Refusal {
+            _ = try updateItem(itemId: started.id, expectedGeneration: generation) { current, now in
+                Self.refusingUnacceptedStart(current, now: now)
             }
             try await publishProgress(onProgress)
         } catch {
@@ -1571,6 +1765,37 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         }
     }
 
+    /// Count once, immediately before a transport request, after its live local admission.
+    private func recordUploadAttempt(
+        started: DesktopUploadQueueItem, stateBefore: UploadItemState, generation: Int
+    ) throws {
+        try queue.sync {
+            var document = try loadDocumentOnQueue()
+            guard generation == deletionScopeGeneration,
+                  let index = document.items.firstIndex(where: { $0.id == started.id }) else { throw CancellationError() }
+            var current = projectLifecycle(document.items[index], in: document)
+            guard current.state == .uploading, current.retryMode == .automatic,
+                  current.isUploadEligible, !current.lifecycleBlocksContent,
+                  !isShortRecordingDiscarded(current) else { throw CancellationError() }
+            try RecordingStartAcceptanceGate.check(current)
+            guard current.attemptCount == started.attemptCount else { return }
+            let now = clock()
+            current.serverCreationAttempted = true
+            current.attemptCount += 1
+            current.retryRecords.append(RetryRecord(attemptNumber: current.attemptCount,
+                startedAt: now, stateBefore: stateBefore, stateAfter: .uploading, failureCategory: .none))
+            document.items[index] = current
+            document.updatedAt = now
+            try saveDocumentOnQueue(document)
+        }
+    }
+
+    private static func refusingUnacceptedStart(_ item: DesktopUploadQueueItem, now: Date) -> DesktopUploadQueueItem {
+        guard !item.state.isTerminal, !item.lifecycleBlocksContent else { return item }
+        return item.withTransition(to: .blocked, now: now, failureCategory: .localResource,
+            failureReason: "recording_start_not_accepted", retryMode: .manualOnly, nextRetryAt: nil)
+    }
+
     /// Re-read after every suspension: a scan, cancellation or lifecycle update
     /// can revoke eligibility while a prior snapshot is in flight.
     private func currentUploadItem(itemId: String, generation: Int) throws -> DesktopUploadQueueItem {
@@ -1582,6 +1807,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
             guard current.state == .uploading, current.retryMode == .automatic,
                   current.isUploadEligible, !current.lifecycleBlocksContent,
                   !isShortRecordingDiscarded(current) else { throw CancellationError() }
+            try RecordingStartAcceptanceGate.check(current)
             return current
         }
     }
@@ -1595,7 +1821,10 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         client: DesktopUploadClientProtocol
     ) async throws -> DesktopUploadQueueItem {
         let generation = queue.sync { deletionScopeGeneration }
-        guard let reconciliation = try await client.reconcile(item) else {
+        try RecordingStartAcceptanceGate.check(item)
+        let result = try await client.reconcile(item)
+        try RecordingStartAcceptanceGate.check(item)
+        guard let reconciliation = result else {
             return item
         }
         return try updateItem(itemId: item.id, expectedGeneration: generation) { current, now in
@@ -1670,7 +1899,12 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
 
         for item in candidates {
             do {
-                guard let reconciliation = try await client.reconcile(item) else {
+                let serverTruth = if let native = client as? DesktopUploadClient {
+                    try await native.reconcileServerTruth(item)
+                } else {
+                    try await client.reconcile(item)
+                }
+                guard let reconciliation = serverTruth else {
                     continue
                 }
                 try applyUploadedReconciliation(itemId: item.id, reconciliation: reconciliation, generation: generation)
@@ -1781,7 +2015,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
             throw DesktopUploadQueueServiceError.manifestMissing(manifestURL)
         }
 
-        let profile = Self.artifactProfile(
+        var profile = Self.artifactProfile(
             manifest: manifest,
             manifestURL: manifestURL,
             microphoneURL: microphoneURL,
@@ -1789,6 +2023,12 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
             reviewAudioURL: directoryURL.appendingPathComponent("meeting-review.m4a"),
             transcriptionURL: transcriptionURL
         )
+        do {
+            try RecordingStartAcceptanceGate.check(manifestURL: manifestURL,
+                sessionId: manifest.sessionId, directoryId: manifest.directoryId)
+        } catch {
+            profile.isUploadable = false
+        }
         let state: UploadItemState = profile.isUploadable ? .queued : .blocked
         let failureCategory: UploadFailureCategory = profile.isUploadable
             ? .none
@@ -1926,12 +2166,43 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         return merged
     }
 
+    private struct SupportIncidentExecution: Sendable {
+        let scope: RecordingDeletionScope?
+        let generation: Int
+        let sessionFingerprint: String?
+        let sessionGeneration: UInt64
+    }
+
+    private func supportIncidentExecution() -> SupportIncidentExecution {
+        SupportIncidentExecution(scope: activeDeletionScope, generation: deletionScopeGeneration,
+                                 sessionFingerprint: client?.recordingSessionFingerprint,
+                                 sessionGeneration: DesktopCabinetSessionBridge.generation)
+    }
+
+    /// Caller holds the queue through validation and any result write.
+    private func validateSupportIncidentExecution(_ execution: SupportIncidentExecution, itemIds: [String]) throws {
+        guard DesktopCabinetSessionBridge.isCurrentSession(execution.sessionGeneration),
+              execution.scope == activeDeletionScope, execution.generation == deletionScopeGeneration,
+              execution.sessionFingerprint == client?.recordingSessionFingerprint else { throw CancellationError() }
+        _ = try supportIncidentItems(itemIds: itemIds, in: loadDocumentOnQueue())
+    }
+
+    private func supportIncidentRequestContext(
+        execution: SupportIncidentExecution, itemIds: [String]
+    ) -> DesktopSupportIncidentRequestContext {
+        DesktopSupportIncidentRequestContext(scope: execution.scope, sessionGeneration: execution.sessionGeneration) { [self] in
+            try queue.sync { try validateSupportIncidentExecution(execution, itemIds: itemIds) }
+        }
+    }
+
     private struct SupportIncidentSubmissionDraft {
+        var execution: SupportIncidentExecution
         var itemIds: [String]
         var report: DesktopSupportIncidentReport
     }
 
     private struct SupportIncidentSyncDraft {
+        var execution: SupportIncidentExecution
         var itemIds: [String]
         var incidentNumber: String
         var reportFingerprint: String
@@ -1939,23 +2210,43 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         var copyFallbackAvailable: Bool
     }
 
+    /// Called on the queue before report construction, persistence or network work.
+    private func supportIncidentItems(
+        itemIds: [String], in document: DesktopUploadQueueDocument
+    ) throws -> [DesktopUploadQueueItem] {
+        guard !itemIds.isEmpty else {
+            throw DesktopUploadQueueServiceError.packageNotFound("unknown")
+        }
+        return try itemIds.map { itemId in
+            guard let stored = document.items.first(where: { $0.id == itemId }) else {
+                throw DesktopUploadQueueServiceError.packageNotFound(itemId)
+            }
+            let item = projectLifecycle(stored, in: document)
+            guard item.lifecycleAccessAvailable else {
+                throw DesktopUploadClientError.httpStatus(403, "support_incident.scope_unavailable")
+            }
+            return item
+        }
+    }
+
     private func markSupportIncidentSending(
         itemIds: [String],
         context: DesktopSupportIncidentReportContext
     ) throws -> SupportIncidentSubmissionDraft {
         try queue.sync {
+            let execution = supportIncidentExecution()
             var document = try loadDocumentOnQueue()
-            guard let primaryItemId = itemIds.first,
-                  let index = document.items.firstIndex(where: { $0.id == primaryItemId })
+            let affectedItems = try supportIncidentItems(itemIds: itemIds, in: document)
+            guard activeSupportIncidentItemIDs.isDisjoint(with: itemIds) else {
+                throw DesktopUploadClientError.httpStatus(409, "support_incident.request_in_progress")
+            }
+            guard let index = document.items.firstIndex(where: { $0.id == affectedItems[0].id })
             else {
                 throw DesktopUploadQueueServiceError.packageNotFound(itemIds.first ?? "unknown")
             }
             let now = clock()
-            let item = projectLifecycle(document.items[index], in: document)
+            let item = affectedItems[0]
             let projection = DesktopUploadCustodyProjection(item: item, now: now)
-            let affectedItems = itemIds.compactMap { itemId in
-                document.items.first { $0.id == itemId }
-            }
             guard let report = DesktopSupportIncidentReport(
                 item: item,
                 projection: projection,
@@ -1986,7 +2277,8 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
             document.items = document.items.sortedForDisplay()
             document.updatedAt = now
             try saveDocumentOnQueue(document)
-            return SupportIncidentSubmissionDraft(itemIds: Array(changedIds), report: report)
+            activeSupportIncidentItemIDs.formUnion(changedIds)
+            return SupportIncidentSubmissionDraft(execution: execution, itemIds: Array(changedIds), report: report)
         }
     }
 
@@ -2079,10 +2371,13 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
 
     private func markSupportIncidentSyncing(itemIds: [String]) throws -> SupportIncidentSyncDraft {
         try queue.sync {
+            let execution = supportIncidentExecution()
             var document = try loadDocumentOnQueue()
-            guard let primaryItemId = itemIds.first,
-                  let primaryIndex = document.items.firstIndex(where: { $0.id == primaryItemId }),
-                  let submission = document.items[primaryIndex].supportIncidentSubmission,
+            let affectedItems = try supportIncidentItems(itemIds: itemIds, in: document)
+            guard activeSupportIncidentItemIDs.isDisjoint(with: itemIds) else {
+                throw DesktopUploadClientError.httpStatus(409, "support_incident.request_in_progress")
+            }
+            guard let submission = affectedItems[0].supportIncidentSubmission,
                   submission.state == .pendingSync,
                   let incidentNumber = submission.incidentNumber?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !incidentNumber.isEmpty,
@@ -2091,10 +2386,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
             else {
                 throw DesktopUploadClientError.httpStatus(409, "support_incident.sync_unavailable")
             }
-            let changedIds = Set(itemIds).intersection(Set(document.items.map(\.id)))
-            guard !changedIds.isEmpty else {
-                throw DesktopUploadQueueServiceError.packageNotFound(primaryItemId)
-            }
+            let changedIds = Set(affectedItems.map(\.id))
             let now = clock()
             document.items = document.items.map { candidate in
                 guard changedIds.contains(candidate.id) else { return candidate }
@@ -2114,7 +2406,9 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
             document.items = document.items.sortedForDisplay()
             document.updatedAt = now
             try saveDocumentOnQueue(document)
+            activeSupportIncidentItemIDs.formUnion(changedIds)
             return SupportIncidentSyncDraft(
+                execution: execution,
                 itemIds: Array(changedIds),
                 incidentNumber: incidentNumber,
                 reportFingerprint: reportFingerprint,
@@ -2157,27 +2451,26 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         }
     }
 
+    // Called only after execution validation, while the caller holds queue.sync.
     private func updateSupportIncidentSubmission(
         itemIds: Set<String>,
         update: (inout DesktopUploadQueueItem, Date) -> Void
     ) throws {
-        try queue.sync {
-            var document = try loadDocumentOnQueue()
-            let now = clock()
-            var changed = false
-            document.items = document.items.map { item in
-                guard itemIds.contains(item.id) else { return item }
-                var next = item
-                next.updatedAt = now
-                update(&next, now)
-                changed = true
-                return next
-            }
-            if changed {
-                document.items = document.items.sortedForDisplay()
-                document.updatedAt = now
-                try saveDocumentOnQueue(document)
-            }
+        var document = try loadDocumentOnQueue()
+        let now = clock()
+        var changed = false
+        document.items = document.items.map { item in
+            guard itemIds.contains(item.id) else { return item }
+            var next = item
+            next.updatedAt = now
+            update(&next, now)
+            changed = true
+            return next
+        }
+        if changed {
+            document.items = document.items.sortedForDisplay()
+            document.updatedAt = now
+            try saveDocumentOnQueue(document)
         }
     }
 
@@ -2408,7 +2701,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
 
     private func loadDocumentOnQueue() throws -> DesktopUploadQueueDocument {
         if let document {
-            return document
+            return try recoverInterruptedSupportIncidents(in: document)
         }
         guard FileManager.default.fileExists(atPath: queueURL.path) else {
             let empty = DesktopUploadQueueDocument(updatedAt: clock(), items: [])
@@ -2443,30 +2736,51 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         loaded.items = loaded.items.map { item in
             let normalized = normalizeRetiredItem(item, in: loaded, now: now)
             if normalized != item { needsSave = true }
-            let item = normalized
-            guard let submission = item.supportIncidentSubmission,
-                  submission.state == .sending
-            else {
-                return item
-            }
-            var next = item
-            next.updatedAt = now
-            next.supportIncidentSubmission = .failedWithCopyFallback(
-                reportFingerprint: submission.localReportFingerprint ?? "unknown",
-                dedupeKey: submission.dedupeKey ?? "unknown",
-                attemptedAt: now,
-                failureCategory: UploadFailureCategory.network.rawValue,
-                failureCode: "support_incident.interrupted"
-            )
-            needsSave = true
-            return next
+            return normalized
         }.sortedForDisplay()
         if needsSave {
             loaded.updatedAt = now
             try saveDocumentOnQueue(loaded)
         }
         document = loaded
-        return loaded
+        return try recoverInterruptedSupportIncidents(in: loaded)
+    }
+
+    private func recoverInterruptedSupportIncidents(in document: DesktopUploadQueueDocument) throws -> DesktopUploadQueueDocument {
+        var recovered = document
+        let now = clock()
+        var changed = false
+        recovered.items = document.items.map { item in
+            guard let submission = item.supportIncidentSubmission, submission.state == .sending,
+                  !activeSupportIncidentItemIDs.contains(item.id),
+                  projectLifecycle(item, in: document).lifecycleAccessAvailable else { return item }
+            // Recovery is local owner work, never application of a cancelled request's late result.
+            var next = item
+            next.updatedAt = now
+            if let incidentNumber = submission.incidentNumber {
+                next.supportIncidentSubmission = .pendingSync(
+                    reportFingerprint: submission.localReportFingerprint ?? "unknown",
+                    dedupeKey: submission.dedupeKey ?? "unknown",
+                    incidentNumber: incidentNumber, attemptedAt: now,
+                    copyFallbackAvailable: submission.copyFallbackAvailable,
+                    failureCode: "support_incident.interrupted"
+                )
+            } else {
+                next.supportIncidentSubmission = .failedWithCopyFallback(
+                    reportFingerprint: submission.localReportFingerprint ?? "unknown",
+                    dedupeKey: submission.dedupeKey ?? "unknown", attemptedAt: now,
+                    failureCategory: UploadFailureCategory.network.rawValue,
+                    failureCode: "support_incident.interrupted"
+                )
+            }
+            changed = true
+            return next
+        }
+        if changed {
+            recovered.updatedAt = now
+            try saveDocumentOnQueue(recovered)
+        }
+        return recovered
     }
 
     private func saveDocumentOnQueue(_ document: DesktopUploadQueueDocument) throws {

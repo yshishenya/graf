@@ -20,8 +20,9 @@ audio download and combined summary+transcript export; each egress action
 rechecks policy/readiness. The controlled
 exact-email path is now enabled in production after the delivery, secret,
 abuse, deletion and rollback evidence gates; public links stay disabled. The
-plan also keeps native address-book, viral onboarding and referral
-contracts separate from access delivery. The expanded viral design puts
+plan keeps viral onboarding and referral contracts separate from access
+delivery; native address-book T046 is cancelled by the scope decision below.
+The expanded viral design puts
 participant distribution and `Shared with me` first, followed by opt-in owner
 auto-share, recurring pre-read, team access and existing-grant channel or
 calendar distribution; batch distribution remains a later operation/run slice.
@@ -46,20 +47,23 @@ storage models.
 
 **Risk / Validation Lane**: high-risk-feature. The slice changes privacy-sensitive sharing, identity search, invitations, authorization, token-bearing links, deletion/expiry behavior and a user-facing modal. It requires full Spec Kit, security/UX checklists, threat-model gates, focused quickstart and repository CI.
 
-**Release Gate**: PR/closeout requires the focused quickstart and
-`infra/scripts/ci-local.sh`. A production deploy is allowed only for the
+**Release Gate**: PR/closeout requires the focused quickstart and current
+exact-SHA/base GitHub `governance-fast`, `macos-pr`, `pr-metadata` gates.
+Local `infra/scripts/ci-local.sh --fast|--full` is diagnostic/fallback only;
+the frozen release candidate requires GitHub `release-full`.
+A production deploy is allowed only for the
 validated slice after `cd-remote.sh --dry-run`, Russian release notes, rollback
 readiness and explicit user approval. Exact-email external delivery is enabled
 only for the bounded recipient flow; public links, native Contacts/provider
 lookup and referral attribution remain false.
 
-**Target Platform**: browser cabinet and embedded macOS WebKit cabinet backed by the same server routes; native address-book picker is a later macOS client contract, not browser sync
+**Target Platform**: browser cabinet and embedded macOS WebKit cabinet backed by the same server routes; native address-book picker T046 is not planned in the current scope
 
 **Project Type**: server-rendered web application embedded in a native macOS capture product
 
 **Performance Goals**: internal recipient search p95 under 1 second for the bounded 20-result query in synthetic fixtures; no network request for disabled capabilities; Share modal remains responsive at the existing cabinet scale
 
-**Constraints**: fail closed; internal defaults are summary-only/view-only, while the explicit exact-email recording preset is full-meeting/view-only with download/export capabilities; external/public flags stay false by default; no raw meeting content, contact records, email delivery secret or bearer token in evidence/logs/analytics; no full address-book sync; 320 CSS px and 200% zoom; browser/embedded parity; no copied competitor UI
+**Constraints**: fail closed; internal defaults are summary-only/view-only, while the explicit exact-email recording preset is full-meeting/view-only with download/export capabilities; external/public flags stay false by default; no raw meeting content, contact records, email delivery secret or bearer token in evidence/logs/analytics; no full address-book sync; 320 CSS px and 200% zoom; browser/embedded parity; reference fidelity under Constitution VII with independent code and documented asset rights
 
 **Scale/Scope**: one meeting Share fragment, current workspace/meeting roster candidate search, existing grant/invitation/link lifecycle, existing summary route, exact-email delivery, synthetic security/UX tests; public/contact/referral rollout remains independently gated
 
@@ -84,7 +88,7 @@ lookup and referral attribution remain false.
 - **Spec-driven delivery**: PASS. Specify, clarification scan, research, plan,
   data model, contracts, checklist, tasks, analyze, issue sync and implementation
   are required.
-- **Original design/accessibility**: PASS pending QA. The modal reuses GRAF cabinet
+- **Reference fidelity/accessibility**: PASS pending QA. The modal reuses GRAF cabinet
   tokens and native controls, with keyboard/focus/reduced-motion/contrast and
   browser/embedded parity requirements.
 
@@ -166,10 +170,35 @@ only; they name the scope but never include meeting content.
 
 ### Viral and contact phases
 
+Будущий каталог T042/#4448, новая F125 share-origin attribution T044/#4450
+и её исполняемая приёмка T045/#4452 сняты с текущего плана как NOT_PLANNED
+по [решению spec](spec.md#решение-об-объёме-t042t044t045--2026-10-27).
+Оно задаёт условные ссылки всех артефактов, сохранённые защиты и возврат;
+этот план не ставит реализацию в автоматическую очередь. Принятый проект
+T043, действующий аудит/общие privacy tests, F140 и F273 сохраняются.
+PR #7768 не сливается: отдельный отключённый каталог текущему MVP не нужен.
+Полоса решения — Active Spec Kit slice, только документы: исходные задачи
+остаются `[ ]`, независимое ревью трёх checklist, анализ согласованности,
+три текущие PR-проверки точного SHA/основы; затем отдельный NOT_PLANNED closeout.
+
 Use metadata-only value-led CTA and explicit onboarding as a later gated phase.
-Do not add a new analytics dependency. Address book is native limited selection
-only; browser surfaces do not request Contacts access or sync a full address
-book. Calendar presence is a suggestion source, never consent.
+Do not add a new analytics dependency. Native Contacts picker T046/#4451 is
+cancelled for the early MVP: typed email and existing workspace/calendar hints
+cover recipient entry without another system source. It is not queued for
+automatic later implementation. The spec scope decision defines the trigger
+for a new decision, conditional scenarios and unchanged privacy requirements.
+Browser surfaces do not request Contacts access or sync a full address book.
+Calendar presence is a suggestion source, never consent.
+
+Validation lane for this decision: Active Spec Kit slice, documentation only.
+Preserve the original unchecked T046 and all task descriptions, review the three
+checklists independently, analyze consistency and pass the current exact-SHA/base
+PR gates. No runtime, app, OAuth, release or deployment acceptance is claimed.
+
+T047/#4453 defines only the future Google/Microsoft read-only provider contract
+in research §4 and contract §8.1. This design introduces no runtime connection,
+storage, flag or dependency and does not accept T046 or authorize rollout.
+Its document review and future execution gates are separate in quickstart T047.
 
 Participant distribution is not a loop over the existing single-recipient POST.
 Before implementation, select a replay-safe idempotency/run authority, define
@@ -192,7 +221,8 @@ when `Shared with me` is sufficient. Retry must never rotate a grant token.
 6. Execute [quickstart.md](quickstart.md), including browser/embedded parity,
    keyboard, VoiceOver, 320 CSS px, 200% zoom, light/dark, reduced motion and
    increased contrast.
-7. Run `git diff --check` and `infra/scripts/ci-local.sh` before PR/closeout.
+7. Run `git diff --check` and the focused quickstart before PR/closeout;
+   require the three current exact-SHA/base GitHub gates above.
 8. Run Ponytail review, product-design audit and code/security review. Production
    deploy is allowed only for the exact-email capability after the recorded
    rollout gate; public/contact/referral deploy remains out of scope.
@@ -310,7 +340,8 @@ email provider or a new database table in this slice.
 - admin-gated summary-only team access with no retroactive grant by default;
 - calendar pointer and Slack/Teams distribution that reuse existing grants;
 - public links and edge/app abuse gates;
-- native Contacts picker and provider-specific least-privilege lookup;
+- provider-specific least-privilege lookup remains design-only; native Contacts
+  T046 is cancelled under the spec scope decision;
 - opaque referral attribution and aggregate funnel measurement.
 
 ## Complexity Tracking

@@ -46,6 +46,39 @@ def test_internal_analytics_hosts_reject_invalid_values() -> None:
         Settings(product_analytics_internal_hosts="not-an-address")
 
 
+@pytest.mark.parametrize("value", ["", " ", "*", "192.0.2.0/24", "not-an-address", "127.0.0.1,"])
+def test_forwarded_proxy_env_rejects_unsafe_or_empty_trust(monkeypatch, value) -> None:
+    monkeypatch.setenv("FORWARDED_ALLOW_IPS", value)
+    with pytest.raises(ValidationError, match="FORWARDED_ALLOW_IPS"):
+        Settings(_env_file=None)
+
+
+@pytest.mark.parametrize("override", ["lowercase_env", "init_argument"])
+def test_native_proxy_trust_cannot_be_masked_by_settings_sources(monkeypatch, override) -> None:
+    monkeypatch.setenv("FORWARDED_ALLOW_IPS", "*")
+    kwargs = {}
+    if override == "lowercase_env":
+        monkeypatch.setenv("forwarded_allow_ips", "127.0.0.1")
+    else:
+        kwargs["forwarded_allow_ips"] = "127.0.0.1"
+    with pytest.raises(ValidationError, match="FORWARDED_ALLOW_IPS"):
+        Settings(_env_file=None, **kwargs)
+
+
+def test_forwarded_proxy_env_matches_native_uvicorn_and_has_a_closed_default(monkeypatch) -> None:
+    from uvicorn import Config
+
+    monkeypatch.delenv("FORWARDED_ALLOW_IPS", raising=False)
+    Settings(_env_file=None)
+    assert Config("unused:app", log_config=None).forwarded_allow_ips == "127.0.0.1"
+    value = "127.0.0.1,::1,192.0.2.10"
+    monkeypatch.setenv("FORWARDED_ALLOW_IPS", value)
+    Settings(_env_file=None)
+    assert Config(
+        "twobrain_rec_server.main:create_app", factory=True, log_config=None,
+    ).forwarded_allow_ips == value
+
+
 def test_production_rejects_uncertified_yandex_calendar() -> None:
     with pytest.raises(ValidationError, match="uncertified Yandex Calendar"):
         _production_settings(calendar_allow_uncertified_yandex=True)

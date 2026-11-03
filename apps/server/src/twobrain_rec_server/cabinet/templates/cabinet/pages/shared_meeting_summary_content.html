@@ -38,18 +38,10 @@
       <p class="muted">Итоги пока не подготовлены.</p>
     {% endif %}
 
-    {% if authenticated %}
-    <aside class="shared-summary__cta" aria-label="Открыть GRAF">
-      <strong>Настройте GRAF для своих встреч</strong>
-      <p class="muted">Открывайте свои записи, итоги и следующие шаги в рабочем кабинете GRAF.</p>
-        <a class="button" href="{{ meeting_list_href }}">Открыть GRAF</a>
+    <aside class="shared-summary__cta" aria-label="Начать со своей встречи">
+      <strong>Получайте такие итоги своих встреч</strong>
+      <p class="muted">GRAF сохранит решения и задачи, чтобы к ним было легко вернуться.</p>
+      <a class="button" href="{{ meeting_list_href if authenticated else '/sign-up?next=%2Fmeetings' }}">Начать со своей встречи</a>
     </aside>
-    {% else %}
-    <aside class="shared-summary__cta" aria-label="Попробовать GRAF">
-      <strong>Хотите так же разбирать свои встречи?</strong>
-      <p class="muted">GRAF записывает встречу и превращает ее в понятные итоги и следующие шаги.</p>
-        <a class="button" href="/sign-up?next=%2Fmeetings">Попробовать GRAF</a>
-    </aside>
-    {% endif %}
   </section>
 </main>

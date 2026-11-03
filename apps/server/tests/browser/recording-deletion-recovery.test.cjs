@@ -4,7 +4,8 @@ const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
 const { createHash } = require('node:crypto');
-const { chromium } = require('playwright');
+const { execFileSync } = require('node:child_process');
+const { chromium, webkit } = require('playwright');
 
 const cabinetScript = fs.readFileSync(path.join(__dirname, '../../src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js'));
 const offlineMeetingId = '00000000-0000-0000-0000-000000000262';
@@ -34,6 +35,57 @@ wav.writeUInt32LE(16, 16); wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22);
 wav.writeUInt32LE(16000, 24); wav.writeUInt32LE(32000, 28);
 wav.writeUInt16LE(2, 32); wav.writeUInt16LE(16, 34);
 wav.write('data', 36); wav.writeUInt32LE(wav.length - 44, 40);
+
+async function deletionIndexPending(browser) {
+  const serverRoot = path.resolve(__dirname, '../..');
+  const html = execFileSync(path.join(serverRoot, '.venv/bin/python'), ['-c',
+    'from twobrain_rec_server.cabinet.deletion_rendering import render_deletion_index; print(render_deletion_index([], page=1, has_more=False, embedded=True, profile=None, csrf_token=None))',
+  ], { cwd: serverRoot, encoding: 'utf8' }).replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '');
+  const page = await browser.newPage();
+  const errors = [];
+  page.on('pageerror', error => errors.push(error.message));
+  try {
+    await page.route('https://synthetic.invalid/**', route => route.fulfill({ contentType: 'text/html', body: html }));
+    await page.goto('https://synthetic.invalid/desktop/deletions');
+    await page.addScriptTag({ content: cabinetScript.toString() });
+    assert.equal(await page.locator('#meeting-list-region').count(), 0, 'real index has no meeting-list anchor');
+    const status = page.locator('main [data-native-deletion-status]');
+    const publish = (operations, rows = []) => page.evaluate(({ rows, operations }) =>
+      window.GRAFLocalRecordings.update(rows, operations), { rows, operations });
+    const operation = { id: 'pending', target: { meeting: { _0: offlineMeetingId } }, phase: 'queued' };
+    await publish([operation]);
+    assert.equal(await status.count(), 1, 'pending operations must be attached to the real deletion index');
+    await status.locator('summary').click();
+    assert.equal(await status.getByText('Удаление ожидает подключения', { exact: true }).isVisible(), true);
+    for (const [phase, label] of Object.entries({
+      sending: 'Удаляем…', resolving: 'Проверяем, принято ли удаление',
+      accepted: 'Запись удалена из списка. Очистка проверяется отдельно.',
+      verified: 'Данные этой записи очищены на этом Mac', rejected: 'Нет права удалить запись',
+    })) {
+      await publish([{ ...operation, phase }]);
+      assert.equal(await status.locator('li').textContent(), label);
+      assert.equal(await status.count(), 1, 'projection updates reuse the existing status');
+      assert.equal(await status.evaluate(node => node.open), true, 'projection keeps the expanded state');
+    }
+    await publish([{ ...operation, phase: 'accepted', receipt: { meeting_id: offlineMeetingId } }]);
+    assert.equal(await status.locator('a').getAttribute('href'), `/desktop/meetings/${offlineMeetingId}/deletion-report`);
+    for (const receipt of [{ receipt_type: 'origin_cancellation' }, { meeting_id: 'javascript:alert(1)' }]) {
+      await publish([{ ...operation, phase: 'accepted', receipt }]);
+      assert.equal(await status.locator('a').count(), 0, 'no report link without a valid meeting ID');
+    }
+    await publish([], [{ id: 'local-pending', title: '<img src=x onerror=alert(1)>', localDeletionPending: true }]);
+    assert.match(await status.locator('li').textContent(), /<img.*очистка файлов на этом Mac еще не завершена/);
+    assert.equal(await status.locator('img').count(), 0, 'native title is plain text');
+    await publish([]);
+    assert.equal(await status.count(), 0, 'empty projection clears the native status');
+    await publish([operation]);
+    await publish([operation]);
+    assert.equal(await status.count(), 1, 'a later pending operation restores exactly one status');
+    assert.equal(await page.locator('.deletion-index .empty-state').count(), 1, 'native pending does not fabricate a server receipt');
+    assert.deepEqual(errors, []);
+    console.log('recording deletion recovery: real deletion index pending, phases, report links, safe text and updates passed');
+  } finally { await page.close(); }
+}
 
 async function main() {
   const deleted = new Set();
@@ -85,10 +137,11 @@ async function main() {
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const origin = `http://127.0.0.1:${server.address().port}`;
-  const browser = await chromium.launch({ headless: true });
+  const browser = await (process.env.GRAF_BROWSER === 'webkit' ? webkit : chromium).launch({ headless: true });
   const context = await browser.newContext();
   context.on('page', page => page.on('pageerror', error => errors.push(error.message)));
   try {
+    await deletionIndexPending(browser);
     const offline = await context.newPage();
     await offline.goto(`${origin}/offline`);
     await offline.locator('[data-row-delete]').click();
@@ -108,6 +161,7 @@ async function main() {
     await offline.waitForFunction(() => !document.querySelector('[data-meeting-row]'));
     assert.deepEqual(deletions, [offlineMeetingId]);
     assert.equal(await offline.locator('[data-delete-dialog]').evaluate(dialog => dialog.open), false);
+    await offline.waitForFunction(() => document.querySelector('[data-meeting-result-announcer]').textContent === 'Запись удалена из списка.');
     assert.equal(await offline.locator('[data-meeting-result-announcer]').textContent(), 'Запись удалена из списка.');
     await offline.close();
     console.log('recording deletion recovery: S09 offline error preserves row; explicit reconnect retry passed');

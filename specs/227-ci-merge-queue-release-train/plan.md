@@ -22,6 +22,40 @@ implement → converge → exact-SHA validation`.
 - No capture, privacy, auth, storage, Temporal behavior or production data is
   changed.
 
+## Завершающий срез — 28.10.2026
+
+Lane: `Active Spec Kit slice`, действующая F227. Конституция VI соблюдена:
+не меняются общие принципы, защита CI и release gates. Решения об объёме
+определены в spec §«Завершающий объём»; исходные задачи и владельцы сохранены.
+
+1. Независимо перечитать оба reviewer-owned checklist и выполнить analyze.
+2. T015: расширить существующий `test_pr_checks.py`/`bundle` двумя состояниями
+   stale/superseded, сначала подтвердить схему и успешный исходный bundle,
+   затем получить конкретный отказ consumer. Сохранить идентичности GitHub;
+   не добавлять механизм, зависимость или копии исторических тестов.
+3. T028: focused и workflow self-test; три настоящие проверки точного SHA/base
+   нового PR. Тот же fast на GitHub runner — достаточное окружение исходной
+   команды; повтор на физическом Mac не заявляется и не требуется.
+4. T030: поштучная сверка всех 33 задач и существующих issues с источниками,
+   выполненными и отменёнными результатами; append-only remaining work при
+   обнаружении обязательного пробела. Отменённые строки остаются `[ ]`.
+5. После итогового независимого ревью и обычных checks принять PR только в
+   согласованное окно слияний. COMPLETED проходят live-validator; NOT_PLANNED —
+   принятую процедуру tracker-policy. #6207 последней, с раздельными итогами.
+
+Производственный код, защиты GitHub, очередь, выпуск, приложение и CD не меняются.
+
+### Остаток трекера T034 — 29.10.2026
+
+После регистрации остатка в T030 использовать существующую #6207 как владельца
+T034. До изменения GitHub: независимое ревью требований, анализ согласованности
+spec/plan/tasks и сохранение исходных title/body/comments. Заменить только
+временную T000 на T034 в заголовке и поле `Spec tasks`; отдельным комментарием
+сохранить обе исходные строки и объяснить уточнение. Перечитать результат,
+подтвердить канон и неизменность остального тела. Статус остаётся OPEN.
+Отметка T034 принимает это конкретное исправление трекера; закрытие смешанного
+родителя выполняется отдельно после PR и итоговой проверки детей.
+
 ## Architecture
 
 ```text
@@ -82,3 +116,78 @@ post-merge train manifest → one authoritative Full CI → immutable decision
 - Release-candidate rehearsal with at least three synthetic PRs and one Full CI
   receipt.
 - Generic harness self-test on supported Python versions.
+
+## Текущий срез: T032–T033 (2026-10-17)
+
+Lane: `Active Spec Kit slice`, область infrastructure/release provenance.
+Сохраняются все исходные задачи и отдельные native merge-group gates.
+
+1. T032: уточнить serial/native границы, происхождение synthetic, pinned Python
+   matrix и воспроизводимые команды; независимое reviewer-owned ревью и анализ.
+2. T033: в существующем `require_git_commit_relationship` обязать base быть
+   предком source. Сохранить проверку существования трёх commits и все остальные
+   exact-SHA/cleanliness/PR/Full CI gates. Не добавлять nullable-поле или новый
+   режим. Проверить реальный serial commit-tree и несвязанную историю Git.
+
+Владение кодом: `infra/scripts/release-candidate.sh` и существующий
+`tests/governance/test_release_train.py`. Все вызовы общей функции прочитаны:
+её вызывает train-freeze; release operator `scripts/release.sh` уже создаёт
+корректный synthetic commit. Другие операции читают immutable manifest; менять
+их формат и пересоздавать исторические записи не требуется. Pending F259
+proof-binding меняет issue-closeout validator, пересечения кода нет.
+
+Продуктовый код, GitHub protection, очередь, pinned harness package и действующий
+runtime не меняются. Проверка проходит только в изолированном Git fixture;
+GitHub PR proofs и Full CI там подставлены тестом и не считаются живой приёмкой.
+После локальной проверки commit/PR и защищённое слияние выполняются по
+действующему общему разрешению пользователя. Нужны три обязательные проверки
+точного SHA/base. Выпуск отдельно.
+Конституция после проектирования соблюдена: защиты усилены, выпуск не исполняется.
+
+
+## Уточнение замечаний PR7678 — 21.10.2026
+
+Текущая T033 должна защищать не только создание, но и потребление уже
+замороженного train. Замечания4314292416/4314292430 требуют проверки
+связи base→actual source в общей validate_train после проверки схемы:
+её используют train-validate, candidate freeze, train-attest и decide --train. Существующий
+require_git_commit_relationship переиспользуется, формат immutable
+manifest/identity и проверки exact SHA/clean/PR/Full не меняются.
+Git cat-file и merge-base этой проверки выполняются с --no-replace-objects,
+чтобы локальная refs/replace graft не подменяла записанную историю.
+Отдельные временные Git fixtures должны сначала воспроизвести acceptance
+старого manifest и graft bypass, затем отказ всех потребителей без
+новых файлов/перезаписи identity. Корректная serial история и существующая
+положительная матрица остаются успешными. До реализации требуется
+независимое reviewer-owned ревью этого уточнения; затем исходные RED,
+минимальное общее исправление, focused suite и итоговое ревью.
+T032/T033 остаются владельцами; исходные T001–T031 не закрываются.
+
+## Текущий срез T014 / #6221 — 28.10.2026
+
+Lane: `Active Spec Kit slice`, shared CI evidence. Конституция VI соблюдена;
+metadata-only, exact SHA/base, cleanliness и проверки GitHub не ослабляются.
+Только известный дефект приоритета статусов, без новой схемы или зависимости.
+
+1. После независимого ревью обоих существующих checklists и анализа требований
+   добавить исполняемую регрессию в `tests/governance/test_governance_workflow.py`.
+   Исполнить настоящий YAML terminal step и CLI `emit-ci-receipt.py` с готовым
+   локальным PASS и состояниями задания success/failure/cancelled, включая
+   configured/discovered evidence. Подтвердить исходный отказ до исправления.
+2. В существующем terminal step `.github/workflows/governance-fast.yml` известный
+   неуспех направить в уже имеющееся terminal evidence; оставить исходный файл
+   неизменным. Успешное задание не повышает локальный non-success до PASS.
+   Отсутствующее evidence и неизвестный job status дают отказ. Поля состояния
+   по-прежнему формирует общий `scripts/emit-ci-receipt.py`; не дублировать их
+   в `emit-ci-evidence.py`. Это соответствие текущих путей исходной T014.
+3. Проверить producer/receipt/workflow и общий consumer, добавить результат
+   в существующую задачу и fragment F227. Независимое итоговое ревью, три
+   обязательных GitHub проверки точного SHA/base и защищённое слияние отдельно.
+
+Вызовы общего receipt producer: governance-fast и release-full; последний
+создаёт receipt после успешных component/evidence gates и не выбирает прежний
+PASS по JOB_STATUS. Его путь не меняется. Общий consumer проверяет реальные
+run/job и attempt, поэтому квитанция не заменяет конечное состояние GitHub.
+Поздняя отмена после terminal step проверяется этим consumer; реальная отмена
+GitHub данным синтетическим тестом не заявляется. Выпуск, CD, protection,
+F227 T015/T016/T028/T029/T030/T031 и текущий frozen source вне изменения.

@@ -14,11 +14,13 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
+import pytest
 from sqlalchemy import event, select
 
 from tests.contract.test_ingest_openapi_contract import auth_headers
 from tests.fakes.auth_contexts import DEVICE_ID, USER_ID, WORKSPACE_ID
-from twobrain_rec_server.db.models import Meeting, RecordingCalendarContextLink
+from tests.fixtures.cabinet_access import SHARED_USER_ID, add_workspace_user, auth_headers_for
+from twobrain_rec_server.db.models import Meeting, MeetingShareGrant, RecordingCalendarContextLink
 
 MEETINGS_PATH = "/api/v1/cabinet/meetings"
 
@@ -64,7 +66,9 @@ def _seed_meetings(client, *, start: int, stop: int, base: datetime) -> None:
     client.portal.call(seed)
 
 
-def _count_page_queries(client, path: str = MEETINGS_PATH) -> int:
+def _count_page_queries(
+    client, path: str = MEETINGS_PATH, *, headers: dict[str, str] | None = None
+) -> int:
     engine = client.app_state["engine"]
     counter = {"value": 0}
 
@@ -73,7 +77,7 @@ def _count_page_queries(client, path: str = MEETINGS_PATH) -> int:
 
     event.listen(engine.sync_engine, "before_cursor_execute", _on_before_cursor_execute)
     try:
-        response = client.get(path, headers=auth_headers())
+        response = client.get(path, headers=headers if headers is not None else auth_headers())
     finally:
         event.remove(engine.sync_engine, "before_cursor_execute", _on_before_cursor_execute)
 
@@ -177,3 +181,74 @@ def test_title_sorted_page_does_not_fall_back_to_per_meeting_queries(client) -> 
         f"{queries} обращений при {TITLE_SORT_MEETING_COUNT} встречах "
         f"(потолок {MAX_LARGE_PAGE_QUERIES})"
     )
+
+
+@pytest.mark.parametrize("path", ["/shared-with-me", "/desktop/shared-with-me"])
+def test_shared_list_query_count_does_not_grow_with_shared_meetings(client, path) -> None:
+    add_workspace_user(client)
+    base = datetime(2026, 4, 1, tzinfo=UTC)
+
+    async def share_new_meetings() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            already_shared = select(MeetingShareGrant.meeting_id).where(
+                MeetingShareGrant.workspace_id == WORKSPACE_ID,
+                MeetingShareGrant.grantee_user_id == SHARED_USER_ID,
+            )
+            meetings = await db.scalars(
+                select(Meeting).where(
+                    Meeting.workspace_id == WORKSPACE_ID,
+                    Meeting.id.not_in(already_shared),
+                )
+            )
+            for meeting in meetings:
+                db.add(
+                    MeetingShareGrant(
+                        workspace_id=WORKSPACE_ID,
+                        meeting_id=meeting.id,
+                        grant_type="user",
+                        grantee_user_id=SHARED_USER_ID,
+                        audience_type="user",
+                        audience_id=SHARED_USER_ID,
+                        content_scope="full_meeting",
+                        created_by_user_id=USER_ID,
+                        status="active",
+                    )
+                )
+            await db.commit()
+
+    _seed_meetings(client, start=0, stop=SMALL_MEETING_COUNT, base=base)
+    client.portal.call(share_new_meetings)
+    small = _count_page_queries(client, path, headers=auth_headers_for())
+    _seed_meetings(client, start=SMALL_MEETING_COUNT, stop=LARGE_MEETING_COUNT, base=base)
+    client.portal.call(share_new_meetings)
+    large = _count_page_queries(client, path, headers=auth_headers_for())
+
+    print(f"SHARED_QUERY_BUDGET {path}: 5={small} SQL, 50={large} SQL")
+    assert large <= small * (1 + MAX_GROWTH_RATIO), (
+        f"{path}: число запросов растёт с доступными получателю встречами: "
+        f"5 встреч — {small} SQL, 50 встреч — {large} SQL; допустимый рост 25%"
+    )
+    assert large <= MAX_LARGE_PAGE_QUERIES, f"{path}: {large} SQL превышают потолок 80"
+
+
+@pytest.mark.parametrize("count", [0, 1])
+def test_empty_and_single_shared_list_keep_query_budget(client, monkeypatch, count) -> None:
+    from tests.fixtures.cabinet_access import grant_meeting_to_user
+    from twobrain_rec_server.cabinet import queries
+
+    add_workspace_user(client)
+    _seed_meetings(client, start=0, stop=count, base=datetime(2026, 5, 1, tzinfo=UTC))
+    if count:
+
+        async def meeting_id():
+            async with client.app_state["sessionmaker"]() as db:
+                return await db.scalar(select(Meeting.id))
+
+        grant_meeting_to_user(client, client.portal.call(meeting_id))
+    for path in ("/shared-with-me", "/desktop/shared-with-me"):
+        batched = _count_page_queries(client, path, headers=auth_headers_for())
+        with monkeypatch.context() as original:
+            original.setattr(queries, "install_read_prefetch", lambda *_: None)
+            individual = _count_page_queries(client, path, headers=auth_headers_for())
+        assert batched <= individual, f"{path}: {count} meetings: {batched} > {individual} SQL"
+        print(f"SHARED_SMALL_BUDGET {path}: {count} meetings, before={individual}, after={batched}")

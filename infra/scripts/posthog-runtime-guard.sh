@@ -22,13 +22,11 @@ state_dir="${GRAF_POSTHOG_GUARD_STATE_DIR:-/var/lib/graf-posthog-runtime-guard}"
 dry_run="${GRAF_POSTHOG_GUARD_DRY_RUN:-1}"
 auto_rollback="${GRAF_POSTHOG_GUARD_AUTO_ROLLBACK:-0}"
 stop_stack="${GRAF_POSTHOG_GUARD_STOP_STACK:-0}"
-analytics_path="${GRAF_POSTHOG_ANALYTICS_PATH:-$app_dir}"
 analytics_health_url="${GRAF_POSTHOG_HEALTH_URL:-https://analytics.2brain.pro/_health/}"
 graf_ready_url="${GRAF_READY_URL:-https://rec.2brain.pro/api/v1/health/ready}"
 
 # Analytics scope: fires first, disables measurement only.
 analytics_health_failure_threshold="${GRAF_POSTHOG_GUARD_ANALYTICS_HEALTH_FAILURES:-1}"
-analytics_disk_free_percent_threshold="${GRAF_POSTHOG_GUARD_ANALYTICS_DISK_FREE_PERCENT:-20}"
 analytics_lag_seconds_threshold="${GRAF_POSTHOG_GUARD_ANALYTICS_LAG_SECONDS:-900}"
 analytics_queue_depth_threshold="${GRAF_POSTHOG_GUARD_ANALYTICS_QUEUE_DEPTH:-100000}"
 analytics_queue_growth_threshold="${GRAF_POSTHOG_GUARD_ANALYTICS_QUEUE_GROWTH_PER_MIN:-5000}"
@@ -43,11 +41,33 @@ ingest_queue_query="${GRAF_POSTHOG_GUARD_QUEUE_QUERY:-}"
 # Host scope: alert only, measurement is never disabled from here.
 host_load_threshold="${GRAF_POSTHOG_GUARD_HOST_LOAD:-11}"
 host_memory_mib_threshold="${GRAF_POSTHOG_GUARD_HOST_MEMORY_MIB:-16384}"
-host_disk_free_percent_threshold="${GRAF_POSTHOG_GUARD_HOST_DISK_FREE_PERCENT:-10}"
 host_health_failure_threshold="${GRAF_POSTHOG_GUARD_HOST_HEALTH_FAILURES:-2}"
 
 mkdir -p "$state_dir"
 chmod 0750 "$state_dir" 2>/dev/null || true
+if (( EUID == 0 )); then
+  # Reuse the API's runtime-reader group; only root may write this directory.
+  chgrp "${TWOBRAIN_RUNTIME_SECRET_GID:-1001}" "$state_dir"
+  chmod 2750 "$state_dir"
+fi
+# Keep one durable incident even when timer and operator runs overlap.
+if [[ "${GRAF_POSTHOG_GUARD_LOCK_HELD:-0}" != "1" ]]; then
+  exec python3 - "$state_dir/guard.lock" "$BASH" "$0" "$@" <<'PY'
+import fcntl, os, subprocess, sys
+with open(sys.argv[1], 'a') as lock:
+    fcntl.flock(lock, fcntl.LOCK_EX)
+    environment = dict(os.environ, GRAF_POSTHOG_GUARD_LOCK_HELD='1')
+    raise SystemExit(subprocess.run(sys.argv[2:], env=environment).returncode)
+PY
+fi
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+capacity_helper="$script_dir/posthog-capacity.py"
+protection_file="$state_dir/protection-state.json"
+protection_status="observed"
+protection_state_ok=1
+if ! protection_status="$(python3 "$capacity_helper" --protection-state "$protection_file")"; then
+  protection_state_ok=0
+fi
 state_file="$state_dir/health-failures"
 analytics_state_file="$state_dir/analytics-health-failures"
 queue_snapshot_file="$state_dir/queue-depth"
@@ -104,7 +124,59 @@ sensor_failure=""
 host_sensor_failure=""
 load_1m="$(awk '{print $1}' /proc/loadavg 2>/dev/null || true)"
 available_memory_mib="$(awk '/MemAvailable:/ {print int($2 / 1024); exit}' /proc/meminfo 2>/dev/null || true)"
-disk_free_percent="$(df -P "$analytics_path" 2>/dev/null | awk 'NR == 2 {gsub(/%/, "", $5); print 100 - $5}')"
+# One collector supplies both scopes. Never infer usage from rounded df output.
+storage_state="${GRAF_POSTHOG_STORAGE_STATE_FILE:-${GRAF_POSTHOG_STORAGE_STATE_DIR:-/var/lib/graf-posthog-storage}/storage-growth-state}"
+collector="${GRAF_POSTHOG_STORAGE_COLLECTOR:-$script_dir/measure-posthog-storage-growth.sh}"
+collector_completed=1
+python3 - "$collector" <<'PY' >/dev/null 2>&1 || collector_completed=0
+import subprocess, sys
+try:
+    raise SystemExit(subprocess.run([sys.argv[1]], timeout=45, check=False).returncode)
+except (OSError, subprocess.TimeoutExpired):
+    raise SystemExit(1)
+PY
+capacity_ready=false
+input_verified=false
+budget_accepted=false
+sample_epoch=unknown
+inventory_version=unknown
+budget_version=unknown
+budget_deadline_epoch=unknown
+analytics_storage_bytes=unknown
+analytics_budget_bytes=unknown
+capacity_analytics_reasons=capacity_input_unverified
+capacity_host_reasons=""
+capacity_disable_reasons=""
+capacity_filesystems='[]'
+disk_free_percent=unknown
+analytics_free_percent=unknown
+storage_json="$(python3 -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).with_suffix(".json"))' "$storage_state")"
+capacity_fields="$(python3 "$capacity_helper" --shell --sample "$storage_json" \
+  --budget "${GRAF_POSTHOG_CAPACITY_BUDGET_FILE:-$state_dir/capacity-budget.json}")" || true
+while IFS='=' read -r key value; do
+  case "$key" in
+    capacity_ready) capacity_ready="$value" ;;
+    input_verified) input_verified="$value" ;;
+    budget_accepted) budget_accepted="$value" ;;
+    sample_epoch) sample_epoch="$value" ;;
+    inventory_version) inventory_version="$value" ;;
+    budget_version) budget_version="$value" ;;
+    budget_deadline_epoch) budget_deadline_epoch="$value" ;;
+    analytics_storage_bytes) analytics_storage_bytes="$value" ;;
+    analytics_budget_bytes) analytics_budget_bytes="$value" ;;
+    analytics_reasons) capacity_analytics_reasons="$value" ;;
+    host_reasons) capacity_host_reasons="$value" ;;
+    disable_reasons) capacity_disable_reasons="$value" ;;
+    filesystems) capacity_filesystems="$value" ;;
+    host_free_percent) disk_free_percent="$value" ;;
+    analytics_free_percent) analytics_free_percent="$value" ;;
+  esac
+done <<< "$capacity_fields"
+if (( collector_completed == 0 )); then
+  capacity_ready=false
+  input_verified=false
+  capacity_analytics_reasons="${capacity_analytics_reasons:+$capacity_analytics_reasons,}capacity_input_unverified"
+fi
 [[ "$load_1m" =~ ^[0-9]+([.][0-9]+)?$ ]] || host_sensor_failure="host_load_unavailable"
 [[ "$available_memory_mib" =~ ^[0-9]+$ ]] || host_sensor_failure="${host_sensor_failure:-host_memory_unavailable}"
 [[ "$disk_free_percent" =~ ^[0-9]+([.][0-9]+)?$ ]] || host_sensor_failure="${host_sensor_failure:-host_disk_unavailable}"
@@ -269,6 +341,29 @@ add_host_breach() {
   host_breaches="$(append_breach "$host_breaches" "$1")"
 }
 
+IFS=',' read -r -a capacity_codes <<< "$capacity_analytics_reasons"
+for code in "${capacity_codes[@]-}"; do
+  [[ -z "$code" ]] || add_analytics_breach "$code"
+done
+IFS=',' read -r -a capacity_codes <<< "$capacity_disable_reasons"
+for code in "${capacity_codes[@]-}"; do
+  [[ -z "$code" ]] || analytics_disable_reasons="$(append_breach "$analytics_disable_reasons" "$code")"
+done
+IFS=',' read -r -a capacity_codes <<< "$capacity_host_reasons"
+for code in "${capacity_codes[@]-}"; do
+  [[ -z "$code" ]] || add_host_breach "$code"
+done
+if (( protection_state_ok == 0 )); then
+  add_analytics_breach "protection_state_unverified"
+fi
+if [[ "$protection_status" != "observed" ]]; then
+  add_analytics_breach "analytics_protection_latched"
+  capacity_ready=false
+  if [[ "$protection_status" != "protected" ]]; then
+    analytics_disable_reasons="$(append_breach "$analytics_disable_reasons" "analytics_protection_latched")"
+  fi
+fi
+
 # Analytics scope is evaluated first: measurement degrades before the host does.
 if [[ -n "$sensor_failure" ]]; then
   add_analytics_disable "$sensor_failure"
@@ -285,9 +380,6 @@ elif (( queue_depth >= analytics_queue_depth_threshold )); then
 fi
 if [[ -n "$queue_growth_per_min" ]] && (( queue_growth_per_min >= analytics_queue_growth_threshold )); then
   add_analytics_disable "analytics_queue_growth"
-fi
-if [[ "$disk_free_percent" =~ ^[0-9]+$ ]] && (( disk_free_percent < analytics_disk_free_percent_threshold )); then
-  add_analytics_disable "analytics_storage"
 fi
 if (( limit_failure == 1 )); then
   add_analytics_disable "container_limits_missing"
@@ -320,9 +412,6 @@ fi
 if [[ "$available_memory_mib" =~ ^[0-9]+$ ]] && (( available_memory_mib < host_memory_mib_threshold )); then
   add_host_breach "host_memory"
 fi
-if [[ "$disk_free_percent" =~ ^[0-9]+$ ]] && (( disk_free_percent < host_disk_free_percent_threshold )); then
-  add_host_breach "host_disk"
-fi
 if (( health_failures >= host_health_failure_threshold )); then
   add_host_breach "host_product_probe_unavailable"
 fi
@@ -342,12 +431,23 @@ measurement_action="not_requested"
 rollback_status="not_requested"
 rollback_failure=0
 if [[ -n "$analytics_disable_reasons" ]]; then
-  if [[ "$auto_rollback" == "1" ]]; then
+  capacity_ready=false
+  if (( protection_state_ok == 0 )); then
+    rollback_failure=1
+    measurement_action=failed
+  elif ! protection_status="$(python3 "$capacity_helper" --protection-state "$protection_file" \
+    --protection-action protection_requested --reasons "$analytics_disable_reasons")"; then
+    rollback_failure=1
+    measurement_action=failed
+  elif [[ "$protection_status" == "protected" ]]; then
+    measurement_action=protected
+    rollback_status=already_protected
+  elif [[ "$auto_rollback" == "1" ]]; then
     rollback_status="blocked_dry_run"
     measurement_action="blocked_dry_run"
     if [[ "$dry_run" == "0" ]]; then
-      rollback_status="executed"
-      measurement_action="disabled"
+      rollback_status="failed"
+      measurement_action="failed"
       keys=(
         TWOBRAIN_PRODUCT_ANALYTICS_ENABLED
         TWOBRAIN_PRODUCT_ANALYTICS_PROVIDER_MODE
@@ -411,7 +511,7 @@ if [[ -n "$analytics_disable_reasons" ]]; then
         log_event critical "result=rollback_failed reason=$analytics_disable_reasons product_impact=measurement_gap_only"
       elif [[ -x "$app_dir/infra/docker-compose.yml" || -f "$app_dir/infra/docker-compose.yml" ]] && command -v docker >/dev/null 2>&1; then
         if docker compose --env-file "$env_file" -f "$app_dir/infra/docker-compose.yml" up -d --no-deps rec-api >/dev/null 2>&1; then
-          log_event rollback "result=executed scope=analytics reason=$analytics_disable_reasons product_impact=measurement_gap_only"
+          log_event rollback "result=restart_completed scope=analytics reason=$analytics_disable_reasons product_impact=measurement_gap_only"
         else
           rollback_status="failed"
           measurement_action="failed"
@@ -419,7 +519,8 @@ if [[ -n "$analytics_disable_reasons" ]]; then
           log_event critical "result=rollback_failed reason=$analytics_disable_reasons product_impact=measurement_gap_only"
         fi
       else
-        log_event rollback "result=executed scope=analytics reason=$analytics_disable_reasons product_impact=measurement_gap_only runtime_restart=unavailable"
+        rollback_failure=1
+        log_event critical "result=rollback_failed reason=runtime_restart_unavailable product_impact=measurement_gap_only"
       fi
       if [[ "$stop_stack" == "1" && -n "$container_ids" ]] && command -v docker >/dev/null 2>&1; then
         if docker stop $container_ids >/dev/null 2>&1; then
@@ -434,10 +535,41 @@ if [[ -n "$analytics_disable_reasons" ]]; then
       else
         printf 'posthog_guard_stack_stop=not_requested\n'
       fi
+      if (( rollback_failure == 0 )); then
+        runtime_id="$(docker compose --env-file "$env_file" -f "$app_dir/infra/docker-compose.yml" ps -q rec-api 2>/dev/null)" || runtime_id=""
+        runtime_env=""
+        if [[ -n "$runtime_id" && "$runtime_id" != *$'\n'* ]]; then
+          runtime_env="$(docker inspect --format '{{if .State.Running}}{{json .Config.Env}}{{else}}null{{end}}' "$runtime_id" 2>/dev/null)" || true
+        fi
+        if ! protection_status="$(printf '%s' "$runtime_env" | python3 "$capacity_helper" \
+          --protection-state "$protection_file" --protection-action protected)"; then
+          rollback_failure=1
+        else
+          rollback_status=executed
+          measurement_action=protected
+        fi
+      fi
+      if (( rollback_failure != 0 )); then
+        protection_status="$(python3 "$capacity_helper" --protection-state "$protection_file" \
+          --protection-action apply_failed)" || true
+        measurement_action=failed
+        rollback_status=failed
+      fi
+    else
+      protection_status="$(python3 "$capacity_helper" --protection-state "$protection_file" \
+        --protection-action blocked_dry_run)" || rollback_failure=1
     fi
   else
+    protection_status="$(python3 "$capacity_helper" --protection-state "$protection_file" \
+      --protection-action not_enabled)" || rollback_failure=1
+    measurement_action=not_enabled
     log_event alert "result=alert scope=analytics reason=$analytics_disable_reasons rollback=not_enabled product_impact=measurement_gap_only"
   fi
+fi
+
+if [[ "$protection_status" != "observed" ]]; then
+  capacity_ready=false
+  [[ "$measurement_action" != "not_requested" ]] || measurement_action="$protection_status"
 fi
 
 printf 'posthog_guard_result=%s\n' "$( [[ -n "$breach" ]] && printf alert || printf pass )"
@@ -460,11 +592,24 @@ printf 'posthog_guard_restart_count=%s\n' "$restart_count"
 printf 'posthog_guard_health_failures=%s\n' "$health_failures"
 printf 'posthog_guard_analytics_health_failures=%s\n' "$analytics_health_failures"
 printf 'posthog_guard_product_impact=measurement_gap_only\n'
+printf 'posthog_guard_capacity_ready=%s\n' "$capacity_ready"
+printf 'posthog_guard_protection_status=%s\n' "$protection_status"
 
 recorded_at="$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || printf unknown)"
 if tmp_alert_state="$(mktemp "$state_dir/alert-state.XXXXXX")"; then
   {
-    printf 'alert_state_version=1\n'
+    printf 'alert_state_version=2\n'
+    printf 'capacity_ready=%s\n' "$capacity_ready"
+    printf 'capacity_input_verified=%s\n' "$input_verified"
+    printf 'capacity_budget_accepted=%s\n' "$budget_accepted"
+    printf 'capacity_sample_epoch=%s\n' "$sample_epoch"
+    printf 'capacity_inventory_version=%s\n' "$inventory_version"
+    printf 'capacity_budget_version=%s\n' "$budget_version"
+    printf 'capacity_budget_deadline_epoch=%s\n' "$budget_deadline_epoch"
+    printf 'analytics_storage_bytes=%s\n' "$analytics_storage_bytes"
+    printf 'analytics_budget_bytes=%s\n' "$analytics_budget_bytes"
+    printf 'capacity_filesystems=%s\n' "$capacity_filesystems"
+    printf 'protection_status=%s\n' "$protection_status"
     printf 'recorded_at=%s\n' "$recorded_at"
     printf 'recorded_at_epoch=%s\n' "$(metric_or_unknown "$now_epoch")"
     printf 'result=%s\n' "$( [[ -n "$breach" ]] && printf alert || printf pass )"
@@ -490,12 +635,19 @@ if tmp_alert_state="$(mktemp "$state_dir/alert-state.XXXXXX")"; then
   } > "$tmp_alert_state"
   chmod 0640 "$tmp_alert_state" 2>/dev/null || true
   if ! mv "$tmp_alert_state" "$alert_state_file"; then
+    rollback_failure=1
     log_event warning "result=alert_state_write_failed product_impact=measurement_gap_only"
   else
     tmp_alert_state=""
   fi
+else
+  rollback_failure=1
+  log_event warning "result=alert_state_write_failed product_impact=measurement_gap_only"
 fi
 
+if (( rollback_failure != 0 )); then
+  exit 1
+fi
 if [[ -z "$breach" ]]; then
   log_event pass "result=pass containers=$container_count oom=$oom_count restarts=$restart_count"
   exit 0

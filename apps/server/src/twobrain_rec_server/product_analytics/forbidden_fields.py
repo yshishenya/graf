@@ -258,6 +258,7 @@ ANONYMOUS_AGGREGATE_ALLOWED_FIELDS = (
     "content",
     "term",
     "device_class",
+    "region",
     "referrer_category",
     "traffic_class",
     "visits",

@@ -495,14 +495,6 @@ public struct MeetingDetectionPromptDecision: Equatable, Sendable {
         self.rememberChoice = rememberChoice
     }
 
-    public var startReason: MeetingDetectionStartReason? {
-        switch action {
-        case .start: return .promptButton
-        case .timeout: return .promptTimeout
-        case .skip: return nil
-        }
-    }
-
     public var persistedRule: AutomaticRecordingRule? {
         guard rememberChoice else { return nil }
         switch action {
@@ -510,42 +502,6 @@ public struct MeetingDetectionPromptDecision: Equatable, Sendable {
         case .skip: return .never
         case .timeout: return nil
         }
-    }
-}
-
-public struct MeetingDetectionCountdown: Equatable, Sendable {
-    public let startedAt: Date
-    public let duration: TimeInterval
-    public private(set) var isResolved = false
-
-    public init(startedAt: Date, duration: TimeInterval = 8) {
-        self.startedAt = startedAt
-        self.duration = duration
-    }
-
-    public func remainingWholeSeconds(at now: Date) -> Int {
-        max(0, Int(ceil(duration - now.timeIntervalSince(startedAt))))
-    }
-
-    public mutating func resolveStart(
-        reason: MeetingDetectionStartReason,
-        at now: Date,
-        startIsTemporarilyDisabled: Bool = false
-    ) -> MeetingDetectionStartReason? {
-        guard !isResolved else { return nil }
-        guard reason == .promptTimeout || !startIsTemporarilyDisabled else { return nil }
-        if reason == .promptTimeout,
-           now.timeIntervalSince(startedAt) < duration {
-            return nil
-        }
-        isResolved = true
-        return reason
-    }
-
-    public mutating func cancel() -> Bool {
-        guard !isResolved else { return false }
-        isResolved = true
-        return true
     }
 }
 

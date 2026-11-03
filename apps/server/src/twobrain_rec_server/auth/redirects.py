@@ -1,6 +1,17 @@
 from __future__ import annotations
 
+import re
 from urllib.parse import unquote, urlsplit
+
+
+def safe_billing_return_path(value: str | None) -> str | None:
+    """Keep only fresh billing GET choices; never carry a purchase or authority."""
+    if value is not None and re.fullmatch(
+        r"/billing/(?:checkout\?cycle=(?:month|year)|storage\?package_count=(?:0|[1-9][0-9]?)|subscription)",
+        value,
+    ):
+        return value
+    return None
 
 
 def safe_first_party_path(value: str | None) -> str | None:

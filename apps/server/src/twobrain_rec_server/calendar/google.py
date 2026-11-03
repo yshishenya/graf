@@ -532,7 +532,24 @@ def _normalize_google_event(item: dict[str, Any], *, calendar_id: str) -> dict[s
         "recurrence_rule": {"rules": item.get("recurrence", [])}
         if item.get("recurrence")
         else None,
-        "provider_extras": {"google_event_type": item.get("eventType", "default")},
+        "provider_extras": {
+            "google_event_type": item.get("eventType", "default"),
+            # Persist positive provider proof inside the existing protected
+            # owner envelope. A truncated/guest roster cannot authorize AUTO.
+            "google_attendees_complete": (
+                isinstance(item.get("attendees"), list)
+                and item.get("attendeesOmitted", False) is False
+                and all(
+                    isinstance(attendee, dict)
+                    and attendee.get("additionalGuests", 0) == 0
+                    for attendee in item.get("attendees", [])
+                )
+            ),
+            "google_attendees_omitted": item.get("attendeesOmitted", False) is not False,
+            "google_organizer_self": (
+                isinstance(organizer, dict) and organizer.get("self") is True
+            ),
+        },
         "source_updated_at": item.get("updated"),
         "source_created_at": item.get("created"),
     }

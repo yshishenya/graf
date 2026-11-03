@@ -1,397 +1,282 @@
+"""Strict operator-provided YooKassa CSV profile; only safe metadata leaves parsing."""
 from __future__ import annotations
 
 import csv
 import hashlib
 import io
+import json
+import os
 import re
-from dataclasses import dataclass
-from datetime import date
+import stat
+from collections import Counter
+from dataclasses import dataclass, field
+from datetime import date, datetime
+from pathlib import Path
 
-_SAFE_META = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
-REGISTRY_KINDS = frozenset(("payments", "refunds"))
+PROFILE = "yookassa-ru-csv-v1"
+KINDS = ("payments", "refunds")
+MAX_FILES = 64
+MAX_FILE_BYTES = 16 * 1024 * 1024
+MAX_TOTAL_BYTES = 64 * 1024 * 1024
+PART_ROWS = 10_000
+CSV_FIELD_CHARS = 131_072
+COLUMNS = {
+    "payments": ("Идентификатор платежа", "Сумма платежа", "Валюта платежа", "Время платежа", "Тип платежа"),
+    "refunds": ("Идентификатор возврата", "Идентификатор платежа", "Сумма возврата", "Валюта возврата", "Время возврата"),
+}
+LABELS = {"payments": ("ПЛАТЕЖЕЙ", "платежей", "принятых платежей"),
+          "refunds": ("ВОЗВРАТОВ", "возвратов", "возвратов")}
+IDENTITY = r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}"
+MONEY = r"(?:0|[1-9][0-9]{0,15})\.[0-9]{2}"
+COUNT = r"(?:0|[1-9][0-9]{0,5})"
+EXTRA_FOOTERS = ("Сумма принятых платежей за вычетом комиссии и НДС",
+                 "Сумма комиссии без НДС за принятые платежи",
+                 "Сумма НДС с комиссии за принятые платежи")
+# Every validation rule is pinned by this versioned description and its fingerprint.
+CONFIG = {
+    "profile": PROFILE, "schema_version": 1, "validation_revision": 2,
+    "encoding": "strict utf-8-sig", "delimiter": ";", "language": "ru",
+    "columns": COLUMNS, "labels": LABELS, "identity": IDENTITY, "money": MONEY, "count": COUNT,
+    "date": "ISO filename/header; dd.MM.yyyy HH:mm:ss provider Europe/Moscow operation day",
+    "framing": "title contract(shop), date, trimmed unique headers, exact row width, only empty CSV rows skipped, gross/count footer, matching contract",
+    "footer": "total and any present payment-type gross/count equal rows; duplicate/unknown footer rejected",
+    "ignored_footer_labels": EXTRA_FOOTERS,
+    "ignored_footer_format": "payments only; optional type; exact two decimals with dot/comma and RUB; no duplicate labels",
+    "multipart": "unique 1..N, exactly one last, nonlast=10000, last=1..10000; no single+parts",
+    "empty": "present single zero-row/zero-footer file plus expected-empty kind; absence is missing",
+    "filename": "yoomoney-kind-shop-YYYY-MM-DD[-part-N[-last]].csv; shop numeric 1..32; N=1..64",
+    "duplicates": "unique operation across all parts per kind; multiple refunds per payment allowed",
+    "max_files": MAX_FILES, "max_file_bytes": MAX_FILE_BYTES, "max_total_bytes": MAX_TOTAL_BYTES,
+    "part_rows": PART_ROWS, "max_header_chars": 128, "max_columns": 128,
+    "max_contract_chars": 128, "max_type_chars": 32,
+    "max_csv_field_chars": CSV_FIELD_CHARS,
+    "file_type": "regular only; nonblocking open; fstat before bounded read",
+}
+
+
+def canonical_hash(value: object) -> str:
+    return hashlib.sha256(json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+CONFIG_FINGERPRINT = canonical_hash(CONFIG)
 
 
 class RegistryInputError(ValueError):
-    pass
+    """Only fixed codes, never input text, escape this boundary."""
 
 
 @dataclass(frozen=True, slots=True)
-class RegistrySummary:
-    registry_kind: str
-    environment: str
+class ParsedRegistry:
+    kind: str
+    index: int
+    last: bool
+    multipart: bool
+    expected_empty: bool
+    sha256: str
     row_count: int
-    content_sha256: str
-    header_sha256: str
-    shop_id: str | None = None
-    report_date: str | None = None
-    schema_version: str | None = None
-    language: str | None = None
-    config_version: str | None = None
-    part_name: str | None = None
-    expected_empty: bool = False
+    identities: frozenset[str] = field(repr=False)
+
+    def metadata(self) -> dict:
+        return {name: getattr(self, name) for name in
+                ("kind", "index", "last", "multipart", "expected_empty", "sha256", "row_count")}
 
 
 @dataclass(frozen=True, slots=True)
-class RegistryCompleteness:
-    registry_kind: str
-    required_parts: tuple[str, ...]
-    observed_parts: tuple[str, ...]
-    expected_empty_parts: tuple[str, ...]
-    missing_parts: tuple[str, ...]
-    duplicate_parts: tuple[str, ...]
-    completeness_sha256: str
+class RegistryBundle:
+    parts: tuple[dict, ...]
+    gaps: tuple[tuple[str, int, str], ...]
+    input_digest: str
 
     @property
-    def complete(self) -> bool:
-        return not self.missing_parts and not self.duplicate_parts
+    def files_complete(self) -> bool:
+        return not self.gaps
 
 
-@dataclass(frozen=True, slots=True)
-class RegistryGap:
-    registry_kind: str
-    environment: str
-    report_date: str
-    reason: str
-    owner: str
-    evidence_sha256: str
-    state: str = "detected"
-    severity: str = "high"
+def _money(value: str) -> int:
+    if not re.fullmatch(MONEY, value):
+        raise RegistryInputError("invalid_money")
+    whole, fraction = value.split(".")
+    return int(whole) * 100 + int(fraction)
 
 
-@dataclass(frozen=True, slots=True)
-class RegistryPart:
-    """One operator-provided report part; content is consumed, never returned."""
-
-    part_name: str
-    content: str
-    expected_empty: bool = False
-
-
-@dataclass(frozen=True, slots=True)
-class RegistryImport:
-    """Metadata-only result of importing one payments or refunds report set."""
-
-    summaries: tuple[RegistrySummary, ...]
-    completeness: RegistryCompleteness
-    gaps: tuple[RegistryGap, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class RegistryImportBundle:
-    """Metadata-only result for the required independent daily report sets.
-
-    YooKassa exports payments and refunds as separate report kinds.  Keeping
-    the two imports as named fields makes it impossible for a caller to
-    accidentally treat one combined CSV as a complete accounting day.  The
-    original report rows are never returned.
-    """
-
-    payments: RegistryImport
-    refunds: RegistryImport
-
-    @property
-    def gaps(self) -> tuple[RegistryGap, ...]:
-        return self.payments.gaps + self.refunds.gaps
-
-    @property
-    def complete(self) -> bool:
-        return self.payments.completeness.complete and self.refunds.completeness.complete and not self.gaps
-
-
-def summarize_registry_csv(
-    content: str,
-    *,
-    registry_kind: str,
-    environment: str,
-    required_columns: tuple[str, ...],
-    shop_id: str | None = None,
-    report_date: str | None = None,
-    schema_version: str | None = None,
-    language: str | None = None,
-    config_version: str | None = None,
-    part_name: str | None = None,
-    expected_empty: bool = False,
-) -> RegistrySummary:
-    """Validate an official CSV shape and retain only stable metadata."""
-    if not registry_kind or not environment or not content:
-        raise RegistryInputError("registry metadata or content is missing")
-    if registry_kind not in REGISTRY_KINDS:
-        raise RegistryInputError("registry kind must be payments or refunds")
-    _validate_meta("environment", environment)
-    for name, value in (
-        ("shop_id", shop_id),
-        ("schema_version", schema_version),
-        ("language", language),
-        ("config_version", config_version),
-        ("part_name", part_name),
-    ):
-        if value is not None:
-            _validate_meta(name, value)
-    if report_date is not None:
-        try:
-            date.fromisoformat(report_date)
-        except ValueError as exc:
-            raise RegistryInputError("registry report date is invalid") from exc
+def parse_registry(content: bytes, *, filename: str, kind: str, shop_id: str,
+                   report_date: date, expected_empty: bool = False) -> ParsedRegistry:
+    if csv.field_size_limit() != CSV_FIELD_CHARS:
+        raise RegistryInputError("csv_configuration_mismatch")
+    if kind not in KINDS or not re.fullmatch(r"[0-9]{1,32}", shop_id):
+        raise RegistryInputError("invalid_scope")
+    match = re.fullmatch(rf"yoomoney-{kind}-{shop_id}-{report_date.isoformat()}(?:-part-([1-9][0-9]?)(-last)?)?\.csv", filename)
+    if match is None:
+        raise RegistryInputError("invalid_filename")
+    multipart = match[1] is not None
+    index = int(match[1] or 1)
+    last = not multipart or bool(match[2])
+    if index > MAX_FILES or len(content) > MAX_FILE_BYTES:
+        raise RegistryInputError("input_limit")
     try:
-        reader = csv.reader(io.StringIO(content, newline=""), strict=True)
-        header = tuple(next(reader))
-    except (csv.Error, StopIteration) as exc:
-        raise RegistryInputError("registry header is invalid") from exc
-    if not header or len(set(header)) != len(header) or any(not name.strip() for name in header):
-        raise RegistryInputError("registry header is invalid")
-    missing = set(required_columns).difference(header)
-    if missing:
-        raise RegistryInputError("registry required columns are missing")
-    row_count = 0
-    try:
-        for row in reader:
-            if not row or all(not value.strip() for value in row):
+        rows = iter(csv.reader(io.StringIO(content.decode("utf-8-sig"), newline=""), delimiter=";", strict=True))
+        rows = (row for row in rows if row)
+        title, day, header = next(rows), next(rows), next(rows)
+        upper, label, gross_label = LABELS[kind]
+        if len(title) != 1 or len(day) != 1:
+            raise RegistryInputError("invalid_framing")
+        title_match = re.fullmatch(rf"РЕЕСТР {upper} ПО ДОГОВОРУ ([^\x00-\x1f;]{{1,128}}) \({shop_id}\)", title[0])
+        if title_match is None or day[0] != f"Дата {label}: {report_date.isoformat()}":
+            raise RegistryInputError("scope_mismatch")
+        header = [name.strip() for name in header]
+        if (len(header) > 128 or len(set(header)) != len(header)
+                or any(not name.strip() or len(name) > 128 for name in header)
+                or not set(COLUMNS[kind]).issubset(header)):
+            raise RegistryInputError("invalid_columns")
+        positions = [header.index(column) for column in COLUMNS[kind]]
+        identities: set[str] = set()
+        total = 0
+        type_counts: Counter[str] = Counter()
+        type_gross: Counter[str] = Counter()
+        footer: dict[str, int] = {}
+        ignored_footer: set[str] = set()
+        in_footer = False
+        ended = False
+        for row in rows:
+            line = row[0]
+            is_footer = len(row) == 1 and line.startswith(("Сумма ", "Число ", "По договору "))
+            if in_footer or is_footer:
+                in_footer = True
+                if len(row) != 1 or ended:
+                    raise RegistryInputError("invalid_footer")
+                if line.startswith("По договору "):
+                    if line != f"По договору {title_match[1]}":
+                        raise RegistryInputError("scope_mismatch")
+                    ended = True
+                    continue
+                found = re.fullmatch(rf"(Сумма {gross_label}(?: типа [A-Za-z0-9_-]{{1,32}})?): ({MONEY}) RUB", line)
+                number = re.fullmatch(rf"(Число {label}(?: типа [A-Za-z0-9_-]{{1,32}})?): ({COUNT})", line)
+                if found or number:
+                    key, value = (found or number).groups()
+                    if " типа " in key and kind != "payments":
+                        raise RegistryInputError("invalid_footer")
+                    if key in footer:
+                        raise RegistryInputError("duplicate_footer")
+                    footer[key] = _money(value) if found else int(value)
+                else:
+                    extra = re.fullmatch(rf"({'|'.join(map(re.escape, EXTRA_FOOTERS))})( типа [A-Za-z0-9_-]{{1,32}})?: ((?:0|[1-9][0-9]{{0,15}})[.,][0-9]{{2}}) RUB", line)
+                    if kind != "payments" or extra is None:
+                        raise RegistryInputError("invalid_footer")
+                    key = extra[1] + (extra[2] or "")
+                    if key in ignored_footer:
+                        raise RegistryInputError("duplicate_footer")
+                    ignored_footer.add(key)
                 continue
             if len(row) != len(header):
-                raise RegistryInputError("registry row width is invalid")
-            row_count += 1
-    except csv.Error as exc:
-        raise RegistryInputError("registry row is invalid") from exc
-    normalized = content.replace("\r\n", "\n").replace("\r", "\n").encode("utf-8")
-    header_bytes = "\x1f".join(header).encode("utf-8")
-    return RegistrySummary(
-        registry_kind=registry_kind,
-        environment=environment,
-        row_count=row_count,
-        content_sha256=hashlib.sha256(normalized).hexdigest(),
-        header_sha256=hashlib.sha256(header_bytes).hexdigest(),
-        shop_id=shop_id,
-        report_date=report_date,
-        schema_version=schema_version,
-        language=language,
-        config_version=config_version,
-        part_name=part_name,
-        expected_empty=expected_empty,
-    )
+                raise RegistryInputError("invalid_row_width")
+            values = [row[p] for p in positions]
+            identity = values[0]
+            identity_values = values[:1] if kind == "payments" else values[:2]
+            if any(not re.fullmatch(IDENTITY, value) for value in identity_values):
+                raise RegistryInputError("invalid_identity")
+            if identity in identities:
+                raise RegistryInputError("duplicate_identity")
+            amount, currency, timestamp = values[1:4] if kind == "payments" else values[2:5]
+            minor = _money(amount)
+            if minor <= 0 or currency != "RUB":
+                raise RegistryInputError("invalid_currency_or_amount")
+            if not re.fullmatch(r"[0-9]{2}\.[0-9]{2}\.[0-9]{4} [0-9]{2}:[0-9]{2}:[0-9]{2}", timestamp):
+                raise RegistryInputError("invalid_provider_time")
+            try:
+                provider_time = datetime.strptime(timestamp, "%d.%m.%Y %H:%M:%S")
+            except ValueError:
+                raise RegistryInputError("invalid_provider_time") from None
+            if provider_time.date() != report_date:
+                raise RegistryInputError("provider_day_mismatch")
+            if kind == "payments":
+                payment_type = values[4]
+                if not re.fullmatch(r"[A-Za-z0-9_-]{1,32}", payment_type):
+                    raise RegistryInputError("invalid_payment_type")
+                type_counts[payment_type] += 1
+                type_gross[payment_type] += minor
+            identities.add(identity)
+            total += minor
+            if len(identities) > PART_ROWS:
+                raise RegistryInputError("row_limit")
+        count = len(identities)
+        required = {f"Сумма {gross_label}": total, f"Число {label}": count}
+        if any(footer.get(key) != value for key, value in required.items()):
+            raise RegistryInputError("footer_mismatch")
+        for key, value in footer.items():
+            if " типа " in key:
+                payment_type = key.split(" типа ")[1]
+                expected = type_gross[payment_type] if key.startswith("Сумма ") else type_counts[payment_type]
+                if value != expected:
+                    raise RegistryInputError("footer_type_mismatch")
+        if (expected_empty != (count == 0)) or (multipart and count == 0):
+            raise RegistryInputError("empty_mismatch")
+        if multipart and not last and count != PART_ROWS:
+            raise RegistryInputError("nonlast_row_count")
+    except (UnicodeError, csv.Error, StopIteration):
+        raise RegistryInputError("invalid_csv") from None
+    return ParsedRegistry(kind, index, last, multipart, expected_empty,
+                          hashlib.sha256(content).hexdigest(), count, frozenset(identities))
 
 
-def import_registry_reports(
-    parts: tuple[RegistryPart, ...],
-    *,
-    registry_kind: str,
-    environment: str,
-    required_parts: tuple[str, ...],
-    required_columns: tuple[str, ...],
-    report_date: str,
-    owner: str,
-    shop_id: str | None = None,
-    schema_version: str | None = None,
-    language: str | None = None,
-    config_version: str | None = None,
-) -> RegistryImport:
-    """Validate a complete official report set and emit safe reconciliation evidence.
-
-    The caller may provide multipart payments *or* refunds reports, but never a
-    combined set. CSV bytes are parsed only long enough to calculate row and
-    content/header hashes; the returned object contains no report rows.
-    """
-    if not parts:
-        raise RegistryInputError("registry report parts are missing")
-    summaries: list[RegistrySummary] = []
-    for part in parts:
-        if not isinstance(part, RegistryPart):
-            raise RegistryInputError("registry report part is invalid")
-        _validate_meta("part_name", part.part_name)
-        summary = summarize_registry_csv(
-            part.content,
-            registry_kind=registry_kind,
-            environment=environment,
-            required_columns=required_columns,
-            shop_id=shop_id,
-            report_date=report_date,
-            schema_version=schema_version,
-            language=language,
-            config_version=config_version,
-            part_name=part.part_name,
-            expected_empty=part.expected_empty,
-        )
-        if part.expected_empty and summary.row_count:
-            raise RegistryInputError("expected-empty registry part contains rows")
-        summaries.append(summary)
-
-    completeness = assess_registry_completeness(
-        registry_kind=registry_kind,
-        required_parts=required_parts,
-        observed_parts=tuple(summary.part_name for summary in summaries if summary.part_name is not None),
-        expected_empty_parts=tuple(
-            summary.part_name
-            for summary in summaries
-            if summary.expected_empty and summary.part_name is not None
-        ),
-    )
-    gaps: list[RegistryGap] = []
-    if completeness.missing_parts:
-        gaps.append(
-            build_registry_gap(
-                registry_kind=registry_kind,
-                environment=environment,
-                report_date=report_date,
-                reason="missing_part",
-                owner=owner,
-                evidence_sha256=completeness.completeness_sha256,
-            )
-        )
-    if completeness.duplicate_parts:
-        gaps.append(
-            build_registry_gap(
-                registry_kind=registry_kind,
-                environment=environment,
-                report_date=report_date,
-                reason="duplicate_part",
-                owner=owner,
-                evidence_sha256=completeness.completeness_sha256,
-            )
-        )
-    return RegistryImport(tuple(summaries), completeness, tuple(gaps))
+def registry_bundle(parts: tuple[ParsedRegistry, ...], *, environment: str, shop_id: str,
+                    report_date: date, expected_empty: frozenset[str]) -> RegistryBundle:
+    if environment not in {"test", "production"} or not re.fullmatch(r"[0-9]{1,32}", shop_id) or not expected_empty.issubset(KINDS):
+        raise RegistryInputError("invalid_scope")
+    if len(parts) > MAX_FILES:
+        raise RegistryInputError("input_limit")
+    gaps: list[tuple[str, int, str]] = []
+    ordered = sorted(parts, key=lambda p: (p.kind, p.index))
+    for kind in KINDS:
+        selected = [p for p in ordered if p.kind == kind]
+        if not selected:
+            gaps.append((kind, 0, "missing_kind"))
+            continue
+        if any(p.expected_empty != (kind in expected_empty) for p in selected):
+            raise RegistryInputError("empty_mismatch")
+        if len({p.index for p in selected}) != len(selected) or (len(selected) > 1 and any(not p.multipart for p in selected)):
+            raise RegistryInputError("duplicate_part")
+        identities: set[str] = set()
+        for part in selected:
+            if identities.intersection(part.identities):
+                raise RegistryInputError("duplicate_identity")
+            identities.update(part.identities)
+        lasts = [p.index for p in selected if p.last]
+        if len(lasts) > 1 or (lasts and selected[-1].index > lasts[0]):
+            raise RegistryInputError("extra_part")
+        if not lasts:
+            gaps.append((kind, 0, "missing_last"))
+        final_index = lasts[0] if lasts else selected[-1].index
+        observed = {p.index for p in selected}
+        for index in range(1, final_index + 1):
+            if index not in observed:
+                gaps.append((kind, index, "missing_part"))
+    metadata = tuple(p.metadata() for p in ordered)
+    digest = canonical_hash({"scope": [environment, shop_id, report_date.isoformat()],
+                             "config": CONFIG_FINGERPRINT, "expected_empty": sorted(expected_empty),
+                             "parts": [{k: p[k] for k in ("kind", "index", "last", "expected_empty", "sha256")} for p in metadata]})
+    return RegistryBundle(metadata, tuple(gaps), digest)
 
 
-def import_registry_bundle(
-    *,
-    payments: tuple[RegistryPart, ...],
-    refunds: tuple[RegistryPart, ...],
-    environment: str,
-    report_date: str,
-    owner: str,
-    payments_required_parts: tuple[str, ...],
-    refunds_required_parts: tuple[str, ...],
-    payments_required_columns: tuple[str, ...],
-    refunds_required_columns: tuple[str, ...],
-    shop_id: str | None = None,
-    schema_version: str | None = None,
-    language: str | None = None,
-    config_version: str | None = None,
-) -> RegistryImportBundle:
-    """Import the two independent daily registry sets as one safe result.
-
-    The function deliberately accepts separate ``payments`` and ``refunds``
-    arguments and validates both with the same shop/environment/report
-    metadata.  A caller must provide an explicit (possibly expected-empty)
-    report part for each kind; omitting one kind cannot be mistaken for a
-    complete day.  Only hashes, counts and owned metadata gaps survive.
-    """
-    if not payments or not refunds:
-        raise RegistryInputError("payments and refunds registry sets are required")
-    payment_import = import_registry_reports(
-        payments,
-        registry_kind="payments",
-        environment=environment,
-        required_parts=payments_required_parts,
-        required_columns=payments_required_columns,
-        report_date=report_date,
-        owner=owner,
-        shop_id=shop_id,
-        schema_version=schema_version,
-        language=language,
-        config_version=config_version,
-    )
-    refund_import = import_registry_reports(
-        refunds,
-        registry_kind="refunds",
-        environment=environment,
-        required_parts=refunds_required_parts,
-        required_columns=refunds_required_columns,
-        report_date=report_date,
-        owner=owner,
-        shop_id=shop_id,
-        schema_version=schema_version,
-        language=language,
-        config_version=config_version,
-    )
-    return RegistryImportBundle(payments=payment_import, refunds=refund_import)
-
-
-def registry_parts_complete(*, required_parts: tuple[str, ...], observed_parts: set[str]) -> bool:
-    if not required_parts or any(not part for part in required_parts):
-        raise RegistryInputError("registry part names are invalid")
-    return set(required_parts).issubset(observed_parts)
-
-
-def assess_registry_completeness(
-    *,
-    registry_kind: str,
-    required_parts: tuple[str, ...],
-    observed_parts: tuple[str, ...] | set[str],
-    expected_empty_parts: tuple[str, ...] = (),
-) -> RegistryCompleteness:
-    """Return deterministic completeness evidence without retaining report rows."""
-    if registry_kind not in REGISTRY_KINDS:
-        raise RegistryInputError("registry kind must be payments or refunds")
-    if (
-        not required_parts
-        or len(set(required_parts)) != len(required_parts)
-        or any(not _SAFE_META.fullmatch(part) for part in required_parts)
-        or any(not _SAFE_META.fullmatch(part) for part in observed_parts)
-        or any(not _SAFE_META.fullmatch(part) for part in expected_empty_parts)
-    ):
-        raise RegistryInputError("registry part names are invalid")
-    observed = tuple(sorted(observed_parts))
-    expected_empty = tuple(sorted(expected_empty_parts))
-    duplicates = tuple(sorted({part for part in observed if observed.count(part) > 1}))
-    missing = tuple(sorted(set(required_parts) - set(observed) - set(expected_empty)))
-    if set(expected_empty) - set(required_parts):
-        raise RegistryInputError("expected-empty part is not declared")
-    canonical = "\n".join(
-        (
-            registry_kind,
-            "required=" + ",".join(sorted(required_parts)),
-            "observed=" + ",".join(observed),
-            "expected_empty=" + ",".join(expected_empty),
-            "missing=" + ",".join(missing),
-            "duplicates=" + ",".join(duplicates),
-        )
-    ).encode("utf-8")
-    return RegistryCompleteness(
-        registry_kind=registry_kind,
-        required_parts=tuple(sorted(required_parts)),
-        observed_parts=observed,
-        expected_empty_parts=expected_empty,
-        missing_parts=missing,
-        duplicate_parts=duplicates,
-        completeness_sha256=hashlib.sha256(canonical).hexdigest(),
-    )
-
-
-def build_registry_gap(
-    *,
-    registry_kind: str,
-    environment: str,
-    report_date: str,
-    reason: str,
-    owner: str,
-    evidence_sha256: str,
-    severity: str = "high",
-) -> RegistryGap:
-    """Create owned metadata-only gap evidence; provider data never enters it."""
-    if registry_kind not in REGISTRY_KINDS:
-        raise RegistryInputError("registry kind must be payments or refunds")
-    _validate_meta("environment", environment)
-    _validate_meta("owner", owner)
-    try:
-        date.fromisoformat(report_date)
-    except ValueError as exc:
-        raise RegistryInputError("registry report date is invalid") from exc
-    if not re.fullmatch(r"[a-z][a-z0-9_.:-]{0,159}", reason):
-        raise RegistryInputError("registry gap reason is invalid")
-    if not re.fullmatch(r"[0-9a-f]{64}", evidence_sha256):
-        raise RegistryInputError("registry evidence hash is invalid")
-    if severity not in {"low", "medium", "high", "critical"}:
-        raise RegistryInputError("registry gap severity is invalid")
-    return RegistryGap(
-        registry_kind=registry_kind,
-        environment=environment,
-        report_date=report_date,
-        reason=reason.strip(),
-        owner=owner,
-        evidence_sha256=evidence_sha256,
-        severity=severity,
-    )
-
-
-def _validate_meta(name: str, value: str) -> None:
-    if not _SAFE_META.fullmatch(value):
-        raise RegistryInputError(f"registry {name} is invalid")
+def read_registry_files(paths: dict[str, list[Path]], *, environment: str, shop_id: str,
+                        report_date: date, expected_empty: frozenset[str]) -> RegistryBundle:
+    """Caller must pass the database identity guard before touching any path."""
+    if sum(len(values) for values in paths.values()) > MAX_FILES:
+        raise RegistryInputError("input_limit")
+    parts = []
+    total_bytes = 0
+    for kind in KINDS:
+        for path in paths.get(kind, []):
+            try:
+                with os.fdopen(os.open(path, os.O_RDONLY | os.O_NONBLOCK), "rb") as source:
+                    if not stat.S_ISREG(os.fstat(source.fileno()).st_mode):
+                        raise RegistryInputError("input_unreadable")
+                    content = source.read(min(MAX_FILE_BYTES, MAX_TOTAL_BYTES - total_bytes) + 1)
+            except OSError:
+                raise RegistryInputError("input_unreadable") from None
+            total_bytes += len(content)
+            if len(content) > MAX_FILE_BYTES or total_bytes > MAX_TOTAL_BYTES:
+                raise RegistryInputError("input_limit")
+            parts.append(parse_registry(content, filename=path.name, kind=kind, shop_id=shop_id,
+                                        report_date=report_date, expected_empty=kind in expected_empty))
+    return registry_bundle(tuple(parts), environment=environment, shop_id=shop_id,
+                           report_date=report_date, expected_empty=expected_empty)

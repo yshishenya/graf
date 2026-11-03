@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="ru" class="article-document">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ page_title }}</title>
+  {% include "public/_meta.html" %}
+  <meta name="description" content="{{ social_description }}">
+  <link rel="icon" href="{{ cabinet_static_asset_url('favicon.ico') }}">
+  <link rel="stylesheet" href="{{ public_static_asset_url('landing.css') }}">
+  <link rel="stylesheet" href="{{ public_static_asset_url('content.css') }}">
+  <link rel="stylesheet" href="{{ public_static_asset_url('article.css') }}">
+  <link rel="stylesheet" href="{{ public_static_asset_url('content-header.css') }}">
+</head>
+<body class="guides-page quality-page article-page">
+  <a class="skip-link" href="#main">К содержанию</a>
+  {% include "public/_content_header.html" %}
+  <main id="main">
+    <section class="guides-intro section-dark"><div class="quality-width">
+      <p class="eyebrow">Помощь · ГРАФ</p>
+      <h1>Помощь с записью на Mac</h1>
+      <p class="guides-lead">Начните с симптома и проверьте звук до следующей важной встречи.</p>
+    </div></section>
+    <section class="quality-body section-light" aria-label="Проблемы записи"><div class="quality-width">
+      {% for help_page in help_pages %}
+      <h2><a href="{{ help_page.path }}">{{ help_page.title }}</a></h2>
+      <p>{{ help_page.summary }}</p>
+      {% endfor %}
+      <p>Для первой настройки и проверки всего пути прочитайте <a href="/guides/zapis-vstrechi-na-mac-bez-bota">руководство по записи встречи на Mac</a>.</p>
+    </div></section>
+  </main>
+  <footer class="guides-footer"><div class="shell"><p>ГРАФ · Запись и итоги встреч</p><nav aria-label="Служебные ссылки"><a href="/help">Помощь</a><a href="/guides">Все руководства</a><a href="/privacy">Политика конфиденциальности</a></nav></div></footer>
+</body>
+</html>

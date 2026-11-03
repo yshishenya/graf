@@ -35,6 +35,8 @@ from twobrain_rec_server.public.analytics import (
     normalize_public_analytics_consent,
 )
 
+pytestmark = pytest.mark.usefixtures("public_basis_register")
+
 ROOT = Path(__file__).resolve().parents[2]
 HARNESS = ROOT / "tests" / "browser" / "public-analytics-consent.test.cjs"
 MODAL_HARNESS = ROOT / "tests" / "browser" / "public-analytics-consent-modal.test.cjs"
@@ -74,6 +76,9 @@ def _event_payload(**overrides: object) -> dict:
         "surface": "public_download",
         "view_id": VIEW_ID,
         "consent_state": "accepted_all",
+        "consent_id": "a4e71874-d03e-49d2-a14f-98da121655e9",
+        "consent_epoch": "0b25ac98-b422-45fd-9d46-ce3f1bfc7bf4",
+        "consent_copy_version": PUBLIC_ANALYTICS_CONSENT_VERSION,
         "consent_categories": list(PUBLIC_ANALYTICS_CONSENT_CATEGORIES),
     }
     payload.update(overrides)
@@ -161,6 +166,17 @@ def test_the_rendered_consent_modal_offers_refusal_as_the_same_single_action() -
         assert f"ok {scenario}" in completed.stdout, scenario
 
 
+@pytest.mark.skipif(NODE is None or NODE_MODULES is None, reason="Node and Playwright required")
+def test_real_cookieconsent_uses_server_epochs_and_explicit_retry() -> None:
+    completed = subprocess.run(
+        [NODE, str(ROOT / "tests/browser/public-consent-control.test.cjs")],
+        capture_output=True, text=True, check=False, cwd=str(ROOT),
+        env={**os.environ, "GRAF_NODE_MODULES": NODE_MODULES}, timeout=180,
+    )
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert "public_consent_control_browser=pass" in completed.stdout
+
+
 def test_relay_refuses_an_event_without_a_valid_consent_decision(
     postgres_seeded_database_url: str,
     monkeypatch: pytest.MonkeyPatch,
@@ -171,7 +187,7 @@ def test_relay_refuses_an_event_without_a_valid_consent_decision(
 
     import twobrain_rec_server.public.web as public_web
 
-    def _record(settings: Settings, event: dict) -> dict:
+    def _record(settings: Settings, event: dict, **kwargs) -> dict:
         delivered.append(event)
         return {
             "provider": "posthog",
@@ -183,6 +199,9 @@ def test_relay_refuses_an_event_without_a_valid_consent_decision(
     monkeypatch.setattr(public_web, "deliver_public_analytics_event", _record)
 
     refused_payloads = {
+        "missing_revision": {k: v for k, v in _event_payload().items() if k != "consent_copy_version"},
+        "old_revision": _event_payload(consent_copy_version="2026-09-15.1"),
+        "unknown_revision": _event_payload(consent_copy_version="unknown"),
         "necessary_only": _event_payload(
             consent_state="necessary_only", consent_categories=["necessary"]
         ),
@@ -218,6 +237,7 @@ def test_relay_refuses_an_event_without_a_valid_consent_decision(
     assert len(delivered) == 1
     assert delivered[0]["event_name"] == EVENT_NAME
     assert delivered[0]["consent_state"] == "accepted_all"
+    assert "consent_copy_version" not in delivered[0]["properties"]
     assert [response.status_code for response in after_grant] == [403] * len(refused_payloads)
 
 
@@ -234,7 +254,7 @@ def test_relay_refuses_forbidden_material_even_with_consent(
     monkeypatch.setattr(
         public_web,
         "deliver_public_analytics_event",
-        lambda settings, event: delivered.append(event) or {"delivered": True},
+        lambda settings, event, **kwargs: delivered.append(event) or {"delivered": True},
     )
 
     rejected_payloads = {
@@ -280,7 +300,7 @@ def test_signup_and_login_page_views_cannot_carry_a_typed_value(
     monkeypatch.setattr(
         public_web,
         "deliver_public_analytics_event",
-        lambda settings, event: delivered.append(event) or {"delivered": True},
+        lambda settings, event, **kwargs: delivered.append(event) or {"delivered": True},
     )
 
     typed_email = "visitor-273@example.test"
@@ -425,3 +445,87 @@ def test_a_damaged_consent_record_is_read_as_a_denial() -> None:
     )
     assert granted["state"] == "accepted_all"
     assert granted["analytics_allowed"] is True
+
+
+@pytest.mark.parametrize("revision", ["2026-09-15.1", "", "unknown"])
+def test_relay_refuses_stale_server_revision_before_delivery(
+    postgres_seeded_database_url: str,
+    monkeypatch: pytest.MonkeyPatch,
+    revision: str,
+) -> None:
+    import twobrain_rec_server.public.web as public_web
+
+    settings = _analytics_settings(postgres_seeded_database_url).model_copy(
+        update={"public_analytics_consent_copy_version": revision}
+    )
+    delivered: list[dict] = []
+    monkeypatch.setattr(
+        public_web, "deliver_public_analytics_event",
+        lambda settings, event, **kwargs: delivered.append(event) or {"delivered": True},
+    )
+    with TestClient(create_app(settings)) as client:
+        response = client.post(PUBLIC_ANALYTICS_CAPTURE_ENDPOINT, json=_event_payload())
+    assert response.status_code == 403
+    assert response.json()["reason"] == "consent_revision_mismatch"
+    assert delivered == []
+
+
+def test_relay_and_worker_reread_current_public_basis(public_basis_register, postgres_seeded_database_url, monkeypatch):
+    from types import SimpleNamespace
+
+    import twobrain_rec_server.public.analytics as analytics
+    import twobrain_rec_server.public.web as public_web
+
+    settings = _analytics_settings(postgres_seeded_database_url)
+    app = create_app(settings)
+    sent = []
+    class Client:
+        def capture_event(self, **kwargs):
+            sent.append(kwargs)
+            return SimpleNamespace(provider="posthog", status="live_safe_sent", retryable=False)
+    monkeypatch.setattr(analytics.PostHogClientWrapper, "from_settings", lambda settings: Client())
+    header = "legal_basis_state_version=1\n"
+    withdrawal = ("basis_withdrawal level=provider_analytics state=withdrawn "
+                  "withdrawn_at=2026-09-18 reason=consent_withdrawn_by_visitors evidence_ref=ev-273-test\n")
+    with TestClient(app) as client:
+        assert client.post(PUBLIC_ANALYTICS_CAPTURE_ENDPOINT, json=_event_payload()).status_code == 202
+        assert len(sent) == 1
+        for text, reason in ((header + withdrawal, "public_basis_withdrawn"),
+                             ("broken\n", "public_basis_unavailable"),
+                             (None, "public_basis_unavailable")):
+            if text is None:
+                public_basis_register.unlink()
+            else:
+                public_basis_register.write_text(text)
+            rejected = client.post(PUBLIC_ANALYTICS_CAPTURE_ENDPOINT, json=_event_payload())
+            assert rejected.status_code == 403
+            assert rejected.json()["reason"] == reason
+            assert len(sent) == 1
+
+        # Revoke after route admission, before the real delivery enters its worker.
+        public_basis_register.write_text(header)
+        original = public_web.asyncio.to_thread
+        async def revoke_then_work(function, *args, **kwargs):
+            public_basis_register.write_text(header + withdrawal)
+            return await original(function, *args, **kwargs)
+        monkeypatch.setattr(public_web.asyncio, "to_thread", revoke_then_work)
+        raced = client.post(PUBLIC_ANALYTICS_CAPTURE_ENDPOINT, json=_event_payload())
+        assert raced.status_code == 202
+        assert raced.json()["delivery"]["delivered"] is False
+        assert len(sent) == 1
+
+    # Direct delivery repeats all public configuration checks independently.
+    event = analytics.normalize_public_analytics_event(_event_payload())
+    for text in (header + withdrawal, "broken\n", None):
+        if text is None:
+            public_basis_register.unlink()
+        else:
+            public_basis_register.write_text(text)
+        assert analytics.deliver_public_analytics_event(settings, event)["delivered"] is False
+    public_basis_register.write_text(header)
+    for override in ({"public_analytics_enabled": False},
+                     {"public_analytics_consent_copy_version": "stale"},
+                     {"env": "development", "public_analytics_validation_mode": "disabled"}):
+        assert analytics.deliver_public_analytics_event(settings.model_copy(update=override), event)["delivered"] is False
+    assert analytics.deliver_public_analytics_event(settings, {**event, "page_path": "/cabinet"})["delivered"] is False
+    assert len(sent) == 1

@@ -102,9 +102,12 @@ async def test_billing_routes_render_real_profile_and_persisted_trial_dates(
         paid_through=None,
         trial_ends_at=trial.ends_at,
         capacity_bytes=500_000_000,
+        next_capacity_bytes=None,
+        next_capacity_version=0,
         billing_owner_id=UUID(int=2),
         cycle=None,
         renewal_resolution=None,
+        recurring_allowed=False,
     )
     user = SimpleNamespace(
         display_name="Synthetic Profile", locale="en-US", timezone="UTC", theme="dark"
@@ -332,16 +335,21 @@ def test_trial_discloses_terms_before_separate_confirmation(page_name):
 
 @pytest.mark.parametrize("email", [None, "support@graf.test"])
 def test_empty_history_has_real_help_or_honest_unavailable(email):
+    from twobrain_rec_server.billing.refund_email import build_support_mailto
+
     page = render_template(
-        "cabinet/pages/billing_history_content.html", invoices=[], support_email=email
+        "cabinet/pages/billing_history_content.html", invoices=[], support_email=email,
+        support_mailto=build_support_mailto(email),
     )
     assert 'href="#billing-help"' in page and 'id="billing-help"' in page
     if email:
         assert f'href="mailto:{email}"' in page
+        assert "Запрос на возврат отправьте письмом в поддержку" in page
     else:
         assert "Контакт поддержки пока не настроен" in page
         assert 'href="/billing"' in page
         assert "Напишите в поддержку" not in page
+        assert "Запрос на возврат отправьте письмом в поддержку" not in page
 
 
 @pytest.mark.parametrize(

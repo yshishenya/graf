@@ -59,6 +59,8 @@ def pytest_configure(config):
 @pytest.hookimpl(tryfirst=True)
 def pytest_collection_modifyitems(items):
     for item in items:
+        if "migrated_postgres_urls" in item.fixturenames:
+            item.add_marker(pytest.mark.strict_rls)
         if POSTGRES_FIXTURES.intersection(item.fixturenames) or item.get_closest_marker("strict_rls"):
             item.add_marker(pytest.mark.postgres)
 

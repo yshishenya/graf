@@ -179,6 +179,11 @@ def _is_browser_cabinet_path(path: str) -> bool:
 
 
 def _is_browser_auth_handoff_path(path: str) -> bool:
+    if path == "/api/v1/cabinet/summary-sharing/preferences/form" or (
+        path.startswith("/api/v1/cabinet/meetings/")
+        and path.endswith("/summary-sharing/form")
+    ):
+        return True
     return path in {
         "/settings",
         "/settings/recording",
@@ -213,6 +218,19 @@ def _is_browser_auth_handoff_path(path: str) -> bool:
 
 def _is_browser_invitation_path(path: str) -> bool:
     return path.startswith("/share-invitations/")
+
+
+def _is_summary_reader_path(path: str) -> bool:
+    return path.startswith(("/api/v1/cabinet/public-shares/", "/api/v1/cabinet/summary-sharing/received/", "/api/v1/cabinet/summary-sharing/opt-out/"))
+
+
+def _summary_unavailable_response(problem: ProblemDetail) -> HTMLResponse:
+    from twobrain_rec_server.cabinet.rendering import render_shared_summary_unavailable_page
+    from twobrain_rec_server.cabinet.templates import cabinet_html_response
+    response = cabinet_html_response(render_shared_summary_unavailable_page(temporary=problem.status in {429, 503}), status_code=problem.status)
+    if problem.headers:
+        response.headers.update(problem.headers)
+    return response
 
 
 def _is_browser_admin_path(path: str) -> bool:
@@ -263,6 +281,8 @@ async def problem_exception_handler(
     request: Request,
     exc: ProblemDetail,
 ) -> JSONResponse | HTMLResponse | RedirectResponse:
+    if _is_summary_reader_path(request.url.path) and _wants_html(request) and exc.status in {400, 403, 404, 410, 422, 429, 503}:
+        return _summary_unavailable_response(exc)
     if (
         _is_browser_invitation_path(request.url.path)
         and _wants_html(request)
@@ -293,6 +313,8 @@ async def request_validation_exception_handler(
     exc: RequestValidationError,
 ) -> JSONResponse | HTMLResponse:
     _ = exc
+    if _is_summary_reader_path(request.url.path) and _wants_html(request):
+        return _summary_unavailable_response(ProblemDetail(status=422, code="request_validation_error", title="Итоги недоступны"))
     if _is_browser_invitation_path(request.url.path) and _wants_html(request):
         return _share_invitation_unavailable_response(
             ProblemDetail(

@@ -1,5 +1,407 @@
 # Quickstart and validation matrix
 
+## T077/O16: постоянные наблюдения попыток — 03.11.2026
+
+J1–J6, первый шаг — журнал/агрегаты, без запуска тревог. High-risk-product;
+сначала независимый checklists/reconciliation-observations.md и scoped analyze.
+Ниже сценарии, не результаты. Использовать owned apps/server/.venv,
+PYTHONPATH=src:.; перед тестами проверить twobrain_rec_server.__file__.
+До контейнеров проверить свободное место; только одноразовая PostgreSQL17
+с полным Alembic head и настоящими ролями/FORCE RLS, synthetic данные.
+
+1. RED отсутствующего recorder/агрегата; затем проверки actual identity через
+   temporalio.testing.ActivityEnvironment (dataclasses.replace(default_info)),
+   разные execution run ID одного workflow ID, attempt1/2 с пропущенным1,
+   повтор того же события и разные terminal outcomes. Payload UUID не ключ;
+   неверные namespace/pattern/run/activity/attempt и отсутствие activity
+   context не создают поддельную запись или новый financial failure.
+2. Unit activity: настоящий прежний порядок maintenance→COMMIT→webhook→initial
+   checkout→COMMIT/cleanup и тот же возвращаемый counters dict; отказ до/между/
+   после двух COMMIT, payload rejection, cancellation. Перехват recorder
+   timeout/schema/guard failure не меняет исходный result/exception; никакого
+   повторного вызова финансового тела. Внешняя и повторная отмена не теряется.
+3. PG: старт/исход фиксируются разными транзакциями, новый сеанс и новый процесс
+   видят журнал после финансового rollback/crash gap. Одинаковая доставка и
+   конкурентный INSERT не увеличивают unique attempt; success+failure/cancel
+   сохраняют оба свидетельства/conflict. Terminal без start даёт missing_start.
+   Нет terminal после аварии —unknown, неfailed; attempt>1 не создаёт прошлое.
+4. Настоящие роли: maintenance с точным контекстом SELECT/INSERT; app/worker/
+   request/SETROLE/неверные operation/area denied; guard отвергает superuser,
+   BYPASSRLS и row_securityoff. Проверить CHECK/NOTNULL и запрет UPDATE/DELETE.
+   Empty downgrade→upgrade проходит; nonempty downgrade отказывает до потери
+   истории. Dump/restore synthetic журнала сохраняет строки/PK/RLS/запреты;
+   временный дамп убрать finally. Реальные backups/production не трогать.
+5. Общий2с deadline recorder при connect/setup/guard/lock/query/commit/close:
+   driver.terminate, Connection.invalidate→Session.invalidate, нет shield
+   close/фоновой задачи/пула с checkout после выхода. Отдельные сбой записи,
+   обрыв/ошибка COMMIT (unknown), недостаток места через изолированную fault
+   injection: не ложный успех и не money retry. Синтетические SQL/URL/PII
+   sentinels не появляются в stderr/logs; фиксированный закрытый код разрешён.
+6. Реальный CLI/newprocess/RR: empty0 против missing-schema/error; groups
+   sorted, count/observed retry/missing start/conflict точны, разные report_date
+   не фильтруют журнал. Старый снимок согласован, новый видит поздний commit.
+   READONLY до hooks/15с/5с/2с/500gaps/64KiB/no-write и остальные families прежние.
+   Ни Temporal RPC, ни почта, ни новые financial mutations не вызываются.
+7. Пути проверок: tests/unit/test_billing_reconciliation_activity.py и
+   tests/unit/test_billing_monitoring.py; новые PG cases в существующем
+   tests/integration/test_billing_monitoring_postgres.py и затронутый
+   tests/contract/test_billing_reconciliation_workflow.py. Сначала зафиксировать
+   точные новые nodeids, затем узкий runner/XML/log/actual exit/cleanup.
+   Принятые O1–O15 не повторять без затронутой зависимости. После independent
+   code/converge, процесс/Ruff/fragments и три exact source/base PR gates.
+
+Полная приёмка T077 дополнительно требует регулярности/heartbeat, остальных
+источников, внутренних email alerts/retry и сохраняемой реакции O6. Политика
+владельца уже принята и не спрашивается вновь. Настоящее письмо/почтовое
+подтверждение/получение человеком/рабочая конфигурация этим набором не приняты.
+T077/T070[ ],87 task lines/58 прежних gaps/исходные сроки сохранены; Refs#4932.
+
+## T077: storage projection — 02.11.2026
+
+O15/S1–S6, исходная T077/#4932/high-risk-product. Ниже план, ещё не результаты.
+До кода reviewer-owned checklists/storage-projection.md и scoped analyze;
+остальные принятые O1–O14 не повторять без затронутой зависимости/отказа.
+Команды из owned apps/server: PYTHONPATH=src:. .venv/bin/python -m pytest
+tests/unit/test_billing_monitoring.py -k storage; PG/CLI — существующий
+одноразовый runner tests/integration/test_billing_monitoring_postgres.py
+(узкие новые storage nodeids/затронутые CLI identity/SETROLE, не весь корпус).
+Проверить twobrain_rec_server.__file__, не чужой /tmp editable. Журналы/XML,
+точные nodeids/exit status и cleanup сохраняются отдельно; failed→final
+заменяет тот же nodeid, результаты не складывать с принятыми прежними наборами.
+
+1. RED отсутствующего collector; затем unit: explicit workspace/capacity/
+   reserved/as_of helper args, точные integer суммы без float, missing
+   subscription/unknown plan/nonfinite relevant date/nonpositive capacity,
+   пустой inventory; missing subscription даёт unavailable1/unknown0 и reason
+   capacity_unavailable, NULL/unknown plan существующей строки — оба1 и reason
+   unrecognized. Реальную NOTNULL схему не ослаблять, NULLplan — отдельным
+   защитным SQL-входом. Неизвестность не становится нулём/subtotal. Граница500
+   принимается полностью,501 даёт ReportLimitError до per-workspace helpers.
+2. Настоящий PG17/Alembic head/FORCE RLS/NOTNULL, restricted maintenance и
+   CLI/newprocess: workspace без subscription, Free/Trial до/на expiry,
+   paid до/на cutoff; active bonus/storage grant/base invoice schema2/legacy
+   catalog snapshot/cache fallback. Явные now и reserved включают active
+   future/NULLexpiry, исключают expiry==as_of/expired-active. Used включает
+   canonical playback и исключает WAV/deleted/wrong suffix/profile и
+   finalized archive_audio=False; точная expected сумма фиксируется заранее.
+3. Закрытые active/committed/released/unrecognized, SQL NULLstate защитно
+   отдельно от настоящего NOTNULL; expired-active, malformed declared/
+   committed и ±infinity expiry. Все counts полные, invalid counted once,
+   группы sorted; unknown приоритетнее invalid/недоказанной capacity.
+   Invalid/unknown reserves обнулять нельзя: все byte totalsnull.
+4. Приватные синтетические refs/JSON/keys/контакты/денежные поля отсутствуют
+   в stdout/stderr; разрешены counts/байты. Falsy plan_snapshot и вложенный
+   catalog_snapshot (JSON null/[]/0/false/пустая строка) сохраняют существующий
+   fallback. Отдельно truthy nonobject, который helper не может обработать,
+   missing schema/helper exception — прежний безопасный CLI отказ целиком
+   report_unavailable/exit1,
+   без SQL/URL/traceback/сырых значений. Внутренний JSON helper читается,
+   поэтому проверка не заявляет «JSON никогда не выбирается в Python».
+5. Два RR snapshot с поздним commit storage/reservation/entitlement: старый
+   отчёт согласован со своим снимком, новый процесс видит новый; разные дни
+   report_date не фильтруют storage. Один UTC as_of, READONLY до hooks;
+   no-write fingerprints до/после включают новые source tables, mutation
+   probe запрещена. App/worker/superuser/SETROLE/неверный контекст denied.
+6. Реальный >500 workspace inventory отказывает whole CLI, не усечённый
+   итог; прежний общий deadline/statement/lock/64KiB сохраняется. Для нового
+   helper проверить cancellation/timeout в штатном wrapper без нового15с
+   бюджета на workspace. Свои контейнеры удалить finally, чужие сохранить.
+7. Независимые code review/converge, Ruff/process/governance/fragments и
+   точные PR source/base gates до/после merge. Refs4932, не closure; T077/
+   T070/все87 полных task lines/58gaps/O6 и сроки остаются открытыми.
+   Financial/object reconciliation не доказывается; Full/CD/Dev/реальных
+   денег/данных/новых служб/зависимостей здесь нет.
+
+## T077: внутренний отчёт — 01.11.2026
+
+Первый шаг [O1–O8](contracts/operator-observation.md); пока требования,
+не выполненная проверка. Active Spec Kit slice/high-risk. До кода —
+независимый reviewer-owned checklists/operator-observation.md и analyze.
+Все исходные 87 задач сохраняются, T077/#4932 остаются открытыми.
+
+1. Штатный одноразовый PostgreSQL runner: unit/test_billing_monitoring.py
+   и integration/test_billing_monitoring_postgres.py. Реальные restricted
+   logins/forced RLS, не подмена guard. Сначала RED отсутствующего CLI;
+   затем `python -m twobrain_rec_server.cli.billing_monitoring --date 2026-10-31`
+   из apps/server с синтетической конфигурацией через штатное окружение.
+2. Пустые подключённые источники дают нули, неподключённые семейства null.
+   Набор с разными состояниями/опасными snapshot полями подтверждает
+   закрытые группы, unrecognized, operation age/received queue age,
+   отсутствие ложного transport lag/unknown duration/суточных успехов.
+3. Под настоящими app/worker/superuser/SET ROLE и неверными контекстами
+   получить отказ до предметных чтений. Верные maintenance identity/context
+   проходят только в READ ONLY REPEATABLE READ. Mutation probe запрещена БД.
+4. Два соединения: читатель закрепляет снимок; writer держит registry lock,
+   заменяет принятый результат и коммитит. Читатель после lock видит прежний
+   согласованный снимок, новый процесс — новый. Единый as_of, отдельный
+   finished_at; будущая дата не становится ложным нулевым возрастом.
+5. Ошибка подключения/identity, lock/query timeout, >500 detected gaps,
+   >64 KiB stdout или несовместимая схема дают exit 1 и только безопасный
+   отказ целого отчёта, без частичного результата. Успешно прочитанные
+   неизвестные состояния и будущие времена дают завершённый JSON с exit 0,
+   coverage=partial, закрытыми unrecognized/null и reason_code по O3/O4.
+   В обоих случаях SQL/URL/traceback и сырые значения не выводятся.
+6. Новый процесс повторяет чтение без provider HTTP/почты и без изменения
+   строк/финансов/прав/согласий. Registry missing/unverified, files_complete
+   против financial_status=not_checked, исходные owner/deadline сохранены;
+   чужой магазин не попадает в текущую registry-область.
+7. Сохранить команды/versions/SHA/counts/ограничения, провести независимое
+   кодовое ревью/converge и три точных PR gates. Не повторять прежние498
+   тестов PR7877 без новой причины. Full/CD/Dev/реальные деньги не требуются.
+
+O6 сохраняет полный обязательный остаток источников, регулярности, тревог
+и реакции. Финансовые/приватностные сроки действуют независимо от того,
+подключено ли семейство к первому отчёту. Один удачный JSON не закрывает T077.
+
+## T077: следующий срез free_projection — 01.11.2026
+
+Это план проверки P1–P6 [O9](contracts/operator-observation.md#o9-следующий-срез-события-free_projection),
+не её результат. До кода — независимый PASS checklists/free-projection.md,
+scoped analyze и существующая #4932. Использовать уже существующий runner
+изолированной PostgreSQL/forced RLS, owned apps/server/.venv и PYTHONPATH=src:.
+из apps/server; проверить __file__, не чужой editable checkout.
+
+1. RED нового event_window в tests/unit/test_billing_monitoring.py и
+   tests/integration/test_billing_monitoring_postgres.py. Затем focused pytest
+   через этот же интерпретатор, только новые случаи и реально затронутые
+   прежние. Окончательные 26 и 3 повтора PR7884 не складывать и не повторять
+   без изменения/отказа. Стенд удалить штатным finally, сохранить XML/log/SHA.
+2. В настоящем CLI → maintenance guard → PostgreSQL разместить синтетические
+   audit-строки на start−1µs/start/end−1µs/end и as_of−1µs/as_of/as_of+1µs.
+   Проверить счётчики, UTC полуночи, day elapsed, current partial и future
+   unavailable; будущий день и непредставимые 0001-01-01/9999-12-31 не нули.
+   Для исторического смещения Москвы обе полуночи переводятся отдельно.
+3. Проверить три допустимые пары, невозможную blocked/unknown_pending,
+   NULL reason и неожиданный target_kind; только закрытая unrecognized группа.
+   Другой action не входит. Повторить пустой источник и приоритеты reason_code
+   при нескольких признаках. count равен сумме групп наблюдаемого интервала.
+4. Schema fixture должна повторять nullable created_at миграции0044,
+   а не только предположение ORM. NULL создаёт inventory undated_count;
+   строки выбранного дня >=as_of — отдельный счётчик без ошибки часов.
+   В закрытом дне без gaps — настоящий ноль/complete_declared_source.
+5. Два соединения: writer фиксирует PostgreSQL transaction_timestamp(),
+   читатель закрепляет RR, writer сохраняет audit-событие с default now()
+   и коммитит позднее. Старый снимок неизменен; новый видит новое число.
+   Отличие времени начала/commit доказать настоящей транзакцией; закрытый
+   отчётный день моделировать явным as_of после end в collector, без ожидания
+   реальной полуночи. Это синтетическая временная граница, не реальное
+   календарное наблюдение; clock/записи рабочей БД не менять.
+   Отдельно видимая запись >=as_of
+   остаётся вне основного count даже после подключения читателя.
+6. Синтетические запрещённые metadata/target_ref/IDs не попадают в stdout/
+   stderr; SQL этого семейства их не выбирает. Сравнить данные до/после,
+   повтор из нового процесса, forced RLS/read-only mutation denied и
+   отсутствие HTTP/почты. Ошибка схемы даёт безопасный отказ всего отчёта.
+7. После фактического PASS — независимое кодовое review/converge, профильные
+   repository checks и три точных SHA/base PR gates. PR только Refs #4932;
+   O6/FR089/T077 [ ] остаются, Full/CD/Dev/финансовая приёмка отдельно.
+
+## T077: сохраняемые запросы удаления — 01.11.2026
+
+D1–D6/O14; новые проверки в прежних unit/integration monitoring файлах.
+До кода независимый checklist/analyze, затем RED отсутствующего helper/source.
+1. Пустая таблица: оба root/nested sources, inventory/current_state/partial,
+   requestcount0/groups[], null artifact_completion/deadline_status/jobs/reaction.
+   Ошибка схемы безопасно отвергает весь CLI без traceback/частичного отчёта.
+2. Реальная PostgreSQL: четыре state, unknown/complete/terminal_failed/none,
+   sorted groups/сумма; реальные NOT NULL/FORCE RLS. NULLstate отдельным SQL
+   VALUES, не ослабляя положительную схему. Даты включая future/infinity/NULL
+   не выбираются и не меняют counts; разные report_date дают тот же inventory.
+3. Настоящие CLI/new process/два RR снимка; поздний commit виден новому запуску.
+   Fingerprint до/после прежний. Синтетические private ID/reasons/boundary/metadata
+   не выходят в stdout/stderr; SQL только state/count. Provider/почта/purge=0.
+4. Fair-use count/buckets и root priorities: unknown любого источника выше
+   invalid_schedule, затем deletion_details_and_reaction_uninstrumented.
+   Затронутые unitfair-use и PG identity/SETROLE/READONLY/fair-use границы проверить;
+   успешные неподверженные наборы не повторять и повторы не суммировать.
+5. Owned apps/server/.venv/PYTHONPATH=src:./__file__, cleanup своего runner;
+   nodeids/XML/log/hashes, independent review/converge и три exact SHA/base gates.
+   T077[ ]/#4932OPEN/O6/T070/58gaps/исходные сроки/финансовые/приватностные/
+   ручные/выпускные критерии остаются открытыми. Не запускать Full/CD/Dev.
+
+## T077: сохраняемые наблюдения чеков — 01.11.2026
+
+Q1–Q6 [O13](contracts/operator-observation.md#o13-следующий-срез-сохраняемые-наблюдения-чеков),
+те же unit/integration файлы, настоящий CLI/изолированная PostgreSQL.
+Это план до независимого допуска/кода, не результат проверок.
+
+1. RED нового receipt inventory; пустой nested source partial с нулями/null,
+   корневой refund count прежний. Отсутствующая/JSON-null map отличается от
+   invalid root/map и явной пустой object map; invoice_count не count entries.
+2. Все18совместных parent/status/source сочетаний, несколько entries на invoice,
+   missing/null/нестроковые компоненты, scalar/array entries. Unknown tuple одна,
+   сортировка/сумма/приоритеты. JSON root/map scalar/array/null безопасны для
+   json_each; реальный NOT NULL отвергает SQL NULL. Его защитную SQL ветвь
+   проверить отдельным синтетическим входом без ослабления реальной схемы.
+3. Только payment top-level receipt_registration без map остаётся missing;
+   строки не фильтруются по invoice status/дню/environment/времени. Разные даты
+   отчёта не меняют current_state groups. Даты/возраст/решение не выводятся;
+   pending_age_seconds/escalation_due и reconciliation_gaps null.
+4. Настоящие CLI/maintenance/READ ONLY RR/FORCE RLS, два снимка/конкурентный
+   commit/новый процесс. Private keys/IDs/контакты/URL/суммы/JSON timestamps
+   с synthetic sentinels отсутствуют в Python output/stdout/stderr и SQL
+   выбранных полях; fingerprints до/после прежние, provider/почта=0.
+5. Несовместимая схема безопасно отвергает весь CLI. Повторить только новые
+   и affected refund/identity/SET ROLE случаи; неизменные наборы не повторять.
+   Owned apps/server/.venv, PYTHONPATH=src:., подтвердить __file__, сохранить
+   XML/log/nodeids/hashes/cleanup. Независимые review/converge/exact PR gates.
+   T077[ ]/#4932OPEN, весь O6/сроки/отдельные приёмки остаются открытыми.
+
+## T077: сроки fair-use проверок — 01.11.2026
+
+F1–F6 [O12](contracts/operator-observation.md#o12-следующий-срез-сроки-сохраняемых-fair-use-проверок),
+те же unit/integration файлы, настоящий CLI и отдельная PostgreSQL.
+Сначала независимый допуск/анализ; это план, ещё не результат тестов.
+
+1. RED нового collector. Пустое: source fair_use_reviews/inventory/current_state,
+   partial, count0/groups[], pending_review все0, deletion/reaction null;
+   ошибка схемы должна давать отказ всего CLI без частичного JSON/traceback.
+2. Все5state, сортировка/сумма; confirmed не включается в pending buckets.
+   На едином as_of проверить start ±1мкс/равенство, review_by ±1мкс/равенство,
+   нулевой срок, ровно24ч, будущее. Четыре buckets взаимно исключаются и
+   суммируются в pending count, независимо от report_date; возраста/дат нет.
+3. Реальная схема сохраняет NOT NULL/state/deadline CHECK и ENABLE/FORCE RLS.
+   Проверить отказ неверных state/NULL/обратных/>24ч дат. Сохраняемые infinity
+   проверить как invalid_schedule без subtraction error. Отдельный синтетический
+   SQL-вход проверяет NULL/неизвестные/обратные/>24ч ветви и приоритет
+   unrecognized→invalid_schedule→deletion_and_reaction_uninstrumented; не
+   ослаблять положительную схему. Проверить24истекших часа на DST timezone.
+4. Настоящие CLI/guard/new process/два снимка: конкурентный commit не меняет
+   уже зафиксированный RR, новый запуск видит его; повтор не пишет. Fingerprint
+   таблиц, частные synthetic sentinels в capability/evidence/appeal/IDs не
+   выходят в stdout/stderr. В запросе нет частных столбцов; provider/почта=0.
+   Затронутые прежние PG сценарии ролей/SET ROLE/READ ONLY/schema failure
+   проверить минимально, сохранив лимиты O2 и cleanup.
+5. Owned apps/server/.venv и PYTHONPATH=src:., проверить __file__. Сохранить
+   окончательные nodeids/XML/log/hashes, не складывать повторы. Независимые
+   review/converge и точные SHA/base PR gates. Только Refs #4932; T077 [ ],
+   весь O6/FR089/сроки/финансовая/приватностная приёмка остаются открытыми.
+
+## T077: сохранённые наблюдения возвратов — 01.11.2026
+
+План R1–R6 [O11](contracts/operator-observation.md#o11-следующий-срез-сохранённые-наблюдения-возвратов),
+не результат. До кода: независимый checklists/refund-inventory.md,
+scoped analyze/прежняя #4932 и собственные чтения текущих оригиналов.
+Из apps/server использовать owned .venv/PYTHONPATH=src:. с проверкой __file__;
+новые unit/PG случаи выбираются через `-k refund_inventory` в существующих
+tests/unit/test_billing_monitoring.py и
+tests/integration/test_billing_monitoring_postgres.py. Использовать прежний
+изолированный PG runner; не запускать всю старую приёмку без новой причины.
+
+1. Сохранить RED отсутствующего источника. Настоящий CLI→guard→forced RLS
+   PostgreSQL: пустое даёт count0/groups[], оба null, partial с причиной
+   receipts_and_reconciliation_uninstrumented; это не unavailable/PASS денег.
+2. Создать несколько синтетических частичных refund rows одного invoice,
+   succeeded/provider_observation и неизвестные status/source, включая
+   известный status с неизвестным source. Ровно закрытые sorted status/count,
+   count=sum(groups), unrecognized приоритетнее причины неподключённых метрик.
+   Реальные status/source NOT NULL не ослаблять; отказ NULL INSERT доказать
+   отдельно. CASE NULL-защиту проверить на SQL-форме без изменения схемы.
+3. Разные environments, report_date, NULL/будущие observed_at не фильтруют
+   inventory и не создают возраст. Между двумя соединениями закрепить RR
+   до commit новой строки: старый отчёт неизменен, новый снимок/новый CLI
+   процесс видит строку. Повторное чтение не меняет fingerprint таблиц.
+4. Синтетические суммы/валюта/IDs/связи/environment/JSON/даты не выбираются
+   SQL семейства и не попадают в stdout/stderr. Provider GET/POST, reversal,
+   почта=0. Несовместимая схема/нет доступа — безопасный отказ всего отчёта,
+   без traceback/SQL/частичного JSON и без нулевой подстановки. Выполнить
+   только затронутый минимальный прежний набор identity/SET ROLE/read-only.
+5. Сохранить XML/log/hashes, удалить только свой одноразовый контейнер
+   штатным finally. Независимые code review/converge и exact-SHA/base PR
+   gates обязательны. T077[ ]/#4932 OPEN, весь O6/FR089/сроки и внешние
+   приёмки сохраняются; чеков/тревог/финансовой сверки этот срез не принимает.
+
+## T077: сохраняемый реестр бонусных дней — 01.11.2026
+
+План C1–C6 [O10](contracts/operator-observation.md#o10-следующий-срез-сохраняемый-реестр-бонусных-дней),
+не результат проверки. До кода обязательны независимый допуск
+checklists/credit-ledger.md, scoped analyze и исходная #4932.
+Owned apps/server/.venv/PYTHONPATH=src:. и существующий isolated PostgreSQL
+runner/forced RLS, проверенный __file__; прежние10/26/3 PASS не повторять
+без затронутой зависимости, не складывать новые и повторные случаи.
+
+1. RED нового источника в существующих unit/test_billing_monitoring.py и
+   integration/test_billing_monitoring_postgres.py; затем только новые и
+   реально затронутые focused случаи. Сохранить XML/log/SHA, удалить свой
+   одноразовый PostgreSQL штатным finally; рабочие данные/Dev не использовать.
+2. Настоящий CLI→guard→PostgreSQL: пустой источник (count0/groups[], четыре
+   нуля/возрастnull, family partial/jobs_uninstrumented), затем все шесть
+   состояний, отрицательная reversal и неизвестные приватные строки/NULL
+   state там, где это разрешает тест формы SQL. Реальную NOT NULL схему
+   не ослаблять ради NULL: PostgreSQL должен отвергнуть такой INSERT.
+3. Pending/available с maturity и expiry за1мкс до/ровно/после as_of,
+   expires=maturity и expires<maturity, терминальные с совпавшими датами:
+   четыре непересекающихся количества, сумма=count только pending/available,
+   max возраст из допустимых достигнутых maturity, будущая maturity нормальна.
+   Неизвестная группа приоритетнее invalid_schedule, затем jobs_uninstrumented;
+   количества сохраняются независимо от выбранной причины.
+4. Два соединения: закрепить старый RR-снимок до writer commit новой credit
+   строки; прежний отчёт неизменен, новый снимок/новый CLI процесс видит новое.
+   Зафиксировать общий as_of; report_date не фильтрует current_state реестр.
+5. Синтетические days/source_ref/IDs/capacity/applied interval не выбираются
+   SQL семейства и не попадают в stdout/stderr. Сравнить таблицы до/после,
+   не запускать начисление/reversal/почту/provider. Настоящие identity/SET ROLE/
+   forced RLS/read-only проверки повторить только затронутым минимальным набором.
+   Несовместимый столбец/недоступная таблица даёт отказ всего отчёта, не нули.
+6. Независимое кодовое review/converge и exact-SHA/base GitHub gates.
+   Только Refs #4932; T077[ ], полный O6/FR089/исходные сроки и внешние
+   финансовая/приватностная/ручная/выпускная приёмки сохраняются.
+
+## Сверка требований интерфейса — 2026-10-30
+
+Полоса: `active Spec Kit slice`, только согласование документации T079/T083
+с действующей конституцией §VII. FR-081, plan, research R6 и два связанных
+контракта проверяются вместе: допускаются наблюдаемые Krisp UX/UI/IA
+и функциональные подписи; обязательны независимый код, права на материалы,
+правдивые тексты GRAF и доступность. Прежний запрет совпадения исключён.
+Исторические отчёты и исходные описания задач не переписываются.
+Независимый reviewer проверяет четыре затронутых пункта существующих
+чеклистов и считает весь набор. Эта правка не является новой визуальной
+приёмкой, не завершает T079/T083 и не даёт допуска к реализации T062.
+Остальные противоречия и неподтверждённые пункты остаются открытыми.
+
+## Повторная проверка операторского импорта T075 — 2026-10-30
+
+Ограниченная реализация [контракта B1–B3](contracts/registry-operator-import.md)
+проверена на синтетических данных и отдельной одноразовой PostgreSQL.
+Результаты, исправленные отказы и границы:
+[отчёт реализации](t075-import-implementation-20261030.md).
+GRAF Dev и рабочий магазин не затрагиваются. Следующие шаги позволяют
+повторить приёмку файлов; они не заменяют финансовую сверку всей T075.
+
+1. Выполнить профильные registry tests и проверки
+   CLI/DB тем же Python окружением сервера. В argv/stdout/отчёт не выводить
+   реальный DB URL, путь исходного экспорта или финансовые данные.
+2. Сначала dry-run, затем `python -m twobrain_rec_server.cli.billing_registry
+   import --date 2026-10-29 --payments <synthetic-file> --refunds <synthetic-file>
+   --owner billing-operations --operator test-operator --execute` под фактической
+   служебной ролью. Для корректного zero-row CSV добавить соответствующий
+   `--expect-empty`. Указанные пути — условные обозначения, не секреты.
+3. Завершить процесс. Новый процесс `...billing_registry status --date
+   2026-10-29` обязан вернуть сохранённый receipt/counts/completeness/gaps,
+   не читая CSV. Повтор импорта не создаёт второй receipt и не переносит срок.
+4. Пропущенная часть/last/вид дают неполноту с owner/deadline; пустой файл без
+   ожидания, чужая шапка, duplicate identity, footer mismatch и лишняя часть
+   не заменяют предыдущий принятый набор. Исправление требует
+   `--replace <current-digest> --reason corrected_export`; устаревший digest и
+   два конкурирующих исправления не допускают потерянного обновления.
+5. Проверить failure injection до commit и повтор после restart; owner,
+   detected/deadline и история gap сохраняются. Только проверенное исправление
+   даёт resolved с actor/reason/time/closing receipt. Ошибка сохраняет последний
+   принятый набор, но остаётся видимой в последней попытке и открытых gaps.
+6. Через настоящие подключения проверить request/worker/maintenance,
+   `SET ROLE`, неверные operation/area и `row_security=off`. Отказ нужен до
+   чтения входа; app/tenant не видит общие таблицы. Проверить inventory/RLS.
+7. В stdout/DB/evidence отсутствуют provider object IDs, суммы, контакты,
+   сырой CSV и исходные пути. `files_complete=true` при обоих наборах даёт
+   только `financial_status=not_checked`. Для принятия всего T075 отдельно
+   пройти CSV ↔ authenticated provider GET/list ↔ ledger, включая обратные
+   пропуски, точный день, pagination, неизвестные объекты и provider outage.
+
+После повторной проверки записать команды, версии, результаты и ограничения;
+T075/#4930 остаётся открытой. Все исходные задачи и внешние launch gates
+сохраняются. Новых issues для этого же остатка не создавать.
+
 ## Safety and prerequisites
 
 Use only synthetic users, workspaces, codes, media metadata and provider
@@ -58,7 +460,7 @@ elsewhere; real-shop canary is a separate approved release step.
   runtime evidence only; controlled provider delivery/test-shop/real-shop canary and
   four-eyes product/finance/legal/security/QA sign-offs are still required.
 
-### Latest local evidence (2026-08-11)
+### Исторические локальные результаты (2026-08-11)
 
 - `infra/scripts/ci-local.sh --fast`: PASS, 1034 server tests, Ruff and
   Python compile; disposable PostgreSQL container removed after the run.
@@ -415,3 +817,143 @@ GET/webhook, entitlement/storage, payment receipt, one renewal failure→Free,
 manual merchant-cabinet full + partial refunds outside GRAF, observed refund
 receipt/list/registry convergence and zero product refund mutation. Commit,
 push, release and deployment are outside this planning command.
+
+
+## Сверка пяти открытых задач — 2026-10-27
+
+Полоса: `Docs-only / mechanical`. Исправляется учёт после чтения текущих
+исходников и исходных критериев GitHub; код, схема и настройки не меняются.
+Прежние результаты выше сохранены как исторические. Их общий итог 80/7 и
+утверждение о завершении T075–T077 не являются текущей приёмкой этих задач.
+После снятия пяти неподтверждённых отметок: **75 отмечены / 12 открыты**;
+это подсчёт отметок всех 87 задач, а не новая проверка остальных 82 задач.
+
+| Задача и issue | Почему остаётся открытой |
+| --- | --- |
+| T062 / #4917 | Указанный `test_referral_rewards.py` проверяет вспомогательный расчёт месячного/годового начисления и истечение; полная сохраняемая цепочка выдержки 14 дней, предела 180 дней, непрерывного срока, отмены продления и подтверждённого возврата не доказана. |
+| T068 / #4922 | `test_billing_notification_flow.py` проверяет тексты всех типов и сохранённую отправку, начиная с прямого помещения события чека/пробного срока в очередь. Полная цепочка от каждого исходного события из T068 до единственного уведомления не покрыта. |
+| T070 / #4926 | `fair_use.py` сохраняет проверку и уведомление, принимает апелляцию; вызов `persist_review` из рабочего классификатора или обслуживающего процесса не найден. `resolve_review` меняет только объект в памяти. |
+| T075 / #4930 | Функции импорта реестров, проверки полноты и формирования расхождения вызываются внутри `registry.py`, но рабочий вход, сохраняющий результат импорта и назначение ответственного, не найден. |
+| T077 / #4932 | `monitoring.py` содержит снимок показателей и его объединение без найденных рабочих потребителей. Существующие ограниченные показатели административной страницы не доказывают весь исходный набор наблюдения и диагностики запуска. |
+
+Для каждой строки перечитаны исходная issue и последние содержательные
+комментарии, соответствующий тест или функция и найденные места вызова в
+`apps/server/src/twobrain_rec_server/`. Тесты и приложение в этой сверке не
+запускались; исторические результаты не выданы за новый прогон. Эти issues
+уже открыты и не закрываются этим документальным изменением. Остальные
+задачи, приёмка F140, включение оплаты и выпуск не принимаются.
+
+
+## T074: PostgreSQL и три подтверждённых отказа — 2026-10-31
+
+Переиспользовать одноразовую migrated PostgreSQL штатного test runner.
+Запустить existing `test_billing_renewal_planner_postgres.py`,
+`unit/test_renewal_charge.py` и `e2e/test_billing_test_shop.py`. Новый сценарий
+проходит все три окна через настоящий planner/charge, читает commit из новых
+sessions и проверяет ровно один transport POST/notification на отказ; повтор
+того же operation не создаёт вторую отправку. Между окнами новой operation нет.
+Проверить оплаченный срок и grant/method, после третьего отказа выключенное
+согласие и отсутствие четвёртой попытки. HTTP разрешён только существующему
+offline MockTransport, внешние сервисы/почта запрещены.
+
+Сохранить числа PASS/SKIP/FAIL и границы. Это дополнение автоматической
+матрицы; отсутствие настоящего test shop или другой части FR-090 не прятать
+за зелёной PostgreSQL. T074/#4928 закрывается лишь после отдельной полной
+сверки исходного объёма.
+
+Предварительный scoped analyze T074: FR-090 recurring-decline + принятое
+F278 FR-014/US3 AC4–5 → исходная T074 и один существующий test file.
+Проверены6 критериев reviewer checklist,3 окна и границы idempotency/authority/
+paid-access/offline. Покрытие100%, несвязанных задач0, CRITICAL/HIGH0,
+новых финансовых решений0. Исторические58 открытых checklist items
+не принимаются; применимость к test-only отдельно разобрана reviewer.
+Baseline до нового тестового кода:116 PASS/0 SKIP/0 FAIL,5.04s;
+одноразовый PostgreSQL контейнер штатно удалён.
+
+
+## T048: UNKNOWN при cutoff — 01.11.2026
+
+Использовать существующий `paid_workspace` и одноразовый PostgreSQL штатного
+runner, maintenance role с forced RLS, запрет HTTP. Создать продление настоящим
+planner, синтетически отметить неизвестный исход, вызвать cutoff до/ровно
+на границе. До исправления отсутствие notification должно дать RED.
+После исправления commit и новая session подтверждают Free/unknown_pending,
+ровно один pending `renewal_unknown`, attempts=0, того же recipient/workspace,
+стабильный event_id, только invoice/action_path; текст явно называет Free и
+не предлагает повторно платить. Повтор не создаёт дубликат;
+rollback сохраняет прежний тариф и не сохраняет письмо. Дополнительно проверить
+sent/processing, отменённое согласие, старый период/другого плательщика,
+отсутствующий/несвязанный счёт, неправильный workspace scope и оконченный/
+неотправленный платёж. Результаты не заменяют реальные письма/#7524 и не
+закрывают исходную совокупную T048. Запуск: существующий server test runner
+с `tests/integration/test_billing_renewal_planner_postgres.py` и профильными
+`unit/test_renewal_charge.py`, notification event/delivery tests.
+
+Дополнительная проверка T048 перед merge: UNKNOWN должен описывать событие
+окончания периода в прошлом. Письмо может доставляться после позднего успеха,
+поэтому заголовок/тело не обещают текущий Free или текущую неопределённость.
+В PostgreSQL planner cases проверяются исторический текст, отсутствие повторного
+списания и указание посмотреть актуальный статус в кабинете.
+
+### T048: подтверждённый отказ → Free
+
+В одноразовом PostgreSQL проверить три синтетических отказа с настоящим
+planner/charge и переход в cutoff; отдельно поздний отказ после UNKNOWN/Free
+и поздний третий отказ. До cutoff сохранить только attempt notice, после
+окончания — один PAYMENT_FAILED на invoice без второй attempt notice.
+Отозванное согласие не включается; деньги/grants не меняются письмом.
+Проверить оба снимка payer/paid_through и связи, active personal Owner,
+отрицательные состояния, rollback/повтор/новый сеанс/конкуренцию и точную
+историческую дату МСК в тексте. Никакой настоящей почты/оплаты.
+
+
+### T048: напоминание до продления
+
+Проверить в существующем PostgreSQL planner одно обязательное upcoming
+событие текущему Owner после сохранения первой допустимой операции, точные
+принятые сумму/цикл/маску и даты первого окна/конца периода МСК. До commit
+событие откатывается вместе с операцией; новый сеанс видит его один раз.
+Повтор/конкуренция/local retry и следующие окна не удваивают reminder.
+Пропущенное первое окно не создаёт догоняющее письмо. Проверить прежние
+отрицательные финансовые границы и безопасный исторический текст, который
+не обещает текущего будущего списания при задержанной доставке. Реальных
+провайдеров/почты нет; broad T048/T068/#7524 и выпуск остаются открытыми.
+
+
+### T048: сумма и сроки подтверждённых событий — 01.11.2026
+
+В штатном одноразовом PostgreSQL runner выполнить существующие
+integration/test_billing_purchase_journey.py и test_billing_return.py,
+unit/test_billing_notifications.py и notification flow/event/delivery tests.
+
+1. Реальный HTTP checkout/подтверждение и новые sessions: initial, early,
+   storage upgrade дают по одному payment_succeeded. Сумма совпадает со
+   счётом, фактические даты — с grant/segments; отдельные сегменты не
+   объединяются. Плановый интервал FR-105 остаётся открытым. Service gap не получает ложного подтверждения предоставления.
+2. Поздний unknown/sent renewal после cutoff/cancel даёт один сохранённый
+   success с фактическим периодом восстановления, не прежним paid_through;
+   recurring authority не возвращается. Повтор/новое чтение не меняют payload.
+3. Resume до окна и внутри окна: сумма из потреблённого quote уже включает
+   storage, срок точно соответствует принятой дате с зоной/фразе. Последующая
+   отмена/изменение подписки не переписывает событие, текст остаётся прошлым.
+4. Проверить rollback настоящего производителя, повтор/дубликат без второй
+   строки, сохранённого получателя, прежние denial/mismatch/owner границы;
+   некорректные поля и старый payload без сумм/сроков безопасны и честны.
+5. Сохранить числа PASS/FAIL/SKIP, команды и SHA. Настоящие письма/деньги
+   запрещены, MockTransport — только синтетический провайдер. Полные
+   T048/T068/#7524 и выпуск сохраняют собственную незавершённую приёмку.
+
+
+Итог местной проверки содержания 01.11.2026: 498 уникальных окончательных
+PASS без окончательных FAIL/ERROR/SKIP; настоящие rollback/dedup/new-session,
+раздельные storage periods и resume до/внутри окна. Ошибочные попытки и
+контрольные суммы сохранены в
+[отчёте](validation-notification-content-20261101.md). Это незакоммиченная
+проверка данного среза, до независимого ревью и точных GitHub gates будущего PR;
+полные T048/T068/#7524 и FR-105 planned interval остаются открытыми.
+
+Независимое кодовое ревью после этих запусков: APPROVE; все 498 уникальных
+окончательных PASS и неизменность четырёх файлов продукта подтверждены.
+[Отчёт проверяющего](review-notification-content-code-20261101.md).
+Далее допускается локальная фиксация проверенного среза; push/PR/merge
+ожидают окончания согласованного окна выпуска. GitHub gates ещё не пройдены.

@@ -216,13 +216,13 @@ A5 report identity: upload `graf-test-timings-<requested_sha>-<run_id>-<run_atte
 High-risk CI/governance; constitution 7.0.0 PASS, read-only permissions and existing owner trust retained. Research confirms native merge queue/required workflows unavailable for the personal repository; no migration or external service.
 
 1. Reuse `ci-event-identity.py` in a small `scripts/ci-pr-scope.py`: validate exact head/base and NUL Git diff, classify only exact title/body edits as text-only, conservative native scope otherwise. Pure documentation means Markdown notes/specs/changelog and owned changelog fragments. Independent server modules can skip native, while API/cabinet/shared/unknown/native paths require it. Explicit reasons are outputs. Failure of scope causes a failed required final check.
-2. Add `.github/workflows/macos-pr.yml`: scope on Ubuntu; conditional macos-14 Swift 6.0.3 build/tests/ContractValidation; unconditional result assertion with stable required name `macos-pr`. A proven text edit validates existing exact-head/base native proof instead of executing native again; a skipped native job alone never authorizes merge. Existing local/Full Swift runner and native execution concurrency are retained. No application installation or manual app launch.
+2. Add `.github/workflows/macos-pr.yml`: scope on Ubuntu; conditional macos-15 Swift 6.0.3 build/tests/ContractValidation; unconditional result assertion with stable required name `macos-pr`. A proven text edit validates existing exact-head/base native proof instead of executing native again; a skipped native job alone never authorizes merge. Existing local/Full Swift runner and native execution concurrency are retained. No application installation or manual app launch.
 3. Extend existing metadata validator with explicit trusted-policy SHA and optional second current snapshot/result output. Keep legacy event CLI requiring PR checkout. Trusted mode verifies checkout=policy SHA, repository identity, exact Git object availability and before/after snapshots, then reuses current title/body validation. Target workflow checks out `github.workflow_sha`, fetches only exact SHA Git objects (no PR code checkout), uses `python3 -I`, read-only GitHub token only for API, safe metadata artifact tied to run/attempt/head/base/policy/hash.
 4. First publication retains combined governance-fast metadata execution. After the foundation merge, verify trusted target checks on the cutover PR, add `pr-metadata` and `macos-pr` to required GitHub contexts without removing governance-fast, read back strict/app IDs. After cutover, the existing governance-fast job keeps a stable required name: exact text-only events skip expensive steps/new receipts and validate existing source proof; genuine code events retain current receipt v1 and tests. Separate text concurrency never cancels code/native. A skipped job or an unconditional text PASS cannot replace source validation. The initial different-name design was disproved by GitHub's live expected-check state; FR-040 now specifies validated reuse.
 5. Extend existing closeout/release consumers through one reusable live PR check validator. Pin the foundation commit as the historical policy boundary after it exists; do not invent its SHA. New PRs require correct workflow/event/head/conclusion for all three checks and fresh current body validation. Historical pre-cutover evidence remains valid; post-merge identity uses final head and merge ancestry. The current personal-repo train remains serial; no unsupported live merge-group claim.
 6. Verify with existing metadata/event/workflow/closeout/train tests and executable shell/event fixtures. Use no new runtime dependency. Record actual activation and final-SHA hosted checks separately from local proofs; update active guidance and owned changelog only after the switch.
 
-A6 consumer implementation details: one `.github/pr-check-policy.json` records the actual foundation SHA/PR and successful protection read-back UTC timestamp. Policy selection uses merged_at < activation only for already merged PRs; open PRs never qualify for the historical exemption. New policy requires code receipt + native scope + metadata snapshot at common head/base and correct run/attempt; current API base for open PRs, exact squash parent or linear rebase-range predecessor plus equal final trees for merged PRs. Trusted metadata refresh also supports verified merged closed PRs and derives the checked base from their immutable merge, retaining double snapshot checks; closed/unmerged is rejected. No missing artifact or ambiguous merge falls back to old policy. Consumers use existing Git/GitHub data and validators; no new external service.
+A6 consumer implementation details: one `.github/pr-check-policy.json` records the actual foundation SHA/PR and successful protection read-back UTC timestamp. Policy selection uses merged_at < activation only for already merged PRs; open PRs never qualify for the historical exemption. New policy requires code receipt + native scope + metadata snapshot at common head/base and correct run/attempt; current API base for open PRs; merged histories follow the current T101 per-tree replay and independent-prefix squash contract below. Trusted metadata refresh also supports verified merged closed PRs and derives the checked base from their immutable merge, retaining double snapshot checks; closed/unmerged is rejected. No missing artifact or ambiguous merge falls back to old policy. Consumers use existing Git/GitHub data and validators; no new external service.
 
 ### A6 исправление последнего набора GitHub checks (T080–T081)
 
@@ -278,7 +278,11 @@ helpers/policy beside its own file while Git still reads the primary checkout.
 The shared release PR-check subprocess runs with `cwd=root`, matching the
 script's other Git readers. Regressions cover old heads without these tools,
 real merged history, failure propagation and invocation from another directory.
-Post-merge acceptance must edit an older merged PR (#6991), as well as #6990.
+Post-merge acceptance must exercise a merged PR whose selected workflow contains
+the current text-reuse implementation. The historical #6991 edit executed its
+older YAML; restored historical checks do not prove the newer workflow. Preserve
+that result and record further historical closeout in issue comments without
+editing #6991 again, as required by the current release guidance.
 
 
 ## A9 implementation design
@@ -497,3 +501,453 @@ FR-010 и анализ CRITICAL0/HIGH0 сохраняются. Нового help
 T097 — исправление установленного preflight дефекта публикации. В существующем sync_public_download после проверки каталога/target обычный непустой runtime PKG выбирается как public_download_source и сохраняется. Отсутствующий target использует прежний исходник и atomic copy/rollback; некорректный существующий target отклоняется. Изменить только общий helper, существующий исполняемый тестовый блок и инструкции публикации. Изолированный тест сначала показывает перезапись newer PKG старым source, затем проверяет сохранность, bootstrap/restore и отрицательные ветки. Review требований и реализации независимый; tracked production PKG восстанавливается только после сохранения и сверки .3. Выпуск выполняется по новому окончательному SHA. FR-010/048→T097→#6989; новые инфраструктурные механизмы не вводятся.
 
 T097 также устраняет наблюдённый process-long cache public_static_asset_url в apps/server/src/twobrain_rec_server/public/templates.py: один существующий cached calculation получает file identity; публичный wrapper делает stat и передаёт identity, сохраняя URL/sha256/maxsize. Старый тест, закреплявший stale URL после replace, заменяется поведением свежей ссылки и реальным ASGI static-response headers. Не менять cabinet static cache или иные продуктовые маршруты: они не публикуют canonical PKG. Дополнительная проверка требований этой границы предшествует коду. После review дополнительно доказано, что существующий опубликованный target сохраняется даже при недоступном tracked bootstrap source; source проверяется только на ветви initial copy.
+
+
+## T098 — точная принадлежность PR диапазону выпуска, 2026-10-06
+
+Lane: active Spec Kit slice / high-risk CI/governance; FR-008/FR-040/SC-019.
+Конституция сохранена: точная identity, полный train, независимый proof,
+отказ при неизвестном состоянии; поправки принципов не требуется.
+
+1. Независимый reviewer проверяет `checklists/release-pr-identity.md` до кода.
+   Analyze сопоставляет требования, задачу и отрицательные сценарии.
+2. В существующем `test_pr_checks.py` переименовать ошибочный `rebase`
+   в `overlapping-checked-ranges`, ожидая оба разных PR7/8. Сохранить
+   mixed-prs отрицательным, parallel two-prs и прежние negatives. Добавить
+   пропуск каждого PR, propagation ошибки раннего PR, настоящий Git linear
+   rebase нескольких commits одного PR, missing terminal, ambiguous owner
+   и changing merge identity. Сначала подтвердить регрессию старого кода.
+3. В `verify_source` заменить broad base..merge coverage на набор точных
+   проверенных PR numbers; уточнить только соответствующий комментарий.
+   Существующие derivation, deferred owners, verify, pool и proof gates сохранить.
+4. Focused pytest файла и соседних consumers release-candidate/train; Ruff,
+   governance/process, changelog и diff. Независимое review/converge.
+5. После проверок: commit, узкий PR, exact SHA/base required checks и общий
+   live verifier. После merge поправку включить в новый train и подготовку
+   v2026.10.07.1; единственный Full только после freeze.
+
+
+## T099 — минимальная коррекция APT-подготовки CI
+
+Lane: active Spec Kit slice, shared CI/infrastructure. До/после design:
+Constitution VI PASS — требования, независимый checklist, analyze, задача
+и issue предшествуют коду; V/III и release/data gates не затрагиваются.
+Требования: новый раздел T099 spec, исходный T089 сохраняется.
+
+Один `infra/scripts/prepare-ci-apt.sh`, без аргументов и новых зависимостей:
+проверить GitHub Linux среду, точную deb822 ссылку и известный официальный
+список зеркал; удалить только строку Azure через Python stdlib под sudo и
+проверить результат. Принимать только плоские deb822 поля известного runner,
+без продолжений и повторных ключей; все разделы используют ровно ожидаемый
+URI и включены. Несколько таких разделов допустимы. Не переписывать deb822 или ключи. Уже исправленный список — no-op.
+Не создавать selector зеркал, менеджер пакетов, конфигурационный формат или
+поддержку недоказанных образов. Три caller в governance-fast/release-full
+вызывают этот скрипт перед существующей условной установкой ffmpeg.
+
+Расширить существующий `test_actual_media_resource_preparation`: исполнить
+реальные три YAML блока и настоящий helper, перенаправив только `/etc/apt`
+в fixture копии helper. Bash функции перехватывают sudo/apt/npm/Playwright
+и записывают порядок; никаких host installs. Проверить доверенные параметры
+источника побайтно, повтор и отказы. Новые задачи: T099 (реализация), T100 (hosted приёмка); исторические задачи
+не переписываются. Независимый requirements review → analyze → issue sync
+→ регрессия FAIL → код → focused/static → независимый code review/converge
+→ коммит/PR → три exact-SHA/base проверки → merge → новый настоящий
+server-change run и закрытие только этой задачи после live-валидации.
+Общие F211/F263 не объявляются завершёнными.
+
+
+## T101–T102 — исторический replay на продвинутую цель
+
+Lane: active Spec Kit slice / high-risk CI/governance. Constitution7.1.0 check
+до исследования и после дизайна: PASS; новые полномочия, данные, внешние сервисы,
+продуктовые поведения и изменения принципов не нужны. T098 и её CHK004 остаются
+исторической приёмкой другого исправления; текущий checklist — `rebase-proof.md`.
+
+1. Общий `scripts/validate-pr-metadata.py::checked_base` уже используется trusted
+   metadata, `ci-pr-scope.resolve`, `validate-pr-checks.code_snapshot/verify`.
+   Исправление остаётся в нём. Переиспользовать `_git`, stdlib и текущие тесты.
+2. Для линейного source получить N пар commit/parent и исходную базу. Попытаться
+   доказать N target пар и каждое дерево через `git merge-tree --write-tree
+   --merge-base=<source_parent> <target_parent> <source_commit>`. Возврат source
+   base разрешён только после всех N точных tree SHA. Ни final equality, ни
+   ancestry, ни ошибочный aggregate на parent последнего replay этого не заменяют.
+3. Если replay не доказан, squash возможен только для линейного независимого
+   target prefix от source base до merge parent. NUL Git diff каждого commit,
+   `--no-renames`, обе стороны удаления/переименования; объединить пути без
+   net-diff сокращения. Пересечение exact path или ancestor directory блокирует.
+   Затем проверить ровно SHA полного aggregate tree с явной source base.
+   Git failure/unknown output не трактуется как пустой prefix. Настоящий squash
+   с пересечением путей может блокироваться как неоднозначный.
+4. Existing non-linear source/sync и actual two-parent обработку не расширять;
+   прежние отдельные доказательства и негативы сохраняются. API snapshots,
+   identity, receipts, run/attempt/freshness/protection/Full/backup/CD не менять.
+5. До source edits: уточнение spec/research, независимый reviewer checklist PASS,
+   scoped analyze без CRITICAL/HIGH и issue sync. Затем сначала FAIL регрессии,
+   минимальный fix, focused tests пяти consumers и Ruff, independent implementation
+   review/converge, owned fragment. T102 остаётся отдельной приёмкой выпуска.
+
+## T103/T104 — минимальная коррекция тестовых ресурсов,28.10.2026
+
+Lane: existing high-risk F211, FR034/035/055/058. Реальные ошибки — Full40613955028;
+код продукта и порядок существующих фаз не меняются.
+
+1. В tests/fixtures/test_resources.py существующий collection hook добавляет
+   strict_rls по полной зависимости migrated_postgres_urls, до postgres и inventory.
+   tests/governance/test_test_resources.py проверяет непосредственный/косвенный
+   caller, отсутствие ложного strict и сохранённую непересекающуюся коллекцию.
+2. В unit/test_processing_temporal_workflow.py одна локальная функция подготовки
+   оборачивает шесть прежних start_time_skipping calls. Максимум3, только точный
+   download429, паузы5+15с. Никаких повторов workflow/assertions и новых ресурсов.
+   Негативные unit-пробы подменяют только подготовку/паузы; настоящие шесть
+   workflow остаются отдельным обязательным исполнением.
+3. До кода independent requirements review/checklist, scoped analyze и issue sync.
+   Затем red/green, профильные реальные проверки, Ruff, process/governance,
+   independent code review/converge и фрагмент F211. T104 требует новых exact
+   PR checks/merge и authoritative Full; не принимает ранее неуспешный кандидат.
+
+
+## A14: перенос исполнителя CI без смены compiler
+
+T105/T106, #7834; `active Spec Kit slice`. Конституция §V/VI сохраняется:
+нет изменений приложения, публичных пакетов, доверия, обязательного набора
+проверок, release candidate или production. FR038/059/060 → T105;
+SC026 → T105/T106. Другие срезы и их незавершённые условия не принимаются.
+
+1. Требования проверяет независимый reviewer в `checklists/runner-image.md`;
+   до его PASS и ограниченного analyze реализация остановлена.
+2. В трёх существующих workflow заменить образ на macos15 и закрепить
+   `DEVELOPER_DIR=/Applications/Xcode_16.2.app/Contents/Developer` на уровне
+   задания. В прежнем selector сохранить все отрицательные проверки и добавить
+   arm64, actual developer path, SDK внутри выбранного Xcode и SDK version15.2. Никаких sudo,
+   xcode-select --switch, загрузок Xcode или нового helper.
+3. Primary/restore keys обоих caches отделить namespace macos15. Использовать
+   прежние action pins, обязательные команды, concurrency, receipts и результат.
+4. До кода воспроизвести старое отсутствие поддерживаемого runner и защиты
+   среды существующими контрактами; расширить actual-shell проверку, затем
+   согласовать Full validator/self-test и диагностический контракт.
+5. Выполнить профильные тесты, actionlint и проектные проверки, независимый
+   review/converge; получить настоящий native PR-прогон и общий validator.
+   Защищённый merge завершает этот срез. Новый release-full, выпуск, GRAF Dev
+   и production не запускаются. Следующий выпуск проверяет новый Full обычным
+   единственным прогоном замороженного кандидата.
+
+Источники: [отключение](https://github.com/actions/runner-images/issues/13518),
+[закреплённый состав macos15 arm64](https://github.com/actions/runner-images/blob/4da2307112a0fad2fd2ecaca8ba7d08683b8c581/images/macos/macos-15-arm64-Readme.md).
+
+### A14: T107 — устранение доказанного compile blocker
+
+FR061/SC026 → T107 → T106. После независимого requirements review и analyze
+удалить только старые ветви двух групп typealias, сохранить существующую
+MainActor/Sendable ветвь, без изменения методов/прав/навигации/настроек.
+Проверить все consumers этих alias и три conformance из настоящего отказа.
+Hosted run41215353665 является RED; локальная компиляция/существующие XCTest
+проверяют текущий SDK, новый native CI — именно Swift6.0.3/SDK15.2.
+Достаточна существующая compilation + поведенческая матрица, новая обвязка
+и изменение tests expectations не нужны. После независимого code review
+получить новые exact-SHA checks. GRAF Dev, выпуск и production не запускаются.
+
+
+### A14/T108 — подготовка существующих UI-проверок
+
+Владение только двумя тестовыми файлами из FR062/063. Для трёх вариантов
+shell использовать ограниченную область внутри настоящего visibleFrame
+(не более1024×743pt), расположить исходное окно слева с запасом для карточки;
+проверить эти предпосылки явно. Длинная карточка охватывает Y настоящего Stop;
+перенос только по X не упирается в системное ограничение titlebar по Y и
+оставляет место для компактного размещения ниже controls. После сужения
+host дождаться заново найденного AX Stop в новой геометрии; повторно читать
+AX controls, не хранить прежнюю виртуальную геометрию. Полное покрытие marker
+и все safety assertions сохраняются. Предположение о свободном исходном якоре
+должно воспроизводимо отказывать на прежней подготовке с небольшим viewport.
+
+Для confirmation вернуть тесту navigation controller, дождаться didFinish
+через его публичное isLoading вместе с URL/WebKit и отсутствием sheet.
+Перед вторым запросом — bounded наблюдение завершённого AppKit dismissal.
+При отказе писать key/состояние, не обходить guards и не перезапускать action.
+Новых helpers/dependencies/workflows и продуктовых изменений нет.
+SC026 → T105/T107/T108/T106; FR062/063 → T108.
+
+
+Уточнение наблюдения AX после первого исполнения T108: на SDK26.5 кнопка
+Stop при сужении600→520 меняет и положение, и ширину180→140.5pt; её центр
+сдвигается на60.25pt, а не40pt. Поэтому подготовка ждёт новую ненулевую рамку,
+отличную от прежней, вместе с точными bounds accessory, затем без изменений
+проверяет полное покрытие Stop и его нахождение внутри окна. Фиксированный
+сдвиг центра не является продуктовым требованием. Виртуальное дерево
+перечитывается на каждой попытке; старый неизменный AX не разрешает ожидание.
+
+
+### A14/T109: регистрация WKUIDelegate confirm
+
+FR064/SC026 → T109 → T106. Уточнение после доказанного selector=false и
+compiler nearly-matches в41222159260: удалить единственный confirm alias
+и заменить callback-overload стандартным async requirement. Существующий
+requestJavaScriptConfirmation вызывается из MainActor через
+withCheckedContinuation; отмена/явное согласие разрешают continuation тем же
+сохранённым однократным callback. Все consumers alias найдены: объявление
+и один метод; остальные четыре alias не меняются. Продуктовый UI/guards,
+входные URL и жизненный цикл не переписываются. Сначала независимый review
+CHK008 и scoped analyze, затем существующие шесть confirm tests, полный
+XCTest/ContractValidation и новый pinned native, независимое code review.
+Продуктовые полномочия и данные не меняются; Constitution Check PASS
+по сохранению guards/однократности/metadata-only evidence.
+
+
+## T110 — ограниченная диагностика неизвестного APT
+
+Текущий статус 01.11.2026: остаток исследования отменяется после принятого
+T112–T114/PR #7863. Решение spec «Отмена дальнейшего исследования T110»
+заменяет прежнее ожидание AWS URI; дальнейший диагностический код и новые
+наборы runners не планируются. Фактический AWS URI остаётся неизвестным.
+Владелец — основной агент F211. Исходная T110 сохраняет `[ ]`, T111 —
+историческую приёмку; новый Full/выпуск и все защитные проверки обязательны
+в своей области. Возврат — только при новом подтверждённом отказе текущего
+helper и необходимости исследовать облачную конфигурацию. После принятого
+документального PR перечитать #7849, сверить обе исходные задачи, добавить
+русское обоснование и закрыть `NOT_PLANNED` с чтением результата.
+
+Lane: active Spec Kit slice, CI diagnostics. Constitution III/VI до и после
+планирования PASS: только публичные метаданные одноразовой машины, без секретов,
+изменения APT, runtime и release gate. Исходный отказ и неопределённость — spec T110.
+
+Временно добавить `.github/workflows/ubuntu-apt-diagnostic.yml`: pull_request
+opened/synchronize только при изменении этого файла, восемь задач с matrix
+0–7 и fail-fast=false, ubuntu-24.04, permissions={}, timeout5min. Один run
+step с Python stdlib, без checkout/сети/sudo/зависимостей. Pathlib проверяет
+is_symlink/is_file/размер до read_bytes; вывод JSON содержит hashes и только
+allowlisted Ubuntu URIs без credentials/port/query/fragment. Для unknown
+выводить лишь hash, не строку. Проверка не сообщает успех выпуска.
+
+Локальный исполняемый профиль сохранить в `.dev/ci-apt-diagnosis/` вместе
+с журналом: извлечь тот же inline run из YAML, перенаправить две константы
+пути в временную директорию, выполнить положительные/отрицательные случаи.
+Не создавать новую долговечную инфраструктуру. Временный workflow удалить
+до окончательного merge. Reviewer-owned checklist: `checklists/ci-apt-diagnosis.md`.
+Порядок: review требований → analyze → issue sync → код → focused/static →
+независимое code review → draft PR/hosted diagnosis → запись фактов и удаление
+workflow. Исправление helper только после доказанного формата и нового review.
+
+
+### T110 — второй ограниченный набор с настоящей меткой Full
+
+Первый [run41240805226](https://github.com/yshishenya/graf/actions/runs/41240805226),
+source5d42971c40625997ccc49a8b0d438a263f7fc523:8/8 Azure, Ubuntu24.04
+image20261025.353.1, прежний mirror_list. Фактический AWS остался неизвестным.
+В отказавшем Full и всех трёх callers используется `ubuntu-latest`, тогда
+как первый диагностический набор использовал `ubuntu-24.04`. Это разные
+выборки; причина различия облаков не доказана. Следующий набор ровно8 jobs
+использует ту же метку `ubuntu-latest`. Это разрешает только чтение той же
+ограниченной пары файлов на актуальном GitHub Ubuntu, не установку пакетов
+или изменение доверия. Всего в двух наборах не более16 jobs; остальные
+ограничения, код вывода,5min/permissions и удаление до merge сохраняются.
+До изменения runs-on требуется повторное независимое requirements review;
+локально проверить точную метку и прежние14 сценариев. Если AWS снова не
+встретится, не объявлять его формат установленным и не повторять Full.
+
+
+## T111 — минимальный отказ с безопасным объяснением
+
+Constitution III/VI до/после design PASS. Lane active Spec Kit slice, CI diagnostics.
+Из временного inline кода T110 перенести describe в существующий Python
+heredoc `infra/scripts/prepare-ci-apt.sh`: hashlib/json/urlsplit, DNS regex
+через уже импортированный re. В точке неподдержанного URI/disabled раздела
+сформировать bounded JSON и затем прежний SystemExit. Значение<=4096
+разбить на URI tokens, для большего вывести лишь UNKNOWN/hash. Unknown raw
+никогда не печатается. Разрешения APT, parse и список зеркал не меняются.
+Без нового модуля/настройки/зависимости/caller. Удалить временный YAML.
+Расширить существующий параметризованный shell harness resource preparation
+с отказами на известной/неизвестной/credential/control/длинной строке; JSON
+разбирать из stdout, проверять отсутствие опасного значения и отсутствие
+побочных действий. Все прежние случаи сохраняются. Фактический AWS остаётся
+отдельным открытым критерием T110; новое сообщение будет получено штатным
+будущим caller, повторять Full ради диагностики нельзя. Before-code checklist
+`checklists/ci-apt-failure-diagnosis.md`, analyze/issue sync, RED→GREEN,
+focused/actionlint/bash/process/governance/fragment/diff, независимое review/
+converge, коммит/PR exact gates. Успешная локальная/PR приёмка не равна Full.
+
+
+## T112 — нормализация официальных источников CI
+
+Constitution III/VI: до/после проекта PASS; прежние trust/required checks/
+source SHA/base/production boundaries сохраняются. Точная policy и переход
+исторических ограничений определены в spec T112; новых данных/API/зависимостей нет.
+
+Существующий Python heredoc prepare-ci-apt.sh получает native platform через
+/usr/lib/os-release (ID/VERSION_ID/VERSION_CODENAME) и dpkg --print-architecture /
+--print-foreign-architectures. Проверяет files/parent/ownership/modes/размеры,
+парсит все flat sections до побочных действий. Разрешены только поля/наборы
+T112. Не пытается определить cloud по старому URI. На выходе один раздел на
+suite с прежними остальными значениями, URIs — две HTTPS константы.
+Кроме GITHUB_ACTIONS=true/RUNNER_OS=Linux требуется RUNNER_ENVIRONMENT=github-hosted.
+Во всём входе запрещены C0 кроме TAB/LF и DEL, включая поле URI.
+
+Stdlib pathlib/stat/subprocess/tempfile/os достаточно. tempfile в том же parent,
+прежние uid/gid/mode, write/flush/fsync, os.replace и bytes readback; finally
+удаляет только свой temp. Совпавшие bytes — no-op. Root-owned directory и
+одноразовый runner — граница доверия; root compromise/злонамеренный kernel
+не доказываются. Подмена/несовпадение перед replace отказывает, нет общего
+parser/framework/обхода APT authentication. Сторонние files не меняются.
+
+Три YAML callers остаются прежними. Расширить test_actual_media_resource_preparation:
+реальные inline steps+helper, временные paths, fake native platform commands,
+явная модель root stat/fchown для непривилегированного Mac fixture. Сам security
+код исполняется; моделирование metadata не считается проверкой реального Mac/root.
+Проверить отдельные отказы owner/mode/keys/platform и tuples до/после. Ни сети,
+ни настоящего sudo/APT. До кода checklist ci-official-sources; затем узкий
+analyze и taskstoissues; RED/GREEN всего прежнего профиля, static checks,
+независимый implementation review/converge и обязательные PR gates. На hosted
+runner тест также использует явную модель. При infra-only PR внешний шаг
+Prepare в governance-fast может быть пропущен по прежнему server-scope:
+required PR gates принимают hermetic профиль, а настоящий helper/root/native
+проверяются при server-change либо штатном Full нового принятого кандидата.
+Искусственного server diff или отдельного workflow ради этого не создаётся;
+Full не используется ради определения облака.
+
+## T113 — наблюдаемый отказ и проверка самого helper
+
+Constitution III/VI до/после проекта: PASS; содержимое и доверие APT, данные
+продукта и production не меняются. Новых прав или разрешений не требуется.
+
+Область: прежний checked_read и один существующий selector в governance-fast;
+без новой инфраструктуры/зависимостей/permission changes. checked_read получает
+фиксированную категорию от своих двух callers и при прежнем отказе добавляет
+только stat.S_IFMT, uid/gid, stat.S_IMODE и size. Источник и keyring не читаются
+при неудачной metadata-проверке. Все safety-условия T112 сохраняются.
+
+В прежнем цикле changed_files условие Prepare принимает server либо точное
+имя helper. Другие infra/docs не выбираются новой ветвью. Существующий test
+actual_media_resource_preparation исполняет YAML с helper-only/server/docs;
+negative fixtures проверяют отсутствие содержимого/URI и дальнейших действий.
+До кода checklist native-ci-metadata, analyze и sync #7859; далее RED/GREEN,
+static/process, независимый code review, draft PR и фактические числа runner.
+Без фактов не проектировать ослабление guard. Failed intermediate run остаётся
+failed; требуемые exact gates для конечного изменения сохраняются.
+
+
+## T114 — атомарное исправление только известного ключа
+
+Constitution III/VI до/после проекта PASS: исправляем права конкретного
+проверенного публичного ключа, не ослабляем подписи/trust/required checks.
+Один существующий helper, stdlib hashlib/os/tempfile/stat; без сети,
+зависимостей, новых workflow или product state.
+
+Существующий checked_read получает узкую ветвь только для literal keyring
+0777/root:root/regular/3607bytes. Parent проверяется до чтения. Остальные
+ветви, включая source0777 и неизвестный ключ, отказывают. Ветвь читает
+ограниченный snapshot с прежними fd fingerprints и сравнивает SHA256 с
+официальной константой из spec. Возвращаются snapshot/key metadata; ключ ещё
+не меняется. Source полностью парсится и canonical проходит size guard.
+Только затем same-directory temp ключа, root:root0644,
+write/flush/fsync. Перед replace повторно проверяются parent identity/mode/
+owner и исходный fingerprint, при изменении отказ без replace. os.replace
+отсекает старые fd к writable inode. После cleanup повторный checked_read
+обязан подтвердить metadata, bytes и тот же hash. Безопасный обычный путь
+не делает writes; ключи с уже безопасными правами не pin-ятся старой версией.
+
+В existing root-model fixture exact known public hash заменяется только на
+hash учебного ключа; отдельный tampered fixture не совпадает. Бинарные ключи
+не коммитятся. Все три actual YAML caller остаются прежними. Новые кейсы
+в этом же тесте сначала RED; затем весь модуль/static, independent code
+review/converge и обновление того же draft PR7863 на exact source. Реальный
+успех ещё не доказан; mismatch не обходится chmod. T112/#7859 открыты до
+конечного принятия. F273 и коммерческая цель этим не закрываются.
+
+
+### T114: диагностика уже прочитанного key_parent
+
+Native run41256850185 отказал unsafe keyring directory до key read. Не
+угадывать metadata и не исправлять каталог по предположению. Только прежняя
+ветвь fail получает fixed keyring-directory/numeric stat format T113;
+новых чтений/paths/guards/записей нет. Existing key-parent owner/mode/symlink
+требуют exact stderr, сначала RED. Функциональное расширение отсутствует.
+
+### T114: известный root:root0777 каталог
+
+После native факта41257402120 проект уточняется по spec T114. Constitution
+III/VI до/после PASS: только ужесточение прав фиксированного каталога и
+атомарная копия тех же pinned public bytes; новое доверие отсутствует.
+В том же helper stdlib stat/os: определить repair_parent только по exact
+dir/root:root0777. Проверить `/usr` и `/usr/share` lstat, затем прежние key
+snapshot/source parser/canonical. При repair_parent дополнительно exact
+key metadata/pin. После полной проверки открыть directory fd NOFOLLOW/
+DIRECTORY, сверить fingerprint, fchmod0755/fsync и fstat/path readback.
+Повторно сверить source/key snapshots, обновить key_parent и использовать
+прежнюю atomic key replacement даже для исходного0644. Не вводить helper
+framework/новые dependencies/workflow. Корректный безопасный путь прежний.
+Существующая root-model fixture моделирует ancestors/dir failures явно;
+новые случаи в том же параметризованном test трёх настоящих callers.
+Новый reviewer-owned `checklists/ci-keyring-directory.md`, before-code
+review→analyze→sync #7859→RED→минимальный код→whole/static→independent
+review/converge→тот же draft7863/exact gates. Full/T0/рост отдельно.
+
+T114 после native41258326161: только diagnostic continuation T113.
+Существующий unsafe-ancestor отказ добавляет bounded numeric metadata
+фиксированных share/usr/root через lstat; три записи, никаких contents/
+directory listing/записей/допуска. Исходный condition не меняется. Existing
+unsafe-ancestor cases требуют точный stderr; прежде независимый review,
+затем focused/static/review и один native Prepare. Следующая функциональная
+адаптация остаётся заблокирована до этих фактов и своего review.
+
+T114 share0777 после native41258703244: Constitution III/VI до/после PASS,
+одна дополнительная fixed directory permission repair, без нового trust.
+Всегда проверить root/usr, share exact unsafe exception и key parent.
+Список требующих ремонта snapshots содержит только share и key parent,
+в порядке сверху вниз. Переиспользовать прежний directory fd блок в цикле;
+при любом repair exact key pin и full source до записи, затем повторные
+snapshots и прежняя atomic key replacement. Защита root/usr никогда не
+меняется. Existing fixture использует actual temp share0777 в новых случаях,
+unsupported ancestor negative остаётся0775; shared I/O guards упражняются
+прежними key-parent cases. Новый changed-child после первого fsync проверяет
+отказ второго fd. Before-code checklist/analyze/sync, RED→whole/static→
+independent review/converge и тот же draft7863/exact native. Новых модулей,
+dependencies/workflow/configuration и ремонтов других каталогов нет.
+
+Review P2 уточняет прежний prewrite guard: сразу после directory loop exact
+fingerprint key_parent (включая safe child), до повторных reads/temp. Новый
+safe-child-changed fsyncshare case записывает key-temp event через прежний
+mock harness: любой temp до refusal проваливает assert только mirror event.
+Отдельный fixture bug traceback устраняется только compile filename
+`<prepare-ci-apt>` вместо относительного имени: loader root-model не должен
+показывать чужие строки. Предыдущий whole с3missing-source FAIL сохраняется,
+новый focused/whole проверяет прежний privacy assert без ослабления.
+
+
+## T115 — целевой курсор учебного inventory
+
+FR-057/SC-025; active Spec Kit slice. До реализации — независимый checklist
+`inventory-test-cursor.md`, analyze и issue sync. В одном существующем тесте
+заменить только `after_workspace_id=None` на UUID непосредственно перед
+созданным workspace. UUID уже импортирован; общий helper/SQL не менять.
+
+Доказательство до/после: отдельный временный pytest wrapper импортирует тот же
+неизменный test и его две fixtures, autouse fixture задаёт последовательные
+учебные UUID и через существующий `_seed_revision` создаёт51 предшествующий
+workspace. Штатный runner выделяет disposable PostgreSQL и удаляет его после
+отказа/успеха. Этот wrapper — диагностический инструмент, не новый product
+или legacy path. Сохранить безопасный рецепт и итоги. Затем весь normalization
+PostgreSQL module и maintenance-context file, Ruff/diff/process/fragment,
+независимое code review/converge. Release clone failed125b не изменять.
+
+
+## T116 — явная передача отказа rollback_feature_database
+
+Lane: active Spec Kit, high-risk deployment. Constitution III/IV/VI
+before/after design PASS: сохранность решений, запрет секретов в evidence,
+backup/restore и независимое ревью сохраняются. Базовые четыре документа и
+семь guidance сверены с принятыми хешами; требования FR-008/FR-048/SC-021 и
+весь затронутый helper/caller перечитаны. Новых неоднозначных решений нет.
+
+1. Дополнить существующие требования, quickstart и T116/#6989; получить
+   независимый review нового checklist, затем scoped analyze и issue sync.
+2. Добавить один параметризованный исполняемый тест в существующий
+   `test_deployment_readiness_gates.py`: извлечь настоящее тело функции и
+   `restore_previous_runtime`, подменить только внешние Compose/службы.
+   Фиксировать отказы migration/query/drop и успех; отдельно failed
+   compatibility. Получить RED прежнего тела до правки.
+3. В `infra/scripts/cd-remote-runtime.sh` добавить явный `|| return` к
+   downgrade, присвоению результата запроса роли и команде удаления роли.
+   Не менять caller/миграцию/данные/флаги/образ или политику отката.
+4. GREEN нового теста, весь модуль, связанные rollback/smoke/backup/image
+   контракты, Bash/Ruff/process/fragment; независимые review и converge.
+   Required checks на окончательном SHA, protected merge; новый Full/CD
+   выполняет оператор выпуска отдельно. Срез не включает измерение и T0.

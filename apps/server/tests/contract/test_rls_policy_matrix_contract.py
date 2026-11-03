@@ -152,6 +152,10 @@ PROMPT_OPTIMIZATION_MAINTENANCE_MIGRATION = (
     / "apps/server/src/twobrain_rec_server/db/migrations/versions/0033_prompt_optimization_maintenance.py"
 )
 CONTRACT = REPO_ROOT / "specs/031-rls-hardening/contracts/rls-policy-matrix.md"
+BILLING_REGISTRY_MIGRATION = (
+    REPO_ROOT
+    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0107_billing_registry.py"
+)
 
 
 def test_rls_migration_covers_every_current_tenant_table() -> None:
@@ -187,6 +191,7 @@ def test_rls_migration_covers_every_current_tenant_table() -> None:
         + REFERRAL_LINKS_MIGRATION.read_text(encoding="utf-8")
         + FAIR_USE_MIGRATION.read_text(encoding="utf-8")
         + WORKSPACE_ONBOARDING_MIGRATION.read_text(encoding="utf-8")
+        + BILLING_REGISTRY_MIGRATION.read_text(encoding="utf-8")
     )
 
     for table_name in sorted(RLS_COVERED_TABLES):

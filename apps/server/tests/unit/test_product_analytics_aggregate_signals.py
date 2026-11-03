@@ -86,8 +86,8 @@ def test_aggregate_signal_forbidden_fields_include_every_identifier() -> None:
 def test_aggregate_signal_retention_category_is_registered() -> None:
     rule = retention_rule("anonymous_page_aggregate")
 
-    assert rule.minimum_retention_days == 1095
-    assert rule.maximum_retention_days == 1095
+    assert rule.minimum_retention_days is None
+    assert rule.maximum_retention_days is None
 
 
 def test_unknown_aggregate_signal_is_refused_and_never_delivers() -> None:

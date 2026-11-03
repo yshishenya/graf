@@ -19,6 +19,7 @@ from twobrain_rec_server.api.schemas import (
     TranscriptSpeakerTurnView,
 )
 from twobrain_rec_server.auth.account_merge import MergePreview
+from twobrain_rec_server.auth.redirects import safe_billing_return_path
 from twobrain_rec_server.auth.workspace_onboarding import (
     WorkspaceAccessView,
     WorkspaceJoinOfferView,
@@ -342,6 +343,14 @@ def render_meeting_unavailable_page(
     )
 
 
+def render_shared_summary_unavailable_page(*, temporary: bool = False) -> str:
+    return _page_shell(
+        "Итоги недоступны", embedded=False,
+        content_template="cabinet/pages/shared_summary_unavailable_content.html",
+        temporary=temporary,
+    )
+
+
 def render_share_invitation_unavailable_page() -> str:
     return _page_shell(
         "Приглашение недоступно",
@@ -395,6 +404,20 @@ def render_share_invitation_accept_page(
     )
 
 
+def render_summary_sharing_form(*, meeting_id, csrf_token, template_key, share_workspace_id=None, link=None, batch=None, error=None, idempotency_key=None) -> str:
+    from uuid import uuid4
+
+    action = f"/api/v1/cabinet/meetings/{meeting_id}/summary-sharing/form"
+    if share_workspace_id is not None:
+        action += f"?workspace_id={share_workspace_id}"
+    return _page_shell(
+        "Поделиться итогами", embedded=False, csrf_token=csrf_token,
+        content_template="cabinet/pages/summary_sharing_form_content.html",
+        meeting_id=meeting_id, template_key=template_key, form_action=action,
+        link=link, batch=batch, error=error, idempotency_key=idempotency_key or str(uuid4()),
+    )
+
+
 def render_shared_meeting_summary_page(
     *,
     meeting_title: str,
@@ -410,6 +433,7 @@ def render_shared_meeting_summary_page(
     return _page_shell(
         "Итоги встречи",
         embedded=embedded,
+        page_template="cabinet/pages/shell.html" if authenticated else "cabinet/pages/public_summary_shell.html",
         content_template="cabinet/pages/shared_meeting_summary_content.html",
         meeting_title=meeting_title,
         occurred_at=occurred_at,
@@ -486,7 +510,11 @@ def render_settings_page(
     account_active: str = "profile",
     notification_preferences: object | None = None,
     show_account_navigation: bool = False,
+    billing_return_path: str | None = None,
 ) -> str:
+    billing_return_path = safe_billing_return_path(billing_return_path)
+    account_path = "/desktop/settings/account" if embedded else "/settings/account"
+    billing_query = "?" + urlencode({"next": billing_return_path}) if billing_return_path else ""
     offer_result_copy = {
         "accepted": "Рабочее пространство добавлено. Текущее пространство не изменилось.",
         "rejected": "Приглашение отклонено. Текущее пространство не изменилось.",
@@ -599,8 +627,9 @@ def render_settings_page(
         "account_close_requested": account_close_result == "reauth_required",
         "requires_account_reauth": requires_account_reauth,
         "account_reauth_action": "/desktop/meetings" if embedded else "/logout",
-        "account_reauth_next": "/login?next="
-        + ("/desktop/settings/account" if embedded else "/settings/account"),
+        "account_reauth_next": "/login?" + urlencode({"next": account_path + billing_query}, safe="/"),
+        "billing_return_path": billing_return_path,
+        "account_email_start_action": account_path + "/email-link/start" + billing_query,
         "notification_result": {
             "saved": "Настройки уведомлений сохранены.",
             "conflict": "Настройки изменились или не прошли проверку. Ваш выбор сохранен в форме. Загрузите актуальные настройки перед повторным сохранением.",
@@ -672,9 +701,12 @@ def render_account_merge_page(
     requires_reauth: bool = False,
     requires_restart: bool = False,
     provider_id: str | None = None,
+    billing_return_path: str | None = None,
 ) -> str:
     base_path = "/desktop/settings/account/merge" if embedded else "/settings/account/merge"
     settings_path = "/desktop/settings/account" if embedded else "/settings/account"
+    billing_return_path = safe_billing_return_path(billing_return_path)
+    billing_query = "?" + urlencode({"next": billing_return_path}) if billing_return_path else ""
     provider_label = account_merge_provider_label(provider_id)
     provider_sentence_label = {
         "Email": "Email",
@@ -693,16 +725,17 @@ def render_account_merge_page(
         content_template="cabinet/pages/account_merge_content.html",
         presentation=account_merge_presentation(preview),
         intent_id=intent_id,
-        confirm_action=f"{base_path}/{intent_id}/confirm",
-        cancel_action=f"{base_path}/{intent_id}/cancel",
-        settings_href="/desktop/settings/account" if embedded else "/settings/account",
+        confirm_action=f"{base_path}/{intent_id}/confirm{billing_query}",
+        cancel_action=f"{base_path}/{intent_id}/cancel{billing_query}",
+        settings_href=settings_path + billing_query,
+        billing_return_path=billing_return_path,
         provider_label=provider_label,
         provider_sentence_label=provider_sentence_label,
         connect_action_label=f"Подключить {provider_label}",
         restart_action=(
             f"{'/desktop' if embedded else ''}/settings/provider-links/{restart_provider}/start"
             if restart_provider is not None
-            else f"{settings_path}/email-link/start"
+            else f"{settings_path}/email-link/start{billing_query}"
             if restart_requires_email
             else None
         ),
@@ -713,7 +746,7 @@ def render_account_merge_page(
         ),
         restart_requires_email=restart_requires_email,
         reauth_action="/desktop/meetings" if embedded else "/logout",
-        reauth_next=f"/login?next={settings_path}?provider_link=reauth_required",
+        reauth_next="/login?" + urlencode({"next": settings_path + billing_query}, safe="/"),
         requires_reauth=requires_reauth,
         requires_restart=requires_restart,
         error_message=error_message,
@@ -1417,6 +1450,12 @@ def _render_meeting_workspace_actions(
     share_url = f"{_base_path(embedded)}/{review.meeting.meeting_id}/share"
     if shared_workspace_id is not None:
         share_url += f"?workspace_id={shared_workspace_id}"
+    form_url = f"/api/v1/cabinet/meetings/{review.meeting.meeting_id}/summary-sharing/form"
+    form_query = {"template_key": review.template.reason or "meeting_minutes"}
+    if shared_workspace_id is not None:
+        form_query["workspace_id"] = str(shared_workspace_id)
+    form_url += "?" + urlencode(form_query)
+    form_link = f'<noscript><a href="{escape(form_url)}">Поделиться итогами</a></noscript>' if share_available else ""
     more_action = ""
     if more_actions_available:
         more_action = """
@@ -1427,6 +1466,7 @@ def _render_meeting_workspace_actions(
     return f"""
       <button type="button" data-share-dialog-open aria-controls="meeting-share-dialog" hx-get="{share_url}" hx-target="#meeting-share-host" hx-swap="innerHTML"{share_attributes}>Поделиться</button>
       {share_reason}
+      {form_link}
       {more_action}
     """
 
@@ -1800,6 +1840,33 @@ def _render_meeting_row_meta(
     return status + progress + readiness + action
 
 
+def _render_calendar_series(key: str, *, embedded: bool) -> str:
+    return f"""
+      <details class="calendar-series" data-calendar-series="{escape(key)}">
+        <summary>{_ui_icon("chevron-right")}<span>Даты и записи</span></summary>
+        <div class="calendar-series__body">
+          <div class="calendar-series__toolbar">
+            <div class="calendar-series__views" role="group" aria-label="Период встреч">
+              <button type="button" data-calendar-series-view="upcoming" aria-pressed="true">Ближайшие даты</button>
+              <button type="button" data-calendar-series-view="history" aria-pressed="false">История</button>
+            </div>
+            <span class="calendar-series__scope" data-calendar-series-scope>Ближайшие 30 дней</span>
+          </div>
+          <div data-calendar-series-rows></div>
+          <p class="calendar-series__status" role="status" aria-live="polite" data-calendar-series-status></p>
+          <button type="button" class="calendar-series__more" data-calendar-series-more hidden>Еще даты</button>
+          <details class="calendar-series__help">
+            <summary>{_ui_icon("info")}<span>О данных календаря</span></summary>
+            <p>Здесь доступны сохраненные даты за последние 180 дней и ближайшие 30 дней.
+              Полная история календаря может быть недоступна. Показаны найденные связанные записи;
+              отсутствие ссылки не означает, что записи нет.</p>
+            <a href="{'/desktop' if embedded else ''}/meetings">Ко всем встречам</a>
+          </details>
+        </div>
+      </details>
+    """
+
+
 def _render_upcoming_recurring(response: MeetingListResponse, *, embedded: bool) -> str:
     generated_at = (
         response.generated_at
@@ -1852,8 +1919,16 @@ def _render_home_upcoming(
     settings_href = (
         "/desktop/settings/integrations/calendar" if embedded else "/settings/integrations/calendar"
     )
-    preview = calendar_surface.preview[:4]
-    upcoming_refresh_at = min((item.ends_at for item in preview), default=None)
+    preview = (
+        calendar_surface.overview
+        if calendar_surface.overview_loaded
+        else calendar_surface.preview[:4]
+    )
+    upcoming_refresh_at = (
+        min((item.ends_at for item in preview), default=None)
+        if calendar_surface.preferences.show_upcoming_time
+        else None
+    )
     source_states = {source.sync_health_state for source in calendar_surface.sources}
     credential_issue = bool(source_states & {"credential_failed", "failed_closed"})
     provider_issue = bool(source_states & {"provider_unavailable", "rate_limited"})
@@ -1885,9 +1960,11 @@ def _render_home_upcoming(
               {f'<time datetime="{escape(item.starts_at.isoformat())}" title="{escape(format_user_datetime(item.starts_at.date() if item.all_day else item.starts_at, show_zone=True))}" aria-label="{escape(format_user_datetime(item.starts_at.date() if item.all_day else item.starts_at, show_zone=True))}">{escape(_home_upcoming_time_label(item.starts_at, display_timezone, all_day=item.all_day))}</time>' if calendar_surface.preferences.show_upcoming_time else '<span class="calendar-home-upcoming__time-hidden">Время скрыто настройкой</span>'}
               <div>
                 <strong>{escape(item.title if calendar_surface.preferences.show_upcoming_title else "Название скрыто настройкой")}</strong>
-                <small>{"Есть ссылка на встречу" if item.meeting_link_present else "Без ссылки на встречу"}{" · данные могут быть устаревшими" if item.sync_confidence_state == "stale" else " · обновляется" if item.sync_confidence_state == "updating" else ""}</small>
+                <small>{"<span class=calendar-series__repeat aria-hidden=true>↻</span> Повторяющаяся встреча" if item.series_key else "Есть ссылка на встречу" if item.meeting_link_present else "Без ссылки на встречу"}{" · без ссылки" if item.series_key and not item.meeting_link_present else ""}{" · данные могут быть устаревшими" if item.sync_confidence_state == "stale" else " · обновляется" if item.sync_confidence_state == "updating" else ""}</small>
               </div>
-              {f'<a class="button quiet calendar-home-upcoming__join" href="/api/v1/calendar/events/{escape(item.event_id)}/open" data-calendar-join="{escape(item.event_id)}">Подключиться</a>' if item.open_meeting_available else ""}
+              {f'<a class="button quiet calendar-home-upcoming__join" data-calendar-join="{escape(item.event_id)}" target="_blank" rel="noopener noreferrer" href="/api/v1/calendar/events/{escape(item.event_id)}/open">Подключиться</a>' if item.open_meeting_available else ""}
+              <span data-calendar-join-status role="status" aria-live="polite"></span>
+              {_render_calendar_series(item.series_key, embedded=embedded) if item.series_key else ''}
             </article>
             """
             for item in preview
@@ -1912,7 +1989,7 @@ def _render_home_upcoming(
         )
 
     return f"""
-      <details class="calendar-home-upcoming" data-calendar-live="upcoming" open{f' data-calendar-upcoming-refresh-at="{escape(upcoming_refresh_at.isoformat())}"' if upcoming_refresh_at is not None else ''}>
+      <details class="calendar-home-upcoming" data-calendar-live="upcoming" data-calendar-show-title="{str(calendar_surface.preferences.show_upcoming_title).lower()}" data-calendar-show-time="{str(calendar_surface.preferences.show_upcoming_time).lower()}" open{f' data-calendar-upcoming-refresh-at="{escape(upcoming_refresh_at.isoformat())}"' if upcoming_refresh_at is not None else ''}>
         <summary>
           <span>Ближайшие встречи</span>
           <small>{escape(state_copy)}</small>
@@ -2348,6 +2425,14 @@ def _render_playback(
             <span class="sr-only" data-playback-listen-status role="status"></span>
           </section>
         """
+    storage_action = (
+        '<span>Освободите место или обратитесь к владельцу пространства. '
+        '<a href="/billing">Объем хранилища</a></span>'
+        if review.playback.reason_code == "storage_capacity_exceeded" and shared_workspace_id is None
+        else '<span>Обратитесь к владельцу пространства, чтобы освободить место для аудио.</span>'
+        if review.playback.reason_code == "storage_capacity_exceeded"
+        else ""
+    )
     focus_attribute = "" if review.playback.state == "preparing" else ' role="status" tabindex="0" aria-live="off"'
     state_classes = "is-unavailable"
     if review.playback.state != "unavailable":
@@ -2355,6 +2440,7 @@ def _render_playback(
     return f"""
       <section class="playback-bar detail-playback {state_classes}" data-playback-state="{escape(review.playback.state)}" data-playback-reason="{escape(review.playback.reason_code)}" data-source-mode="{escape(review.playback.source_mode)}" aria-label="Воспроизведение записи" aria-describedby="playback-live-status"{focus_attribute}>
         <span>{escape(review.playback.label)}</span>
+        {storage_action}
         <span>{cabinet_view_models.format_duration(review.playback.duration_seconds)}</span>
       </section>
     """

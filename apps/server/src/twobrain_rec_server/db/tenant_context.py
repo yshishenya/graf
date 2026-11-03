@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Literal
 from uuid import UUID
 
-from sqlalchemy import event, text
+from sqlalchemy import event, func, select
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession
 from sqlalchemy.orm import Session, SessionTransaction
@@ -24,6 +24,9 @@ ALLOWED_MAINTENANCE_OPERATIONS = frozenset(
         "prompt_optimization",
         "outcome_dispatch_reconciliation",
         "summary_slots_reconciliation",
+        "summary_delivery_reconciliation",
+        "activation_milestone_delivery",
+        "public_consent_control",
         "deletion_purge_reconciliation",
         "outcome_initial_baseline_reconciliation",
         "billing_reconciliation",
@@ -67,13 +70,11 @@ def _restore_transaction_local_context(
     """
 
     settings = session.info.get("tenant_context")
-    if not isinstance(settings, dict) or connection.dialect.name != "postgresql":
+    if not isinstance(settings, dict) or not settings or connection.dialect.name != "postgresql":
         return
-    for name, value in settings.items():
-        connection.execute(
-            text("select set_config(:setting_name, :setting_value, true)"),
-            {"setting_name": name, "setting_value": value},
-        )
+    connection.execute(
+        select(*(func.set_config(name, value, True) for name, value in settings.items()))
+    )
 
 
 def _require_context_kind(value: str, allowed: frozenset[str], label: str) -> None:
@@ -159,6 +160,15 @@ class AccountMergeTenantContext:
             raise ValueError(f"Unsupported account merge context_kind: {self.context_kind}")
         if self.survivor_user_id == self.source_user_id:
             raise ValueError("account merge context requires distinct users")
+
+
+@dataclass(frozen=True, slots=True)
+class PublicConsentContext:
+    consent_digest: str
+
+    def __post_init__(self) -> None:
+        if len(self.consent_digest) != 64 or any(c not in "0123456789abcdef" for c in self.consent_digest):
+            raise ValueError("invalid public consent digest")
 
 
 @dataclass(frozen=True, slots=True)
@@ -421,6 +431,7 @@ async def apply_tenant_context(
     context: (
         TenantDatabaseContext
         | MaintenanceTenantContext
+        | PublicConsentContext
         | AccountMergeTenantContext
         | AuthSessionLookupContext
         | WorkspaceAuthContext
@@ -435,6 +446,8 @@ async def apply_tenant_context(
 ) -> None:
     if isinstance(context, TenantDatabaseContext):
         settings = tenant_context_settings(context)
+    elif isinstance(context, PublicConsentContext):
+        settings = {"app.context_kind": "public_consent", "app.public_consent_digest": context.consent_digest}
     elif isinstance(context, MaintenanceTenantContext):
         settings = maintenance_context_settings(context)
     elif isinstance(context, AccountMergeTenantContext):
@@ -461,11 +474,9 @@ async def apply_tenant_context(
     bind = session.get_bind()
     if bind.dialect.name != "postgresql":
         return
-    for name, value in settings.items():
-        await session.execute(
-            text("select set_config(:setting_name, :setting_value, true)"),
-            {"setting_name": name, "setting_value": value},
-        )
+    await session.execute(
+        select(*(func.set_config(name, value, True) for name, value in settings.items()))
+    )
 
 
 async def apply_tenant_context_to_connection(
@@ -473,6 +484,7 @@ async def apply_tenant_context_to_connection(
     context: (
         TenantDatabaseContext
         | MaintenanceTenantContext
+        | PublicConsentContext
         | AccountMergeTenantContext
         | AuthSessionLookupContext
         | WorkspaceAuthContext
@@ -487,6 +499,8 @@ async def apply_tenant_context_to_connection(
 ) -> None:
     if isinstance(context, TenantDatabaseContext):
         settings = tenant_context_settings(context)
+    elif isinstance(context, PublicConsentContext):
+        settings = {"app.context_kind": "public_consent", "app.public_consent_digest": context.consent_digest}
     elif isinstance(context, MaintenanceTenantContext):
         settings = maintenance_context_settings(context)
     elif isinstance(context, AccountMergeTenantContext):
@@ -512,11 +526,9 @@ async def apply_tenant_context_to_connection(
     connection.info["tenant_context"] = settings
     if connection.dialect.name != "postgresql":
         return
-    for name, value in settings.items():
-        await connection.execute(
-            text("select set_config(:setting_name, :setting_value, true)"),
-            {"setting_name": name, "setting_value": value},
-        )
+    await connection.execute(
+        select(*(func.set_config(name, value, True) for name, value in settings.items()))
+    )
 
 
 async def apply_tenant_scope(
@@ -534,8 +546,6 @@ async def rehydrate_tenant_context(session: AsyncSession) -> None:
     settings = session.info.get("tenant_context")
     if not settings or session.get_bind().dialect.name != "postgresql":
         return
-    for name, value in settings.items():
-        await session.execute(
-            text("select set_config(:setting_name, :setting_value, true)"),
-            {"setting_name": name, "setting_value": value},
-        )
+    await session.execute(
+        select(*(func.set_config(name, value, True) for name, value in settings.items()))
+    )

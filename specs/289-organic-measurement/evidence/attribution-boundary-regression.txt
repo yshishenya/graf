@@ -1,0 +1,10 @@
+F289 attribution boundary regression, 2026-10-16 UTC
+base=8bfcf81d4062c58f9fb484a0af0dfa2c71ce9e46
+red_runtime=cc71a28020ced91d288d14125844df988949458d
+red_result=12 failed, 45 deselected; both L2 builders accepted four paths; forged cookies persisted one L2 row per path
+green_result=233 passed, 0 skipped, 1 existing pytest-plugin warning, 52.86 seconds
+green_scope=organic, zoom, search pages, guides, landing, public analytics, visit attribution, anonymous aggregate, acquisition, aggregate contract, registration handoff, traffic measurement
+cleanup=isolated PostgreSQL containers removed after RED and GREEN
+limits=no production mutation or real-account data; cooperative DB cancellation contract unchanged
+red_log_sha256=6649b6fc727fad60dee367b51c9d984f0c725eac82a81d6d4281e0a662670046
+green_log_sha256=b737b5a184f9ab9ceb4f10cc5bc12da8cd09e17aa47c03043af12cd49a228719

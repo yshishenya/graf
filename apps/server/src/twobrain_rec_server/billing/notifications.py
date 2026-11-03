@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from twobrain_rec_server.db.models import BillingNotificationDelivery
+from twobrain_rec_server.db.models import BillingInvoice, BillingNotificationDelivery
 
 
 class BillingNotification(StrEnum):
@@ -17,10 +19,15 @@ class BillingNotification(StrEnum):
     TRIAL_EXPIRED = "trial_expired"
     PAYMENT_SUCCEEDED = "payment_succeeded"
     PAYMENT_FAILED = "payment_failed"
+    SERVICE_RECONCILIATION = "service_reconciliation"
+    AUTORENEWAL_DISABLED = "autorenewal_disabled"
+    AUTORENEWAL_ENABLED = "autorenewal_enabled"
+    STORAGE_SELECTION_CHANGED = "storage_selection_changed"
     STORAGE_THRESHOLD = "storage_threshold"
     RECEIPT_AVAILABLE = "receipt_available"
     REFERRAL_CREDIT = "referral_credit"
     RENEWAL_UNKNOWN = "renewal_unknown"
+    RENEWAL_UPCOMING = "renewal_upcoming"
     RENEWAL_ATTEMPT_FAILED = "renewal_attempt_failed"
     RENEWAL_LATE_SUCCESS = "renewal_late_success"
     RENEWAL_LATE_SUCCESS_REFUSED = "renewal_late_success_refused"
@@ -34,8 +41,13 @@ MANDATORY_NOTIFICATION_KINDS = frozenset(
         BillingNotification.TRIAL_EXPIRED,
         BillingNotification.PAYMENT_SUCCEEDED,
         BillingNotification.PAYMENT_FAILED,
+        BillingNotification.SERVICE_RECONCILIATION,
+        BillingNotification.AUTORENEWAL_DISABLED,
+        BillingNotification.AUTORENEWAL_ENABLED,
+        BillingNotification.STORAGE_SELECTION_CHANGED,
         BillingNotification.RECEIPT_AVAILABLE,
         BillingNotification.RENEWAL_UNKNOWN,
+        BillingNotification.RENEWAL_UPCOMING,
         BillingNotification.RENEWAL_ATTEMPT_FAILED,
         BillingNotification.RENEWAL_LATE_SUCCESS,
         BillingNotification.RENEWAL_LATE_SUCCESS_REFUSED,
@@ -79,7 +91,11 @@ class NotificationOutbox:
     ) -> NotificationDelivery | None:
         if not recipient_id.strip() or channel not in {"email", "in_app"}:
             raise ValueError("notification recipient or channel is invalid")
-        if channel == "email" and not marketing_allowed and event.kind not in MANDATORY_NOTIFICATION_KINDS:
+        if (
+            channel == "email"
+            and not marketing_allowed
+            and event.kind not in MANDATORY_NOTIFICATION_KINDS
+        ):
             return None
         key = (event.event_id, recipient_id, channel)
         existing = self._rows.get(key)
@@ -89,7 +105,9 @@ class NotificationOutbox:
         self._rows[key] = row
         return row
 
-    def mark_delivered(self, *, event_id: str, recipient_id: str, channel: str) -> NotificationDelivery:
+    def mark_delivered(
+        self, *, event_id: str, recipient_id: str, channel: str
+    ) -> NotificationDelivery:
         key = (event_id, recipient_id, channel)
         row = self._rows[key]
         delivered = NotificationDelivery(
@@ -142,7 +160,11 @@ class DurableNotificationOutbox:
     ) -> BillingNotificationDelivery | None:
         if channel not in {"email", "in_app"}:
             raise ValueError("notification channel is invalid")
-        if channel == "email" and not marketing_allowed and event.kind not in MANDATORY_NOTIFICATION_KINDS:
+        if (
+            channel == "email"
+            and not marketing_allowed
+            and event.kind not in MANDATORY_NOTIFICATION_KINDS
+        ):
             return None
         row = await db.scalar(
             select(BillingNotificationDelivery)
@@ -223,12 +245,51 @@ class DurableNotificationOutbox:
         return row
 
 
+def payment_success_payload(
+    invoice: BillingInvoice,
+    *,
+    periods: Iterable[tuple[datetime, datetime]],
+    action_path: str,
+) -> dict[str, object]:
+    """Snapshot only confirmed money and the actual granted service intervals."""
+    zone = ZoneInfo("Europe/Moscow")
+    return {
+        "invoice": invoice.safe_number,
+        "amount_minor": str(invoice.amount_minor),
+        "currency": invoice.currency,
+        "service_periods": "; ".join(
+            f"{start.astimezone(zone):%d.%m.%Y %H:%M} — {end.astimezone(zone):%d.%m.%Y %H:%M}"
+            for start, end in periods
+        ),
+        "action_path": action_path,
+    }
+
+
 def notification_copy(
     event: NotificationEvent,
     *,
     support_email: str | None = None,
 ) -> tuple[str, str]:
     """Russian-first copy built only from allowlisted event fields."""
+    payload = event.safe_payload
+    amount = payload.get("amount_minor")
+    if amount and payload.get("currency") == "RUB":
+        rubles, kopecks = divmod(int(amount), 100)
+        price = f"{rubles:,}".replace(",", " ") + f",{kopecks:02d} ₽"
+    else:
+        price = "указана в кабинете"
+    if event.kind == BillingNotification.RENEWAL_UPCOMING:
+        cycle = {"month": "месяц", "year": "год"}.get(payload.get("cycle"), "указан в кабинете")
+        method = f"•••• {payload['last4']}" if "last4" in payload else "сохранённый способ оплаты"
+        scheduled = payload.get("scheduled_at", "указана в кабинете")
+        end = payload.get("access_until", "указан в кабинете")
+        return (
+            "Напоминание о продлении",
+            f"Тариф «Личный», период: {cycle}. Сумма по расписанию на момент события: {price}. "
+            f"Первая попытка по этому расписанию: {scheduled} МСК; "
+            f"конец оплаченного периода: {end} МСК. Способ оплаты: {method}. "
+            "Актуальный статус и управление — в кабинете.",
+        )
     invoice = event.safe_payload.get("invoice")
     suffix = f" Номер платежа: {invoice}." if invoice else ""
     fair_use_capability = {
@@ -244,50 +305,121 @@ def notification_copy(
     }.get(event.safe_payload.get("reason", ""), "доказуемая неперсональная эксплуатация")
     fair_use_deadline = event.safe_payload.get("review_by", "в течение 24 часов")
     renewal_access_until = event.safe_payload.get("access_until", "в конце оплаченного периода")
+    ended_at = f" {event.safe_payload['access_until']} МСК" if "access_until" in event.safe_payload else ""
     support_instruction = (
         f" Напишите в поддержку: {support_email}."
         if support_email and "\n" not in support_email and "\r" not in support_email
         else " Обратитесь в поддержку через историю платежей."
     )
     copy = {
-        BillingNotification.TRIAL_ENDING: ("Пробный период скоро закончится", "Выберите тариф, чтобы сохранить платную обработку."),
-        BillingNotification.TRIAL_EXPIRED: ("Пробный период закончился", "Платный режим отключен. Выберите тариф, чтобы продолжить."),
-        BillingNotification.PAYMENT_SUCCEEDED: ("Платеж подтвержден", f"Оплата прошла успешно.{suffix}"),
-        BillingNotification.PAYMENT_FAILED: ("Не удалось продлить подписку", "Платный доступ завершен, выбран бесплатный тариф."),
-        BillingNotification.STORAGE_THRESHOLD: ("Заканчивается место", "Проверьте использование хранилища или увеличьте его емкость."),
-        BillingNotification.RECEIPT_AVAILABLE: ("Чек доступен", "Откройте историю платежей, чтобы посмотреть чек."),
-        BillingNotification.REFERRAL_CREDIT: ("Начислен реферальный бонус", "Дополнительные дни применены к вашему оплачиваемому периоду."),
-        BillingNotification.RENEWAL_UNKNOWN: ("Проверяем продление", "Статус платежа пока неизвестен. Новое списание не создаем."),
+        BillingNotification.TRIAL_ENDING: (
+            "Пробный период скоро закончится",
+            "Выберите тариф, чтобы сохранить платную обработку.",
+        ),
+        BillingNotification.TRIAL_EXPIRED: (
+            "Пробный период закончился",
+            "Платный режим отключен. Выберите тариф, чтобы продолжить.",
+        ),
+        BillingNotification.SERVICE_RECONCILIATION: (
+            "Проверяем предоставление оплаченной услуги",
+            f"Оплата подтверждена, но предоставление услуги требует проверки. Платёж передан на финансовую сверку. Подробности и помощь — в истории платежей.{suffix}",
+        ),
+        BillingNotification.AUTORENEWAL_DISABLED: (
+            "Автопродление отключено",
+            "Новые автоматические списания отключены. Оплаченный доступ сохранён. Если платёж уже отправлен, его результат продолжает проверяться в истории.",
+        ),
+        BillingNotification.AUTORENEWAL_ENABLED: (
+            "Автопродление включено",
+            f"Вы подтвердили включение автопродления. Принятая сумма: {price}. "
+            "Ближайшая попытка в принятом предложении: "
+            f"{payload.get('next_attempt_label', 'указана в управлении подпиской')}. "
+            "Актуальное состояние и отмена — в управлении подпиской.",
+        ),
+        BillingNotification.STORAGE_SELECTION_CHANGED: (
+            "Выбор объёма обновлён",
+            "Изменён выбор хранилища для следующего ещё не оплаченного периода. Текущий оплаченный объём сохранён. Проверьте объём, дату и полную цену в кабинете.",
+        ),
+        BillingNotification.PAYMENT_SUCCEEDED: (
+            "Платеж подтвержден",
+            f"Оплата была подтверждена. Сумма: {price}. "
+            + (f"Предоставленные периоды: {payload['service_periods']} МСК."
+               if "service_periods" in payload else "Период указан в истории платежей.")
+            + f"{suffix} Чек и актуальный статус — в истории платежей.",
+        ),
+        BillingNotification.PAYMENT_FAILED: (
+            "Продление не состоялось",
+            f"Оплаченный период завершился{ended_at}; "
+            "при переходе был выбран бесплатный тариф. "
+            "Повторные автоматические попытки после окончания этого периода не планируются. "
+            "Актуальный статус и доступные действия — в кабинете.",
+        ),
+        BillingNotification.STORAGE_THRESHOLD: (
+            "Заканчивается место",
+            "Проверьте использование хранилища или увеличьте его емкость.",
+        ),
+        BillingNotification.RECEIPT_AVAILABLE: (
+            "Чек доступен",
+            "Откройте историю платежей, чтобы посмотреть чек.",
+        ),
+        BillingNotification.REFERRAL_CREDIT: (
+            "Начислен реферальный бонус",
+            "Дополнительные дни применены к вашему оплачиваемому периоду.",
+        ),
+        BillingNotification.RENEWAL_UNKNOWN: (
+            "Статус продления на конец периода",
+            "При окончании оплаченного периода был включён бесплатный тариф: "
+            "результат платежа ещё не был известен. "
+            "Повторное списание при этом не создавалось. "
+            "Актуальный статус платежа и тарифа — в кабинете.",
+        ),
         BillingNotification.RENEWAL_ATTEMPT_FAILED: (
             "Списание не прошло",
             f"Оплата за продление не прошла.{suffix} "
             f"Доступ отключится {renewal_access_until} МСК. "
             "Проверьте карту в кабинете, чтобы продлить подписку.",
         ),
-        BillingNotification.RENEWAL_LATE_SUCCESS: ("Продление подтверждено поздно", "Мы восстановили оплаченный период. Проверьте дату следующего списания."),
+        BillingNotification.RENEWAL_LATE_SUCCESS: (
+            "Продление подтверждено поздно",
+            "Мы восстановили оплаченный период. Проверьте дату следующего списания.",
+        ),
         BillingNotification.RENEWAL_LATE_SUCCESS_REFUSED: (
             "Платеж подтвержден после отключения продления",
             "Платный период не включен, потому что разрешение на продление было отозвано."
             + support_instruction,
         ),
-        BillingNotification.RENEWAL_MANUAL_RESUME: ("Подписку можно возобновить", "Продление не подтверждено. Если хотите снова включить автопродление, откройте управление подпиской."),
+        BillingNotification.RENEWAL_MANUAL_RESUME: (
+            "Подписку можно возобновить",
+            "Продление не подтверждено. Если хотите снова включить автопродление, откройте управление подпиской.",
+        ),
         BillingNotification.FAIR_USE_REVIEW: (
             "Проверяем использование",
             f"Функция «{fair_use_capability}» временно может быть ограничена. "
             f"Причина: {fair_use_reason}. Срок проверки: {fair_use_deadline} МСК. "
             "Откройте кабинет, чтобы подать апелляцию или обратиться в поддержку.",
         ),
-        BillingNotification.ACCOUNT_CLOSE: ("Закрытие аккаунта", "Проверьте запланированную дату и последствия удаления данных в кабинете."),
+        BillingNotification.ACCOUNT_CLOSE: (
+            "Закрытие аккаунта",
+            "Проверьте запланированную дату и последствия удаления данных в кабинете.",
+        ),
     }
     return copy[event.kind]
 
 
-def build_notification(*, event_id: str, kind: BillingNotification, payload: dict[str, object]) -> NotificationEvent:
+def build_notification(
+    *, event_id: str, kind: BillingNotification, payload: dict[str, object]
+) -> NotificationEvent:
     allowed_keys = {
-        BillingNotification.PAYMENT_SUCCEEDED: {"invoice"},
-        BillingNotification.PAYMENT_FAILED: {"invoice"},
+        BillingNotification.AUTORENEWAL_DISABLED: set(),
+        BillingNotification.AUTORENEWAL_ENABLED: {"amount_minor", "currency", "next_attempt_label"},
+        BillingNotification.STORAGE_SELECTION_CHANGED: set(),
+        BillingNotification.PAYMENT_SUCCEEDED: {"invoice", "amount_minor", "currency", "service_periods"},
+        BillingNotification.SERVICE_RECONCILIATION: {"invoice"},
+        BillingNotification.PAYMENT_FAILED: {"invoice", "access_until"},
         BillingNotification.RECEIPT_AVAILABLE: {"invoice"},
         BillingNotification.RENEWAL_UNKNOWN: {"invoice"},
+        BillingNotification.RENEWAL_UPCOMING: {
+            "amount_minor", "currency", "cycle", "scheduled_at", "access_until", "last4",
+        },
         BillingNotification.RENEWAL_ATTEMPT_FAILED: {"invoice", "access_until"},
         BillingNotification.RENEWAL_LATE_SUCCESS: {"invoice"},
         BillingNotification.RENEWAL_LATE_SUCCESS_REFUSED: {"invoice"},
@@ -302,9 +434,45 @@ def build_notification(*, event_id: str, kind: BillingNotification, payload: dic
     safe: dict[str, str] = {}
     for key in allowed_keys:
         value = payload.get(key)
-        pattern = (
+        if key in {"service_periods", "next_attempt_label"}:
+            if not isinstance(value, str) or len(value) > 4096:
+                continue
+            stamp = r"[0-9]{2}\.[0-9]{2}\.[0-9]{4} [0-9]{2}:[0-9]{2}"
+            if key == "service_periods":
+                if not re.fullmatch(rf"{stamp} — {stamp}(?:; {stamp} — {stamp})*", value):
+                    continue
+                try:
+                    periods = [
+                        [datetime.strptime(part, "%d.%m.%Y %H:%M") for part in pair.split(" — ")]
+                        for pair in value.split("; ")
+                    ]
+                    if any(start > end for start, end in periods):
+                        continue
+                except ValueError:
+                    continue
+            elif value != "после подтверждения возобновления, в ближайшее время":
+                if not re.fullmatch(
+                    r"[0-9]{2}\.[0-9]{2}\.[0-9]{4}, [0-9]{2}:[0-9]{2} "
+                    r"\(UTC(?:[+-][0-9]{2}:[0-9]{2})?\)", value,
+                ):
+                    continue
+                try:
+                    datetime.strptime(
+                        value.replace("UTC)", "+00:00)").replace("UTC", ""),
+                        "%d.%m.%Y, %H:%M (%z)",
+                    )
+                except ValueError:
+                    continue
+            safe[key] = value
+            continue
+        pattern = {
+            "amount_minor": r"[1-9][0-9]{0,18}",
+            "currency": r"RUB",
+            "cycle": r"month|year",
+            "last4": r"[0-9]{4}",
+        }.get(key) or (
             r"\d{2}\.\d{2}\.\d{4} \d{2}:\d{2}"
-            if key in {"review_by", "access_until"}
+            if key in {"review_by", "access_until", "scheduled_at"}
             else r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}"
         )
         if isinstance(value, str) and re.fullmatch(pattern, value):

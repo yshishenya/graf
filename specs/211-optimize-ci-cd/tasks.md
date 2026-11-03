@@ -160,7 +160,7 @@ FR-038–041 / SC-019. Independent checklist + analyze + task ownership before c
 - [X] T060 Проверить и опубликовать foundation PR с прежним combined gate; получить исходный SHA включения, проверить новые checks и добавить required `pr-metadata`/`macos-pr` без удаления `governance-fast`; сохранить read-back evidence. (Issue #6986)
 - [X] T061 После T060 исключить только text-only code reruns в `.github/workflows/governance-fast.yml`, согласовать `scripts/validate-governance-workflow.py` и `tests/governance/test_governance_workflow.py`; по уточнённому FR-040 доказать отсутствие отмены/повтора source code и разрешать новый stable required PASS только после проверки действительного source proof. Исправление live expected-check дефекта вынесено в T080–T081. (Issue #6986)
 - [X] T062 Добавить единый `scripts/validate-pr-checks.py` для актуального полного набора, подключить `scripts/validate-issue-closeout.py` и `infra/scripts/release-candidate.sh` / train validation; сохранить исторический policy boundary и post-merge ancestry. (Issue #6986)
-- [ ] T063 Проверить события/fork/identity/failure/consumer матрицу, пройти review/converge; согласовать `docs/agent-guidance/release-and-validation.md`, quickstart и фрагмент F211 с реально включённой политикой; опубликовать cutover PR и получить exact-SHA hosted evidence. (Issue #6986)
+- [X] T063 Проверить события/fork/identity/failure/consumer матрицу, пройти review/converge; согласовать `docs/agent-guidance/release-and-validation.md`, quickstart и фрагмент F211 с реально включённой политикой; опубликовать cutover PR и получить exact-SHA hosted evidence. (Issue #6986)
 
 
 ## Phase 16: Convergence — deterministic native boundary fixture
@@ -198,7 +198,7 @@ FR-044–048 / SC-021; reviewer-owned image-reuse checklist and clean analyze be
 
 ## A6 convergence correction after GitHub review
 
-- [ ] T087 Исправить два review P1 в `scripts/ci-pr-scope.py`, `scripts/validate-pr-checks.py` и `.github/workflows/governance-fast.yml`: merged text использует проверенную историю/базу и сохраняет merge identity; артефакт различает run attempts с безопасным чтением старого имени. Проверить реальные Git истории и API/ZIP отрицательные регрессии в `tests/governance/test_pr_checks.py`, consumer suite, независимый review и live post-merge edit. (FR-040/SC-019) (Issue #6986)
+- [X] T087 Исправить два review P1 в `scripts/ci-pr-scope.py`, `scripts/validate-pr-checks.py` и `.github/workflows/governance-fast.yml`: merged text использует проверенную историю/базу и сохраняет merge identity; артефакт различает run attempts с безопасным чтением старого имени. Проверить реальные Git истории и API/ZIP отрицательные регрессии в `tests/governance/test_pr_checks.py`, consumer suite, независимый review и live post-merge edit. (FR-040/SC-019) (Issue #6986)
 
 
 
@@ -252,12 +252,171 @@ no stage marks public distribution complete from mocked command results.
 
 ## Phase 26: Точная проверка changelog без инфраструктурных повторов
 
-- [ ] T094 Исправить классификацию канонических changelog-фрагментов и безусловный process preflight в `infra/scripts/ci-local.sh`; проверить перенос настоящим Git, продуктовый PR с фрагментом, mixed infra/unknown и отказ без feature pointer в существующем `apps/server/tests/contract/test_ci_cd_contract.py`. Исполнить настоящий checker для валидного/невалидного unreleased-фрагмента, пройти независимый review; согласовать quickstart/инструкции/F211 и итоговый выпуск. Не добавлять повторную сборку или исключение из release-full. (FR-003/FR-008) (Issue #6986)
+- [X] T094 Исправить классификацию канонических changelog-фрагментов и безусловный process preflight в `infra/scripts/ci-local.sh`; проверить перенос настоящим Git, продуктовый PR с фрагментом, mixed infra/unknown и отказ без feature pointer в существующем `apps/server/tests/contract/test_ci_cd_contract.py`. Исполнить настоящий checker для валидного/невалидного unreleased-фрагмента, пройти независимый review; согласовать quickstart/инструкции/F211 и итоговый выпуск. Не добавлять повторную сборку или исключение из release-full. (FR-003/FR-008) (Issue #6986). Итоговая сверка: `validation-reconciliation-20261017.md`, PR #6990, опубликованный v2026.10.16.6 и точная квитанция release-full38933940635; T063/T087 и issue остаются открытыми.
 
-- [ ] T095 Устранить подтверждённый review4000732815 в `apps/macos/Installer/Scripts/release-artifacts.py::cached_asset`: обычный asset без record после прерывания повторно загружается и проверяется до атомарной замены; существующая запись сохраняет строгий отказ при изменении identity/bytes. Проверить реальное прерывание записи, повтор без remote digest, неверные download size/pinned digest, symlink/dangling/malformed record и прежний отказ record без asset в `tests/governance/test_release_artifacts.py`. Независимый review, общий PR и окончательный Full остаются обязательными. (FR-050/FR-051/SC-022) (Issue #6992)
+- [X] T095 Устранить подтверждённый review4000732815 в `apps/macos/Installer/Scripts/release-artifacts.py::cached_asset`: обычный asset без record после прерывания повторно загружается и проверяется до атомарной замены; существующая запись сохраняет строгий отказ при изменении identity/bytes. Проверить реальное прерывание записи, повтор без remote digest, неверные download size/pinned digest, symlink/dangling/malformed record и прежний отказ record без asset в `tests/governance/test_release_artifacts.py`. Независимый review, общий PR и окончательный Full остаются обязательными. (FR-050/FR-051/SC-022) (Issue #6992). Итоговая сверка: `validation-reconciliation-20261017.md`, свежие 35 PASS, PR #6990 и release-full38933940635; T077 и issue остаются открытыми.
 
 
 - [X] T096 Согласовать обе завершающие подсказки `scripts/prepare-release.sh` с действующим порядком `docs/agent-guidance/release-and-validation.md`: проверка и commit всей подготовки, затем релизные gates; убрать предложение преждевременного `git tag` и неполного `git add CHANGELOG.md`. Проверить Bash и существующие сценарии обычной/повторной подготовки. Изменяется только текст вывода, правила выпуска и новая проверка не добавляются. (FR-010) (Issue #6986)
 
 
 - [ ] T097 Сохранить уже опубликованный runtime graf.pkg при server CD в infra/scripts/cd-remote-runtime.sh::sync_public_download; прежняя initial-copy/rollback остаётся только для отсутствующего target. Отклонять пустой/необычный target, сохранить каталог/owner/symlink/write guards. Проверить реальные Bash/filesystem пути в apps/server/tests/integration/test_deployment_readiness_gates.py; согласовать docs/agent-guidance/macos-notarization.md, release guidance/quickstart/фрагмент. Обновить public_static_asset_url в apps/server/src/twobrain_rec_server/public/templates.py по файловой identity без потери lru_cache: новый hash после атомарной замены, old URL no-cache/new URL immutable, неизменный файл не перечитывается. Независимый review и новый exact-SHA CI/Full обязательны. Предыдущий изменённый tracked production PKG сохранять и сверять с published digest до восстановления. (FR-010/FR-048) (Issue #6989)
+
+
+## Продолжение 2026-10-06 — точный набор PR выпуска
+
+- [x] T098 Исправить учет разных PR с перекрывающимися checked ranges в `scripts/validate-pr-checks.py`; сохранить настоящий linear rebase одного PR, отрицательные proof/owner/identity gates и параллельность. Регрессии в `tests/governance/test_pr_checks.py`, независимые requirements/implementation review, focused checks и live verifier; включение в новый frozen train и Full/CD — отдельная приемка выпуска. (FR-008/FR-040/SC-019) (Issue #7578)
+
+T098: PR7579 merged, exact head `a958270bd2184d46ed6f5a0d026f97cea26043f6`,
+required governance37535047449/macOS37535047378/metadata37535047505 SUCCESS,
+common validator PASS. Выпуск v2026.10.07.1 sourcead597c11 включает все5 PR,
+Full37537979359 SUCCESS, train/decision go, backup/CD/live/publication PASS;
+точные ссылки и границы — в конце `quickstart.md`.
+
+
+## Phase 27: Convergence — источник пакетов одноразового CI
+
+- [X] T099 Устранить подтверждённую задержку Azure APT в `infra/scripts/prepare-ci-apt.sh` и трёх existing resource callers `.github/workflows/{governance-fast,release-full}.yml`; сохранить trust/source metadata, server/text scope и все проверки. До кода уточнить требования, пройти независимый `checklists/ci-package-source.md`, analyze и issue sync; расширить исполняемый shell-harness `tests/governance/test_governance_workflow.py` для порядка, повтора и отказов; подтвердить FAIL до исправления, focused/static, независимый review/converge. Подтверждение hosted результата относится к зависимой T100. (FR-057/SC-025, T089: partial) (Issue #7738)
+
+- [X] T100 После принятия T099 обновить существующий server-change PR до новой основы, подтвердить настоящий endpoint/время подготовки и весь успешный обязательный набор на точном SHA/base, сохранить evidence в `specs/211-optimize-ci-cd/validation-ci-package-source-20261023.md`; закрыть только issue T099–T100 после merged/live валидации, общую F211 и её прежний остаток оставить открытыми. (FR-057/SC-025) (Issue #7738)
+
+T099: локальная реализация и независимое review/converge PASS, 142 профильные
+проверки; отчёт `validation-ci-package-source-20261023.md`. PR exact-SHA/base
+и merge ещё ожидаются; T100 и #7738 остаются открытыми.
+
+T099–T100: реализация принята PR #7739, merge `21e80b29c7f23bddba9eae49c078974ebd244231`.
+Настоящая серверная приёмка выполнена на окончательном PR #7737,
+SHA `f15c1fc6ae812293abe2433ed9dab457f7a07f50`, той же проверенной основе:
+подготовка42s, fast453s, 2465+183+100 PASS; обязательный набор и merge
+`2964952dbd3c03f5730230f134f0715282ffa7fb` подтверждены. Подробности и
+границы — итог T100 в `validation-ci-package-source-20261023.md`.
+Предыдущие ожидающие отметки выше сохраняют историю локальной T099.
+Закрытие #7738 ожидает принятия этой документальной сверки и live-валидации;
+общая F211 и остальные незавершённые задачи остаются открытыми.
+
+
+## Phase 28: A6 — перенос нескольких commits на продвинутую цель
+
+Goal: проверять исторический merge без повторного наложения уже перенесённых
+commits, сохранив защиту промежуточных деревьев и всех исходных proofs.
+Prerequisites: spec T101 clarification, independent `checklists/rebase-proof.md`
+6/0, затем анализ и issue sync до кода. Последовательно; [P] не применяется.
+
+- [X] T101 Сначала воспроизвести FAIL обычного advanced-target replay и скрытой подмены во временном Git в `tests/governance/test_pr_metadata_event.py`, затем исправить общий `scripts/validate-pr-metadata.py::checked_base` по spec T101.1–5: каждое промежуточное дерево, source base, независимый полный target prefix для squash и fail-closed overlap/unknown/errors; сохранить two-parent/sync формы и всех consumers. Выполнить quickstart focused/static, независимое implementation review/converge; обновить `changes/unreleased/F211.yaml` и отчёт `specs/211-optimize-ci-cd/validation-rebase-proof-20261026.md`; завершить exact-SHA/base PR checks и merge. (FR-008/FR-040/SC-019) (Issue #7742)
+
+- [X] T102 После T101 выполнить общий live `scripts/validate-pr-checks.py` для каждого точного PR диапазона, подготовить новый frozen candidate, один authoritative release-full, штатный dry-run/backup/CD и публичную приёмку; сохранить source/run/решение/ограничения в `specs/211-optimize-ci-cd/validation-rebase-proof-20261026.md` и выпускном отчёте `docs/deployments/2brain-rec/`. При BLOCK не обходить проверку и не закрывать T102; коммерческие критерии продвижения отдельно открыты. (FR-008/FR-040/SC-019; depends T101) (Issue #7742)
+
+
+T102 принята27.10.2026 в серверном выпуске v2026.10.27.1, source
+`7e32f0da25db5d78d742f9cde1ed59a49ffcaf1a`. Штатная живая сверка
+приняла все32 PR диапазона; frozen candidate rc-20261027T105133Z-c435d904425d,
+единственный authoritative Full40491725053 SUCCESS, decision go,
+dry-run/backup/CD/public readback и publication attestation PASS.
+Подробности и незакрытые ограничения F273/F290 — в
+[выпускном отчёте](../../docs/deployments/2brain-rec/release-v2026.10.27.1.md).
+Общая F211 и коммерческие AC остаются открытыми. Issue7742 закрывается
+после документального PR и отдельного live closeout verifier.
+
+## Phase29 — T103/T104: надёжная подготовка тестовых ресурсов
+
+- [X] T103 Исправить подтверждённые Full40613955028 ошибки подготовки в существующих `apps/server/tests/fixtures/test_resources.py`, `apps/server/tests/unit/test_processing_temporal_workflow.py` и `tests/governance/test_test_resources.py`: strict по fixture closure и ограниченный retry только SDK download429 до env. Пройти requirements review, analyze/issue sync до кода; причинный red/green, реальные focused DB/Temporal, independent code review/converge и фрагмент F211. (FR034/035/055/058) (Issue #7789)
+- [X] T104 После T103 принять exact-SHA/base PR checks/merge, затем новую согласованную основу, train/candidate и один успешный authoritative Full; штатные dry-run/backup/CD/publication остаются отдельными воротами. Сохранить failed candidate40613955028 и не переиспользовать его. Общая F211 и коммерческие AC открыты. (depends T103) (Issue #7789)
+
+
+## Phase30 — A14: поддерживаемый исполнитель macOS
+
+Владелец T105/T106 — агент уборки репозитория; issue #7834.
+Prerequisite: независимый `checklists/runner-image.md` PASS и ограниченный
+analyze FR038/059/060/SC026 → T105/T106. Сначала проверка, затем код.
+Исходные ID, описания и отметки всех прежних задач сохранены.
+
+- [X] T105 [US9] Перенести `.github/workflows/macos-pr.yml`, `release-full.yml`, `macos-diagnostic.yml` на macos15 с закреплённым Xcode16.2/Swift6.0.3 и job-level DEVELOPER_DIR; проверить arm64, actual developer/SDK, согласовать namespace обоих caches, `scripts/validate-full-ci-workflow.py`, `tests/governance/test_governance_workflow.py` и `apps/server/tests/contract/test_ci_cd_contract.py`. Сохранить прежние отрицательные ожидания, выполнить причинный red/green, actionlint и независимое ревью/converge. (FR038/059/060, SC026) (Issue #7834)
+- [X] T106 [US9] На точном SHA T105 подтвердить три обязательных GitHub проверки и настоящее исполнение Swift build/XCTest/ContractValidation на macos15; выполнить общий validator до/после защищённого merge, сохранить границы в `specs/211-optimize-ci-cd/validation-runner-image-20261031.md` и закрыть только #7834 после live closeout. Выпуск и production не входят. (SC026; depends T105) (Issue #7834)
+
+- [X] T107 [US9] После requirements review/analyze исправить подтверждённый run41215353665 выбор WebKit callback types в `apps/macos/RecApp/Sources/Cabinet/EmbeddedCabinetRecordingSettingsBridge.swift` и `EmbeddedCabinetWebView.swift`: удалить старые typealias branches по swift(<6.1), сохранить MainActor/Sendable types и все тела методов/consumers. Проверить compilation и существующие XCTest/ContractValidation, independent implementation review; T106 зависит также от T107. (FR061, SC026) (Issue #7834)
+
+
+- [X] T108 [US9] После независимого requirements review/analyze исправить только подготовку и наблюдение `apps/macos/Shared/Tests/DesktopNotificationProtectedConsumerTests.swift` и `EmbeddedCabinetJavaScriptConfirmTests.swift` по FR062/063: свободный исходный якорь, настоящее горизонтальное пересечение на небольшом viewport, новый AX после resize, готовый документ/закрытый sheet. Сохранить все проверки безопасности и достижимости, причинные предпосылки, focused XCTest и независимый review. T106 зависит также от T108 и нового полного pinned native. (FR062/063, SC026) (Issue #7834)
+
+
+- [X] T109 [US9] После независимого CHK008/analyze устранить доказанный WKUIDelegate optional-method mismatch по FR064: заменить только confirm callback-overload в `apps/macos/RecApp/Sources/Cabinet/EmbeddedCabinetWebView.swift` стандартным async requirement с withCheckedContinuation, удалить неиспользуемый confirm alias; сохранить все request guards/lifecycle и6 настоящих/прямых confirm tests. Выполнить local/full/native проверки, независимое code review и converge. T106 зависит также от T109. (FR064, SC026) (Issue #7834)
+
+
+## Итог A14 — 2026-10-31
+
+T105–T109 приняты в PR #7835: source
+`bc7bf0ce9bf91690dd34df04d39d067ee13b07ed`, checked base
+`837594c9c2b61d440a64efd89970695050b768b3`, merge
+`e1bdbc06485010068b4abb0e426fb9908207188c`. Настоящий macos15 arm64,
+Swift6.0.3/Xcode16.2/SDK15.2:1296 XCTest,1287 PASS,9 прежних SKIP,0 FAIL;
+ContractValidation PASS. Состав1296 уникальных случаев и девять пропусков
+сверены с локальным и исходным отказавшим прогоном. Подробные источники
+и границы — в итоговом разделе `validation-runner-image-20261031.md`.
+Отметки фиксируют приёмку данного CI-среза; #7834 закрывается после
+принятия этой документальной сверки и отдельного live closeout. Общая F211,
+F269/T031, установленная приёмка macOS14 и будущий выпуск не принимаются.
+
+
+## Phase31 — неизвестный APT источник AWS
+
+**Отмена остатка T110, 01.11.2026.** Владелец — основной агент F211.
+После принятого T112–T114/PR #7863 подготовка CI не зависит от исходного
+cloud URI. Два ограниченных набора исчерпаны, AWS не исследован; дальнейший
+поиск больше не нужен. Исходная строка T110 и `[ ]` ниже сохранены:
+это `NOT_PLANNED`, а не выполненная реализация. T111 сохраняет свой
+исторический `[X]`. Подробные основания, пределы и условие возвращения —
+spec «Отмена дальнейшего исследования T110». #7849 закрывается только после
+принятого PR и индивидуальной сверки с комментарием; до этого она открыта.
+Новый Full, выпуск и предметная приёмка не отменяются.
+
+- [ ] T110 Получить фактические безопасные метаданные неизвестного APT источника через временный `.github/workflows/ubuntu-apt-diagnostic.yml` по spec T110: review/analyze/issue sync до кода, локальный исполняемый профиль, draft PR и два ограниченных набора по8 одноразовых задач без сети/установки/секретов. Сохранить source/run/ограничения в `specs/211-optimize-ci-cd/validation-aws-apt-20261031.md`, удалить временный workflow до merge. Не менять helper, не угадывать URI и не повторять Full41239402369. (FR-057/SC-025; продолжение T099/T100) (Issue #7849)
+
+
+- [X] T111 Сохранить отказ неизвестного APT и добавить безопасную JSON-классификацию в `infra/scripts/prepare-ci-apt.sh` по spec T111; переиспользовать T110 describe, не менять allowlist/доверие/три caller; удалить временный `.github/workflows/ubuntu-apt-diagnostic.yml`, расширить существующий исполняемый `tests/governance/test_governance_workflow.py`, пройти before-code review/analyze/issue sync, RED/GREEN, focused/static, независимый review/converge и exact PR gates. Фактический AWS остаётся T110; Full не повторяется. (FR-057/SC-025; Issue #7849)
+
+## T112 — официальные источники независимо от облака
+
+- [X] T112 [US2] Нормализовать только Ubuntu sources в `infra/scripts/prepare-ci-apt.sh` по spec/plan T112: после checklist PASS и analyze/issue sync сначала RED cloud/mixed-suites в существующем `tests/governance/test_governance_workflow.py`, затем проверка Ubuntu24.04/amd64/root/files/полей, сохранение package tuples, две официальные HTTPS цели и атомарная запись с readback/no-op/cleanup; GREEN всей прежней матрицы трёх настоящих callers, negative owner/mode/platform/keyring/format/write/readback, static/governance/process/fragment/diff, независимое review/converge и exact PR gates; обновить `changes/unreleased/F211.yaml` и evidence в `specs/211-optimize-ci-cd/quickstart.md`. Новые инфраструктура/зависимости и изменения YAML/mirror/third-party/ключей/доверия исключены. (FR-057/SC-025) (Issue #7859)
+
+Зависимости: reviewer-owned `ci-official-sources.md` 5/0 PASS → T112 analyze →
+issue sync → existing test RED → helper → GREEN/static → review/converge →
+commit/PR exact checks. T112 — один самостоятельный результат US2, параллельных
+задач нет: helper и общий test принадлежат одному исполнителю. Историческая
+T110 остаётся открытой; новый способ устраняет зависимость выпуска от cloud URI.
+Новый frozen Full/выпуск и runtime/T0 принимаются отдельно по T100/T102/F273.
+
+## T113 — реальная подготовка и безопасные факты отказа
+
+- [X] T113 [US2] После requirements checklist/analyze и sync #7859 сначала RED в test_actual_media_resource_preparation (`tests/governance/test_governance_workflow.py`): метаданные фиксированных source/keyring и выбор helper-only/server/docs. Затем добавить только безопасную классификацию отказа checked_read и выбор собственного helper в прежнем Prepare governance-fast, сохранить прежние guards/отказ/все три callers; GREEN модуля и static/process, независимые review/converge, draft PR и реальные metadata runner. Не сливать промежуточную ошибку; после фактов отдельно принять минимальную функциональную адаптацию и конечные exact PR gates. T112/#7859/Full/измерение не закрываются по диагностике. (FR-057/SC-025) (Issue #7859)
+
+
+## T114 — безопасные права известного ключа CI
+
+- [X] T114 [US2] После независимого `checklists/ci-keyring-permissions.md`, analyze и sync #7859 сначала RED в `tests/governance/test_governance_workflow.py`: только known official bytes/root:root0777/3607 и защищённый parent могут атомарно стать0644; unknown/source/owner/mode/type/size и races остаются отказами. В `infra/scripts/prepare-ci-apt.sh` реализовать ограниченный snapshot/hash/same-directory temp/fsync/identity recheck/replace/readback/cleanup без сети и изменения trust; весь прежний модуль/static/review/converge, F211 fragment/quickstart, затем тот же draft PR7863 и конечные exact native gates. Факт mode0777 не доказывает hash; mismatch не обходить. (FR-057/SC-025) (Issue #7859)
+
+Уточнение T114 после run41257402120: `checklists/ci-keyring-directory.md`
+до кода принимает только установленный root:root0777 directory по spec/plan:
+protected ancestors, full input/pin до записи, fd identity/fchmod0755/fsync/
+readback, повторные snapshots и прежняя atomic key replacement для0644/0777.
+Existing three-caller RED/whole/static, independent review/converge и native
+exact gates обязательны. Прочие небезопасные directories/keys — отказ.
+
+Дополнение T114 по факту41258703244: reviewer-owned ci-keyring-share до кода
+принимает только root:root share0777 под защищёнными root/usr; тот же fd
+блок применяется сверху вниз к share/key parent после full-input/pin.
+Repair только share также требует новой inode key0644. Existing test RED/
+whole/static/review/converge/native exact обязательны. Приёмка T112–T114: PR #7863,
+source `e977e4cb7536e87f9927be6385dc83aeb55e6d1f`, merge
+`724a937507b42f10f3c0e45e38c72166a3cd549f`; exact gates и общий валидатор
+до/после слияния PASS. См. quickstart: «T112–T114: приёмка слитого среза».
+Full/выпуск/F273/T0 остаются отдельными открытыми результатами.
+
+
+## T115 — исправление предпосылки первой страницы
+
+- [X] T115 [US2] После независимого checklist `inventory-test-cursor.md`, analyze и issue sync воспроизвести отсутствие цели за51 предшествующим workspace на настоящем disposable PostgreSQL; заменить только курсор в `test_postgres_inventory_function_returns_only_bounded_scope_ids` (`apps/server/tests/integration/test_playback_normalization_postgres.py`), сохранив все assertions/лимит/SQL/права; GREEN тем же wrapper, весь прежний модуль и `test_rls_maintenance_context.py` без новых skips, static/process/fragment и независимые review/converge, exact PR gates. Full/CD/T0 вне приёмки T115. (FR-057/SC-025) (Issue #7873)
+
+
+## T116 — немедленный отказ отката БД
+
+- [X] T116 [US2] После независимого `checklists/database-rollback-error.md`, scoped analyze и sync существующей #6989 воспроизвести потерю ошибки настоящего `rollback_feature_database()` в `apps/server/tests/integration/test_deployment_readiness_gates.py`; явно вернуть ошибки downgrade/query/drop в `infra/scripts/cd-remote-runtime.sh` до следующих операций; проверить RED/GREEN, успешный путь трёх ролей, compatibility success/failure, весь readiness и связанные image/smoke/backup/RLS контракты без новых skips, Bash/Ruff/process/fragment, независимые review/converge и required exact PR gates. Full/CD/T0 не входят в локальную приёмку. (FR-008/FR-048/SC-021) (Issue #6989)

@@ -24,6 +24,8 @@ from twobrain_rec_server.auth.dependencies import (
     auth_session_cookie_secure,
 )
 from twobrain_rec_server.auth.rate_limit import auth_rate_limit_attempt_count
+from twobrain_rec_server.auth.redirects import safe_billing_return_path
+from twobrain_rec_server.auth.session_epoch import rotate_browser_session_epoch
 from twobrain_rec_server.auth.sessions import (
     callback_expiry,
     create_login_device,
@@ -605,6 +607,7 @@ async def consume_email_link_code(
     code: str,
     state_nonce: str,
     csrf_token: str | None = None,
+    next_path: str | None = None,
 ) -> EmailLinkCompletion | HTMLResponse:
     """Consume an authenticated passwordless link proof.
 
@@ -613,7 +616,9 @@ async def consume_email_link_code(
     silently joined; they produce a proof-bound merge intent instead.
     """
     embedded = request.url.path.startswith("/desktop/")
-    next_path = "/desktop/settings/account" if embedded else "/settings/account"
+    next_path = safe_billing_return_path(next_path) or (
+        "/desktop/settings/account" if embedded else "/settings/account"
+    )
     flow = "desktop_link" if embedded else "link"
     if (
         not principal.auth_via_session
@@ -1190,6 +1195,7 @@ def _set_browser_auth_cookie(
         httponly=True,
         samesite="lax",
     )
+    rotate_browser_session_epoch(response, secure=auth_session_cookie_secure(request), max_age=max_age)
 
 
 def _normalize_email(value: str) -> str | None:

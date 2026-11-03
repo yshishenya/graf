@@ -25,6 +25,9 @@ USER_IDENTITY_FK_DISPOSITIONS = {
     ("billing_notification_deliveries", "recipient_id"): "historical_only",
     ("billing_notification_preferences", "user_id"): "transfer_or_deduplicate",
     ("billing_payment_methods", "owner_user_id"): "blocking",
+    # Quotes bind the original actor and expire; account merge must not rewrite
+    # immutable purchase consent or authorize the survivor to consume it.
+    ("billing_purchase_quotes", "owner_user_id"): "historical_only",
     ("calendar_audit_events", "actor_user_id"): "historical_only",
     ("calendar_settings_preferences", "owner_user_id"): "transfer_or_deduplicate",
     ("calendar_sources", "owner_user_id"): "blocking",
@@ -61,6 +64,9 @@ USER_IDENTITY_FK_DISPOSITIONS = {
     ("meetings", "created_by_user_id"): "transfer_or_deduplicate",
     ("playback_normalization_jobs", "requested_by_user_id"): "historical_only",
     ("processing_audit_events", "actor_user_id"): "historical_only",
+    # First decisions bind the original account and are immutable; merging
+    # identities does not transfer them or authorize a new provider delivery.
+    ("product_activation_milestones", "account_id"): "historical_only",
     ("recording_calendar_match_attempts", "owner_user_id"): "historical_only",
     # Cancellation retains its original (workspace, actor, origin) namespace forever.
     # It is not content to transfer, and cannot authorize actions under a merged account.
@@ -74,6 +80,16 @@ USER_IDENTITY_FK_DISPOSITIONS = {
     # Historical inbox is not a new access grant after merging identities.
     ("server_notifications", "recipient_id"): "historical_only",
     ("summary_templates", "owner_user_id"): "transfer_or_deduplicate",
+    # Publication and delivery consent bind the original actor. Merging must
+    # not transfer automatic sending authority or rebind saved recipient access.
+    ("published_meeting_summaries", "owner_user_id"): "historical_only",
+    ("summary_delivery_batches", "owner_user_id"): "historical_only",
+    ("summary_recipient_deliveries", "user_id"): "historical_only",
+    ("summary_sharing_preferences", "owner_user_id"): "historical_only",
+    ("summary_auto_send_rules", "owner_user_id"): "historical_only",
+    ("summary_auto_send_rules", "distributor_user_id"): "historical_only",
+    ("summary_auto_send_exceptions", "owner_user_id"): "historical_only",
+    ("summary_email_suppressions", "sender_user_id"): "historical_only",
     ("support_incident_rate_limit_buckets", "reporter_user_id"): "historical_only",
     ("support_incidents", "reporter_user_id"): "historical_only",
     ("trial_activations", "user_id"): "lineage_aware",

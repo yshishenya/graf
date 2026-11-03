@@ -45,7 +45,6 @@ from twobrain_rec_server.product_analytics.ad_cabinet_spend import (
 )
 from twobrain_rec_server.product_analytics.anonymous_aggregate import (
     INSTALLER_DELIVERY_SURFACE,
-    MINIMUM_AGGREGATE_BUCKET_SIZE,
     build_minimum_bucket_size_disclosure,
     sanitize_anonymous_aggregate_label,
     sum_reportable_aggregate_visits,
@@ -126,7 +125,6 @@ class ReportCounts:
             "state_path": self.state_path,
             "period_start": self.period_start.isoformat() if self.period_start else None,
             "period_end": self.period_end.isoformat() if self.period_end else None,
-            "consent_visits": self.consent_visits,
             "conversion_campaigns": len(self.conversions),
             "file_errors": list(self.file_errors),
         }
@@ -331,7 +329,6 @@ def _build_consent_share(
     report = build_public_consent_share_report(
         aggregate_visits=aggregate_visits,
         consent_visits=counts.consent_visits if counts.usable else None,
-        minimum_bucket_size=MINIMUM_AGGREGATE_BUCKET_SIZE,
     )
     report["report_id"] = "R11"
     report["owner"] = REPORT_OWNERS["R11"]

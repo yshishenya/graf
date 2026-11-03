@@ -29,7 +29,7 @@
 - `pr_receipts`, `merge_group_receipts`.
 - `changelog_digest`.
 - `authoritative_full_ci_receipt`.
-- `decision`, `calver`, `rollback_target`.
+- `decision`, `rollback_target`.
 
 ## Invariants
 
@@ -40,3 +40,8 @@
 4. A cancelled, superseded, stale or ambiguous receipt cannot satisfy release
    readiness.
 5. Receipt payloads remain metadata-only.
+
+6. `base_sha` является предком `source_sha`. Связь base с synthetic не заменяет
+   это условие; отсутствие нужных Git commits блокирует заморозку.
+7. В последовательном выпуске synthetic — отдельный локальный коммит
+   происхождения, а `merge_group_ids` и `merge_group_receipts` пусты.

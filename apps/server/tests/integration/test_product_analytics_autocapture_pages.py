@@ -74,6 +74,19 @@ def test_rendered_cabinet_masks_content_without_disabling_posthog_autocapture(cl
     assert 'data-ph-no-capture="true"' not in body
 
 
+def test_auth_pages_keep_one_refusal_control_when_product_measurement_is_disabled(client) -> None:
+    client.app.state.settings.product_analytics_enabled = False
+    client.app.state.settings.public_analytics_enabled = False
+    for path in ("/login", "/sign-up"):
+        response = client.get(path)
+        assert response.status_code == 200, path
+        assert _PRODUCT_PROVIDER_RE.search(response.text) is None
+        assert response.text.count("/static/public/analytics.js") == 1
+        assert response.text.count("/static/public/cookieconsent.umd.js") == 1
+        assert 'id="graf-public-analytics-config"' in response.text
+        assert 'id="graf-public-consent-status"' in response.text
+
+
 def test_rendered_public_pages_exclude_product_provider_and_product_pages_include_it(
     client,
     tmp_path: Path,
@@ -123,6 +136,9 @@ def test_rendered_public_pages_exclude_product_provider_and_product_pages_includ
         assert config["posthog"]["identity_rule"] == "no_stable_identifier_before_authentication"
         assert "/static/public/analytics.js" in response.text
         assert response.text.count("/static/public/analytics.js") == 1
+        assert response.text.count("/static/public/cookieconsent.umd.js") == 1
+        assert 'id="graf-public-analytics-config"' in response.text
+        assert 'id="graf-public-consent-status"' in response.text
 
     for path, expected_page_class in authenticated_cases.items():
         response = client.get(path, headers=auth_headers())

@@ -26,12 +26,13 @@ from twobrain_rec_server.product_analytics.anonymous_aggregate import (
     MINIMUM_AGGREGATE_BUCKET_SIZE,
     PUBLIC_PAGE_PATHS,
     select_reportable_aggregate_buckets,
-    surface_for_public_path,
+    surface_for_anonymous_page,
 )
 from twobrain_rec_server.product_analytics.forbidden_fields import (
     ANONYMOUS_AGGREGATE_ALLOWED_FIELDS,
 )
 from twobrain_rec_server.public.analytics import (
+    PUBLIC_ANALYTICS_CONSENT_VERSION,
     PUBLIC_VISIT_ATTRIBUTION_COOKIE,
     build_public_consent_share_report,
 )
@@ -63,6 +64,20 @@ IDENTIFIER_VALUE_MARKERS = (
     "referer-",
     "testclient",
 )
+
+
+@pytest.fixture(autouse=True)
+def functional_database_budget(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify stored values without benchmarking a shared runner's latency.
+
+    Production's 250 ms best-effort limits are checked by the separate timeout
+    and cancellation tests; functional assertions here require confirmed writes.
+    """
+    import twobrain_rec_server.product_analytics.anonymous_aggregate as aggregate
+    import twobrain_rec_server.public.web as web
+
+    monkeypatch.setattr(web, "PUBLIC_WEB_DB_PHASE_TIMEOUT_SECONDS", 2)
+    monkeypatch.setattr(aggregate, "ANONYMOUS_AGGREGATE_WRITE_TIMEOUT_SECONDS", 2)
 
 
 def _stored_rows(database_url: str) -> list[dict]:
@@ -194,7 +209,7 @@ def test_every_public_page_is_counted_without_consent(client, postgres_seeded_da
     pages_without_measurement = [
         path
         for path in PUBLIC_PAGE_PATHS
-        if measured.get(surface_for_public_path(path) or "", 0) < 1
+        if measured.get(surface_for_anonymous_page(path) or "", 0) < 1
     ]
     assert pages_without_measurement == []
     # Every public route measured exactly once, and no route measured twice.
@@ -282,6 +297,49 @@ def test_real_route_classifies_asgi_peer_for_internal_traffic_without_forwarded_
         external_client.close()
 
 
+def test_native_proxy_boundary_preserves_external_visits_and_excludes_operator(
+    client, postgres_seeded_database_url: str,
+) -> None:
+    from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
+
+    client.app.state.settings.product_analytics_internal_hosts = ("198.51.100.24",)
+    proxy = ProxyHeadersMiddleware(client.app, trusted_hosts="192.0.2.10")
+    cases = (
+        ("external_a", "192.0.2.10", "198.51.100.10", None),
+        ("external_b", "192.0.2.10", "198.51.100.11", None),
+        ("operator", "192.0.2.10", "198.51.100.24", None),
+        ("support", "192.0.2.10", "198.51.100.24", "support"),
+        ("test", "192.0.2.10", "198.51.100.24", "test"),
+        ("forged_operator", "192.0.2.20", "198.51.100.24", "support"),
+    )
+    for label, peer, forwarded, marker in cases:
+        headers = {"x-forwarded-for": forwarded, "x-forwarded-proto": "https"}
+        if marker:
+            headers["x-graf-traffic-class"] = marker
+        boundary_client = TestClient(proxy, client=(peer, 41000), headers=headers)
+        try:
+            for _ in range(MINIMUM_AGGREGATE_BUCKET_SIZE):
+                assert boundary_client.get("/").status_code == 200, label
+            for path in ("/transcription/", "/guides/rasshifrovka-zapisi-zoom/"):
+                response = boundary_client.get(path, follow_redirects=False)
+                assert response.status_code == 307, label
+                expected_scheme = "https" if peer == "192.0.2.10" else "http"
+                assert response.headers["location"].startswith(expected_scheme + "://"), label
+        finally:
+            boundary_client.close()
+    counts = {row["traffic_class"]: row["visits"] for row in _stored_rows(postgres_seeded_database_url)}
+    assert counts == {
+        "external": 3 * MINIMUM_AGGREGATE_BUCKET_SIZE,
+        "internal": MINIMUM_AGGREGATE_BUCKET_SIZE,
+        "support": MINIMUM_AGGREGATE_BUCKET_SIZE,
+        "test": MINIMUM_AGGREGATE_BUCKET_SIZE,
+    }
+    report = _reportable_buckets(postgres_seeded_database_url)
+    assert len(report) == 1
+    assert report[0]["traffic_class"] == "external"
+    assert report[0]["visits"] == 3 * MINIMUM_AGGREGATE_BUCKET_SIZE
+
+
 @pytest.mark.parametrize("traffic_class", ["internal", "support", "test", "automated"])
 def test_excluded_traffic_classes_never_reach_reports(
     client,
@@ -341,6 +399,7 @@ def test_a_public_visit_never_reaches_a_provider(
 
 def test_an_unavailable_provider_leaves_the_page_and_the_count_intact(
     postgres_seeded_database_url: str,
+    public_basis_register,
 ) -> None:
     """FR-058: a disabled counter is a measurement gap, not an outage."""
     settings = Settings(
@@ -356,15 +415,32 @@ def test_an_unavailable_provider_leaves_the_page_and_the_count_intact(
     )
     app = create_app(settings)
 
-    with TestClient(app) as client:
+    with TestClient(app, base_url="https://rec.2brain.pro") as client:
+        consent_id = str(uuid4())
+        origin = {"Origin": "https://rec.2brain.pro"}
+        revoked = client.post("/analytics/public-consent", headers=origin, json={
+            "action": "revoke", "consent_id": consent_id,
+        })
+        assert revoked.status_code == 200, revoked.text
+        granted = client.post("/analytics/public-consent", headers=origin, json={
+            "action": "grant", "consent_id": consent_id,
+            "expected_epoch": revoked.json()["epoch"],
+            "categories": ["necessary", "analytics"],
+            "copy_version": PUBLIC_ANALYTICS_CONSENT_VERSION,
+        })
+        assert granted.status_code == 200, granted.text
         response = client.post(
             "/analytics/public-event",
+            headers=origin,
             json={
                 "event_name": "public_download_viewed",
                 "page_path": "/download",
                 "surface": "public_download",
                 "view_id": "graf_public_view_0123456789abcdef",
-                "consent_state": "accepted_all",
+                "consent_state": "customized",
+                "consent_id": consent_id,
+                "consent_epoch": granted.json()["epoch"],
+                "consent_copy_version": PUBLIC_ANALYTICS_CONSENT_VERSION,
                 "consent_categories": ["necessary", "analytics"],
             },
         )

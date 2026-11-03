@@ -1,0 +1,11 @@
+[Unit]
+Description=Check GRAF availability every minute on the independent observer
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=1min
+AccuracySec=1s
+Unit=graf-external-availability.service
+
+[Install]
+WantedBy=timers.target

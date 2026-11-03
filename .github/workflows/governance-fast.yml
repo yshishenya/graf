@@ -27,13 +27,13 @@ jobs:
     outputs:
       text_only: ${{ steps.scope.outputs.text_only }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.event_name == 'merge_group' && github.event.merge_group.head_sha || inputs.requested_sha }}
           fetch-depth: 0
           persist-credentials: false
       - name: Checkout current workflow tools
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ github.workflow_sha }}
           path: .ci-tools
@@ -58,9 +58,10 @@ jobs:
               output.write(f"text_only={str(value['text_only']).lower()}\n")
           PY
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: steps.scope.outputs.text_only == 'true'
         with:
+          archive: true
           name: graf-code-scope-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/code-scope.json
           if-no-files-found: error
@@ -93,7 +94,7 @@ jobs:
           set -euo pipefail
           [[ "$SCOPE_RESULT" == success && ( "$TEXT_ONLY" == true || "$TEXT_ONLY" == false ) ]]
       - name: Checkout exact PR SHA
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.event_name == 'merge_group' && github.event.merge_group.head_sha || inputs.requested_sha }}
           fetch-depth: 0
@@ -101,7 +102,7 @@ jobs:
 
       - name: Checkout current workflow tools
         if: needs.scope.outputs.text_only == 'true'
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ github.workflow_sha }}
           path: .ci-tools
@@ -122,15 +123,16 @@ jobs:
 
       - name: Install production-compatible Python
         if: needs.scope.outputs.text_only == 'false'
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: "3.13"
 
       - name: Install Node for browser behavior tests
         if: needs.scope.outputs.text_only == 'false'
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
-          node-version: "22.22.3"
+          package-manager-cache: false
+          node-version: "22.23.4"
 
       - name: Install frozen Spec Kit CLI and bootstrap
         if: needs.scope.outputs.text_only == 'false'
@@ -239,7 +241,7 @@ jobs:
             git diff --check
           fi
 
-      - name: Prepare browser resources only for server changes
+      - name: Prepare browser resources for server or APT helper changes
         if: needs.scope.outputs.text_only == 'false'
         shell: bash
         env:
@@ -249,7 +251,8 @@ jobs:
           source infra/scripts/ci-local.sh
           paths="$(changed_files)"
           while IFS= read -r path; do
-            if [[ "$(classify_path "$path")" == server ]]; then
+            if [[ "$(classify_path "$path")" == server || "$path" == infra/scripts/prepare-ci-apt.sh ]]; then
+              source infra/scripts/prepare-ci-apt.sh
               if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v ffprobe >/dev/null 2>&1; then
                 sudo apt-get update
                 sudo apt-get install -y --no-install-recommends ffmpeg
@@ -384,7 +387,7 @@ jobs:
                   if str(value.get("requested_sha", "")).lower() == target.lower():
                       evidence_path = path
                       break
-          if evidence_path is None:
+          if evidence_path is None or job_status != "success":
               evidence_path = Path(".dev/ci-evidence") / f"terminal-{run_id}.json"
               now = dt.datetime.now(dt.timezone.utc).replace(microsecond=0)
               status = "cancelled" if job_status == "cancelled" else "failed"
@@ -396,7 +399,7 @@ jobs:
                   "finished_at": now.isoformat().replace("+00:00", "Z"),
                   "commands": ["governance-fast terminal receipt fallback"],
                   "skipped_gates": [], "scope": "github-actions terminal fallback",
-                  "reason": f"workflow_{status}_before_ci_evidence",
+                  "reason": f"workflow_{status}_at_terminal_step",
                   "artifact_digests": {"terminal-fallback": "sha256:" + "0" * 64},
                   "component_shas": {"repository": target},
               }, ensure_ascii=False, sort_keys=True) + "\n", encoding="utf-8")
@@ -469,8 +472,9 @@ jobs:
 
       - name: Upload metadata-only evidence
         if: ${{ always() && needs.scope.outputs.text_only == 'false' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
+          archive: true
           name: graf-governance-fast-evidence-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             ${{ steps.terminal.outputs.evidence_path }}

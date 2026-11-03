@@ -1,6 +1,7 @@
 import time
 from pathlib import Path
 
+from tests.fixtures.analytics_operations import CONSISTENT_RESTORE_TEXT
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.product_analytics.provider_readiness import (
     RETENTION_STATE_FILE_ENV,
@@ -11,7 +12,7 @@ from twobrain_rec_server.public.analytics import (
 )
 
 
-def test_093_public_yandex_scope_is_preserved_for_landing_and_download() -> None:
+def test_public_external_sdk_stays_closed_while_first_party_measurement_is_available(public_basis_register) -> None:
     settings = Settings(
         public_analytics_enabled=True,
         public_analytics_validation_mode="render_only",
@@ -20,8 +21,8 @@ def test_093_public_yandex_scope_is_preserved_for_landing_and_download() -> None
 
     assert build_public_analytics_context(settings, "/")["enabled"] is True
     assert build_public_analytics_context(settings, "/download")["enabled"] is True
-    assert build_public_analytics_context(settings, "/")["external_counter_allowed"] is True
-    assert build_public_analytics_context(settings, "/download")["external_counter_allowed"] is True
+    assert build_public_analytics_context(settings, "/")["external_counter_allowed"] is False
+    assert build_public_analytics_context(settings, "/download")["external_counter_allowed"] is False
 
     # FR-027: the login page is a public page and is measured by consent, but the
     # external counter keeps its published two-page scope, so the credential page
@@ -40,23 +41,24 @@ def _live_gate_environment(tmp_path: Path) -> dict[str, str]:
     now = int(time.time())
     backup = tmp_path / "backup"
     backup.write_text(
-        "backup_state_version=1\nlast_attempt_result=pass\n"
-        f"last_success_epoch={now - 3600}\ncopies_local=2\ncopies_offsite=1\n",
+        "backup_state_version=2\nbackup_set_complete=true\nlast_attempt_result=pass\n"
+        f"last_success_epoch={now - 3600}\ncopies_local=2\n",
         encoding="utf-8",
     )
     restore = tmp_path / "restore"
     restore.write_text(
-        "restore_state_version=1\nlast_verify_result=pass\n"
-        f"last_verify_epoch={now - 3600}\n",
+        CONSISTENT_RESTORE_TEXT + "restore_state_version=2\nlast_verify_result=pass\n"
+        + f"last_verify_epoch={now - 3600}\n",
         encoding="utf-8",
     )
     retention = tmp_path / "retention"
     retention.write_text(
-        "retention_state_version=1\nresult=pass\n"
-        "category=measurement_events retention_days=365 storage=clickhouse enforcement=row_ttl enforcement_verified=true\n"
-        "category=anonymous_aggregate retention_days=1095 storage=postgres enforcement=scheduled_task enforcement_verified=true\n"
-        "category=visit_attribution retention_days=90 storage=postgres enforcement=scheduled_task enforcement_verified=true\n"
-        "category=acquisition_attribute retention_days=1095 storage=postgres enforcement=scheduled_task enforcement_verified=true\n",
+        f"retention_state_version=2\nrecorded_at_epoch={now}\nresult=pass\n"
+        "category=measurement_events retention_mode=until_decision retention_days=none storage=clickhouse enforcement=decision_required enforcement_verified=true\n"
+        "category=anonymous_aggregate retention_mode=until_decision retention_days=none storage=postgres enforcement=decision_required enforcement_verified=true\n"
+        "category=visit_attribution retention_mode=until_decision retention_days=none storage=postgres enforcement=decision_required enforcement_verified=true\n"
+        "category=acquisition_attribute retention_mode=until_decision retention_days=none storage=postgres enforcement=decision_required enforcement_verified=true\n"
+        "category=public_consent_control retention_mode=until_decision retention_days=none storage=postgres enforcement=decision_required enforcement_verified=true\n",
         encoding="utf-8",
     )
     approvals = tmp_path / "approvals"
@@ -80,7 +82,9 @@ def _live_gate_environment(tmp_path: Path) -> dict[str, str]:
     )
     basis = tmp_path / "basis"
     basis.write_text("legal_basis_state_version=1\n", encoding="utf-8")
+    from tests.fixtures.analytics_operations import write_runtime_guard
     return {
+        **write_runtime_guard(tmp_path, now=now),
         "GRAF_POSTHOG_BACKUP_STATE_FILE": str(backup),
         "GRAF_POSTHOG_RESTORE_STATE_FILE": str(restore),
         RETENTION_STATE_FILE_ENV: str(retention),
@@ -90,7 +94,7 @@ def _live_gate_environment(tmp_path: Path) -> dict[str, str]:
     }
 
 
-def test_096_yandex_product_page_context_is_inventory_gated(tmp_path: Path) -> None:
+def test_096_yandex_product_page_context_is_inventory_gated(tmp_path: Path, monkeypatch) -> None:
     settings = Settings(
         product_analytics_enabled=True,
         product_analytics_validation_mode="live_safe",
@@ -108,6 +112,12 @@ def test_096_yandex_product_page_context_is_inventory_gated(tmp_path: Path) -> N
     )
 
     environment = _live_gate_environment(tmp_path)
+    blocked = build_product_yandex_provider_context(settings, "public_landing", environ=environment)
+    assert blocked["enabled"] is False
+    assert blocked["provider_gate_allowed"] is False
+    # Then isolate page inventory policy with explicitly injected typed evidence.
+    from tests.fixtures.analytics_operations import stub_verified_restore
+    stub_verified_restore(monkeypatch)
     public_context = build_product_yandex_provider_context(
         settings, "public_landing", environ=environment
     )

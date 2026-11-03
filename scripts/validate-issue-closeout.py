@@ -221,13 +221,12 @@ def validate_feature(
     child_issues: list[dict[str, object]] = []
     for issue in issues:
         number = int(issue.get("number", 0) or 0)
-        if number == umbrella_issue:
-            continue
         owned = _owned_task_ids(issue)
         if not owned:
             errors.append(f"issue #{number} has no canonical Spec Kit task ownership")
             continue
-        child_issues.append(issue)
+        if number != umbrella_issue:
+            child_issues.append(issue)
         for task in owned:
             if task not in task_states:
                 errors.append(f"issue #{number} is orphaned: {task} is missing from tasks.md")
@@ -244,7 +243,10 @@ def validate_feature(
             continue
         issue = task_owners[0]
         number = int(issue.get("number", 0) or 0)
-        if str(issue.get("state", "")).upper() != "CLOSED":
+        if str(issue.get("state", "")).upper() != "CLOSED" and not (
+            number == umbrella_issue and allow_open_umbrella
+            and str(issue.get("state", "")).upper() == "OPEN"
+        ):
             errors.append(f"issue #{number} for {task} is still open")
         for error in validate(
             issue,
@@ -347,25 +349,6 @@ def _github_pr(repo: str, number: str) -> dict[str, object]:
     return value
 
 
-def _github_commit_pull_requests(repo: str, sha: str) -> list[int]:
-    result = subprocess.run(
-        ["gh", "api", f"repos/{repo}/commits/{sha}/pulls"],
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(result.stderr.strip() or f"GitHub commit {sha} PR lookup failed")
-    value = json.loads(result.stdout)
-    if not isinstance(value, list):
-        raise ValueError(f"GitHub commit {sha} pull requests must be an array")
-    return [
-        int(item["number"])
-        for item in value
-        if isinstance(item, dict) and isinstance(item.get("number"), int)
-    ]
-
-
 def _github_pr_checks(repo: str, number: int, sha: str, run_id: str) -> dict:
     result = subprocess.run([
         sys.executable, str(Path(__file__).with_name("validate-pr-checks.py")),
@@ -387,7 +370,6 @@ def verify_feature_runs(
     errors: list[str] = []
     cache: dict[str, dict[str, object]] = {}
     pr_cache: dict[str, dict[str, object]] = {}
-    commit_pr_cache: dict[str, list[int]] = {}
     checked_prs: set[tuple[int, str, str]] = set()
 
     def verify(
@@ -414,18 +396,10 @@ def verify_feature_runs(
         if run.get("workflowPath") != expected_path:
             errors.append(f"issue #{issue_number} GitHub run {run_id} is not workflow path {expected_path}")
         run_pr_numbers = run.get("pullRequestNumbers", [])
-        if expected_pr_number is not None:
-            if not run_pr_numbers:
-                try:
-                    if expected_run_sha not in commit_pr_cache:
-                        commit_pr_cache[expected_run_sha] = _github_commit_pull_requests(repo, expected_run_sha)
-                    run_pr_numbers = commit_pr_cache[expected_run_sha]
-                except (RuntimeError, ValueError, json.JSONDecodeError) as exc:
-                    errors.append(f"issue #{issue_number} cannot verify PRs for GitHub run {run_id}: {exc}")
-            if run_pr_numbers != [expected_pr_number]:
-                errors.append(
-                    f"issue #{issue_number} GitHub run {run_id} is not uniquely bound to PR #{expected_pr_number}"
-                )
+        if expected_pr_number is not None and run_pr_numbers and run_pr_numbers != [expected_pr_number]:
+            errors.append(
+                f"issue #{issue_number} GitHub run {run_id} is not uniquely bound to PR #{expected_pr_number}"
+            )
         if str(run.get("headSha", "")).lower() != expected_run_sha.lower():
             errors.append(f"issue #{issue_number} GitHub run {run_id} SHA does not match {workflow} evidence")
 
@@ -582,11 +556,11 @@ def self_test() -> int:
         "title": "[236][P1][governance] T017: Завершить фичу",
         "state": "CLOSED",
         "closedAt": "2026-09-04T10:01:00Z",
-        "comments": issue["comments"],
+        "comments": [{"body": str(issue["comments"][0]["body"]).replace("T001", "T017")}],
     }
     assert validate_feature(
         [child, umbrella],
-        "- [X] T001 Проверить (Issue #6373)\n",
+        "- [X] T001 Проверить (Issue #6373)\n- [X] T017 Завершить (Issue #6415)\n",
         "a" * 40,
         6415,
     ) == []

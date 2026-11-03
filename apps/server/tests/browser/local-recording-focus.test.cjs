@@ -11,7 +11,7 @@ const assets = path.join(__dirname, '../../src/twobrain_rec_server/cabinet/stati
     page.on('pageerror', error => errors.push(error.message));
     await page.route('https://synthetic.invalid/**', route => route.fulfill({contentType:'text/html', body:'<html></html>'}));
     await page.goto('https://synthetic.invalid/meetings');
-    await page.setContent(`<meta name="graf-timezone" content="UTC"><meta name="graf-time-reload" content="false">
+    await page.setContent(`<meta name="graf-timezone" content="UTC"><meta name="graf-time-preferred" content="UTC"><meta name="graf-time-reload" content="false">
       <h1 data-list-title tabindex="-1">Встречи</h1><input id="meeting-search">
       <select id="meeting-sort"><option value="started_desc">Дата</option><option value="updated_desc">Обновление</option><option value="title_asc">Название</option></select>
       <div data-selection-toolbar hidden><span data-selection-count></span></div>

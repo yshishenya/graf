@@ -3,6 +3,9 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    {% if request is defined and request.url.hostname == "rec.2brain.pro" %}
+    <meta name="yandex-verification" content="de5457f669a9f4ed">
+    {% endif %}
     <title>{{ page_title }}</title>
     {% include "public/_meta.html" %}
     <meta
@@ -80,6 +83,7 @@
         ]
       }
     </script>
+    <link rel="stylesheet" href="{{ public_static_asset_url('content-header.css') }}">
     <script src="{{ public_static_asset_url('landing.js') }}" defer></script>
   </head>
   <body>
@@ -94,6 +98,7 @@
           <a href="#for-whom">Для кого</a>
           <a href="#how">Как работает</a>
           <a href="#faq">Вопросы</a>
+          <a href="/guides">Руководства</a>
           {% if public_offer.catalog_ready %}<a href="#price">Тариф</a>{% endif %}
         </nav>
         <div class="header-actions">
@@ -101,15 +106,16 @@
           <a class="button button-small" href="/download" data-analytics-cta="header_download" data-analytics-target="download_page">
             Скачать
           </a>
-          <button class="menu-button" type="button" aria-label="Открыть меню" aria-expanded="false" data-menu-button>
+          <button class="menu-button" type="button" aria-label="Открыть меню" aria-expanded="false" aria-controls="mobile-navigation" data-menu-button>
             <span></span><span></span>
           </button>
         </div>
       </div>
-      <nav class="mobile-nav" aria-label="Мобильная навигация" data-mobile-nav>
+      <nav class="mobile-nav" id="mobile-navigation" aria-label="Мобильная навигация" data-mobile-nav>
         <a href="#for-whom">Для кого</a>
         <a href="#how">Как работает</a>
         <a href="#faq">Вопросы</a>
+          <a href="/guides">Руководства</a>
         {% if public_offer.catalog_ready %}<a href="#price">Тариф</a>{% endif %}
         <a href="/login?next=/meetings" data-analytics-cta="header_login" data-analytics-target="login">Войти</a>
       </nav>
@@ -208,7 +214,7 @@
               <button type="button" role="tab" id="tab-summary" aria-selected="false" aria-controls="panel-summary" tabindex="-1" data-tab="outcomes"><span>03</span> Итоги и действия</button>
             </div>
 
-            <article class="walkthrough-panel active" role="tabpanel" id="panel-record" aria-labelledby="tab-record" data-panel="recording">
+            <div class="walkthrough-panel active" role="tabpanel" id="panel-record" aria-labelledby="tab-record" data-panel="recording">
               <div class="walkthrough-copy">
                 <span class="step-number">01</span>
                 <h3>Запустите запись</h3>
@@ -222,9 +228,9 @@
                   decoding="async"
                 />
               </div>
-            </article>
+            </div>
 
-            <article class="walkthrough-panel" role="tabpanel" id="panel-transcript" aria-labelledby="tab-transcript" data-panel="transcript">
+            <div class="walkthrough-panel" role="tabpanel" id="panel-transcript" aria-labelledby="tab-transcript" data-panel="transcript">
               <div class="walkthrough-copy">
                 <span class="step-number">02</span>
                 <h3>Читайте, а не переслушивайте</h3>
@@ -246,9 +252,9 @@
                   />
                 </picture>
               </div>
-            </article>
+            </div>
 
-            <article class="walkthrough-panel" role="tabpanel" id="panel-summary" aria-labelledby="tab-summary" data-panel="outcomes">
+            <div class="walkthrough-panel" role="tabpanel" id="panel-summary" aria-labelledby="tab-summary" data-panel="outcomes">
               <div class="walkthrough-copy">
                 <span class="step-number">03</span>
                 <h3>Получите итог и план действий</h3>
@@ -262,7 +268,7 @@
                   decoding="async"
                 />
               </div>
-            </article>
+            </div>
           </div>
         </div>
       </section>
@@ -272,7 +278,7 @@
         <div class="shell pricing-grid">
           <div class="section-heading reveal">
             <p class="eyebrow eyebrow-violet">Подписка</p>
-            <h2>Все встречи<br />без лимита по объему</h2>
+            <h2>Записи и расшифровки<br />без лимита по времени</h2>
             <p>Попробуйте ГРАФ в своей работе — карта для пробного периода не нужна</p>
             <div class="billing-toggle" role="group" aria-label="Период оплаты">
               <button type="button" aria-pressed="false" data-period="month" data-price="{{ public_offer.monthly_label }}" data-price-period="в месяц" data-price-note="Оплата раз в месяц">1 месяц</button>
@@ -290,16 +296,17 @@
               <small data-price-note-value>≈ {{ public_offer.annual_monthly_equivalent_label }} в месяц · экономия {{ public_offer.annual_saving_label }}</small>
             </div>
             <ul>
-              <li>Безлимитные записи и транскрибации</li>
+              <li>Запись и расшифровка без ограничения длительности</li>
+              <li>5 ГБ хранения на «Личном», 500 МБ в пробном периоде; увеличение — за доплату</li>
               <li>Расшифровка по спикерам и таймкоды</li>
               <li>Краткий итог и следующие действия</li>
               <li>Календарь и совместный доступ</li>
               <li>Экспорт записи и результатов</li>
             </ul>
             <a class="button button-primary button-large button-full" href="/download" data-analytics-cta="pricing_download" data-analytics-target="download_page">Скачать — 7 дней бесплатно</a>
-            <p class="price-foot">Отменить можно в любой момент</p>
+            <p class="price-foot">Автопродление можно отключить в любой момент</p>
             {% if not public_offer.sale_ready %}
-            <p class="price-foot">Оплата откроется в приложении после завершения проверки платежного контура</p>
+            <p class="price-foot">Оплата временно недоступна</p>
             {% endif %}
           </article>
         </div>
@@ -320,7 +327,7 @@
             <details data-faq-id="results"><summary>Что можно сделать с результатами встречи?<span>+</span></summary><p>ГРАФ подготовит расшифровку по спикерам с таймкодами, краткий итог, принятые решения и следующие действия. Запись и результаты можно экспортировать и открыть для совместной работы.</p></details>
             <details data-faq-id="platforms"><summary>Почему пока только macOS?<span>+</span></summary><p>Первая публичная версия создана для macOS 14.5 и новее — для Mac на Apple Silicon и Intel. Windows и Linux пока не поддерживаются.</p></details>
             <details data-faq-id="offline"><summary>Нужен ли интернет во время звонка?<span>+</span></summary><p>Нет. Запись работает без интернета. Когда соединение появится, сохраненный разговор можно отправить на транскрибацию.</p></details>
-            <details data-faq-id="storage"><summary>Где хранятся записи?<span>+</span></summary><p>Записи хранятся в инфраструктуре ГРАФ в пределах места, включенного в ваш план. Актуальный объем виден в приложении; условия расширенного хранения будут показаны там, когда функция станет доступна.</p></details>
+            <details data-faq-id="storage"><summary>Где хранятся записи?<span>+</span></summary><p>Записи хранятся в инфраструктуре ГРАФ в пределах места, включенного в ваш план. Актуальный объем виден в приложении; доступные объемы и точная доплата показываются до покупки в разделе «Хранилище».</p></details>
           </div>
         </div>
       </section>
@@ -342,6 +349,10 @@
         <a class="brand" href="#top"><img src="{{ cabinet_static_asset_url('graf-wordmark-dark@2x.png') }}" alt="ГРАФ"></a>
         <p>Запись и расшифровка встреч<br />в любом сервисе звонков.</p>
         <div class="footer-links">
+          <a href="/guides">Руководства</a>
+          <a href="/transcription">Расшифровка аудио и видео</a>
+          <a href="/meeting-minutes">Протокол встречи</a>
+          <a href="/record-without-bot">Запись без бота</a>
           <a href="https://t.me/Yan_Shi" rel="noopener" target="_blank">Поддержка в Telegram ↗</a>
           <a href="/privacy">Конфиденциальность</a>
           <a href="/cookies">Cookies</a>

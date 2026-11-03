@@ -1,0 +1,31 @@
+<main id="cabinet-main" class="main" tabindex="-1">
+  <section class="panel shared-summary">
+    <h1>{% if not batch %}Поделиться итогами{% elif batch.counts.get('pending') or batch.counts.get('sending') %}Отправляем…{% elif batch.recipients and batch.counts.get('accepted', 0) == batch.recipients|length %}Итоги отправлены{% elif batch.counts.get('failed') or batch.counts.get('suppressed') %}Отправлено не всем{% elif batch.counts.get('unknown') %}Проверьте отправку{% elif batch.recipients and batch.counts.get('cancelled', 0) == batch.recipients|length %}Отправка отменена{% else %}Проверьте отправку{% endif %}</h1>
+    {% if error %}<p role="alert">{{ error }}</p>{% endif %}
+    <p>Получатели увидят только выбранные итоги. Запись и расшифровка останутся закрыты.</p>
+    {% if batch %}
+      <ul class="summary-share-recipients">{% for recipient in batch.recipients %}<li><span>{{ recipient.email }}</span><small>{{ {'accepted':'Отправлено','failed':'Не отправлено','unknown':'Не удалось подтвердить','pending':'Ожидает отправки','sending':'Отправляем…','cancelled':'Отменено','suppressed':'Автоматические письма отключены'}.get(recipient.state, 'Проверьте отправку') }}</small>{% if recipient.can_retry %}<form method="post" action="{{ form_action }}"><input type="hidden" name="csrf_token" value="{{ csrf_token or '' }}"><input type="hidden" name="template_key" value="{{ template_key }}"><input type="hidden" name="action" value="retry"><input type="hidden" name="batch_id" value="{{ batch.batch_id }}"><input type="hidden" name="recipient_id" value="{{ recipient.recipient_id }}"><button type="submit">Повторить</button></form>{% endif %}</li>{% endfor %}</ul>
+      {% if batch.counts.get('pending') or batch.counts.get('sending') or batch.counts.get('unknown') %}<a class="button" href="{{ form_action }}{{ '&' if '?' in form_action else '?' }}batch_id={{ batch.batch_id }}">Проверить отправку</a>{% endif %}
+      {% if batch.can_cancel %}<form method="post" action="{{ form_action }}"><input type="hidden" name="csrf_token" value="{{ csrf_token or '' }}"><input type="hidden" name="template_key" value="{{ template_key }}"><input type="hidden" name="action" value="cancel"><input type="hidden" name="batch_id" value="{{ batch.batch_id }}"><button type="submit">Отменить отправку</button></form>{% endif %}
+      <a class="button" href="/meetings/{{ meeting_id }}">Готово</a>
+    {% else %}
+      <h2>По ссылке</h2>
+      <p>Любой со ссылкой сможет прочитать итоги.</p>
+      {% if link and link.share_url %}<label>Ссылка на итоги<input type="url" readonly value="{{ link.share_url }}"></label><p>Выделите и скопируйте ссылку.</p>{% endif %}
+      <form method="post" action="{{ form_action }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token or '' }}"><input type="hidden" name="template_key" value="{{ template_key }}"><input type="hidden" name="action" value="{{ 'expiry' if link and link.state == 'expired' else 'rotate' if link and link.state == 'replacement_required' else 'link' }}">
+        {% if link and link.grant_id %}<input type="hidden" name="grant_id" value="{{ link.grant_id }}"><input type="hidden" name="expected_version" value="{{ link.version }}">{% endif %}
+        <label>Срок ссылки<select name="expires_in_days"><option value="7">7 дней</option><option value="30" selected>30 дней</option><option value="90">90 дней</option></select></label>
+        {% if link and link.state == 'replacement_required' %}<p>Прежняя ссылка перестанет работать после замены.</p>{% endif %}
+        <button type="submit">{{ 'Продлить ссылку' if link and link.state == 'expired' else 'Заменить ссылку' if link and link.state == 'replacement_required' else 'Получить ссылку' }}</button>
+      </form>
+      {% if link and link.grant_id %}<form method="post" action="{{ form_action }}"><input type="hidden" name="csrf_token" value="{{ csrf_token or '' }}"><input type="hidden" name="template_key" value="{{ template_key }}"><input type="hidden" name="action" value="revoke"><input type="hidden" name="grant_id" value="{{ link.grant_id }}"><input type="hidden" name="expected_version" value="{{ link.version }}"><button type="submit">Отключить ссылку</button></form>{% endif %}
+      <h2>По почте</h2>
+      <form method="post" action="{{ form_action }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token or '' }}"><input type="hidden" name="template_key" value="{{ template_key }}"><input type="hidden" name="action" value="send"><input type="hidden" name="idempotency_key" value="{{ idempotency_key }}">
+        <label>Кому отправить<textarea name="recipients" rows="3" required placeholder="Email через запятую…" autocomplete="off" spellcheck="false"></textarea></label>
+        <p class="muted">Чтобы открыть итоги, нужно войти с указанной почтой. До 50 получателей.</p><button type="submit">Отправить</button>
+      </form>
+    {% endif %}
+  </section>
+</main>

@@ -17,6 +17,7 @@ from twobrain_rec_server.billing.referrals import (
     referral_token_hash,
     validate_referral_token,
 )
+from twobrain_rec_server.billing.refund_email import build_support_mailto, normalize_support_email
 from twobrain_rec_server.cabinet.queries import get_account_profile_view
 from twobrain_rec_server.cabinet.rendering_shared import _page_shell
 from twobrain_rec_server.cabinet.templates import (
@@ -187,7 +188,8 @@ async def referrals_page(
         referral_history=referral_history,
         referral_credited_days=referral_credited_days,
         referral_pending_days=referral_pending_days,
-        support_email=request.app.state.settings.billing_support_email,
+        support_email=normalize_support_email(request.app.state.settings.billing_support_email),
+        support_mailto=build_support_mailto(request.app.state.settings.billing_support_email),
     )
     return cabinet_html_response(content)
 

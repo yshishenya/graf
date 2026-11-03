@@ -44,9 +44,9 @@ class _ScalarQueueSession:
 
 
 def test_storage_projection_uses_exact_decimal_capacities_and_thresholds() -> None:
-    projection = StorageProjection(used_bytes=1_600_000_000, reserved_bytes=0, capacity_bytes=PERSONAL_STORAGE_BYTES)
+    projection = StorageProjection(used_bytes=4_000_000_000, reserved_bytes=0, capacity_bytes=PERSONAL_STORAGE_BYTES)
     assert projection.threshold == "80%"
-    assert StorageProjection(used_bytes=1_900_000_000, reserved_bytes=0, capacity_bytes=PERSONAL_STORAGE_BYTES).threshold == "95%"
+    assert StorageProjection(used_bytes=4_750_000_000, reserved_bytes=0, capacity_bytes=PERSONAL_STORAGE_BYTES).threshold == "95%"
     assert classify_storage_threshold(used_bytes=PERSONAL_STORAGE_BYTES, capacity_bytes=PERSONAL_STORAGE_BYTES) == "full"
     assert storage_capacity_bytes("personal", ADDON_CAPACITY_BYTES[0]) == ADDON_CAPACITY_BYTES[0]
 

@@ -38,7 +38,7 @@ def test_visible_workflow_copy_is_russian_product_copy_without_competitor_expres
     visible += " " + " ".join(_ui_text_values())
     folded = visible.casefold()
 
-    for expected in ("Итоги", "Расшифровка", "Поделиться", "Пригласить", "Удалить"):
+    for expected in ("Итоги", "Расшифровка", "Поделиться", "По ссылке", "По почте", "Отправить", "Удалить"):
         assert expected in visible
     for forbidden in ("krisp", "summarize", "meeting minutes", "project sync"):
         assert forbidden not in folded

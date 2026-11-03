@@ -1,0 +1,27 @@
+F289 FR-008 focused regression, 2026-10-16
+Selection: quickstart step2, including complete registration handoff contract.
+Environment reused with UV_NO_SYNC=1; no dependency installation.
+8.99s setup    tests/contract/test_public_organic_measurement.py::test_search_entry_counts_current_page_without_cookie_or_profile[/transcription-public_transcription]
+6.23s call     tests/contract/test_product_analytics_anonymous_aggregate_contract.py::test_measurement_migrations_apply_and_roll_back
+6.20s call     tests/contract/test_public_search_pages.py::test_search_pages_discovery_metadata_and_product_boundaries
+5.42s call     tests/contract/test_public_guides_hub.py::test_hub_is_indexable_and_links_join_the_published_guides
+5.15s call     tests/contract/test_product_analytics_registration_handoff_contract.py::test_registration_commits_when_anonymous_counter_times_out
+3.99s call     tests/contract/test_public_zoom_recording_guide.py::test_zoom_guide_is_indexable_with_only_anonymous_measurement
+1.39s call     tests/contract/test_product_analytics_registration_handoff_contract.py::test_every_step_of_web_registration_is_counted_with_its_campaign
+1.02s call     tests/contract/test_product_analytics_registration_handoff_contract.py::test_a_second_registration_never_rewrites_the_campaign
+0.92s setup    tests/contract/test_public_organic_measurement.py::test_real_database_timeout_returns_content_and_next_request_works[prepare-/meeting-minutes]
+0.92s setup    tests/contract/test_product_analytics_registration_handoff_contract.py::test_a_damaged_cookie_is_unknown_and_never_direct
+0.91s call     tests/contract/test_product_analytics_registration_handoff_contract.py::test_the_sign_in_by_emailed_code_delivers_the_account_connected_milestone
+0.75s call     tests/contract/test_public_guides_hub.py::test_hub_and_recording_guide_preserve_existing_measurement[/guides/zapis-vstrechi-na-mac-bez-bota-public_mac_meeting_guide]
+0.71s call     tests/contract/test_product_analytics_registration_handoff_contract.py::test_a_damaged_cookie_is_unknown_and_never_direct
+0.68s setup    tests/contract/test_public_organic_measurement.py::test_search_entry_counts_current_page_without_cookie_or_profile[/meeting-minutes-public_meeting_minutes]
+0.67s call     tests/contract/test_product_analytics_registration_handoff_contract.py::test_the_campaign_of_the_visit_reaches_the_client_record
+0.66s setup    tests/contract/test_public_organic_measurement.py::test_search_entry_counts_current_page_without_cookie_or_profile[/record-without-bot-public_record_without_bot]
+0.64s setup    tests/contract/test_public_guides_hub.py::test_hub_and_recording_guide_preserve_existing_measurement[/guides-public_guides]
+0.61s setup    tests/contract/test_public_organic_measurement.py::test_measurement_failure_never_blocks_content_or_writes_a_bucket[database_missing-/transcription]
+0.60s setup    tests/contract/test_public_organic_measurement.py::test_measurement_failure_never_blocks_content_or_writes_a_bucket[database_missing-/meeting-minutes]
+0.58s call     tests/contract/test_product_analytics_registration_handoff_contract.py::test_a_registration_without_a_campaign_is_unknown_and_never_direct
+181 passed, 1 warning in 86.51s (0:01:26)
+postgres_test_phase=focused status=pass duration_seconds=98
+postgres_test_result=pass mode=focused partitioned=false shard=none
+postgres_test_cleanup=isolated_container_removed

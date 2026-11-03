@@ -162,6 +162,43 @@ private struct PurgeAcceptanceFixture {
             for path in [item.manifestPath, item.microphonePath, item.systemAudioPath] {
                 try Data("synthetic purge fixture".utf8).write(to: URL(fileURLWithPath: path))
             }
+            if state == .queued {
+                // This case enters the actual upload admission before suspending
+                // the mock transport; a text placeholder is not a valid manifest.
+                let manifestService = LocalRecordingManifestService()
+                let startedAt = Date(timeIntervalSince1970: 10)
+                let scopeApproval = CaptureScopeApproval(scopeApprovalId: "synthetic-purge-scope",
+                    scopeKind: .display, sourceDisplayName: "Synthetic display", approvedAt: startedAt,
+                    approvalMode: .userConfirmedSuggestedScope, eligibleReason: .manualMeetingScope)
+                let permissions = SystemAudioPermissionSnapshot(microphone: .granted,
+                    systemAudio: .granted, evaluatedAt: startedAt)
+                let active = manifestService.activeV5Manifest(sessionId: item.sessionId,
+                    directoryId: item.directoryId, startedAt: startedAt)
+                let audio = Data(repeating: 1, count: 512)
+                for path in [item.microphonePath, item.systemAudioPath] {
+                    try audio.write(to: URL(fileURLWithPath: path))
+                }
+                let tracks = active.tracks.map { track in
+                    var saved = track
+                    saved.status = .saved
+                    saved.durationMs = 60_000
+                    saved.byteCount = Int64(audio.count)
+                    saved.frameCount = Int64(track.sampleRate * 60)
+                    saved.timelineStartMs = 0
+                    saved.timelineAligned = true
+                    saved.aacPresentationFrameDelta = track.role == .reviewPlayback ? 0 : nil
+                    saved.sha256 = DesktopUploadClient.sha256Hex(data: audio)
+                    return saved
+                }
+                var manifest = manifestService.v5Manifest(sessionId: item.sessionId,
+                    directoryId: item.directoryId, startedAt: startedAt,
+                    stoppedAt: startedAt.addingTimeInterval(60), tracks: tracks,
+                    scopeApproval: scopeApproval, permissions: permissions,
+                    echoProcessor: .webrtcAEC3, echoProcessingHealth: EchoProcessingHealth(state: .completed))
+                manifest.startAcceptance = .accepted
+                XCTAssertTrue(manifest.isComplete)
+                try manifestService.write(manifest, to: URL(fileURLWithPath: item.manifestPath))
+            }
             values.append(item)
         }
         items = values

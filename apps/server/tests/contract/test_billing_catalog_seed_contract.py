@@ -24,7 +24,7 @@ MIGRATION_PATH = (
     / "db"
     / "migrations"
     / "versions"
-    / "0093_billing_catalog_seed.py"
+    / "0101_storage_packages.py"
 )
 
 
@@ -70,5 +70,5 @@ def test_catalog_seed_matches_the_personal_plan_descriptor() -> None:
 def test_catalog_seed_revision_extends_the_current_chain() -> None:
     migration = _load_migration()
 
-    assert migration.revision == "0093_billing_catalog_seed"
-    assert migration.down_revision == "0092_recording_origin_cancel"
+    assert migration.revision == "0101_storage_packages"
+    assert migration.down_revision == "0100_billing_purchases"

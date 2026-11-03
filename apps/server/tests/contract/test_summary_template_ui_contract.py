@@ -1,6 +1,6 @@
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy import select
 
@@ -11,7 +11,6 @@ from tests.fakes.fake_temporal import FakeTemporalClient
 from tests.fixtures.cabinet import create_outcome_ready_meeting, seed_cabinet_meetings
 from twobrain_rec_server.api.cabinet import _summary_candidate_projection
 from twobrain_rec_server.db.models import (
-    DiarizationSegment,
     DispatchIntent,
     MediaScribeJob,
     Meeting,
@@ -21,7 +20,6 @@ from twobrain_rec_server.db.models import (
     MeetingSummarySlot,
     ProcessingResult,
     SummaryTemplate,
-    TranscriptSegment,
     Workspace,
     WorkspaceMembership,
 )
@@ -1103,260 +1101,111 @@ def test_format_selection_uses_the_slot_revision_and_starts_temporal(client) -> 
 
 def test_candidate_content_is_not_exposed_to_the_cabinet(client) -> None:
     schema = client.get("/openapi.json").json()
-    preview_paths = [path for path in schema["paths"] if path.endswith("/preview")]
-    assert len(preview_paths) == 1
-    assert schema["paths"][preview_paths[0]]["get"]["deprecated"] is True
+    candidate_preview_path = (
+        "/api/v1/cabinet/meetings/{meeting_id}/summary-candidates/{candidate_id}/preview"
+    )
+    preview_paths = [
+        path for path in schema["paths"]
+        if "/summary-candidates/" in path and path.endswith("/preview")
+    ]
+    assert preview_paths == [candidate_preview_path]
+    operation = schema["paths"][candidate_preview_path]["get"]
+    assert operation["deprecated"] is True
+    assert operation["operationId"] == "deprecatedPreviewSummaryCandidate"
     assert "data-summary-candidate-preview" not in MEETING_TEMPLATE.read_text(encoding="utf-8")
     assert "/summary-candidates/${candidate.candidate_id}/preview" not in CABINET_JS.read_text(
         encoding="utf-8"
     )
-    return
 
-    meeting_id = create_outcome_ready_meeting(client)
-    created = client.post(
-        "/api/v1/cabinet/summary-templates",
-        headers=auth_headers(),
-        json={
-            "name": "Мой формат для проверки",
-            "purpose": "Проверка предпросмотра",
-            "sections": ["summary"],
-            "output_language": "ru",
-            "detail_level": "standard",
-        },
-    )
-    assert created.status_code == 201
-    template = created.json()
+    meeting_id = create_outcome_ready_meeting(client, "candidate-sharing-preview")
+    template_key = "graf-auto-v1"
+    candidate_marker = "Synthetic candidate must stay private"
+    accepted_marker = "Synthetic accepted summary for sharing"
+    candidate_id = uuid4()
 
-    async def seed_candidate():
+    async def seed_summary(*, accepted: bool) -> None:
         async with client.app_state["sessionmaker"]() as db:
-            meeting = await db.get(Meeting, meeting_id)
             result = await db.scalar(
                 select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id)
             )
-            assert meeting is not None and result is not None
-            segments = (
-                await db.scalars(
-                    select(TranscriptSegment)
-                    .where(TranscriptSegment.processing_result_id == result.id)
-                    .order_by(TranscriptSegment.sequence)
-                )
-            ).all()
-            assert len(segments) == 2
-            provider_turns = (
-                await db.scalars(
-                    select(DiarizationSegment)
-                    .where(DiarizationSegment.processing_result_id == result.id)
-                    .order_by(DiarizationSegment.sequence)
-                )
-            ).all()
-            assert len(provider_turns) == 2
-            legacy_refs = [
-                {
-                    "transcript_segment_id": str(segments[index % len(segments)].id),
-                    "sequence": segments[index % len(segments)].sequence,
-                    "start_seconds": 999,
-                    "end_seconds": 1000,
-                    "source_role": "untrusted",
-                    "evidence_kind": "segment",
-                }
-                for index in range(40)
-            ]
-            attempt = await create_summary_candidate(
-                db,
+            assert result is not None
+            outcome = MeetingOutcomeSet(
                 workspace_id=WORKSPACE_ID,
                 meeting_id=meeting_id,
-                requested_by_user_id=USER_ID,
-                template_key=template["template_key"],
-                template_id=template["template_id"],
-                template_version=template["version"],
-                expected_current_outcome_set_id=None,
-            )
-            outcome_set = MeetingOutcomeSet(
-                workspace_id=WORKSPACE_ID,
-                meeting_id=meeting_id,
-                media_revision_id=attempt.media_revision_id,
+                media_revision_id=result.media_revision_id,
                 processing_result_id=result.id,
+                candidate_id=None if accepted else candidate_id,
                 status="available",
+                summary_state="available",
                 source_kind="litellm",
                 generator_kind="litellm",
-                generator_version="test-preview",
-                template_id=template["template_id"],
-                template_key=template["template_key"],
-                template_version=template["version"],
-                revision_state="candidate",
+                generator_version="accepted-sharing-preview" if accepted else "candidate-sharing-preview",
+                source_result_hash=result.source_result_hash,
+                template_key=template_key,
+                template_version=1,
+                revision_state="accepted" if accepted else "candidate",
+                accepted_at=datetime.now(UTC) if accepted else None,
+                created_at=datetime.now(UTC) + (timedelta() if accepted else timedelta(minutes=1)),
             )
-            db.add(outcome_set)
+            db.add(outcome)
             await db.flush()
-            db.add_all(
-                [
-                    MeetingOutcomeItem(
-                        workspace_id=WORKSPACE_ID,
-                        meeting_id=meeting_id,
-                        outcome_set_id=outcome_set.id,
-                        category="summary",
-                        sequence=sequence,
-                        state="available",
-                        text="Пункт предпросмотра",
-                        owner_text="",
-                        due_date_text="",
-                        truth_label="supported",
-                        source_refs_json=legacy_refs,
-                    )
-                    for sequence in range(205)
-                ]
-                + [
-                    MeetingOutcomeItem(
-                        workspace_id=WORKSPACE_ID,
-                        meeting_id=meeting_id,
-                        outcome_set_id=outcome_set.id,
-                        category="legacy_unknown",
-                        sequence=0,
-                        state="available",
-                        text="Legacy category",
-                        owner_text="",
-                        due_date_text="",
-                        truth_label="supported",
-                        source_refs_json=["legacy-unknown"],
-                    )
-                ]
-            )
-            attempt.outcome_set_id = outcome_set.id
-            attempt.status = "candidate"
+            db.add(MeetingOutcomeItem(
+                workspace_id=WORKSPACE_ID,
+                meeting_id=meeting_id,
+                outcome_set_id=outcome.id,
+                category="summary",
+                sequence=0,
+                state="available",
+                text=accepted_marker if accepted else candidate_marker,
+                truth_label="supported",
+                source_refs_json=[],
+            ))
+            if accepted:
+                slot = await db.scalar(select(MeetingSummarySlot).where(
+                    MeetingSummarySlot.meeting_id == meeting_id,
+                    MeetingSummarySlot.template_key == template_key,
+                ))
+                assert slot is not None
+                slot.current_outcome_set_id = outcome.id
+                slot.current_binding_class = "verified_complete"
+            else:
+                db.add(MeetingSummarySlot(
+                    workspace_id=WORKSPACE_ID,
+                    meeting_id=meeting_id,
+                    template_key=template_key,
+                ))
             await db.commit()
-            return attempt.candidate_id, {
-                str(turn.id): {
-                    "sequence": turn.sequence,
-                    "start_seconds": float(turn.start_seconds),
-                    "end_seconds": float(turn.end_seconds),
-                    "source_role": turn.source_role,
-                }
-                for turn in provider_turns
-            }
 
-    candidate_id, canonical_segments = client.portal.call(seed_candidate)
+    async def seed_candidate() -> None:
+        await seed_summary(accepted=False)
+
+    client.portal.call(seed_candidate)
+    deprecated_preview = client.get(
+        f"/api/v1/cabinet/meetings/{meeting_id}/summary-candidates/{candidate_id}/preview",
+        headers=auth_headers(),
+    )
+    assert deprecated_preview.status_code == 410
+    assert deprecated_preview.json()["code"] == "summary_candidate_deprecated"
+    assert candidate_marker not in deprecated_preview.text
+    sharing_preview_url = f"/api/v1/cabinet/meetings/{meeting_id}/summary-sharing/preview"
+    missing = client.get(
+        sharing_preview_url, headers=auth_headers(), params={"template_key": template_key}
+    )
+    assert missing.status_code == 409
+    assert missing.json()["code"] == "summary_default_missing"
+    assert candidate_marker not in missing.text
+
+    async def pin_accepted_summary() -> None:
+        await seed_summary(accepted=True)
+
+    client.portal.call(pin_accepted_summary)
     preview = client.get(
-        f"/api/v1/cabinet/meetings/{meeting_id}/summary-candidates/{candidate_id}/preview",
-        headers=auth_headers(),
+        sharing_preview_url, headers=auth_headers(), params={"template_key": template_key}
     )
-    assert preview.status_code == 200
+    assert preview.status_code == 200, preview.text
     assert preview.headers["cache-control"] == "private, no-store"
-    assert preview.headers["pragma"] == "no-cache"
-    assert preview.json()["template_key"] == template["template_key"]
-    assert preview.json()["items"][0]["category"] == "summary"
-    assert len(preview.json()["items"]) == 200
-    assert all(item["category"] == "summary" for item in preview.json()["items"])
-    assert all(len(item["source_refs"]) == 2 for item in preview.json()["items"])
-    first_ref = preview.json()["items"][0]["source_refs"][0]
-    assert first_ref["transcript_segment_id"] in canonical_segments
-    assert {
-        "sequence": first_ref["sequence"],
-        "start_seconds": first_ref["start_seconds"],
-        "end_seconds": first_ref["end_seconds"],
-        "source_role": first_ref["source_role"],
-    } == canonical_segments[first_ref["transcript_segment_id"]]
-    assert first_ref["seekable"] is True
-    listed = client.get(
-        f"/api/v1/cabinet/meetings/{meeting_id}/summary-candidates",
-        headers=auth_headers(),
-    )
-    assert listed.status_code == 200
-    listed_candidate = next(
-        item for item in listed.json()["candidates"] if item["candidate_id"] == str(candidate_id)
-    )
-    assert listed_candidate["template_name"] == template["name"]
-
-    async def expire_candidate() -> None:
-        async with client.app_state["sessionmaker"]() as db:
-            attempt = await db.scalar(
-                select(MeetingOutcomeGenerationAttempt).where(
-                    MeetingOutcomeGenerationAttempt.candidate_id == candidate_id
-                )
-            )
-            assert attempt is not None
-            attempt.expires_at = datetime.now(UTC) - timedelta(seconds=1)
-            await db.commit()
-
-    client.portal.call(expire_candidate)
-    expired_candidate = client.get(
-        f"/api/v1/cabinet/meetings/{meeting_id}/summary-candidates/{candidate_id}",
-        headers=auth_headers(),
-    )
-    assert expired_candidate.status_code == 200
-    assert expired_candidate.json()["state"] == "expired"
-    assert expired_candidate.json()["preview"] == []
-    expired_preview = client.get(
-        f"/api/v1/cabinet/meetings/{meeting_id}/summary-candidates/{candidate_id}/preview",
-        headers=auth_headers(),
-    )
-    assert expired_preview.status_code == 410
-    assert expired_preview.json()["code"] == "summary_candidate_deprecated"
-
-    async def reopen_expiry_window() -> None:
-        async with client.app_state["sessionmaker"]() as db:
-            attempt = await db.scalar(
-                select(MeetingOutcomeGenerationAttempt).where(
-                    MeetingOutcomeGenerationAttempt.candidate_id == candidate_id
-                )
-            )
-            assert attempt is not None
-            attempt.expires_at = datetime.now(UTC) + timedelta(hours=1)
-            await db.commit()
-
-    client.portal.call(reopen_expiry_window)
-
-    async def seed_newer_result() -> None:
-        async with client.app_state["sessionmaker"]() as db:
-            current = await db.scalar(
-                select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id)
-            )
-            assert current is not None
-            db.add(
-                ProcessingResult(
-                    workspace_id=current.workspace_id,
-                    meeting_id=current.meeting_id,
-                    media_revision_id=current.media_revision_id,
-                    mediascribe_job_id=current.mediascribe_job_id,
-                    processing_workflow_id=current.processing_workflow_id,
-                    result_version=current.result_version + 1,
-                    status=current.status,
-                    transcript_status=current.transcript_status,
-                    diarization_status=current.diarization_status,
-                    summary_status=current.summary_status,
-                    language=current.language,
-                    segment_count=current.segment_count,
-                    diarization_segment_count=current.diarization_segment_count,
-                    source_result_hash="newer-result-for-stale-candidate",
-                    imported_at=current.imported_at - timedelta(minutes=1),
-                )
-            )
-            await db.commit()
-
-    client.portal.call(seed_newer_result)
-    stale_preview = client.get(
-        f"/api/v1/cabinet/meetings/{meeting_id}/summary-candidates/{candidate_id}/preview",
-        headers=auth_headers(),
-    )
-    assert stale_preview.status_code == 410
-    assert stale_preview.json()["code"] == "summary_candidate_deprecated"
-    stale_candidate = client.get(
-        f"/api/v1/cabinet/meetings/{meeting_id}/summary-candidates/{candidate_id}",
-        headers=auth_headers(),
-    )
-    assert stale_candidate.status_code == 409
-    assert stale_candidate.json()["code"] == "summary_source_revision_stale"
-
-    foreign_headers = {
-        **auth_headers(),
-        "X-Organization-Id": "10000000-0000-0000-0000-000000000016",
-        "X-Workspace-Id": "20000000-0000-0000-0000-000000000016",
-        "X-User-Id": "30000000-0000-0000-0000-000000000016",
-        "X-Device-Id": "40000000-0000-0000-0000-000000000016",
-    }
-    hidden = client.get(
-        f"/api/v1/cabinet/meetings/{meeting_id}/summary-candidates/{candidate_id}/preview",
-        headers=foreign_headers,
-    )
-    assert hidden.status_code in {403, 404}
+    assert accepted_marker in preview.text
+    assert candidate_marker not in preview.text
 
 
 def test_candidate_ui_restores_template_provenance_before_retry() -> None:

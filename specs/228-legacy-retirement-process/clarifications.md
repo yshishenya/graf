@@ -19,8 +19,12 @@ existing GRAF governance baseline. No interactive question is pending.
 5. **Bounded agent context.** Root `AGENTS.md` remains a stable router. Active
    feature/contour detail is read from the active Spec Kit path and scoped
    guidance, not written to root instructions.
-6. **Reviewer ownership.** Checklists and issue closure remain reviewer/evidence
-   actions. Agents may generate them but do not mark them complete.
+6. **Reviewer ownership, актуализировано 19.10.2026.** До реализации отдельный
+   независимый reviewer-агент проверяет каждый пункт, отмечает только
+   подтверждённое, записывает причины открытого и итоги повторного чтения.
+   Он меняет только чеклисты и отчёт; агент реализации отметки не меняет.
+   Неподтверждённое ревью блокирует реализацию. Закрытие issues требует
+   отдельной проверки всех критериев и доказательств по tracker-policy.
 7. **GitHub traceability.** A fresh Feature ID is allocated before a feature;
    every executable task has a canonical Russian GitHub issue and PR link.
 
@@ -34,3 +38,19 @@ existing GRAF governance baseline. No interactive question is pending.
 
 These choices are deliberately recorded per contour after inventory. They must
 not be guessed globally by an agent.
+
+## Срез T009/T019 — 26.10.2026
+
+- Существующая проверка текста спецификации и PR работает без реестра. T009 и
+  T019 выполняются как самостоятельное усиление FR-005/006: одна общая проверка
+  конечного исключения, прежняя проверка одной классификации, синтетические
+  отрицательные проверки и явные поля в шаблоне PR/руководстве.
+- Обязательные поля исключения: owner, expiry, reason, compatibility boundary,
+  removal trigger, risk, validation, retirement task. Каждое ровно одно,
+  непустое и без шаблонной заглушки. Retirement task связывает одну F###,
+  одну T### и один #issue. Проверка формата не подтверждает существование или
+  принятие связанной задачи: это отдельная проверка реестра и доказательств.
+- Expiry — точная дата YYYY-MM-DD, строго позже текущей даты UTC. Сегодняшний
+  срок, неверная дата, произвольный текст вокруг даты и повтор поля отклоняются.
+- Это не приёмка полного SC-003: реестр, обнаружение изменённых старых путей,
+  таксономия и безопасное удаление остаются отдельными открытыми задачами.

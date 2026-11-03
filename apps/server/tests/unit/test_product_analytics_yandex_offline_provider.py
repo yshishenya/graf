@@ -1,7 +1,9 @@
 import time
 from datetime import UTC, datetime
 from pathlib import Path
+from uuid import UUID
 
+from tests.fixtures.analytics_operations import CONSISTENT_RESTORE_LINES, write_runtime_guard
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.product_analytics.advertising_transfer import (
     ADVERTISING_TRANSFER_STATE_FILE_ENV,
@@ -20,7 +22,7 @@ from twobrain_rec_server.product_analytics.yandex_offline import (
     is_yandex_offline_event_allowed,
 )
 
-CONSENT_REVISION = "2026-09-15.1"
+CONSENT_REVISION = "2026-10-22.1"
 
 # The visitor-facing copy read while a transfer is under test: it names the
 # advertising platform, the category and the offline-conversion transfer.
@@ -115,11 +117,11 @@ def _write_live_gate_evidence(tmp_path: Path) -> dict[str, str]:
     backup.write_text(
         "\n".join(
             (
-                "backup_state_version=1",
+                "backup_state_version=2",
+                "backup_set_complete=true",
                 "last_attempt_result=pass",
                 f"last_success_epoch={now - 3600}",
                 "copies_local=2",
-                "copies_offsite=1",
             )
         )
         + "\n",
@@ -129,7 +131,8 @@ def _write_live_gate_evidence(tmp_path: Path) -> dict[str, str]:
     restore.write_text(
         "\n".join(
             (
-                "restore_state_version=1",
+                "restore_state_version=2",
+                *CONSISTENT_RESTORE_LINES,
                 "last_verify_result=pass",
                 f"last_verify_epoch={now - 2 * 86400}",
             )
@@ -141,12 +144,14 @@ def _write_live_gate_evidence(tmp_path: Path) -> dict[str, str]:
     retention.write_text(
         "\n".join(
             (
-                "retention_state_version=1",
+                "retention_state_version=2",
+                f"recorded_at_epoch={now}",
                 "result=pass",
-                "category=measurement_events retention_days=365 storage=clickhouse enforcement=row_ttl enforcement_verified=true",
-                "category=anonymous_aggregate retention_days=1095 storage=postgres enforcement=scheduled_task enforcement_verified=true",
-                "category=visit_attribution retention_days=90 storage=postgres enforcement=scheduled_task enforcement_verified=true",
-                "category=acquisition_attribute retention_days=1095 storage=postgres enforcement=scheduled_task enforcement_verified=true",
+                "category=measurement_events retention_mode=until_decision retention_days=none storage=clickhouse enforcement=decision_required enforcement_verified=true",
+                "category=anonymous_aggregate retention_mode=until_decision retention_days=none storage=postgres enforcement=decision_required enforcement_verified=true",
+                "category=visit_attribution retention_mode=until_decision retention_days=none storage=postgres enforcement=decision_required enforcement_verified=true",
+                "category=acquisition_attribute retention_mode=until_decision retention_days=none storage=postgres enforcement=decision_required enforcement_verified=true",
+                "category=public_consent_control retention_mode=until_decision retention_days=none storage=postgres enforcement=decision_required enforcement_verified=true",
             )
         )
         + "\n",
@@ -188,6 +193,7 @@ def _write_live_gate_evidence(tmp_path: Path) -> dict[str, str]:
         encoding="utf-8",
     )
     return {
+        **write_runtime_guard(tmp_path, now=now),
         BACKUP_STATE_FILE_ENV: str(backup),
         RESTORE_STATE_FILE_ENV: str(restore),
         RETENTION_STATE_FILE_ENV: str(retention),
@@ -302,7 +308,9 @@ def test_yandex_offline_does_not_treat_stable_user_id_as_yandex_userid_without_p
     assert row.identity_value_source == "runtime_yandex_client_id_redacted"
 
 
-def test_yandex_live_safe_upload_uses_multipart_without_result_value_leak(tmp_path: Path) -> None:
+def test_yandex_live_safe_upload_uses_multipart_without_result_value_leak(tmp_path: Path, monkeypatch) -> None:
+    from tests.fixtures.analytics_operations import stub_verified_restore
+    stub_verified_restore(monkeypatch)
     exporter, calls = _live_exporter(tmp_path)
 
     result = exporter.export(_approved_event(), visitor_consent=_granted_consent())
@@ -442,3 +450,30 @@ def test_yandex_retransfer_of_already_refused_data_is_refused_again(tmp_path: Pa
     ]
     assert reference in result.metadata["revocation_trace"]["refused_transfer_refs"]
     assert result.metadata["transfer_ref"] == reference
+
+
+def test_durable_event_refusal_matches_the_exact_identifier_sent_to_yandex(tmp_path: Path, monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(
+        "twobrain_rec_server.product_analytics.yandex_offline.resolve_provider_delivery_gate",
+        lambda *a, **kw: SimpleNamespace(allowed=True),
+    )
+    event = _approved_event()
+    event_id = UUID("d56bd0bd-f2ac-4786-aa0c-a487863e21bd")
+    reference = "graf_yandex_dedupe_" + event_id.hex
+    refusal = (
+        "revocation_refusal recipient=yandex_metrica purpose=yandex_offline_conversions "
+        f"transfer_ref={reference} refused_at=2026-09-20 reason=recipient_revocation_recorded"
+    )
+    exporter, calls = _live_exporter(tmp_path, lines=(BASIS_LINE, refusal))
+    result = exporter.export(event, event_id=event_id, visitor_consent=_granted_consent())
+    assert calls == []
+    assert result.status == "recipient_revoked"
+    assert result.metadata["transfer_ref"] == reference
+    assert result.metadata["blockers"] == ["retransfer_of_revoked_data_refused"]
+    assert exporter.transfer_register.refusal(recipient="yandex_metrica", transfer_ref=reference) is not None
+    other = UUID("798a0ae5-c9aa-4701-acfe-a9e50fa78e45")
+    assert exporter.export(event, event_id=other, visitor_consent=_granted_consent()).status == "live_safe_uploaded"
+    assert len(calls) == 1
+    assert ("graf_yandex_dedupe_" + other.hex).encode() in calls[0][2]

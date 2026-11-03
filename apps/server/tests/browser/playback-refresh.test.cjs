@@ -95,9 +95,9 @@ ${ready ? '<div data-speaker-timeline-shell>' : ''}<div data-speaker-timeline da
     assert.equal(await page.locator('[data-playback-avatar]').count(), 2);
     assert.equal(await page.locator('[data-playback-next]').isEnabled(), true);
     assert.equal(await page.locator('[data-playback-shell]').getAttribute('data-processing-result-id'), 'result');
-    assert.equal(await page.locator('[data-detail-local-playback]').count(), 1, 'processing fragment refresh retains local playback action');
     assert.deepEqual(await page.evaluate(() => [savedAudio === document.querySelector('audio'), !savedAudio.paused, savedAudio.currentTime >= startTime, pauseEvents, loadEvents, savedDraft === document.querySelector('textarea'), savedDraft === document.activeElement]), [true, true, true, 0, 0, true, true]);
     assert.equal(await draft.inputValue(), 'Незавершённый комментарий');
+    assert.equal(await page.locator('[data-detail-local-playback]').count(), 1, 'processing fragment refresh retains local playback action');
     await page.evaluate(async () => {
       document.querySelector('main').dataset.processingTranscriptContentReady = 'false';
       await window.refreshTest();

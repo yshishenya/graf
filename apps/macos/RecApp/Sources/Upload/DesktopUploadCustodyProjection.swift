@@ -174,7 +174,7 @@ public struct DesktopUploadCustodyProjection: Equatable, Sendable {
     }
 
     private static func rule(for item: DesktopUploadQueueItem, now: Date) -> Rule {
-        if item.serverTruth.deletionState.map({ $0 != "none" }) == true {
+        if item.hasConfirmedServerDeletion || item.serverTruth.deletionState.map({ $0 != "none" }) == true {
             return Rule(
                 custodyState: .retainedAwaitingCondition,
                 owner: .workspaceAdmin,
@@ -435,7 +435,7 @@ public struct DesktopUploadCustodyProjection: Equatable, Sendable {
         guard item.serverTruth.accessState == nil || item.serverTruth.accessState == "owner" else {
             return nil
         }
-        let reviewAvailable = item.state == .uploaded && item.serverTruth.processingStatus == "processed"
+        let reviewAvailable = !item.lifecycleBlocksContent && item.state == .uploaded && item.serverTruth.processingStatus == "processed"
         let state: DesktopUploadCustodyState
         if reviewAvailable {
             state = .delivered
@@ -526,14 +526,14 @@ public struct DesktopUploadCustodyProjection: Equatable, Sendable {
         for item: DesktopUploadQueueItem,
         now: Date
     ) -> DesktopUploadCustodyDeletionState {
-        if let deletionState = item.serverTruth.deletionState, deletionState != "none" {
+        if item.hasConfirmedServerDeletion {
             return .serverDeleted
+        }
+        if let deletionState = item.serverTruth.deletionState, deletionState != "none" {
+            return .accessBlocked
         }
         if let accessState = item.serverTruth.accessState, accessState != "owner" {
             return .accessBlocked
-        }
-        if item.syncConflictState == .serverMeetingDeleted {
-            return .serverDeleted
         }
         if item.syncConflictState == .accessRevoked || item.syncConflictState == .staleDeviceIdentity {
             return .accessBlocked
@@ -754,6 +754,7 @@ public struct DesktopUploadCustodySummary: Equatable, Sendable {
         for item: DesktopUploadQueueItem,
         projection: DesktopUploadCustodyProjection
     ) -> Bool {
+        guard item.lifecycleAccessAvailable else { return false }
         if projection.copyKey == "custody.known_by_server" {
             return false
         }
@@ -1491,13 +1492,10 @@ public struct DesktopSupportIncidentReport: Encodable, Equatable, Sendable {
         serverIdentityPresent: Bool,
         localMediaRetained: Bool
     ) -> String {
-        if item.serverTruth.deletionState.map({ $0 != "none" }) == true ||
-            item.syncConflictState == .serverMeetingDeleted {
+        if projection.deletionState == .serverDeleted {
             return "custody.server_meeting_deleted"
         }
-        if item.serverTruth.accessState.map({ $0 != "owner" }) == true ||
-            item.syncConflictState == .accessRevoked ||
-            item.syncConflictState == .staleDeviceIdentity {
+        if projection.deletionState == .accessBlocked {
             return "custody.server_access_blocked"
         }
         if projection.copyKey == "custody.terminal_undelivered" && !serverIdentityPresent && localMediaRetained {
@@ -1524,14 +1522,10 @@ public struct DesktopSupportIncidentReport: Encodable, Equatable, Sendable {
         item: DesktopUploadQueueItem,
         projection: DesktopUploadCustodyProjection
     ) -> String {
-        if item.serverTruth.deletionState.map({ $0 != "none" }) == true ||
-            projection.deletionState == .serverDeleted {
+        if projection.deletionState == .serverDeleted {
             return "deleted"
         }
-        if item.serverTruth.accessState.map({ $0 != "owner" }) == true ||
-            projection.deletionState == .accessBlocked ||
-            item.syncConflictState == .accessRevoked ||
-            item.syncConflictState == .staleDeviceIdentity {
+        if projection.deletionState == .accessBlocked {
             return "blocked"
         }
         if item.serverTruth.meetingId != nil ||
@@ -1546,15 +1540,10 @@ public struct DesktopSupportIncidentReport: Encodable, Equatable, Sendable {
         item: DesktopUploadQueueItem,
         projection: DesktopUploadCustodyProjection
     ) -> String {
-        if item.serverTruth.deletionState.map({ $0 != "none" }) == true ||
-            projection.deletionState == .serverDeleted ||
-            item.syncConflictState == .serverMeetingDeleted {
+        if projection.deletionState == .serverDeleted {
             return "server_deletion"
         }
-        if item.serverTruth.accessState.map({ $0 != "owner" }) == true ||
-            projection.deletionState == .accessBlocked ||
-            item.syncConflictState == .accessRevoked ||
-            item.syncConflictState == .staleDeviceIdentity {
+        if projection.deletionState == .accessBlocked {
             return "server_access"
         }
         if projection.processingState != .notSubmitted ||

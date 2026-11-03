@@ -17,13 +17,14 @@ public struct DesktopCabinetWorkspaceView: View {
     private let showsAppUpdateBadge: Bool
     private let onCheckForUpdates: EmbeddedCabinetWebView.CheckForUpdatesAction
     private let onOpenMeetingDetectionSettings: EmbeddedCabinetWebView.OpenMeetingDetectionSettingsAction
-    private let onOpenNotificationSettings: EmbeddedCabinetWebView.OpenMeetingDetectionSettingsAction
+    private let notificationPresenter: DesktopNotificationPresenter?
     private let supportIncidentBridge: EmbeddedCabinetSupportIncidentBridge?
     private let recoveryRequired: Bool
     private let deletionOperations: [RecordingDeletionOperation]
     private let localRecordingRows: [EmbeddedCabinetLocalRecordingRow]
     private let onDeleteRecordings: EmbeddedCabinetWebView.DeletionAction
     private let onLocalRecordingAction: EmbeddedCabinetWebView.LocalRecordingAction
+    private let onVisibleRecordings: EmbeddedCabinetWebView.VisibleRecordingsAction
     private let externalCabinetState: Binding<DesktopCabinetState>?
     @StateObject private var navigationController = EmbeddedCabinetNavigationController()
     @State private var internalCabinetState: DesktopCabinetState
@@ -40,12 +41,13 @@ public struct DesktopCabinetWorkspaceView: View {
         showsAppUpdateBadge: Bool = false,
         onCheckForUpdates: @escaping EmbeddedCabinetWebView.CheckForUpdatesAction = {},
         onOpenMeetingDetectionSettings: @escaping EmbeddedCabinetWebView.OpenMeetingDetectionSettingsAction = {},
-        onOpenNotificationSettings: @escaping EmbeddedCabinetWebView.OpenMeetingDetectionSettingsAction = {},
+        notificationPresenter: DesktopNotificationPresenter? = nil,
         supportIncidentBridge: EmbeddedCabinetSupportIncidentBridge? = nil,
         localRecordingRows: [EmbeddedCabinetLocalRecordingRow] = [],
         deletionOperations: [RecordingDeletionOperation] = [],
         recoveryRequired: Bool = false,
         onLocalRecordingAction: @escaping EmbeddedCabinetWebView.LocalRecordingAction = { _, _ in },
+        onVisibleRecordings: @escaping EmbeddedCabinetWebView.VisibleRecordingsAction = { _ in },
         onDeleteRecordings: @escaping EmbeddedCabinetWebView.DeletionAction = { _ in .failed },
         initialState: DesktopCabinetState? = nil
     ) {
@@ -58,12 +60,13 @@ public struct DesktopCabinetWorkspaceView: View {
         self.showsAppUpdateBadge = showsAppUpdateBadge
         self.onCheckForUpdates = onCheckForUpdates
         self.onOpenMeetingDetectionSettings = onOpenMeetingDetectionSettings
-        self.onOpenNotificationSettings = onOpenNotificationSettings
+        self.notificationPresenter = notificationPresenter
         self.supportIncidentBridge = supportIncidentBridge
         self.localRecordingRows = localRecordingRows
         self.deletionOperations = deletionOperations
         self.recoveryRequired = recoveryRequired
         self.onLocalRecordingAction = onLocalRecordingAction
+        self.onVisibleRecordings = onVisibleRecordings
         self.onDeleteRecordings = onDeleteRecordings
         self.externalCabinetState = cabinetState
         _internalCabinetState = State(initialValue: cabinetState?.wrappedValue ?? resolvedInitialState)
@@ -138,14 +141,15 @@ public struct DesktopCabinetWorkspaceView: View {
                 showsAppUpdateBadge: showsAppUpdateBadge,
                 onCheckForUpdates: onCheckForUpdates,
                 onOpenMeetingDetectionSettings: onOpenMeetingDetectionSettings,
-                onOpenNotificationSettings: onOpenNotificationSettings,
                 supportIncidentBridge: supportIncidentBridge,
                 localRecordingRows: localRecordingRows,
                 deletionOperations: deletionOperations,
             recoveryRequired: recoveryRequired,
                 onLocalRecordingAction: onLocalRecordingAction,
+                onVisibleRecordings: onVisibleRecordings,
                 onDeleteRecordings: onDeleteRecordings,
                 fallbackRequest: configuration.urlRequest(for: configuration.meetingsURL()),
+                notificationPresenter: notificationPresenter,
                 navigationController: navigationController
             )
             .id(navigationController.sessionBoundaryID)

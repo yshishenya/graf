@@ -45,6 +45,7 @@ from twobrain_rec_server.product_analytics.anonymous_aggregate import (
     record_anonymous_aggregate_bucket_safely,
     registration_step_surface,
     sanitize_anonymous_aggregate_label,
+    surface_for_anonymous_page,
     surface_for_public_path,
 )
 from twobrain_rec_server.product_analytics.attribution import (
@@ -57,17 +58,21 @@ from twobrain_rec_server.product_analytics.attribution import (
 from twobrain_rec_server.product_analytics.forbidden_fields import (
     assert_no_forbidden_fields,
 )
+from twobrain_rec_server.product_analytics.legal_basis_lifecycle import (
+    read_basis_withdrawal_register,
+)
 from twobrain_rec_server.product_analytics.page_inventory import get_page_class_policy
 from twobrain_rec_server.product_analytics.posthog_client import PostHogClientWrapper
 from twobrain_rec_server.product_analytics.provider_delivery_gate import (
     resolve_provider_delivery_gate,
 )
 from twobrain_rec_server.product_analytics.traffic_class import classify_public_traffic
+from twobrain_rec_server.public.content import PUBLIC_CONTENT_SURFACES
 
 logger = logging.getLogger(__name__)
 
 COOKIECONSENT_VERSION = "3.1.0"
-PUBLIC_ANALYTICS_CONSENT_VERSION = "2026-09-15.1"
+PUBLIC_ANALYTICS_CONSENT_VERSION = "2026-10-22.1"
 PUBLIC_ANALYTICS_CONSENT_STORAGE_KEY = "graf_public_cookie_consent"
 PUBLIC_ANALYTICS_PROVIDER = "yandex_metrica"
 PUBLIC_ANALYTICS_PRODUCTION_ENVS = {"production", "staging"}
@@ -81,6 +86,7 @@ PUBLIC_ANALYTICS_VALIDATION_MODES = {"disabled", "render_only", "provider_smoke"
 PUBLIC_ANALYTICS_SURFACES = {
     "/": "public_landing",
     "/download": "public_download",
+    **PUBLIC_CONTENT_SURFACES,
     "/sign-up": "public_signup",
     "/login": "public_login",
     "/privacy": "public_privacy",
@@ -294,6 +300,9 @@ PUBLIC_ANALYTICS_RELAY_ALLOWED_FIELDS = (
     PUBLIC_ANALYTICS_VIEW_ID_FIELD,
     "consent_state",
     "consent_categories",
+    "consent_copy_version",
+    "consent_id",
+    "consent_epoch",
     "campaign_attribution",
     *PUBLIC_ANALYTICS_RELAY_STABLE_LABEL_FIELDS,
 )
@@ -458,6 +467,25 @@ def normalize_public_campaign_attribution(
     return normalized
 
 
+def public_analytics_blocker(settings: Settings, path: str) -> str | None:
+    """Resolve public permission afresh; unknown basis never permits delivery."""
+    if not settings.public_analytics_enabled:
+        return "public_measurement_disabled"
+    if settings.public_analytics_consent_copy_version != PUBLIC_ANALYTICS_CONSENT_VERSION:
+        return "consent_revision_mismatch"
+    if (settings.env.lower() not in PUBLIC_ANALYTICS_PRODUCTION_ENVS
+            and settings.public_analytics_validation_mode not in {"render_only", "provider_smoke"}):
+        return "public_environment_disabled"
+    if path not in PUBLIC_ANALYTICS_SURFACES:
+        return "public_surface_disabled"
+    register = read_basis_withdrawal_register()
+    if not register.available or register.file_errors:
+        return "public_basis_unavailable"
+    if register.withdrawal("provider_analytics") is not None:
+        return "public_basis_withdrawn"
+    return None
+
+
 def build_public_analytics_context(
     settings: Settings,
     path: str,
@@ -473,22 +501,14 @@ def build_public_analytics_context(
         "render_only",
         "provider_smoke",
     }
-    configured = bool(settings.public_analytics_enabled and environment_allowed and counter_id)
+    configured = bool(counter_id and public_analytics_blocker(settings, path) is None)
     enabled = bool(configured and surface)
-    consent_ui_enabled = bool(configured and path in PUBLIC_ANALYTICS_CONSENT_PATHS)
-    # Replay stays narrower than measurement: the published cookies policy names
-    # ``/`` and ``/download`` only, so a legal or auth page measured by consent
-    # must not start recording behaviour.
-    replay_allowed = bool(
-        settings.public_analytics_replay_enabled
-        and enabled
-        and surface in PUBLIC_ANALYTICS_REPLAY_SURFACES
-    )
-    # The external counter is a third-party script. On a page outside the two
-    # published counter surfaces — the pages that show a credential form in
-    # particular — the visitor's decision authorises the first-party relay only,
-    # so no external script is loaded there.
-    external_counter_allowed = bool(enabled and surface in PUBLIC_ANALYTICS_EXTERNAL_COUNTER_SURFACES)
+    # Refusal control remains available when optional measurement is disabled.
+    consent_ui_enabled = path in PUBLIC_ANALYTICS_CONSENT_PATHS
+    # T106 currently admits only the first-party relay. External SDK/replay need
+    # their own accepted revocation boundary before they can be enabled again.
+    replay_allowed = False
+    external_counter_allowed = False
 
     campaign_attribution = normalize_public_campaign_attribution(
         query_params,
@@ -499,11 +519,12 @@ def build_public_analytics_context(
     return {
         "enabled": enabled,
         "consent_ui_enabled": consent_ui_enabled,
+        "consent_control_endpoint": "/analytics/public-consent" if consent_ui_enabled else None,
         "provider": PUBLIC_ANALYTICS_PROVIDER,
         "validation_mode": validation_mode,
         "environment_allowed": environment_allowed,
         "yandex_metrica_id_present": bool(counter_id),
-        "yandex_metrica_id": counter_id if enabled else None,
+        "yandex_metrica_id": None,
         "replay_allowed": replay_allowed,
         "webvisor_allowed": replay_allowed,
         "click_map_allowed": replay_allowed,
@@ -555,6 +576,7 @@ def build_product_yandex_provider_context(
         provider_gate_allowed = False
     enabled = bool(
         provider_gate_allowed
+        and settings.public_analytics_consent_copy_version == PUBLIC_ANALYTICS_CONSENT_VERSION
         and settings.product_analytics_yandex_all_pages_enabled
         and counter_id
         and settings.product_analytics_legal_approved
@@ -760,7 +782,7 @@ def build_public_page_aggregate_bucket(
     the consent decision or a provider setting.
     """
     path = _request_path(request)
-    if surface_for_public_path(path) is None:
+    if surface_for_anonymous_page(path) is None:
         return None
     visit = attribution if attribution is not None else read_public_visit_attribution(request, now=now)
     bucket = build_anonymous_aggregate_bucket_from_attribution(
@@ -799,11 +821,9 @@ async def record_public_page_visit(
 ) -> AnonymousAggregateBucket | None:
     """Count one public page visit without any chance of breaking the page.
 
-    The write is one synchronous ``INSERT ... ON CONFLICT DO UPDATE`` by bucket
-    key in the product database: no network call, no queue, no provider, and no
-    dependency on whether analytics is configured or reachable (FR-009, FR-058).
-    A failed write returns ``None`` and is logged; the visitor still gets the
-    page and the loss stays a measurement gap.
+    The awaited database upsert and commit share a short budget, without a queue
+    or analytics provider (FR-009, FR-058). An unconfirmed write returns ``None``;
+    the visitor still gets the page and the outcome stays a measurement gap.
     """
     bucket = build_public_page_aggregate_bucket(request, attribution=attribution, now=now)
     if bucket is None:
@@ -922,10 +942,8 @@ async def record_public_registration_step(
 ) -> AnonymousAggregateBucket | None:
     """Count one step of web registration without any chance of breaking it.
 
-    The step is written by the same synchronous bucket write as a visit, so a
-    registration never waits for analytics and a refused write leaves a
-    measurement gap instead of a failed registration (FR-058). ``None`` means
-    "not counted", and the caller must not retry.
+    The step uses the same bounded database write as a visit (FR-058).
+    ``None`` means "not confirmed", and the caller must not retry.
     """
     try:
         bucket = build_public_registration_step_bucket(
@@ -1024,7 +1042,6 @@ def build_public_consent_share_report(
     *,
     aggregate_visits: Any,
     consent_visits: Any,
-    minimum_bucket_size: int = MINIMUM_AGGREGATE_BUCKET_SIZE,
 ) -> dict[str, Any]:
     """Return the share of visitors who granted optional consent (FR-012).
 
@@ -1044,7 +1061,7 @@ def build_public_consent_share_report(
     report: dict[str, Any] = {
         "aggregate_visits": total,
         "consent_visits": consenting,
-        "minimum_bucket_size": int(minimum_bucket_size),
+        "minimum_bucket_size": MINIMUM_AGGREGATE_BUCKET_SIZE,
         "consent_share": None,
         "consent_share_percent": None,
         "consent_share_label": None,
@@ -1052,10 +1069,15 @@ def build_public_consent_share_report(
         "blocked_reason": None,
         "caveat": PUBLIC_CONSENT_SHARE_CAVEAT,
     }
+    # A blocked ratio must not disclose its raw small counters either.
+    if total is None or not is_disclosed_bucket(total):
+        report["consent_visits"] = None
+    if total in (1, 2):
+        report["aggregate_visits"] = None
     if total is None or consenting is None:
         report["blocked_reason"] = "invalid_counts"
         return report
-    if not is_disclosed_bucket(total, minimum_bucket_size=int(minimum_bucket_size)):
+    if not is_disclosed_bucket(total):
         report["blocked_reason"] = "below_minimum_bucket_size"
         return report
     if consenting > total:
@@ -1102,6 +1124,13 @@ def normalize_public_analytics_event(payload: Any) -> dict[str, Any]:
     if unknown_fields:
         raise PublicAnalyticsEventRejected("unknown_field")
 
+    from twobrain_rec_server.public.consent import ChoiceRejected, canonical_uuid
+    try:
+        consent_id = canonical_uuid(payload.get("consent_id"))
+        consent_epoch = canonical_uuid(payload.get("consent_epoch"))
+    except ChoiceRejected as exc:
+        raise PublicAnalyticsConsentRequired("server_choice_required") from exc
+
     event_name = payload.get("event_name")
     catalog_entry = next(
         (entry for entry in PUBLIC_ANALYTICS_EVENT_CATALOG if entry["event_name"] == event_name),
@@ -1109,6 +1138,9 @@ def normalize_public_analytics_event(payload: Any) -> dict[str, Any]:
     )
     if catalog_entry is None:
         raise PublicAnalyticsEventRejected("unknown_event")
+
+    if payload.get("consent_copy_version") != PUBLIC_ANALYTICS_CONSENT_VERSION:
+        raise PublicAnalyticsConsentRequired("consent_revision_mismatch")
 
     consent_state = payload.get("consent_state")
     if consent_state not in PUBLIC_ANALYTICS_CONSENT_GRANTED_STATES:
@@ -1162,6 +1194,8 @@ def normalize_public_analytics_event(payload: Any) -> dict[str, Any]:
     properties["consent_categories"] = list(categories)
     return {
         "event_name": str(event_name),
+        "consent_id": consent_id,
+        "consent_epoch": consent_epoch,
         "page_path": page_path,
         "surface": surface,
         PUBLIC_ANALYTICS_VIEW_ID_FIELD: view_id,
@@ -1170,7 +1204,7 @@ def normalize_public_analytics_event(payload: Any) -> dict[str, Any]:
     }
 
 
-def deliver_public_analytics_event(settings: Settings, event: Mapping[str, Any]) -> dict[str, Any]:
+def deliver_public_analytics_event(settings: Settings, event: Mapping[str, Any], *, transport=None) -> dict[str, Any]:
     """Relay one consented public event to PostHog and never raise.
 
     Delivery goes through the same first-party ``PostHogClientWrapper`` the
@@ -1180,6 +1214,14 @@ def deliver_public_analytics_event(settings: Settings, event: Mapping[str, Any])
     metadata and produces no exception: the public page and the anonymous count
     must not depend on the analytics stack (FR-058).
     """
+    blocker = public_analytics_blocker(settings, str(event.get("page_path") or ""))
+    if blocker:
+        return {
+            "provider": "posthog", "status": "public_measurement_blocked",
+            "reason": blocker, "delivered": False, "retryable": False,
+        }
+    if transport is None:
+        return {"provider": "posthog", "status": "choice_control_required", "delivered": False, "retryable": False}
     properties = {
         **dict(event.get("properties") or {}),
         "source_feature": "273-paid-traffic-analytics",
@@ -1188,6 +1230,8 @@ def deliver_public_analytics_event(settings: Settings, event: Mapping[str, Any])
     }
     try:
         client = PostHogClientWrapper.from_settings(settings)
+        client.transport = transport
+        client.timeout_seconds = 5.0
         result = client.capture_event(
             event_name=str(event["event_name"]),
             distinct_id=str(event[PUBLIC_ANALYTICS_VIEW_ID_FIELD]),

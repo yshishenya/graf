@@ -7,6 +7,8 @@ from twobrain_rec_server.db.models.admin import (
     WorkspaceUsageDaily,
 )
 from twobrain_rec_server.db.models.billing import (
+    BillingAcceptanceBudget,
+    BillingAcceptanceReservation,
     BillingAuditEvent,
     BillingEntitlementGrant,
     BillingInvoice,
@@ -15,6 +17,10 @@ from twobrain_rec_server.db.models.billing import (
     BillingOperation,
     BillingPaymentMethod,
     BillingPlanVersion,
+    BillingPurchaseQuote,
+    BillingReconciliationObservation,
+    BillingStorageEntitlementGrant,
+    BillingStoragePriceVersion,
     BillingWebhookEvent,
     FairUseReviewRecord,
     FreeUsageWindow,
@@ -30,6 +36,7 @@ from twobrain_rec_server.db.models.billing import (
     UsageReservation,
     WorkspaceSubscription,
 )
+from twobrain_rec_server.db.models.billing_registry import BillingRegistryGap, BillingRegistryImport
 from twobrain_rec_server.db.models.calendar import (
     CalendarAuditEvent,
     CalendarCredentialEnvelope,
@@ -136,12 +143,42 @@ from twobrain_rec_server.db.models.processing import (
 from twobrain_rec_server.db.models.product_analytics import (
     AnonymousPageAggregateBucket,
     ClientAcquisitionAttribute,
+    ProductActivationMilestone,
     PublicVisitAttribution,
+)
+from twobrain_rec_server.db.models.public_consent import PublicAnalyticsChoice
+from twobrain_rec_server.db.models.summary_autosend import (
+    SummaryAutoSendException,
+    SummaryAutoSendRule,
+    SummarySharingPreference,
+)
+from twobrain_rec_server.db.models.summary_sharing import (
+    PublishedMeetingSummary,
+    SummaryDeliveryBatch,
+    SummaryEmailSuppression,
+    SummaryRecipientDelivery,
 )
 from twobrain_rec_server.db.models.support import SupportIncident, SupportIncidentRateLimitBucket
 
 __all__ = [
-    "MeetingComment", "MeetingCommentMention", "MeetingCommentReaction",
+    "PublicAnalyticsChoice",
+    "BillingRegistryGap",
+    "BillingRegistryImport",
+    "SummaryAutoSendException",
+    "SummaryAutoSendRule",
+    "SummarySharingPreference",
+    "PublishedMeetingSummary",
+    "SummaryDeliveryBatch",
+    "SummaryEmailSuppression",
+    "SummaryRecipientDelivery",
+    "BillingStoragePriceVersion",
+    "BillingStorageEntitlementGrant",
+    "BillingPurchaseQuote",
+    "BillingAcceptanceBudget",
+    "BillingAcceptanceReservation",
+    "MeetingComment",
+    "MeetingCommentMention",
+    "MeetingCommentReaction",
     "ServerNotification",
     "AdminAuditEvent",
     "AccountClosureRequest",
@@ -153,6 +190,7 @@ __all__ = [
     "BillingOperation",
     "BillingPaymentMethod",
     "BillingPlanVersion",
+    "BillingReconciliationObservation",
     "BillingWebhookEvent",
     "FairUseReviewRecord",
     "PromotionCampaign",
@@ -256,5 +294,6 @@ __all__ = [
     "SupportIncidentRateLimitBucket",
     "AnonymousPageAggregateBucket",
     "ClientAcquisitionAttribute",
+    "ProductActivationMilestone",
     "PublicVisitAttribution",
 ]

@@ -1,0 +1,550 @@
+{
+  "checked_at": "2026-10-16T22:06:33.380328+00:00",
+  "risk_lane": "docs-only",
+  "published_source": "834bdc87e3c83ebd86e1afd2c6e7760229b7297d",
+  "release": "v2026.10.16.6",
+  "full_run_id": 38933940635,
+  "run_attempt": 1,
+  "candidate_id": "rc-20261016T164126Z-c39eef276624",
+  "pr_navigation": {
+    "number": 7432,
+    "head": "833770e58d89c3727ba6ceb07d417d4836b8a50a",
+    "base": "721b5125d799ea798a4af0b3625e18d3c1109039",
+    "merge": "d43934dfd445c8b36de82933ff7497f976ae66ed"
+  },
+  "pr_style": {
+    "number": 7437,
+    "head": "75427867f7366a747bb0e5bcb5aecf924feee1b6",
+    "base": "77e6aed8ff79127d6e6b284ad18b58da5793ef51",
+    "merge": "beef1daae368f0d08cbb0d44eea69df7886133b1"
+  },
+  "source_invariants": [
+    {
+      "file": "apps/server/src/twobrain_rec_server/public/templates/public/mac_meeting_guide.html",
+      "text": true,
+      "ids": true,
+      "hrefs": true,
+      "meta": true
+    },
+    {
+      "file": "apps/server/src/twobrain_rec_server/public/templates/public/meeting_protocol_guide.html",
+      "text": true,
+      "ids": true,
+      "hrefs": true,
+      "meta": true
+    },
+    {
+      "file": "apps/server/src/twobrain_rec_server/public/templates/public/transcription_quality_guide.html",
+      "text": true,
+      "ids": true,
+      "hrefs": true,
+      "meta": true
+    }
+  ],
+  "navigation_main_preserved": [
+    {
+      "file": "landing.html",
+      "main_exact_equal": true
+    },
+    {
+      "file": "guides.html",
+      "main_exact_equal": true
+    },
+    {
+      "file": "mac_meeting_guide.html",
+      "main_exact_equal": true
+    },
+    {
+      "file": "meeting_protocol_guide.html",
+      "main_exact_equal": true
+    },
+    {
+      "file": "transcription_quality_guide.html",
+      "main_exact_equal": true
+    }
+  ],
+  "runtime_files": [
+    {
+      "file": "apps/server/src/twobrain_rec_server/public/templates/public/_content_header.html",
+      "release_sha256": "e47a57f1c801836fd2d64093bc124f535d71114f81822f9998d8f8adb9095694",
+      "current_equal": true
+    },
+    {
+      "file": "apps/server/src/twobrain_rec_server/public/templates/public/mac_meeting_guide.html",
+      "release_sha256": "a8317dc3fb5358a939d855434f020956a310255c4741c64fe9c725c0b0e14edc",
+      "current_equal": true
+    },
+    {
+      "file": "apps/server/src/twobrain_rec_server/public/templates/public/meeting_protocol_guide.html",
+      "release_sha256": "225d8fe912401ef25688e665ec5501fbf564e4fae406516935d20360a95e7aa1",
+      "current_equal": true
+    },
+    {
+      "file": "apps/server/src/twobrain_rec_server/public/templates/public/transcription_quality_guide.html",
+      "release_sha256": "4b19478f48fadae717cd8b130e05938ee9746c791e0f3361c8a2c0d70363ea83",
+      "current_equal": true
+    },
+    {
+      "file": "apps/server/src/twobrain_rec_server/public/templates/public/guides.html",
+      "release_sha256": "b6ccd8fa6542cc3a39aec1415a1b7719ca4afe8e7795074eaba1c39f00beecb1",
+      "current_equal": true
+    },
+    {
+      "file": "apps/server/src/twobrain_rec_server/public/templates/public/landing.html",
+      "release_sha256": "b868cba7deb516890b71f8e9c79f2b8c3a445cc87d078d00dea757430d15d5ec",
+      "current_equal": true
+    },
+    {
+      "file": "apps/server/src/twobrain_rec_server/public/static/public/article.css",
+      "release_sha256": "dc940cb6e1209b181235614a1a46066f258c2368fcc8dcac607b60b4e863f8d0",
+      "current_equal": true
+    },
+    {
+      "file": "apps/server/src/twobrain_rec_server/public/static/public/content-header.css",
+      "release_sha256": "b649ada7476b2a40baec539c0bd6bbe5a6ce3b60d92db3ff749db169b4d5815f",
+      "current_equal": true
+    },
+    {
+      "file": "apps/server/src/twobrain_rec_server/public/static/public/landing.js",
+      "release_sha256": "db64e4dcd20068c0d45e15b141d87e593f76f6eb55e395ce3ec5ed312922e7b4",
+      "current_equal": true
+    },
+    {
+      "file": "apps/server/src/twobrain_rec_server/public/static/public/landing.css",
+      "release_sha256": "265802ea98a71bfd1ddaba4429aef369b7771c4a0fce735c365b54040723dc61",
+      "current_equal": true
+    },
+    {
+      "file": "apps/server/src/twobrain_rec_server/public/static/public/content.css",
+      "release_sha256": "5289ff49bd2a622a02af3f605101acb046aba6e9d9f3e732889b45936dc1fc86",
+      "current_equal": true
+    }
+  ],
+  "services": [
+    {
+      "service": "rec-api",
+      "running": true,
+      "health": "healthy",
+      "source_label": "834bdc87e3c83ebd86e1afd2c6e7760229b7297d",
+      "all_11_files_match_release": true
+    },
+    {
+      "service": "rec-media-worker",
+      "running": true,
+      "health": "healthy",
+      "source_label": "834bdc87e3c83ebd86e1afd2c6e7760229b7297d",
+      "all_11_files_match_release": true
+    },
+    {
+      "service": "rec-processing-worker",
+      "running": true,
+      "health": "healthy",
+      "source_label": "834bdc87e3c83ebd86e1afd2c6e7760229b7297d",
+      "all_11_files_match_release": true
+    },
+    {
+      "service": "rec-maintenance",
+      "running": true,
+      "health": "not-configured",
+      "source_label": "834bdc87e3c83ebd86e1afd2c6e7760229b7297d",
+      "all_11_files_match_release": true
+    }
+  ],
+  "article_geometry": {
+    "widths": [
+      360,
+      390,
+      768,
+      1440
+    ],
+    "font_multipliers": [
+      1,
+      2
+    ],
+    "cases": 24,
+    "horizontal_overflows": 0
+  },
+  "nojs_paths": [
+    {
+      "path": "/",
+      "status": 200,
+      "h1": 1,
+      "guidesVisible": 1,
+      "mainVisible": true
+    },
+    {
+      "path": "/guides",
+      "status": 200,
+      "h1": 1,
+      "guidesVisible": 1,
+      "mainVisible": true
+    },
+    {
+      "path": "/guides/zapis-vstrechi-na-mac-bez-bota",
+      "status": 200,
+      "h1": 1,
+      "guidesVisible": 1,
+      "mainVisible": true
+    },
+    {
+      "path": "/guides/protokol-vstrechi-iz-zapisi",
+      "status": 200,
+      "h1": 1,
+      "guidesVisible": 1,
+      "mainVisible": true
+    },
+    {
+      "path": "/guides/proverka-kachestva-rasshifrovki-vstrechi",
+      "status": 200,
+      "h1": 1,
+      "guidesVisible": 1,
+      "mainVisible": true
+    }
+  ],
+  "landing_keyboard": {
+    "opened": "true",
+    "closed": "false",
+    "focusRestored": true,
+    "afterEscape": {
+      "tag": "A",
+      "href": "/download",
+      "inClosedNav": false
+    },
+    "resizeClosed": "false"
+  },
+  "contrast": {
+    "solid_background_minimum": 5.118563882360588,
+    "gradient_conservative_minimum": 6.192365557863147,
+    "text_elements": 340,
+    "threshold": 4.5
+  },
+  "recovery_contracts": {
+    "passed": 9,
+    "deselected": 71,
+    "production_restore_executed_in_this_audit": false
+  },
+  "external_evidence_digests": {
+    "F281-current-release-api-20261017.json": "4b4e9e883e9be39f7995c542e587586c3b37186df183916d4deed0ae3390ad00",
+    "F281-source-preservation-20261017.json": "bca611aa41602c01dc9fed1748feba42bd3dddfed071dfc5c1d7eddbab44b37e",
+    "F281-live-runtime-readback-20261017.json": "070da5ac47252315212271fcf4dafa80f6969fc88e41afeb87804c33a97b8766",
+    "F281-durable-deploy-readback-20261017.json": "34c4722b220183fa8b75ac238ac180403917c5fc960a56b2b11da57108465b01",
+    "F281-backup-metadata-readback-20261017.json": "190d87a705e33064e710453e00a751c86c4ee8a60a36006768024200e08b3569",
+    "F281-current-deployment-gates-20261017.json": "3c3b99ea75c9b2c973fc27a3f131d946e1ba74b84c22da16907f8d2f4b37b533",
+    "F281-public-static-health-readback-20261017.json": "38a134e93f4f8b7cfaee19638b51643a75faa3f1cea4d0d8e902fcc8b6703996",
+    "F281-gradient-contrast-bound-20261017.json": "5705df67c2b7b1b41275e72a1fd50b4d7fde8baa4b78fda1051ad7eed7196d22",
+    "checks/F281-live-matrix-20261017.json": "b66df431310b3a0ad71a092cd874302497b6cef61b8ca7137002b39f2d82c47b",
+    "checks/F281-live-accessibility-20261017.json": "7f9477407d7d23a359aa22c67e23f96bbd95654f885bd4d4864062bc888f6d17",
+    "checks/F281-header-keyboard-20261017.log": "5881087558651ae3bd2fea31f6b1056932bb4803632f96fec9959cfa1cac545f",
+    "checks/F281-pr7432-current-20261017.log": "3c40df55d51b5a5d012655e562f7bfaae2cfe17d3f64025ce25f3f2cc8a5a55d",
+    "checks/F281-pr7437-current-20261017.log": "3c2678b74e522eeed16a7d72f78e8d0166586e77a5e3a07b75ff6ff2c9f8c092"
+  },
+  "document_recheck_20261019": {
+    "checked_at": "2026-10-19T12:06:58.150132+00:00",
+    "master_sha": "03cea84dc5deb1d77ea7b4ac2356fa9819123aa9",
+    "original_external_evidence_digest_matches": 13,
+    "source_files": [
+      {
+        "file": "apps/server/src/twobrain_rec_server/public/templates/public/_content_header.html",
+        "master_sha256": "e47a57f1c801836fd2d64093bc124f535d71114f81822f9998d8f8adb9095694",
+        "same_as_20261017_evidence": true
+      },
+      {
+        "file": "apps/server/src/twobrain_rec_server/public/templates/public/mac_meeting_guide.html",
+        "master_sha256": "a8317dc3fb5358a939d855434f020956a310255c4741c64fe9c725c0b0e14edc",
+        "same_as_20261017_evidence": true
+      },
+      {
+        "file": "apps/server/src/twobrain_rec_server/public/templates/public/meeting_protocol_guide.html",
+        "master_sha256": "cc660231b63595b70815013f4018916ca995ae8c319343da8f99792d796a6886",
+        "same_as_20261017_evidence": false
+      },
+      {
+        "file": "apps/server/src/twobrain_rec_server/public/templates/public/transcription_quality_guide.html",
+        "master_sha256": "4b19478f48fadae717cd8b130e05938ee9746c791e0f3361c8a2c0d70363ea83",
+        "same_as_20261017_evidence": true
+      },
+      {
+        "file": "apps/server/src/twobrain_rec_server/public/templates/public/guides.html",
+        "master_sha256": "b6ccd8fa6542cc3a39aec1415a1b7719ca4afe8e7795074eaba1c39f00beecb1",
+        "same_as_20261017_evidence": true
+      },
+      {
+        "file": "apps/server/src/twobrain_rec_server/public/templates/public/landing.html",
+        "master_sha256": "b868cba7deb516890b71f8e9c79f2b8c3a445cc87d078d00dea757430d15d5ec",
+        "same_as_20261017_evidence": true
+      },
+      {
+        "file": "apps/server/src/twobrain_rec_server/public/static/public/article.css",
+        "master_sha256": "dc940cb6e1209b181235614a1a46066f258c2368fcc8dcac607b60b4e863f8d0",
+        "same_as_20261017_evidence": true
+      },
+      {
+        "file": "apps/server/src/twobrain_rec_server/public/static/public/content-header.css",
+        "master_sha256": "b649ada7476b2a40baec539c0bd6bbe5a6ce3b60d92db3ff749db169b4d5815f",
+        "same_as_20261017_evidence": true
+      },
+      {
+        "file": "apps/server/src/twobrain_rec_server/public/static/public/landing.js",
+        "master_sha256": "db64e4dcd20068c0d45e15b141d87e593f76f6eb55e395ce3ec5ed312922e7b4",
+        "same_as_20261017_evidence": true
+      },
+      {
+        "file": "apps/server/src/twobrain_rec_server/public/static/public/landing.css",
+        "master_sha256": "265802ea98a71bfd1ddaba4429aef369b7771c4a0fce735c365b54040723dc61",
+        "same_as_20261017_evidence": true
+      },
+      {
+        "file": "apps/server/src/twobrain_rec_server/public/static/public/content.css",
+        "master_sha256": "5289ff49bd2a622a02af3f605101acb046aba6e9d9f3e732889b45936dc1fc86",
+        "same_as_20261017_evidence": true
+      }
+    ],
+    "accepted_change_pr": 7637,
+    "accepted_change_merge_sha": "431a7857221c2bad1fe27bf1d5b80fee385670fc",
+    "required_pr_checks": {
+      "7432": {
+        "receipt_sha256": "3c40df55d51b5a5d012655e562f7bfaae2cfe17d3f64025ce25f3f2cc8a5a55d",
+        "target_sha": "833770e58d89c3727ba6ceb07d417d4836b8a50a",
+        "base_sha": "721b5125d799ea798a4af0b3625e18d3c1109039",
+        "merge_commit_sha": "d43934dfd445c8b36de82933ff7497f976ae66ed",
+        "checks": {
+          "governance-fast": {
+            "proof_digest": "sha256:ea3730950dfa826ad757e1333aa2048d0df53d167519211c242ff9ca0294d6b3",
+            "run_attempt": 1,
+            "run_id": "36985848526"
+          },
+          "macos-pr": {
+            "proof_digest": "sha256:e3e727cc4c0403a2917077146a8064d46eceb144ef7998e7fa83fc5278d3aa67",
+            "run_attempt": 1,
+            "run_id": "36985848525"
+          },
+          "pr-metadata": {
+            "proof_digest": "sha256:5234271bb4807578d2aad4ac539daa90563cacd5d90a2f194660d4f76217d657",
+            "run_attempt": 1,
+            "run_id": "36985848939"
+          }
+        }
+      },
+      "7437": {
+        "receipt_sha256": "3c2678b74e522eeed16a7d72f78e8d0166586e77a5e3a07b75ff6ff2c9f8c092",
+        "target_sha": "75427867f7366a747bb0e5bcb5aecf924feee1b6",
+        "base_sha": "77e6aed8ff79127d6e6b284ad18b58da5793ef51",
+        "merge_commit_sha": "beef1daae368f0d08cbb0d44eea69df7886133b1",
+        "checks": {
+          "governance-fast": {
+            "proof_digest": "sha256:3c64ce693c67a42bbd33b3c4bcb4a82c119d5fa60c965ac5dc9f6640326212c7",
+            "run_attempt": 1,
+            "run_id": "37052413554"
+          },
+          "macos-pr": {
+            "proof_digest": "sha256:70ad824e5952cf3759797fc32079796382b5428ae3fc92473a9ce94c63161b1a",
+            "run_attempt": 1,
+            "run_id": "37052413559"
+          },
+          "pr-metadata": {
+            "proof_digest": "sha256:b74b21d603438de514e2619e36030098c2d89e1d7552d05c0ddcd8779e122d71",
+            "run_attempt": 1,
+            "run_id": "37052411175"
+          }
+        }
+      }
+    },
+    "new_product_tests_or_live_deploy_performed": false,
+    "merge_hold": "F280 release window"
+  },
+  "rebase_recheck_20261019": {
+    "base": "f0ec4ee2485a7b1aa9a747cbb4ecb2ae7a69ee20",
+    "historical_snapshot": "03cea84dc5deb1d77ea7b4ac2356fa9819123aa9",
+    "unchanged_paths_since_snapshot": [
+      "apps/server/src/twobrain_rec_server/public/templates/public/_content_header.html",
+      "apps/server/src/twobrain_rec_server/public/templates/public/mac_meeting_guide.html",
+      "apps/server/src/twobrain_rec_server/public/templates/public/meeting_protocol_guide.html",
+      "apps/server/src/twobrain_rec_server/public/templates/public/transcription_quality_guide.html",
+      "apps/server/src/twobrain_rec_server/public/templates/public/guides.html",
+      "apps/server/src/twobrain_rec_server/public/templates/public/landing.html",
+      "apps/server/src/twobrain_rec_server/public/static/public/article.css",
+      "apps/server/src/twobrain_rec_server/public/static/public/content-header.css",
+      "apps/server/src/twobrain_rec_server/public/static/public/landing.js",
+      "apps/server/src/twobrain_rec_server/public/static/public/landing.css",
+      "apps/server/src/twobrain_rec_server/public/static/public/content.css"
+    ],
+    "current_sha256": {
+      "apps/server/src/twobrain_rec_server/public/templates/public/_content_header.html": "e47a57f1c801836fd2d64093bc124f535d71114f81822f9998d8f8adb9095694",
+      "apps/server/src/twobrain_rec_server/public/templates/public/mac_meeting_guide.html": "a8317dc3fb5358a939d855434f020956a310255c4741c64fe9c725c0b0e14edc",
+      "apps/server/src/twobrain_rec_server/public/templates/public/meeting_protocol_guide.html": "cc660231b63595b70815013f4018916ca995ae8c319343da8f99792d796a6886",
+      "apps/server/src/twobrain_rec_server/public/templates/public/transcription_quality_guide.html": "4b19478f48fadae717cd8b130e05938ee9746c791e0f3361c8a2c0d70363ea83",
+      "apps/server/src/twobrain_rec_server/public/templates/public/guides.html": "b6ccd8fa6542cc3a39aec1415a1b7719ca4afe8e7795074eaba1c39f00beecb1",
+      "apps/server/src/twobrain_rec_server/public/templates/public/landing.html": "b868cba7deb516890b71f8e9c79f2b8c3a445cc87d078d00dea757430d15d5ec",
+      "apps/server/src/twobrain_rec_server/public/static/public/article.css": "dc940cb6e1209b181235614a1a46066f258c2368fcc8dcac607b60b4e863f8d0",
+      "apps/server/src/twobrain_rec_server/public/static/public/content-header.css": "b649ada7476b2a40baec539c0bd6bbe5a6ce3b60d92db3ff749db169b4d5815f",
+      "apps/server/src/twobrain_rec_server/public/static/public/landing.js": "db64e4dcd20068c0d45e15b141d87e593f76f6eb55e395ce3ec5ed312922e7b4",
+      "apps/server/src/twobrain_rec_server/public/static/public/landing.css": "265802ea98a71bfd1ddaba4429aef369b7771c4a0fce735c365b54040723dc61",
+      "apps/server/src/twobrain_rec_server/public/static/public/content.css": "5289ff49bd2a622a02af3f605101acb046aba6e9d9f3e732889b45936dc1fc86"
+    },
+    "new_runtime_or_browser_execution": false
+  },
+  "protected_readback_current_20261019": {
+    "observed_at": "2026-10-19T17:19:08.661918+00:00",
+    "source_base": "f0ec4ee2485a7b1aa9a747cbb4ecb2ae7a69ee20",
+    "method": "public GET; no cookie reuse or JavaScript; installer bytes not requested",
+    "protected_diff_zero_prs": [
+      7432,
+      7437
+    ],
+    "results": [
+      {
+        "path": "/download",
+        "status": 200,
+        "canonical": "https://rec.2brain.pro/download",
+        "h1_matches_unchanged_template": true,
+        "main_text_chars": 502,
+        "main_text_sha256": "c65c4cbffa67f3f4981af4d1d5c078fa7e4c6bd551f6e7e80e32f1ac932df128",
+        "html_sha256": "16f302ed8d9d5bf1b2e96cced788cc437aa766ec653b33e6cb616d5c98ad37af",
+        "template_sha256": "7736e9d0bb762eb1b4e37e812f758f367665afed2ee7dc277414b224b977bdb0",
+        "template_equals_published_834bdc": true,
+        "download_link_present": true
+      },
+      {
+        "path": "/privacy",
+        "status": 200,
+        "canonical": "https://rec.2brain.pro/privacy",
+        "h1_matches_unchanged_template": true,
+        "main_text_chars": 16393,
+        "main_text_sha256": "626918311755538e7b8fd4228d4e754bbabb58ef3582230b72b5e8c187732013",
+        "html_sha256": "b195c8a7242801b5941d18db372163566641a8ae05863eca08f3579583689289",
+        "template_sha256": "391a36ca1a311b42a6127198e0a57e66a2e5f65b5c84e40e8ef9fe99ba31515f",
+        "template_equals_published_834bdc": true,
+        "download_link_present": true
+      },
+      {
+        "path": "/cookies",
+        "status": 200,
+        "canonical": "https://rec.2brain.pro/cookies",
+        "h1_matches_unchanged_template": true,
+        "main_text_chars": 4791,
+        "main_text_sha256": "cbf3331e8c83e17a662de30c0b2fa1e9361d2baa47bcf27a0fdb088ac3428717",
+        "html_sha256": "7a519ce3e10fcb065044e0efa39434dd014cb47446c648df6959427de2fdd822",
+        "template_sha256": "29050582b826503ab80778a2cfcc9f0c96469e72d06236c439ebe3b9ca2129e8",
+        "template_equals_published_834bdc": true,
+        "download_link_present": true
+      },
+      {
+        "path": "/terms",
+        "status": 200,
+        "canonical": "https://rec.2brain.pro/terms",
+        "h1_matches_unchanged_template": true,
+        "main_text_chars": 9132,
+        "main_text_sha256": "5b02865683ef10cd2bc3e84f38209ecccb03eb52f978e688704b78ea891b071e",
+        "html_sha256": "e8033f8cfd339d82ebccfe8ed3cb0fb68218a4ea51e7b685f5d3fa2545596212",
+        "template_sha256": "28a5e2a0d54ca051f481c159b8e507739d16949381d1bbf1d20af6e8cfb2f7f7",
+        "template_equals_published_834bdc": true,
+        "download_link_present": true
+      },
+      {
+        "path": "/offer",
+        "status": 200,
+        "canonical": "https://rec.2brain.pro/offer",
+        "h1_matches_unchanged_template": true,
+        "main_text_chars": 4630,
+        "main_text_sha256": "bd4213964184691806557afa66c0dee8e066ea98597728b059c829b6fdc62cf3",
+        "html_sha256": "8cb095d41ca11f09cb215c2c3cae50817cc2276078562618e7f77194339ebca2",
+        "template_sha256": "94debd4fccc3bfa0f9923b1fdb886efc8b6f3d863718870e5d32a6db68480e70",
+        "template_equals_published_834bdc": true,
+        "download_link_present": true
+      },
+      {
+        "path": "/analytics-consent",
+        "status": 200,
+        "canonical": "https://rec.2brain.pro/analytics-consent",
+        "h1_matches_unchanged_template": true,
+        "main_text_chars": 5530,
+        "main_text_sha256": "60bf5cfbd36fcd998f4af94542e6eaa280ee18b5b6acdb6c8b1ddba96b0d26b1",
+        "html_sha256": "5bbdc1a6e0f651b8b8326a7f9ba4f53ab353a63e248cb1d8b11e2165265a42cc",
+        "template_sha256": "8a0929a4738deab514415ac27384065a607f88afcb4d913e28c120003ff41f1f",
+        "template_equals_published_834bdc": true,
+        "download_link_present": true
+      }
+    ],
+    "external_receipt_sha256": "86507de1691ec3b1166762a852b2128058c512cc3255c4db48fae284a64877e7",
+    "limitations": "GET acceptance proves current public responses and unchanged protected templates, not historical whole-response equality or a new deployment."
+  },
+  "protected_readback_current_20261021": {
+    "observed_at": "2026-10-21T10:40:53.936461+00:00",
+    "method": "public GET without cookies or JavaScript; no installer bytes or forms",
+    "results": [
+      {
+        "path": "/download",
+        "status": 200,
+        "redirect": false,
+        "canonical": "https://rec.2brain.pro/download",
+        "h1_matches_template": true,
+        "main_text_chars": 502,
+        "main_text_sha256": "c65c4cbffa67f3f4981af4d1d5c078fa7e4c6bd551f6e7e80e32f1ac932df128",
+        "html_sha256": "645b874f62b3734b8989cfa4949c8e64c444970465328e675fe8a066ce9df7bd",
+        "template_sha256": "7736e9d0bb762eb1b4e37e812f758f367665afed2ee7dc277414b224b977bdb0",
+        "template_equals_published_834bdc": true
+      },
+      {
+        "path": "/privacy",
+        "status": 200,
+        "redirect": false,
+        "canonical": "https://rec.2brain.pro/privacy",
+        "h1_matches_template": true,
+        "main_text_chars": 16393,
+        "main_text_sha256": "626918311755538e7b8fd4228d4e754bbabb58ef3582230b72b5e8c187732013",
+        "html_sha256": "1b85f93a2d664d5f19486f2d615d5e3a7a9bab90e95166a4266c705fdb6b99f4",
+        "template_sha256": "391a36ca1a311b42a6127198e0a57e66a2e5f65b5c84e40e8ef9fe99ba31515f",
+        "template_equals_published_834bdc": true
+      },
+      {
+        "path": "/cookies",
+        "status": 200,
+        "redirect": false,
+        "canonical": "https://rec.2brain.pro/cookies",
+        "h1_matches_template": true,
+        "main_text_chars": 4791,
+        "main_text_sha256": "cbf3331e8c83e17a662de30c0b2fa1e9361d2baa47bcf27a0fdb088ac3428717",
+        "html_sha256": "179a27721505c4f18f3c913a7b444d93cac6f4d515a79da0fd45724933aab8d4",
+        "template_sha256": "29050582b826503ab80778a2cfcc9f0c96469e72d06236c439ebe3b9ca2129e8",
+        "template_equals_published_834bdc": true
+      },
+      {
+        "path": "/terms",
+        "status": 200,
+        "redirect": false,
+        "canonical": "https://rec.2brain.pro/terms",
+        "h1_matches_template": true,
+        "main_text_chars": 9132,
+        "main_text_sha256": "5b02865683ef10cd2bc3e84f38209ecccb03eb52f978e688704b78ea891b071e",
+        "html_sha256": "9315c51701e8065d55a6c2783e983bfeb0d79ef0ca394edd4a26901f66ac77ed",
+        "template_sha256": "28a5e2a0d54ca051f481c159b8e507739d16949381d1bbf1d20af6e8cfb2f7f7",
+        "template_equals_published_834bdc": true
+      },
+      {
+        "path": "/offer",
+        "status": 200,
+        "redirect": false,
+        "canonical": "https://rec.2brain.pro/offer",
+        "h1_matches_template": true,
+        "main_text_chars": 4630,
+        "main_text_sha256": "bd4213964184691806557afa66c0dee8e066ea98597728b059c829b6fdc62cf3",
+        "html_sha256": "cfcf1100b5e9096576769bb1703451fd6f0c1894d0cd11b97fbb6360d72f0c0f",
+        "template_sha256": "94debd4fccc3bfa0f9923b1fdb886efc8b6f3d863718870e5d32a6db68480e70",
+        "template_equals_published_834bdc": true
+      },
+      {
+        "path": "/analytics-consent",
+        "status": 200,
+        "redirect": false,
+        "canonical": "https://rec.2brain.pro/analytics-consent",
+        "h1_matches_template": true,
+        "main_text_chars": 5530,
+        "main_text_sha256": "60bf5cfbd36fcd998f4af94542e6eaa280ee18b5b6acdb6c8b1ddba96b0d26b1",
+        "html_sha256": "c6a39257f8cbb86c9c169116bc7c81367274fc4ab017a13b9f974a9765ae669a",
+        "template_sha256": "8a0929a4738deab514415ac27384065a607f88afcb4d913e28c120003ff41f1f",
+        "template_equals_published_834bdc": true
+      }
+    ],
+    "external_receipt_sha256": "04e954ee9b862ab2a30841411cba3b5571e327e55f01050bb30947da13cb0b3e"
+  }
+}

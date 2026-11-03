@@ -2,6 +2,7 @@ import json
 import time
 from pathlib import Path
 
+from tests.fixtures.analytics_operations import CONSISTENT_RESTORE_LINES
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.product_analytics.approvals import APPROVAL_KINDS
 from twobrain_rec_server.product_analytics.events import build_activation_event
@@ -141,11 +142,11 @@ def _write_live_gate_evidence(tmp_path: Path) -> dict[str, str]:
     backup.write_text(
         "\n".join(
             (
-                "backup_state_version=1",
+                "backup_state_version=2",
+                "backup_set_complete=true",
                 "last_attempt_result=pass",
                 f"last_success_epoch={now - 3600}",
                 "copies_local=2",
-                "copies_offsite=1",
             )
         )
         + "\n",
@@ -155,7 +156,8 @@ def _write_live_gate_evidence(tmp_path: Path) -> dict[str, str]:
     restore.write_text(
         "\n".join(
             (
-                "restore_state_version=1",
+                "restore_state_version=2",
+                *CONSISTENT_RESTORE_LINES,
                 "last_verify_result=pass",
                 f"last_verify_epoch={now - 2 * 86400}",
             )
@@ -167,12 +169,14 @@ def _write_live_gate_evidence(tmp_path: Path) -> dict[str, str]:
     retention.write_text(
         "\n".join(
             (
-                "retention_state_version=1",
+                "retention_state_version=2",
+                f"recorded_at_epoch={now}",
                 "result=pass",
-                "category=measurement_events retention_days=365 storage=clickhouse enforcement=row_ttl enforcement_verified=true",
-                "category=anonymous_aggregate retention_days=1095 storage=postgres enforcement=scheduled_task enforcement_verified=true",
-                "category=visit_attribution retention_days=90 storage=postgres enforcement=scheduled_task enforcement_verified=true",
-                "category=acquisition_attribute retention_days=1095 storage=postgres enforcement=scheduled_task enforcement_verified=true",
+                "category=measurement_events retention_mode=until_decision retention_days=none storage=clickhouse enforcement=decision_required enforcement_verified=true",
+                "category=anonymous_aggregate retention_mode=until_decision retention_days=none storage=postgres enforcement=decision_required enforcement_verified=true",
+                "category=visit_attribution retention_mode=until_decision retention_days=none storage=postgres enforcement=decision_required enforcement_verified=true",
+                "category=acquisition_attribute retention_mode=until_decision retention_days=none storage=postgres enforcement=decision_required enforcement_verified=true",
+                "category=public_consent_control retention_mode=until_decision retention_days=none storage=postgres enforcement=decision_required enforcement_verified=true",
             )
         )
         + "\n",
@@ -213,7 +217,9 @@ def _write_live_gate_evidence(tmp_path: Path) -> dict[str, str]:
         + "\n",
         encoding="utf-8",
     )
+    from tests.fixtures.analytics_operations import write_runtime_guard
     return {
+        **write_runtime_guard(tmp_path, now=now),
         BACKUP_STATE_FILE_ENV: str(backup),
         RESTORE_STATE_FILE_ENV: str(restore),
         RETENTION_STATE_FILE_ENV: str(retention),
@@ -261,7 +267,9 @@ def test_posthog_live_delivery_never_transports_without_common_gate(tmp_path: Pa
     assert calls == []
 
 
-def test_posthog_live_safe_delivery_posts_capture_payload_without_result_payload_leak(tmp_path: Path) -> None:
+def test_posthog_live_safe_delivery_posts_capture_payload_without_result_payload_leak(tmp_path: Path, monkeypatch) -> None:
+    from tests.fixtures.analytics_operations import stub_verified_restore
+    stub_verified_restore(monkeypatch)
     project_key_file = tmp_path / "posthog_project_key"
     project_key_file.write_text("synthetic-posthog-key", encoding="utf-8")
     calls: list[tuple[str, dict, dict]] = []

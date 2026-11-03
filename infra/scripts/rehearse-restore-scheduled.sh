@@ -99,7 +99,25 @@ EOF
 fi
 
 if [ -z "$backup_reference" ]; then
-  if ! newest="$(ssh "$host" "cd '$path' && ls -1d backups/*/ 2>/dev/null | sort | tail -n 1")"; then
+  if ! newest="$(ssh "$host" "cd '$path' && python3 -" <<'PYTHON'
+from datetime import datetime
+from pathlib import Path
+import re
+root = Path("backups")
+candidates = []
+for entry in root.iterdir():
+    if entry.is_symlink() or not entry.is_dir() or not re.fullmatch(r"[0-9]{8}T[0-9]{6}Z", entry.name):
+        continue
+    try:
+        datetime.strptime(entry.name, "%Y%m%dT%H%M%SZ")
+        dump, objects = entry / "postgres.dump", entry / "minio-objects"
+        if not dump.is_symlink() and dump.is_file() and dump.stat().st_size > 0 and not objects.is_symlink() and objects.is_dir():
+            candidates.append(entry)
+    except (OSError, ValueError):
+        continue
+print(str(max(candidates)) if candidates else "")
+PYTHON
+)"; then
     echo "restore_rehearsal_schedule_result=blocked"
     echo "reason=backup_reference_discovery_failed"
     echo "remote_host=$host"

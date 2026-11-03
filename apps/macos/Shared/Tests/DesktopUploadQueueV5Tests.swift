@@ -1,13 +1,147 @@
 import AVFoundation
 import CryptoKit
 import Foundation
-import TwoBrainRecAppCore
+@testable import TwoBrainRecAppCore
 import TwoBrainRecShared
 
 #if canImport(XCTest)
 import XCTest
 
 final class DesktopUploadQueueTests: XCTestCase {
+    func testStartAcceptanceCachedQueueRejectsInvalidManifestAcrossRetryRescanAndRestart() async throws {
+        for invalidation in ["pending", "unknown", "session", "directory", "missing", "read-error", "malformed"] {
+            for entry in ["cached", "retry", "rescan", "restart"] {
+                let root = temporaryRoot()
+                defer { try? FileManager.default.removeItem(at: root) }
+                let package = try makeV5RecordingPackage(root: root, directoryId: "acceptance", sessionId: "acceptance-session")
+                let queueURL = root.appendingPathComponent("queue.json")
+                let client = ReconcileThenUploadClient(reconciliation: nil, result: .init(state: .uploaded, serverTruth: .init()))
+                let service = DesktopUploadQueueService(queueURL: queueURL, recordingsRootURL: root,
+                    client: client, clock: { Date(timeIntervalSince1970: 100) })
+                let cached = try XCTUnwrap(service.scanTrustedSyntheticRecordingFixtures().first)
+                XCTAssertTrue(cached.isUploadEligible)
+                XCTAssertEqual(cached.attemptCount, 0)
+                XCTAssertEqual(cached.serverCreationAttempted, false)
+                try Self.invalidateStartAcceptanceManifest(at: package.manifestURL, reason: invalidation)
+
+                let processing = entry == "restart"
+                    ? DesktopUploadQueueService(queueURL: queueURL, recordingsRootURL: root,
+                        client: client, clock: { Date(timeIntervalSince1970: 100) })
+                    : service
+                // A local refusal may be returned as a blocked item or thrown. Neither may send.
+                if entry == "retry" { _ = try? processing.retry(itemId: cached.id) }
+                if entry == "rescan" { _ = try? processing.scanAndEnqueueCompletedRecordings() }
+                for _ in 0..<2 {
+                    _ = try? await processing.processTrustedSyntheticDueItems()
+                }
+                let context = "\(invalidation)/\(entry)"
+                XCTAssertTrue(client.reconciledItems.isEmpty, context)
+                XCTAssertTrue(client.uploadedItems.isEmpty, context)
+                let persisted = try XCTUnwrap(processing.loadItems().first { $0.id == cached.id })
+                XCTAssertEqual(persisted.attemptCount, 0, context)
+                XCTAssertEqual(persisted.serverCreationAttempted, false, context)
+                XCTAssertTrue(persisted.retryRecords.isEmpty, context)
+                XCTAssertTrue(FileManager.default.fileExists(atPath: package.transcriptionURL.path), context)
+                XCTAssertTrue(FileManager.default.fileExists(atPath: package.reviewURL.path), context)
+            }
+        }
+    }
+
+    func testStartAcceptanceRechecksManifestAfterProgressBeforeAnyClientCall() async throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let package = try makeV5RecordingPackage(root: root, directoryId: "acceptance", sessionId: "acceptance-session")
+        let manifestURL = package.manifestURL
+        let client = ReconcileThenUploadClient(reconciliation: nil, result: .init(state: .uploaded, serverTruth: .init()))
+        let service = DesktopUploadQueueService(queueURL: root.appendingPathComponent("queue.json"),
+            recordingsRootURL: root, client: client, clock: { Date(timeIntervalSince1970: 100) })
+        let cached = try XCTUnwrap(service.scanTrustedSyntheticRecordingFixtures().first)
+        // Install pending during the existing asynchronous observer boundary, without throwing.
+        let pending = try Self.startAcceptanceManifestData(at: manifestURL, value: "pending")
+        _ = try? await service.processTrustedSyntheticDueItems { _ in
+            try? pending.write(to: manifestURL, options: .atomic)
+        }
+        XCTAssertEqual(try Data(contentsOf: manifestURL), pending)
+        XCTAssertTrue(client.reconciledItems.isEmpty)
+        XCTAssertTrue(client.uploadedItems.isEmpty)
+        let persisted = try XCTUnwrap(service.loadItems().first { $0.id == cached.id })
+        XCTAssertEqual(persisted.attemptCount, 0)
+        XCTAssertEqual(persisted.serverCreationAttempted, false)
+        XCTAssertTrue(persisted.retryRecords.isEmpty)
+    }
+
+    func testStartAcceptanceRechecksManifestAfterReconcileBeforeUpload() async throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let package = try makeV5RecordingPackage(root: root, directoryId: "acceptance", sessionId: "acceptance-session")
+        let manifestURL = package.manifestURL
+        let pending = try Self.startAcceptanceManifestData(at: manifestURL, value: "pending")
+        let client = ReconcileThenUploadClient(reconciliation: nil,
+            result: .init(state: .uploaded, serverTruth: .init()), onReconcile: {
+                try pending.write(to: manifestURL, options: .atomic)
+            })
+        let service = DesktopUploadQueueService(queueURL: root.appendingPathComponent("queue.json"),
+            recordingsRootURL: root, client: client, clock: { Date(timeIntervalSince1970: 100) })
+        _ = try service.scanTrustedSyntheticRecordingFixtures()
+        _ = try? await service.processTrustedSyntheticDueItems()
+        XCTAssertEqual(client.reconciledItems.count, 1)
+        XCTAssertEqual(try Data(contentsOf: manifestURL), pending)
+        XCTAssertTrue(client.uploadedItems.isEmpty)
+    }
+
+    func testStartAcceptanceAcceptedAndLegacyManifestRemainUploadableAfterRestart() async throws {
+        for acceptance in [nil, "accepted"] as [String?] {
+            let root = temporaryRoot()
+            defer { try? FileManager.default.removeItem(at: root) }
+            let package = try makeV5RecordingPackage(root: root, directoryId: "acceptance", sessionId: "acceptance-session")
+            if let acceptance {
+                try Self.startAcceptanceManifestData(at: package.manifestURL, value: acceptance)
+                    .write(to: package.manifestURL, options: .atomic)
+            }
+            let queueURL = root.appendingPathComponent("queue.json")
+            let client = ReconcileThenUploadClient(reconciliation: nil, result: .init(state: .uploaded, serverTruth: .init()))
+            let service = DesktopUploadQueueService(queueURL: queueURL, recordingsRootURL: root,
+                client: client, clock: { Date(timeIntervalSince1970: 100) })
+            let cached = try XCTUnwrap(service.scanTrustedSyntheticRecordingFixtures().first)
+            XCTAssertTrue(cached.isUploadEligible)
+            let restarted = DesktopUploadQueueService(queueURL: queueURL, recordingsRootURL: root,
+                client: client, clock: { Date(timeIntervalSince1970: 100) })
+            _ = try restarted.retry(itemId: cached.id)
+            _ = try restarted.scanAndEnqueueCompletedRecordings()
+            let result = try await restarted.processTrustedSyntheticDueItems()
+            XCTAssertEqual(client.reconciledItems.count, 1)
+            XCTAssertEqual(client.uploadedItems.count, 1)
+            XCTAssertEqual(result.first?.state, .uploaded)
+            XCTAssertEqual(result.first?.attemptCount, 1)
+            XCTAssertEqual(result.first?.serverCreationAttempted, true)
+        }
+    }
+
+    // Raw JSON deliberately compiles against the pre-F277 model, which ignores the new key.
+    private static func startAcceptanceManifestData(at url: URL, value: String) throws -> Data {
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        object["startAcceptance"] = value
+        return try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+    }
+
+    private static func invalidateStartAcceptanceManifest(at url: URL, reason: String) throws {
+        switch reason {
+        case "missing": try FileManager.default.removeItem(at: url)
+        case "read-error":
+            try FileManager.default.removeItem(at: url)
+            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: false)
+        case "malformed": try Data("{".utf8).write(to: url, options: .atomic)
+        default:
+            var object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+            switch reason {
+            case "session": object["sessionId"] = "other-session"
+            case "directory": object["directoryId"] = "other-directory"
+            default: object["startAcceptance"] = reason
+            }
+            try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]).write(to: url, options: .atomic)
+        }
+    }
+
     func testShortRecordingCleanupAndRestartLeaveHistoricalPackageAlone() throws {
         for savingState in ["absent", "current", "previous-v5-paths"] {
             let root = temporaryRoot()
@@ -397,28 +531,6 @@ final class DesktopUploadQueueTests: XCTestCase {
         )
         XCTAssertEqual(historicalSummary.detail, "отправка записи старого формата больше не поддерживается; локальная копия сохранена")
         XCTAssertEqual(silentSummary.detail, "микрофон был слишком тихим или пустым; отправим как есть")
-    }
-
-    func testLocalControlKeepsBlockedUploadButExcludesServerAcceptedRecording() {
-        let blockedLocal = makeQueueItem(
-            id: "blocked-local",
-            state: .blocked,
-            retryMode: .manualOnly,
-            failureReason: "local_recording_package_not_uploadable",
-            updatedAt: Date(timeIntervalSince1970: 40)
-        )
-        let uploadedServerVisible = makeQueueItem(
-            id: "uploaded-server",
-            state: .uploaded,
-            retryMode: .terminal,
-            meetingId: "meeting-042",
-            updatedAt: Date(timeIntervalSince1970: 50)
-        )
-
-        var snapshot = DesktopControlSnapshot()
-        snapshot.uploadItems = [uploadedServerVisible, blockedLocal]
-        XCTAssertFalse(snapshot.localIssues.contains { $0.primaryItem.id == uploadedServerVisible.id })
-        XCTAssertTrue(snapshot.localIssues.contains { $0.primaryItem.id == blockedLocal.id })
     }
 
     func testLocalModeMeetingListPrioritizesNewestLocalOnlyRecording() {
@@ -1240,6 +1352,22 @@ final class DesktopUploadQueueTests: XCTestCase {
         XCTAssertEqual(byDirectory["scope-rejected-package"]?.failureReason, LocalRecordingFailureReason.scopeUnavailable.rawValue)
     }
 
+    func testRevokedPromptStartStaysLocalAfterRescanEvenWithInitiallyGrantedPermissions() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        _ = try makeRecordingPackage(root: root, directoryId: "revoked-start", sessionId: "synthetic-start",
+            status: .failed, failureReason: .permissionDenied)
+        let queueURL = root.appendingPathComponent("queue.json")
+        for _ in 0..<2 {
+            let service = DesktopUploadQueueService(queueURL: queueURL, recordingsRootURL: root, client: nil)
+            let item = try XCTUnwrap(service.scanAndEnqueueCompletedRecordings().first)
+            XCTAssertEqual(item.state, .blocked)
+            XCTAssertFalse(item.artifactProfile.isUploadable)
+            XCTAssertNil(item.meetingId)
+            XCTAssertEqual(item.attemptCount, 0)
+        }
+    }
+
     func testOfflineQueueSurvivesRestartWithoutServerTruth() throws {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -2034,6 +2162,11 @@ final class DesktopUploadQueueTests: XCTestCase {
             try service.localPlaybackURL(itemId: item.id).standardizedFileURL.resolvingSymlinksInPath(),
             package.reviewURL.standardizedFileURL.resolvingSymlinksInPath()
         )
+        XCTAssertEqual(SystemAudioStatusLabels.localRecordingStatus(manifest.status), "Запись завершилась с ошибкой")
+        XCTAssertEqual(SystemAudioStatusLabels.captureFailureDetail(
+            failureCode: "aec_capture_failed",
+            hasPlayableFragment: (try? service.localPlaybackURL(itemId: item.id)) != nil),
+            "Запись остановлена: aec_capture_failed. Уже очищенная часть сохранена локально.")
 
         var staleItem = item
         staleItem.failureCategory = .schemaIncompatibility
@@ -2090,6 +2223,12 @@ final class DesktopUploadQueueTests: XCTestCase {
         XCTAssertEqual(row.durationSeconds, 0)
         XCTAssertFalse(row.canOpen)
         XCTAssertFalse(row.showsPartialDuration)
+        XCTAssertThrowsError(try service.localPlaybackURL(itemId: item.id))
+        XCTAssertEqual(SystemAudioStatusLabels.localRecordingStatus(manifest.status), "Запись завершилась с ошибкой")
+        XCTAssertEqual(SystemAudioStatusLabels.captureFailureDetail(
+            failureCode: "aec_capture_failed",
+            hasPlayableFragment: (try? service.localPlaybackURL(itemId: item.id)) != nil),
+            "Запись остановлена: aec_capture_failed. Сохраненного очищенного фрагмента нет.")
     }
 
     func testPostCaptureLocalFileLossIsNotProjectedAsPartialCapture() throws {
@@ -2522,6 +2661,295 @@ final class DesktopUploadQueueTests: XCTestCase {
         XCTAssertFalse(text.localizedCaseInsensitiveContains("transcript text"))
     }
 
+    func testSupportIncidentClipboardProjectsPersistedDeletionAfterRestart() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let queueURL = root.appendingPathComponent("upload-queue.json")
+        let owner = try RecordingDeletionScope(
+            serverOrigin: "https://graf.invalid", workspaceID: "workspace", actorUserID: "creator"
+        )
+        let manager = try RecordingDeletionScope(
+            serverOrigin: owner.serverOrigin, workspaceID: owner.workspaceID, actorUserID: "manager"
+        )
+        let otherServer = try RecordingDeletionScope(
+            serverOrigin: "https://other.invalid", workspaceID: owner.workspaceID, actorUserID: owner.actorUserID
+        )
+        let otherWorkspace = try RecordingDeletionScope(
+            serverOrigin: owner.serverOrigin, workspaceID: "other-workspace", actorUserID: owner.actorUserID
+        )
+        let receipt = try JSONDecoder().decode(RecordingDeletionReceipt.self, from: Data(
+            #"{"receipt_type":"meeting_deletion","request_id":"00000000-0000-0000-0000-000000000001","meeting_id":"meeting","deletion_epoch":1}"#.utf8
+        ))
+        for scope in [owner, manager, otherServer, otherWorkspace] {
+            for accepted in [false, true] {
+                var operation = try RecordingDeletionOperation(
+                    scope: scope, target: .meeting("meeting"), requestedAt: Date(timeIntervalSince1970: 1)
+                )
+                if accepted { operation = try operation.accepting(receipt, at: Date(timeIntervalSince1970: 2)) }
+                var item = makeQueueItem(
+                    state: .uploaded, meetingId: "meeting",
+                    serverTruth: ServerTruthFingerprint(
+                        meetingId: "meeting", processingStatus: "processed", deletionState: "none", accessState: "owner"
+                    )
+                )
+                item.ownerScope = owner
+                try JSONEncoder.uploadQueueTestEncoder.encode(DesktopUploadQueueDocument(
+                    updatedAt: item.updatedAt, items: [item], deletionOperations: [operation]
+                )).write(to: queueURL, options: [.atomic])
+
+                // A new service reads the durable operation, not a transient item projection.
+                let restarted = DesktopUploadQueueService(
+                    queueURL: queueURL, recordingsRootURL: root, clock: { Date(timeIntervalSince1970: 200) }
+                )
+                restarted.setDeletionScope(owner)
+                let text = try restarted.supportIncidentReportText(itemIds: [item.id])
+                if accepted && scope.serverOrigin == owner.serverOrigin && scope.workspaceID == owner.workspaceID {
+                    let report = try XCTUnwrap(text)
+                    XCTAssertTrue(report.contains("custody.server_meeting_deleted"))
+                    XCTAssertTrue(report.contains("server_deletion"))
+                    XCTAssertTrue(report.contains("server_deleted"))
+                    XCTAssertFalse(report.contains("/tmp/directory"))
+                    XCTAssertFalse(report.contains("00000000-0000-0000-0000-000000000001"))
+                } else {
+                    XCTAssertNil(text, "Unconfirmed or unrelated operations cannot report server deletion")
+                }
+            }
+        }
+    }
+
+    func testSupportIncidentActionsRecheckEverySelectedItemScope() async throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let queueURL = root.appendingPathComponent("upload-queue.json")
+        let owner = try RecordingDeletionScope(
+            serverOrigin: "https://graf.invalid", workspaceID: "workspace", actorUserID: "creator"
+        )
+        let otherActor = try RecordingDeletionScope(
+            serverOrigin: owner.serverOrigin, workspaceID: owner.workspaceID, actorUserID: "other"
+        )
+        let otherWorkspace = try RecordingDeletionScope(
+            serverOrigin: owner.serverOrigin, workspaceID: "other", actorUserID: owner.actorUserID
+        )
+        let otherServer = try RecordingDeletionScope(
+            serverOrigin: "https://other.invalid", workspaceID: owner.workspaceID, actorUserID: owner.actorUserID
+        )
+        let receipt = try JSONDecoder().decode(RecordingDeletionReceipt.self, from: Data(
+            #"{"receipt_type":"meeting_deletion","request_id":"00000000-0000-0000-0000-000000000001","meeting_id":"meeting","deletion_epoch":1}"#.utf8
+        ))
+        let operation = try RecordingDeletionOperation(
+            scope: owner, target: .meeting("meeting"), requestedAt: Date(timeIntervalSince1970: 1)
+        ).accepting(receipt, at: Date(timeIntervalSince1970: 2))
+        let cases: [(String, RecordingDeletionScope?, RecordingDeletionScope?, Bool, Bool)] = [
+            ("owner", owner, owner, false, true),
+            ("account changed", otherActor, owner, false, false),
+            ("workspace changed", otherWorkspace, owner, false, false),
+            ("server changed", otherServer, owner, false, false),
+            ("logout", nil, owner, false, false),
+            ("unknown", nil, nil, false, false),
+            ("unknown while signed in", owner, nil, false, false),
+            ("local unbound", nil, nil, true, true)
+        ]
+        for (name, current, itemOwner, localUnbound, allowed) in cases {
+            for selectionKind in ["primary", "foreign", "missing", "empty"] {
+                for action in ["copy", "send", "sync"] {
+                    var primary = makeSupportIncidentItem(id: "primary")
+                    primary.ownerScope = itemOwner
+                    primary.isLocalUnbound = localUnbound
+                    primary.meetingId = localUnbound ? nil : "meeting"
+                    primary.supportIncidentSubmission = .pendingSync(
+                        reportFingerprint: "report_fpr_1234abcd", dedupeKey: "support_dedupe_1234abcd",
+                        incidentNumber: "CUST-PENDING-1", attemptedAt: Date(timeIntervalSince1970: 100),
+                        copyFallbackAvailable: true
+                    )
+                    var secondary = makeSupportIncidentItem(id: "secondary")
+                    secondary.ownerScope = otherActor
+                    secondary.isLocalUnbound = false
+                    let selected: [String]
+                    switch selectionKind {
+                    case "foreign": selected = [primary.id, secondary.id]
+                    case "missing": selected = [primary.id, "missing"]
+                    case "empty": selected = []
+                    default: selected = [primary.id]
+                    }
+                    try JSONEncoder.uploadQueueTestEncoder.encode(DesktopUploadQueueDocument(
+                        updatedAt: primary.updatedAt, items: [primary, secondary], deletionOperations: [operation]
+                    )).write(to: queueURL, options: [.atomic])
+                    let client = SupportIncidentOnlyClient()
+                    let service = DesktopUploadQueueService(
+                        queueURL: queueURL, recordingsRootURL: root, client: client,
+                        clock: { Date(timeIntervalSince1970: 200) }
+                    )
+                    service.setDeletionScope(owner)
+                    service.setDeletionScope(current)
+                    let before = try Data(contentsOf: queueURL)
+                    let shouldAllow = allowed && selectionKind == "primary"
+                    do {
+                        switch action {
+                        case "copy":
+                            let text = try service.supportIncidentReportText(itemIds: selected)
+                            XCTAssertNotNil(text)
+                        case "send": _ = try await service.submitSupportIncident(itemIds: selected, using: client)
+                        default: _ = try await service.syncSupportIncident(itemIds: selected, using: client)
+                        }
+                        XCTAssertTrue(shouldAllow, "\(name)/\(selectionKind)/\(action) must refuse")
+                    } catch DesktopUploadClientError.httpStatus(let status, let code) {
+                        XCTAssertFalse(shouldAllow, "\(name)/\(action) should remain available")
+                        XCTAssertEqual(status, 403)
+                        XCTAssertEqual(code, "support_incident.scope_unavailable")
+                    } catch DesktopUploadQueueServiceError.packageNotFound(let id) {
+                        XCTAssertTrue(selectionKind == "missing" || selectionKind == "empty")
+                        XCTAssertEqual(id, selectionKind == "missing" ? "missing" : "unknown")
+                    }
+                    if !shouldAllow {
+                        XCTAssertTrue(client.reports.isEmpty)
+                        XCTAssertTrue(client.syncIncidentIDs.isEmpty)
+                        XCTAssertEqual(try Data(contentsOf: queueURL), before, "Refusal must not change the queue")
+                    }
+                    service.setDeletionScope(owner)
+                    if itemOwner == owner && selectionKind == "primary" {
+                        XCTAssertNotNil(try service.supportIncidentReportText(itemIds: selected), "Returning owner regains access")
+                    }
+                }
+            }
+        }
+    }
+
+    @MainActor
+    func testSupportIncidentLateCallbacksCannotWriteAfterScopeChange() async throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let queueURL = root.appendingPathComponent("upload-queue.json")
+        let owner = try RecordingDeletionScope(serverOrigin: "https://graf.invalid", workspaceID: "workspace", actorUserID: "owner")
+        let other = try RecordingDeletionScope(serverOrigin: owner.serverOrigin, workspaceID: owner.workspaceID, actorUserID: "other")
+        for action in ["submit", "sync"] {
+            for boundary in ["scope", "scope-roundtrip", "session"] {
+                for failure in [false, true] {
+                    var item = makeSupportIncidentItem(id: "late-callback")
+                    item.ownerScope = owner
+                    item.isLocalUnbound = false
+                    item.supportIncidentSubmission = .pendingSync(
+                        reportFingerprint: "report_fpr_1234abcd", dedupeKey: "support_dedupe_1234abcd",
+                        incidentNumber: "CUST-PENDING-1", attemptedAt: Date(timeIntervalSince1970: 100),
+                        copyFallbackAvailable: true
+                    )
+                    try JSONEncoder.uploadQueueTestEncoder.encode(DesktopUploadQueueDocument(
+                        updatedAt: item.updatedAt, items: [item]
+                    )).write(to: queueURL, options: [.atomic])
+                    let client = SupportIncidentOnlyClient()
+                    let service = DesktopUploadQueueService(
+                        queueURL: queueURL, recordingsRootURL: root, client: client,
+                        clock: { Date(timeIntervalSince1970: 200) }
+                    )
+                    service.setDeletionScope(owner)
+                    client.beforeResponse = {
+                        if boundary == "session" {
+                            await MainActor.run {
+                                let barrier = DesktopCabinetSessionBridge.beginNavigation()
+                                DesktopCabinetSessionBridge.endNavigation(barrier)
+                            }
+                        } else {
+                            service.setDeletionScope(other)
+                            if boundary == "scope-roundtrip" { service.setDeletionScope(owner) }
+                        }
+                        if failure { throw DesktopUploadClientError.httpStatus(503, "support_incident.network_unavailable") }
+                    }
+                    defer { client.beforeResponse = nil }
+                    do {
+                        if action == "submit" {
+                            _ = try await service.submitSupportIncident(itemId: item.id, using: client)
+                        } else {
+                            _ = try await service.syncSupportIncident(itemId: item.id, using: client)
+                        }
+                        XCTFail("Stale callback must be refused: \(action)/\(boundary)/\(failure)")
+                    } catch is CancellationError {
+                        // Both success and failure from an obsolete session are ignored.
+                    } catch {
+                        XCTFail("Stale error must be cancelled: \(error)")
+                    }
+                    let stored = try JSONDecoder.uploadQueueTestDecoder.decode(
+                        DesktopUploadQueueDocument.self, from: Data(contentsOf: queueURL)
+                    )
+                    XCTAssertEqual(stored.items[0].supportIncidentSubmission?.state, .sending)
+                    XCTAssertNil(stored.items[0].supportIncidentSubmission?.githubIssueNumber)
+                    let beforeRecovery = try Data(contentsOf: queueURL)
+                    if boundary == "scope" {
+                        XCTAssertEqual(try service.loadItems().first?.supportIncidentSubmission?.state, .sending)
+                        XCTAssertEqual(try Data(contentsOf: queueURL), beforeRecovery, "Foreign scope cannot recover owner state")
+                    }
+                    service.setDeletionScope(owner)
+                    let recovered = try XCTUnwrap(service.loadItems().first?.supportIncidentSubmission)
+                    XCTAssertEqual(recovered.state, action == "sync" ? .pendingSync : .failedWithCopyFallback)
+                    XCTAssertEqual(recovered.incidentNumber, action == "sync" ? "CUST-PENDING-1" : nil)
+                    XCTAssertEqual(recovered.localReportFingerprint, stored.items[0].supportIncidentSubmission?.localReportFingerprint)
+                    XCTAssertEqual(recovered.dedupeKey, stored.items[0].supportIncidentSubmission?.dedupeKey)
+                    XCTAssertEqual(recovered.lastFailureCode, "support_incident.interrupted")
+                    XCTAssertNil(recovered.githubIssueNumber, "Recovery must not apply the stale response")
+                    XCTAssertNotNil(try service.supportIncidentReportText(itemIds: [item.id]))
+                    client.beforeResponse = nil
+                    if action == "submit" {
+                        _ = try await service.submitSupportIncident(itemId: item.id, using: client)
+                    } else {
+                        _ = try await service.syncSupportIncident(itemId: item.id, using: client)
+                        XCTAssertEqual(client.syncIncidentIDs, ["CUST-PENDING-1", "CUST-PENDING-1"])
+                    }
+                    XCTAssertEqual(try service.loadItems().first?.supportIncidentSubmission?.state, .sent)
+                }
+            }
+        }
+    }
+
+    @MainActor
+    func testSupportIncidentRejectsOverlappingSendOrSync() async throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let queueURL = root.appendingPathComponent("upload-queue.json")
+        for first in ["submit", "sync"] {
+            for second in ["submit", "sync"] {
+                var item = makeSupportIncidentItem(id: "overlapping-report")
+                item.supportIncidentSubmission = .pendingSync(
+                    reportFingerprint: "report_fpr_1234abcd", dedupeKey: "support_dedupe_1234abcd",
+                    incidentNumber: "CUST-PENDING-1", attemptedAt: Date(timeIntervalSince1970: 100),
+                    copyFallbackAvailable: true
+                )
+                try JSONEncoder.uploadQueueTestEncoder.encode(DesktopUploadQueueDocument(updatedAt: item.updatedAt, items: [item]))
+                    .write(to: queueURL, options: [.atomic])
+                let client = SupportIncidentOnlyClient()
+                let other = SupportIncidentOnlyClient()
+                let service = DesktopUploadQueueService(queueURL: queueURL, recordingsRootURL: root, client: client)
+                let itemID = item.id
+                client.beforeResponse = {
+                    XCTAssertEqual(try service.loadItems().first?.supportIncidentSubmission?.state, .sending,
+                                   "Reading during an active request must not recover it")
+                    do {
+                        if second == "submit" {
+                            _ = try await service.submitSupportIncident(itemId: itemID, using: other)
+                        } else {
+                            _ = try await service.syncSupportIncident(itemId: itemID, using: other)
+                        }
+                        XCTFail("Overlapping request must be refused")
+                    } catch let DesktopUploadClientError.httpStatus(status, _) {
+                        XCTAssertEqual(status, 409)
+                    }
+                }
+                defer { client.beforeResponse = nil }
+                if first == "submit" {
+                    _ = try await service.submitSupportIncident(itemId: item.id, using: client)
+                } else {
+                    _ = try await service.syncSupportIncident(itemId: item.id, using: client)
+                }
+                XCTAssertEqual(other.reports.count + other.syncIncidentIDs.count, 0)
+                let stored = try JSONDecoder.uploadQueueTestDecoder.decode(
+                    DesktopUploadQueueDocument.self, from: Data(contentsOf: queueURL)
+                )
+                XCTAssertEqual(stored.items[0].supportIncidentSubmission?.state, .sent)
+            }
+        }
+    }
+
     func testInterruptedSupportIncidentSubmissionRecoversCopyFallbackOnRestart() throws {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -2551,6 +2979,64 @@ final class DesktopUploadQueueTests: XCTestCase {
         XCTAssertEqual(saved.supportIncidentSubmission?.lastFailureCategory, UploadFailureCategory.network.rawValue)
         XCTAssertEqual(saved.supportIncidentSubmission?.lastFailureCode, "support_incident.interrupted")
         XCTAssertTrue(saved.supportIncidentSubmission?.copyFallbackAvailable == true)
+    }
+
+    func testInterruptedSupportIncidentRecoveryUsesOwnerScopeOnFirstRead() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let queueURL = root.appendingPathComponent("upload-queue.json")
+        let owner = try RecordingDeletionScope(serverOrigin: "https://graf.invalid", workspaceID: "workspace", actorUserID: "owner")
+        for syncing in [false, true] {
+            for context in ["explicit", "offline-matching", "offline-mismatch"] {
+                var item = makeSupportIncidentItem(id: "interrupted-owner")
+                item.ownerScope = owner
+                item.isLocalUnbound = false
+                item.supportIncidentSubmission = DesktopSupportIncidentSubmissionState(
+                    state: .sending, localReportFingerprint: "report_fpr_1234abcd",
+                    dedupeKey: "support_dedupe_1234abcd", incidentNumber: syncing ? "CUST-PENDING-1" : nil,
+                    lastSubmissionAttemptAt: Date(timeIntervalSince1970: 100),
+                    copyFallbackAvailable: false, accessibilityLabel: DesktopSupportIncidentActionCopy.sendingMessage
+                )
+                var document = DesktopUploadQueueDocument(updatedAt: item.updatedAt, items: [item])
+                document.lastAuthenticatedContext = RecordingAuthenticatedContext(scope: owner, sessionFingerprint: "owner-session")
+                try JSONEncoder.uploadQueueTestEncoder.encode(document).write(to: queueURL, options: [.atomic])
+                let before = try Data(contentsOf: queueURL)
+                let client = SupportIncidentOnlyClient()
+                client.recordingSessionFingerprint = context == "offline-mismatch" ? "other-session" : "owner-session"
+                let service = DesktopUploadQueueService(queueURL: queueURL, recordingsRootURL: root, client: client,
+                                                       clock: { Date(timeIntervalSince1970: 200) })
+                if context == "explicit" { service.setDeletionScope(owner) }
+                if context == "offline-mismatch" {
+                    let hidden = try XCTUnwrap(service.loadItems().first)
+                    XCTAssertFalse(hidden.lifecycleAccessAvailable)
+                    XCTAssertEqual(hidden.supportIncidentSubmission?.state, .sending)
+                    XCTAssertEqual(try Data(contentsOf: queueURL), before)
+                    // A failed atomic recovery must remain retryable without changing cached state.
+                    try FileManager.default.removeItem(at: queueURL)
+                    try FileManager.default.createDirectory(at: queueURL, withIntermediateDirectories: true)
+                    try Data([1]).write(to: queueURL.appendingPathComponent("block-replacement"))
+                    service.setDeletionScope(owner)
+                    XCTAssertThrowsError(try service.loadItems())
+                    service.setDeletionScope(nil)
+                    XCTAssertEqual(try service.loadItems().first?.supportIncidentSubmission?.state, .sending)
+                    try FileManager.default.removeItem(at: queueURL)
+                    try before.write(to: queueURL, options: [.atomic])
+                    service.setDeletionScope(owner)
+                }
+                let recovered = try XCTUnwrap(service.loadItems().first?.supportIncidentSubmission)
+                XCTAssertEqual(recovered.state, syncing ? .pendingSync : .failedWithCopyFallback)
+                XCTAssertEqual(recovered.incidentNumber, syncing ? "CUST-PENDING-1" : nil)
+                XCTAssertEqual(recovered.localReportFingerprint, "report_fpr_1234abcd")
+                XCTAssertEqual(recovered.dedupeKey, "support_dedupe_1234abcd")
+                XCTAssertEqual(recovered.copyFallbackAvailable, syncing ? false : true)
+                XCTAssertEqual(recovered.lastFailureCode, "support_incident.interrupted")
+                let recoveredBytes = try Data(contentsOf: queueURL)
+                _ = try service.loadItems()
+                XCTAssertEqual(try Data(contentsOf: queueURL), recoveredBytes, "Recovery is persisted once")
+                XCTAssertTrue(client.reports.isEmpty && client.syncIncidentIDs.isEmpty)
+            }
+        }
     }
 
     func testQueueDocumentUsesRevisionReadyV2Schema() {
@@ -2657,7 +3143,7 @@ final class DesktopUploadQueueTests: XCTestCase {
     }
 
     private func makeSupportIncidentItem(id: String) -> DesktopUploadQueueItem {
-        makeQueueItem(
+        var item = makeQueueItem(
             id: id,
             state: .blocked,
             retryMode: .manualOnly,
@@ -2665,6 +3151,9 @@ final class DesktopUploadQueueTests: XCTestCase {
             syncConflictState: .retentionExpired,
             updatedAt: Date(timeIntervalSince1970: 20)
         )
+        item.isLocalUnbound = true
+        item.serverCreationAttempted = false
+        return item
     }
 
     private func makeQueueV2Fixture(
@@ -3337,16 +3826,20 @@ final class DesktopUploadQueueTests: XCTestCase {
     private final class ReconcileThenUploadClient: @unchecked Sendable, DesktopUploadClientProtocol {
         private let reconciliation: DesktopUploadReconciliation?
         private let result: DesktopUploadResult
+        private let onReconcile: (@Sendable () throws -> Void)?
         private(set) var reconciledItems: [DesktopUploadQueueItem] = []
         private(set) var uploadedItems: [DesktopUploadQueueItem] = []
 
-        init(reconciliation: DesktopUploadReconciliation?, result: DesktopUploadResult) {
+        init(reconciliation: DesktopUploadReconciliation?, result: DesktopUploadResult,
+             onReconcile: (@Sendable () throws -> Void)? = nil) {
             self.reconciliation = reconciliation
             self.result = result
+            self.onReconcile = onReconcile
         }
 
         func reconcile(_ item: DesktopUploadQueueItem) async throws -> DesktopUploadReconciliation? {
             reconciledItems.append(item)
+            try onReconcile?()
             return reconciliation
         }
 
@@ -3373,6 +3866,8 @@ final class DesktopUploadQueueTests: XCTestCase {
         private let result: DesktopSupportIncidentResponse?
         private let syncResult: DesktopSupportIncidentResponse?
         private let error: Error?
+        var beforeResponse: (@Sendable () async throws -> Void)?
+        var recordingSessionFingerprint: String?
         private(set) var reports: [DesktopSupportIncidentReport] = []
         private(set) var syncIncidentIDs: [String] = []
 
@@ -3398,8 +3893,9 @@ final class DesktopUploadQueueTests: XCTestCase {
             )
         }
 
-        func submitSupportIncident(report: DesktopSupportIncidentReport) async throws -> DesktopSupportIncidentResponse {
+        func submitSupportIncident(report: DesktopSupportIncidentReport, context: DesktopSupportIncidentRequestContext) async throws -> DesktopSupportIncidentResponse {
             reports.append(report)
+            try await beforeResponse?()
             if let error {
                 throw error
             }
@@ -3415,8 +3911,9 @@ final class DesktopUploadQueueTests: XCTestCase {
             )
         }
 
-        func syncSupportIncident(incidentID: String) async throws -> DesktopSupportIncidentResponse {
+        func syncSupportIncident(incidentID: String, context: DesktopSupportIncidentRequestContext) async throws -> DesktopSupportIncidentResponse {
             syncIncidentIDs.append(incidentID)
+            try await beforeResponse?()
             if let error {
                 throw error
             }

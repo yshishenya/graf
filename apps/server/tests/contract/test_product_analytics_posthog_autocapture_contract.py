@@ -1,11 +1,13 @@
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.main import create_app
 from twobrain_rec_server.product_analytics.browser_context import build_browser_provider_context
 from twobrain_rec_server.product_analytics.page_inventory import page_class_policies
+from twobrain_rec_server.public.analytics import PUBLIC_ANALYTICS_CONSENT_VERSION
 
 REPO_ROOT = Path(__file__).parents[4]
 ANALYTICS_JS = REPO_ROOT / "apps/server/src/twobrain_rec_server/public/static/public/analytics.js"
@@ -79,7 +81,7 @@ def test_posthog_autocapture_controller_uses_first_party_proxy_not_posthog_sdk()
 def test_product_browser_context_exposes_one_opt_in_and_safe_allowlists(tmp_path: Path) -> None:
     context = build_browser_provider_context(_settings(tmp_path), "settings")
 
-    assert context["browser_consent"]["copy_version"] == "2026-09-15.1"
+    assert context["browser_consent"]["copy_version"] == "2026-10-22.1"
     assert context["browser_consent"]["storage_key"] == "graf_public_cookie_consent"
     assert context["browser_consent"]["required_category"] == "analytics"
     assert context["browser_consent"]["replay_category"] == "behavior_replay"
@@ -112,6 +114,7 @@ def test_posthog_web_capture_endpoint_accepts_safe_proxy_event_without_provider_
                 "distinct_id": "graf_pseudo_user_c0ffee0000000000",
                 "event_type": "click",
                 "consent_state": "customized",
+                "consent_copy_version": PUBLIC_ANALYTICS_CONSENT_VERSION,
                 "page_class": "cabinet_home",
                 "tag_name": "button",
                 "role": "tab",
@@ -142,6 +145,7 @@ def test_posthog_web_capture_refuses_a_visitor_without_a_pseudonymous_identity(t
             json={
                 "event_type": "pageview",
                 "consent_state": "customized",
+                "consent_copy_version": PUBLIC_ANALYTICS_CONSENT_VERSION,
                 "page_class": "cabinet_home",
                 "sensitivity": "product",
             },
@@ -152,6 +156,7 @@ def test_posthog_web_capture_refuses_a_visitor_without_a_pseudonymous_identity(t
                 "distinct_id": "graf_pseudo_browser_anonymous",
                 "event_type": "pageview",
                 "consent_state": "customized",
+                "consent_copy_version": PUBLIC_ANALYTICS_CONSENT_VERSION,
                 "page_class": "cabinet_home",
                 "sensitivity": "product",
             },
@@ -172,6 +177,7 @@ def test_posthog_web_capture_endpoint_blocks_financial_page_inventory_entries(tm
                 "distinct_id": "graf_pseudo_user_c0ffee0000000000",
                 "event_type": "click",
                 "consent_state": "customized",
+                "consent_copy_version": PUBLIC_ANALYTICS_CONSENT_VERSION,
                 "page_class": "billing_invoice",
                 "tag_name": "button",
                 # Client-provided sensitivity cannot override the inventory.
@@ -194,6 +200,7 @@ def test_posthog_web_capture_endpoint_uses_pseudonymous_identity_and_rejects_sec
                 "distinct_id": "graf_pseudo_user_c0ffee0000000000",
                 "event_type": "click",
                 "consent_state": "customized",
+                "consent_copy_version": PUBLIC_ANALYTICS_CONSENT_VERSION,
                 "page_class": "settings",
                 "role": "tab",
                 "analytics_action": "calendar_settings_opened",
@@ -209,6 +216,7 @@ def test_posthog_web_capture_endpoint_uses_pseudonymous_identity_and_rejects_sec
                 "distinct_id": "graf_pseudo_user_c0ffee0000000000",
                 "event_type": "click",
                 "consent_state": "customized",
+                "consent_copy_version": PUBLIC_ANALYTICS_CONSENT_VERSION,
                 "page_class": "settings",
                 "role": "tab",
                 "analytics_action": "access_token",
@@ -221,6 +229,7 @@ def test_posthog_web_capture_endpoint_uses_pseudonymous_identity_and_rejects_sec
                 "distinct_id": "graf_pseudo_user_c0ffee0000000000",
                 "event_type": "click",
                 "consent_state": "customized",
+                "consent_copy_version": PUBLIC_ANALYTICS_CONSENT_VERSION,
                 "page_class": "settings",
                 "role": "owner@example.test",
                 "analytics_action": "calendar_settings_opened",
@@ -233,6 +242,7 @@ def test_posthog_web_capture_endpoint_uses_pseudonymous_identity_and_rejects_sec
                 "distinct_id": "owner@example.test",
                 "event_type": "click",
                 "consent_state": "customized",
+                "consent_copy_version": PUBLIC_ANALYTICS_CONSENT_VERSION,
                 "page_class": "settings",
                 "analytics_action": "calendar_settings_opened",
             },
@@ -258,6 +268,7 @@ def test_posthog_web_capture_rejects_unallowlisted_proxy_fields(tmp_path: Path) 
                 "distinct_id": "graf_pseudo_user_c0ffee0000000000",
                 "event_type": "click",
                 "consent_state": "customized",
+                "consent_copy_version": PUBLIC_ANALYTICS_CONSENT_VERSION,
                 "page_class": "settings",
                 "path_class": "https://private.example/settings?token=secret",
                 "role": "owner",
@@ -284,3 +295,56 @@ def test_product_navigation_exposes_only_catalogued_internal_actions() -> None:
     ):
         assert f'data-analytics-action="{action}"' in sections
         assert f'data-analytics-target="{target}"' in sections
+
+
+def test_old_public_revision_disables_internal_browser_measurement(tmp_path: Path) -> None:
+    settings = _settings(tmp_path).model_copy(update={
+        "public_analytics_consent_copy_version": "2026-09-15.1",
+    })
+    context = build_browser_provider_context(settings, "settings")
+    assert context["enabled"] is False
+    assert context["posthog"]["enabled"] is False
+    assert context["yandex"]["enabled"] is False
+
+
+def test_posthog_web_capture_checks_both_revisions_before_delivery(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from twobrain_rec_server.product_analytics.posthog_client import PostHogClientWrapper
+
+    settings = _settings(tmp_path)
+    app = create_app(settings)
+    delivered: list[dict] = []
+    original = PostHogClientWrapper.capture_event
+
+    def record(self, **kwargs):
+        delivered.append(kwargs)
+        return original(self, **kwargs)
+
+    monkeypatch.setattr(PostHogClientWrapper, "capture_event", record)
+    payload = {
+        "distinct_id": "graf_pseudo_user_c0ffee0000000000",
+        "consent_state": "customized",
+        "page_class": "settings",
+    }
+    with TestClient(app) as client:
+        assert client.post("/api/v1/product-analytics/posthog-web-capture", json=payload).status_code == 422
+        for revision in ("2026-09-15.1", "unknown"):
+            response = client.post(
+                "/api/v1/product-analytics/posthog-web-capture",
+                json={**payload, "consent_copy_version": revision},
+            )
+            assert response.status_code == 403
+            assert response.json()["code"] == "posthog_autocapture_consent_revision_mismatch"
+        assert delivered == []
+        current = {**payload, "consent_copy_version": PUBLIC_ANALYTICS_CONSENT_VERSION}
+        response = client.post("/api/v1/product-analytics/posthog-web-capture", json=current)
+        assert response.status_code == 200
+        assert len(delivered) == 1
+        assert "consent_copy_version" not in delivered[0]["properties"]
+        for revision in ("2026-09-15.1", "", "unknown"):
+            settings.public_analytics_consent_copy_version = revision
+            response = client.post("/api/v1/product-analytics/posthog-web-capture", json=current)
+            assert response.status_code == 403
+            assert response.json()["code"] == "posthog_autocapture_consent_revision_mismatch"
+        assert len(delivered) == 1

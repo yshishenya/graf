@@ -6,6 +6,7 @@ public enum MacOSAudioOwnershipState: String, Equatable, Sendable {
 }
 
 public enum MacOSAudioOwnershipSource: String, Equatable, Hashable, Sendable {
+    case coreAudioInput = "core_audio_input"
     case audioHAL = "audio_hal"
     case sensorIndicator = "sensor_indicator"
 }

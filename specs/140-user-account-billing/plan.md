@@ -4,6 +4,68 @@
 
 ## Summary
 
+Активный срез03.11.2026 — T077/O16, постоянные наблюдения фактических
+попыток reconciliation по J1–J6. Ответы владельца приняты; этот план
+допускается к независимому ревью требований, но ещё не к реализации.
+Первый проверяемый шаг O16 — журнал и его агрегированное чтение; регулярный
+наблюдатель, почтовые тревоги и сохраняемая реакция остаются обязательным
+продолжением той же T077/O6 с уже принятым порядком5мин/15мин/retry≥5мин.
+Это последовательность исполнения, не отмена или перенос исходных сроков.
+
+Активная доработка 01.11.2026 — T077/#4932: внутренний read-only отчёт
+по [контракту O1–O8](contracts/operator-observation.md). Полоса:
+active Spec Kit slice, high-risk (диагностика/финансы/PostgreSQL).
+Предыдущие срезы T048 ниже сохраняют собственные результаты и остаток.
+
+Первый шаг T077: заменить непотребляемую модель снимка в billing/monitoring.py
+конкретным read-only сбором и добавить cli/billing_monitoring.py по образцу
+cli/billing_registry.py; argparse, SQLAlchemy и существующий maintenance guard.
+Пути имеют префикс apps/server/src/twobrain_rec_server/. Новых таблиц,
+миграций, зависимостей, scheduler и публичного API нет. Admin/readiness/F254
+не менять. PostgreSQL isolation/read-only установить на connection до hooks;
+общий timeout включает setup/lock. registry_status использовать после bounded
+preflight и проецировать только разрешённые поля, без raw ответа.
+
+Порядок внутри исходной T077: O1–O8 и reviewer-owned
+checklists/operator-observation.md → независимый допуск → scoped analyze →
+подтверждение #4932 → RED → минимальный collector/CLI → unit плюс настоящая
+изолированная PostgreSQL CLI/guard/snapshot/timeout/privacy/no-write проверка
+в tests/unit/test_billing_monitoring.py и
+tests/integration/test_billing_monitoring_postgres.py → независимое кодовое
+ревью/converge → три обязательных exact-SHA/base PR gates.
+
+Предварительный Constitution Check: проект сохраняет maintenance/RLS,
+metadata-only вывод, source/deletion truth, capture/Stop, деньги, согласие
+и права; нет egress/production/Dev. После независимого review повторить.
+Полный остаток FR-089/O6 — та же T077, не новая задача/отмена; частичный
+JSON не закрывает issue и не является доказательством работающих тревог.
+
+Предыдущая доработка 30.10.2026 — F140/T075/#4930, операторский импорт
+по [контракту B1–B3](contracts/registry-operator-import.md). Полоса:
+`active Spec Kit slice`, high-risk gates для PostgreSQL, полномочий и денег.
+Прежний план ниже сохраняет историю; заменённые каталог/renewal/emergency-stop/
+launch-table/brand-distance требования не восстанавливаются (см. §Scope Summary
+`spec.md`). Новая служба, интерфейс, SDK и финансовая mutation не нужны.
+
+Порядок: уточнение → независимое ревью B1–B3 → анализ → существующая #4930 →
+parser/CLI/storage → изолированная PostgreSQL/права/restart → converge →
+проверенный commit/PR → `governance-fast`, `macos-pr`, `pr-metadata` и общий
+валидатор точного SHA/основы. До scoped PASS код не меняется. Частичный импорт
+с `financial_status=not_checked` оставляет T075 открытой.
+
+Пути реализации: существующий `billing/registry.py`, один внутренний
+`cli/billing_registry.py`, два определения metadata-таблиц рядом с billing
+models, одна миграция от фактического Alembic head, `db/rls_validation.py` и
+профильные parser/CLI/DB tests. До миграции проверить head, grants и существующий
+advisory-lock pattern. Новых зависимостей нет. Финансовую сверку продолжать в
+том же T075 после полного импорта, используя authenticated API time; локальные
+`created_at/observed_at` не подходят для дня подтверждения.
+
+Предварительная конституционная проверка: PASS для дизайна — доступ только
+maintenance, не меняются charge/entitlement, client secrets, capture/deletion
+или production. После независимого ревью повторить оценку; runtime/RLS/release
+gates этим не принимаются.
+
 Расширить существующий Jinja/HTMX-кабинет GRAF личным account-and-billing
 контуром. GRAF остаётся источником истины для каталога, согласий, invoice,
 subscription schedule, entitlement, точных Free-секунд, playback-storage,
@@ -26,6 +88,295 @@ dunning engine или второй платный тариф только рад
 
 ## Technical Context
 
+### T077/O16: постоянный журнал попыток (03.11.2026)
+
+Полоса: active Spec Kit slice/high-risk-product (PostgreSQL, Temporal,
+диагностика, финансовая граница). Legacy Impact untouched. Без новых служб,
+библиотек, scheduler, Temporal RPC, продуктового API, флага запуска денег
+или нового tenant. O1–O15 CLI сохраняет READ ONLY RR и прежние пределы.
+
+**Constitution Check до исследования:** дизайн сохраняет III/IV/VI,
+metadata-only технический источник, изоляцию и неизменные финансовые
+результаты/согласия/locks. Нет изменения retention Temporal/Langfuse,
+capture/Stop/удаления или выпуска. Принятые ответы находятся в spec,
+Session2026-11-03; адрес получателя не входит в git/evidence.
+
+1. Одна новая append-only таблица `billing_reconciliation_observations`
+   в существующем PostgreSQL; модель рядом с billing models, одна миграция
+   от фактического Alembic head и строка в `db/rls_validation.py`.
+   По модели данных ключ попытки — namespace/workflow_id/workflow_run_id/
+   activity_id/attempt, ключ наблюдения дополняется event_kind. События
+   started/succeeded/failed/canceled неизменяемы; INSERT ON CONFLICT DO NOTHING
+   подавляет повтор того же свидетельства. Другой terminal event сохраняется
+   второй строкой и образует conflict. UPDATE/DELETE запрещены grants и
+   history-trigger; записи не удаляются по возрасту или meeting deletion.
+2. Новый узкий `billing/reconciliation_observation.py` получает identity
+   из `temporalio.activity.info()` текущей workflow activity (SDK1.30.0),
+   проверяет namespace, существующий workflow ID pattern/type, настоящий UUID
+   workflow_run_id, activity_id/type и положительный attempt. Ни payload run_id,
+   ни номер schedule bucket не используются вместо execution run ID.
+   Нет activity context/валидной identity — закрытый сигнал неполноты,
+   без вымышленной записи и без нового отказа финансовой работе.
+3. В `workflows/worker.py::run_billing_reconciliation_activity` добавить
+   наблюдение входа и исхода вокруг существующего тела. Наблюдение started
+   включает и последующий отказ валидации payload; failed — исключение
+   activity, а не банковский отказ. succeeded только после возврата всего
+   существующего тела, включая его cleanup. CancelledError сохраняется как
+   отмена, а не failure. Два COMMIT, maintenance→освобождение locks→webhook→
+   initial checkout, counters/result и исходные исключения остаются прежними.
+4. Каждая запись использует отдельные engine/connection/session и короткую
+   транзакцию; финансовая session не передаётся. Общий предел2с на запись
+   включает settings/connect/context/guard/INSERT/COMMIT/cleanup. До первого
+   SQL задать statement_timeout≤1с/lock_timeout≤0.5с на соединении; точный
+   existing maintenance context и `require_billing_maintenance_database`
+   обязательны. Использовать проверенный способ bounded cleanup из CLI:
+   публичный AsyncConnection, синхронный driver.terminate по deadline,
+   Connection.invalidate перед Session.invalidate, без shield/__aexit__
+   и оставшихся фоновых задач. Это локальный ресурсный образец, CLI не менять.
+5. Timeout/отказ записи не заменяет исходный result/exception и не повторяет
+   финансовую работу. Пробел остаётся unknown/partial. Внешнюю отмену
+   не поглощать: она прекращает работу; запись canceled — ограниченная
+   попытка, а не обещание сохранения при повторной отмене/аварии. При уже
+   возникшем финансовом исключении ошибка записи не подменяет его.
+   Обычный logger выдаёт только фиксированный `billing_observation_unavailable`,
+   без exc_info, identity, payload или исходного текста исключения.
+6. В прежнем `billing/monitoring.py` одна SQL-агрегация по полному ключу
+   попытки и закрытым event_kind; новое семейство `reconciliation_attempts`
+   описано в model/contract. Никакого Temporal RPC, предметных объектов или
+   запуска writer из отчёта. Наблюдаемый attempt>1 считается один раз;
+   отсутствующие меньшие attempt не восстанавливаются. Остальные семейства,
+   особенно addon job_* и heartbeat, сохраняют прежние null.
+7. До кода: согласованные семь документов → reviewer-owned
+   `checklists/reconciliation-observations.md` → независимый PASS → scoped
+   analyze J1–J6 и тот же T077/#4932. Затем RED → модель/миграция/recorder/
+   activity/collector → настоящие PG/ActivityEnvironment/CLI сценарии
+   quickstart → независимые code review/converge → точные source/base gates.
+   Новых task ID/issue нет;87 исходных task lines и58 gaps сохраняются.
+
+**После дизайна:** исключений конституции не выявлено; это оценка проекта,
+не независимый PASS, не фактическая RLS/backup/доставка/финансовая приёмка.
+Непустой журнал запрещает destructive downgrade: миграция должна отказать
+до удаления строк; проверяются пустой downgrade/upgrade и восстановление
+синтетического журнала штатным PG dump/restore без долговечного дампа.
+При disk-full/обрыве/несовместимой схеме запись не даёт ложного успеха,
+а диагностический CLI безопасно отказывает целиком по O3.
+
+**Обязательное продолжение O6:** существующий rec-maintenance и Postal
+`_post_message` пригодны без новой службы. Нужны отдельные внутренние
+recipient binding, сохраняемые reaction/delivery attempts, проверка каждые5мин,
+gap15мин, retry failed/unknown≥5мин и dedup сохранённого accepted.
+Не использовать tenant customer outbox с fake workspace; не менять общий
+EmailLoginDeliveryError или финансовый sender. До POST нужно сохранять попытку
+и next_allowed_at с защитой конкуренции; crash после Postal acceptance до DB
+остаётся unknown и допускает физический дубль при разрешённом повторе.
+Фактическое подключение и приёмка доставки — отдельные ворота этой же T077,
+не свойство журнала. Прежние финансовые/приватностные сроки действуют сейчас.
+
+### T077: проекция storage (02.11.2026)
+
+High-risk-product/active Spec Kit slice, O15/S1–S6 после PR7897. Один
+_storage_inventory в существующем billing/monitoring.py; _source/_closed и
+ReportLimitError переиспользуются. Узкий outer join от Workspace к
+WorkspaceSubscription, limit501 с отказом >500; пять полей helper и SQL
+признаки наличия подписки/nonfinite релевантной даты, без целого ORM/private полей. Никакой
+новой абстракции, wrapper/factory, схемы или изменения трёх существующих
+storage/capacity helpers. SQL row содержит нужные читаемые атрибуты подписки.
+
+Сначала одна SQL aggregation reservations по закрытым state/count с filtered
+expired_active/invalid counters. Затем для workspace с доказанной capacity
+existing effective_paid_storage → _active_reserved_bytes →
+project_active_playback_storage с явными аргументами и общим as_of. Несколько
+SELECT на workspace остаются под общим15с; нет скрытого batch/sampling.
+Неизвестные/некорректные данные дают counts и null итогов ровно по контракту;
+Отсутствие подписки увеличивает только unavailable; NULL/unknown plan
+существующей строки — также unrecognized_plan_count. Falsy значения обоих
+snapshot сохраняют существующее `or {}`; отдельного JSON-валидатора нет.
+Форма, которую helper не может обработать, или его exception безопасно
+отказывает CLI с прежним report_unavailable/exit1.
+Успех всегда partial, reconciliation_gaps=null; прочие семейства прежние.
+
+Constitution Check до исследования/после дизайна: PASS для этого дизайна —
+только чтение под maintenance/FORCE RLS/READ ONLY RR, metadata-only вывод
+(counts/целые байты), нет egress/финансовых/retention мутаций. Внутреннее чтение
+snapshot существующим helper признано; поля не экспортируются/не логируются.
+Действующий data-model storage pending — историческое описание; текущий
+writer/model и O15 явно используют active/committed/released без миграции.
+Ни O6, ни privacy/финансовые/ручные/выпускные ворота этим не принимаются.
+
+Порядок: уточнение/research/model/quickstart → независимый reviewer-owned
+checklists/storage-projection.md → scoped analyze/существующая #4932 → RED →
+один collector и профильные сценарии в прежних unit/integration файлах →
+независимые code/converge → governance-fast/macos-pr/pr-metadata на точном
+source/base. До допуска кода нет. Новые реальные PG cases проходят штатный
+одноразовый runner, полные Alembic схемы/NOTNULL/FORCERLS, узкие SELECT fixture
+соответствуют существующей maintenance роли, не ослабляют production RLS.
+Legacy Impact untouched; все87 task lines/T077[ ]/58gaps/O6/сроки прежние.
+Full/CD/Dev/рабочая БД и новые dependencies не требуются.
+
+### T077: сохраняемые запросы удаления (01.11.2026)
+
+High-risk-product/active Spec Kit slice, D1–D6/O14 после PR7896. Один helper
+SQLAlchemy select/case/count в billing/monitoring.py плюс включение в прежний
+fair-use collector. _closed/_source переиспользуются; generic _groups не нужен,
+так как возраста/времена не читаются. MeetingDeletionRequest/state — источник;
+четыре объявленные state не брать из всего DeletionState. Root/nested sources
+и приоритеты точно по контракту, без суммирования двух сущностей.
+
+Constitution Check до исследования/после дизайна: сохранены deletion truth,
+metadata-only/RLS/maintenance guard/единый READ ONLY RR/пределы/финансы/egress;
+нет новых схем/прав/служб/зависимостей. Существующая migration0007 включает
+FORCE RLS и rec_maintenance_allowed, не менять политику ради тестов.
+В TABLES/fingerprint существующего integration fixture добавить request model;
+дополнительные FK tables уже создаёт штатный runner. Для настоящих строк
+использовать синтетическую Meeting/Workspace; NULLstate проверить отдельно
+через SQL VALUES, не ослабляя NOT NULL положительной схемы.
+
+Порядок: уточнение/research/model/quickstart → reviewer-owned deletion-inventory
+и независимый PASS → scoped analyze/существующая #4932 → RED → минимальный
+collector и проверки в прежних apps/server/tests/unit/test_billing_monitoring.py,
+apps/server/tests/integration/test_billing_monitoring_postgres.py → independent
+code/converge/exact PR gates. Затронутые fair-use и identity/SETROLE случаи
+повторить по изменению зависимости; остальные успешные наборы не повторять.
+Legacy Impact untouched; все87полных task lines/T077[ ]/58gaps/O6/T070/сроки
+сохраняются. Full/CD/выпуска/Dev здесь нет.
+
+### T077: сохраняемые наблюдения чеков (01.11.2026)
+
+High-risk-product/active Spec Kit slice исходной T077 после PR7894.
+Q1–Q6 O13: использовать существующую BillingInvoice.plan_snapshot map
+receipt_observations. Две SQL-агрегации в том же monitoring.py: counts всех
+invoice/missing/invalid containers и closed map groups через json_each с
+CASE, допускающим только object map. SQL JSON, без JSONB миграции; SQLAlchemy
+func/case/select и существующие JSON/table-valued primitives достаточны.
+Тип проверять до раскрытия; scalar/array entry закрывать общей unknown.
+Выбирать только counts/закрытые parent_kind/status/source, не JSON/key/ID.
+Root refund count/groups прежние, receipts получает отдельный source;
+приоритеты/root composite source заданы контрактом, без сложения разных count.
+Top-level UI projection и даты не переиспользовать как доказательство map/срока.
+
+Порядок: specify/clarify Q1–Q6 → узкие research/model/quickstart → reviewer-owned
+checklists/receipt-inventory.md/независимый PASS → analyze/та же #4932 → RED →
+один helper и включение в существующий refund collector, случаи в прежних
+apps/server/tests/unit/test_billing_monitoring.py и
+apps/server/tests/integration/test_billing_monitoring_postgres.py → независимые
+code review/converge → exact-SHA/base PR gates. Invoice уже входит в TABLES/
+fingerprint/FORCE RLS; существующие affected refund/CLI/role проверки повторить
+по изменению поведения, остальные успешные наборы не повторять.
+
+Constitution Check до исследования и после дизайна: metadata-only/RLS/guard/
+снимок/лимиты/деньги/приватность/удаление/egress сохранены. Нет новой схемы/
+полномочий/службы/зависимости. Это проектная оценка, не приёмка кода/всегоO6.
+Legacy Impact untouched; все87 task lines/T077[ ]/58gaps/сроки сохраняются.
+
+### T077: сроки fair-use проверок (01.11.2026)
+
+High-risk-product/active Spec Kit slice исходной T077 после PR7892.
+F1–F6 [O12](contracts/operator-observation.md#o12-следующий-срез-сроки-сохраняемых-fair-use-проверок):
+одна SQL-агрегация FairUseReviewRecord в существующем
+apps/server/src/twobrain_rec_server/billing/monitoring.py по образцу _credit_ledger.
+CASE закрывает state; фильтры дают четыре непересекающихся pending buckets.
+Вложенный CASE сначала проверяет NULL/isfinite дат, затем numeric разность
+EXTRACT(EPOCH) для24истекших часов, без infinity subtraction/float/DST.
+Python получает только закрытые группы/количества, не timestamps или ORM rows.
+Generic _groups не подходит: будущий срок нормален, возраста не нужны.
+
+Конституционная проверка до исследования и после проектирования: сохраняются
+metadata-only, RLS/maintenance guard, один READ ONLY RR снимок, пределы O2,
+деньги/приватность/удаление и отсутствие egress. Нет новых writers/модели/
+миграций/службы/прав/зависимостей. Это проектная оценка, не приёмка реализации.
+
+Порядок: specify/clarify F1–F6 → research/model/quickstart → reviewer-owned
+checklists/fair-use-inventory.md и независимый PASS → scoped analyze/прежняя
+#4932 → RED → один collector и случаи в существующих
+apps/server/tests/unit/test_billing_monitoring.py и
+apps/server/tests/integration/test_billing_monitoring_postgres.py → независимое
+кодовое review/converge → три exact-SHA/base PR gates. Реальные constraints
+и FORCE RLS включить в fixture/fingerprint; защитные ветви отдельно проверить
+синтетическим SQL-входом, не ослабляя положительную схему. Все87 task lines,
+T077 [ ], полный O6/FR089 и58 старых gaps сохраняются. Legacy Impact untouched;
+CLI/guard/cleanup/другие семейства прежние; Full/CD/Dev/выпуска здесь нет.
+
+### T077: сохранённые наблюдения возвратов (01.11.2026)
+
+High-risk-product/active Spec Kit slice исходной T077 после PR7890.
+R1–R6 [O11](contracts/operator-observation.md#o11-следующий-срез-сохранённые-наблюдения-возвратов):
+одна агрегация существующей ObservedProviderRefund в том же monitoring.py,
+CASE по совместной паре status/source, count/group/order в SQL. Generic
+_groups не подходит: здесь не нужен возраст, временной столбец не читается.
+Форма семейства и maintenance/read-only граница переиспользуются. Чеки
+из invoice JSON и CSV/API/ledger сверка не подключаются, их значения null;
+coverage всегда partial. Новых схемы/служб/зависимостей/прав/egress нет.
+
+Проверка конституции до исследования и после проектирования: сохранены
+metadata-only, RLS/guard/единый снимок, ограниченные запросы/вывод,
+финансовые и приватностные границы; новых writers/пользовательского входа
+нет. Это вывод проектирования, ещё не независимый допуск или приёмка кода.
+
+Порядок: уточнение R1–R6 → research/model/quickstart → reviewer-owned
+checklists/refund-inventory.md и независимый PASS → scoped analyze/прежняя
+#4932 → RED → минимальный collector и новые случаи в существующих
+apps/server/tests/unit/test_billing_monitoring.py и
+apps/server/tests/integration/test_billing_monitoring_postgres.py →
+независимое code review/converge → три точных SHA/base GitHub gates.
+Все87 исходных полных task lines, T077 [ ], полный O6/FR089 и58старых gaps
+сохраняются. Legacy Impact untouched; Full/CD/Dev/выпуска здесь нет.
+
+### T077: реестр бонусных дней (01.11.2026)
+
+High-risk-product/active Spec Kit slice в исходной T077, после PR7887.
+Реализовать C1–C6 [O10](contracts/operator-observation.md#o10-следующий-срез-сохраняемый-реестр-бонусных-дней)
+одной ограниченной агрегацией существующего TimeCreditLedgerEntry в
+apps/server/src/twobrain_rec_server/billing/monitoring.py. Переиспользовать
+закрытую SQL-группировку и форму семейства; generic _groups не подходит:
+у реестра нет created_at, будущая maturity нормальна. Группировать state,
+считать четыре фильтра и MIN maturity только допустимого достигнутого окна.
+Не загружать ORM-строки, не суммировать days и не вызывать финансовые helpers.
+Семейство addon_and_time_credit всегда partial; add-on/job метрики null.
+
+Проверка конституции до исследования и после проектирования: границы
+сохранены — read-only metadata, прежний maintenance/RLS и единый снимок,
+ограниченные запросы/вывод, без финансовых/пользовательских изменений,
+новых зависимостей/служб/схемы/полномочий. Это решение проектирования,
+независимый допуск и приёмка реализации ещё не получены.
+
+Порядок: уточнение C1–C6 → research/model/quickstart → reviewer-owned
+checklists/credit-ledger.md и независимый PASS → scoped analyze/существующая
+#4932 → RED → минимальный collector и новые случаи в существующих
+apps/server/tests/unit/test_billing_monitoring.py и
+apps/server/tests/integration/test_billing_monitoring_postgres.py →
+независимое кодовое review/converge → три точных SHA/base GitHub gates.
+Все87 исходных полных task lines, T077 [ ], полный O6/FR089 и58старых gaps
+сохраняются. Legacy Impact untouched; нет Full/CD/Dev/выпуска.
+
+### T077: следующий срез free_projection (01.11.2026)
+
+Требования P1–P6 [O9](contracts/operator-observation.md#o9-следующий-срез-события-free_projection)
+выполняются в той же T077; первый read-only CLI принят PR7884.
+High-risk-product/active Spec Kit slice. Реализация только в существующем
+billing/monitoring.py: отдельная ограниченная SQL-агрегация BillingAuditEvent,
+построение двух полуночей через stdlib date/datetime/ZoneInfo и
+event_window вместо заглушки free_projection. usage.moscow_window_for
+возвращает месяц и здесь не переиспользуется. CLI/guard/снимок/cleanup,
+остальные семейства и их current_state остаются действующими.
+Новых служб/таблиц/миграций/зависимостей/флагов/egress нет.
+
+Порядок: уточнение P1–P6 → research/model/quickstart → reviewer-owned
+checklists/free-projection.md и независимый PASS → scoped analyze и
+подтверждение прежней #4932 → RED для нового семейства → минимальный
+collector → содержательные unit и реальные PostgreSQL/CLI проверки в
+существующих tests/unit/test_billing_monitoring.py и
+tests/integration/test_billing_monitoring_postgres.py → независимое
+кодовое review/converge → три exact-SHA/base GitHub gates. Полные пути
+исходников/тестов имеют существующий префикс apps/server/.
+
+Constitution Check до исследования и после проектирования: PASS по
+границам проекта — metadata-only, действующий maintenance/RLS, read-only
+снимок, ограниченные запросы/вывод, без изменения финансовых/пользовательских
+данных. Независимое принятие требований ещё обязательно. Legacy Impact
+следующего среза untouched: новых путей совместимости нет; удаление
+непотребляемого снимка относится к уже принятому PR7884 и остаётся историей.
+O6/FR089 и исходная T077 [ ] сохраняются. Своих Full/CD/Dev/выпуска нет.
+
 **Language/Version**: Python 3.13; HTML/Jinja, CSS, HTMX 2.0.10 и минимальный
 JavaScript; Swift 6 только для существующей macOS route/handoff policy
 
@@ -44,7 +395,7 @@ YooKassa test shop и синтетические doubles/CSV; Playwright/Chromiu
 
 **Risk / Validation Lane**: `high-risk-feature` — деньги, auth/session,
 tenant isolation, secrets, Postgres/MinIO/Temporal, retention/deletion,
-external provider, accessibility и brand-distance UX
+external provider, accessibility и reference-fidelity UX
 
 **Release Gate**: `no deploy` для planning slice. Реализация требует feature
 quickstart и `infra/scripts/ci-local.sh --fast` перед PR; production требует
@@ -100,8 +451,10 @@ real-shop capabilities также являются fail-closed launch gates.
 - Spec-driven delivery: выбран полный high-risk lane; clarify завершён, этот
   planning pass создаёт research, model, contracts и runnable quickstart;
   checklist/tasks/analyze остаются обязательными до implementation.
-- UX/brand distance: используется текущий GRAF shell/tokens, clean-room
-  hierarchy, WCAG 2.2 AA, Russian-first localization и явные degraded states.
+- UX/reference fidelity: используется текущий GRAF shell/tokens; наблюдаемые
+  Krisp UX/UI/IA и функциональные подписи допускают точное воспроизведение
+  по FR-081 и конституции §VII. Проверяются независимый код, права на материалы,
+  WCAG 2.2 AA, Russian-first localization и явные degraded states.
 - Deployment: planning не выполняет deploy и не повышает текущий
   `pilot_blocked` status.
 
@@ -167,7 +520,8 @@ same persisted request/key and blocks pay-again until resolved.
   registry reconciliation and never rendered as product status.
 - **Growth/CX**: promo atomicity/no stacking, referral first touch/maturity/
   7-or-30-day/cap/reversal, notification dedupe, keyboard/screen-reader/200%
-  zoom/reduced-motion/JS-off states, Russian copy and brand-distance review.
+  zoom/reduced-motion/JS-off states, Russian copy, reference fidelity,
+  independent implementation and third-party asset rights under FR-081.
 - **Operations**: stop-all-charges, test/prod isolation, secret rotation,
   webhook/poller/CSV gaps, billing backup/restore, migration rollback,
   disk-full fail-closed and metadata-only evidence scan.
@@ -266,3 +620,142 @@ commercial/legal/provider параметры превращены в default-off
 SPA, dunning/grace engine, wallet, stacked add-ons, seats/team billing,
 usage-overage и GRAF refund backoffice. Добавлять их можно только отдельной
 проверенной feature slice, когда появится подтверждённая потребность.
+
+
+## T074: сохраняемый отказ продления — 2026-10-31
+
+Полоса: active Spec Kit slice, test-only. Владелец — repository-audit; #4928.
+Только существующий `apps/server/tests/integration/test_billing_renewal_planner_postgres.py`:
+переиспользовать paid_workspace, maintenance context, настоящий planner/charge
+и проверенный offline MockTransport pattern. Новые зависимости, фабрики
+платежей, службы, миграции и продуктовые изменения не нужны.
+
+До тестового кода — независимый `checklists/renewal-decline.md` и scoped analyze.
+Далее существующий baseline → один последовательный PostgreSQL сценарий
+трёх отказов → профильные unit/contract/integration/E2E → independent review
+и converge → точные PR checks. При найденном дефекте продукта остановить
+его зависимую приёмку и оформить требования отдельно, не ослаблять assertion.
+Constitution Check: сохраняются полномочия, scope, согласие, оплаченный доступ,
+сохранность истории и запрет реальных запросов; release/Dev/production не входят.
+
+## Историческая T023 — сверка 31.10.2026
+
+Полоса этой сверки: docs-only / mechanical; Legacy Impact: untouched.
+Принятые требования F210 FR017/F278 FR006 заменили browser-only billing
+часть F140 FR012. Старую совокупную T023 не реализуем повторно: сохраняем
+исходный текст и владельца, снимаем неподтверждённую отметку выполнения и
+отдельно фиксируем отмену. #4877 можно закрыть только NOT_PLANNED после
+принятия этой сверки обычным PR и индивидуального повторного чтения issue.
+
+Действующие account UI/доступность/ошибки остаются в T079/#4936, F210
+T017/#5961, F278 T017/#7323/T025/#7332. Account-close, внешний refund,
+изоляция и серверная власть над оплатой сохраняются; код, платёжные настройки,
+приложение и выпуск не меняются. Возврат к старой отдельной native сводке
+и внешнему handoff возможен только после нового решения владельца о пути
+оплаты; отмена не доказывает текущий installed-app или финансовый результат.
+
+
+## T048: уведомление unknown при cutoff — 01.11.2026
+
+Полоса: active Spec Kit slice, серверная финансовая область; Legacy Impact: untouched.
+До кода — независимая проверка `checklists/renewal-unknown.md` и scoped analyze.
+В `billing/renewal_charge.py::project_renewal_cutoffs` сохранить существующую
+проекцию доступа, блокировку пространства и транзакцию. Перед `_project_free`
+использовать сохранённую `paid_through`; после `unknown_pending` проверить снимки
+операции и счёта (workspace, operation, payer, paid_through), затем вызвать
+существующий `enqueue_billing_notification` с `RENEWAL_UNKNOWN`, стабильным
+`renewal:<invoice UUID>:unknown`, безопасным номером и относительным путём.
+Не проверять равенство текущего согласия историческому: отменённая отправленная
+операция всё ещё требует выяснения исхода, а письмо не разрешает новую отправку.
+Сохраняются существующие paid-through, grant, provider state и consent semantics.
+
+Проверки в существующем PostgreSQL planner test: первоначальный RED, сохранение
+после commit/новой session; повтор/rollback; sent/processing/unknown; отменённое
+согласие; старый период, другой плательщик, отсутствие/несовпадение счёта,
+неподходящее пространство и оконченная/неотправленная операция. HTTP запрещён
+fixture. Затем профильные billing unit/contract/integration, review/converge,
+обязательные три PR проверки точного SHA/основы. Новые зависимости, очереди,
+миграции и финансовые изменения не требуются. T048/#4903 остаётся открытой
+до остальных producers и полной проверки исходного объёма; #7524 отдельно.
+Constitution Check: изоляция, полномочия, сохранность финансовой истории,
+отсутствие повторной оплаты и атомарность сохранены; секреты и реальные
+письма/платежи/Dev/production в проверку не входят.
+
+Уточнение текста до merge: сохранённое событие может доставляться после позднего
+успеха. Заголовок и тело описывают состояние на границе периода в прошлом,
+ссылаются на текущий статус в кабинете и не предлагают повторное списание.
+Достаточно исправления существующего шаблона и его предметной проверки;
+нового фильтра доставки, состояния или службы не требуется.
+
+## T048: итоговый подтверждённый отказ — 01.11.2026
+
+Active Spec Kit slice; Legacy Impact untouched. До кода: уточнение выше,
+reviewer-owned checklists/renewal-final-failure.md, scoped analyze и исходная
+#4903. Переиспользовать PAYMENT_FAILED, существующую очередь и безопасное
+форматирование даты, без новой службы/таблицы/миграции/платежа.
+
+Сначала подтвердить отсутствие notice после трёх реальных синтетических
+отказов и cutoff. Общую проверку связей UNKNOWN/итогового отказа держать
+в одном узком helper в renewal_charge.py, вызываемом из cutoff и общей
+record_renewal_decline для позднего исхода. Сам финансовый guard отзыва
+согласия и проекцию доступа не менять; письмо о сохранённом исходе
+не является разрешением на новое списание. До cutoff оставить попытку,
+после Free — только итоговое письмо.
+
+Проверки: сохраняемая PostgreSQL цепочка трёх отказов→cutoff; неизвестность→
+Free→подтверждённый отказ; поздний третий отказ с переходом; отозванное
+согласие; сохранение после нового сеанса, повтор, rollback, конкуренция,
+отрицательные payer/period/operation/invoice/owner/status связи. Новые
+сценарии не обращаются к настоящим провайдерам/почте. Затем профильные
+renewal/notification tests, независимые review/converge и три точных PR gate.
+Конституционные деньги/изоляция/история/сохранность/секреты сохранены;
+полная T048 не принимается. Выпуск/Dev/Full/CD отсутствуют.
+
+Общий helper сохраняет UNKNOWN без восстановленного provider_id; этот guard
+применяется только к canceled/canceled. Отдельная регрессия сохранит границу.
+
+
+## T048: напоминание в первом окне продления — 01.11.2026
+
+Active Spec Kit slice, Legacy Impact untouched. До кода — независимый
+checklists/renewal-reminder.md и ограниченный analyze. Использовать
+plan_due_renewals после всех действующих проверок и создания первой
+operation/invoice. Существующая транзакционная очередь, новый конкретный
+вид сообщения в notifications.py; не создавать таблицу, службу или scheduler.
+Stable event на workspace/payer/paid_through, без номера попытки/операции.
+Тариф/цикл и сумма берутся из принятого снимка, даты — из текущего периода
+и первого окна. В payload только minor units, RUB, month/year, даты МСК,
+последние4цифры безопасной маски и путь кабинета. Случай отсутствующей маски
+показывает «сохранённый способ оплаты», а не provider ID.
+
+RED на настоящем PostgreSQL planner, затем одна минимальная запись в том же
+commit. Проверки: first-window commit/rollback/new session/repeat/concurrent;
+local retry и следующие окна без дубликата; no consent/method/current scope,
+unknown/newer payment; точная историческая копия и allowlist. Финансовое
+планирование/отправка не меняются. Предыдущий итоговый отказ хранится в
+отдельном коммите; исходная T048/#4903 остаётся владельцем остатка без дублей.
+
+
+## T048: содержание подтверждений — 01.11.2026
+
+Active Spec Kit slice, financial notification content; Legacy Impact untouched.
+До кода — независимый checklists/notification-content.md и scoped analyze.
+Меняются только payload существующих производителей: два в entitlements.py,
+успешное предоставление storage segments в purchases.py и resume route
+cabinet/web_routes/billing.py. notifications.py сохраняет allowlist и renderer;
+существующие форматирование/очередь/Postal переиспользуются без новой таблицы,
+миграции, зависимости или службы. Общая подготовка полей подтверждения оплаты
+не дублирует форматирование в трёх местах. Сумма — invoice, фактический срок —
+grant/segments, без объединения отдельных сегментов. Плановый интервал
+FR-105 пока не подтверждён во всех снимках счетов и остаётся открытым. Resume использует
+потреблённый quote, полную catalog amount без повторного сложения storage и
+точный принятый next_attempt_label (дата с UTC offset или закрытая фраза окна).
+Старые строки без данных не дополняются из текущей подписки при доставке.
+
+RED → настоящие producer/commit/new-session проверки в существующих
+integration тестах → минимальная правка → повтор/rollback/отрицательные
+границы/профильные notification и billing tests → независимое ревью и
+converge → обязательные три GitHub gates точного SHA/основы. Деньги, права,
+согласие и event identity не меняются; Dev/production/почта не затрагиваются.
+Constitution Check: изоляция, серверные секреты, история и атомарность
+сохранены. T048/T068/#7524 этим срезом не завершаются.

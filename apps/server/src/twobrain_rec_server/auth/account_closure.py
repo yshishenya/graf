@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.problems import ProblemDetail
@@ -14,12 +14,14 @@ from twobrain_rec_server.billing.storage import lock_storage_workspace
 from twobrain_rec_server.db.models import (
     AccountClosureRequest,
     AuthSession,
+    ProductActivationMilestone,
     RegisteredDevice,
     UserIdentity,
     Workspace,
     WorkspaceMembership,
     WorkspaceSubscription,
 )
+from twobrain_rec_server.product_analytics.milestones import delete_account_activation_decisions
 
 ACCOUNT_CLOSE_COOLING_DAYS = 7
 ACCOUNT_CLOSE_POLICY_VERSION = "account-close-v1"
@@ -201,6 +203,19 @@ async def begin_account_close_finalization(
             title="Не удалось подтвердить закрываемый профиль",
         )
     identity.status = "closed"
+    # Close queued transports in the same commit as access, before async fanout.
+    # A late delivery finish cannot reopen a cancelled attempt.
+    for provider in ("posthog", "yandex"):
+        await db.execute(update(ProductActivationMilestone).where(
+            ProductActivationMilestone.account_id == identity.id,
+            getattr(ProductActivationMilestone, f"{provider}_state").in_(
+                ("pending", "pre_send_retry", "dispatching")
+            ),
+        ).values(**{
+            f"{provider}_state": "cancelled",
+            f"{provider}_reason": "purpose_withdrawn",
+            "updated_at": now_utc,
+        }))
     request.state = "finalizing"
     request.failure_reason = None
     request.metadata_json = {
@@ -415,11 +430,16 @@ async def finalize_account_close(
         )
         .values(status="inactive")
     )
+    activation_purged_count = await delete_account_activation_decisions(
+        db, account_id=request.requested_by_user_id,
+    )
     request.state = "completed"
     request.finalized_at = now_utc
     request.metadata_json = {
         **(request.metadata_json or {}),
         "access_revoked_at": now_utc.isoformat(),
+        "activation_decisions_purged_at": now_utc.isoformat(),
+        "activation_decisions_purged_count": activation_purged_count,
         "meeting_deletion_boundary": "delegated_to_deletion_reconciler",
     }
     await db.flush()

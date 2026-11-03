@@ -18,9 +18,10 @@ failure останутся terminal.
 **Testing**: pytest, Temporal WorkflowEnvironment, static cabinet contracts
 **Risk / Validation Lane**: high-risk-feature — MediaScribe, Temporal, durable
 recovery and user-visible degraded/error UX.
-**Release Gate**: scoped/current-SHA validation, PR/review/merge/release/deploy and
-production E2E are authorized; do not repeat Full CI, but preserve exact-SHA and
-all repository deployment gates
+**Release Gate**: действующие [правила проверки и выпуска](../../docs/agent-guidance/release-and-validation.md):
+три обязательные проверки точного SHA/основы PR, один GitHub `release-full`
+замороженного кандидата, затем отдельные deploy/production E2E доказательства
+T031. Локальный fast и старый Full другого SHA их не заменяют.
 **Target Platform**: GRAF server and embedded/web cabinet
 **Project Type**: server-rendered web service with Temporal worker
 **Performance Goals**: no busy polling; bounded provider request delay; manual

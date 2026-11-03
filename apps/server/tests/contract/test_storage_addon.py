@@ -13,12 +13,12 @@ from twobrain_rec_server.billing.storage_addons import (
 def test_storage_addon_is_one_total_capacity_and_co_termed() -> None:
     starts = datetime(2026, 8, 7, tzinfo=UTC)
     addon = choose_storage_addon(
-        capacity_bytes=5_000_000_000,
+        capacity_bytes=10_000_000_000,
         starts_at=starts,
         ends_at=starts + timedelta(days=31),
     )
     assert addon.capacity_bytes in ADDON_CAPACITY_BYTES
-    assert effective_storage_capacity(plan_code="personal", addon=addon) == 5_000_000_000
+    assert effective_storage_capacity(plan_code="personal", addon=addon) == 10_000_000_000
 
 
 def test_storage_addon_rejects_stacking_and_invalid_period() -> None:
@@ -26,9 +26,9 @@ def test_storage_addon_rejects_stacking_and_invalid_period() -> None:
     with pytest.raises(ValueError):
         choose_storage_addon(capacity_bytes=3_000_000_000, starts_at=starts, ends_at=starts + timedelta(days=1))
     with pytest.raises(ValueError):
-        choose_storage_addon(capacity_bytes=5_000_000_000, starts_at=starts, ends_at=starts)
+        choose_storage_addon(capacity_bytes=10_000_000_000, starts_at=starts, ends_at=starts)
     addon = choose_storage_addon(
-        capacity_bytes=5_000_000_000,
+        capacity_bytes=10_000_000_000,
         starts_at=starts,
         ends_at=starts + timedelta(days=1),
     )
@@ -40,8 +40,8 @@ def test_mid_cycle_upgrade_is_floor_pro_rata_and_co_termed() -> None:
     start = datetime(2026, 8, 1, tzinfo=UTC)
     end = datetime(2026, 9, 1, tzinfo=UTC)
     quote = quote_storage_addon_upgrade(
-        current_capacity_bytes=2_000_000_000,
-        target_capacity_bytes=5_000_000_000,
+        current_capacity_bytes=5_000_000_000,
+        target_capacity_bytes=10_000_000_000,
         current_period_price_minor=79_000,
         target_period_price_minor=99_000,
         paid_from=start,
@@ -59,8 +59,8 @@ def test_addon_defers_during_bonus_or_below_provider_floor() -> None:
     start = datetime(2026, 8, 1, tzinfo=UTC)
     end = datetime(2026, 9, 1, tzinfo=UTC)
     kwargs = dict(
-        current_capacity_bytes=2_000_000_000,
-        target_capacity_bytes=5_000_000_000,
+        current_capacity_bytes=5_000_000_000,
+        target_capacity_bytes=10_000_000_000,
         current_period_price_minor=79_000,
         target_period_price_minor=79_001,
         paid_from=start,

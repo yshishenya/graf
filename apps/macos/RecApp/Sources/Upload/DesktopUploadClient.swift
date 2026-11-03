@@ -4,9 +4,28 @@ import TwoBrainRecShared
 
 public typealias DesktopUploadProgressHandler = @Sendable (ServerTruthFingerprint) async throws -> Void
 
+/// The native caller pins a session before building a support request.
+public struct DesktopSupportIncidentRequestContext: Sendable {
+    public let scope: RecordingDeletionScope?
+    public let sessionGeneration: UInt64
+    public let validateScope: @Sendable () throws -> Void
+
+    public init(scope: RecordingDeletionScope?, sessionGeneration: UInt64,
+                validateScope: @escaping @Sendable () throws -> Void) {
+        self.scope = scope
+        self.sessionGeneration = sessionGeneration
+        self.validateScope = validateScope
+    }
+
+    public func validate() throws {
+        guard DesktopCabinetSessionBridge.isCurrentSession(sessionGeneration) else { throw CancellationError() }
+        try validateScope()
+    }
+}
+
 public protocol DesktopSupportIncidentSubmitting: Sendable {
-    func submitSupportIncident(report: DesktopSupportIncidentReport) async throws -> DesktopSupportIncidentResponse
-    func syncSupportIncident(incidentID: String) async throws -> DesktopSupportIncidentResponse
+    func submitSupportIncident(report: DesktopSupportIncidentReport, context: DesktopSupportIncidentRequestContext) async throws -> DesktopSupportIncidentResponse
+    func syncSupportIncident(incidentID: String, context: DesktopSupportIncidentRequestContext) async throws -> DesktopSupportIncidentResponse
 }
 
 public protocol DesktopUploadClientProtocol: Sendable {
@@ -320,6 +339,27 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
     private let authSessionTokenProvider: @Sendable (URL) -> String?
     private let requestExecutor: @Sendable (URLRequest) async throws -> (Data, URLResponse)
     private let sessionRenewalHandler: @Sendable (URLRequest, URLResponse, UInt64) async -> Void
+    private var lifecycleRequestBudget = RecordingLifecycleRequestBudget()
+    private var recordingStartAcceptanceItem: DesktopUploadQueueItem?
+    private var beforeRecordingRequest: (@Sendable () throws -> Void)?
+
+    /// A value copy confines the gate and queue accounting to this recording's requests.
+    func checkingRecordingStartAcceptance(
+        for item: DesktopUploadQueueItem,
+        beforeRequest: (@Sendable () throws -> Void)? = nil
+    ) -> Self {
+        var client = self
+        client.recordingStartAcceptanceItem = item
+        if let beforeRequest { client.beforeRecordingRequest = beforeRequest }
+        return client
+    }
+
+    func checkingRecordingContext(beforeRequest: @escaping @Sendable () throws -> Void) -> Self {
+        var client = self
+        let previous = beforeRecordingRequest
+        client.beforeRecordingRequest = { try previous?(); try beforeRequest() }
+        return client
+    }
 
     public init(
         baseURL: URL,
@@ -333,7 +373,10 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
             partSizeBytes: partSizeBytes,
             authSessionTokenProvider: authSessionTokenProvider,
             requestExecutor: { request in
-                try await URLSession.shared.data(for: request)
+                if request.url?.path.hasSuffix("/join-target") == true {
+                    return try await URLSession.shared.data(for: request, delegate: CalendarJoinRedirectBlocker())
+                }
+                return try await URLSession.shared.data(for: request)
             }
         )
     }
@@ -611,6 +654,8 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
             return try await scoped(to: scope).upload(item, onProgress: onProgress)
         }
         try Self.validatePackageForUpload(item)
+        try RecordingStartAcceptanceGate.check(item)
+        let client = checkingRecordingStartAcceptance(for: item)
         let initialSessionDescriptors = Self.uploadSessionFileDescriptors(for: item)
         try Self.validateDescriptorSet(initialSessionDescriptors, for: item)
         try await onProgress(item.serverTruth)
@@ -628,20 +673,20 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
                 processing_status: "not_submitted"
             )
         } else {
-            try await createMeeting(item)
+            try await client.createMeeting(item)
         }
         try await onProgress(ServerTruthFingerprint(meetingId: meeting.meeting_id))
-        await linkCalendarContextIfNeeded(item, meetingId: meeting.meeting_id)
+        await client.linkCalendarContextIfNeeded(item, meetingId: meeting.meeting_id)
         try await onProgress(ServerTruthFingerprint(meetingId: meeting.meeting_id))
 
         let uploadSession: UploadSessionResponse
         let newSessionExpectedRoles: Set<DesktopUploadTransportRole>?
         if let sessionId = item.uploadSessionId {
-            uploadSession = try await getUploadSession(sessionId: sessionId)
+            uploadSession = try await client.getUploadSession(sessionId: sessionId)
             newSessionExpectedRoles = nil
         } else {
             try ensureLocalFilesExist(initialSessionDescriptors)
-            uploadSession = try await createUploadSession(
+            uploadSession = try await client.createUploadSession(
                 item,
                 meetingId: meeting.meeting_id,
                 descriptors: initialSessionDescriptors
@@ -682,7 +727,7 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         try await onProgress(await progressState.snapshot())
         for descriptor in descriptors {
             try await onProgress(await progressState.snapshot())
-            let uploaded = try await uploadFile(
+            let uploaded = try await client.uploadFile(
                 descriptor: descriptor,
                 sessionId: uploadSession.session_id,
                 alreadyAcceptedBytes: acceptedBytes[descriptor.transportRole.rawValue, default: 0],
@@ -701,12 +746,12 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         }
 
         try await onProgress(await progressState.snapshot())
-        let missing = try await missingRanges(sessionId: uploadSession.session_id)
+        let missing = try await client.missingRanges(sessionId: uploadSession.session_id)
         if !missing.missing_ranges_by_track.isEmpty {
             for descriptor in descriptors {
                 for range in missing.missing_ranges_by_track[descriptor.transportRole.rawValue] ?? [] {
                     try await onProgress(await progressState.snapshot())
-                    let uploaded = try await uploadRange(
+                    let uploaded = try await client.uploadRange(
                         descriptor: descriptor,
                         sessionId: uploadSession.session_id,
                         range: range
@@ -721,13 +766,13 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         }
 
         try await onProgress(await progressState.snapshot())
-        let missingAfterRetry = try await missingRanges(sessionId: uploadSession.session_id)
+        let missingAfterRetry = try await client.missingRanges(sessionId: uploadSession.session_id)
         if !missingAfterRetry.missing_ranges_by_track.isEmpty {
             throw DesktopUploadClientError.serverStillMissingRanges
         }
 
         try await onProgress(await progressState.snapshot())
-        let finalize = try await finalizeUpload(
+        let finalize = try await client.finalizeUpload(
             item: item,
             sessionId: uploadSession.session_id,
             meetingId: meeting.meeting_id,
@@ -767,7 +812,7 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
     public func ensureLocalPurgeTask(meetingID: String, scope: RecordingDeletionScope) async throws -> DesktopLocalPurgeTask? {
         guard UUID(uuidString: meetingID) != nil else { throw RecordingDeletionError.invalidIdentity }
         let client = try scoped(to: scope)
-        return try await client.perform(client.request(path: "/api/v1/desktop/meetings/\(meetingID)/local-purge-task", method: "POST", timeoutInterval: 15))
+        return try await client.perform(client.request(path: "/api/v1/desktop/meetings/\(meetingID)/local-purge-task", method: "POST", timeoutInterval: 15), recordingLifecycleRequest: true)
     }
 
     public func recordingLifecycle(origins: [String], scope: RecordingDeletionScope) async throws -> [DesktopRecordingLifecycleEntry] {
@@ -776,7 +821,7 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         var request = try client.request(path: "/api/v1/desktop/recordings/lifecycle", method: "POST", timeoutInterval: 15)
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: ["origins": origins])
-        return try await client.perform(request)
+        return try await client.perform(request, recordingLifecycleRequest: true)
     }
 
     public func recordingDeletionScope() async throws -> RecordingDeletionScope? {
@@ -793,8 +838,12 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         var scopedHeaders = headers
         scopedHeaders["X-Graf-Expected-Actor"] = scope.actorUserID
         scopedHeaders["X-Graf-Expected-Workspace"] = scope.workspaceID
-        return Self(baseURL: baseURL, headers: scopedHeaders, partSizeBytes: partSizeBytes,
+        var client = Self(baseURL: baseURL, headers: scopedHeaders, partSizeBytes: partSizeBytes,
                     authSessionTokenProvider: authSessionTokenProvider, requestExecutor: requestExecutor, sessionRenewalHandler: sessionRenewalHandler)
+        client.lifecycleRequestBudget = lifecycleRequestBudget
+        client.recordingStartAcceptanceItem = recordingStartAcceptanceItem
+        client.beforeRecordingRequest = beforeRecordingRequest
+        return client
     }
 
     public func requestRecordingDeletion(_ operation: RecordingDeletionOperation) async throws -> RecordingDeletionReceipt {
@@ -831,7 +880,10 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         let receipt: RecordingDeletionReceipt
-        do { receipt = try await client.perform(request, honorRetryAfter: true) }
+        do {
+            let response: AcceptedRecordingDeletionReceipt = try await client.perform(request, honorRetryAfter: true, recordingLifecycleRequest: true)
+            receipt = response.receipt
+        }
         catch DesktopUploadClientError.httpStatus(404, "meeting_not_found") {
             // A target can disappear or become inaccessible while this durable request
             // waits offline. Resolve it without treating absence as purge permission.
@@ -839,7 +891,7 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
             var lookup = try client.request(path: "/api/v1/desktop/recordings/lifecycle", method: "POST", timeoutInterval: 15)
             lookup.setValue("application/json", forHTTPHeaderField: "Content-Type")
             lookup.httpBody = try JSONSerialization.data(withJSONObject: ["meeting_ids": [meetingID]])
-            let entries: [DesktopRecordingLifecycleEntry] = try await client.perform(lookup)
+            let entries: [DesktopRecordingLifecycleEntry] = try await client.perform(lookup, recordingLifecycleRequest: true)
             guard let entry = entries.first(where: { $0.target_type == "meeting" && $0.target_id == meetingID }) else {
                 throw DesktopUploadClientError.invalidResponse
             }
@@ -856,13 +908,20 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
     }
 
     public func notificationContext() async throws -> DesktopNotificationContext {
-        try await perform(request(path: "/api/v1/desktop/notification-context", method: "GET", timeoutInterval: 15))
+        try await perform(request(path: "/api/v1/desktop/notification-context", method: "GET", timeoutInterval: 15), recordingLifecycleRequest: true)
     }
 
     public func reconcile(_ item: DesktopUploadQueueItem) async throws -> DesktopUploadReconciliation? {
+        try RecordingStartAcceptanceGate.check(item)
+        return try await checkingRecordingStartAcceptance(for: item).reconcileServerTruth(item)
+    }
+
+    /// Read-only server truth for ownership, completed uploads and deletion cleanup.
+    /// These flows may legitimately outlive the local package; this does not admit an upload.
+    func reconcileServerTruth(_ item: DesktopUploadQueueItem) async throws -> DesktopUploadReconciliation? {
         if let scope = item.ownerScope,
            headers["X-Graf-Expected-Actor"] != scope.actorUserID || headers["X-Graf-Expected-Workspace"] != scope.workspaceID {
-            return try await scoped(to: scope).reconcile(item)
+            return try await scoped(to: scope).reconcileServerTruth(item)
         }
         let request = try request(
             path: "/api/v1/desktop/recordings/\(item.directoryId)/sync-state",
@@ -870,7 +929,7 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
             queryItems: [URLQueryItem(name: "local_media_revision_id", value: item.localMediaRevisionId)]
         )
         do {
-            let response: DesktopRecordingSyncStateResponse = try await perform(request)
+            let response: DesktopRecordingSyncStateResponse = try await perform(request, recordingLifecycleRequest: true)
             let conflictState = DesktopSyncConflictState(rawValue: response.conflict.state) ?? .dependencyUnavailable
             let serverTruth = ServerTruthFingerprint(
                 meetingId: response.meeting.meeting_id,
@@ -907,7 +966,7 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
 
     public func listLocalPurgeTasks() async throws -> [DesktopLocalPurgeTask] {
         let request = try request(path: "/api/v1/desktop/local-purge-tasks", method: "GET")
-        let response: LocalPurgeTaskListResponse = try await perform(request)
+        let response: LocalPurgeTaskListResponse = try await perform(request, recordingLifecycleRequest: true)
         return response.tasks
     }
 
@@ -1033,7 +1092,7 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
                 completedAt: completedAt
             )
         )
-        return try await perform(request)
+        return try await perform(request, recordingLifecycleRequest: true)
     }
 
     public static func backendRole(for localRole: AudioTrackRole) -> DesktopUploadTransportRole? {
@@ -1374,18 +1433,49 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         return request
     }
 
-    private func execute(_ request: URLRequest) async throws -> (Data, URLResponse) {
-        let generation = await DesktopCabinetSessionBridge.generation
-        let result = try await requestExecutor(request)
+    public func calendarJoinTarget(eventID: UUID) async throws -> URL {
+        struct Target: Decodable { let event_id: UUID; let https_url: String }
+        let request = try request(path: "/api/v1/calendar/events/\(eventID.uuidString.lowercased())/join-target", method: "GET", timeoutInterval: 15)
+        let target: Target = try await perform(request)
+        guard target.event_id == eventID, let url = CalendarMeetingOpener.validatedHTTPS(target.https_url) else {
+            throw DesktopUploadClientError.invalidResponse
+        }
+        return url
+    }
+
+    private func execute(_ request: URLRequest, recordingLifecycleRequest: Bool = false) async throws -> (Data, URLResponse) {
+        let generation = DesktopCabinetSessionBridge.generation
+        let fingerprint = recordingLifecycleRequest ? recordingSessionFingerprint : nil
+        let send: @Sendable (URLRequest) async throws -> (Data, URLResponse) = { request in
+            try Task.checkCancellation()
+            if recordingLifecycleRequest {
+                guard DesktopCabinetSessionBridge.isCurrentSession(generation),
+                      fingerprint == self.recordingSessionFingerprint else { throw CancellationError() }
+            }
+            // Recheck after waiting for a slot, immediately before the actual HTTP.
+            if let item = self.recordingStartAcceptanceItem { try RecordingStartAcceptanceGate.check(item) }
+            try self.beforeRecordingRequest?()
+            return try await self.requestExecutor(request)
+        }
+        let result = if recordingLifecycleRequest {
+            try await lifecycleRequestBudget.execute(request, using: send)
+        } else {
+            try await send(request)
+        }
         await sessionRenewalHandler(request, result.1, generation)
+        if let item = recordingStartAcceptanceItem { try RecordingStartAcceptanceGate.check(item) }
         return result
     }
 
-    private func perform<T: Decodable>(_ request: URLRequest, honorRetryAfter: Bool = false) async throws -> T {
+    private func perform<T: Decodable>(_ request: URLRequest, honorRetryAfter: Bool = false, recordingLifecycleRequest: Bool = false) async throws -> T {
         let data: Data
         let response: URLResponse
         do {
-            (data, response) = try await execute(request)
+            (data, response) = try await execute(request, recordingLifecycleRequest: recordingLifecycleRequest)
+        } catch let refusal as RecordingStartAcceptanceGate.Refusal {
+            throw refusal
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
             throw DesktopUploadClientError.httpStatus(503, "network_unavailable")
         }
@@ -1420,6 +1510,42 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         }
         let hex = SHA256.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined()
         return "\(prefix)_\(String(hex.prefix(max(8, length))))"
+    }
+}
+
+// Copies scoped to an actor/workspace share the two F262 HTTP slots. Upload bytes
+// and unrelated API calls do not use this budget; no permit spans nested adapters.
+private actor RecordingLifecycleRequestBudget {
+    private var active = 0
+    private var waiters: [(id: UUID, continuation: CheckedContinuation<Void, Error>)] = []
+
+    func execute(_ request: URLRequest,
+                 using executor: @Sendable (URLRequest) async throws -> (Data, URLResponse)) async throws -> (Data, URLResponse) {
+        let id = UUID()
+        try await withTaskCancellationHandler {
+            try Task.checkCancellation()
+            if active < 2 { active += 1 }
+            else {
+                try await withCheckedThrowingContinuation { continuation in
+                    waiters.append((id, continuation))
+                }
+            }
+        } onCancel: {
+            Task { await self.cancel(id) }
+        }
+        defer { release() }
+        try Task.checkCancellation()
+        return try await executor(request)
+    }
+
+    private func cancel(_ id: UUID) {
+        guard let index = waiters.firstIndex(where: { $0.id == id }) else { return }
+        waiters.remove(at: index).continuation.resume(throwing: CancellationError())
+    }
+
+    private func release() {
+        if waiters.isEmpty { active -= 1 }
+        else { waiters.removeFirst().continuation.resume() }
     }
 }
 
@@ -1641,9 +1767,41 @@ private struct Problem: Decodable {
     let code: String
 }
 
+/// Validate network acceptance without changing the durable queue's receipt format.
+private struct AcceptedRecordingDeletionReceipt: Decodable {
+    let receipt: RecordingDeletionReceipt
+    private enum CodingKeys: String, CodingKey { case phase }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        guard try values.decode(String.self, forKey: .phase) == "accepted" else {
+            throw DesktopUploadClientError.invalidResponse
+        }
+        receipt = try RecordingDeletionReceipt(from: decoder)
+    }
+}
+
 public struct DesktopRecordingLifecycleEntry: Decodable, Sendable {
     public let target_type: String
     public let target_id: String
     public let state: String
     public let receipt: RecordingDeletionReceipt?
+
+    private enum CodingKeys: String, CodingKey { case target_type, target_id, state, receipt }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        target_type = try values.decode(String.self, forKey: .target_type)
+        target_id = try values.decode(String.self, forKey: .target_id)
+        state = try values.decode(String.self, forKey: .state)
+        receipt = try values.decodeIfPresent(AcceptedRecordingDeletionReceipt.self, forKey: .receipt)?.receipt
+    }
+}
+
+/// A resolver response must never forward GRAF authorization through a redirect.
+private final class CalendarJoinRedirectBlocker: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+        completionHandler(nil)
+    }
 }

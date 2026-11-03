@@ -63,7 +63,7 @@ description: "Dependency-ordered implementation tasks for the GRAF personal acco
 - [X] T020 [P] [US1] Add profile, security, notifications, language/theme, active-session/device screens, recovery-safe login-method unlink guard, and the admin usage label `Использование и лимиты` by extending `apps/server/src/twobrain_rec_server/cabinet/web_routes/settings.py`, `apps/server/src/twobrain_rec_server/auth/provider_links.py`, `apps/server/src/twobrain_rec_server/admin/view_models.py`, `apps/server/src/twobrain_rec_server/admin/templates/admin/balance.html`, and `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/settings_account_content.html`.
 - [X] T021 [US1] Implement explicit trial activation, verification gate, one-time identity eligibility, and expiry projection in `apps/server/src/twobrain_rec_server/billing/trial.py` and `apps/server/src/twobrain_rec_server/cabinet/web_routes/billing.py`.
 - [X] T022 [US1] Implement account-close scheduling, seven-day cancellation, immediate access/quota revocation at accepted deletion, and Temporal finalization integration by extending `apps/server/src/twobrain_rec_server/deletion/service.py`, `apps/server/src/twobrain_rec_server/db/models/deletion.py`, and `apps/server/src/twobrain_rec_server/workflows/maintenance_worker.py`.
-- [X] T023 [US1] Add Russian-first account templates, keyboard/focus states, no-JS navigation fallback, clean-room visual tokens, and read-only browser handoff/expired/offline states in `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/settings_account_content.html`, `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/components/account_navigation.html`, `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css`, `apps/macos/RecApp/Sources/Cabinet/DesktopCabinetRoutePolicy.swift`, and `apps/macos/RecApp/Sources/Cabinet/DesktopCabinetWorkspaceView.swift`.
+- [ ] T023 [US1] Add Russian-first account templates, keyboard/focus states, no-JS navigation fallback, clean-room visual tokens, and read-only browser handoff/expired/offline states in `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/settings_account_content.html`, `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/components/account_navigation.html`, `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css`, `apps/macos/RecApp/Sources/Cabinet/DesktopCabinetRoutePolicy.swift`, and `apps/macos/RecApp/Sources/Cabinet/DesktopCabinetWorkspaceView.swift`. (Issue #4877).
 
 **Checkpoint**: Account center and trial are independently usable; account close remains distinct from canceling paid renewal and never disables local Record/Stop.
 
@@ -124,7 +124,7 @@ description: "Dependency-ordered implementation tasks for the GRAF personal acco
 
 - [X] T040 [US4] Implement recurring authority evidence, bank-card binding/replacement, method display masking, and owner-loss revocation in `apps/server/src/twobrain_rec_server/billing/payment_methods.py` and `apps/server/src/twobrain_rec_server/billing/authority.py`.
 - [X] T041 [US4] Implement self-service `Отключить автопродление`, refusal timestamp/version checks, resume preview/consent, and non-blocking optional retention copy in `apps/server/src/twobrain_rec_server/billing/subscription.py` and `apps/server/src/twobrain_rec_server/cabinet/web_routes/billing.py`.
-- [X] T042 [US4] Implement one co-termed storage add-on, capacity transitions, price snapshots, and entitlement projection in `apps/server/src/twobrain_rec_server/billing/storage_addons.py`.
+- [X] T042 [US4] Implement one co-termed storage add-on, capacity transitions, price snapshots, and entitlement projection in `apps/server/src/twobrain_rec_server/billing/storage_addons.py`. (Issue #4897).
 - [X] T043 [US4] Add payment-method, renewal-control, and storage-add-on screens with explicit action labels and accessible confirmation states in `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_payment_method_content.html`, `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_subscription_content.html`, and `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_storage_content.html`.
 
 **Checkpoint**: Renewal authority is explicit, owner-scoped, auditable and can be refused before any provider mutation.
@@ -144,7 +144,7 @@ description: "Dependency-ordered implementation tasks for the GRAF personal acco
 
 - [X] T046 [US5] Implement one-operation renewal scheduling, exact `paid_through` cutoff, and Free projection in `apps/server/src/twobrain_rec_server/billing/renewal.py`.
 - [X] T047 [US5] Implement Temporal renewal workflow, provider-key recovery, expiry gap, late-success incident, and refusal precedence in `apps/server/src/twobrain_rec_server/workflows/billing_renewal_workflow.py` and `apps/server/src/twobrain_rec_server/billing/renewal_resolution.py`.
-- [X] T048 [US5] Add renewal reminder, failure-to-Free, unknown, late-success and manual-resume notifications in `apps/server/src/twobrain_rec_server/billing/notifications.py` and their bounded delivery loop in `apps/server/src/twobrain_rec_server/workflows/worker.py`.
+- [ ] T048 [US5] Add renewal reminder, failure-to-Free, unknown, late-success and manual-resume notifications in `apps/server/src/twobrain_rec_server/billing/notifications.py` and their bounded delivery loop in `apps/server/src/twobrain_rec_server/workflows/worker.py`. (Issue #4903).
 - [X] T049 [US5] Render next-charge, paid-through, renewal-off, pending-resolution and Free fallback states in `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_overview_content.html` and `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_subscription_content.html`.
 
 **Checkpoint**: A failed or unconfirmed renewal never creates a grace period, an automatic retry, or an ambiguous paid state.
@@ -197,7 +197,7 @@ description: "Dependency-ordered implementation tasks for the GRAF personal acco
 ### Tests for User Story 8
 
 - [X] T061 [P] [US8] Add attribution, self-referral, duplicate, masked-identity and risk-signal tests in `apps/server/tests/unit/test_referrals.py`.
-- [X] T062 [P] [US8] Add monthly/yearly maturity, 14-day hold, 180-day rolling cap, contiguous credit, cancel-scheduled, and authoritative-observed-refund reversal tests in `apps/server/tests/integration/test_referral_rewards.py`.
+- [ ] T062 [P] [US8] Add monthly/yearly maturity, 14-day hold, 180-day rolling cap, contiguous credit, cancel-scheduled, and authoritative-observed-refund reversal tests in `apps/server/tests/integration/test_referral_rewards.py`. (Issue #4917).
 
 ### Implementation for User Story 8
 
@@ -217,12 +217,12 @@ description: "Dependency-ordered implementation tasks for the GRAF personal acco
 ### Tests for User Story 9
 
 - [X] T067 [P] [US9] Add notification outbox idempotency, preference bypass, delivery failure, masking, and safe-link tests in `apps/server/tests/unit/test_billing_notifications.py`.
-- [X] T068 [P] [US9] Add end-to-end event coverage for trial reminders, payment success/failure, storage thresholds, receipt state, referral credit, unknown and late outcomes in `apps/server/tests/integration/test_billing_notification_flow.py`.
+- [ ] T068 [P] [US9] Add end-to-end event coverage for trial reminders, payment success/failure, storage thresholds, receipt state, referral credit, unknown and late outcomes in `apps/server/tests/integration/test_billing_notification_flow.py`. (Issue #4922).
 
 ### Implementation for User Story 9
 
 - [X] T069 [US9] Implement billing notification event taxonomy, idempotent outbox records, Russian-first templates, and delivery state in `apps/server/src/twobrain_rec_server/billing/notifications.py`, `apps/server/src/twobrain_rec_server/billing/events.py`, and the existing Postal delivery worker.
-- [X] T070 [US9] Implement fair-use classification/review-deadline/appeal state with bounded reason and wire trial, payment, renewal, storage, receipt, referral, fair-use and account-close events to notifications without creating a refund correspondence event in `apps/server/src/twobrain_rec_server/billing/fair_use.py`, `apps/server/src/twobrain_rec_server/billing/events.py`, and `apps/server/src/twobrain_rec_server/workflows/maintenance_worker.py`.
+- [ ] T070 [US9] Implement fair-use classification/review-deadline/appeal state with bounded reason and wire trial, payment, renewal, storage, receipt, referral, fair-use and account-close events to notifications without creating a refund correspondence event in `apps/server/src/twobrain_rec_server/billing/fair_use.py`, `apps/server/src/twobrain_rec_server/billing/events.py`, and `apps/server/src/twobrain_rec_server/workflows/maintenance_worker.py`. (Issue #4926).
 - [X] T071 [US9] Add notification preferences, legal/financial override rules, safe deep links and accessible live-status rendering in `apps/server/src/twobrain_rec_server/cabinet/web_routes/settings.py`, `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/components/notifications.html`, and `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js`.
 
 **Checkpoint**: Users receive useful next actions without GRAF receiving or storing support-email content or raw financial identifiers.
@@ -237,13 +237,105 @@ description: "Dependency-ordered implementation tasks for the GRAF personal acco
 
 - [X] T072 [P] [US10] Add reconciliation completeness, registry hash/part identity, configured-empty-report, replacement/missing-file, and gap-owner tests in `apps/server/tests/integration/test_billing_registry.py`.
 - [X] T073 [P] [US10] Add monitoring, durable incident lifecycle/owner/deadline, emergency-stop, RLS inventory, redaction, accessibility, four-eyes gate metadata, and launch-canary assertions in `apps/server/tests/contract/test_billing_launch_gates.py`.
-- [X] T074 [P] [US10] Add test-shop E2E coverage for initial/saved payment, recurring decline, timeout-late success, zero binding, provider floor, merchant-cabinet refund observation, receipt observation, and zero product refund mutations in `apps/server/tests/e2e/test_billing_test_shop.py`.
+- [ ] T074 [P] [US10] Add test-shop E2E coverage for initial/saved payment, recurring decline, timeout-late success, zero binding, provider floor, merchant-cabinet refund observation, receipt observation, and zero product refund mutations in `apps/server/tests/e2e/test_billing_test_shop.py`. (Issue #4928).
 
 ### Implementation for User Story 10
 
-- [X] T075 [US10] Implement provider polling, observed refund/receipt/method reconciliation, separate payments/refunds registry import, completeness hashes and metadata-only gap ownership in `apps/server/src/twobrain_rec_server/billing/reconciliation.py` and `apps/server/src/twobrain_rec_server/billing/registry.py`.
+- [ ] T075 [US10] Implement provider polling, observed refund/receipt/method reconciliation, separate payments/refunds registry import, completeness hashes and metadata-only gap ownership in `apps/server/src/twobrain_rec_server/billing/reconciliation.py` and `apps/server/src/twobrain_rec_server/billing/registry.py`. (Issue #4930).
+
+  Уточнение исполнения 30.10.2026: сначала [внутренний импорт B1–B3](contracts/registry-operator-import.md)
+  через `cli/billing_registry.py`, две ограниченные maintenance-only таблицы,
+  миграцию и `db/rls_validation.py`; затем полная CSV/API/ledger сверка.
+  Полнота файлов не означает финансовый PASS. До реализации прочитать
+  независимое ревью и чистый анализ; до `[X]` выполнить DB/CLI/restart/права,
+  отрицательные входы и полный остаток исходной T075. Issue не дробится.
 - [X] T076 [US10] Implement Temporal reconciliation, stuck-operation, storage projection, add-on/time-credit and notification maintenance workflows in `apps/server/src/twobrain_rec_server/workflows/billing_reconciliation_workflow.py` and `apps/server/src/twobrain_rec_server/workflows/maintenance_worker.py`.
-- [X] T077 [US10] Add operational metrics, dashboards, emergency stop and read-only launch diagnostics through existing observability patterns in `apps/server/src/twobrain_rec_server/billing/monitoring.py`, `apps/server/src/twobrain_rec_server/readiness/checks.py`, and `apps/server/src/twobrain_rec_server/admin/metrics.py`.
+- [ ] T077 [US10] Add operational metrics, dashboards, emergency stop and read-only launch diagnostics through existing observability patterns in `apps/server/src/twobrain_rec_server/billing/monitoring.py`, `apps/server/src/twobrain_rec_server/readiness/checks.py`, and `apps/server/src/twobrain_rec_server/admin/metrics.py`. (Issue #4932).
+
+  После PR7898: J1–J6 O16, принятые ответы владельца03.11. Первый шаг —
+  append-only billing_reconciliation_observations в db/models/billing.py,
+  новая миграция от фактического head, db/rls_validation.py, узкий
+  billing/reconciliation_observation.py, текущая activity workflows/worker.py
+  и агрегат billing/monitoring.py (server prefix прежний). Сначала
+  checklists/reconciliation-observations.md/независимый допуск и scoped analyze;
+  затем RED и перечисленные в quickstart unit/PG/CLI/ActivityEnvironment,
+  restart/конкуренция/constraints/roles/rollback/restore/deadline/privacy,
+  независимые code/converge/exact PR gates. Нельзя писать код до допуска.
+  Регулярное наблюдение, почта/retry и сохраняемая реакция с owner/severity/
+  evidence/deadline остаются обязательным продолжением здесь же; принятый
+  порядок5мин/15мин/retry≥5мин и исходные сроки не отменяются. Это не новая
+  задача/issue; исходная строка T077 и все87 task lines сохраняются, T077[ ].
+
+  Порядок доработки 01.11.2026: [O1–O8](contracts/operator-observation.md),
+  reviewer-owned checklists/operator-observation.md и независимый допуск,
+  scoped analyze, подтверждение существующей #4932; затем минимальный
+  billing/monitoring.py + cli/billing_monitoring.py и существующий unit test
+  плюс tests/integration/test_billing_monitoring_postgres.py (префиксы plan).
+  Настоящие CLI/guard/снимок/timeout/privacy/no-write, review/converge и
+  три PR gates обязательны. Исходный текст/ID/владелец сохранены; отменённые
+  F272/F199 stop/gates не восстанавливаются. Admin/readiness/F254 не меняются.
+  Полный FR-089/O6 (все источники/регулярность/тревоги/сохраняемая реакция)
+  остаётся здесь; первый отчёт не даёт `[X]` или закрытия issue.
+
+  Следующий срез после PR7884: P1–P6 контракта O9/free_projection,
+  reviewer-owned checklists/free-projection.md → независимый допуск →
+  scoped analyze/существующая #4932 → новые RED и PostgreSQL/CLI сценарии
+  quickstart → минимальная доработка того же monitoring.py и двух названных
+  unit/integration test файлов → независимое review/converge/exact PR gates.
+  Это порядок исполнения T077, не новая задача; все исходные строки прежние.
+
+  Далее после PR7887: C1–C6 O10/credit-ledger той же T077 в
+  apps/server/src/twobrain_rec_server/billing/monitoring.py и существующих
+  apps/server/tests/unit/test_billing_monitoring.py,
+  apps/server/tests/integration/test_billing_monitoring_postgres.py.
+  Сначала reviewer-owned checklists/credit-ledger.md, scoped analyze/issue
+  sync; затем RED, ограниченная агрегация и реальные сценарии quickstart,
+  независимое review/converge и точные PR gates. Состояния/временные признаки
+  строк не принимают add-on/job измерители и полный O6; T077 остаётся [ ].
+
+  После PR7890: R1–R6 O11/refund inventory, reviewer-owned
+  checklists/refund-inventory.md → независимый допуск → scoped analyze и
+  прежняя #4932 → RED → одна агрегация в том же billing/monitoring.py и
+  существующих unit/integration файлах выше → реальные PostgreSQL/CLI,
+  no-write/privacy/роли/снимок/ошибка схемы → независимые review/converge и
+  точные PR gates. Чеки/финансовая сверка остаются null; T077 [ ] и все
+  исходные полные task lines сохраняются без новой задачи или issue.
+  После PR7894: Q1–Q6 O13/receipt observation inventory в той же T077;
+  checklists/receipt-inventory.md/независимый допуск → analyze/та же #4932 →
+  RED → helper в прежнем billing/monitoring.py и случаи в прежних unit/
+  integration файлах выше → настоящие SQL JSON/CLI/FORCE RLS/снимки/роли/
+  no-write/privacy/схема → review/converge/exact PR gates. До допуска нового
+  кода нет. Это порядок исходной задачи, не новая task; все87 task lines,
+  T077[ ],58gaps/полный O6/исходные сроки сохраняются.
+
+  После PR7892: F1–F6 O12/fair-use inventory в той же T077; сначала
+  checklists/fair-use-inventory.md/независимый допуск → scoped analyze/прежняя
+  #4932 → RED → одна агрегация в том же billing/monitoring.py и два названных
+  unit/integration файла → реальные PostgreSQL/CLI/constraints/forced RLS,
+  границы/снимки/приватность/no-write/схема → независимые review/converge и
+  точные PR gates. Это порядок исполнения, не новая задача; все87 полных
+  task lines, T077 [ ], полный O6 и58 gaps сохраняются.
+
+  После PR7896: D1–D6 O14/deletion request inventory исходной T077;
+  checklists/deletion-inventory.md/независимый допуск → scoped analyze/та же
+  #4932 → RED → один helper в прежнем billing/monitoring.py и случаи в прежних
+  apps/server/tests/unit/test_billing_monitoring.py,
+  apps/server/tests/integration/test_billing_monitoring_postgres.py → реальные
+  CLI/PG/forcedRLS/NOTNULL/unknown/privacy/снимки/no-write/схема/роли → независимые
+  code/converge/exact PR gates. Это порядок исходной задачи, не новая task.
+  Все87полных task lines/T077[ ]/58gaps/полныйO6/T070/сроки остаются открытыми.
+
+  После PR7897: S1–S6 O15/storage projection той же T077; сначала
+  checklists/storage-projection.md/независимый допуск → scoped analyze/та же
+  #4932 → RED → один collector в прежнем billing/monitoring.py и сценарии в
+  apps/server/tests/unit/test_billing_monitoring.py,
+  apps/server/tests/integration/test_billing_monitoring_postgres.py. Existing
+  effective_paid_storage/_active_reserved_bytes/project_active_playback_storage
+  с общим as_of/явными аргументами; настоящие PG/CLI/500–501/forcedRLS/снимки/
+  privacy/no-write/schema/helper failures → независимые code/converge/exact
+  PR gates. Исходная строка T077 и все87 полных task lines сохраняются, новой
+  задачи/issue нет; T077[ ]/T070/полныйO6/58gaps/исходные сроки остаются открытыми.
+
 - [ ] T078 [US10] Add test-shop and controlled real-shop canary runbooks, environment separation, provider capability evidence, legal/finance sign-off records, and rollback/stop procedure in `specs/140-user-account-billing/quickstart.md` and `docs/runbooks/billing-launch.md`.
 
 **Checkpoint**: Launch evidence proves immediate-Free behavior, unlimited paid core, finite storage, provider reconciliation and external merchant refund handling before public enablement.
@@ -313,4 +405,82 @@ description: "Dependency-ordered implementation tasks for the GRAF personal acco
 - Every task above remains unchecked until implementation and its listed validation evidence pass.
 - No task may add an in-product refund form, claim/status/timeline, amount calculator, operator refund UI, refund CLI, or outbound refund mutation.
 - No task may introduce a second paid base tier, commercial paid-minute cap, renewal grace/retry path, or duplicate storage inventory.
-- Implementation changes require explicit user approval before commit, push, merge or production release.
+
+
+## Сверка отметок — 2026-10-27
+
+У T062/#4917, T068/#4922, T070/#4926, T075/#4930 и T077/#4932 сняты
+неподтверждённые отметки выполнения. Исходные требования, порядок и связи
+всех 87 задач сохранены; другие отметки не менялись. Причины и границы
+проверки: [quickstart](quickstart.md#сверка-пяти-открытых-задач--2026-10-27).
+Это исправление учёта, а не отмена задач или приёмка оставшейся реализации.
+
+## Применимость проверки интерфейса — 2026-10-30
+
+В исходных T023/T079 термин `clean-room` означает независимую реализацию
+и проверенные права на материалы по текущей FR-081 и конституции §VII.
+Он не требует отличия от наблюдаемых Krisp UX/UI/IA или переписывания
+функциональных подписей. Исходные ID, описания и отметки всех 87 задач
+сохранены. Эта сверка устраняет противоречие X7 в рамках T079/T083;
+доступность, ручная приёмка и остальные открытые критерии не принимаются.
+
+
+## Повторная приёмка T074 — 2026-10-31
+
+Неподтверждённая общая отметка T074 снята; ID, исходное описание и владелец
+сохранены. #4928 открыта. Три старых offline provider-boundary проверки не
+подтверждают сохраняемую цепочку recurring decline. Уточнение spec/plan и
+`checklists/renewal-decline.md` принимают только действующие F278 FR-014
+внутри автоматической части; остальные реальные/выпускные критерии остаются.
+
+## Отмена исторической совокупной T023 — 31.10.2026
+
+T023 / #4877: NOT_PLANNED после принятия сверки отдельным PR.
+Исходное описание задачи сохранено, отметка `[X]` снята: это не принятие
+реализации. Владелец сверки — агент уборки репозитория; владелец нового
+продуктового решения о возврате browser-only пути — владелец продукта.
+Причина: принятые F210 FR017/F278 FR006 заменили отдельную desktop сводку
+и обязательный внешний billing handoff действующим встроенным кабинетом.
+
+Действующая приёмка account UI/клавиатуры/фокуса/no-JS/ошибок не отменена:
+T079/#4936, F210 T017/#5961, F278 T017/#7323/T025/#7332 остаются открытыми.
+Account-close, внешний refund и денежные/защитные границы сохраняются.
+Возврат T023 допускается только по новому явному решению о смене пути оплаты
+с отдельными требованиями и проверками. Подробности и пределы —
+`reconciliation-t023-20261031.md`. Остальные 86 задач не меняются.
+
+
+## Текущий срез T048 / #4903 — 01.11.2026
+
+Исходное описание T048 сохранено; отметка выполнения снята по подтверждённому
+отсутствию рабочих producers. Порядок внутри существующей задачи:
+1. Независимое reviewer-owned `checklists/renewal-unknown.md`, scoped analyze.
+2. Причинный PostgreSQL RED для сообщения при cutoff и отсутствие внешнего HTTP.
+3. Проверка связи операции/счёта с текущим плательщиком и периодом; запись
+   существующего UNKNOWN в той же транзакции, без изменения платежей/доступа.
+4. PostgreSQL commit/restart/dedup/rollback и отрицательные границы; профильные
+   регрессии, review/converge и точные PR gates.
+5. Оставить общую T048/#4903 открытой: reminder, failure-to-Free, late-success,
+   manual-resume и фактическая доставка требуют отдельной проверки/доработки.
+
+Следующий срез той же T048: подтверждённый отказ → Free. Сначала требования
+и независимый checklists/renewal-final-failure.md, затем RED двух входов,
+одна общая безопасная запись события, сохраняемые PostgreSQL границы,
+review/converge и обязательные PR SHA/base gates. T048 остаётся `[ ]`.
+
+
+Следующая часть исходной T048 — напоминание в первом окне. Требования и
+reviewer-owned checklists/renewal-reminder.md предшествуют коду; затем RED,
+минимальный producer существующей очереди, PostgreSQL/копия/границы,
+review/analyze/converge и точные PR gates. Полная T048 остаётся `[ ]`.
+
+
+Следующая часть T048/#4903 — содержание подтверждения оплаты и включения
+продления по FR-047/070/071/105. Порядок: уточнение spec/contract/plan →
+независимый checklists/notification-content.md → scoped analyze → RED
+настоящих producers → минимальные payload/renderer → PostgreSQL и профильные
+регрессии → review/converge → точные PR gates. Пути: billing/notifications.py,
+billing/entitlements.py, billing/purchases.py, cabinet/web_routes/billing.py;
+существующие тесты unit/test_billing_notifications.py,
+integration/test_billing_purchase_journey.py и integration/test_billing_return.py. Все исходные
+87 ID/описаний сохраняются; T048/T068 остаются `[ ]`, новых дублей issues нет.

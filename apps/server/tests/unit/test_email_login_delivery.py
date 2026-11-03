@@ -281,6 +281,21 @@ async def test_postal_malformed_response_is_first_class_outcome_unknown() -> Non
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("response_body", [{}, [], {"status": "unknown"},
+                                         {"status": None}, {"status": ["success"]}])
+async def test_postal_invalid_status_is_unknown_without_retry(response_body) -> None:
+    client = PostalEmailLoginClient(
+        api_url="http://postal.example.test", api_key="synthetic-key",
+        from_address="sender@example.test",
+        transport=httpx.MockTransport(lambda request: httpx.Response(200, json=response_body)),
+    )
+    with pytest.raises(EmailLoginDeliveryError) as error:
+        await client.send_login_code(recipient_email="owner@example.test", code="123456", ttl_seconds=900)
+    assert error.value.reason_code == "postal_malformed_response"
+    assert error.value.outcome_unknown and not error.value.retryable
+
+
+@pytest.mark.anyio
 async def test_postal_5xx_is_first_class_outcome_unknown() -> None:
     async def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(503, json={"status": "error"})

@@ -88,3 +88,54 @@ infra/scripts/dev-harness.sh rollback --dry-run
   (`tmutil removeexclusion`); в репозитории они не фиксируются.
 - Если уборка удалила нужный для расследования каталог, он не восстанавливается —
   восстанавливается только целевой откат (архив + приложение) штатным `rehydrate`.
+
+## Сверка T031 — 2026-10-27
+
+Область: #7120/T031. Полоса этой сверки — `Docs-only / mechanical`:
+уточняются существующие доказательства без изменения реализации, требований,
+проверок или отметок выполнения. Новые продуктовые прогоны не выполнялись.
+
+Подтверждено чтением GitHub API, журналов и небольших артефактов:
+
+- [PR #7121](https://github.com/yshishenya/graf/pull/7121) слит:
+  PR SHA `27419f19b6d0a7c685121b7f84c51f9f31085269`, проверенная основа
+  `11097fd18c28b5b0698e4b9d11ad7ea4d5b12e9d`, merge
+  `95f3d8f64a43ba3d1a63bc8f406598a1744f7435`.
+- `python3 scripts/validate-pr-checks.py --repository yshishenya/graf --pr 7121`
+  — PASS. Валидатор подтвердил настоящие source proofs и текущие обязательные
+  проверки: [governance-fast](https://github.com/yshishenya/graf/actions/runs/35259924029),
+  [macos-pr](https://github.com/yshishenya/graf/actions/runs/35259924043),
+  [pr-metadata](https://github.com/yshishenya/graf/actions/runs/38807950566).
+  Первая macOS-проверка действительно исполнила Swift build/tests;
+  отдельный повторный scope-прогон 35259974405 пропустил native job,
+  поэтому не считается повторным измерением сборки.
+- В macOS-журнале 35259924043 на точном PR SHA записаны `Cache hit for`,
+  `Cache restored successfully` и `Cache hit occurred on the primary key`.
+- [release-full 35265565925](https://github.com/yshishenya/graf/actions/runs/35265565925)
+  — PASS на кандидате `5482d7fb55c89b9ac63b156dfb84fc6a0b373152`.
+  Резервация `rc-20260917T193305Z-6f7adc72e514`, authoritative Full,
+  receipt и оба компонентных результата согласованы по candidate/SHA/run;
+  `skipped_gates=[]`, контрольные суммы компонентов и Full совпадают.
+  Кандидат опубликован как
+  [v2026.09.17.2](https://github.com/yshishenya/graf/releases/tag/v2026.09.17.2)
+  и содержит merge PR #7121. В проверяемых Swift/CI-путях между PR SHA
+  и кандидатом нет изменений.
+- В macOS-журнале этого Full записаны `Cache not found for input keys`
+  и последующее `Cache saved with key`. Основной ключ совпадает с ключом
+  PR-прогона: Swift 6.0.3, digest зависимостей
+  `572876d2fc17543c4c3985d8595d60ba3fe7f3b20dcf949a2b3cd68a1790c40c`,
+  digest исходников
+  `41cbadeef4daad4a1877c3ad77b66fb2aff99d7c0a0fd77a550ae6069090bdf3`,
+  окончание `-v2`. Это подтверждает работоспособность обоих путей кэша,
+  но выпускной прогон случился позже PR и имеет другой набор проверок.
+
+Остаток исходной приёмки T031: сопоставимые первый и повторный PR-прогоны
+с исполнением native job, временем и неизменным набором проверок; доказательство
+ускорения не менее 30% по SC-004; проверка смены ключа при изменении зависимостей
+по сценарию 5. Отдельное сообщение о cache hit или сравнение длительностей
+PR и Full этого не доказывает. Эти результаты нельзя подставлять из старого
+ключа на SHA `16ccdb6` или из scope-only прогона.
+
+T031/#7120 остаётся открытой. Сверка не принимает всю F269 и не подтверждает
+живую уборку/откат T030/#7119; состояние единственного GRAF Dev здесь
+не менялось и не проверялось.

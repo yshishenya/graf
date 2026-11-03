@@ -9,6 +9,7 @@ from uuid import UUID, uuid4
 import pytest
 from fastapi.responses import RedirectResponse
 from fastapi.routing import APIRoute
+from starlette.datastructures import FormData, QueryParams
 
 from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.auth.account_closure import AccountCloseView
@@ -166,7 +167,7 @@ async def test_merge_page_missing_store_redirects_to_first_party_recovery(
     path: str, expected: str
 ) -> None:
     response = await account_merge_routes.account_merge_page(
-        SimpleNamespace(url=SimpleNamespace(path=path)),
+        SimpleNamespace(url=SimpleNamespace(path=path), query_params=QueryParams()),
         UUID(int=1),
         tenant_scope=SimpleNamespace(),
         principal=SimpleNamespace(),
@@ -428,16 +429,19 @@ class _EmailLinkTransactionProbe:
 class _EmailLinkRequest:
     def __init__(self) -> None:
         self.url = SimpleNamespace(path="/desktop/settings/account/email-link/verify")
+        self.query_params = QueryParams()
 
-    async def form(self) -> dict[str, str]:
-        return {
+    async def form(self) -> FormData:
+        return FormData({
             "email": "user@example.test",
             "code": "123456",
             "state": "synthetic-state",
-        }
+        })
 
 
 class _FormMustNotRunRequest:
+    query_params = QueryParams()
+
     async def form(self):
         raise AssertionError("stale email-link request reached form processing")
 
@@ -681,7 +685,7 @@ def test_reauth_required_replaces_confirm_with_csrf_protected_login_action() -> 
 
     assert '<form action="/logout" method="post">' in page
     assert 'name="csrf_token" value="safe-csrf"' in page
-    assert 'name="next" value="/login?next=/settings/account?provider_link=reauth_required"' in page
+    assert 'name="next" value="/login?next=/settings/account"' in page
     assert ">Войти снова</button>" in page
     assert f'action="/settings/account/merge/{intent_id}/confirm"' not in page
 
@@ -720,8 +724,8 @@ def test_merge_cancel_and_success_return_copy_are_outcomes_not_session_errors() 
     assert "Профили остались раздельными. Способ входа не подключен к текущему профилю." in settings
     assert "_relogin_result(provider_id)" in confirm_source
     assert "auth_session_invalid" not in confirm_source
-    assert "next=/settings/account" in confirm_source
-    assert "next=/desktop/settings/account" in confirm_source
+    assert '"/settings/account"' in confirm_source
+    assert '"/desktop/settings/account"' in confirm_source
 
 
 def test_expired_merge_copy_is_actionable_without_internal_preview_term() -> None:
@@ -797,7 +801,7 @@ async def test_stale_merge_get_hides_confirm_and_offers_fresh_provider_start(
     response = await account_merge_routes.account_merge_page(
         SimpleNamespace(
             url=SimpleNamespace(path="/settings/account/merge/1"),
-            query_params={},
+            query_params=QueryParams(),
             app=SimpleNamespace(
                 state=SimpleNamespace(
                     settings=SimpleNamespace(billing_support_email=None)

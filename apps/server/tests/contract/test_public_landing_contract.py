@@ -1,3 +1,4 @@
+from html.parser import HTMLParser
 from pathlib import Path
 from struct import unpack
 
@@ -11,6 +12,31 @@ ROOT = Path(__file__).resolve().parents[2]
 PUBLIC_STATIC_DIR = ROOT / "src" / "twobrain_rec_server" / "public" / "static" / "public"
 PUBLIC_TEMPLATE_DIR = ROOT / "src" / "twobrain_rec_server" / "public" / "templates" / "public"
 REPOSITORY_ROOT = ROOT.parents[1]
+
+
+def test_public_product_panels_have_valid_roles_and_reciprocal_tab_links() -> None:
+    class Elements(HTMLParser):
+        def __init__(self) -> None:
+            super().__init__()
+            self.elements: list[tuple[str, dict[str, str | None]]] = []
+
+        def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+            self.elements.append((tag, dict(attrs)))
+
+    parser = Elements()
+    parser.feed((PUBLIC_TEMPLATE_DIR / "landing.html").read_text(encoding="utf-8"))
+    ids = [attrs["id"] for _, attrs in parser.elements if "id" in attrs]
+    assert len(ids) == len(set(ids))
+    tabs = [attrs for _, attrs in parser.elements if attrs.get("role") == "tab"]
+    panels = [(tag, attrs) for tag, attrs in parser.elements if attrs.get("role") == "tabpanel"]
+    assert len(tabs) == len(panels) == 3
+    assert len({tab["aria-controls"] for tab in tabs}) == 3
+    for tag, panel in panels:
+        assert tag == "div", "tabpanel needs a generic container, not article semantics"
+        tab = next(tab for tab in tabs if tab["id"] == panel["aria-labelledby"])
+        assert tab["aria-controls"] == panel["id"]
+        assert tab["data-tab"] == panel["data-panel"]
+        assert "hidden" not in panel  # All panels remain readable without JavaScript.
 
 
 def test_public_landing_assets_and_templates_are_local() -> None:

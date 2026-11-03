@@ -3,8 +3,11 @@
 ## CI lanes
 
 - `focused`: local changed-path checks while implementing.
-- `fast`: PR-ready feedback; may be repeated for new SHAs.
-- `full`: one authoritative run for an immutable release candidate; diagnostic
+- PR: GitHub `governance-fast`, `macos-pr`, `pr-metadata` must pass on exact PR
+  SHA and checked base, verified by `scripts/validate-pr-checks.py`.
+- Local `ci-local.sh --fast` / `--full`: diagnostic/fallback evidence only;
+  cannot replace required GitHub checks.
+- GitHub `release-full`: one authoritative run for an immutable release candidate; diagnostic
   broad runs receive a distinct non-release identity.
 
 ## Run identity

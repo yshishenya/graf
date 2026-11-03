@@ -122,22 +122,40 @@ def test_runtime_image_uses_runtime_dependencies_and_constraints() -> None:
     assert "sqlalchemy==" in constraints
 
 
-def test_runtime_image_uses_loopback_only_sanitized_forwarded_headers() -> None:
+def test_runtime_image_uses_configurable_exact_proxy_trust_without_cli_override() -> None:
     dockerfile = DOCKERFILE_PATH.read_text()
 
     assert '"--no-access-log"' in dockerfile
     assert '"--proxy-headers"' in dockerfile
-    assert '"--forwarded-allow-ips", "127.0.0.1"' in dockerfile
-    assert dockerfile.index('"--proxy-headers"') < dockerfile.index('"--forwarded-allow-ips", "127.0.0.1"')
+    assert '"--forwarded-allow-ips"' not in dockerfile
+    compose = COMPOSE_PATH.read_text()
+    assert "FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS-127.0.0.1}" in compose
 
 
 def test_nginx_sanitizes_forwarded_client_chain_before_loopback_proxy() -> None:
     nginx = NGINX_PATH.read_text()
+    http, rec, webhook = nginx.split("\nserver {")
 
-    assert "proxy_pass http://127.0.0.1:18081;" in nginx
-    assert "proxy_set_header X-Forwarded-For $remote_addr;" in nginx
+    assert "10444" not in rec
+    assert "listen 127.0.0.1:10445 ssl http2 proxy_protocol;" in rec
+    assert "listen [::1]:10445 ssl http2 proxy_protocol;" in rec
+    assert 'if ($proxy_protocol_addr = "") { return 400; }' in rec
+    assert 'if ($host != rec.2brain.pro) { return 421; }' in rec
+    # Check every actual API proxy location, including the private share route.
+    locations = rec.split("proxy_pass http://127.0.0.1:18081;")[1:]
+    assert len(locations) == 2
+    for location in locations:
+        directives = location.split("}", 1)[0]
+        assert "proxy_set_header X-Forwarded-For $proxy_protocol_addr;" in directives
+        assert "proxy_set_header X-Real-IP $proxy_protocol_addr;" in directives
+        assert "proxy_set_header X-Forwarded-Proto https;" in directives
     assert "proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;" not in nginx
-    assert "proxy_set_header X-Real-IP $remote_addr;" in nginx
+    assert "real_ip_header" not in nginx
+    assert "set_real_ip_from" not in nginx
+    assert "proxy_protocol" not in http
+    assert "listen 8443 ssl http2;" in webhook
+    assert "proxy_set_header X-Forwarded-For $remote_addr;" in webhook
+    assert "proxy_protocol" not in webhook
 
 
 def test_runtime_image_copy_sources_exist_in_repository() -> None:
@@ -422,9 +440,11 @@ def test_maintenance_runtime_is_explicit_hardened_and_has_no_user_runtime_secret
     assert service["read_only"] is True
     assert service["cap_drop"] == ["ALL"]
     assert service["security_opt"] == ["no-new-privileges:true"]
-    assert service["networks"] == ["rec-private"]
+    assert service["networks"] == ["rec-private", "postal-network"]
     assert secret_sources == {
+        "twobrain_postal_api_key",
         "graf_credential_encryption_key",
+        "graf_share_identity_hash_secret",
         "twobrain_google_calendar_client_secret",
         "twobrain_postgres_maintenance_password",
         "twobrain_minio_api_access_key",
@@ -436,6 +456,17 @@ def test_maintenance_runtime_is_explicit_hardened_and_has_no_user_runtime_secret
         "twobrain_langfuse_public_key",
         "twobrain_langfuse_secret_key",
     }
+    identity_secret = next(
+        item for item in service["secrets"]
+        if item["source"] == "graf_share_identity_hash_secret"
+    )
+    assert identity_secret["target"] == "graf_share_identity_hash_secret"
+    assert (identity_secret["uid"], identity_secret["gid"], identity_secret["mode"]) == (
+        "100", "101", 0o440
+    )
+    assert service["environment"]["TWOBRAIN_SHARE_IDENTITY_HASH_SECRET_FILE"] == (
+        "/run/secrets/graf_share_identity_hash_secret"
+    )
     assert "twobrain_mediascribe_api_key" not in secret_sources
     assert "twobrain_web_csrf_secret" not in secret_sources
     assert service["environment"]["TWOBRAIN_GOOGLE_CALENDAR_CLIENT_SECRET_FILE"] == (
@@ -724,7 +755,7 @@ def test_production_api_allows_runtime_public_analytics_overrides() -> None:
     )
     assert (
         api_env["TWOBRAIN_PUBLIC_ANALYTICS_CONSENT_COPY_VERSION"]
-        == "${TWOBRAIN_PUBLIC_ANALYTICS_CONSENT_COPY_VERSION:-2026-09-15.1}"
+        == "${TWOBRAIN_PUBLIC_ANALYTICS_CONSENT_COPY_VERSION:-2026-10-22.1}"
     )
     assert "TWOBRAIN_PUBLIC_ANALYTICS_YANDEX_METRICA_ID" not in worker_env
 
@@ -756,3 +787,36 @@ def test_remote_cd_normalizes_billing_secret_paths_and_fails_closed_on_placehold
         'if [[ "${TWOBRAIN_BILLING_PROVIDER_OBSERVATION_ENABLED:-false}" == "true" \\\n  || "${TWOBRAIN_BILLING_CHECKOUT_ENABLED:-false}" == "true" ]]; then\n'
         '  [[ -n "$billing_webhook_secret_source"' in script
     )
+
+
+def test_billing_card_minimum_is_one_ruble_and_operator_configurable_for_all_writers() -> None:
+    defaults = dict(
+        line.split("=", 1) for line in ENV_TEMPLATE_PATH.read_text().splitlines()
+        if line and not line.startswith("#") and "=" in line
+    )
+    assert int(defaults["TWOBRAIN_BILLING_PROVIDER_FLOOR_MINOR"]) >= 100
+    for service_name in ("rec-api", "rec-processing-worker", "rec-maintenance"):
+        environment = _compose()["services"][service_name]["environment"]
+        assert environment["TWOBRAIN_BILLING_PROVIDER_FLOOR_MINOR"] == (
+            "${TWOBRAIN_BILLING_PROVIDER_FLOOR_MINOR:-100}"
+        )
+
+
+def test_billing_notification_workers_have_matching_mail_configuration():
+    services = _compose()["services"]
+    keys = ("TWOBRAIN_WEB_LOGIN_WORKSPACE_ID", "TWOBRAIN_EMAIL_LOGIN_DELIVERY_ENABLED", "TWOBRAIN_EMAIL_LOGIN_FROM_ADDRESS",
+            "TWOBRAIN_EMAIL_LOGIN_FROM_NAME", "TWOBRAIN_POSTAL_API_URL",
+            "TWOBRAIN_POSTAL_HOST_HEADER", "TWOBRAIN_POSTAL_REQUEST_TIMEOUT_SECONDS",
+            "TWOBRAIN_PUBLIC_BASE_URL")
+    for name in ("rec-api", "rec-processing-worker", "rec-maintenance"):
+        service = services[name]
+        for key in keys:
+            assert service["environment"][key] == services["rec-api"]["environment"][key]
+        assert "postal-network" in service["networks"]
+        secret = next(item for item in service["secrets"]
+                      if item["source"] == "twobrain_postal_api_key")
+        assert secret["target"] == "twobrain_postal_api_key"
+        if name == "rec-maintenance":
+            assert (secret["uid"], secret["gid"], secret["mode"]) == ("100", "101", 0o440)
+        assert service["group_add"] == ["${TWOBRAIN_RUNTIME_SECRET_GID:-1001}"]
+    assert "ports" not in services["rec-maintenance"]

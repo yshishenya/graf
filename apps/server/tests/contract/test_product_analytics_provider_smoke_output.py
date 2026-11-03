@@ -1,4 +1,6 @@
+import os
 import subprocess
+import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).parents[4]
@@ -22,6 +24,8 @@ def test_provider_smoke_output_covers_dashboard_blockers_and_no_secret_status() 
         "posthog_runtime_source=official_posthog_hobby_generated_compose_required",
         "posthog_delivery=dry_run",
         "posthog_live_safe_delivery=transport_verified",
+        "provider_transport_evidence=synthetic_test_process_only",
+        "restore_gate=blocked_before_and_after_transport_test",
         "posthog_web_direct=render_config_present",
         "posthog_desktop_direct=contract_tested",
         "posthog_autocapture=current_pages_enabled",
@@ -45,3 +49,29 @@ def test_provider_smoke_output_covers_dashboard_blockers_and_no_secret_status() 
 
     forbidden_fragments = ("phc_", "oauth", "cookie=", "clientid", "yclid", "raw_payload", "properties")
     assert all(fragment not in output.lower() for fragment in forbidden_fragments)
+
+
+def test_provider_smoke_python_checks_restore_gate_without_network() -> None:
+    body = SMOKE_PATH.read_text().split("python3 - <<'PY'\n", 1)[1].rsplit("\nPY", 1)[0]
+    prelude = """
+import sys
+def deny_network(event, args):
+    if event in {"socket.connect", "socket.getaddrinfo"}:
+        raise RuntimeError("provider smoke attempted network access")
+sys.addaudithook(deny_network)
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", prelude + body],
+        cwd=REPO_ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+        env={
+            **os.environ,
+            "PYTHONPATH": os.pathsep.join((str(REPO_ROOT / "apps/server"), str(REPO_ROOT / "apps/server/src"))),
+        },
+    )
+    assert result.returncode == 0, result.stderr
+    assert "provider_smoke_result=pass" in result.stdout
+    assert "provider_transport_evidence=synthetic_test_process_only" in result.stdout
+    assert "restore_gate=blocked_before_and_after_transport_test" in result.stdout

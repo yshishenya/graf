@@ -129,3 +129,21 @@ Installed GRAF bytes совпадают с закреплённым source. Boot
 уже использует install-if-missing для PR template. Поэтому меняется один caller
 расширения, не общий copy helper и не вводится новая настройка. Источник bootstrap
 с чужими изменениями остаётся во владении его задачи.
+
+
+## T101 — различение source base, target start и squash
+
+Decision: доказать каждое дерево линейного replay существующим Git merge-tree
+с явным source parent; возвращать source checked base. Rationale: #7714 имеет
+четыре replay на продвинутую цель; aggregate против последнего parent повторно
+добавляет уже перенесённый файл и получает add/add. Проверка исходного master
+26.10 воспроизвела `merged tree cannot be reconstructed from checked base`.
+
+Независимый shape review от26.10 установил неразличимость hidden intermediate
+replay и настоящего squash с теми же parents/trees/count. Поэтому fallback
+разрешён только для полного независимого target prefix: все промежуточные
+изменения путей, включая отменённые, не пересекаются с source путями, в том
+числе file/directory. При пересечении отказ как ambiguous; полноценное
+распознавание merge method не обещается. Не выбран always-fallback (скрывает
+подмену), always-replay (отклоняет независимый advanced squash), сообщения,
+авторы/patch-id/номер PR (не доказательство). Новая API/receipt схема не нужна.

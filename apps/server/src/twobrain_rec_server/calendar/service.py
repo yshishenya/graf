@@ -16,6 +16,7 @@ from twobrain_rec_server.api.schemas import (
 )
 from twobrain_rec_server.auth.context import TenantScope
 from twobrain_rec_server.cabinet.access import ShareRecipientAccessProof, decide_meeting_access
+from twobrain_rec_server.cabinet.read_prefetch import active_read_prefetch
 from twobrain_rec_server.calendar.audit import (
     calendar_match_audit_metadata,
     write_calendar_audit_event,
@@ -988,12 +989,19 @@ async def get_meeting_calendar_context_response(
     if not access.can_view:
         raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
     owner = meeting.created_by_user_id == viewer_user_id
-    link = await db.scalar(
-        select(RecordingCalendarContextLink).where(
-            RecordingCalendarContextLink.workspace_id == workspace_id,
-            RecordingCalendarContextLink.meeting_id == meeting_id,
+    prefetch = active_read_prefetch(db)
+    if (prefetch is not None and not prefetch.cache_access
+            and prefetch.workspace_id == workspace_id
+            and prefetch.viewer_user_id == viewer_user_id
+            and meeting_id in prefetch.calendar_links):
+        link = prefetch.calendar_links[meeting_id]
+    else:
+        link = await db.scalar(
+            select(RecordingCalendarContextLink).where(
+                RecordingCalendarContextLink.workspace_id == workspace_id,
+                RecordingCalendarContextLink.meeting_id == meeting_id,
+            )
         )
-    )
     if link is None:
         return MeetingCalendarContextResponse(
             meeting_id=meeting.id,

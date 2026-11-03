@@ -5,6 +5,23 @@ import TwoBrainRecAppCore
 import XCTest
 
 final class DesktopCabinetNavigationRequestPolicyTests: XCTestCase {
+    func testBillingPurchasePostsAreAllowedWithoutReloadingTheirBodies() throws {
+        let policy = try makePolicy()
+        for path in [
+            "/billing/storage/preview",
+            "/billing/storage/cancel-selection",
+            "/billing/subscription/early-preview",
+            "/billing/purchases/confirm"
+        ] {
+            let target = try XCTUnwrap(URL(string: "https://rec.2brain.dev\(path)"))
+            var request = URLRequest(url: target)
+            request.httpMethod = "POST"
+            request.httpBody = Data("_csrf=synthetic&quote_id=synthetic".utf8)
+            request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+            XCTAssertEqual(policy.decision(forNavigationRequest: request, isForMainFrame: true), .allow, path)
+        }
+    }
+
     func testDeletionFormCanSubmitWithoutReplayingPostOrWideningRoutes() throws {
         let base = try XCTUnwrap(URL(string: "https://rec.2brain.dev"))
         let routePolicy = DesktopCabinetRoutePolicy(baseURL: base)

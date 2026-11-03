@@ -344,3 +344,20 @@ Record:
 
 Evidence must not include media content, transcript/summary text, filenames
 outside approved aliases, object keys, signed links, or secrets.
+
+
+## 2026-10-17: failure/cleanup ownership
+
+run_normalization_job фиксирует scalar expected attempt count/owner до
+rollback. record_normalization_failure может принять эти ожидаемые значения
+и под блокировкой job отклонить stale caller через существующий Deferred.
+Новая B сохраняет state/reason/due/counters/owner/reservation. Recovery
+проверяет expired job под своей прежней блокировкой. Общая прямая cleanup
+защищает latest active attempt с unexpired lease до любых изменений и I/O,
+но сохраняет cleanup older/expired/purged/deleted/loser и позднего объекта.
+Публичного API/миграции/dispatch handoff изменения нет.
+
+Перед stale-failure discard завершить транзакцию проверки через rollback
+и rehydrate context, освободив Job до ожидания Attempt. Неудачное чтение
+исходного count не разрешает запись unfenced failure. Двухсессионный тест
+проверяет доступность Job NOWAIT при удержанной старой Attempt.

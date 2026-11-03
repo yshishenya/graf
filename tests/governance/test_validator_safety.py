@@ -4,7 +4,10 @@ import importlib.util
 import json
 import subprocess
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+import pytest
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -628,7 +631,7 @@ def test_issue_closeout_rejects_wrapped_umbrella_issue_as_task_owner() -> None:
 
 def test_feature_closeout_requires_closed_unique_children_and_umbrella_last() -> None:
     validator = load_script("validate-issue-closeout")
-    tasks = "- [X] T001 Реализовать (Issue #6337)\n"
+    tasks = "- [X] T001 Реализовать (Issue #6337)\n- [X] T017 Завершить (Issue #6415)\n"
     child = {
         **_closeout_issue(_closeout_comment()),
         "state": "CLOSED",
@@ -639,7 +642,7 @@ def test_feature_closeout_requires_closed_unique_children_and_umbrella_last() ->
         "title": "[236][P1][governance] T017: Завершить фичу",
         "state": "CLOSED",
         "closedAt": "2026-09-04T10:01:00Z",
-        "comments": [{"body": _closeout_comment()}],
+        "comments": [{"body": _closeout_comment().replace("T001", "T017")}],
     }
     assert validator.validate_feature(
         [child, umbrella],
@@ -664,6 +667,136 @@ def test_feature_closeout_requires_closed_unique_children_and_umbrella_last() ->
     t000_umbrella = {**umbrella, "title": "[236][P1][governance] T000: Временная резервация"}
     errors = validator.validate_feature([child, t000_umbrella], tasks, "a" * 40, 6415)
     assert any("cannot be closed with temporary T000" in error for error in errors)
+
+
+def test_feature_closeout_validates_umbrella_owned_task_without_weakening_gates() -> (
+    None
+):
+    validator = load_script("validate-issue-closeout")
+    tasks = "- [X] T001 Реализовать (Issue #6337)\n- [X] T017 Завершить (Issue #6415)\n"
+    child = {
+        **_closeout_issue(_closeout_comment()),
+        "state": "CLOSED",
+        "closedAt": "2026-09-04T10:00:00Z",
+    }
+    comment = _closeout_comment().replace("T001", "T017")
+    umbrella = {
+        "number": 6415,
+        "title": "[236][P1][governance] T017: Завершить фичу",
+        "body": "Spec tasks: T017\nЗависимость: T999",
+        "state": "OPEN",
+        "closedAt": None,
+        "comments": [{"body": comment}],
+    }
+    assert (
+        validator.validate_feature(
+            [child, umbrella], tasks, "a" * 40, 6415, allow_open_umbrella=True
+        )
+        == []
+    )
+    closed = {**umbrella, "state": "CLOSED", "closedAt": "2026-09-04T10:01:00Z"}
+    assert validator.validate_feature([child, closed], tasks, "a" * 40, 6415) == []
+    assert validator.validate_feature([child, umbrella], tasks, "a" * 40, 6415)
+
+    for invalid_state in ("UNKNOWN", "", None):
+        errors = validator.validate_feature(
+            [child, {**umbrella, "state": invalid_state}], tasks, "a" * 40, 6415,
+            allow_open_umbrella=True,
+        )
+        assert any("issue #6415 for T017 is still open" in error for error in errors)
+
+    for invalid_tasks, invalid_umbrella, invalid_child, expected in [
+        (
+            tasks.replace("[X] T017", "[ ] T017"),
+            umbrella,
+            child,
+            "unchecked or missing tasks: T017",
+        ),
+        (
+            tasks.replace("Issue #6415", "Issue #999"),
+            umbrella,
+            child,
+            "T017 is not linked to issue #6415",
+        ),
+        (
+            tasks,
+            umbrella,
+            {**child, "body": "Spec tasks: T001, T017"},
+            "T017 has duplicate issue owners",
+        ),
+        (
+            tasks,
+            {**umbrella, "body": "Spec tasks: T017, T999"},
+            child,
+            "issue #6415 is orphaned: T999",
+        ),
+        (
+            tasks,
+            {**umbrella, "comments": []},
+            child,
+            "missing the required Russian closure comment",
+        ),
+        (
+            tasks,
+            {**umbrella, "comments": [{"body": comment.replace("PR: #6383", "")}]},
+            child,
+            "must name a PR number",
+        ),
+        (
+            tasks,
+            {**umbrella, "comments": [{"body": comment.replace("a" * 40, "b" * 40)}]},
+            child,
+            "SHA does not match",
+        ),
+        (
+            tasks,
+            {
+                **umbrella,
+                "comments": [
+                    {
+                        "body": comment.replace(
+                            "governance-fast: PASS", "governance-fast: FAIL"
+                        )
+                    }
+                ],
+            },
+            child,
+            "governance-fast PASS",
+        ),
+        (
+            tasks,
+            {**closed, "title": "[236][P1][governance] T000: Временная резервация"},
+            child,
+            "cannot be closed with temporary T000",
+        ),
+        (
+            tasks,
+            umbrella,
+            {**child, "state": "OPEN", "closedAt": None},
+            "issue #6337 for T001 is still open",
+        ),
+        (
+            tasks,
+            {**closed, "closedAt": "2026-09-04T09:59:00Z"},
+            child,
+            "was closed before child issue #6337",
+        ),
+        (
+            tasks,
+            {**closed, "closedAt": child["closedAt"]},
+            child,
+            "was closed before child issue #6337",
+        ),
+        (tasks, {**closed, "closedAt": None}, child, "has no valid closedAt timestamp"),
+    ]:
+        errors = validator.validate_feature(
+            [invalid_child, invalid_umbrella],
+            invalid_tasks,
+            "a" * 40,
+            6415,
+            allow_open_umbrella=True,
+        )
+        assert any(expected in error for error in errors), (expected, errors)
 
 
 def test_feature_closeout_rejects_duplicate_task_rows() -> None:
@@ -751,8 +884,6 @@ def test_feature_closeout_verifies_github_workflow_conclusion_and_head_sha(monke
         },
     }
     monkeypatch.setattr(validator, "_github_run", lambda _repo, run_id: runs[run_id])
-    commit_prs = [6383]
-    monkeypatch.setattr(validator, "_github_commit_pull_requests", lambda _repo, _sha: commit_prs)
     pr = {
         "state": "MERGED",
         "mergedAt": "2026-09-04T09:00:00Z",
@@ -760,7 +891,8 @@ def test_feature_closeout_verifies_github_workflow_conclusion_and_head_sha(monke
         "body": "Refs #6337",
     }
     monkeypatch.setattr(validator, "_github_pr", lambda _repo, _number: pr)
-    monkeypatch.setattr(validator, "_github_pr_checks", lambda *_args: {})
+    proof_calls = []
+    monkeypatch.setattr(validator, "_github_pr_checks", lambda *args: proof_calls.append(args) or {})
     assert validator.verify_feature_runs(
         "yshishenya/graf",
         [issue],
@@ -769,7 +901,7 @@ def test_feature_closeout_verifies_github_workflow_conclusion_and_head_sha(monke
     ) == []
 
     # GitHub may clear the run's pull_requests array after a rebase merge.
-    # The merged PR head SHA and the pull_request run head SHA still bind it.
+    # Only the mandatory complete proof binds it to this exact PR/run.
     runs["123"] = {**runs["123"], "pullRequestNumbers": []}
     assert validator.verify_feature_runs(
         "yshishenya/graf",
@@ -778,15 +910,17 @@ def test_feature_closeout_verifies_github_workflow_conclusion_and_head_sha(monke
         require_release_full=True,
     ) == []
 
-    commit_prs.append(9999)
+    # Repeated PRs for this SHA must not trigger a commit lookup.
+    monkeypatch.setattr(validator.subprocess, "run", lambda *_a, **_k: (_ for _ in ()).throw(AssertionError("unexpected commit lookup")))
+    proof_calls.clear()
     errors = validator.verify_feature_runs(
         "yshishenya/graf",
         [issue],
         "a" * 40,
         require_release_full=True,
     )
-    assert any("is not uniquely bound to PR #6383" in error for error in errors)
-    commit_prs.pop()
+    assert errors == []
+    assert proof_calls == [("yshishenya/graf", 6383, "a" * 40, "123")]
 
     runs["456"] = {**runs["456"], "headSha": "b" * 40}
     errors = validator.verify_feature_runs(
@@ -842,6 +976,34 @@ def test_package_safety_allows_documentation_examples_but_rejects_credentials(tm
     )
     errors = validator.package_safety(tmp_path)
     assert any("forbidden secret/private content" in error for error in errors)
+
+
+def test_package_safety_rejects_each_quoted_or_prefixed_assignment(tmp_path: Path) -> None:
+    validator = load_harness_validators()
+    path = tmp_path / "config.txt"
+    value = "synthetic-" * 3
+    for text in (
+        json.dumps({"api_key": value}),
+        json.dumps({"enabled": True, "token": value}),
+        json.dumps({"password": value}, indent=2),
+        "{'secret': '" + value + "'}",
+        '"cookie": "' + value + '"',
+        f"GITHUB_TOKEN={value}",
+        f"SERVICE_GITHUB_TOKEN={value}",
+        f"APP_API_KEY={value}",
+        f"DB_PASSWORD={value}",
+        f"SIGNED_URL={value}",
+        f"Authorization: Bearer {value}",
+    ):
+        path.write_text(text, encoding="utf-8")
+        assert validator.package_safety(tmp_path) == ["forbidden secret/private content: config.txt"]
+    for text in (
+        "Use `secret:` and `password =` as field names.\n",
+        'config = {"api_key": value}\n',
+        "token = result\n",
+    ):
+        path.write_text(text, encoding="utf-8")
+        assert validator.package_safety(tmp_path) == []
 
 
 def _context_pointer(feature_directory: str = "specs/001-example", feature_id: str = "001") -> dict[str, object]:
@@ -1120,6 +1282,124 @@ def test_pr_metadata_requires_machine_readable_lane_and_evidence() -> None:
     assert any("validation evidence" in error for error in errors)
 
 
+EXCEPTION = {
+    "owner": "platform",
+    "expiry": "2099-12-31",
+    "reason": "required for supported clients",
+    "compatibility boundary": "clients before the migration cutoff",
+    "removal trigger": "migration complete",
+    "risk": "bounded client compatibility risk",
+    "validation": "focused migration test",
+    "retirement task": "F228 / T017 / #6255",
+}
+
+
+def exception_errors(tmp_path, consumer, fields):
+    declaration = "- Classification: `retain-with-exception`\n" + "\n".join(
+        f"- {field}: {value}" for field, value in fields
+    ) + "\n"
+    if consumer == "spec":
+        path = tmp_path / "spec.md"
+        path.write_text("## Legacy Impact\n" + declaration)
+        return load_script("validate-legacy-impact").validate(path)
+    body = _valid_pr_body().replace("- Classification: `untouched`", declaration)
+    return load_script("validate-pr-metadata").validate(body, "216", title="[F216] Проверить исключение")
+
+
+@pytest.mark.parametrize("consumer", ["spec", "pr"])
+@pytest.mark.parametrize("field", EXCEPTION)
+@pytest.mark.parametrize("mutation", ["missing", "empty", "duplicate", "placeholder"])
+def test_finite_exception_rejects_incomplete_fields(tmp_path, consumer, field, mutation):
+    fields = list(EXCEPTION.items())
+    if mutation == "missing":
+        fields = [(key, value) for key, value in fields if key != field]
+    elif mutation == "duplicate":
+        fields.append((field, EXCEPTION[field]))
+    else:
+        fields = [(key, ("" if mutation == "empty" else "<указать>") if key == field else value)
+                  for key, value in fields]
+    assert exception_errors(tmp_path, consumer, fields), (consumer, field, mutation)
+
+
+@pytest.mark.parametrize("consumer", ["spec", "pr"])
+@pytest.mark.parametrize("expiry", ["today", "yesterday", "2099-02-30", "20991231", "2099-12-31 later"])
+def test_finite_exception_rejects_invalid_or_nonfuture_expiry(tmp_path, consumer, expiry):
+    today = datetime.now(timezone.utc).date()
+    expiry = {"today": today.isoformat(), "yesterday": (today - timedelta(days=1)).isoformat()}.get(expiry, expiry)
+    assert exception_errors(tmp_path, consumer, {**EXCEPTION, "expiry": expiry}.items())
+
+
+@pytest.mark.parametrize("consumer", ["spec", "pr"])
+@pytest.mark.parametrize("task", ["T017", "F228 T017", "F228 #6255", "T017 #6255", "F228 T017 #0",
+                                 "F228 F229 T017 #6255", "F228 T017 T018 #6255", "F228 T017 #6255 #6256"])
+def test_finite_exception_requires_one_feature_task_issue(tmp_path, consumer, task):
+    assert exception_errors(tmp_path, consumer, {**EXCEPTION, "retirement task": task}.items())
+
+
+@pytest.mark.parametrize("consumer", ["spec", "pr"])
+def test_finite_exception_accepts_complete_declaration_and_tomorrow(tmp_path, consumer):
+    tomorrow = (datetime.now(timezone.utc).date() + timedelta(days=1)).isoformat()
+    fields = {**EXCEPTION, "expiry": f"`{tomorrow}`"}
+    assert exception_errors(tmp_path, consumer, fields.items()) == []
+
+
+@pytest.mark.parametrize("consumer", ["spec", "pr"])
+@pytest.mark.parametrize("placeholder", ["TODO", "tbd", "FIXME later", "___", "...", "N/A", "не указано", "`<owner>`"])
+def test_finite_exception_rejects_template_values(tmp_path, consumer, placeholder):
+    assert exception_errors(tmp_path, consumer, {**EXCEPTION, "owner": placeholder}.items())
+
+
+def test_finite_exception_uses_utc_calendar(monkeypatch):
+    validator = load_script("validate-legacy-impact")
+
+    class UtcClock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            assert tz is timezone.utc
+            return cls(2030, 1, 2, 0, 1, tzinfo=tz)
+
+    monkeypatch.setattr(validator, "datetime", UtcClock)
+    for expiry, valid in (("2030-01-01", False), ("2030-01-02", False), ("2030-01-03", True)):
+        fields = {**EXCEPTION, "expiry": expiry}
+        errors = validator.validate_exception("\n".join(f"{key}: {value}" for key, value in fields.items()))
+        assert (errors == []) == valid
+
+
+@pytest.mark.parametrize("consumer", ["spec", "pr"])
+@pytest.mark.parametrize("extra", ["", "invalid"])
+def test_finite_exception_rejects_second_malformed_classification(tmp_path, consumer, extra):
+    assert exception_errors(tmp_path, consumer, [*EXCEPTION.items(), ("Classification", extra)])
+
+
+@pytest.mark.parametrize("consumer", ["spec", "pr"])
+def test_finite_exception_cannot_hide_in_second_legacy_section(tmp_path, consumer):
+    body = _valid_pr_body().replace("## Перед merge", "## Legacy Impact\n- Classification: `retain-with-exception`\n\n## Перед merge")
+    if consumer == "spec":
+        path = tmp_path / "spec.md"
+        path.write_text(body)
+        errors = load_script("validate-legacy-impact").validate(path)
+    else:
+        errors = load_script("validate-pr-metadata").validate(body, "216", title="[F216] Проверить разделы")
+    assert errors
+
+
+@pytest.mark.parametrize("consumer", ["spec", "pr"])
+def test_finite_exception_real_cli_rejects_missing_fields(tmp_path, consumer):
+    path = tmp_path / "body.md"
+    if consumer == "spec":
+        path.write_text("## Legacy Impact\nClassification: retain-with-exception\n")
+        args = ["--feature", str(path)]
+        script = "validate-legacy-impact.py"
+    else:
+        path.write_text(_valid_pr_body().replace("`untouched`", "`retain-with-exception`"))
+        args = [str(path), "--feature-id", "216", "--title", "[F216] Проверить исключение"]
+        script = "validate-pr-metadata.py"
+    result = subprocess.run([sys.executable, "-I", str(ROOT / "scripts" / script), *args],
+                            cwd=tmp_path, capture_output=True, text=True)
+    assert result.returncode == 1, result.stdout
+    assert "Traceback" not in result.stderr
+
+
 def test_process_changed_legacy_scan_collects_committed_and_worktree_specs(tmp_path: Path) -> None:
     checker = load_script("check-development-process")
     import subprocess
@@ -1232,13 +1512,27 @@ def test_closeout_requires_current_full_pr_check_set(monkeypatch):
     monkeypatch.setattr(validator, "_github_run", lambda *_args: {
         "conclusion": "success", "workflowName": "governance-fast", "headSha": "a"*40,
         "event": "pull_request", "workflowPath": ".github/workflows/governance-fast.yml",
-        "pullRequestNumbers": [6383],
+        "pullRequestNumbers": [],
     })
     calls = []
     def checks(*args):
         calls.append(args)
-        raise ValueError("stale metadata or missing native proof")
+        raise ValueError(proof_error)
     monkeypatch.setattr(validator, "_github_pr_checks", checks)
-    errors = validator.verify_feature_runs("yshishenya/graf", [issue], "a"*40)
+    for proof_error in ("missing/expired artifact", "code receipt identity mismatch", "stale current PR metadata"):
+        calls.clear()
+        errors = validator.verify_feature_runs("yshishenya/graf", [issue], "a"*40)
+        assert calls == [("yshishenya/graf", 6383, "a"*40, "123")]
+        assert any("current complete PR checks" in error for error in errors)
+
+    # Multiple issues share one full proof only for the same PR/head/run.
+    monkeypatch.setattr(validator, "_github_pr", lambda *_args: {
+        "state": "MERGED", "mergedAt": "2026-09-13T00:00:00Z",
+        "headRefOid": "a"*40, "body": "Refs #6337; Refs #6338",
+    })
+    monkeypatch.setattr(validator, "_github_pr_checks", lambda *args: calls.append(args) or {})
+    calls.clear()
+    assert validator.verify_feature_runs(
+        "yshishenya/graf", [issue, dict(issue, number=6338)], "a"*40,
+    ) == []
     assert calls == [("yshishenya/graf", 6383, "a"*40, "123")]
-    assert any("current complete PR checks" in error for error in errors)

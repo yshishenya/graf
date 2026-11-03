@@ -4,6 +4,21 @@ Feature: `096-product-analytics-provider-rollout`
 
 Status: `runtime_inventory_updated_restore_rehearsal_passed_followups_open`
 
+## Текущий переход F273/T118 — 22.10.2026
+
+Применяется [принятый план T118](../../specs/273-paid-traffic-analytics/contracts/operations.md#t118--согласованный-локальный-комплект-и-проверка-чтения).
+Текущий `verify-posthog-restore.sh` выдаёт исторический формат v1: проверка
+архивов, распаковка и число файлов. Он не подтверждает согласованное чтение
+данных и не открывает обновлённую готовность API или оповещений. Июльские
+результаты ниже сохраняются как история; они не принимают T118.
+
+Новые потребители требуют v2/cold_project_v1, контроль всех присутствующих
+классов, чтение PostHog, очистку и повторные проверки хранения/удалений,
+SHA-256 manifest/runtime и возраст от окончания 0≤age<30 суток. Синтетический
+v2 в тестах не является рабочим доказательством. Полный writer и репетиция
+по принятой процедуре ещё не реализованы; до них готовность закрыта.
+Обновлять старый v1 вручную заменой номера запрещено.
+
 This document is safe to commit. It contains no live provider secrets, database
 passwords, backup object URLs, signed URLs, account identifiers, raw payloads,
 screenshots, meeting content, transcript text, audio, or private local paths.
@@ -67,7 +82,7 @@ Receipt label: `20260718T011751Z`.
 - No provider flags, secrets, dashboard data, GRAF services, or user content
   were changed by the rehearsal.
 
-This receipt proves backup/restore recoverability only. It does not prove
+This historical receipt proves only the July rehearsal described above; it does not satisfy current T118 consistent-read acceptance. It also does not prove
 access/RBAC or audit review, retention/deletion lifecycle enforcement,
 dashboard freshness/goal visibility, or concrete resource-alert thresholds.
 
@@ -76,16 +91,19 @@ dashboard freshness/goal visibility, or concrete resource-alert thresholds.
 - Backups are separate from GRAF app database and MinIO backups.
 - Backup evidence is metadata-only.
 - Backup names in evidence must not expose private host paths.
-- Backup retention must support at least 90 days of analytics retention unless
-  a later approved category has a shorter retention.
+- Current F273 target: keep the last 7 successful complete local sets, minimum
+  2 for readiness (FR-052); each contains the retained `until_decision` history.
+  Archive rotation is separate from data retention; 90 daily versions are not required.
 - Backup failures block PostHog readiness, not normal GRAF product use.
+- Only sets matching the current project, inventory SHA-256 and resolved volumes
+  count or participate in rotation. Incompatible historical sets remain untouched.
 
 ## What A Restore Recreates And What Is Lost
 
 Feature `273-paid-traffic-analytics` requires the restore path to state which
 data comes back completely and which data is gone for good (FR-053). This
-section is the contract for that split. The 2026-07 receipts above stay valid
-for the manual rehearsal path; the scheduled automation that produces the
+section is the contract for that split. The 2026-07 receipts above remain historical evidence
+of the manual rehearsal path and do not satisfy current T118; the scheduled automation that produces the
 archives is described in `docs/analytics/product-analytics-posthog-runbook.md`.
 
 Fully recoverable from the analytics backup set:
@@ -107,9 +125,8 @@ Permanently lost without a fresh backup:
   when the reviewed runtime actually included it;
 - provider-side data GRAF does not control, such as Yandex.Metrica aggregates,
   which are never restored from this backup set;
-- data already removed by the enforced retention terms: measurement events at
-  365 days, anonymous aggregate at 1095 days, visit attribution at 90 days, and
-  client acquisition attribute at 1095 days.
+- data already removed by an older retention policy or by an explicit deletion;
+  a later change to `until_decision` cannot reconstruct records absent from the archive.
 
 A restore recreates the analytics node only. GRAF product workflows are never
 restored from this backup set, are never stopped by it, and must keep running
@@ -118,27 +135,35 @@ a measurement gap, not a product outage.
 
 ### Copy Count And Placement (FR-052)
 
-A copy that lives only on the same disk as the original is not a backup. At
-least two copies of the analytics backup set are kept at all times, and at least
-one of them is offsite — outside the measured server. When either condition
-fails, analytics readiness stays blocked (`backup_copy_count_below_minimum` or
-`backup_offsite_copy_missing`) and the copy does not count as disaster
-recovery. An offsite copy that no run has refreshed is a stale copy, not a
-second copy.
+The owner accepted local-only copies on 2026-10-22. Target:
+`2brain.dev:/var/backups/graf-posthog`, root-only directory 0700 and files 0600.
+Keep the last 7 successful complete sets, minimum 2 for readiness. Count only
+sets with all required inventory classes and a verified manifest. Partial sets
+must never count or evict usable ones; verify the new set and retained minimum
+before rotation. Each complete set carries the full retained analytics history;
+seven recovery points do not impose seven-day data retention.
+
+These copies do not survive loss of the host/disk. If all local sets are lost,
+rebuild configuration and start a new measurement history with an explicit gap.
+Do not describe the current policy as disaster recovery. An old set cannot
+recreate later records or reverse corruption beyond the retained recovery points.
 
 ### Retention And Recovery Objectives
 
 | Objective | Value | Source |
 | --- | --- | --- |
-| Backup artifact retention | Keep at least two stored copies per FR-052; keep enough history to support the enforced analytics retention categories unless a later approved category is shorter | `## Backup Rules` |
-| Recovery-point objective | Newest archive not older than `26` hours (`GRAF_POSTHOG_BACKUP_MAX_AGE_HOURS`) | FR-033, FR-034 |
-| Recovery-verification objective | Successful restore verification not older than `30` days (`GRAF_POSTHOG_RESTORE_MAX_AGE_DAYS`), recorded as metadata-only evidence | FR-035, SC-010 |
-| Minimum stored copies | `2` (`GRAF_POSTHOG_BACKUP_MIN_COPIES`) | FR-052 |
-| Minimum offsite copies | `1` (`GRAF_POSTHOG_BACKUP_MIN_OFFSITE_COPIES`) | FR-052 |
+| Recovery-point history | Last 7 successful complete sets; minimum 2 | FR-052 |
+| Recovery-point age | 0 ≤ age <26 hours from successful completion; future/unknown/failed blocks | FR-034 |
+| Recovery verification | Successful consistent PostHog restore within 30 days; extracting archives alone is insufficient | FR-035, FR-053, SC-010 |
+| Minimum local sets | 2 | FR-052 |
+| Required offsite copies | 0 in the current owner-approved stage | Session 2026-10-22 |
 
-Backup artifact receipts and the newest archive age are recorded as metadata
-only. Production receipts for the scheduled backup, the restore verification,
-and the first offsite upload are `pending operator receipt`.
+T117 local implementation uses an inventory copy, manifest digest, archive digests,
+and a version-2 completion marker. A staging directory becomes visible atomically;
+only verified complete sets count or rotate. The state records successful completion,
+not start time; API and alerts reject failed/unknown/future/age>=26h and fewer than two sets.
+Old directory names and .offsite markers are not proof. This is not a runtime receipt:
+operator installation and consistent restore T118 remain pending. Existing 2026-07 rehearsal evidence does not prove this migration.
 
 ### Scheduled Automation
 
@@ -149,8 +174,8 @@ alerts on failure instead of stopping the product.
 
 | Task | Unit and timer | State file |
 | --- | --- | --- |
-| Archive every inventory volume class and upload one offsite copy | `infra/posthog/graf-posthog-backup.{service,timer}`, daily 02:30 | `/var/lib/graf-posthog-backup/backup-state` |
-| Restore one stored copy into isolated rehearsal volumes and read it back | `infra/posthog/graf-posthog-restore-verify.{service,timer}`, days 1 and 15 at 04:30 | `/var/lib/graf-posthog-backup/restore-state` |
+| Archive every inventory volume class as a verified complete local set (T117 local candidate; installation pending) | `infra/posthog/graf-posthog-backup.{service,timer}`, daily 02:30 | `/var/lib/graf-posthog-backup/backup-state` |
+| Historical v1: extract one stored copy and count files; does not open current readiness | `infra/posthog/graf-posthog-restore-verify.{service,timer}`, days 1 and 15 at 04:30 | `/var/lib/graf-posthog-backup/restore-state` |
 | Enforce the events, aggregate and attribution retention terms | `infra/posthog/graf-posthog-retention-enforce.{service,timer}`, daily 03:15 | `/var/lib/graf-posthog-retention/retention-state` |
 
 Commands:
@@ -227,3 +252,12 @@ If backup or restore rehearsal fails:
 - disable PostHog delivery if needed;
 - add a dashboard caveat;
 - record the blocker code without payload data.
+
+
+## Уточнение хранения 21.10.2026
+
+Владелец отменил автоматическое удаление IP и допустимой аналитики по возрасту.
+Это не меняет отдельно принятую ротацию архивов и не разрешает стирать живые
+данные для экономии места. До рабочего применения T109 при восстановлении
+обязательно проверить старые TTL и таймеры очистки: архив не должен возвращать
+возрастное удаление. Недостающие ранее удалённые данные восстановленными не считать.

@@ -209,8 +209,7 @@ final class DesktopCabinetPaymentPopupTests: XCTestCase {
             supportIncidentBridge: nil,
             notificationPresenter: DesktopNotificationPresenter(
                 store: .init(defaults: UserDefaults(suiteName: UUID().uuidString)!),
-                model: DesktopControlModel(),
-                status: { .denied }
+                model: DesktopControlModel()
             ),
             navigationController: navigation
         )

@@ -14,6 +14,7 @@ from twobrain_rec_server.product_analytics.page_inventory import (
 from twobrain_rec_server.product_analytics.provider_config import ProductAnalyticsProviderConfig
 from twobrain_rec_server.public.analytics import (
     PUBLIC_ANALYTICS_CONSENT_STORAGE_KEY,
+    PUBLIC_ANALYTICS_CONSENT_VERSION,
     build_product_yandex_provider_context,
     public_analytics_consent_revision,
     public_analytics_consent_states,
@@ -42,6 +43,7 @@ def build_browser_provider_context(
     provider_config = ProductAnalyticsProviderConfig.from_settings(settings)
     posthog_active = bool(
         settings.product_analytics_enabled
+        and settings.public_analytics_consent_copy_version == PUBLIC_ANALYTICS_CONSENT_VERSION
         and provider_config.posthog.enabled
         and provider_config.posthog.autocapture_enabled
         and policy.posthog_autocapture_state == "enabled"

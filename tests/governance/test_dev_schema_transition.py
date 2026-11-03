@@ -69,7 +69,7 @@ def recovery_adapter(tmp_path, monkeypatch, journal):
     monkeypatch.setattr(adapter, "_schema_revision", lambda manifest: manifest["migration_head"])
     monkeypatch.setattr(adapter, "_schema_compose", lambda *a: "temporal\ntemporal_visibility\ntwobrain_rec")
     monkeypatch.setattr(adapter, "_env", lambda manifest: {})
-    monkeypatch.setattr(adapter, "smoke", lambda manifest: {"backend_health": "pass"})
+    monkeypatch.setattr(h.GrafLocalAdapter, "smoke", lambda self, manifest: {"backend_health": "pass"})
     monkeypatch.setattr(adapter, "_assert_transition_smoke", lambda *a, **kw: None)
     def start(*args):
         assert h._read_schema_transition(tmp_path)["phase"] in {"writers_may_have_started", "previous_writers_may_have_started"}
@@ -88,6 +88,47 @@ def test_recovery_obeys_durable_writer_boundary(tmp_path, monkeypatch, phase, re
     assert ("restore" in calls) == restore
     assert h._read_schema_transition(tmp_path)["phase"] == final
     assert h._load_active(tmp_path)["source_sha"] == journal["target" if final == "complete" else "previous"]["source_sha"]
+
+
+@pytest.mark.parametrize("app_was_running", [True, False])
+@pytest.mark.parametrize("maintenance", ["pass", "fail"])
+def test_backward_recovery_uses_current_smoke_on_pinned_root(tmp_path, monkeypatch, app_was_running, maintenance):
+    journal = transaction(tmp_path)
+    journal["app_was_running"] = app_was_running
+    controller, _ = recovery_adapter(tmp_path, monkeypatch, journal)
+    monkeypatch.delattr(controller, "_assert_transition_smoke")  # Use the real current validator.
+    previous = h.GrafLocalAdapter(tmp_path / "pinned-previous", tmp_path)
+    monkeypatch.setattr(previous, "_install_app", lambda *a: None)
+    legacy_checks = dict.fromkeys(("backend_health", "frontend_reachability", "auth_session_bootstrap",
+        "representative_api", "processing_worker_readiness", "media_worker_readiness",
+        "database_readiness", "storage_readiness", "temporal_readiness", "migration_readiness",
+        "exact_source_sha", "app_identity", "app_presentation"), "pass")
+    frozen_calls, current_calls = [], []
+    monkeypatch.setattr(previous, "smoke", lambda m: frozen_calls.append(m) or legacy_checks)
+
+    def current_smoke(self, manifest):
+        assert self is not previous
+        assert self.root == previous.root and self.state == previous.state
+        assert manifest == journal["previous"]
+        current_calls.append(manifest)
+        checks = {**legacy_checks, "maintenance_readiness": maintenance}
+        if not app_was_running:
+            checks.pop("app_presentation")
+        return checks
+
+    monkeypatch.setattr(h.GrafLocalAdapter, "smoke", current_smoke)
+    if maintenance == "pass":
+        result = controller._schema_resume(journal, previous_adapter=previous)
+        assert result["checks"]["maintenance_readiness"] == "pass"
+        assert h._load_active(tmp_path)["source_sha"] == journal["previous"]["source_sha"]
+        assert h._read_schema_transition(tmp_path)["phase"] == "recovered"
+    else:
+        with pytest.raises(h.HarnessError, match="smoke"):
+            controller._schema_resume(journal, previous_adapter=previous)
+        assert not (tmp_path / "active-manifest.json").exists()
+        assert h._read_schema_transition(tmp_path)["phase"] == "previous_writers_may_have_started"
+    assert frozen_calls == []
+    assert len(current_calls) == 1
 
 
 def test_publication_failure_cannot_allow_snapshot_rollback(tmp_path, monkeypatch):

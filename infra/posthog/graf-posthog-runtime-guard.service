@@ -7,9 +7,9 @@ Requires=docker.service
 Type=oneshot
 User=root
 EnvironmentFile=-/etc/graf-posthog-runtime-guard.env
-ExecStart=/usr/local/libexec/graf-posthog-runtime-guard.sh
+ExecStart=/usr/bin/env GRAF_POSTHOG_STORAGE_STATE_DIR=/var/lib/graf-posthog-storage GRAF_POSTHOG_STORAGE_STATE_FILE=/var/lib/graf-posthog-storage/storage-growth-state /usr/local/libexec/graf-posthog-runtime-guard.sh
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
 NoNewPrivileges=true
-ReadWritePaths=/var/lib/graf-posthog-runtime-guard /opt/projects/2brain-rec/.env /opt/projects/2brain-rec/.env.lock
+ReadWritePaths=/var/lib/graf-posthog-runtime-guard /var/lib/graf-posthog-storage /opt/projects/2brain-rec

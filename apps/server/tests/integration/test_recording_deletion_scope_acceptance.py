@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 
 from tests.contract.test_ingest_openapi_contract import auth_headers
-from tests.fakes.auth_contexts import USER_ID, WORKSPACE_ID
+from tests.fakes.auth_contexts import DEVICE_ID, USER_ID, WORKSPACE_ID
 from tests.fixtures.cabinet_access import (
     SHARED_DEVICE_ID,
     SHARED_USER_ID,
@@ -111,6 +111,31 @@ def test_manager_delete_reauthorizes_current_role_after_session_and_app_restart(
         assert repeated.status_code == 202
         assert repeated.json() == receipt
         assert restarted.get(report_url, headers=_manager_headers(second_session)).status_code == 200
+        for prefix in ("", "/desktop"):
+            web_url = f"{prefix}/meetings/{deleted_id}/deletion-requests"
+            for hx in (False, True):
+                headers = _manager_headers(second_session)
+                if hx:
+                    headers["HX-Request"] = "true"
+                web_repeat = restarted.post(
+                    web_url, headers=headers, data=payload, follow_redirects=False,
+                )
+                assert web_repeat.status_code == (202 if hx else 303)
+                if hx:
+                    assert web_repeat.text == ""
+                    assert web_repeat.headers["content-type"].startswith("text/html")
+                    assert web_repeat.headers["Vary"] == "HX-Request"
+                else:
+                    assert web_repeat.headers["location"] == f"{prefix}/meetings"
+                report = restarted.get(
+                    f"{prefix}/meetings/{deleted_id}/deletion-report", headers=headers,
+                )
+                assert report.status_code == 200
+                assert "Synthetic F262 manager scope" in report.text
+                assert f'data-boundary-copy="{BOUNDED_DELETE_COPY}"' in report.text
+        repeated = restarted.post(delete_url, headers=_manager_headers(second_session), json=payload)
+        assert repeated.status_code == 202
+        assert repeated.json() == receipt
 
         async def remove_manager_permission():
             async with client.app_state["sessionmaker"]() as db:
@@ -135,13 +160,37 @@ def test_manager_delete_reauthorizes_current_role_after_session_and_app_restart(
                 assert receipt["request_id"] not in denied.text
                 assert "receipt_type" not in denied.json()
             assert restarted.get(report_url, headers=_manager_headers(session)).status_code == 404
+            for prefix in ("", "/desktop"):
+                for hx in (False, True):
+                    headers = _manager_headers(session)
+                    if hx:
+                        headers["HX-Request"] = "true"
+                    for meeting_id in (deleted_id, untouched_id):
+                        denied = restarted.post(
+                            f"{prefix}/meetings/{meeting_id}/deletion-requests",
+                            headers=headers, data=payload, follow_redirects=False,
+                        )
+                        assert denied.status_code == 404
+                        assert receipt["request_id"] not in denied.text
+                        assert "receipt_type" not in denied.text
+                    report = restarted.get(
+                        f"{prefix}/meetings/{deleted_id}/deletion-report", headers=headers,
+                    )
+                    assert report.status_code == 404
+                    assert receipt["request_id"] not in report.text
 
     async def inspect_no_denied_mutation():
         async with client.app_state["sessionmaker"]() as db:
             untouched = await db.get(Meeting, untouched_id)
             assert untouched.deleted_at is None and untouched.deletion_state == "none"
+            deleted = await db.get(Meeting, deleted_id)
+            assert deleted.deleted_at is not None
+            assert deleted.deletion_epoch == receipt["deletion_epoch"]
             assert await db.scalar(select(func.count()).select_from(MeetingDeletionRequest)) == 1
             assert await db.scalar(select(func.count()).select_from(MeetingDeletionReport)) == 1
+            assert await db.scalar(select(func.count()).select_from(MeetingLifecycleAuditEvent).where(
+                MeetingLifecycleAuditEvent.event_type == "deletion_requested",
+            )) == 1
 
     asyncio.run(inspect_no_denied_mutation())
 
@@ -150,7 +199,7 @@ def test_origin_only_receipt_creates_no_meeting_or_meeting_purge_foreign_keys(cl
     origin = str(uuid4())
     meeting_models = (
         Meeting, MeetingDeletionRequest, MeetingDeletionReport, MeetingDeletionArtifactState,
-        LocalPurgeTask, MeetingLifecycleAuditEvent, RetentionPolicySnapshot,
+        LocalPurgeTask, RetentionPolicySnapshot,
     )
 
     async def counts():
@@ -191,6 +240,19 @@ def test_origin_only_receipt_creates_no_meeting_or_meeting_purge_foreign_keys(cl
             assert marker.created_by_user_id == USER_ID
             assert marker.workspace_id == WORKSPACE_ID
             assert marker.local_recording_id == origin
+            events = (await db.scalars(select(MeetingLifecycleAuditEvent))).all()
+            assert len(events) == 1
+            audit = events[0]
+            assert audit.event_type == "recording_origin_canceled"
+            assert audit.outcome == "accepted"
+            assert audit.safe_reason == "recording_origin_canceled"
+            assert audit.workspace_id == WORKSPACE_ID
+            assert audit.actor_user_id == USER_ID
+            assert audit.device_id == DEVICE_ID
+            assert audit.metadata_json == {"cancellation_id": str(marker.id)}
+            assert audit.created_at == marker.accepted_at
+            assert audit.meeting_id is None
+            assert audit.deletion_request_id is None
 
     asyncio.run(inspect_only_marker())
 

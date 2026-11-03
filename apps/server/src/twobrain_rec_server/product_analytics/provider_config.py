@@ -20,7 +20,8 @@ class PostHogProviderConfig:
     web_direct_enabled: bool
     desktop_direct_enabled: bool
     replay_enabled: bool
-    retention_min_days: int
+    retention_min_days: int | None
+    retention_mode: str
 
     @property
     def autocapture_scope(self) -> str:
@@ -38,6 +39,7 @@ class PostHogProviderConfig:
             "desktop_direct_enabled": self.desktop_direct_enabled,
             "replay_enabled": self.replay_enabled,
             "retention_min_days": self.retention_min_days,
+            "retention_mode": self.retention_mode,
         }
 
 
@@ -96,7 +98,8 @@ class MeasurementLevel:
     provider_delivery: bool
     legal_basis: str
     storage: str
-    retention_days: int
+    retention_days: int | None
+    retention_mode: str
     blocked_reasons: tuple[str, ...]
 
     def as_dict(self) -> dict[str, Any]:
@@ -111,6 +114,7 @@ class MeasurementLevel:
             "legal_basis": self.legal_basis,
             "storage": self.storage,
             "retention_days": self.retention_days,
+            "retention_mode": self.retention_mode,
             "blocked_reasons": list(self.blocked_reasons),
         }
 
@@ -181,6 +185,7 @@ def build_measurement_levels(
             ),
             storage=aggregate_rule.storage,
             retention_days=aggregate_rule.enforced_retention_days(),
+            retention_mode=aggregate_rule.retention_mode,
             blocked_reasons=level_one_reasons,
         ),
         MeasurementLevel(
@@ -197,6 +202,7 @@ def build_measurement_levels(
             ),
             storage=attribution_rule.storage,
             retention_days=attribution_rule.enforced_retention_days(),
+            retention_mode=attribution_rule.retention_mode,
             blocked_reasons=level_two_reasons,
         ),
         MeasurementLevel(
@@ -213,6 +219,7 @@ def build_measurement_levels(
             ),
             storage=provider_rule.storage,
             retention_days=provider_rule.enforced_retention_days(),
+            retention_mode=provider_rule.retention_mode,
             blocked_reasons=tuple(level_three_reasons),
         ),
     )
@@ -264,7 +271,8 @@ class ProductAnalyticsProviderConfig:
             web_direct_enabled=settings.product_analytics_posthog_web_direct_enabled,
             desktop_direct_enabled=settings.product_analytics_posthog_desktop_direct_enabled,
             replay_enabled=settings.product_analytics_replay_enabled,
-            retention_min_days=settings.product_analytics_retention_min_days,
+            retention_min_days=retention_rule("posthog_product_events").minimum_retention_days,
+            retention_mode=retention_rule("posthog_product_events").retention_mode,
         )
         yandex = YandexProviderConfig(
             all_pages_enabled=settings.product_analytics_yandex_all_pages_enabled,

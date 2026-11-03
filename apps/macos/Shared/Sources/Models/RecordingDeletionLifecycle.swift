@@ -117,7 +117,11 @@ public struct RecordingDeletionOperation: Codable, Equatable, Identifiable, Send
         if phase == .sending { next.attemptCount += 1; next.nextAttemptAt = nil; next.waitReason = nil }
         if phase == .resolving {
             let delays: [TimeInterval] = [5, 15, 30, 60]
-            next.nextAttemptAt = date.addingTimeInterval(delays[min(max(0, attemptCount - 1), delays.count - 1)])
+            // The existing random operation ID keeps jitter stable across restarts.
+            let jitter = 0.8 + 0.4 * Double(id.uuid.0) / Double(UInt8.max)
+            let delay = delays[min(max(0, attemptCount - 1), delays.count - 1)] * jitter
+            // Queue ISO8601 stores seconds. Round up so restart never advances a retry.
+            next.nextAttemptAt = Date(timeIntervalSince1970: ceil(date.timeIntervalSince1970 + delay))
         }
         return next
     }
@@ -130,7 +134,9 @@ public struct RecordingDeletionOperation: Codable, Equatable, Identifiable, Send
 
     public func waiting(until date: Date) -> Self {
         var next = self
-        if !phase.isAccepted { next.nextAttemptAt = max(nextAttemptAt ?? date, date) }
+        if !phase.isAccepted {
+            next.nextAttemptAt = Date(timeIntervalSince1970: ceil(max(nextAttemptAt ?? date, date).timeIntervalSince1970))
+        }
         return next
     }
 
@@ -166,14 +172,19 @@ public struct RecordingDeletionOperation: Codable, Equatable, Identifiable, Send
 }
 
 public extension DesktopUploadQueueItem {
-    /// A server tombstone is independent of upload progress and of the selected sync conflict.
-    var hasConfirmedDeletion: Bool {
-        deletionOperation?.phase.isAccepted == true || state == .terminalDeleted || syncConflictState == .serverMeetingDeleted ||
+    /// A server confirmation is independent of upload progress and of the selected sync conflict.
+    var hasConfirmedServerDeletion: Bool {
+        (deletionOperation?.phase.isAccepted == true && deletionOperation?.receipt?.receiptType == .meetingDeletion) ||
+            syncConflictState == .serverMeetingDeleted ||
             [
                 "requested", "deleting", "active_purge_complete", "pending_backup_expiry",
                 "complete", "retryable_failed", "terminal_failed", "policy_blocked",
                 "post_egress_limit", "local_purge_unverified", "deleted", "purged"
             ].contains(serverTruth.deletionState ?? "")
+    }
+
+    var hasConfirmedDeletion: Bool {
+        deletionOperation?.phase.isAccepted == true || state == .terminalDeleted || hasConfirmedServerDeletion
     }
 
     /// Fail closed for unknown lifecycle/access values, without treating them as purge authority.

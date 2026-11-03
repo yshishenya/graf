@@ -26,6 +26,9 @@ from twobrain_rec_server.product_analytics.legal_basis_lifecycle import (
     BasisWithdrawal,
     read_basis_withdrawal_register,
 )
+from twobrain_rec_server.product_analytics.provider_readiness import (
+    build_analytics_operations_readiness,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +41,26 @@ WRITE_ALLOWED = "allowed"
 WRITE_BLOCKED_WITHDRAWN = "legal_basis_withdrawn"
 WRITE_BLOCKED_SETTINGS = "measurement_level_disabled"
 WRITE_BLOCKED_UNKNOWN_LEVEL = "unknown_measurement_level"
+WRITE_BLOCKED_REGISTER = "legal_basis_register_invalid"
+
+
+def activation_milestone_write_blockers(settings: Settings) -> tuple[str, ...]:
+    """Strict current level-2 gate; no paid-campaign approval grants local writes."""
+    blockers = []
+    if not settings.product_analytics_enabled or settings.product_analytics_validation_mode == "disabled":
+        blockers.append(WRITE_BLOCKED_SETTINGS)
+    if not settings.product_analytics_legal_approved or not settings.product_analytics_disclosure_approved:
+        blockers.append("legal_basis_not_confirmed")
+    register = read_basis_withdrawal_register()
+    if not register.available or register.file_errors:
+        blockers.append("basis_unavailable")
+    if register.withdrawal(ATTRIBUTION_PROFILES_LEVEL) is not None:
+        blockers.append(WRITE_BLOCKED_WITHDRAWN)
+    blockers.extend(build_analytics_operations_readiness(settings).blockers)
+    # T110/T113's GRAF DB reconciliation has no trusted runtime verifier yet.
+    # PostHog backup/restore evidence alone MUST NOT open this new writer.
+    blockers.append("activation_recovery_unverified")
+    return tuple(dict.fromkeys(blockers))
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,9 +115,8 @@ def legal_basis_write_gate(
             reason=WRITE_BLOCKED_SETTINGS,
         )
 
-    # A missing/unreadable register is not treated as a global product outage:
-    # there is no affected level to stop.  A valid recorded withdrawal is the
-    # only state that blocks an otherwise configured writer.
+    # Preserve existing missing-file semantics; an explicitly malformed register
+    # cannot authorize a local write or hide a valid withdrawal.
     register = read_basis_withdrawal_register(environ)
     withdrawal = register.withdrawal(level_key)
     if withdrawal is not None:
@@ -104,6 +126,10 @@ def legal_basis_write_gate(
             reason=WRITE_BLOCKED_WITHDRAWN,
             withdrawal=withdrawal,
         )
+
+    if register.file_errors:
+        return LegalBasisWriteDecision(level_key=level_key, allowed=False,
+                                       reason=WRITE_BLOCKED_REGISTER)
 
     return LegalBasisWriteDecision(
         level_key=level_key,

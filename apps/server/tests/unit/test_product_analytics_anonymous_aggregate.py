@@ -62,7 +62,10 @@ def test_anonymous_aggregate_module_states_the_identity_ban_in_its_docstring() -
 
 
 def test_public_aggregate_paths_match_the_public_route_inventory() -> None:
-    assert set(PUBLIC_PAGE_PATHS) == set(PUBLIC_ANALYTICS_CONSENT_PATHS)
+    assert set(PUBLIC_PAGE_PATHS) == set(PUBLIC_ANALYTICS_CONSENT_PATHS) | {
+        "/transcription", "/meeting-minutes", "/record-without-bot",
+        "/guides/rasshifrovka-zapisi-zoom",
+    }
     assert surface_for_public_path("/privacy") == "public_privacy"
     assert surface_for_public_path("/analytics-consent") == "public_analytics_consent"
     assert surface_for_public_path("/download/") == "public_download"
@@ -255,7 +258,7 @@ def test_bucket_key_is_the_upsert_conflict_target() -> None:
 
     assert first.bucket_key() == same.bucket_key()
     assert first.bucket_key() != other.bucket_key()
-    assert len(first.bucket_key()) == 12
+    assert len(first.bucket_key()) == 13
 
 
 def test_minimum_bucket_size_rule_hides_small_buckets() -> None:
@@ -263,7 +266,8 @@ def test_minimum_bucket_size_rule_hides_small_buckets() -> None:
     assert is_disclosed_bucket(1) is False
     assert is_disclosed_bucket(2) is False
     assert is_disclosed_bucket(3) is True
-    assert is_disclosed_bucket(1, minimum_bucket_size=1) is True
+    with pytest.raises(TypeError):
+        is_disclosed_bucket(1, minimum_bucket_size=1)
 
     disclosure = build_minimum_bucket_size_disclosure(suppressed_buckets=2)
     assert disclosure["minimum_bucket_size"] == MINIMUM_AGGREGATE_BUCKET_SIZE
@@ -359,7 +363,110 @@ def test_device_class_from_a_bucket_is_the_only_device_dimension() -> None:
         "content",
         "term",
         "device_class",
+        "region",
         "referrer_category",
         "traffic_class",
         "visits",
     ]
+
+
+def test_region_is_closed_and_part_of_the_complete_bucket_key() -> None:
+    buckets = [build_anonymous_aggregate_bucket(path="/", region=value)
+               for value in ("ru", "non_ru", "unknown")]
+    assert {bucket.region for bucket in buckets} == {"ru", "non_ru", "unknown"}
+    assert len({bucket.bucket_key() for bucket in buckets}) == 3
+    for value in (None, "moscow", "203.0.113.1", "customer@example.com"):
+        bucket = build_anonymous_aggregate_bucket(path="/", region=value)
+        assert bucket.region == "unknown"
+        assert bucket.as_dict()["region"] == bucket.as_row()["region"] == "unknown"
+
+
+def test_public_attribution_cannot_supply_a_region() -> None:
+    bucket = build_anonymous_aggregate_bucket_from_attribution(
+        {"region": "ru", "country": "RU", "utm_region": "ru"}, path="/",
+    )
+    assert bucket.region == "unknown"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stage", ["execute", "commit"])
+async def test_safe_aggregate_write_budget_cancels_stalled_database(stage):
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock
+
+    async def stalled(*args, **kwargs):
+        await asyncio.Event().wait()
+
+    result = MagicMock()
+    result.scalar_one.return_value = 1
+    session = AsyncMock()
+    session.execute.return_value = result
+    setattr(session, stage, AsyncMock(side_effect=stalled))
+    outcome = await asyncio.wait_for(
+        aggregate.record_anonymous_aggregate_bucket_safely(
+            session, build_anonymous_aggregate_bucket(path="/"), environ={},
+        ), timeout=1,
+    )
+    assert outcome is None
+    getattr(session, stage).assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stage", ["prepare", "cleanup", "handler"])
+async def test_public_database_budget_keeps_handler_outside_timeout(stage, monkeypatch):
+    import asyncio
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    import twobrain_rec_server.public.web as web
+
+    async def stalled(*args, **kwargs):
+        await asyncio.Event().wait()
+
+    session = AsyncMock()
+    session.__aenter__.return_value = session
+    prepare = AsyncMock(side_effect=stalled if stage == "prepare" else None)
+    if stage == "cleanup":
+        session.close.side_effect = stalled
+        session.__aexit__.side_effect = stalled
+    monkeypatch.setattr(web, "apply_tenant_context", prepare)
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(
+        db_sessionmaker=lambda: session,
+    )))
+    dependency = web.get_public_web_db_session(request)
+    value = await asyncio.wait_for(anext(dependency), timeout=1)
+    assert value is (None if stage == "prepare" else session)
+    if stage == "handler":
+        await asyncio.sleep(0.3)
+    await asyncio.wait_for(dependency.aclose(), timeout=1)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stage", ["write", "prepare", "cleanup"])
+async def test_public_database_external_cancellation_propagates(stage, monkeypatch):
+    import asyncio
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    import twobrain_rec_server.public.web as web
+
+    session = AsyncMock()
+    session.__aenter__.return_value = session
+    if stage == "write":
+        session.execute.side_effect = asyncio.CancelledError
+        with pytest.raises(asyncio.CancelledError):
+            await aggregate.record_anonymous_aggregate_bucket_safely(
+                session, build_anonymous_aggregate_bucket(path="/"), environ={},
+            )
+        return
+    monkeypatch.setattr(web, "apply_tenant_context", AsyncMock(
+        side_effect=asyncio.CancelledError if stage == "prepare" else None,
+    ))
+    session.close.side_effect = asyncio.CancelledError if stage == "cleanup" else None
+    session.__aexit__.side_effect = asyncio.CancelledError if stage == "cleanup" else None
+    dependency = web.get_public_web_db_session(SimpleNamespace(
+        app=SimpleNamespace(state=SimpleNamespace(db_sessionmaker=lambda: session)),
+    ))
+    with pytest.raises(asyncio.CancelledError):
+        await anext(dependency)
+        await dependency.aclose()

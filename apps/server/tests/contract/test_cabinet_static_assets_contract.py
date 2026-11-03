@@ -1,4 +1,5 @@
 import json
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -7,6 +8,25 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 STATIC_DIR = ROOT / "src" / "twobrain_rec_server" / "cabinet" / "static" / "cabinet"
+
+
+@pytest.mark.browser
+@pytest.mark.parametrize("script, expected", [
+    ("recording-deletion-recovery", "real deletion index pending, phases, report links, safe text and updates passed"),
+    ("mixed-meeting-list", "S44 mixed native bulk: late and duplicate replies, accepted alias, current allowed/denied rights passed"),
+])
+def test_recording_deletion_recovery_in_browser(script: str, expected: str) -> None:
+    result = subprocess.run(
+        ["node", str(ROOT / f"tests/browser/{script}.test.cjs")],
+        cwd=ROOT,
+        env={**os.environ, "NODE_PATH": os.environ.get("GRAF_NODE_MODULES", str(ROOT / "tests/browser/node_modules"))},
+        capture_output=True,
+        text=True,
+        timeout=90,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert expected in result.stdout
 
 
 def test_local_htmx_asset_is_pinned_with_source_and_license() -> None:
@@ -337,7 +357,18 @@ def test_cabinet_js_keeps_fragment_state_ephemeral() -> None:
     assert "htmx:afterSwap" in script
     assert "meeting-list-region" in script
     assert "localStorage" not in script
-    assert script.count("sessionStorage") == 15
+    renewal = script[
+        script.index("const billingRenewalPreferenceKey") :
+        script.index("const initAuthTransition")
+    ]
+    assert renewal.count("sessionStorage") == 2
+    assert "sessionStorage.getItem(key)" in renewal
+    assert "sessionStorage.setItem(currentKey, String(checkbox.checked))" in renewal
+    assert 'saved === "true" || saved === "false"' in renewal
+    assert "graf-checkout-renewal:" in renewal
+    assert all(name in renewal for name in ("graf-time-user", "graf-workspace", "graf-time-session"))
+    assert "JSON.stringify" not in renewal
+    assert script.replace(renewal, "").count("sessionStorage") == 15
     assert script.count('sessionStorage.removeItem("htmx-history-cache")') == 1
     assert script.count('sessionStorage.removeItem("htmx-current-path-for-history")') == 2
     assert "graf-summary-candidate-" in script
@@ -2666,16 +2697,16 @@ const selectedRow = new FakeElement("row");
 selectedRow.dataset.meetingId = "selected-meeting";
 selectedRow.querySelector = (selector) => ["[data-meeting-select]", "[data-meeting-select]:not(:disabled)"].includes(selector) ? selectedCheckbox : null;
 list.querySelectorAll = (selector) => selector === "[data-meeting-row]" ? [selectedRow] : [];
-listeners.get("change")[0]({ target: selectedCheckbox });
+(event => { for (const handler of listeners.get("change") || []) handler(event); })({ target: selectedCheckbox });
 const eventFor = (xhr, source) => ({
   detail: { xhr, elt: source, requestConfig: { elt: source }, target: region },
   target: source,
   defaultPrevented: false,
   preventDefault() { this.defaultPrevented = true; },
 });
-const beforeRequest = listeners.get("htmx:beforeRequest")[0];
-const beforeSwap = listeners.get("htmx:beforeSwap")[0];
-const afterRequest = listeners.get("htmx:afterRequest")[0];
+const beforeRequest = (event => { for (const handler of listeners.get("htmx:beforeRequest") || []) handler(event); });
+const beforeSwap = (event => { for (const handler of listeners.get("htmx:beforeSwap") || []) handler(event); });
+const afterRequest = (event => { for (const handler of listeners.get("htmx:afterRequest") || []) handler(event); });
 const pollSource = new FakeElement("poll");
 const pollXhr = {};
 const pollStart = eventFor(pollXhr, pollSource);
@@ -2730,7 +2761,7 @@ replacementRow.querySelector = (selector) => {
   return null;
 };
 list.querySelectorAll = (selector) => selector === "[data-meeting-row]" ? [replacementRow] : [];
-listeners.get("htmx:afterSwap")[0](eventFor(currentPollXhr, pollSource));
+(event => { for (const handler of listeners.get("htmx:afterSwap") || []) handler(event); })(eventFor(currentPollXhr, pollSource));
 if (document.activeElement !== replacementDelete) {
   throw new Error("current poll did not restore the focused row control");
 }
@@ -2745,7 +2776,7 @@ restoredToolbarButton.focus = () => { document.activeElement = restoredToolbarBu
 restoredToolbarButton.matches = (selector) => selector === "[data-clear-selection]";
 restoredToolbarButton.closest = (selector) => selector === "[data-selection-toolbar]" ? toolbar : null;
 toolbar.querySelector = (selector) => selector === "[data-clear-selection]" ? restoredToolbarButton : null;
-listeners.get("htmx:afterSwap")[0](eventFor(toolbarPollXhr, pollSource));
+(event => { for (const handler of listeners.get("htmx:afterSwap") || []) handler(event); })(eventFor(toolbarPollXhr, pollSource));
 if (document.activeElement !== restoredToolbarButton) {
   throw new Error("poll stole focus from the selection toolbar");
 }
@@ -2768,7 +2799,7 @@ automaticReplacementRow.querySelector = (selector) => {
   return null;
 };
 list.querySelectorAll = (selector) => selector === "[data-meeting-row]" ? [automaticReplacementRow] : [];
-listeners.get("htmx:afterSwap")[0](eventFor(automaticRefreshXhr, automaticSource));
+(event => { for (const handler of listeners.get("htmx:afterSwap") || []) handler(event); })(eventFor(automaticRefreshXhr, automaticSource));
 afterRequest(eventFor(automaticRefreshXhr, automaticSource));
 if (document.activeElement !== automaticReplacementDelete) {
   throw new Error("automatic list refresh did not restore the focused row control");
@@ -2799,7 +2830,7 @@ nextSecondRow.querySelector = (selector) => selector === "[data-row-delete]" ? n
 list.querySelectorAll = (selector) => selector === "[data-meeting-row]"
   ? [automaticReplacementRow, nextSecondRow]
   : [];
-listeners.get("htmx:afterSwap")[0](eventFor(withinListMoveXhr, pollSource));
+(event => { for (const handler of listeners.get("htmx:afterSwap") || []) handler(event); })(eventFor(withinListMoveXhr, pollSource));
 if (document.activeElement !== nextSecondDelete) {
   throw new Error("poll restored its initial row after focus moved to another row");
 }
@@ -2811,7 +2842,7 @@ document.activeElement = outsideList;
 const movedFocusPollSwap = eventFor(movedFocusPollXhr, pollSource);
 movedFocusPollSwap.detail.shouldSwap = true;
 beforeSwap(movedFocusPollSwap);
-listeners.get("htmx:afterSwap")[0](eventFor(movedFocusPollXhr, pollSource));
+(event => { for (const handler of listeners.get("htmx:afterSwap") || []) handler(event); })(eventFor(movedFocusPollXhr, pollSource));
 if (document.activeElement !== outsideList) {
   throw new Error("poll restored stale row focus after the user moved elsewhere");
 }
@@ -2822,7 +2853,7 @@ const disappearingPollSwap = eventFor(disappearingPollXhr, pollSource);
 disappearingPollSwap.detail.shouldSwap = true;
 beforeSwap(disappearingPollSwap);
 list.querySelectorAll = () => [];
-listeners.get("htmx:afterSwap")[0](eventFor(disappearingPollXhr, pollSource));
+(event => { for (const handler of listeners.get("htmx:afterSwap") || []) handler(event); })(eventFor(disappearingPollXhr, pollSource));
 if (document.activeElement !== listTitle) {
   throw new Error("poll did not move focus to the list title after the focused row disappeared");
 }
@@ -2837,7 +2868,7 @@ document.activeElement = focusAfterRetry;
 const retrySwap = eventFor(retryXhr, retrySource);
 retrySwap.detail.shouldSwap = true;
 beforeSwap(retrySwap);
-listeners.get("htmx:afterSwap")[0](eventFor(retryXhr, retrySource));
+(event => { for (const handler of listeners.get("htmx:afterSwap") || []) handler(event); })(eventFor(retryXhr, retrySource));
 afterRequest(eventFor(retryXhr, retrySource));
 if (document.activeElement !== focusAfterRetry) {
   throw new Error("delayed retry completion stole newer user focus");
@@ -3024,8 +3055,8 @@ const eventFor = (xhr, triggeringTarget = null) => ({
   target: region,
   preventDefault() {},
 });
-const beforeRequest = listeners.get("htmx:beforeRequest")[0];
-const afterSwap = listeners.get("htmx:afterSwap")[0];
+const beforeRequest = (event => { for (const handler of listeners.get("htmx:beforeRequest") || []) handler(event); });
+const afterSwap = (event => { for (const handler of listeners.get("htmx:afterSwap") || []) handler(event); });
 const automaticXhr = {};
 beforeRequest(eventFor(automaticXhr));
 afterSwap(eventFor(automaticXhr));
@@ -3665,10 +3696,10 @@ const eventFor = (xhr, source) => ({
   defaultPrevented: false,
   preventDefault() { this.defaultPrevented = true; },
 });
-const beforeRequest = listeners.get("htmx:beforeRequest")[0];
-const beforeSwap = listeners.get("htmx:beforeSwap")[0];
-const afterRequest = listeners.get("htmx:afterRequest")[0];
-const responseError = listeners.get("htmx:responseError")[0];
+const beforeRequest = (event => { for (const handler of listeners.get("htmx:beforeRequest") || []) handler(event); });
+const beforeSwap = (event => { for (const handler of listeners.get("htmx:beforeSwap") || []) handler(event); });
+const afterRequest = (event => { for (const handler of listeners.get("htmx:afterRequest") || []) handler(event); });
+const responseError = (event => { for (const handler of listeners.get("htmx:responseError") || []) handler(event); });
 const pendingXhr = {};
 const pendingSource = new FakeElement("refinement");
 beforeRequest(eventFor(pendingXhr, pendingSource));
@@ -3779,6 +3810,7 @@ const recoveryTemplate = {
 };
 const detail = new FakeElement("main");
 detail.id = "cabinet-main";
+detail.dataset.meetingId = "private-id";
 detail.dataset.playbackPollActive = "true";
 detail.dataset.playbackPollUrl = "/meetings/private-id";
 detail.dataset.mediaRevisionId = "private-revision-id";
@@ -3803,6 +3835,7 @@ global.document = {
     if (selector === "[data-meeting-detail-recovery-template]") return recoveryTemplate;
     if (selector === "[data-playback-poll-url]") return currentMain === detail ? detail : null;
     if (selector === "#cabinet-main") return currentMain;
+    if (selector === "main[data-meeting-id]") return currentMain === detail ? detail : null;
     return null;
   },
   querySelectorAll() { return []; },

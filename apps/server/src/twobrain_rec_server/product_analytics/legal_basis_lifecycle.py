@@ -9,15 +9,14 @@ gone, three things have to happen in this order and none of them is optional:
 2. **the affected data is deleted or anonymised** — :func:`plan_processing_stop`
    derives one action per registered retention category of the level, and
    :func:`apply_basis_loss_disposition` executes the ones GRAF stores itself;
-3. **the deadline comes from the retention rules** — every action carries
-   ``due_at = basis_lost_at + enforced retention term`` read from
-   :mod:`retention`, so FR-048 introduces no new number and cannot drift away
-   from FR-036 and FR-050.
+3. **the deletion deadline is recorded separately** — storage lifetime never
+   supplies a deletion deadline. A plan without all deadlines remains incomplete;
+   processing stays stopped and erasure execution refuses the incomplete plan.
 
 A level owns the registered retention categories declared in
 :data:`LEVEL_RETENTION_CATEGORIES`. A category without a declared disposition is
 a configuration error, never an implicit "keep it": the same fail-closed rule
-FR-050 applies to a missing term.
+FR-050 applies to a missing policy.
 
 What this module cannot do by itself: level 3 data lives in a provider
 (ClickHouse inside PostHog and the Yandex counter), so its disposition is a
@@ -35,12 +34,14 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from typing import TYPE_CHECKING, Any
+from uuid import UUID
 
 from twobrain_rec_server.product_analytics.advertising_transfer import (
     REASON_PATTERN,
     AdvertisingTransferTraceViolation,
     evidence_reference_token,
 )
+from twobrain_rec_server.product_analytics.approvals import APPROVER_ROLE_PATTERN
 from twobrain_rec_server.product_analytics.forbidden_fields import (
     find_forbidden_fields,
     find_security_credential_fields,
@@ -75,6 +76,7 @@ LEVEL_RETENTION_CATEGORIES: Mapping[str, tuple[str, ...]] = {
     ATTRIBUTION_PROFILES_LEVEL: (
         ATTRIBUTION_PROFILES_RETENTION_CATEGORY,
         "visit_attribution",
+        "activation_milestone_decisions",
     ),
     PROVIDER_ANALYTICS_LEVEL: (
         PROVIDER_ANALYTICS_RETENTION_CATEGORY,
@@ -118,9 +120,13 @@ EXECUTION_PROVIDER_REQUEST = "provider_deletion_request"
 # record and is anonymised in place, and the provider-held categories can only be
 # requested from the provider.
 CATEGORY_DISPOSITIONS: Mapping[str, str] = {
+    # Necessary control is deliberately NOT in LEVEL_RETENTION_CATEGORIES:
+    # stopping optional measurement alone must never erase a visitor's refusal.
+    "public_consent_control": DISPOSITION_DELETE,
     ANONYMOUS_AGGREGATE_RETENTION_CATEGORY: DISPOSITION_DELETE,
     ATTRIBUTION_PROFILES_RETENTION_CATEGORY: DISPOSITION_ANONYMISE,
     "visit_attribution": DISPOSITION_DELETE,
+    "activation_milestone_decisions": DISPOSITION_DELETE,
     PROVIDER_ANALYTICS_RETENTION_CATEGORY: DISPOSITION_DELETE,
     "yandex_page_events": DISPOSITION_DELETE,
     "yandex_offline_conversions": DISPOSITION_DELETE,
@@ -136,6 +142,23 @@ WITHDRAWAL_RECORD_KEYWORD = "basis_withdrawal"
 
 class LegalBasisLifecycleError(ValueError):
     """Raised when a level or a category has no declared lifecycle."""
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class DispositionCase:
+    """Closed operator record; identifiers must never appear in public evidence."""
+
+    case_ref: str
+    decision_ref: str
+    scope: str
+    selector_ref: str
+    owner_role: str
+    reason: str
+    decided_at: datetime
+    due_at: datetime
+    stage: str
+    applied_at: datetime | None = None
+    rows_affected: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -211,7 +234,7 @@ class BasisWithdrawalRegister:
 
 @dataclass(frozen=True, slots=True)
 class LegalBasisLossAction:
-    """One category to delete or anonymise, with its retention-derived deadline."""
+    """One category to delete or anonymise, with its separately recorded deletion deadline."""
 
     category: str
     storage: str
@@ -219,8 +242,8 @@ class LegalBasisLossAction:
     disposition: str
     method: str
     deletion_truth: str
-    retention_days: int
-    due_at: datetime
+    retention_days: int | None
+    due_at: datetime | None
     execution: str
 
     def as_dict(self) -> dict[str, Any]:
@@ -232,7 +255,7 @@ class LegalBasisLossAction:
             "method": self.method,
             "deletion_truth": self.deletion_truth,
             "retention_days": self.retention_days,
-            "due_at": self.due_at.isoformat(),
+            "due_at": self.due_at.isoformat() if self.due_at is not None else None,
             "execution": self.execution,
         }
 
@@ -248,10 +271,12 @@ class LegalBasisLossDisposition:
     actions: tuple[LegalBasisLossAction, ...]
 
     @property
-    def deadline(self) -> datetime:
+    def deadline(self) -> datetime | None:
         """The binding deadline: every action must be done by its own term."""
 
-        return min(action.due_at for action in self.actions)
+        if any(action.due_at is None for action in self.actions):
+            return None
+        return min(action.due_at for action in self.actions if action.due_at is not None)
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -259,7 +284,7 @@ class LegalBasisLossDisposition:
             "reason": self.reason,
             "basis_lost_at": self.basis_lost_at.isoformat(),
             "processing_state": self.processing_state,
-            "deadline": self.deadline.isoformat(),
+            "deadline": self.deadline.isoformat() if self.deadline is not None else None,
             "actions": [action.as_dict() for action in self.actions],
         }
 
@@ -400,14 +425,27 @@ def read_basis_withdrawal_register(
         return BasisWithdrawalRegister(available=False, state_path=path)
 
     file_errors: list[str] = []
-    if _header_value(text) != BASIS_WITHDRAWAL_STATE_VERSION:
+    version = _header_value(text)
+    if version not in {BASIS_WITHDRAWAL_STATE_VERSION, "2"}:
         file_errors.append("legal_basis_state_version_unsupported")
 
     current_day = date.today() if today is None else today
     withdrawals: list[BasisWithdrawal] = []
-    for record in _records(text):
+    records = _records(text)
+    if version == "2":
+        try:
+            tagged = _version2_records(text)
+            records = tuple(record for kind, record in tagged if kind == WITHDRAWAL_RECORD_KEYWORD)
+            parse_disposition_cases(text, now=datetime.now(UTC))
+        except LegalBasisLifecycleError:
+            file_errors.append("legal_basis_record_invalid")
+    for record in records:
         withdrawal = _withdrawal_record(record, today=current_day)
-        if withdrawal is not None:
+        if withdrawal is None:
+            file_errors.append("legal_basis_record_invalid")
+        elif any(item.level_key == withdrawal.level_key for item in withdrawals):
+            file_errors.append("legal_basis_record_duplicate")
+        else:
             withdrawals.append(withdrawal)
     return BasisWithdrawalRegister(
         available=True,
@@ -415,6 +453,99 @@ def read_basis_withdrawal_register(
         withdrawals=tuple(withdrawals),
         file_errors=tuple(file_errors),
     )
+
+
+def _version2_records(text: str) -> tuple[tuple[str, dict[str, str]], ...]:
+    lines = [line.strip() for line in text.splitlines()
+             if line.strip() and not line.strip().startswith("#")]
+    if not lines or lines.pop(0) != "legal_basis_state_version=2":
+        raise LegalBasisLifecycleError("replay_register_version_invalid")
+    records: list[tuple[str, dict[str, str]]] = []
+    for line in lines:
+        tokens = line.split()
+        if tokens[0] in {WITHDRAWAL_RECORD_KEYWORD, "disposition_case"}:
+            records.append((tokens.pop(0), {}))
+        if not records or not tokens:
+            raise LegalBasisLifecycleError("replay_record_invalid")
+        record = records[-1][1]
+        for token in tokens:
+            name, separator, value = token.partition("=")
+            if not separator or not value or name in record:
+                raise LegalBasisLifecycleError("replay_record_invalid")
+            record[name] = value
+    return tuple(records)
+
+
+def _case_time(raw: str) -> datetime:
+    try:
+        value = datetime.fromisoformat(raw)
+    except (ValueError, TypeError):
+        raise LegalBasisLifecycleError("replay_case_time_invalid") from None
+    if value.tzinfo is None or value.utcoffset() is None:
+        raise LegalBasisLifecycleError("replay_case_time_invalid")
+    return value.astimezone(UTC)
+
+
+def parse_disposition_cases(text: str, *, now: datetime) -> tuple[DispositionCase, ...]:
+    """Version 1 remains readable for withdrawals but never authorizes replay."""
+
+    if now.tzinfo is None or now.utcoffset() is None:
+        raise LegalBasisLifecycleError("replay_case_time_invalid")
+    cases: list[DispositionCase] = []
+    levels: set[str] = set()
+    references: set[tuple[str, str]] = set()
+    common = {"case_ref", "decision_ref", "scope", "selector_ref", "owner_role", "reason",
+              "decided_at", "due_at", "stage"}
+    for kind, record in _version2_records(text):
+        if kind == WITHDRAWAL_RECORD_KEYWORD:
+            allowed = {"level", "state", "withdrawn_at", "reason", "evidence_ref"}
+            withdrawal = _withdrawal_record(record, today=now.date())
+            if (set(record) - allowed or not (allowed - {"evidence_ref"}) <= set(record)
+                    or withdrawal is None or withdrawal.level_key in levels):
+                raise LegalBasisLifecycleError("replay_withdrawal_invalid")
+            levels.add(withdrawal.level_key)
+            continue
+        expected = common | ({"applied_at", "rows_affected"}
+                             if record.get("stage") == "applied" else set())
+        if set(record) != expected or record["stage"] not in {"accepted", "applied", "failed"}:
+            raise LegalBasisLifecycleError("replay_case_fields_invalid")
+        if (not evidence_reference_token(record["case_ref"])
+                or not evidence_reference_token(record["decision_ref"])
+                or not APPROVER_ROLE_PATTERN.fullmatch(record["owner_role"])
+                or not REASON_PATTERN.fullmatch(record["reason"])):
+            raise LegalBasisLifecycleError("replay_case_token_invalid")
+        scope = record["scope"]
+        selector = record["selector_ref"]
+        if scope == "account_closure":
+            try:
+                if str(UUID(selector)) != selector:
+                    raise ValueError
+            except ValueError:
+                raise LegalBasisLifecycleError("replay_case_selector_invalid") from None
+        elif scope not in {"activation_milestone_decisions", "public_consent_control"} or selector != "all":
+            raise LegalBasisLifecycleError("replay_case_scope_invalid")
+        decided, due = (_case_time(record[key]) for key in ("decided_at", "due_at"))
+        applied = _case_time(record["applied_at"]) if "applied_at" in record else None
+        if decided > now or due < decided or (
+            applied is not None and not decided <= applied <= now
+        ):
+            raise LegalBasisLifecycleError("replay_case_time_invalid")
+        rows = record.get("rows_affected")
+        if rows is not None and (
+            len(rows) > 19 or not rows.isascii() or not rows.isdecimal()
+            or int(rows) > 2**63 - 1
+        ):
+            raise LegalBasisLifecycleError("replay_case_result_invalid")
+        case = DispositionCase(**{
+            **record, "decided_at": decided, "due_at": due, "applied_at": applied,
+            "rows_affected": int(rows) if rows is not None else None,
+        })
+        keys = {("case", case.case_ref), ("decision", case.decision_ref), (scope, selector)}
+        if references & keys:
+            raise LegalBasisLifecycleError("replay_case_duplicate")
+        references.update(keys)
+        cases.append(case)
+    return tuple(cases)
 
 
 def _header_value(text: str) -> str | None:
@@ -490,22 +621,27 @@ def plan_processing_stop(
     basis_lost_at: datetime,
     reason: str,
     affected_categories: Iterable[str] | None = None,
+    deletion_deadlines: Mapping[str, datetime] | None = None,
 ) -> LegalBasisLossDisposition:
     """Stop the level and put every affected category on a dated clock (FR-048).
 
-    The deadline of each action is the enforced retention term of its own
-    category, read from :mod:`retention`. An unknown category, or a category
-    without a declared disposition, is a configuration error: guessing a term
-    here would be exactly the "keep it forever" default FR-050 forbids.
+    until_decision has no age deadline. Missing separate deadlines leave the
+    plan incomplete and prevent execution; processing remains stopped.
+    An unknown category is a configuration error.
     """
 
     moment = _aware(basis_lost_at)
-    categories = tuple(affected_categories) if affected_categories is not None else (
-        level_retention_categories(level_key)
+    categories = (
+        tuple(affected_categories)
+        if affected_categories is not None
+        else (level_retention_categories(level_key))
     )
     if not categories:
         raise LegalBasisLifecycleError(f"level {level_key} has no affected category")
-    actions = tuple(_loss_action(category, since=moment) for category in categories)
+    actions = tuple(
+        _loss_action(category, since=moment, due_at=(deletion_deadlines or {}).get(category))
+        for category in categories
+    )
     return LegalBasisLossDisposition(
         level_key=level_key,
         reason=reason,
@@ -515,7 +651,12 @@ def plan_processing_stop(
     )
 
 
-def _loss_action(category: str, *, since: datetime) -> LegalBasisLossAction:
+def _loss_action(
+    category: str,
+    *,
+    since: datetime,
+    due_at: datetime | None = None,
+) -> LegalBasisLossAction:
     disposition = CATEGORY_DISPOSITIONS.get(category)
     if disposition is None:
         raise LegalBasisLifecycleError(
@@ -530,17 +671,15 @@ def _loss_action(category: str, *, since: datetime) -> LegalBasisLossAction:
         method=rule.provider_delete_method,
         deletion_truth=rule.deletion_truth,
         retention_days=rule.enforced_retention_days(),
-        due_at=retention_deadline(rule, since=since),
-        execution=(
-            EXECUTION_LOCAL if _is_graf_stored(rule) else EXECUTION_PROVIDER_REQUEST
-        ),
+        due_at=retention_deadline(rule, since=since, due_at=due_at),
+        execution=(EXECUTION_LOCAL if _is_graf_stored(rule) else EXECUTION_PROVIDER_REQUEST),
     )
 
 
 def _is_graf_stored(rule: AnalyticsRetentionRule) -> bool:
     """Whether GRAF itself can delete the rows of this category right now."""
 
-    return rule.storage == "graf_postgres" and rule.enforcement == "scheduled_purge"
+    return rule.storage == "graf_postgres" and rule.enforcement == "decision_required"
 
 
 def lost_basis_dispositions(
@@ -548,8 +687,13 @@ def lost_basis_dispositions(
     *,
     withdrawals: BasisWithdrawalRegister,
     now: datetime,
+    deletion_deadlines: Mapping[str, datetime] | None = None,
 ) -> tuple[LegalBasisLossDisposition, ...]:
-    """One plan per level whose basis was withdrawn, dated by the record."""
+    """Build plans from withdrawals and separately recorded category deadlines.
+
+    The operator supplies the deadlines from the deletion decision. Missing
+    deadlines keep processing stopped and execution blocked; no age term is used.
+    """
 
     moment = _aware(now)
     plans: list[LegalBasisLossDisposition] = []
@@ -567,6 +711,7 @@ def lost_basis_dispositions(
                 level_key=level_key,
                 basis_lost_at=lost_at,
                 reason=withdrawal.reason,
+                deletion_deadlines=deletion_deadlines,
             )
         )
     return tuple(plans)
@@ -581,37 +726,71 @@ async def apply_basis_loss_disposition(
     *,
     erased_at: datetime | None = None,
     commit: bool = True,
+    basis_environ: Mapping[str, str] | None = None,
 ) -> tuple[BasisLossErasureResult, ...]:
     """Erase or anonymise what GRAF stores, and record the provider requests.
 
-    The erasure happens immediately, which is necessarily within the retention
-    deadline. Categories the provider holds cannot be deleted from here, so
+    Erasure is immediate; each result separately records whether its deadline
+    was met. Categories the provider holds cannot be deleted from here, so
     their result carries ``rows_affected = 0`` and the recorded method; the
     deadline in :class:`BasisLossErasureResult` is what the operator is held to.
     """
 
     # Imported here so the planner, the readiness report and the tests can use
     # the lifecycle without loading the ORM.
-    from sqlalchemy import delete, update
+    from sqlalchemy import delete, text, update
 
+    from twobrain_rec_server.db.models import PublicAnalyticsChoice
     from twobrain_rec_server.db.models.product_analytics import (
         AnonymousPageAggregateBucket,
         ClientAcquisitionAttribute,
+        ProductActivationMilestone,
         PublicVisitAttribution,
     )
 
+    if disposition.deadline is None:
+        raise LegalBasisLifecycleError("separate deletion deadline is required before erasure")
     moment = _aware(erased_at or datetime.now(UTC))
     results: list[BasisLossErasureResult] = []
+    control_withdrawal = None
+    control_case_text = None
     for action in disposition.actions:
         if action.execution != EXECUTION_LOCAL:
-            results.append(
-                _result(disposition, action, rows=0, erased_at=moment)
-            )
+            results.append(_result(disposition, action, rows=0, erased_at=moment))
             continue
-        if action.category == ANONYMOUS_AGGREGATE_RETENTION_CATEGORY:
+        if action.category == "public_consent_control":
+            control_withdrawal = read_basis_withdrawal_register(basis_environ)
+            if (not control_withdrawal.available or control_withdrawal.file_errors
+                    or control_withdrawal.withdrawal(PROVIDER_ANALYTICS_LEVEL) is None
+                    or not await session.scalar(text("""SELECT
+                        session_user='twobrain_rec_maintenance'
+                        AND current_user='twobrain_rec_maintenance'
+                        AND rec_context_kind()='maintenance'
+                        AND rec_setting('app.maintenance_operation')='public_consent_control'
+                        AND rec_setting('app.maintenance_feature_area')='product_analytics'
+                        AND rec_setting('app.maintenance_actor') IS NOT NULL
+                        AND rec_setting('app.maintenance_reason') IS NOT NULL"""))):
+                raise LegalBasisLifecycleError("public_control_deletion_not_allowed")
+            try:
+                with open(control_withdrawal.state_path, encoding="utf-8") as source:
+                    control_case_text = source.read()
+                cases = parse_disposition_cases(control_case_text, now=datetime.now(UTC))
+            except (OSError, UnicodeError):
+                raise LegalBasisLifecycleError("public_control_deletion_case_unavailable") from None
+            if not any(case.scope == "public_consent_control" and case.selector_ref == "all"
+                       and case.stage in {"accepted", "applied"}
+                       and case.decided_at == disposition.basis_lost_at and case.due_at == action.due_at
+                       and case.reason == disposition.reason for case in cases):
+                raise LegalBasisLifecycleError("public_control_deletion_case_missing")
+            await session.execute(text("SET LOCAL lock_timeout='5000ms'"))
+            await session.execute(text("LOCK TABLE public.public_analytics_choices IN ACCESS EXCLUSIVE MODE"))
+            statement = delete(PublicAnalyticsChoice)
+        elif action.category == ANONYMOUS_AGGREGATE_RETENTION_CATEGORY:
             statement = delete(AnonymousPageAggregateBucket)
         elif action.category == "visit_attribution":
             statement = delete(PublicVisitAttribution)
+        elif action.category == "activation_milestone_decisions":
+            statement = delete(ProductActivationMilestone)
         elif action.category == ATTRIBUTION_PROFILES_RETENTION_CATEGORY:
             statement = update(ClientAcquisitionAttribute).values(
                 source=None,
@@ -629,6 +808,12 @@ async def apply_basis_loss_disposition(
         results.append(
             _result(disposition, action, rows=int(outcome.rowcount or 0), erased_at=moment)
         )
+    if control_withdrawal is not None and read_basis_withdrawal_register(basis_environ) != control_withdrawal:
+        raise LegalBasisLifecycleError("public_control_deletion_basis_changed")
+    if control_case_text is not None:
+        with open(control_withdrawal.state_path, encoding="utf-8") as source:
+            if source.read() != control_case_text:
+                raise LegalBasisLifecycleError("public_control_deletion_case_changed")
     if commit:
         await session.commit()
     return tuple(results)
@@ -641,6 +826,7 @@ def _result(
     rows: int,
     erased_at: datetime,
 ) -> BasisLossErasureResult:
+    assert action.due_at is not None
     return BasisLossErasureResult(
         level_key=disposition.level_key,
         category=action.category,

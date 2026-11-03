@@ -123,3 +123,35 @@ framework; the smoke is one standalone native shell gate.
 | Violation | Why Needed | Simpler Alternative Rejected Because |
 |-----------|------------|-------------------------------------|
 | None | No constitution violation | Existing modules and native tooling are sufficient |
+
+## Срез T024–T026 от 2026-10-16
+
+Lane: `Active Spec Kit slice`, высокий риск управления установленным macOS
+приложением. Продолжаем US3/FR-015–020/SC-008; повторный выпуск не нужен.
+
+1. `validate-app-launch --live [--restart-idle-app]` в `scripts/dev-harness.py`
+   использует общий `state_lock`. До изменения проверяет live pointer/manifest,
+   recovery, чистый checkout инструмента, exact SHA/bytes/signature identity,
+   requirement и entitlements установленного Dev.
+2. Переиспользует `_terminate_dev_app` и `_launch_dev_app`. Только последнему
+   добавляет необязательный пустой журнал: `open --env GRAF_LOG_DIRECTORY=...`.
+   HOME/Application Support не меняет. Swift lifecycle helper возвращает
+   единственный точный PID по bundle ID/path; ноль/несколько/symlink/замена — отказ.
+3. Сам `validate-packaged-app-launch.sh` переиспользует проверку жизни/маркеров;
+   явный режим наблюдения Dev не запускает/убивает процессы. Ими владеет harness.
+   Релизный вызов неизменен; результаты различают собственный дочерний процесс
+   и `lifecycle=dev-harness`. Проверка PID до/после и непрерывность в течение 5s.
+4. `finally` возвращает исходное running/stopped состояние. При прежнем running
+   открывает обычный Dev без временного журнала, иначе оставляет stopped.
+   Не меняет backend/manifest/bundle/signature/TCC; чистит только свой temp.
+5. До кода: независимое ревью всех активных чеклистов, analyze без Critical/High,
+   issue sync T024–T026 в #7209. Затем negative-first tests, lifecycle success/
+   failure/refusal/restoration, существующие release/signing fixtures и ревью.
+6. Commit после проверки по действующему разрешению пользователя. Затем actual validator из чистого checkout,
+   проверка восстановления и exact-SHA/base GitHub gates; только затем закрытие.
+
+Constitution check до/после проектирования: PASS при соблюдении операторского
+предусловия FR-018. No product/capture/data/permission changes. Обычная приёмка
+явно включает обычные фоновые действия установленного Dev и не называется
+privacy-safe isolated launch. Это устраняет ложную гарантию первоначального
+предложения, выявленную независимым review-dev-launch-design-20261016.md.

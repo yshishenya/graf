@@ -1,0 +1,433 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-10-21T10:44:18.067044+00:00",
+  "feature": 280,
+  "tasks": [
+    "T075",
+    "T076",
+    "T077",
+    "T078",
+    "T079",
+    "T080",
+    "T081",
+    "T082"
+  ],
+  "status": "SCOPED_TECHNICAL_RELEASE_AND_LIVE_ACCEPTED",
+  "source_sha": "bfa7d71839171afd3043768ea736ce76ffa29808",
+  "version": "2026.10.19.2",
+  "base_tag": "v2026.10.19.1",
+  "base_source_sha": "03cea84dc5deb1d77ea7b4ac2356fa9819123aa9",
+  "feature_pr": 7666,
+  "feature_pr_head": "de06e599d56dbe870e4e0fd68858f3f1ba2119a5",
+  "feature_merge_sha": "6899bf51ab7fed8a613b6929d586d59de4b7fd59",
+  "release_prep_pr": 7674,
+  "candidate_id": "rc-20261019T121659Z-1a74d9f80180",
+  "train_id": "train-20261019T121553Z-bfa7d7183917",
+  "release_full": {
+    "run_id": 39250886863,
+    "url": "https://github.com/yshishenya/graf/actions/runs/39250886863",
+    "jobs_passed": 13,
+    "status": "SUCCESS",
+    "authoritative_digest": "sha256:a75356f4b373020c577417d8514a75f1afde8eb01f9f88e68bae3877cb6c1453"
+  },
+  "publication": {
+    "attestation_id": "pa-rc-20261019T121659Z-1a74d9f80180",
+    "attested_at": "2026-10-19T12:34:15Z",
+    "attested_by": "f280-period-wrap",
+    "candidate_id": "rc-20261019T121659Z-1a74d9f80180",
+    "decision_digest": "sha256:9819247fe6c2f671e9141abac083e9e6fdce8997049a63f2a5cd26f21cc91164",
+    "github_release_url": "https://github.com/yshishenya/graf/releases/tag/v2026.10.19.2",
+    "release_target_sha": "bfa7d71839171afd3043768ea736ce76ffa29808",
+    "schema_version": 1,
+    "source_sha": "bfa7d71839171afd3043768ea736ce76ffa29808",
+    "tag": "v2026.10.19.2"
+  },
+  "runtime": {
+    "source_sha": "bfa7d71839171afd3043768ea736ce76ffa29808",
+    "services": {
+      "rec-api": {
+        "image_id": "sha256:d4cf640d81776c0f2a27c2d34fceb103988cacfe8ad06ef35332c1b416cd4242",
+        "status": "running",
+        "health": "healthy",
+        "restarts": 0,
+        "source_label": "bfa7d71839171afd3043768ea736ce76ffa29808",
+        "hashes": {
+          "cabinet/static/cabinet/cabinet.css": "8eabeb8a880c85900b42e1dd7d798e23059197834cfbb2cc16bb7071724ef739",
+          "cabinet/templates/cabinet/pages/billing_checkout_content.html": "7a3784815bf1c2d7804772807e76f610b38f8e6b33db79ebc46aadefc36c3a71",
+          "cabinet/templates/cabinet/pages/billing_overview_content.html": "a918c90d93b6b77da8acf463a5de4113942687265445d540a3e41038b6af38f7",
+          "cabinet/templates/cabinet/pages/billing_subscription_content.html": "1f00f5ecfe869e57ff1f69bdd44cf3dfdde4de280d86f76fdde5600564a32d0d",
+          "cabinet/web_routes/billing.py": "879460faf0c4ba2747b60ad4865c0c7adae16b1f3d5b865f19b4adabaac32b48"
+        }
+      },
+      "rec-processing-worker": {
+        "image_id": "sha256:d4cf640d81776c0f2a27c2d34fceb103988cacfe8ad06ef35332c1b416cd4242",
+        "status": "running",
+        "health": "healthy",
+        "restarts": 0,
+        "source_label": "bfa7d71839171afd3043768ea736ce76ffa29808",
+        "hashes": {
+          "cabinet/static/cabinet/cabinet.css": "8eabeb8a880c85900b42e1dd7d798e23059197834cfbb2cc16bb7071724ef739",
+          "cabinet/templates/cabinet/pages/billing_checkout_content.html": "7a3784815bf1c2d7804772807e76f610b38f8e6b33db79ebc46aadefc36c3a71",
+          "cabinet/templates/cabinet/pages/billing_overview_content.html": "a918c90d93b6b77da8acf463a5de4113942687265445d540a3e41038b6af38f7",
+          "cabinet/templates/cabinet/pages/billing_subscription_content.html": "1f00f5ecfe869e57ff1f69bdd44cf3dfdde4de280d86f76fdde5600564a32d0d",
+          "cabinet/web_routes/billing.py": "879460faf0c4ba2747b60ad4865c0c7adae16b1f3d5b865f19b4adabaac32b48"
+        }
+      },
+      "rec-media-worker": {
+        "image_id": "sha256:c093297ba881a3112c5a5ef0f84112476b05f26e6d2cef427b1757143481989a",
+        "status": "running",
+        "health": "healthy",
+        "restarts": 0,
+        "source_label": "bfa7d71839171afd3043768ea736ce76ffa29808",
+        "hashes": {
+          "cabinet/static/cabinet/cabinet.css": "8eabeb8a880c85900b42e1dd7d798e23059197834cfbb2cc16bb7071724ef739",
+          "cabinet/templates/cabinet/pages/billing_checkout_content.html": "7a3784815bf1c2d7804772807e76f610b38f8e6b33db79ebc46aadefc36c3a71",
+          "cabinet/templates/cabinet/pages/billing_overview_content.html": "a918c90d93b6b77da8acf463a5de4113942687265445d540a3e41038b6af38f7",
+          "cabinet/templates/cabinet/pages/billing_subscription_content.html": "1f00f5ecfe869e57ff1f69bdd44cf3dfdde4de280d86f76fdde5600564a32d0d",
+          "cabinet/web_routes/billing.py": "879460faf0c4ba2747b60ad4865c0c7adae16b1f3d5b865f19b4adabaac32b48"
+        }
+      },
+      "rec-maintenance": {
+        "image_id": "sha256:d4cf640d81776c0f2a27c2d34fceb103988cacfe8ad06ef35332c1b416cd4242",
+        "status": "running",
+        "health": null,
+        "restarts": 0,
+        "source_label": "bfa7d71839171afd3043768ea736ce76ffa29808",
+        "hashes": {
+          "cabinet/static/cabinet/cabinet.css": "8eabeb8a880c85900b42e1dd7d798e23059197834cfbb2cc16bb7071724ef739",
+          "cabinet/templates/cabinet/pages/billing_checkout_content.html": "7a3784815bf1c2d7804772807e76f610b38f8e6b33db79ebc46aadefc36c3a71",
+          "cabinet/templates/cabinet/pages/billing_overview_content.html": "a918c90d93b6b77da8acf463a5de4113942687265445d540a3e41038b6af38f7",
+          "cabinet/templates/cabinet/pages/billing_subscription_content.html": "1f00f5ecfe869e57ff1f69bdd44cf3dfdde4de280d86f76fdde5600564a32d0d",
+          "cabinet/web_routes/billing.py": "879460faf0c4ba2747b60ad4865c0c7adae16b1f3d5b865f19b4adabaac32b48"
+        }
+      }
+    },
+    "accepted_bytes_match": true
+  },
+  "public_assets": {
+    "original_baseline_count": 175,
+    "original_changed": [],
+    "recursive_unchanged_count": 539,
+    "live_appcast": {
+      "status": 200,
+      "size": 3546,
+      "sha256": "a41579d1b65a44ec2a6e33a4efb33aa1841f8ea4d1d5d44445f3ef8138d7711a"
+    },
+    "pass": true
+  },
+  "public_health": {
+    "live": {
+      "http": 200,
+      "body": {
+        "status": "ok"
+      }
+    },
+    "ready": {
+      "http": 200,
+      "body": {
+        "status": "ready"
+      }
+    }
+  },
+  "evidence_sha256": {
+    "final-ready.json": "540aa58eab9af74594873f9ec776a92a7db1643e94fbbb82188a533a0be8926d",
+    "review-first-attempt-projection-final.md": "51aabc4c3ff40cca35b92f338d4dbe61852bca7326e151cf08b1df534f56260c",
+    "root-diff-projection-accepted.md": "a5fa94b3387afa0759acb6eb66655dd80bf4accf6877ef857bb80cc44d675cec",
+    "release19.2-cd-dry-run.log": "8403a9269268a849e231c895773e53fa6319f4fde983394dae59a90ba64fa8c4",
+    "release19.2-cd-execute.log": "913866c059ba2c21bb9f0862c424e8749cc9ccadb789f40725b21b841d1c5528",
+    "release19.2-runtime-installed.json": "6177ac7107e2dbe59a4ca4efb822f6d700ed3a711d4f525981f3de9ff5664532",
+    "public-assets19.2-comparison.json": "0a25e67469016a5afb94f6c95ce9498535ac58c1c93afd7f40e64397852a634a",
+    "public-original-baseline19.2-check.json": "74272b7c485633dfb4f30dbf76382abdeb60b1e66e92dfe889ee6d33f037a5a4",
+    "release19.2-public-health.json": "8c0eece2648a8d65699e65b66cf2d654e0dccda13f2d9690deb447470ff79dd1",
+    "release19.2-publish.log": "ef8a531f3e8212e9d07abb6bcf2aef9aef110ec085a1a7bb02fcba9945086101",
+    "release19.2-images-verify.log": "9254d6de6fa0f93e73906f861911b212193a69c73970abe5c112b63b60bca90b",
+    "live-final-20261021.json": "643080cff81f67275423f0645dde1c60c3f763db8eaea32902a8cc3543986c8c",
+    "closeout-20261021/runtime-current.json": "7f723a0a755414a233aaf275fddc27499c87e5986d8afd8c1b4c825133ce2689"
+  },
+  "live_acceptance": {
+    "report_sha256": "643080cff81f67275423f0645dde1c60c3f763db8eaea32902a8cc3543986c8c",
+    "report": {
+      "schema_version": 1,
+      "checked_at": "2026-10-21T10:42:59.102134+00:00",
+      "reviewer": "root",
+      "scope": "F280 final deployed browser verification, read-only except transient unsaved checkout preview",
+      "candidate_sha": "bfa7d71839171afd3043768ea736ce76ffa29808",
+      "version": "v2026.10.19.2",
+      "runtime_report": ".dev/f280-period-wrap/closeout-20261021/runtime-current.json",
+      "runtime_report_sha256": "7f723a0a755414a233aaf275fddc27499c87e5986d8afd8c1b4c825133ce2689",
+      "method": "Codex ordinary in-app browser, new temporary tab with existing authenticated site session; native AX actions, screenshots and permitted CDP development observations",
+      "status": "PASS_SCOPED_TECHNICAL_LIVE",
+      "checks": {
+        "fresh_billing_overview": {
+          "result": "PASS",
+          "path": "/billing",
+          "compact_active_personal_paid_through_visible": true,
+          "renewal_disabled_explicit_no_charges": true,
+          "renew_action_obvious": true,
+          "storage_separate_compact_card": true,
+          "paid_invoice_link": true,
+          "renewal_disclosure_expands": true
+        },
+        "subscription": {
+          "result": "PASS",
+          "path": "/billing/subscription",
+          "active_badge": true,
+          "paid_through": true,
+          "renewal_disabled": true,
+          "details_hidden_initially": true,
+          "details_expand_price_period_method_history": true,
+          "renewal_first_attempt_explanation_absent_when_disabled": true
+        },
+        "checkout": {
+          "result": "PASS",
+          "year_and_month": "tested by visible period buttons",
+          "default_recurring_checked": true,
+          "offer_remained_unchecked": true,
+          "unsaved_recurring_uncheck_updates_summary": true,
+          "payment_CTA_visible_without_recurring": true,
+          "payment_CTA_not_clicked": true
+        },
+        "invalid_promo": {
+          "result": "PASS",
+          "input": "synthetic definitely-invalid code only",
+          "message": "Промокод не распознан",
+          "XHR_path": "/billing/checkout/preview",
+          "XHR_status_redirect": 303,
+          "preview_result": "promo_invalid",
+          "Document_requests": 0,
+          "Page_frameNavigated_events": 0,
+          "observation_not_truncated": true,
+          "year_preserved": true,
+          "recurring_off_summary_preserved": true,
+          "input_retained": true,
+          "browser_URL_unchanged": true,
+          "focus_restored_to_apply": true,
+          "payment_hidden_until_invalid_code_cleared": true,
+          "clear_input_and_apply_restores_CTA": true,
+          "after_recovery_recurring_unchecked": true,
+          "after_recovery_offer_unchecked": true,
+          "no_payment_created": true
+        },
+        "narrow_layout": {
+          "result": "PASS",
+          "width_css_px": 320,
+          "zoom_levels": [
+            "100%",
+            "temporary CSS zoom 200%, same convention as existing browser matrix; not physical-device testing"
+          ],
+          "screenshots_personally_viewed": true,
+          "period_savings_fully_visible_with_natural_wrapping": true,
+          "year_amount": "12 500 ₽",
+          "year_amount_rect_count": 1,
+          "year_amount_left": 95.03125,
+          "year_amount_right": 203.4375,
+          "month_amount": "1 250 ₽",
+          "month_amount_rect_count": 1,
+          "month_amount_left": 103.3828125,
+          "month_amount_right": 195.09375,
+          "button_left": 58,
+          "button_right": 262,
+          "document_scroll_width": 320,
+          "viewport_width": 320,
+          "amount_computed_white_space": "nowrap",
+          "button_computed_white_space": "normal",
+          "label_wraps_around_amount": true,
+          "temporary_root_zoom_removed": true,
+          "browser_viewport_reset": true
+        },
+        "existing_paid_invoice": {
+          "result": "PASS",
+          "path": "/billing/invoices/<existing-redacted>",
+          "clear_status": "Оплачен",
+          "paid_period_visible": true,
+          "receipt_status": "Чек зарегистрирован",
+          "details_expand": true,
+          "no_repeat_pay_CTA": true,
+          "no_new_provider_transaction": true,
+          "fiscal_receipt_document_not_downloaded": true
+        },
+        "account_unchanged": {
+          "result": "PASS",
+          "fresh_overview_after_checkout_confirms_original_paid_through_storage_and_renewal_off": true,
+          "new_payments": 0,
+          "refunds": 0,
+          "emails": 0,
+          "saved_consent_changes": 0,
+          "saved_method_changes": 0,
+          "saved_storage_changes": 0,
+          "GRAF_Dev_changes": 0
+        }
+      },
+      "limitations": [
+        "Existing open user tabs initially held older HTML. Fresh temporary authenticated tab showed the released current UI; original user tabs/forms were preserved.",
+        "Normal first-future renewal and missed-window states are covered by the accepted fixed-clock helper/contract and Chromium/WebKit matrix, not enabled on this live account.",
+        "No new real charge, bank settlement, refund or recurring debit was attempted. F278 financial acceptance remains separate.",
+        "This is browser-agent technical acceptance; T011 installed GRAF Dev, T012 and SC005/006 conversion/retention evidence remain separate.",
+        "No raw AX dumps, tokens, account identifiers, payment IDs, card fragments, private screenshot files or request bodies are retained in this report."
+      ],
+      "source_evidence": [
+        "release19.2-runtime-installed.json",
+        "review-first-attempt-projection-final.md",
+        "review-comment4312428790.md",
+        "final-ready.json",
+        "projection-screenshots-hashes.json"
+      ]
+    }
+  },
+  "separate_gates": [
+    "T011",
+    "T012",
+    "SC005",
+    "SC006",
+    "F278",
+    "automatic_retry_post_deploy",
+    "backfill_inventory_post_deploy",
+    "range_playback_post_deploy",
+    "normalization_cleanup_post_deploy"
+  ],
+  "limits": [
+    "No new payment/refund/email/account mutation or GRAF Dev action",
+    "No new macOS release or installed acceptance",
+    "Synthetic/browser-agent checks do not measure human conversion or retention"
+  ],
+  "fresh_runtime_recheck": {
+    "source_sha": "bfa7d71839171afd3043768ea736ce76ffa29808",
+    "services": {
+      "rec-api": {
+        "image_id": "sha256:d4cf640d81776c0f2a27c2d34fceb103988cacfe8ad06ef35332c1b416cd4242",
+        "status": "running",
+        "health": "healthy",
+        "restarts": 0,
+        "source_label": "bfa7d71839171afd3043768ea736ce76ffa29808",
+        "hashes": {
+          "cabinet/static/cabinet/cabinet.css": "8eabeb8a880c85900b42e1dd7d798e23059197834cfbb2cc16bb7071724ef739",
+          "cabinet/templates/cabinet/pages/billing_checkout_content.html": "7a3784815bf1c2d7804772807e76f610b38f8e6b33db79ebc46aadefc36c3a71",
+          "cabinet/templates/cabinet/pages/billing_overview_content.html": "a918c90d93b6b77da8acf463a5de4113942687265445d540a3e41038b6af38f7",
+          "cabinet/templates/cabinet/pages/billing_subscription_content.html": "1f00f5ecfe869e57ff1f69bdd44cf3dfdde4de280d86f76fdde5600564a32d0d",
+          "cabinet/web_routes/billing.py": "879460faf0c4ba2747b60ad4865c0c7adae16b1f3d5b865f19b4adabaac32b48"
+        }
+      },
+      "rec-processing-worker": {
+        "image_id": "sha256:d4cf640d81776c0f2a27c2d34fceb103988cacfe8ad06ef35332c1b416cd4242",
+        "status": "running",
+        "health": "healthy",
+        "restarts": 0,
+        "source_label": "bfa7d71839171afd3043768ea736ce76ffa29808",
+        "hashes": {
+          "cabinet/static/cabinet/cabinet.css": "8eabeb8a880c85900b42e1dd7d798e23059197834cfbb2cc16bb7071724ef739",
+          "cabinet/templates/cabinet/pages/billing_checkout_content.html": "7a3784815bf1c2d7804772807e76f610b38f8e6b33db79ebc46aadefc36c3a71",
+          "cabinet/templates/cabinet/pages/billing_overview_content.html": "a918c90d93b6b77da8acf463a5de4113942687265445d540a3e41038b6af38f7",
+          "cabinet/templates/cabinet/pages/billing_subscription_content.html": "1f00f5ecfe869e57ff1f69bdd44cf3dfdde4de280d86f76fdde5600564a32d0d",
+          "cabinet/web_routes/billing.py": "879460faf0c4ba2747b60ad4865c0c7adae16b1f3d5b865f19b4adabaac32b48"
+        }
+      },
+      "rec-media-worker": {
+        "image_id": "sha256:c093297ba881a3112c5a5ef0f84112476b05f26e6d2cef427b1757143481989a",
+        "status": "running",
+        "health": "healthy",
+        "restarts": 0,
+        "source_label": "bfa7d71839171afd3043768ea736ce76ffa29808",
+        "hashes": {
+          "cabinet/static/cabinet/cabinet.css": "8eabeb8a880c85900b42e1dd7d798e23059197834cfbb2cc16bb7071724ef739",
+          "cabinet/templates/cabinet/pages/billing_checkout_content.html": "7a3784815bf1c2d7804772807e76f610b38f8e6b33db79ebc46aadefc36c3a71",
+          "cabinet/templates/cabinet/pages/billing_overview_content.html": "a918c90d93b6b77da8acf463a5de4113942687265445d540a3e41038b6af38f7",
+          "cabinet/templates/cabinet/pages/billing_subscription_content.html": "1f00f5ecfe869e57ff1f69bdd44cf3dfdde4de280d86f76fdde5600564a32d0d",
+          "cabinet/web_routes/billing.py": "879460faf0c4ba2747b60ad4865c0c7adae16b1f3d5b865f19b4adabaac32b48"
+        }
+      },
+      "rec-maintenance": {
+        "image_id": "sha256:d4cf640d81776c0f2a27c2d34fceb103988cacfe8ad06ef35332c1b416cd4242",
+        "status": "running",
+        "health": null,
+        "restarts": 0,
+        "source_label": "bfa7d71839171afd3043768ea736ce76ffa29808",
+        "hashes": {
+          "cabinet/static/cabinet/cabinet.css": "8eabeb8a880c85900b42e1dd7d798e23059197834cfbb2cc16bb7071724ef739",
+          "cabinet/templates/cabinet/pages/billing_checkout_content.html": "7a3784815bf1c2d7804772807e76f610b38f8e6b33db79ebc46aadefc36c3a71",
+          "cabinet/templates/cabinet/pages/billing_overview_content.html": "a918c90d93b6b77da8acf463a5de4113942687265445d540a3e41038b6af38f7",
+          "cabinet/templates/cabinet/pages/billing_subscription_content.html": "1f00f5ecfe869e57ff1f69bdd44cf3dfdde4de280d86f76fdde5600564a32d0d",
+          "cabinet/web_routes/billing.py": "879460faf0c4ba2747b60ad4865c0c7adae16b1f3d5b865f19b4adabaac32b48"
+        }
+      }
+    },
+    "accepted_bytes_match": true,
+    "recorded_at": "2026-10-21T10:41:54.501324+00:00",
+    "public_health": {
+      "live": {
+        "http": 200,
+        "body": {
+          "status": "ok"
+        }
+      },
+      "ready": {
+        "http": 200,
+        "body": {
+          "status": "ready"
+        }
+      }
+    }
+  },
+  "pr_current_checks": {
+    "7666": {
+      "base_sha": "03cea84dc5deb1d77ea7b4ac2356fa9819123aa9",
+      "checks": {
+        "governance-fast": {
+          "proof_digest": "sha256:dfef574b3bf8738364c855cd535bbce01ff39143d84c47dd1f04d72066a6e13c",
+          "run_attempt": 1,
+          "run_id": "39232803280"
+        },
+        "macos-pr": {
+          "proof_digest": "sha256:029e16b2735e45ec2863ea93158180f55362510903fc54ad5c6be1c134c884f6",
+          "run_attempt": 1,
+          "run_id": "39232803231"
+        },
+        "pr-metadata": {
+          "proof_digest": "sha256:9f4e71611c47a67b12ed0a8e3f0f66e4a1d5359dbe2a951411ce20493d42eef3",
+          "run_attempt": 1,
+          "run_id": "39232800976"
+        }
+      },
+      "merge_commit_sha": "6899bf51ab7fed8a613b6929d586d59de4b7fd59",
+      "metadata_digest": "437ae5131cff55035eb778c2f297b4b47feedb0a5b2c5d8c7947c5c1dc04e90c",
+      "policy": "separate",
+      "pr_number": 7666,
+      "repository": "yshishenya/graf",
+      "schema_version": 1,
+      "target_sha": "de06e599d56dbe870e4e0fd68858f3f1ba2119a5"
+    },
+    "7674": {
+      "base_sha": "6899bf51ab7fed8a613b6929d586d59de4b7fd59",
+      "checks": {
+        "governance-fast": {
+          "proof_digest": "sha256:77dcf37e712d3dfde32146bcb16399852a8c53276ff86982a7ae945b0696b683",
+          "run_attempt": 1,
+          "run_id": "39250403244"
+        },
+        "macos-pr": {
+          "proof_digest": "sha256:999d2cb70f7b30273761ce72eae47757f5c78d5cac7edc3f3647bfb492560e3e",
+          "run_attempt": 1,
+          "run_id": "39250403240"
+        },
+        "pr-metadata": {
+          "proof_digest": "sha256:21f88e3e783ad5371f7e63a577bfcd7fe9f6e982fdeca5483a6f406d2637241b",
+          "run_attempt": 1,
+          "run_id": "39250403460"
+        }
+      },
+      "merge_commit_sha": "bfa7d71839171afd3043768ea736ce76ffa29808",
+      "metadata_digest": "420b72f86df1fc78bc41f846203afd2ff77a656dece2e4bf384cb4ee5f8a1e3b",
+      "policy": "separate",
+      "pr_number": 7674,
+      "repository": "yshishenya/graf",
+      "schema_version": 1,
+      "target_sha": "b2805b374a9a039f9a8b02652eae232bbfec6e70"
+    }
+  },
+  "documentation_only_base": "0177d810a1fedff3f4c58bc26bf44b23bb971755",
+  "feature_complete": false,
+  "remaining_issue_numbers": [
+    7366,
+    7378,
+    7379
+  ]
+}

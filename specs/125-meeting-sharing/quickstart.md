@@ -145,15 +145,19 @@ user and one unknown external address.
 3. Confirm attendee presence does not create a grant or change recording state.
 4. In browser-only mode, confirm no Contacts permission is requested and typed
    email remains available according to policy.
-5. In a future native-picker fixture, select one synthetic address and confirm
-   only that selection enters the recipient flow; no full contact list is sent.
+5. Only after a new scope decision returns native picker T046, use a synthetic
+   fixture to confirm only the selected address enters the recipient flow and
+   no full contact list is sent. T046 is NOT_PLANNED for the current MVP; this
+   scenario is conditional and has no runtime PASS claim.
 
 ### F. Accessibility and presentation
 
 Check browser and embedded surfaces in dark/light themes, 320 CSS px width,
 200% zoom, keyboard-only navigation, VoiceOver labels, increased contrast and
 reduced motion. Confirm no horizontal scroll, focus loss, hidden disabled action
-that still fires a request, or copied competitor visual treatment.
+that still fires a request, or reuse of competitor code/assets without rights.
+Observable reference fidelity follows Constitution VII, including literal
+functional wording; required accessibility/privacy deviations remain explicit.
 
 ## Security checks
 
@@ -173,7 +177,13 @@ headers, browser history/autocapture fixtures and audit JSON:
 
 ## Repository gate and release boundary
 
-Before PR/closeout for this high-risk feature:
+Исторические команды и результаты ниже сохранены для исходных поставок.
+Для текущего среза используйте явную полосу проверок из действующего
+`docs/agent-guidance/release-and-validation.md`; команда без `--fast`/`--full`
+больше не выбирает полосу автоматически. Текущая проверка T048 описана отдельно
+в конце этого файла.
+
+Команда из исходного плана, не текущая команда запуска:
 
 ```sh
 infra/scripts/ci-local.sh
@@ -356,3 +366,208 @@ attribution remain disabled.
 - The production browser navigation used for diagnosis timed out, so no live
   rendered screenshot or console-clean claim is made. This change is validated
   only with synthetic local fixtures until the release deploy gate is approved.
+
+## Проверка T048 — 2026-10-27
+
+Область: #4454, существующая T048, полоса `Active Spec Kit slice`.
+Изменены только тесты и доказательства: код продукта, схема, зависимости и
+настройки не меняются. Проверен действующий путь `summary-sharing.js` →
+`/summary-sharing/recipients` → `owner_meeting` → `search_share_recipients`,
+а также прежний `/share-recipients`, который использует тот же поиск.
+
+Из корня репозитория, в штатном изолированном PostgreSQL:
+
+```sh
+apps/server/scripts/run_local_postgres_tests.sh --focused -q \
+  tests/unit/test_recording_workflow_access.py \
+  tests/unit/test_meeting_sharing.py \
+  tests/contract/test_recording_share_ui_contract.py \
+  tests/contract/test_recording_share_invitation_contract.py \
+  tests/contract/test_meeting_sharing_contract.py \
+  tests/contract/test_summary_sharing_runtime_contract.py \
+  tests/integration/test_meeting_share_links.py \
+  tests/integration/test_invitation_delivery_workflow.py \
+  tests/integration/test_summary_sharing.py \
+  tests/integration/test_summary_sharing_account_merge.py
+```
+
+Результат: **67 разных проверок PASS, 0 SKIP**; изолированный контейнер удалён
+штатным runner. Python и пакеты соответствуют текущему `uv.lock`.
+Браузерный тест использует существующий Playwright 1.63.0 и настоящий Jinja2
+fragment с `summary-sharing.js`; новые зависимости не добавлены.
+
+- В Chromium выбор подсказки и ввод неизвестного синтетического email
+  добавляют только локально выбранных получателей. Наблюдаются только загрузка
+  страницы и ожидаемые GET `/link`, `/auto-send`, `/recipients`; нет POST,
+  сторонних HTTP-запросов, обращения к Contacts, разрешениям или native bridge.
+- Настоящий API возвращает ровно разрешённую workspace identity; неизвестный
+  адрес даёт пустой результат. Пользователь без права отправки, другой tenant,
+  чужая встреча и удаляемая встреча получают общий отказ без списка людей.
+- До и после поиска совпадают строки таблиц встречи, identities, membership,
+  consent, provider links, календаря, grants, invitations, публикаций,
+  batches/deliveries, уведомлений и egress audit. Служебная запись ограничения
+  частоты поиска допускается. В проверке нет подключённого календарного
+  поставщика или разрешённого источника контактов.
+- Ловушки реальных HTTP-транспортов и Temporal запрещают скрытые provider
+  запросы и запуск доставки. Отрицательный контроль временно подставил вызов
+  поставщика контактов в оба маршрута и Contacts API в браузере: все три
+  проверки ожидаемо отказали; тестовые файлы восстановлены побайтно, затем
+  весь приведённый профиль прошёл. Продуктовые файлы при этом не менялись.
+
+Это приёмка только T048. Она не заменяет ручную матрицу всей F125, проверку
+работающего приложения, выпуск или production. T042–T047 остаются открытыми;
+Contacts/provider, referral и внешняя отправка этой проверкой не включаются.
+Перед слиянием нужны `governance-fast`, `macos-pr`, `pr-metadata` на точном
+SHA и проверенной основе, затем общий `scripts/validate-pr-checks.py`.
+
+## Проверка проекта T047 — 2026-10-27
+
+Область: #4453, полоса `Active Spec Kit slice`, только проект будущего
+подключения контактов. Обязательные результаты T047 находятся в research §4
+и contract §8.1: delegated read-only scopes, операции/поля/лимиты, TTL,
+отключение/поздние ответы, русский текст согласия и серверная авторизация.
+Это ручная проверка документов, предусмотренная исходной issue, а не
+исполнение Google/Microsoft integration. T046 и включение остаются отдельно.
+
+1. Сверить scopes и допустимые операции с официальными ссылками research §4.
+   Убедиться, что контактное право не добавляется к обычному входу, не
+   обещает выборочное OAuth-разрешение, не разрешает запись или directory.
+2. Проверить contract §8.1: TTL 0 для постоянного/server cache, 60 секунд
+   для памяти диалога; ограничения источника/контекста и ранняя очистка;
+   поздний ответ не восстанавливает результат. Срок проверяется при выборе.
+   Общий срок поиска с warmup — 5 секунд; timeout/429/401 не запускают
+   фоновый повтор. Поисковая строка, URL/body поставщика исключены из обычных
+   журналов, traces, diagnostics и autocapture, включая ошибки.
+3. Прочитать текст согласия целиком: права аккаунта, временная память,
+   запрет неявного доступа, предел отключения и сохранённый ручной ввод.
+4. Проверить все три независимых checklist и нулевой незакрытый остаток
+   требований именно T047. Старые отметки T048 не являются его приёмкой.
+5. Выполнить `git diff --check`, `python3 scripts/check-development-process.py`
+   и `python3 scripts/check_spec_kit_governance.py`; проверить точную связь
+   T047/#4453 и сохранение остальных task IDs/описаний/открытых задач.
+
+Продуктовые тесты T048 выше не являются доказательством работы провайдера
+и не требуют повтора из-за документальной правки. Исполняемая матрица перед
+будущим включением задана в contract §8.1 и остаётся невыполненной. Перед
+принятием проекта требуются независимое ревью, отсутствие CRITICAL/HIGH
+в анализе среза и три GitHub-проверки точного SHA/основы; затем merged PR
+и proposed/actual live `validate-issue-closeout.py` для #4453.
+
+### Результат документальной проверки T047
+
+Все пять шагов выше выполнены: исходные критерии #4453 сопоставлены с
+research §4/contract §8.1, новые строки проверены на секреты и частные данные.
+Независимый проверяющий повторно открыл официальную документацию Google/
+Microsoft и подтвердил проект: requirements 17/0, security 23/0, UX 21/0,
+всего 61/0. Первоначальные замечания и дополнения по сроку ожидания/журналам
+устранены; итоговый отчёт `f125-t047-precheck.md` хранится вне репозитория.
+Повторный анализ: 42 FR, 21 SC, 77 исходных task IDs; в срезе T047
+CRITICAL 0 / HIGH 0 / MEDIUM 0. `git diff --check`, проверки процесса и
+governance PASS; prerequisites подтверждают активную F125. Отмечена только
+T047. Продуктовые тесты и OAuth-запросы не запускались, результаты T048
+не присвоены этому проекту. PR/merge/live-closeout остаются последующими
+обязательными шагами; runtime-матрица §8.1 не выполнена.
+
+## Проверка решения T046 — 2026-10-27
+
+Полоса: Active Spec Kit slice, только отмена дополнительного плана #4451.
+Сверить решение spec с plan/research/contract §8, условным E5 и ссылками на
+data-model/scenarios: native Contacts сейчас не обещан. Проверить сохранение
+ручного email, текущих подсказок, всех защитных требований и полного §8.1 T047.
+Сравнить с основой все 77 строк задач: T046 остаётся `[ ]`, остальные отметки,
+описания и порядок неизменны; отдельно указаны владелец, причина и возврат.
+
+Для принятия решения нужны независимые requirements/security/UX checklists,
+анализ без CRITICAL/HIGH, `git diff --check`, проверки процесса/governance и
+три GitHub-проверки точного SHA/основы. После слияния перечитать #4451,
+добавить обоснованный комментарий, закрыть как NOT_PLANNED и проверить
+state/reason/comment. Валидатор COMPLETED для отмены неприменим.
+Никакие продуктовые/аппаратные тесты не заявляются: их результаты T048
+не принимают native picker. Установленное приложение, OAuth, выпуск и сервер
+не меняются. Остальные незавершённые критерии F125 сохраняются.
+
+## Проверка проекта T043 — 2026-10-27
+
+Область: #4449, полоса `Active Spec Kit slice`, только договор будущей
+referral-атрибуции в data-model §7 и contract §9.1. Исходная issue допускает
+ручное ревью документов. Эта матрица проверяет полноту проекта; работающий
+сбор, хранение, удаление и доставка событий ею не принимаются.
+
+| Случай | Ожидаемый договор |
+|---|---|
+| Новый точный получатель; явное auth-действие создаёт аккаунт, затем разрешённый summary view | Одна signup conversion; CTA, setup и first own capture — отдельные этапы |
+| Вход в существующий аккаунт, только GET/click/письмо или подсказка | Ноль новых signup; нет неявных grant/account/membership/consent/delivery |
+| Повтор, две вкладки, потеря ответа; несколько приглашений/workspaces | Одна conversion на invitation/grant и исходное auth-событие нового канонического аккаунта; атомарный учёт, без вращения токена |
+| Пересылка, другая identity/workspace, подмена scope | Общий отказ; ссылка не заменяет серверную exact-identity проверку и не расширяет доступ |
+| Self/связанные verified identities, неоднозначная identity, bot/существующий rate limit | Ноль signup conversion; без fingerprint, объединения людей по домену или нового антифрод-сервиса |
+| До срока и ровно `now == eligible_until` | До срока допустим только полный разрешённый переход; на границе — отказ; срок равен минимуму 90 дней/expiry приглашения/expiry grant и не продлевается повтором |
+| Revoke/rotation, начало удаления встречи/аккаунта, потеря internal membership; позднее событие | Использование сразу прекращается; старое событие/новая ссылка не восстанавливают связь |
+| Выключенное измерение, потеря основания, rollback или недоказанная идемпотентность | Нет выдачи/обработки/передачи; разрешённый просмотр работает независимо |
+| История `until_decision` и отдельное обязательное удаление | Возрастной очистки нет; случай удаления требует основания, охвата, срока, ответственного, результата; неизвестный срок не позволяет закрыть случай |
+| Очереди/отчёты, restore, backup и внешние копии | Управляемые копии включены в охват; перед обработкой после restore повторно применены запреты; запрос поставщику не равен подтверждённому удалению |
+| Поля, события и одобрения | Нет PII/raw token/content/client tracker; серверные ссылки не передаются поставщику; T042, T044 и T045 остаются открытыми |
+
+Сверить каждый случай с contract §9.1, spec FR-021–023/029–032/042,
+SC-008/019, исходной T043 и F273 FR-036/048–050. Проверить согласованность
+US2/US5, scenarios §8.4 и Phase 7: signup подтверждён новым аккаунтом и
+разрешённым просмотром; CTA/setup не являются его условием. Проверить три независимых checklist, анализ
+среза без CRITICAL/HIGH, `git diff --check`, отсутствие запрещённых данных,
+`python3 scripts/check-development-process.py` и
+`python3 scripts/check_spec_kit_governance.py`. Сохранить все 77 исходных
+описаний/порядок задач; T042/T044/T045 и отменённая T046 остаются `[ ]`.
+
+Перед будущим включением T044/T045 эта же матрица требует исполняемых
+проверок. Перед закрытием проектной #4449 требуются три GitHub-проверки
+точного SHA/основы, merged PR и proposed/actual live
+`validate-issue-closeout.py`. Выпуск, установленное приложение, реальные
+пользователи и production этим документальным срезом не проверяются.
+
+### Результат документальной проверки T043
+
+11 случаев матрицы сопоставлены с data-model §7/contract §9.1 и исходной
+#4449. Независимый итоговый проверяющий подтвердил requirements 19/0,
+security 24/0, UX 22/0 — всего 65/0; 32 контрольные суммы рассмотренных
+источников совпали перед учётной отметкой. Исторический BLOCK сохранён:
+G1–G5 устранены, последнее расхождение signup исправлено в US2/US5,
+scenarios §8.4 и Phase 7. Итоговый отчёт `f125-t043-final-review.md` хранится
+вне репозитория. Анализ T043: CRITICAL 0 / HIGH 0 / MEDIUM 0.
+
+`git diff --check`, проверки процесса/Spec Kit и канона GitHub прошли;
+77 исходных описаний и порядок сохранены. Отмечена только T043. Продуктовые
+тесты и сборки не запускались для проектного изменения; прежние результаты
+T048 не присвоены T043. Работающее измерение, T042/T044/T045, установленное
+приложение и выпуск не приняты. Exact-SHA/base PR gates, merge и proposed/actual
+live-closeout #4449 остаются последующими обязательными шагами.
+
+## Проверка решения T042/T044/T045 — 2026-10-27
+
+Полоса: Active Spec Kit slice, только отмена будущего каталога #4448,
+дополнительной F125 share-origin attribution #4450 и её испытаний #4452.
+Это NOT_PLANNED, не реализация и не успешное исполнение отменённой матрицы.
+
+1. Сверить решение spec с plan и tasks: исходное намерение воронки признано,
+   причина — новый приоритет раннего MVP; область, ответственный и возврат явны.
+2. Проверить карту условных обещаний spec: Scope/US2/US5, FR021/022/042,
+   conversion-части SC008/019, plan/Phase7/coverage map, data-model §7/§7.3,
+   contract §9/§9.1, research §3, scenarios §8.4/§9/§11 пункт8/§13.6.
+   Сохраняются auth/CSRF, replay-safe grant/account, audit/privacy/deletion/
+   delivery/rate-limit/rollback действующего sharing и общие privacy tests.
+3. Сверить T042/исходную #4448 и PR #7768: это отдельный отключённый будущий
+   каталог без подключения к действующим путям; конкретный рабочий дефект
+   безопасности им не исправляется. Словарь contract §9 и принятый T043
+   остаются проектом. Общий forbidden_fields guard и рабочий аудит не меняются.
+4. Сверить все 77 исходных task IDs/описаний/порядок и прежние checkbox;
+   T042/T044/T045 остаются `[ ]`. Не присваивать отмене тесты PR #7768,
+   результаты T043, денежную referral F140 или аналитику F273.
+5. Провести независимое ревью трёх checklist и анализ без CRITICAL/HIGH;
+   выполнить diff/process/Spec Kit проверки, просмотр новых строк на секреты.
+   Runtime-тесты не заявляются: код, API, UI, настройки и данные не меняются.
+6. Перед принятием нужны три PR-проверки точного SHA/основы и общий
+   `validate-pr-checks.py`. После merge закрыть PR #7768 без слияния со ссылкой
+   на решение; перечитать каждую issue, добавить причину/факты/PR/пределы,
+   закрыть как NOT_PLANNED и сверить фактические state/reason/comment.
+   COMPLETED-валидатор не заменяет эту проверку; исходные `[ ]` не меняются.
+
+Возвращение требует нового решения, предусмотренных одобрений, исходных
+проверок T042, договора T043 и всей исполняемой матрицы T045 до включения.
+Отмена не разрешает сбор событий и не принимает всю F125 или выпуск.

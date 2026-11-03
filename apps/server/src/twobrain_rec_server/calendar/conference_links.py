@@ -4,8 +4,9 @@ import re
 from dataclasses import dataclass
 from hashlib import sha256
 from html import unescape
-from ipaddress import ip_address
-from urllib.parse import urlparse
+from ipaddress import IPv4Address, ip_address
+from socket import inet_aton
+from urllib.parse import unquote, urlparse
 
 URL_RE = re.compile(r"https?://[^\s<>'\"]+")
 
@@ -70,16 +71,26 @@ def safe_open_meeting_url(value: str | None) -> str | None:
         or parsed.username
         or parsed.password
         or parsed.fragment
+        or "\\" in parsed.netloc
     ):
         return None
-    hostname = hostname.rstrip(".").lower()
+    try:
+        hostname = unquote(hostname).encode("idna").decode("ascii").rstrip(".").lower()
+    except UnicodeError:
+        return None
     if hostname == "localhost" or hostname.endswith(".localhost"):
         return None
     try:
         if not ip_address(hostname).is_global:
             return None
     except ValueError:
-        pass
+        # Browsers interpret legacy numeric hosts (127.1, integer, hex, octal)
+        # as IPv4 too. Do not let those spellings bypass the non-global check.
+        try:
+            if not IPv4Address(inet_aton(hostname)).is_global:
+                return None
+        except (OSError, ValueError):
+            pass
     return url
 
 

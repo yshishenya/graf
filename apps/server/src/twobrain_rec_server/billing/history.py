@@ -28,3 +28,14 @@ def mask_payment_method(label: str | None) -> str | None:
     if any(pattern.fullmatch(normalized) for pattern in _MASKED_METHOD_PATTERNS):
         return normalized
     return None
+
+
+def purchase_purpose_label(snapshot: dict) -> str:
+    purpose = snapshot.get("purchase_purpose")
+    if purpose == "storage_upgrade" or snapshot.get("storage_segments"):
+        return "Увеличение объёма хранения"
+    if purpose == "early_renewal":
+        return "Досрочная оплата следующего периода"
+    if purpose == "renewal" or snapshot.get("renewal_attempt"):
+        return "Автопродление подписки"
+    return "Оплата тарифа «Личный»"

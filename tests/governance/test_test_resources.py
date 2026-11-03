@@ -84,6 +84,41 @@ def test_payload(value):
     assert "SQL" not in report.read_text()
 
 
+def test_shared_role_fixture_closure_requires_strict_before_partition(tmp_path):
+    (tmp_path / "test_cases.py").write_text('''
+import pytest
+@pytest.fixture
+def postgres_advisory_lock():
+    raise AssertionError("collection must not request a database")
+@pytest.fixture
+def migrated_postgres_urls(postgres_advisory_lock): pass
+@pytest.fixture
+def indirect(migrated_postgres_urls): pass
+def test_direct(migrated_postgres_urls): pass
+@pytest.mark.serial_performance
+def test_indirect(indirect): pass
+def test_ordinary_database(postgres_advisory_lock): pass
+def test_pure(): pass
+@pytest.mark.strict_rls
+def test_explicit_strict(): pass
+''')
+    inventory = tmp_path / "inventory.json"
+    result = pytest_run(tmp_path, "--collect-only", "-q", "--graf-collection-file", str(inventory))
+    assert result.returncode == 0, result.stdout + result.stderr
+    value = json.loads(inventory.read_text())
+    strict = {f"test_cases.py::test_{name}" for name in ("direct", "indirect", "explicit_strict")}
+    assert set(value["strict"]) == strict
+    assert strict <= set(value["resource"])
+    assert set(value["parallel"]) == {
+        "test_cases.py::test_ordinary_database", "test_cases.py::test_pure",
+    }
+    assert value["pure"] == ["test_cases.py::test_pure"]
+    assert value["performance"] == []
+    phases = value["parallel"] + value["performance"] + value["strict"]
+    assert len(phases) == len(set(phases)) == 5
+    assert set(phases) == set(value["baseline"])
+
+
 @pytest.mark.parametrize("partitioned", [False, True])
 @pytest.mark.parametrize("selection", [
     ["-k", "test_request_context_is_isolated_and_reset_on_errors"],

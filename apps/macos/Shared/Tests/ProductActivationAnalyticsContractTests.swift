@@ -113,7 +113,7 @@ final class ProductActivationAnalyticsContractTests: XCTestCase {
     func testDirectDesktopRouteAllowsOnlyFirstPartyPostHogWithoutSecrets() throws {
         let client = try XCTUnwrap(ProductActivationAnalyticsClient(
             rawBaseURL: "https://rec.2brain.pro",
-            headers: [:]
+            headers: ["X-Auth-Session": "synthetic-session", "X-Client-Version": "desktop-273"]
         ))
         let payload = try ProductActivationAnalyticsPayload(
             eventName: .desktopAccountConnected,
@@ -143,6 +143,8 @@ final class ProductActivationAnalyticsContractTests: XCTestCase {
         XCTAssertFalse(config.allowsYandexDirectRoute)
         XCTAssertEqual(request.value(forHTTPHeaderField: "X-GRAF-PostHog-Project-Key-State"), "server_injected_redacted")
         XCTAssertEqual(request.value(forHTTPHeaderField: "X-GRAF-Analytics-Route"), "first_party_posthog_desktop_proxy")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "X-Auth-Session"), "synthetic-session")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "X-Client-Version"), "desktop-273")
         XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
         let body = try XCTUnwrap(request.httpBody)
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
@@ -150,6 +152,46 @@ final class ProductActivationAnalyticsContractTests: XCTestCase {
         XCTAssertEqual(json["distinct_id"] as? String, "graf_pseudo_user_1234567890abcdef")
         XCTAssertEqual(json["api_key_state"] as? String, "server_injected_redacted")
         XCTAssertNil(json["api_key"])
+    }
+
+    func testDesktopCredentialsStayOnTheExactGrafProxyOrigin() throws {
+        let client = try XCTUnwrap(ProductActivationAnalyticsClient(
+            rawBaseURL: "https://rec.2brain.pro:8443/desktop/meetings",
+            headers: ["X-Auth-Session": "synthetic-session"]
+        ))
+        XCTAssertEqual(client.eventURL().port, 8443)
+        let payload = try ProductActivationAnalyticsPayload(
+            eventName: .firstRecordingCompleted,
+            stablePseudonymousUserId: "graf_pseudo_user_1234567890abcdef",
+            properties: [:]
+        )
+        let path = "/api/v1/product-analytics/posthog-desktop-capture"
+        let endpoints = [
+            "https://other.example.test:8443\(path)",
+            "http://rec.2brain.pro:8443\(path)",
+            "https://rec.2brain.pro\(path)",
+            "https://rec.2brain.pro:8444\(path)",
+            "https://rec.2brain.pro:8443/other",
+            "https://rec.2brain.pro:8443\(path)?extra=true",
+            "https://rec.2brain.pro:8443\(path)#fragment",
+            "https://synthetic@rec.2brain.pro:8443\(path)",
+            "https://rec.2brain.pro:8443\(path)"
+        ]
+        for endpoint in endpoints {
+            let config = ProductAnalyticsDirectProviderConfig(
+                posthogHost: URL(string: "https://rec.2brain.pro:8443"),
+                posthogCaptureEndpoint: URL(string: endpoint),
+                posthogDirectEnabled: true, yandexDirectEnabled: false,
+                telemetryAccepted: true, legalApproved: true, securityApproved: true,
+                qaApproved: true, directEgressDisclosed: true
+            )
+            let request = try client.directPostHogRequest(for: payload, config: config)
+            if endpoint == endpoints.last {
+                XCTAssertEqual(request?.value(forHTTPHeaderField: "X-Auth-Session"), "synthetic-session")
+            } else {
+                XCTAssertNil(request, endpoint)
+            }
+        }
     }
 
     func testDirectDesktopRouteRequiresExplicitGrafProxyEndpoint() throws {

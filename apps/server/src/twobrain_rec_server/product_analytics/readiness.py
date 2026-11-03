@@ -223,7 +223,7 @@ def _provider_configuration_blockers(
     return tuple(
         blocker
         for blocker in provider_readiness.posthog.blockers
-        if not blocker.startswith(RETENTION_BLOCKER_PREFIXES)
+        if blocker not in provider_readiness.analytics_operations.blockers
     )
 
 

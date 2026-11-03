@@ -1,3 +1,4 @@
+import pytest
 from pydantic import ValidationError
 
 from twobrain_rec_server.config import Settings
@@ -12,6 +13,8 @@ from twobrain_rec_server.public.analytics import (
     public_analytics_stable_labels,
     public_analytics_utm_fields,
 )
+
+pytestmark = pytest.mark.usefixtures("public_basis_register")
 
 
 def test_public_analytics_is_disabled_by_default() -> None:
@@ -37,14 +40,14 @@ def test_public_analytics_immediate_context_is_narrow_and_public_scoped() -> Non
     assert context["validation_mode"] == "render_only"
     assert context["page_path"] == "/download"
     assert context["surface"] == "public_download"
-    assert context["yandex_metrica_id"] == "12345678"
-    assert context["replay_allowed"] is True
+    assert context["yandex_metrica_id"] is None
+    assert context["replay_allowed"] is False
     assert context["event_catalog"]
 
 
 def test_public_consent_categories_are_strict_and_unknown_is_fail_closed() -> None:
     valid = {
-        "copy_version": "2026-09-15.1",
+        "copy_version": "2026-10-22.1",
         "categories": ["necessary", "analytics"],
         "state": "customized",
     }
@@ -63,7 +66,7 @@ def test_public_consent_categories_are_strict_and_unknown_is_fail_closed() -> No
 
 
 def test_public_consent_states_include_acceptance_and_revoke_transitions() -> None:
-    base = {"copy_version": "2026-09-15.1"}
+    base = {"copy_version": "2026-10-22.1"}
 
     assert normalize_public_analytics_consent(
         {**base, "categories": ["necessary", "analytics", "advertising_attribution", "behavior_replay"]}
@@ -90,6 +93,9 @@ def test_public_analytics_consent_revision_follows_copy_version() -> None:
 
     assert context["consent_copy_version"] == "2026-09-20.7"
     assert context["consent_revision"] == 202609207
+    assert context["enabled"] is False
+    assert context["consent_ui_enabled"] is True
+    assert context["replay_allowed"] is False
 
 
 def test_public_analytics_event_catalog_and_labels_match_new_funnel() -> None:
@@ -281,3 +287,62 @@ def _production_public_analytics_settings(**overrides: object) -> Settings:
     }
     values.update(overrides)
     return Settings(**values)
+
+
+def test_previous_retention_revision_does_not_grant_optional_measurement() -> None:
+    result = normalize_public_analytics_consent({
+        "copy_version": "2026-09-15.1",
+        "categories": ["necessary", "analytics", "advertising_attribution", "behavior_replay"],
+        "state": "accepted_all",
+    })
+    assert result["state"] == "unknown"
+    assert result["analytics_allowed"] is False
+    assert result["advertising_attribution_allowed"] is False
+    assert result["behavior_replay_allowed"] is False
+
+
+def test_old_configured_revision_disables_the_public_counter_and_replay() -> None:
+    context = build_public_analytics_context(Settings(
+        public_analytics_enabled=True,
+        public_analytics_validation_mode="render_only",
+        public_analytics_yandex_metrica_id="12345678",
+        public_analytics_replay_enabled=True,
+        public_analytics_consent_copy_version="2026-09-15.1",
+    ), "/")
+    assert context["enabled"] is False
+    assert context["external_counter_allowed"] is False
+    assert context["replay_allowed"] is False
+
+
+def test_public_context_rereads_basis_and_refuses_unknown_state(public_basis_register, monkeypatch):
+    from pathlib import Path
+
+    settings = Settings(public_analytics_enabled=True, public_analytics_validation_mode="render_only",
+                        public_analytics_yandex_metrica_id="12345678", public_analytics_replay_enabled=True)
+    header = "legal_basis_state_version=1\n"
+    withdrawal = ("basis_withdrawal level=provider_analytics state=withdrawn "
+                  "withdrawn_at=2026-09-18 reason=consent_withdrawn_by_visitors evidence_ref=ev-273-test\n")
+    for text, allowed in ((header, True),
+                          (header + withdrawal.replace("provider_analytics", "anonymous_aggregate"), True),
+                          (header + withdrawal, False), ("broken\n", False), (None, False),
+                          (header, True)):
+        if text is None:
+            public_basis_register.unlink()
+        else:
+            public_basis_register.write_text(text)
+        context = build_public_analytics_context(settings, "/download")
+        assert context["enabled"] is allowed
+        assert context["consent_ui_enabled"] is True
+        assert context["external_counter_allowed"] is False
+        assert context["replay_allowed"] is False
+        assert str(public_basis_register) not in str(context)
+
+    # The reader uses builtin open, so target that boundary, not the decision.
+    import builtins
+    real_open = builtins.open
+    def refuse_register(path, *args, **kwargs):
+        if Path(path) == public_basis_register:
+            raise PermissionError("synthetic unavailable register")
+        return real_open(path, *args, **kwargs)
+    monkeypatch.setattr(builtins, "open", refuse_register)
+    assert build_public_analytics_context(settings, "/")["enabled"] is False

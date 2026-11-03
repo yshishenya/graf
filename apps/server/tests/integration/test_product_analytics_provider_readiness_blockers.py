@@ -1,6 +1,9 @@
 import time
 from pathlib import Path
 
+import pytest
+
+from tests.fixtures.analytics_operations import CONSISTENT_RESTORE_LINES
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.product_analytics.provider_readiness import build_provider_readiness
 from twobrain_rec_server.product_analytics.readiness import build_rollout_readiness_report
@@ -102,7 +105,6 @@ def _write_operations_states(
     now: int,
     backup_age_hours: int = 1,
     copies_local: int = 3,
-    copies_offsite: int = 1,
     restore_age_days: int = 2,
     restore_result: str = "pass",
     retention_override: dict[str, str] | None = None,
@@ -111,11 +113,11 @@ def _write_operations_states(
     backup.write_text(
         "\n".join(
             [
-                "backup_state_version=1",
+                "backup_state_version=2",
+                "backup_set_complete=true",
                 "last_attempt_result=pass",
                 f"last_success_epoch={now - backup_age_hours * 3600}",
                 f"copies_local={copies_local}",
-                f"copies_offsite={copies_offsite}",
                 "",
             ]
         ),
@@ -125,7 +127,8 @@ def _write_operations_states(
     restore.write_text(
         "\n".join(
             [
-                "restore_state_version=1",
+                "restore_state_version=2",
+                *CONSISTENT_RESTORE_LINES,
                 f"last_verify_result={restore_result}",
                 f"last_verify_epoch={now - restore_age_days * 86400}",
                 "",
@@ -134,18 +137,19 @@ def _write_operations_states(
         encoding="utf-8",
     )
     terms = {
-        "measurement_events": "365",
-        "anonymous_aggregate": "1095",
-        "visit_attribution": "90",
-        "acquisition_attribute": "1095",
+        "measurement_events": "none",
+        "anonymous_aggregate": "none",
+        "visit_attribution": "none",
+        "acquisition_attribute": "none",
+        "public_consent_control": "none",
     }
     terms.update(retention_override or {})
-    retention_lines = ["retention_state_version=1", "result=pass"]
+    retention_lines = ["retention_state_version=2", f"recorded_at_epoch={now}", "result=pass"]
     for category, term in terms.items():
         storage = "clickhouse" if category == "measurement_events" else "postgres"
-        enforcement = "row_ttl" if category == "measurement_events" else "scheduled_task"
+        enforcement = "decision_required"
         retention_lines.append(
-            f"category={category} retention_days={term} storage={storage} enforcement={enforcement} "
+            f"category={category} retention_mode=until_decision retention_days={term} storage={storage} enforcement={enforcement} "
             f"last_enforced_at=recent rows_deleted=0 enforcement_verified=true"
         )
     retention = directory / "retention-state"
@@ -179,6 +183,9 @@ def _write_access_governance_state(directory: Path, *, now: int) -> Path:
 
 
 def _apply_states(monkeypatch, state: dict[str, Path]) -> None:
+    from tests.fixtures.analytics_operations import write_runtime_guard
+    for key, value in write_runtime_guard(state["backup"].parent, now=int(time.time())).items():
+        monkeypatch.setenv(key, value)
     monkeypatch.setenv("GRAF_POSTHOG_BACKUP_STATE_FILE", str(state["backup"]))
     monkeypatch.setenv("GRAF_POSTHOG_RESTORE_STATE_FILE", str(state["restore"]))
     monkeypatch.setenv("GRAF_PRODUCT_ANALYTICS_RETENTION_STATE_FILE", str(state["retention"]))
@@ -216,10 +223,11 @@ def test_live_provider_delivery_claim_requires_fresh_operations_evidence(tmp_pat
     _apply_access_governance(monkeypatch, _write_access_governance_state(tmp_path, now=now))
 
     ready = build_rollout_readiness_report(settings).as_dict()
-    assert ready["verdict"] == "infra_smoke_ready"
+    # A self-declared restore receipt does not establish the unfinished T118 gate.
+    assert ready["verdict"] == "blocked"
     assert "posthog_not_ready" not in ready["blockers"]
-    assert "analytics_operations_not_ready" not in ready["blockers"]
-    assert ready["states"]["retention_deletion_lifecycle"] == "enforced_and_verified"
+    assert "analytics_operations_not_ready" in ready["blockers"]
+    assert ready["states"]["retention_deletion_lifecycle"] == "blocked"
     assert ready["states"]["live_provider_delivery"] == "approved"
     assert ready["states"]["rbac_audit"] == "metadata_verified"
     assert ready["states"]["campaign_launch"] == "blocked_pending_launch_approval_record"
@@ -227,8 +235,8 @@ def test_live_provider_delivery_claim_requires_fresh_operations_evidence(tmp_pat
     assert ready["campaign_launch_allowed"] is False
 
     provider_state = build_provider_readiness(settings).as_dict()
-    assert provider_state["analytics_operations"]["configured"] is True
-    assert provider_state["analytics_operations"]["blockers"] == []
+    assert provider_state["analytics_operations"]["configured"] is False
+    assert provider_state["analytics_operations"]["blockers"] == ["restore_verification_failed"]
     assert provider_state["posthog"]["metadata"]["operations_claim_gate"] == "enforced"
 
 
@@ -285,21 +293,21 @@ def test_readiness_blocks_when_the_newest_copy_is_stale(tmp_path: Path, monkeypa
     _apply_states(monkeypatch, fresh)
     _apply_access_governance(monkeypatch, _write_access_governance_state(tmp_path, now=now))
     refreshed = build_provider_readiness(settings).as_dict()["analytics_operations"]
-    assert refreshed["blockers"] == []
-    assert build_rollout_readiness_report(settings).as_dict()["verdict"] == "infra_smoke_ready"
+    assert refreshed["blockers"] == ["restore_verification_failed"]
+    assert "backup_stale" not in refreshed["blockers"]
+    assert build_rollout_readiness_report(settings).as_dict()["verdict"] == "blocked"
 
 
-def test_readiness_blocks_on_missing_offsite_copy_and_copy_count(tmp_path: Path, monkeypatch) -> None:
+def test_readiness_blocks_below_two_complete_local_copies(tmp_path: Path, monkeypatch) -> None:
     settings = _live_provider_settings(tmp_path)
     now = int(time.time())
-    state = _write_operations_states(tmp_path, now=now, copies_local=1, copies_offsite=0)
+    state = _write_operations_states(tmp_path, now=now, copies_local=1)
     _apply_states(monkeypatch, state)
 
     operations = build_provider_readiness(settings).as_dict()["analytics_operations"]
     assert "backup_copy_count_below_minimum" in operations["blockers"]
-    assert "backup_offsite_copy_missing" in operations["blockers"]
     assert operations["metadata"]["backup_minimum_copies"] == "2"
-    assert operations["metadata"]["backup_minimum_offsite_copies"] == "1"
+    assert operations["metadata"]["backup_policy"] == "scheduled_daily_local_verified_sets"
 
 
 def test_readiness_blocks_on_a_failed_or_stale_restore_verification(tmp_path: Path, monkeypatch) -> None:
@@ -331,10 +339,21 @@ def test_readiness_blocks_when_a_retention_term_is_missing_or_too_short(tmp_path
 
     shortened = _write_operations_states(tmp_path, now=now, retention_override={"measurement_events": "90"})
     _apply_states(monkeypatch, shortened)
-    assert "retention_term_below_required:measurement_events" in build_provider_readiness(settings).as_dict()[
+    assert "retention_term_missing:measurement_events" in build_provider_readiness(settings).as_dict()[
         "analytics_operations"
     ]["blockers"]
     assert build_rollout_readiness_report(settings).as_dict()["verdict"] == "blocked"
+
+
+@pytest.mark.parametrize(('configured_days', 'effective_days'), [('365', '30'), ('7', '7')])
+def test_readiness_reports_effective_restore_age_limit(tmp_path: Path, monkeypatch, configured_days, effective_days) -> None:
+    settings = _live_provider_settings(tmp_path)
+    now = int(time.time())
+    _apply_states(monkeypatch, _write_operations_states(tmp_path, now=now, restore_age_days=31))
+    monkeypatch.setenv('GRAF_POSTHOG_RESTORE_MAX_AGE_DAYS', configured_days)
+    operations = build_provider_readiness(settings).as_dict()['analytics_operations']
+    assert 'restore_verification_stale' in operations['blockers']
+    assert operations['metadata']['restore_verification_max_age_days'] == effective_days
 
 
 def test_readiness_names_a_category_that_has_no_retention_record(tmp_path: Path, monkeypatch) -> None:
@@ -344,7 +363,8 @@ def test_readiness_names_a_category_that_has_no_retention_record(tmp_path: Path,
     state["retention"].write_text(
         "\n".join(
             [
-                "retention_state_version=1",
+                "retention_state_version=2",
+                f"recorded_at_epoch={now}",
                 "result=pass",
                 "category=measurement_events retention_days=365 storage=clickhouse enforcement=row_ttl "
                 "last_enforced_at=recent rows_deleted=0 enforcement_verified=true",
@@ -360,5 +380,66 @@ def test_readiness_names_a_category_that_has_no_retention_record(tmp_path: Path,
     assert "retention_category_missing:anonymous_aggregate" in operations["blockers"]
     assert "retention_category_missing:visit_attribution" in operations["blockers"]
     assert operations["metadata"]["retention_required_terms"] == (
-        "measurement_events=365,anonymous_aggregate=1095,visit_attribution=90,acquisition_attribute=1095"
+        "measurement_events=until_decision,anonymous_aggregate=until_decision,visit_attribution=until_decision,acquisition_attribute=until_decision,public_consent_control=until_decision"
     )
+
+
+@pytest.mark.parametrize("epoch", [None, "invalid", "nan", "inf", "0", "future", "expired", "9" * 400])
+def test_retention_verification_requires_recent_valid_time(tmp_path, epoch):
+    from twobrain_rec_server.product_analytics.provider_readiness import (
+        RETENTION_STATE_FILE_ENV,
+        build_analytics_operations_readiness,
+    )
+    now = 1800000000
+    state = _write_operations_states(tmp_path, now=now)
+    value = {"future": str(now + 1), "expired": str(now - 26 * 3600)}.get(epoch, epoch)
+    text = state["retention"].read_text()
+    text = text.replace(f"recorded_at_epoch={now}\n", "" if value is None else f"recorded_at_epoch={value}\n")
+    state["retention"].write_text(text)
+    result = build_analytics_operations_readiness(
+        Settings(), {RETENTION_STATE_FILE_ENV: str(state["retention"])}, now=now,
+    )
+    assert result.configured is False
+    assert "retention_enforcement_unverified" in result.blockers
+
+
+@pytest.mark.parametrize("age_seconds", [0, 26 * 3600 - 1])
+def test_retention_verification_accepts_only_current_daily_window(tmp_path, age_seconds):
+    from twobrain_rec_server.product_analytics.provider_readiness import (
+        RETENTION_STATE_FILE_ENV,
+        build_analytics_operations_readiness,
+    )
+    now = 1800000000
+    state = _write_operations_states(tmp_path, now=now)
+    text = state["retention"].read_text().replace(
+        f"recorded_at_epoch={now}", f"recorded_at_epoch={now - age_seconds}",
+    )
+    state["retention"].write_text(text)
+    result = build_analytics_operations_readiness(
+        Settings(), {RETENTION_STATE_FILE_ENV: str(state["retention"])}, now=now,
+    )
+    assert "retention_enforcement_unverified" not in result.blockers
+
+
+def test_public_consent_control_requires_current_daily_retention_evidence(tmp_path):
+    from twobrain_rec_server.product_analytics.provider_readiness import (
+        RETENTION_STATE_FILE_ENV,
+        build_analytics_operations_readiness,
+    )
+
+    now = 1800000000
+    state = _write_operations_states(tmp_path, now=now)
+    original = state["retention"].read_text()
+    state["retention"].write_text("\n".join(
+        line for line in original.splitlines() if not line.startswith("category=public_consent_control ")
+    ) + "\n")
+    environment = {RETENTION_STATE_FILE_ENV: str(state["retention"])}
+    blocked = build_analytics_operations_readiness(Settings(), environment, now=now)
+    assert "retention_category_missing:public_consent_control" in blocked.blockers
+    state["retention"].write_text(original + (
+        "category=public_consent_control retention_mode=until_decision retention_days=none "
+        "storage=postgres enforcement=decision_required enforcement_verified=true\n"
+        if "category=public_consent_control " not in original else ""
+    ))
+    checked = build_analytics_operations_readiness(Settings(), environment, now=now)
+    assert "retention_category_missing:public_consent_control" not in checked.blockers

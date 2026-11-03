@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
+from contextlib import asynccontextmanager
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -16,11 +18,29 @@ from twobrain_rec_server.config import Settings
 from twobrain_rec_server.db.tenant_context import TenantDatabaseContext, apply_tenant_context
 from twobrain_rec_server.public.analytics import (
     PUBLIC_ANALYTICS_CAPTURE_ENDPOINT,
+    PUBLIC_ANALYTICS_CONSENT_VERSION,
     PUBLIC_ANALYTICS_RELAY_MAX_BYTES,
     PublicAnalyticsConsentRequired,
     PublicAnalyticsEventRejected,
     deliver_public_analytics_event,
     normalize_public_analytics_event,
+    normalize_public_campaign_attribution,
+    public_analytics_blocker,
+    record_public_page_visit,
+)
+from twobrain_rec_server.public.content import (
+    GUIDE_PATH,
+    GUIDES_PATH,
+    HELP_PATH,
+    ONE_SIDED_AUDIO_HELP,
+    ONE_SIDED_AUDIO_PATH,
+    PROTOCOL_GUIDE_PATH,
+    PUBLIC_CONTENT_PAGES,
+    PUBLISHED_CONTENT_PATHS,
+    QUALITY_GUIDE_PATH,
+    ZOOM_GUIDE_PATH,
+    ContentSection,
+    content_for_section,
 )
 from twobrain_rec_server.public.offers import build_public_offer_view
 from twobrain_rec_server.public.templates import (
@@ -30,6 +50,8 @@ from twobrain_rec_server.public.templates import (
 )
 
 router = APIRouter(tags=["public-web"])
+logger = logging.getLogger(__name__)
+PUBLIC_WEB_DB_PHASE_TIMEOUT_SECONDS = 0.25
 LANDING_AUTORECORD_PRIORITY = (
     "Zoom",
     "Yandex Telemost",
@@ -55,32 +77,60 @@ MEETING_TARGET_REGISTRY = (
     / "0030_meeting_target_registry.json"
 )
 PUBLIC_WEB_CONTEXT_ID = UUID(int=0)
+PUBLIC_SEARCH_PAGES = {
+    "/transcription": (
+        "Расшифровка аудио и видео в текст — ГРАФ",
+        "Как перевести запись разговора в текст: загрузка аудио и видео, расшифровка по спикерам, таймкоды и проверка результата в ГРАФ.",
+    ),
+    "/meeting-minutes": (
+        "Протокол встречи из записи: итоги, решения и задачи — ГРАФ",
+        "Как подготовить протокол встречи из аудио или видео: выделить решения, проверить задачи и договорённости по расшифровке в ГРАФ.",
+    ),
+    "/record-without-bot": (
+        "Запись и расшифровка звонков без бота — ГРАФ",
+        "Как записать онлайн-встречу без бота в списке участников, получить расшифровку по спикерам и итоги. Порядок работы и ограничения ГРАФ.",
+    ),
+}
 
 
-async def get_public_web_db_session(request: Request):
+@asynccontextmanager
+async def public_web_db_session(request: Request):
     sessionmaker = getattr(request.app.state, "db_sessionmaker", None)
     if sessionmaker is None:
         yield None
         return
-    async with sessionmaker() as session:
+    session = sessionmaker()
+    try:
         # Billing catalog is global, but PostgreSQL still requires the ordinary
         # request RLS context before reading it.
         # A zero UUID cannot match any tenant-owned row if this dependency is
         # ever extended with another query.
         try:
-            await apply_tenant_context(
-                session,
-                TenantDatabaseContext(
-                    organization_id=PUBLIC_WEB_CONTEXT_ID,
-                    workspace_id=PUBLIC_WEB_CONTEXT_ID,
-                    user_id=PUBLIC_WEB_CONTEXT_ID,
-                ),
-            )
+            async with asyncio.timeout(PUBLIC_WEB_DB_PHASE_TIMEOUT_SECONDS):
+                await apply_tenant_context(
+                    session,
+                    TenantDatabaseContext(
+                        organization_id=PUBLIC_WEB_CONTEXT_ID,
+                        workspace_id=PUBLIC_WEB_CONTEXT_ID,
+                        user_id=PUBLIC_WEB_CONTEXT_ID,
+                    ),
+                )
         except Exception:
             # Keep public pages renderable when the catalog database is down;
             # the offer builder will then fail closed without paid claims.
             yield None
             return
+        yield session
+    finally:
+        try:
+            async with asyncio.timeout(PUBLIC_WEB_DB_PHASE_TIMEOUT_SECONDS):
+                await session.close()
+        except Exception as exc:
+            logger.warning("public database cleanup failed: error=%s", type(exc).__name__)
+
+
+async def get_public_web_db_session(request: Request):
+    async with public_web_db_session(request) as session:
         yield session
 
 
@@ -141,6 +191,103 @@ async def public_download_page(
         page_title="Скачать ГРАФ для macOS",
         analytics_path="/download",
         start_url="/login?next=/meetings",
+    )
+
+
+@router.get(GUIDES_PATH, response_class=HTMLResponse, include_in_schema=False)
+async def public_guides(
+    request: Request,
+    db: AsyncSession | None = PublicWebDbDependency,
+) -> HTMLResponse:
+    return await public_page_response(
+        request,
+        "public/guides.html",
+        db=db,
+        page_title="Руководства по записи и итогам встреч — ГРАФ",
+        social_description="Практические руководства: запись встречи на Mac без бота, расшифровка и протокол с решениями и задачами. Подготовка, примеры и проверка результата.",
+        guides=content_for_section(ContentSection.GUIDES),
+    )
+
+
+@router.get(GUIDE_PATH, response_class=HTMLResponse, include_in_schema=False)
+async def public_mac_meeting_guide(
+    request: Request,
+    db: AsyncSession | None = PublicWebDbDependency,
+) -> HTMLResponse:
+    return await public_page_response(
+        request,
+        "public/mac_meeting_guide.html",
+        db=db,
+        related_contents=tuple(page for page in PUBLIC_CONTENT_PAGES if page.path not in (GUIDE_PATH, ZOOM_GUIDE_PATH)),
+        page_title="Как записать встречу на Mac без бота и получить итоги — ГРАФ",
+        social_description="Как проверить запись обеих сторон на Mac и получить расшифровку с итогами. Пошаговая подготовка и ограничения ГРАФ.",
+    )
+
+
+@router.get(PROTOCOL_GUIDE_PATH, response_class=HTMLResponse, include_in_schema=False)
+async def public_meeting_protocol_guide(
+    request: Request,
+    db: AsyncSession | None = PublicWebDbDependency,
+) -> HTMLResponse:
+    return await public_page_response(
+        request,
+        "public/meeting_protocol_guide.html",
+        related_contents=tuple(page for page in PUBLIC_CONTENT_PAGES if page.path not in (PROTOCOL_GUIDE_PATH, ZOOM_GUIDE_PATH)),
+        db=db,
+        page_title="Протокол встречи из записи: пример решений и задач — ГРАФ",
+        social_description="Как превратить расшифровку в протокол встречи: учебный диалог, пример решений и задач, шаблон и проверка ответственных, сроков и договоренностей.",
+    )
+
+
+@router.get(QUALITY_GUIDE_PATH, response_class=HTMLResponse, include_in_schema=False)
+async def public_transcription_quality_guide(
+    request: Request,
+    db: AsyncSession | None = PublicWebDbDependency,
+) -> HTMLResponse:
+    return await public_page_response(
+        request,
+        "public/transcription_quality_guide.html",
+        db=db,
+        related_contents=tuple(page for page in PUBLIC_CONTENT_PAGES if page.path not in (QUALITY_GUIDE_PATH, ZOOM_GUIDE_PATH)),
+        page_title="Как проверить качество расшифровки встречи — ГРАФ",
+        social_description="Как сверить расшифровку с записью: спикеры, имена, числа, отрицания и решения. Учебные примеры, порядок проверки и чеклист перед отправкой итогов.",
+    )
+
+
+@router.get(ZOOM_GUIDE_PATH, response_class=HTMLResponse, include_in_schema=False)
+async def public_zoom_recording_guide(
+    request: Request,
+    db: AsyncSession | None = PublicWebDbDependency,
+) -> HTMLResponse:
+    return await public_page_response(
+        request,
+        "public/zoom_recording_guide.html",
+        db=db,
+        anonymous_only=True,
+        page_title="Как расшифровать запись Zoom в текст — ГРАФ",
+        social_description="Найдите запись Zoom, выберите M4A или MP4 с голосами участников и загрузите в ГРАФ. Пошаговая инструкция, проверка результата и частые ошибки.",
+    )
+
+
+@router.get(HELP_PATH, response_class=HTMLResponse, include_in_schema=False)
+async def public_help(request: Request) -> HTMLResponse:
+    return public_template_response(
+        request,
+        "public/help.html",
+        page_title="Помощь с записью на Mac — ГРАФ",
+        social_description="Что проверить, если в записи встречи на Mac отсутствует ваш голос или голос собеседника: источники звука, разрешения и границы диагностики.",
+        help_pages=content_for_section(ContentSection.HELP),
+    )
+
+
+@router.get(ONE_SIDED_AUDIO_PATH, response_class=HTMLResponse, include_in_schema=False)
+async def public_one_sided_audio_help(request: Request) -> HTMLResponse:
+    return public_template_response(
+        request,
+        "public/one_sided_audio_help.html",
+        page_title=ONE_SIDED_AUDIO_HELP.title + " — ГРАФ",
+        social_description=ONE_SIDED_AUDIO_HELP.summary,
+        related_contents=tuple(page for page in PUBLIC_CONTENT_PAGES if page.path != ZOOM_GUIDE_PATH),
     )
 
 
@@ -211,29 +358,86 @@ async def public_analytics_consent_page(
     )
 
 
+@router.get("/transcription", response_class=HTMLResponse, include_in_schema=False)
+@router.get("/meeting-minutes", response_class=HTMLResponse, include_in_schema=False)
+@router.get("/record-without-bot", response_class=HTMLResponse, include_in_schema=False)
+async def public_search_page(
+    request: Request,
+    db: AsyncSession | None = PublicWebDbDependency,
+) -> HTMLResponse:
+    title, description = PUBLIC_SEARCH_PAGES[request.url.path]
+    return await public_page_response(
+        request,
+        "public/search_guide.html",
+        db=db,
+        anonymous_only=True,
+        page_title=title,
+        social_description=description,
+        guide_path=request.url.path,
+        related_pages=PUBLIC_SEARCH_PAGES,
+    )
+
+
 async def public_page_response(
     request: Request,
     template_name: str,
     *,
     db: AsyncSession | None = None,
+    anonymous_only: bool = False,
     **context: Any,
 ) -> HTMLResponse:
     """Render one public page, count the visit and keep its campaign labels.
 
+    Anonymous-only content counts the current request without campaign storage.
+
     Three rules meet here and none of them may break the other two (FR-009,
     FR-014, FR-058):
 
-    * the page is rendered before anything is measured, so measurement can never
-      block the response;
-    * the visit is counted by one synchronous bucket write that does not raise
-      and does not touch the analytics stack, so the page and the anonymous count
-      survive an unreachable counter;
+    * the page is rendered before measurement;
+    * the anonymous database write has a short budget and ordinary failures do
+      not prevent returning the page; a timeout leaves an uncertain count;
     * the campaign labels of the visit are stored in a session cookie, so they
       survive the move between public pages and are readable by the registration
       path through :func:`read_public_visit_attribution`.
     """
     response = public_template_response(request, template_name, **context)
+    if anonymous_only:
+        attribution = normalize_public_campaign_attribution(
+            request.query_params, referrer=request.headers.get("referer")
+        )
+        await record_public_page_visit(db, request, attribution=attribution)
+        return response
     return await record_public_page_response(request, response, db=db)
+
+
+@router.post("/analytics/public-consent", include_in_schema=False)
+async def public_consent_choice(request: Request) -> JSONResponse:
+    from twobrain_rec_server.public.consent import ChoiceRejected, control_choice
+
+    def response(value, status=200):
+        return JSONResponse(value, status_code=status, headers={"Cache-Control": "no-store"})
+
+    # The public canonical origin is configured independently of forwarded Host.
+    if request.headers.get("origin") != _public_base_url(request):
+        return response({"accepted": False, "reason": "cross_origin"}, 403)
+    try:
+        async with asyncio.timeout(6):
+            body = bytearray()
+            async for chunk in request.stream():
+                if len(body) + len(chunk) > 1024:
+                    raise ChoiceRejected("payload_too_large")
+                body.extend(chunk)
+            try:
+                payload = json.loads(body)
+            except (TypeError, ValueError):
+                raise ChoiceRejected("invalid_json") from None
+            settings = request.app.state.settings
+            result = await control_choice(request.app.state.db_sessionmaker, settings, payload)
+            return response(result)
+    except ChoiceRejected as error:
+        return response({"accepted": False, "reason": str(error)}, error.status)
+    except Exception:
+        return response({"accepted": False, "reason": "choice_unavailable"}, 503)
 
 
 @router.post(PUBLIC_ANALYTICS_CAPTURE_ENDPOINT, include_in_schema=False)
@@ -250,6 +454,10 @@ async def public_analytics_event(request: Request) -> JSONResponse:
         return JSONResponse(
             {"accepted": False, "reason": "public_measurement_disabled"},
             status_code=403,
+        )
+    if settings.public_analytics_consent_copy_version != PUBLIC_ANALYTICS_CONSENT_VERSION:
+        return JSONResponse(
+            {"accepted": False, "reason": "consent_revision_mismatch"}, status_code=403,
         )
     if not _same_origin_request(request):
         return JSONResponse({"accepted": False, "reason": "cross_origin"}, status_code=403)
@@ -269,7 +477,12 @@ async def public_analytics_event(request: Request) -> JSONResponse:
         )
     except PublicAnalyticsEventRejected as exc:
         return JSONResponse({"accepted": False, "reason": str(exc)}, status_code=400)
-    delivery = await asyncio.to_thread(deliver_public_analytics_event, settings, event)
+    blocker = public_analytics_blocker(settings, event["page_path"])
+    if blocker:
+        return JSONResponse({"accepted": False, "reason": blocker}, status_code=403)
+    from twobrain_rec_server.public.consent import send_consented_event
+    delivery = await send_consented_event(request.app.state.db_sessionmaker, settings, event,
+                                         sender=deliver_public_analytics_event)
     return JSONResponse({"accepted": True, "delivery": delivery}, status_code=202)
 
 
@@ -299,7 +512,17 @@ async def public_robots(request: Request) -> PlainTextResponse:
 @router.get("/sitemap.xml", include_in_schema=False)
 async def public_sitemap(request: Request) -> Response:
     base_url = _public_base_url(request)
-    locations = ("/", "/download", "/privacy", "/cookies", "/terms", "/offer", "/analytics-consent")
+    locations = (
+        "/",
+        "/download",
+        "/privacy",
+        "/cookies",
+        "/terms",
+        "/offer",
+        "/analytics-consent",
+        *PUBLISHED_CONTENT_PATHS,
+        *PUBLIC_SEARCH_PAGES,
+    )
     urls = "".join(f"<url><loc>{base_url}{path}</loc></url>" for path in locations)
     return Response(
         f'<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{urls}</urlset>',

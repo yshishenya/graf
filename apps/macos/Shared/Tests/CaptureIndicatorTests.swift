@@ -140,7 +140,7 @@ final class CaptureIndicatorTests: XCTestCase {
     func testStoppedSessionAllowsRecordButtonToReturn() {
         let session = makeSession(state: .stopped, indicator: .hidden, stopAvailable: false)
 
-        XCTAssertEqual(CaptureStatusItem.statusLabel(for: session), "Сохранено на Mac")
+        XCTAssertEqual(CaptureStatusItem.statusLabel(for: session), "Запись остановлена")
         XCTAssertFalse(CaptureStatusItem.showsStopButton(for: session))
         XCTAssertTrue(CaptureControlView.shouldShowRecordButton(for: session))
     }
@@ -150,6 +150,17 @@ final class CaptureIndicatorTests: XCTestCase {
 
         XCTAssertTrue(CaptureStatusItem.showsStopButton(for: session))
         XCTAssertFalse(CaptureControlView.shouldShowRecordButton(for: session))
+    }
+
+    func testTerminalLifecycleDoesNotClaimSuccessfulStorage() {
+        for state in [CaptureSessionState.stopped, .finalized] {
+            let session = makeSession(state: state, indicator: .hidden, stopAvailable: false)
+            XCTAssertEqual(CaptureStatusItem.statusLabel(for: session), "Запись остановлена")
+            XCTAssertEqual(CaptureStatusItem.accessibilityLabel(for: session),
+                           "Запись остановлена")
+            XCTAssertFalse(CaptureStatusItem.showsStopButton(for: session))
+            XCTAssertTrue(CaptureControlView.shouldShowRecordButton(for: session))
+        }
     }
 
     func testPausedRecordingKeepsVisibleIndicatorAndStopAvailable() {

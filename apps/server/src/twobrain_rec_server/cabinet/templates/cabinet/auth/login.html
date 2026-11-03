@@ -71,6 +71,7 @@
       {% endif %}
     </div>
     {% endif %}
+    {% if billing_return_path %}<p><a class="mini-link" href="{{ billing_return_path }}">Вернуться к оплате</a></p>{% endif %}
   </section>
   {% if not embedded %}
   <aside class="auth-download auth-download--browser" aria-label="Приложение GRAF">

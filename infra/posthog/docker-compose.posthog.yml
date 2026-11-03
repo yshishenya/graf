@@ -26,13 +26,13 @@ x-graf-clickhouse-retention:
   production_runtime_source: "official_posthog_hobby_generated_compose"
   storage: "clickhouse_inside_posthog"
   data_class: "measurement_levels_2_and_3_events"
-  retention_days: 365
-  enforcement: "row_ttl_on_sharded_events"
+  retention_mode: "until_decision"
+  enforcement: "decision_required"
   statement_file: "infra/posthog/clickhouse-retention.sql"
   apply_command: "infra/scripts/apply-posthog-event-ttl.sh --execute"
   verify_command: "infra/scripts/enforce-product-analytics-retention.sh --status"
-  required_runtime_env: "POSTHOG_EVENT_RETENTION_DAYS=365"
-  readiness_rule: "blocked_when_ttl_missing_or_shorter_than_365_days"
+  required_runtime_env: "GRAF_PRODUCT_ANALYTICS_RETENTION_MODE=until_decision"
+  readiness_rule: "blocked_when_mode_unknown_or_age_ttl_present"
   evidence: "metadata_only"
 
 x-posthog-common: &posthog-common

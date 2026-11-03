@@ -1,0 +1,516 @@
+{
+  "at": "2026-10-16T16:51:28.262193+00:00",
+  "kind": "documentary_scenario_review_and_file_size_measurement",
+  "limitations": "Размер полных UTF-8 файлов и расчёт повторной передачи текста; не модельная телеметрия, не измерение токенов/времени и не доказательство запоминания требований. Первый полный проход обязателен. Разделы в отчёте служат проверке сохранения обязанностей и зависимостей; это не разрешение заменить обязательное полное чтение выбранными разделами. Дополнительные разделы в cross учитываются сверх совпавшего полного прежнего чтения.",
+  "base_bytes": 336694,
+  "files": {
+    ".specify/memory/constitution.md": {
+      "bytes": 32994,
+      "sha256": "7616e3d7c8112aa60b1be1cc40594a7dfd25b0870f23b821d7efefd7c23f4ba8"
+    },
+    "docs/prd-voice-layer-final.md": {
+      "bytes": 110431,
+      "sha256": "0f3ccfcfa60062bb0aae6802eeb0012056a635a30cb9f46f54d1992d0b4f57c2"
+    },
+    "docs/current-product-status.md": {
+      "bytes": 182174,
+      "sha256": "25b7f383be47c7160da8e852006ff82019f30a5f9c371fc30baa79238649cd16"
+    },
+    "docs/agent-guidance/product-gates.md": {
+      "bytes": 11095,
+      "sha256": "9f7072c879490d250053cb7397ad6b9b68fdcde17bdf9367ed874a41e450b5f5"
+    },
+    "AGENTS.md": {
+      "bytes": 14478,
+      "sha256": "384c41c0b1674a3daf75d0e57646379198295c3f8452012c8101fc6332bec58b"
+    },
+    "docs/agent-guidance/README.md": {
+      "bytes": 2898,
+      "sha256": "e892c6ae7fe7ce92ff35f8836c5dd58ce5753402a725c78dbbc86c46da11cc67"
+    },
+    "docs/agent-guidance/codex-worktrees.md": {
+      "bytes": 3602,
+      "sha256": "d7d8c9cce8315c17efaa1da05ece80c2542ca01b966f81fb848580104b785e1d"
+    },
+    "docs/agent-guidance/spec-kit-flow.md": {
+      "bytes": 16611,
+      "sha256": "5edf818b6ee27c7ee66d14edc003325ec7b16789eb1a195377cdeb901ae44887"
+    },
+    "docs/agent-guidance/release-and-validation.md": {
+      "bytes": 40761,
+      "sha256": "e3d24689a330634ec5ef87d829f8bcbf16bb7b81e0196b9d0baae4f49f27278d"
+    },
+    "docs/agent-guidance/tracker-policy.md": {
+      "bytes": 7122,
+      "sha256": "06450200cabdef48000af51241564e9ee9e8d36b50c71e06a88f8c50b7365466"
+    },
+    "docs/agent-guidance/github-issue-canon.md": {
+      "bytes": 7036,
+      "sha256": "7cd5c1cde2bb51e3842cae9e3717b094fea9f6fbb33fb1a408e6d243f9d68bf3"
+    },
+    "docs/agent-guidance/document-reading.md": {
+      "bytes": 4815,
+      "sha256": "5263860b1974df022826ac81c2482e6ee92100bc0bb718ab5a29b32e2422e411"
+    }
+  },
+  "scenarios": [
+    {
+      "id": "known",
+      "area": "F259: валидатор закрытия issues",
+      "required_guidance": [
+        "tracker-policy.md",
+        "github-issue-canon.md",
+        "release-and-validation.md"
+      ],
+      "source_reuse": "Только четыре уже полностью прочитанных неизменных документа в текущем полном контексте; первая полная передача сохраняется.",
+      "repeat_base_text_bytes_before": 336694,
+      "repeat_base_text_bytes_after": 0,
+      "additional_guide_bytes": 4815,
+      "retained": "точные source/base SHA, задачи, closure comment, live validator, PR checks, разрешение commit/merge; исторические ссылки сохраняются",
+      "required_complete_base_documents": [
+        ".specify/memory/constitution.md",
+        "docs/prd-voice-layer-final.md",
+        "docs/current-product-status.md",
+        "docs/agent-guidance/product-gates.md"
+      ],
+      "additional_section_review": [],
+      "common_sections_reference": "common_section_review (11 целых разделов; текущие source paths/anchors/хеши)"
+    },
+    {
+      "id": "cross",
+      "area": "F270: деталь встречи + tenant context",
+      "required_guidance": [
+        "product-gates.md",
+        "tracker-policy.md",
+        "github-issue-canon.md",
+        "release-and-validation.md"
+      ],
+      "source_reuse": "Проверяются все прежние документы; новые требования авторизации/RLS/удаления добавляются целиком. При сомнении полный повтор.",
+      "repeat_base_text_bytes_before": 336694,
+      "repeat_base_text_bytes_after": 0,
+      "retained": "viewer/workspace/recipient/revision/source_result fences; отдельные критерии SQL/PG, доступ/удаление, reviewer и CI; исторические ссылки не удаляются",
+      "required_complete_base_documents": [
+        ".specify/memory/constitution.md",
+        "docs/prd-voice-layer-final.md",
+        "docs/current-product-status.md",
+        "docs/agent-guidance/product-gates.md"
+      ],
+      "additional_section_review": [
+        {
+          "path": "docs/prd-voice-layer-final.md",
+          "heading": "23. Meeting Detail",
+          "anchor": "23-meeting-detail",
+          "source": "docs/prd-voice-layer-final.md#23-meeting-detail",
+          "start_line": 1488,
+          "end_line": 1542,
+          "whole_section_bytes": 2801,
+          "whole_section_sha256": "f13eb36a7de6570d0d8db3981f95c8fb7091c9407276f6b93bc4099ff4de3eb1",
+          "reviewed_obligations": [
+            "Недоступность данных и прав показывается честно; удаление всей встречи; lifecycle, локальный purge и внешние пределы различаются"
+          ],
+          "dependencies": [
+            "docs/prd-voice-layer-final.md#18-object-lifecycle",
+            "docs/prd-voice-layer-final.md#25-security-privacy-legal-and-compliance",
+            "docs/agent-guidance/product-gates.md#deletion-truth",
+            "docs/agent-guidance/product-gates.md#ux-reference-fidelity"
+          ],
+          "review_kind": "Целый раздел прочитан при документальном прохождении. Это не замена первого полного чтения обязательного документа."
+        },
+        {
+          "path": "docs/prd-voice-layer-final.md",
+          "heading": "18. Object Lifecycle",
+          "anchor": "18-object-lifecycle",
+          "source": "docs/prd-voice-layer-final.md#18-object-lifecycle",
+          "start_line": 1102,
+          "end_line": 1147,
+          "whole_section_bytes": 2113,
+          "whole_section_sha256": "9d4e0530a66bcbbe60b239f0027c2d68d2b46190aaabbcd2e54cb50bb5bf8a31",
+          "reviewed_obligations": [
+            "Артефакты/retention/purge, legal hold, backup expiry и локальные подтверждения сохраняются; observability retention не отменяется"
+          ],
+          "dependencies": [],
+          "review_kind": "Целый раздел прочитан при документальном прохождении. Это не замена первого полного чтения обязательного документа."
+        },
+        {
+          "path": "docs/prd-voice-layer-final.md",
+          "heading": "25. Security, Privacy, Legal, And Compliance",
+          "anchor": "25-security-privacy-legal-and-compliance",
+          "source": "docs/prd-voice-layer-final.md#25-security-privacy-legal-and-compliance",
+          "start_line": 1578,
+          "end_line": 1725,
+          "whole_section_bytes": 8843,
+          "whole_section_sha256": "290ddb7a6fe0cead76e14e4d7fab53871a9cc6e2495992a3cdbb00920b7abba7",
+          "reviewed_obligations": [
+            "Согласие/видимость/Stop; egress, секреты, доступ, удаление и диагностика не ослабляются"
+          ],
+          "dependencies": [],
+          "review_kind": "Целый раздел прочитан при документальном прохождении. Это не замена первого полного чтения обязательного документа."
+        },
+        {
+          "path": "docs/agent-guidance/product-gates.md",
+          "heading": "Server, Storage, And AI Boundaries",
+          "anchor": "server-storage-and-ai-boundaries",
+          "source": "docs/agent-guidance/product-gates.md#server-storage-and-ai-boundaries",
+          "start_line": 61,
+          "end_line": 139,
+          "whole_section_bytes": 5353,
+          "whole_section_sha256": "1881b167d8e18ee32d804dbc2d31389e0e755f200de7e1c328e8fc36084fa3b2",
+          "reviewed_obligations": [
+            "Server credentials, approved egress и current access/source/deletion fences; provenance и retained observations сохраняются"
+          ],
+          "dependencies": [
+            ".specify/memory/constitution.md#iii-plaintext-observability-for-internal-mvp"
+          ],
+          "review_kind": "Целый раздел прочитан при документальном прохождении. Это не замена первого полного чтения обязательного документа."
+        },
+        {
+          "path": ".specify/memory/constitution.md",
+          "heading": "III. Plaintext Observability For Internal MVP",
+          "anchor": "iii-plaintext-observability-for-internal-mvp",
+          "source": ".specify/memory/constitution.md#iii-plaintext-observability-for-internal-mvp",
+          "start_line": 165,
+          "end_line": 299,
+          "whole_section_bytes": 8859,
+          "whole_section_sha256": "79438220a9ec9899893f7036d61964c2fd7f339b391481789800e43d4d29119d",
+          "reviewed_obligations": [
+            "Один логический вызов, полномочия/gateway/prompt boundary; retention observations и histories; отсутствие provider secrets в клиенте"
+          ],
+          "dependencies": [],
+          "review_kind": "Целый раздел прочитан при документальном прохождении. Это не замена первого полного чтения обязательного документа."
+        },
+        {
+          "path": "docs/agent-guidance/product-gates.md",
+          "heading": "Deletion Truth",
+          "anchor": "deletion-truth",
+          "source": "docs/agent-guidance/product-gates.md#deletion-truth",
+          "start_line": 140,
+          "end_line": 151,
+          "whole_section_bytes": 569,
+          "whole_section_sha256": "a22880f531d8abaf59ebe9dd8d1e05ad5ed6f37e7a1c5dda8f9bd293e614f4b2",
+          "reviewed_obligations": [
+            "Сервер/desktop/backup/MediaScribe/observability различаются; нет обещания удаления вне контроля"
+          ],
+          "dependencies": [],
+          "review_kind": "Целый раздел прочитан при документальном прохождении. Это не замена первого полного чтения обязательного документа."
+        },
+        {
+          "path": "docs/agent-guidance/product-gates.md",
+          "heading": "UX Reference Fidelity",
+          "anchor": "ux-reference-fidelity",
+          "source": "docs/agent-guidance/product-gates.md#ux-reference-fidelity",
+          "start_line": 152,
+          "end_line": 169,
+          "whole_section_bytes": 1097,
+          "whole_section_sha256": "94dcd66acf81b7098abc6a4fdfe94996daf9e219fb4ac23873498787c3ef6e5e",
+          "reviewed_obligations": [
+            "Доступность/локализация/privacy, независимый код, права на сторонние материалы сохраняются"
+          ],
+          "dependencies": [],
+          "review_kind": "Целый раздел прочитан при документальном прохождении. Это не замена первого полного чтения обязательного документа."
+        },
+        {
+          "path": "docs/current-product-status.md",
+          "heading": "Validation update (2026-09-17) — F270 cabinet query efficiency and test speed",
+          "anchor": "validation-update-2026-09-17--f270-cabinet-query-efficiency-and-test-speed",
+          "source": "docs/current-product-status.md#validation-update-2026-09-17--f270-cabinet-query-efficiency-and-test-speed",
+          "start_line": 2328,
+          "end_line": 2354,
+          "whole_section_bytes": 1703,
+          "whole_section_sha256": "58c712d826618e81307718e01dcdb23f79375662cdc5182658649da440fa692e",
+          "reviewed_obligations": [
+            "Исторический результат list/query budget не означает принятие нынешней detail/tenant-context части; доступ/privacy/deletion/export не менялись"
+          ],
+          "dependencies": [],
+          "review_kind": "Целый раздел прочитан при документальном прохождении. Это не замена первого полного чтения обязательного документа."
+        }
+      ],
+      "additional_whole_section_bytes": 31338,
+      "common_sections_reference": "common_section_review (11 целых разделов; текущие source paths/anchors/хеши)"
+    },
+    {
+      "id": "unknown",
+      "area": "Новая область ещё не определена",
+      "repeat_base_text_bytes_before": 336694,
+      "repeat_base_text_bytes_after": 336694,
+      "source_reuse": "Запрещено; полное чтение всех четырёх документов, затем выявленных инструкций/зависимостей.",
+      "retained": "все общие ограничения, область определяется до изменений",
+      "required_complete_base_documents": [
+        ".specify/memory/constitution.md",
+        "docs/prd-voice-layer-final.md",
+        "docs/current-product-status.md",
+        "docs/agent-guidance/product-gates.md"
+      ],
+      "additional_section_review": [],
+      "uncertainty_result": "Нельзя заранее ограничить применимые разделы: полный повтор четырёх базовых документов, затем расширение по выявленной области.",
+      "common_sections_reference": "common_section_review (11 целых разделов; текущие source paths/anchors/хеши)"
+    },
+    {
+      "id": "principle",
+      "area": "Предлагается изменить правило согласия на запись",
+      "repeat_base_text_bytes_before": 336694,
+      "repeat_base_text_bytes_after": 336694,
+      "source_reuse": "Запрещено; полное чтение четырёх документов и отдельная конституционная процедура.",
+      "retained": "principle II, VII/VI, product-gates, согласие/видимость/Stop; изменение требует отдельного решения и синхронизации",
+      "required_complete_base_documents": [
+        ".specify/memory/constitution.md",
+        "docs/prd-voice-layer-final.md",
+        "docs/current-product-status.md",
+        "docs/agent-guidance/product-gates.md"
+      ],
+      "additional_section_review": [
+        {
+          "path": ".specify/memory/constitution.md",
+          "heading": "II. Visible Consent And User Control",
+          "anchor": "ii-visible-consent-and-user-control",
+          "source": ".specify/memory/constitution.md#ii-visible-consent-and-user-control",
+          "start_line": 118,
+          "end_line": 164,
+          "whole_section_bytes": 2981,
+          "whole_section_sha256": "a5d687cd2d1a704a48b6fdfae872e00e71616bd5d4d65be2eb61cb1ce7057f08",
+          "reviewed_obligations": [
+            "Видимое согласие/три состояния/таймер/Stop; чтение не разрешает ослабление принципа"
+          ],
+          "dependencies": [],
+          "review_kind": "Целый раздел прочитан при документальном прохождении. Это не замена первого полного чтения обязательного документа."
+        },
+        {
+          "path": ".specify/memory/constitution.md",
+          "heading": "Governance",
+          "anchor": "governance",
+          "source": ".specify/memory/constitution.md#governance",
+          "start_line": 509,
+          "end_line": 530,
+          "whole_section_bytes": 1005,
+          "whole_section_sha256": "b449b6e072e1a10427943d1bce09f91fcb466591a466955359e3a0086503e897",
+          "reviewed_obligations": [
+            "Изменение отдельной конституционной процедурой с Sync Impact Report и синхронизацией зависимостей"
+          ],
+          "dependencies": [],
+          "review_kind": "Целый раздел прочитан при документальном прохождении. Это не замена первого полного чтения обязательного документа."
+        }
+      ],
+      "common_sections_reference": "common_section_review (11 целых разделов; текущие source paths/anchors/хеши)"
+    }
+  ],
+  "negative_reviews": [
+    {
+      "case": "Файл изменён, Git SHA прежний",
+      "expected": "полное чтение изменённого документа",
+      "result": "Документ явно предписывает отказ от повторного использования / полное чтение / остановку зависимых изменений."
+    },
+    {
+      "case": "Хеш отсутствует или не подтверждён",
+      "expected": "полное чтение",
+      "result": "Документ явно предписывает отказ от повторного использования / полное чтение / остановку зависимых изменений."
+    },
+    {
+      "case": "Файл отсутствует/нечитаем",
+      "expected": "остановка до восстановления доступа",
+      "result": "Документ явно предписывает отказ от повторного использования / полное чтение / остановку зависимых изменений."
+    },
+    {
+      "case": "Новый диалог/другой агент",
+      "expected": "собственное полное чтение",
+      "result": "Документ явно предписывает отказ от повторного использования / полное чтение / остановку зависимых изменений."
+    },
+    {
+      "case": "Прочитаны только заголовки/результаты поиска",
+      "expected": "полное чтение",
+      "result": "Документ явно предписывает отказ от повторного использования / полное чтение / остановку зависимых изменений."
+    },
+    {
+      "case": "После сжатия остался пересказ",
+      "expected": "полное чтение",
+      "result": "Документ явно предписывает отказ от повторного использования / полное чтение / остановку зависимых изменений."
+    },
+    {
+      "case": "Хеш совпал, содержание потеряно",
+      "expected": "полное чтение",
+      "result": "Документ явно предписывает отказ от повторного использования / полное чтение / остановку зависимых изменений."
+    },
+    {
+      "case": "Новая ссылка/зависимость",
+      "expected": "целый применимый раздел, при сомнении расширение чтения",
+      "result": "Документ явно предписывает отказ от повторного использования / полное чтение / остановку зависимых изменений."
+    }
+  ],
+  "unchanged_originals": [
+    ".specify/memory/constitution.md",
+    "docs/prd-voice-layer-final.md",
+    "docs/current-product-status.md",
+    "docs/agent-guidance/product-gates.md",
+    "AGENTS.md"
+  ],
+  "common_section_review": [
+    {
+      "path": "docs/agent-guidance/tracker-policy.md",
+      "heading": "Active Tracking Model",
+      "anchor": "active-tracking-model",
+      "source": "docs/agent-guidance/tracker-policy.md#active-tracking-model",
+      "start_line": 3,
+      "end_line": 11,
+      "whole_section_bytes": 359,
+      "whole_section_sha256": "1ea6b14e425fda8a115a966ce4298eee014964278062e67a0075cab2ff9a87ca",
+      "reviewed_obligations": [
+        "tasks.md — источник реализации; issues — внешний учёт; sync после analyze"
+      ],
+      "dependencies": [],
+      "review_kind": "Целый раздел прочитан при документальном прохождении. Это не замена первого полного чтения обязательного документа."
+    },
+    {
+      "path": "docs/agent-guidance/tracker-policy.md",
+      "heading": "GitHub Issue Rules",
+      "anchor": "github-issue-rules",
+      "source": "docs/agent-guidance/tracker-policy.md#github-issue-rules",
+      "start_line": 12,
+      "end_line": 74,
+      "whole_section_bytes": 3100,
+      "whole_section_sha256": "8d903f1381f971e75f40bff474f90c5aa11e8a6647f5fccbcba3cbd7403cb2ef",
+      "reviewed_obligations": [
+        "Нельзя закрывать по одному X; подробный русский комментарий; single/live, главная последней; точные task/PR связи"
+      ],
+      "dependencies": [
+        "docs/agent-guidance/github-issue-canon.md#closing-rules",
+        "docs/agent-guidance/release-and-validation.md#2-pr-and-merge"
+      ],
+      "review_kind": "Целый раздел прочитан при документальном прохождении. Это не замена первого полного чтения обязательного документа."
+    },
+    {
+      "path": "docs/agent-guidance/tracker-policy.md",
+      "heading": "Завершение разработки и сверка issues",
+      "anchor": "завершение-разработки-и-сверка-issues",
+      "source": "docs/agent-guidance/tracker-policy.md#завершение-разработки-и-сверка-issues",
+      "start_line": 94,
+      "end_line": 110,
+      "whole_section_bytes": 2937,
+      "whole_section_sha256": "1dbd9006b99f6fd7d662c8862b2a5c29b070318b8cc5bf0e6a6756f812cfecb1",
+      "reviewed_obligations": [
+        "Локальная реализация отделена от tracker closeout; приёмка и проверки обязательны; Refs не закрывает issue"
+      ],
+      "dependencies": [],
+      "review_kind": "Целый раздел прочитан при документальном прохождении. Это не замена первого полного чтения обязательного документа."
+    },
+    {
+      "path": "docs/agent-guidance/github-issue-canon.md",
+      "heading": "Closing Rules",
+      "anchor": "closing-rules",
+      "source": "docs/agent-guidance/github-issue-canon.md#closing-rules",
+      "start_line": 161,
+      "end_line": 200,
+      "whole_section_bytes": 1197,
+      "whole_section_sha256": "07786a60fc3deb095437599786430c3dde34ed6123efdb1dbaeb64e6cce79f97",
+      "reviewed_obligations": [
+        "Каждый критерий принят или неприменимость обоснована; полный русский комментарий; NOT_PLANNED не выдаётся за реализацию"
+      ],
+      "dependencies": [],
+      "review_kind": "Целый раздел прочитан при документальном прохождении. Это не замена первого полного чтения обязательного документа."
+    },
+    {
+      "path": "docs/agent-guidance/release-and-validation.md",
+      "heading": "2. PR and merge",
+      "anchor": "2-pr-and-merge",
+      "source": "docs/agent-guidance/release-and-validation.md#2-pr-and-merge",
+      "start_line": 218,
+      "end_line": 244,
+      "whole_section_bytes": 1538,
+      "whole_section_sha256": "4a9ae03651c4219d818d8d4f53da81abe7c33169945366a35f9c21142d897046",
+      "reviewed_obligations": [
+        "Точный SHA и checked base для всех трёх checks; штатный общий validator; focused не заменяет обязательные проверки"
+      ],
+      "dependencies": [],
+      "review_kind": "Целый раздел прочитан при документальном прохождении. Это не замена первого полного чтения обязательного документа."
+    },
+    {
+      "path": "docs/agent-guidance/release-and-validation.md",
+      "heading": "Git Safety",
+      "anchor": "git-safety",
+      "source": "docs/agent-guidance/release-and-validation.md#git-safety",
+      "start_line": 758,
+      "end_line": 766,
+      "whole_section_bytes": 320,
+      "whole_section_sha256": "e4baaea6382d5e4bf8e8e57e5e0e6485c6258bca673434c5ff5ce219e2f7684d",
+      "reviewed_obligations": [
+        "Не сбрасывать чужое; коммит реализации после проверки и разрешения"
+      ],
+      "dependencies": [],
+      "review_kind": "Целый раздел прочитан при документальном прохождении. Это не замена первого полного чтения обязательного документа."
+    },
+    {
+      "path": "docs/agent-guidance/release-and-validation.md",
+      "heading": "Evidence Safety",
+      "anchor": "evidence-safety",
+      "source": "docs/agent-guidance/release-and-validation.md#evidence-safety",
+      "start_line": 767,
+      "end_line": 772,
+      "whole_section_bytes": 269,
+      "whole_section_sha256": "9b077ccd1807ff68ce3368080ba666c213e400605520828972a7e25a61fb479c",
+      "reviewed_obligations": [
+        "Только допустимые метаданные; без приватного содержимого и секретов"
+      ],
+      "dependencies": [],
+      "review_kind": "Целый раздел прочитан при документальном прохождении. Это не замена первого полного чтения обязательного документа."
+    },
+    {
+      "path": ".specify/memory/constitution.md",
+      "heading": "VI. Spec-Driven Delivery With Testable Gates",
+      "anchor": "vi-spec-driven-delivery-with-testable-gates",
+      "source": ".specify/memory/constitution.md#vi-spec-driven-delivery-with-testable-gates",
+      "start_line": 345,
+      "end_line": 366,
+      "whole_section_bytes": 1226,
+      "whole_section_sha256": "5ecba823cb1d88bb80cdf1d81eb5f27c2a799ce1db826f3390867776065a3b83",
+      "reviewed_obligations": [
+        "Явная степень риска; значимая работа по Spec Kit; высокорисковые области сохраняют clarify/checklist/analyze"
+      ],
+      "dependencies": [],
+      "review_kind": "Целый раздел прочитан при документальном прохождении. Это не замена первого полного чтения обязательного документа."
+    },
+    {
+      "path": ".specify/memory/constitution.md",
+      "heading": "Development Workflow And Quality Gates",
+      "anchor": "development-workflow-and-quality-gates",
+      "source": ".specify/memory/constitution.md#development-workflow-and-quality-gates",
+      "start_line": 456,
+      "end_line": 508,
+      "whole_section_bytes": 3187,
+      "whole_section_sha256": "c9f11e05d1d83a75aa2e1342933377176d114a2345ca6f953b3a0803b948f6c4",
+      "reviewed_obligations": [
+        "Независимое ревью каждого контрольного списка; запрет обхода нерешённых конституционных/critical проблем; процессные документы не становятся docs-only из-за расширения .md"
+      ],
+      "dependencies": [],
+      "review_kind": "Целый раздел прочитан при документальном прохождении. Это не замена первого полного чтения обязательного документа."
+    },
+    {
+      "path": "docs/current-product-status.md",
+      "heading": "Spec Kit documentation status",
+      "anchor": "spec-kit-documentation-status",
+      "source": "docs/current-product-status.md#spec-kit-documentation-status",
+      "start_line": 1026,
+      "end_line": 1041,
+      "whole_section_bytes": 1086,
+      "whole_section_sha256": "7b1ed1895460956ca6391899b700a3657b382f686e1bba13793c9ec4b97e037d",
+      "reviewed_obligations": [
+        "Исторический inventory сохраняет ссылки и не закрывает general-release/security/representative-reviewer gates"
+      ],
+      "dependencies": [
+        "docs/spec-kit-feature-index.md#как-читать-этот-реестр"
+      ],
+      "review_kind": "Целый раздел прочитан при документальном прохождении. Это не замена первого полного чтения обязательного документа."
+    },
+    {
+      "path": "docs/spec-kit-feature-index.md",
+      "heading": "Как читать этот реестр",
+      "anchor": "как-читать-этот-реестр",
+      "source": "docs/spec-kit-feature-index.md#как-читать-этот-реестр",
+      "start_line": 21,
+      "end_line": 34,
+      "whole_section_bytes": 1122,
+      "whole_section_sha256": "bc941171f1c65bd166480f053c6a0112a05998dc2a0f849333630f91511b950c",
+      "reviewed_obligations": [
+        "Реестр не заменяет текущий статус/receipts; открытый task не закрывается по соседнему зелёному тесту"
+      ],
+      "dependencies": [],
+      "review_kind": "Целый раздел прочитан при документальном прохождении. Это не замена первого полного чтения обязательного документа."
+    }
+  ]
+}

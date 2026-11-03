@@ -1,9 +1,107 @@
+## T077/O16: наблюдения попыток reconciliation — 03.11.2026
+
+Проект первого шага J1–J6, не приёмка миграции. Одна глобальная служебная
+таблица `billing_reconciliation_observations`, без workspace/user/device:
+
+| Поле | Ограничение и смысл |
+| --- | --- |
+| namespace | Непустая строка UTF-8, не более255байт, actual ActivityInfo.namespace |
+| workflow_id | Существующий billing-reconciliation/<UUID>/v1 pattern, ≤128байт |
+| workflow_run_id | UUID фактического исполнения из ActivityInfo; не payload run_id |
+| activity_id | Непустая строка, ≤255байт, из ActivityInfo |
+| attempt | Целое1..2147483647; положительный фактически наблюдаемый номер |
+| event_kind | Только started/succeeded/failed/canceled |
+| observed_at | Конечный timestamptz UTC, DB clock_timestamp(), NOT NULL |
+
+Составной PK — все пять полей identity плюс event_kind. Валидация выполняется
+до записи, CHECK/NOT NULL/unique в БД сохраняют те же границы. Поле observed_at
+не обновляется при повторе. Append-only, запрет UPDATE/DELETE и destructive
+downgrade непустой таблицы; автоматической очистки/исторического backfill нет.
+Индекс по полному ключу покрывается PK; дополнительные индексы без измеренной
+потребности не нужны. Нет failure text, task_token, counters JSON, payload,
+shop, provider/payment ID, суммы, контактов или meeting content.
+
+Изоляция: глобальный служебный источник ADR003, не tenant-данные и не bypass.
+ENABLE/FORCE RLS, точные session_user=current_user=twobrain_rec_maintenance,
+row_security=on, rec_context_kind=maintenance, rec_maintenance_allowed и
+billing_reconciliation/billing; grants только SELECT/INSERT. App/worker/
+request/SET ROLE/неверные operation/area denied; superuser/BYPASSRLS отвергает
+guard. Добавить в фактический RLS inventory; защищённый backup/restore
+сохраняет наблюдения/ограничения, не создаёт фиктивного tenant audit event.
+
+Read projection: source=billing_reconciliation_observations,
+scope=database_inventory, kind=current_state, coverage всегда partial.
+values: attempt_count, groups[{outcome,count}], observed_retry_attempt_count,
+missing_start_count; outcome — succeeded/failed/canceled/unknown/conflict,
+только непустые группы, sorted. Для ключа несколько разных terminal kinds —
+conflict; один terminal — его исход; ни одного — unknown. Start не требуется
+для сохранения terminal: missing_start_count считает такие ключи отдельно,
+не создаёт искусственный started. attempt_count равен сумме groups;
+retry count — ключи с attempt>1, не сумма номеров и не число денег/HTTP retries.
+Все строки независимо от report_date; future observed_at не становится
+возрастом: возраста/длительности/heartbeat вообще не выводятся. Пустой
+успешный inventory —0/[]/0/0, всё равно partial/reason=history_incomplete;
+при conflict reason=conflicting_observations. Ошибка схемы/доступа — отказ
+всего CLI по O3. Старые addon job_* и heartbeat не заполняются этим источником.
+
+Почтовая reaction/delivery модель не вводится этим первым шагом. Принятые
+owner/email/5мин/15мин/retry≥5мин/явный accepted_risk остаются обязательными
+для следующего подключения по O6, включая сохраняемую попытку до POST.
+
+## T077: storage projection — 02.11.2026
+
+Read-only JSON projection O15/S1–S6, без таблиц/миграций/новых прав. Root
+storage source/scope/kind/coverage/reason заданы контрактом. values:
+workspace_count, capacity_unavailable_workspace_count, unrecognized_plan_count,
+invalid_capacity_time_count; used_bytes/reserved_bytes/capacity_bytes
+(целые суммы либо все null по S3); reservations {count,groups [{state,count}],
+expired_active_count,invalid_value_count}; reconciliation_gaps=null.
+Counts — целые количества строк/workspaces, не bytes/jobs/unique objects.
+Byte totals суммируют только полные existing projections всех workspaces;
+данные capacity/reservations с неизвестностью запрещают любые subtotal итоги.
+Ни один ID/JSON/object key не входит в форму. Empty inventory имеет нули,
+groups[], всегда partial. Отсутствие подписки увеличивает только unavailable;
+NULL/unknown plan существующей подписки — также unrecognized_plan_count.
+Узкий SQL-признак наличия строки не экспортируется. Snapshot, который helper
+не может обработать, helper/schema/limit failure — безопасный отказ целого
+отчёта, не JSON-ноль. Falsy plan_snapshot/catalog_snapshot сохраняют existing
+`or {}` семантику. Область database_inventory не доказывает shop.
+Текущие StorageReservation model/writers/O15 используют active/committed/
+released; историческое pending в исходном design ниже не меняет runtime.
+
+## T077: проекция запросов удаления — 01.11.2026
+
+Существующая MeetingDeletionRequest/meeting_deletion_requests: новых моделей
+и миграций нет. Migration0007 задаёт NOT NULLstate/defaultrequested и FORCE RLS;
+поле state модели без явного nullable=False не заменяет реальную схему.
+В SQL читается только state, наружу count и sorted closedgroups D1–D6/O14:
+requested/deleting/active_purge_complete/retryable_failed, иначеunrecognized.
+Nested source в values.deletion с database_inventory/current_state/partial.
+Нет времени/возраста/ID/metadata/фактической проверки объектов. Counts запросов
+и fair-use отдельно; artifact_completion/deadline_status/job_attempts/job_errors/
+job_retries/reaction null. Сохранённый active_purge_complete не универсальное
+удаление и не отменяет operator-retained Generation Call/Langfuse/Temporal.
+
+## T077: проекция наблюдений чеков — 01.11.2026
+
+Новой сущности/колонки/миграции нет. Существующий BillingInvoice.plan_snapshot
+(JSON NOT NULL) хранит receipt_observations object map; текущий writer16entries,
+parent_kind payment/refund, status pending/succeeded/canceled, source webhook/
+poll/registry. Служебный inventory O13 читает только закрытые группы/counts.
+Invoice/missing/invalid containers отдельно от числа map entries; JSON null
+не SQL NULL, реальные constraints сохраняются. Ключи/связи/shop/environment/
+времена/JSON не выбираются. Top-level receipt_registration — отдельная UI
+projection; count не число уникальных чеков, pending_since здесь отсутствует.
+Имеющийся READ ONLY RR/RLS/maintenance и все прежние сущности неизменны.
+
 # Data Model: account, subscription and billing
 
 ## Modeling rules
 
 - `workspace_id` is the billing/tenant boundary; actor/payer references the
-  existing `UserIdentity`.
+  existing `UserIdentity`. Исключение по области, не обход tenant RLS:
+  общий metadata отчёта магазина T075 хранится в отдельных maintenance-only
+  таблицах по [контракту импорта](contracts/registry-operator-import.md).
 - Money is integer minor units plus ISO currency (`RUB` at launch). Decimal
   bytes are integers; displayed hour equivalents never drive enforcement.
 - All timestamps are UTC. Free window boundaries are derived once from
@@ -199,6 +297,15 @@ applied-consistency version. It contains no request, claimant, reason,
 calculation, decision, correspondence, SLA, operator action or user-visible
 state. GRAF never creates this provider object.
 
+Уточнение фактического T077/O11: модель ObservedProviderRefund и таблица
+observed_provider_refunds имеют environment без shop_id, status/source
+NOT NULL и nullable observed_at/default now(). Объявленный writer сохраняет
+пару succeeded/provider_observation; transport webhook/poll/registry не
+являются значениями row.source. Историческое описание выше не доказывает
+наличие дополнительных столбцов или текущую shop-привязку. Collector
+читает только status/source/count и безопасную неизвестную группу,
+без сумм/связей/времени; inventory, всегда partial, не сверка и не SLA.
+
 ### `billing_receipt_state`
 
 Payment or observed-refund linked: kind, approved configuration version,
@@ -206,6 +313,12 @@ bounded provider registration/reference class, `pending|succeeded|canceled`,
 requested/confirmed timestamps, last poll and error class. Money state and
 fiscal state are separate. Restricted contact snapshot remains on invoice and
 is omitted from general/admin projections.
+
+Для O11 это историческая проектная сущность: отдельной BillingReceiptState
+модели/таблицы нет. Реальные observations находятся в ограниченной карте
+BillingInvoice.plan_snapshot, отдельно от прежнего receipt_registration.
+Они не читаются этим срезом; values.receipts/reconciliation_gaps=null,
+pending/canceled и исходные сроки не выдаются за проверенные.
 
 ## Usage and storage
 
@@ -300,6 +413,17 @@ state `pending|available|applied|expired|reversed`, applied interval and
 final service/add-on cutoff; Free holds credit up to 12 months. No cash value,
 receipt or mutable wallet.
 
+Уточнение чтения T077/credit ledger (01.11.2026), C1–C6 O10: новых сущностей
+нет. Фактический TimeCreditLedgerEntry дополнительно допускает сохраняемый
+rejected; matured не является состоянием строки. Диагностика читает только
+state/maturity_at/expires_at, без days/IDs/source_ref/applied interval.
+Отрицательная reversal — отдельная строка и не денежный долг; изменение
+state исходной строки не выдаётся за неизменность всех полей реестра.
+Четыре временные группы применимы только pending/available; достигнутая
+граница не доказывает eligibility, сбой задания или пропущенный SLA.
+Миграция0044 задаёт обе даты NOT NULL; несогласованный порядок дат явно
+неполон, NULL-ветвь — защитная семантика, не разрешение ослабить схему.
+
 ### `fair_use_review`
 
 Narrow non-meter restriction: workspace, affected capability, reason class
@@ -309,6 +433,15 @@ and decision. The persisted row is workspace/user scoped and deduplicated by
 the opaque evidence reference; the notification outbox receives only a hashed
 subject and the `/account/fair-use` action path. Volume/IP/device alone cannot
 decide it. Local Record/Stop and existing read/export/delete remain available.
+
+Уточнение T077/fair-use inventory (01.11.2026): существующая таблица
+fair_use_reviews с NOT NULL state/starts_at/review_by и CHECK state/deadline.
+Новых сущностей/миграций нет. Читаются только state и две даты внутри SQL;
+наружу — закрытые количества F1–F6 O12. confirmed не снятое ограничение.
+Pending notice/restricted/appealed классифицируются по корректности расписания,
+началу и сроку; остальные state не входят в buckets. Сохранённый срок не
+подтверждает владельца/доставку/разрешение. Не конечные даты безопасно
+неполны; положительная тестовая схема сохраняет реальные constraints.
 
 ## Notifications, audit and reconciliation
 
@@ -326,6 +459,13 @@ Broad admin projection omits provider ids, amounts, contacts, codes and private
 payloads. Observed refund audit records only source/reference class/outcome and
 projection before/after, never email/backoffice content.
 
+Уточнение T077/free_projection (01.11.2026): новых сущностей или миграций нет.
+Наблюдение читает только action/outcome/reason_code/target_kind/created_at
+существующего billing_audit_event. Реальная миграция0044 допускает NULL
+created_at; now() — начало транзакции. Event-window counts и inventory
+undated_count не становятся источником финансового состояния, уникальными
+workspace или окончательным дневным итогом. Формат — P1–P6 контракта O9.
+
 ### `reconciliation_gap`
 
 Internal/provider/registry mismatch: object class, safe reference, severity,
@@ -334,11 +474,15 @@ Gaps are internal operations truth, never a user refund status.
 
 ### `registry_import`
 
-Audited manual CSV import: report kind `payments|refunds`, shop/environment,
-Moscow report date, schema/language/config version, part/last-part, content hash,
-safe filename, row identities/counts/totals, state/error. Completeness requires
-every part or configured empty report for both kinds. Restricted input has
-short retention after normalized evidence; SFTP automation is deferred.
+Реализация T075 использует `billing_registry_imports` (неизменяемый receipt
+попытки, scope/digests/counts/completeness/previous receipt/DB identity/time)
+и `billing_registry_gaps` (стабильный ключ, поколение, owner/severity/deadline,
+detected/checked и resolution/actor/time/closing receipt).
+Полный ключ повторов, атомарность, защита замены и RLS определены в
+[контракте импорта](contracts/registry-operator-import.md). Raw CSV, provider
+object IDs, суммы и контакты здесь не сохраняются; разбор и проверка identities
+выполняются только в памяти. Исходный экспорт команда не копирует и не удаляет.
+Состояния общего магазина не привязываются к произвольному workspace.
 
 ## Transaction boundaries and invariants
 

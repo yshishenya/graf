@@ -547,3 +547,12 @@ normal deployment backup/restore boundary.
   purged or redacted with their owning workspace/meeting policy.
 - Feature 099 does not introduce source-only retention, universal external
   erasure claims, or a new backup expiry policy.
+
+
+## 2026-10-17: граница владения
+
+Схема не меняется. Job.attempt_count монотонно отличает A от B даже при
+повторном lease owner. Для подготовленной ошибки действуют также owner hash
+и lease expiry; ошибка до prepare привязана к исходному scalar count.
+Текущий активный immutable attempt защищён direct cleanup под Job→Attempt
+lock. Старые attempt ID допускают очистку независимо от работы новой B.

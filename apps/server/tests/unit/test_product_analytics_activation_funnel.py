@@ -322,8 +322,9 @@ def test_the_funnel_carries_the_campaign_of_the_visit(
     assert len(PRODUCT_ACTIVATION_EVENT_NAMES) == 6
     assert FULL_ACTIVATION_FUNNEL[1:] == PRODUCT_ACTIVATION_EVENT_NAMES
     assert walk.funnel == FULL_ACTIVATION_FUNNEL
-    # Каждую веху принял настоящий сервис приема событий.
-    assert all(result.accepted is True for result in walk.results)
+    # Проверена форма метаданных. Без доверенного аккаунта/БД счёта нет.
+    assert all(result.accepted is False for result in walk.results)
+    assert all(result.status == "trusted_context_required" for result in walk.results)
     assert all(result.status not in {"rejected", "disabled", "duplicate"} for result in walk.results)
     # Ни одно событие не несет запрещенного поля.
     assert walk.forbidden == ()
@@ -395,7 +396,8 @@ def test_a_milestone_carries_the_bridge_identifier_of_the_visit() -> None:
         }
     )
 
-    assert result.accepted is True
+    assert result.accepted is False
+    assert result.status == "trusted_context_required"
     assert result.event is not None
     assert result.event.properties["graf_attribution_id"] == BRIDGE_ID
     assert result.event.properties["attribution_reliability"] == "linked"

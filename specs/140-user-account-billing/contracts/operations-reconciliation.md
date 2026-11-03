@@ -1,5 +1,12 @@
 # Contract: operations, reconciliation and launch
 
+Текущий срез T075 от 30.10.2026: [контракт внутреннего импорта](registry-operator-import.md)
+задаёт B1–B3 и имеет приоритет для этого входа. Ниже сохранён исходный
+операционный план: его emergency stop/one-attempt/catalog требования заменены
+F272/F278/F199 согласно §Scope Summary `../spec.md`. Они не реализуются заново.
+Состояния registry gap `detected|resolved` — узкий путь проверки/восстановления
+отчёта; он не является приёмкой общей системы incidents или запуском биллинга.
+
 ## Scheduled operations
 
 - Renewal planner creates exactly one operation per subscription period and skips cancel/stop/ineligible rows under lock; confirmed/unconfirmed outcome at cutoff projects Free without a new charge attempt.
@@ -37,7 +44,7 @@ Production flag defaults off. Release owner collects:
 1. product approval of `Free` 250 MB / Trial 500 MB / `Личный` 2 GB, unlimited scope/fair-use, total-capacity 5/20/100/500 GB add-on/pro-rata and usability evidence;
 2. unit-economics/finance/accounting/legal approval of every base/add-on price version, plus approved transcription-source retention/recovery deadline and compliance records;
 3. security/RLS/secret/analytics/privacy and abuse review;
-4. automated test-shop matrix and accessibility/brand-distance evidence;
+4. automated test-shop matrix, accessibility and FR-081 reference-fidelity/independent-code/asset-rights evidence;
 5. Docker configuration, billing-ledger backup/restore, migration rollback, disk-full fail-closed behavior, health, monitoring and stop-all-charges drill;
 6. real-shop base payment and only approved/enabled add-on payment → GET/webhook → unlimited/storage entitlement → payment receipt → manual full and partial refund in YooKassa merchant cabinet outside GRAF → webhook or poll + authoritative refund GET → refund receipt observation → registry reconciliation, with zero GRAF refund mutation calls;
 7. support/runbook ownership and closure of global `pilot_blocked` gaps.

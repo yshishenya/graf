@@ -80,9 +80,10 @@ must preserve the exact-SHA, loopback-only, one-active-target and fail-closed
 contracts. Each published version is immutable SemVer and requires a checksum,
 migration notes, secret/path scan and a rollback ref.
 
-The current public release is pinned at
-`https://github.com/yshishenya/graf-development-harness/releases/tag/v0.1.13`;
-`v0.1.12` remains the rollback ref. A consumer must pin the immutable release
+The pinned external release is
+`https://github.com/yshishenya/graf-development-harness/releases/tag/v0.1.15`,
+source `8f41a53508d0c8ca27afb97cea4b020ae474c6ce`;
+`v0.1.14` is the rollback ref. A consumer must pin the immutable release
 and update its migration notes and rollback ref together.
 
 Migration from `v0.1.12` to `v0.1.13` adds release-train lineage, authoritative
@@ -93,4 +94,15 @@ including short tokens and the common `Authorization: Bearer ...` form.
 Migration from `v0.1.10` to `v0.1.11` fixed the runtime package-version declaration. The portable feature-context
 schema and copyable templates were introduced in `v0.1.10`. Consumers should
 run the same self-test and package scan after updating their pinned ref.
-Rollback is the immutable `v0.1.12` ref.
+Migration from `v0.1.13` to `v0.1.14` fixes scanning of quoted JSON keys and
+prefixed credential names. The original LICENSE bytes are unchanged; package
+metadata identifies that custom text as `LicenseRef-GRAF-Harness`.
+The external release and this GRAF-local source are separate: the lock pins the
+reviewed published package; it does not claim that this directory is a byte copy.
+Migration from `v0.1.14` to `v0.1.15` makes empty CDPATH explicit and adds
+ShellCheck before publication in the existing CI matrix. Rollback is the
+immutable `v0.1.14` ref; it retains the known ShellCheck warning. The older
+`v0.1.13` also retains known scanner gaps.
+After the rollback check, reinstall the corrected package and scan publication
+inputs with the fixed scanner. Real artifact checks and checksums are recorded in
+`../specs/216-development-governance-harness/validation-harness-publication-20261030.md`.

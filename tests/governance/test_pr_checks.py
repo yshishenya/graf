@@ -6,18 +6,80 @@ import io
 import json
 from pathlib import Path
 import re
+import subprocess
 import sys
 import threading
 import zipfile
 
 import pytest
 
-from test_pr_metadata_event import git, snapshot as snapshot, trusted_pr
+from test_pr_metadata_event import git, replay_history, snapshot as snapshot, trusted_pr
 
 ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location('pr_checks', ROOT / 'scripts/validate-pr-checks.py')
 checks = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(checks)
+
+
+@pytest.mark.parametrize('failure', [
+    'merge-error', 'unknown-tree', 'multiple-trees', 'prefix-diff-error', 'prefix-diff-unknown', 'ancestry-error',
+    'target-empty', 'target-invalid', 'target-noncontiguous', 'target-missing-first',
+    'source-merge-error', 'source-merge-unknown', 'source-merge-multiple',
+])
+def test_replay_git_failure_cannot_become_squash_proof(snapshot, monkeypatch, failure):
+    root, _, pr, _, start, _, _ = replay_history(snapshot)
+    monkeypatch.chdir(root)
+    real_git = checks.metadata._git
+    real_output = subprocess.check_output
+    if failure.startswith('prefix-diff-') or failure.startswith('target-'):
+        tree = git(root, 'merge-tree', '--write-tree', start, pr['head']['sha'])
+        pr['merge_commit_sha'] = git(root, 'commit-tree', tree, '-p', start, '-m', 'independent squash')
+    if failure.startswith('prefix-diff-'):
+        def output(args, **kwargs):
+            if args[:2] == ['git', 'diff']:
+                if failure == 'prefix-diff-error':
+                    raise subprocess.CalledProcessError(128, args)
+                return b'unknown output without NUL delimiter'
+            return real_output(args, **kwargs)
+
+        monkeypatch.setattr(subprocess, 'check_output', output)
+    elif failure == 'ancestry-error':
+        real_run = subprocess.run
+
+        def run(args, **kwargs):
+            if args[:3] == ['git', 'merge-base', '--is-ancestor']:
+                return subprocess.CompletedProcess(args, 128)
+            return real_run(args, **kwargs)
+
+        monkeypatch.setattr(subprocess, 'run', run)
+    else:
+        def failed_git(*args):
+            if failure.startswith('source-merge-') and args[:3] == ('rev-list', '--merges', '--max-count=1'):
+                if failure == 'source-merge-error':
+                    raise subprocess.CalledProcessError(128, ['git', *args])
+                return 'unknown' if failure == 'source-merge-unknown' else 'a' * 40 + '\n' + 'b' * 40
+            if failure.startswith('target-') and args == (
+                'rev-list', '--parents', '--max-count=4', pr['merge_commit_sha'],
+            ):
+                if failure == 'target-empty':
+                    return ''
+                if failure == 'target-invalid':
+                    return pr['merge_commit_sha'] + ' unknown-parent'
+                if failure == 'target-missing-first':
+                    return real_git(*args).splitlines()[1]
+                rows = real_git('rev-list', '--parents', '--max-count=4', pr['head']['sha']).splitlines()
+                rows[0] = pr['merge_commit_sha'] + ' ' + pr['head']['sha']
+                return '\n'.join(rows)
+            if args[0] == 'merge-tree':
+                if failure == 'merge-error':
+                    raise subprocess.CalledProcessError(128, ['git', *args])
+                if failure in {'unknown-tree', 'multiple-trees'}:
+                    return 'unknown' if failure == 'unknown-tree' else 'a' * 40 + '\n' + 'b' * 40
+            return real_git(*args)
+
+        monkeypatch.setattr(checks.metadata, '_git', failed_git)
+    with pytest.raises((ValueError, subprocess.CalledProcessError)):
+        checks.metadata.checked_base(pr)
 
 
 @pytest.fixture
@@ -78,6 +140,21 @@ def test_current_complete_set_and_historical_boundary(bundle):
         checks.validate_bundle(pr, 'owner/repo', policy, base, old)
     with pytest.raises(ValueError, match='boundary'):
         checks.historical(pr, {})
+
+
+@pytest.mark.parametrize('status', ['stale', 'superseded'])
+def test_valid_nonpassed_receipt_cannot_pass_successful_github_jobs(bundle, status):
+    assert validate(bundle)['policy'] == 'separate'
+    run, proof = bundle[3]['governance-fast']
+    original_run = copy.deepcopy(run)
+    proof.update(status=status, conclusion=status, reason=status,
+                 cancellation_state='none',
+                 supersession_state='superseded' if status == 'superseded' else 'none',
+                 final_cleanliness='stale' if status == 'stale' else 'ambiguous')
+    assert checks.receipts.validate(proof) == []
+    with pytest.raises(ValueError, match='^code receipt identity mismatch$'):
+        validate(bundle)
+    assert run == original_run
 
 
 @pytest.mark.parametrize('workflow', ['governance-fast', 'macos-pr', 'pr-metadata'])
@@ -193,7 +270,9 @@ def test_later_attempt_of_older_run_cannot_hide_behind_newer_id(bundle, monkeypa
 
 
 @pytest.mark.parametrize("case", [
-    "two-prs", "rebase", "published-source", "unowned", "mixed-prs", "bad-policy", "no-base",
+    "two-prs", "overlapping-checked-ranges", "overlapping-omit-earlier",
+    "overlapping-omit-later", "overlapping-missing-earlier-proof",
+    "overlapping-failed-earlier-proof", "published-source", "unowned", "mixed-prs", "bad-policy", "no-base",
     "metadata-only", "metadata-extra", "metadata-bad-subject", "metadata-heading",
     "metadata-fragment-id", "metadata-secret", "metadata-old-version", "metadata-published-latest",
     "metadata-duplicate-field", "metadata-token", "metadata-double", "metadata-missing-marked",
@@ -298,33 +377,100 @@ def test_release_source_checks_actual_range(snapshot, monkeypatch, case):
         try:
             if barrier is not None:
                 barrier.wait(timeout=2)
+            if number == 7 and case in {"overlapping-missing-earlier-proof", "overlapping-failed-earlier-proof"}:
+                raise ValueError("missing proof" if "missing" in case else "unsuccessful proof")
             return dict(pr_number=number, merge_commit_sha=source if number == 8 else first,
-                        base_sha=base if number == 7 or case == "rebase" else first,
+                        base_sha=base if number == 7 or case.startswith("overlapping-") else first,
                         target_sha=source)
         finally:
             with active_lock:
                 active -= 1
     monkeypatch.setattr(checks, "api", api)
     monkeypatch.setattr(checks, "verify", verify)
-    expected = [8] if case in {"rebase", "mixed-prs"} else [7, 8]
+    expected = [8] if case in {"mixed-prs", "overlapping-omit-earlier"} else [7, 8]
+    if case == "overlapping-omit-later":
+        expected = [7]
     if case == "metadata-only":
         expected = [7]
-    if case in {"unowned", "mixed-prs", "bad-policy", "no-base", "metadata-extra", "metadata-bad-subject",
+    if case in {"overlapping-omit-earlier", "overlapping-omit-later", "overlapping-missing-earlier-proof",
+                "overlapping-failed-earlier-proof", "unowned", "mixed-prs", "bad-policy", "no-base", "metadata-extra", "metadata-bad-subject",
                 "metadata-heading", "metadata-fragment-id", "metadata-secret", "metadata-old-version",
                 "metadata-published-latest", "metadata-duplicate-field", "metadata-token", "metadata-double",
                 "metadata-missing-marked"}:
-        with pytest.raises(ValueError):
+        reason = "missing proof" if case == "overlapping-missing-earlier-proof" else "unsuccessful proof" if case == "overlapping-failed-earlier-proof" else None
+        with pytest.raises(ValueError, match=reason):
             checks.verify_source("owner/repo", source, included_prs=expected)
     else:
         results = checks.verify_source("owner/repo", source, included_prs=expected)
         assert sorted(row["pr_number"] for row in results) == expected
         assert set(expected).issubset(visited)
-        if case == "rebase":
-            assert set(visited) == {7, 8}
-        else:
-            assert set(visited) == set(expected)
+        assert sorted(visited) == sorted(expected)
         if case == "two-prs":
             assert max_active >= 2
+
+
+@pytest.mark.parametrize("case", ["linear-rebase", "missing-terminal", "ambiguous-intermediate", "changing-merge"])
+def test_release_source_real_linear_rebase(snapshot, monkeypatch, case):
+    root, _, pr = snapshot
+    monkeypatch.chdir(root)
+    monkeypatch.setattr(checks, "ROOT", root)
+    base, first = pr["base"]["sha"], pr["head"]["sha"]
+    git(root, "checkout", "-qb", "original-pr", first)
+    monkeypatch.setenv("GIT_COMMITTER_DATE", "2026-09-12T01:00:00Z")
+    original = []
+    for index in range(3):
+        (root / f"rebased-{index}").write_text(f"change {index}\n")
+        git(root, "add", f"rebased-{index}")
+        git(root, "commit", "-qm", f"PR8 change {index}")
+        original.append(git(root, "rev-parse", "HEAD"))
+    monkeypatch.setenv("GIT_COMMITTER_DATE", "2026-09-13T01:00:00Z")
+    git(root, "rebase", "--force-rebase", "--onto", first, first)
+    source = git(root, "rev-parse", "HEAD")
+    rebased = git(root, "rev-list", "--reverse", f"{first}..{source}").splitlines()
+    assert len(rebased) == len(original) == 3
+    assert not set(original) & set(rebased)
+    assert git(root, "rev-parse", f"{original[-1]}^{{tree}}") == git(root, "rev-parse", f"{source}^{{tree}}")
+    assert git(root, "rev-list", "--first-parent", f"{base}..{source}").splitlines() == [*reversed(rebased), first]
+    (root / ".github").mkdir()
+    (root / ".github/pr-check-policy.json").write_text(json.dumps(dict(
+        schema_version=1, repository="owner/repo", foundation_pr=1,
+        foundation_sha=base, activated_at="2026-09-01T00:00:00Z",
+    )))
+    visited = []
+
+    def api(_repo, endpoint, **_kwargs):
+        if endpoint.startswith("releases?"):
+            return [dict(tag_name="v2026.08.31.1", published_at="2026-08-31T00:00:00Z")]
+        if endpoint.startswith("git/ref/tags/"):
+            return dict(object=dict(type="commit", sha=base))
+        commit = endpoint.split("/")[1]
+        number = 7 if commit == first else 8
+        merge = first if number == 7 else original[-1] if case == "missing-terminal" else source
+        owners = [dict(number=number, merge_commit_sha=merge,
+                       merged_at="2026-09-13T00:00:00Z", base=dict(ref="master"))]
+        if case == "ambiguous-intermediate" and commit == rebased[1]:
+            owners.append(dict(number=9, merge_commit_sha=original[-1],
+                               merged_at="2026-09-13T00:00:00Z", base=dict(ref="master")))
+        return owners
+
+    def verify(_repo, number):
+        visited.append(number)
+        merge = first if number == 7 else original[-1] if case == "changing-merge" else source
+        return dict(pr_number=number, merge_commit_sha=merge, base_sha=base if number == 7 else first,
+                    target_sha=first if number == 7 else original[-1])
+
+    monkeypatch.setattr(checks, "api", api)
+    monkeypatch.setattr(checks, "verify", verify)
+    if case == "linear-rebase":
+        result = checks.verify_source("owner/repo", source, included_prs=[7, 8])
+        assert sorted(row["pr_number"] for row in result) == [7, 8]
+        assert sorted(visited) == [7, 8]
+        assert next(row for row in result if row["pr_number"] == 8)["merge_commit_sha"] == source
+    else:
+        reason = {"missing-terminal": "unique merged PR", "ambiguous-intermediate": "multiple merged pull requests",
+                  "changing-merge": "merge identity changed"}[case]
+        with pytest.raises(ValueError, match=reason):
+            checks.verify_source("owner/repo", source, included_prs=[7, 8])
 
 
 def test_initial_release_prep_accepts_archived_fragments(snapshot, monkeypatch):
@@ -744,3 +890,40 @@ def test_merged_consumer_fetches_missing_history_before_checked_snapshot(github,
     else:
         assert checks.verify('owner/repo', 7)['merge_commit_sha'] == head
         assert git(root, 'rev-parse', head + '^{tree}')
+
+
+@pytest.mark.parametrize("mutation", [None, "receipt-base", "failed-gate", "stale-metadata"])
+def test_full_consumer_of_advanced_replay_keeps_source_identity(github, mutation):
+    pr, root = github["pr"], Path.cwd()
+    _, _, history, base, _, _, _ = replay_history((root, {}, pr))
+    old_head = pr["head"]["sha"]
+    pr["head"]["sha"] = history["head"]["sha"]
+    pr["body"] = pr["body"].replace(old_head, pr["head"]["sha"])
+    pr["base"]["sha"] = history["base"]["sha"]
+    pr.update(state="closed", merged=True, merged_at="2026-09-13T01:00:00Z",
+              commits=4, merge_commit_sha=history["merge_commit_sha"])
+    git(root, "checkout", "-q", "--detach", pr["head"]["sha"])
+    for rows in github["runs"].values():
+        rows[0]["head_sha"] = pr["head"]["sha"]
+    for proof in github["artifacts"].values():
+        for key in ("target_sha", "requested_sha", "observed_sha_start", "observed_sha_end"):
+            if key in proof:
+                proof[key] = pr["head"]["sha"]
+    github["artifacts"][(13, "pr-metadata")].update(checks.metadata.metadata_snapshot(pr, "owner/repo"))
+    # Actual scope uses the recovered source range, excluding target-only.txt.
+    scope = load_scope_for_test().resolve(dict(number=7, pull_request=pr), "pull_request")
+    assert scope["base_sha"] == base == github["base"] != pr["base"]["sha"]
+    assert scope["paths_digest"] == github["artifacts"][(12, "macos-pr")]["paths_digest"]
+    if mutation == "receipt-base":
+        github["artifacts"][(11, "governance-fast")]["base_sha"] = pr["base"]["sha"]
+    elif mutation == "failed-gate":
+        github["runs"]["macos-pr"][0]["jobs"][0]["conclusion"] = "failure"
+    elif mutation == "stale-metadata":
+        pr["body"] += "\nChanged after proof\n"
+    if mutation:
+        with pytest.raises(ValueError):
+            checks.verify("owner/repo", 7)
+    else:
+        result = checks.verify("owner/repo", 7)
+        assert result["base_sha"] == base
+        assert result["merge_commit_sha"] == history["merge_commit_sha"]

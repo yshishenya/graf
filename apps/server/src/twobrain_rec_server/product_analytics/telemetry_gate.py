@@ -3,6 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
+from twobrain_rec_server.product_analytics.retention import retention_rule
+
+PRODUCT_TELEMETRY_COPY_VERSION = "2026-10-22.1"
+
 TELEMETRY_GATE_STATES = (
     "not_seen",
     "accepted",
@@ -26,7 +30,7 @@ _ALLOWED_TRANSITIONS = {
 class ProductTelemetryGateRecord:
     state: str = "not_seen"
     gate_version: str = "094.1"
-    copy_version: str = "2026-07-09.1"
+    copy_version: str = PRODUCT_TELEMETRY_COPY_VERSION
     required_terms_version: str = "pending-legal"
     privacy_policy_version: str = "pending-legal"
     personal_data_processing_version: str = "pending-legal"
@@ -110,9 +114,10 @@ def limited_access_only(state: str) -> bool:
 
 
 def build_required_disclosure(*, direct_desktop_egress: bool = False) -> dict[str, object]:
+    rule = retention_rule("posthog_product_events")
     return {
         "gate_version": "094.1",
-        "copy_version": "2026-07-09.1",
+        "copy_version": PRODUCT_TELEMETRY_COPY_VERSION,
         "normal_product_use_requires_acceptance": True,
         "one_time_personal_acceptance": True,
         "providers": {
@@ -131,6 +136,9 @@ def build_required_disclosure(*, direct_desktop_egress: bool = False) -> dict[st
             "signed URLs",
             "device names",
         ],
-        "minimum_retention_days": 90,
+        "retention_mode": rule.retention_mode,
+        "minimum_retention_days": rule.minimum_retention_days,
+        "deletion_policy": "separate_decision_or_mandatory_requirement",
+        "provider_retention": "Yandex retention remains provider-controlled",
         "withdrawal_behavior": "normal product use stops; account/legal/export/deletion flows stay available",
     }

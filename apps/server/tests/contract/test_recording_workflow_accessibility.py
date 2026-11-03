@@ -92,11 +92,16 @@ def test_modal_dialogs_are_named_trap_focus_and_return_it_to_the_opener() -> Non
     assert 'aria-modal="true"' in share
     assert 'data-share-recipient-input' in share
     assert 'data-share-recipient-results' in share
-    assert 'data-share-recipient-confirmation' in share
+    assert 'aria-label="Получатели"' in share
+    assert 'data-summary-share-send' in share
     assert 'aria-label="Найденные люди"' in share
     assert 'role="combobox"' in share
     assert 'role="listbox"' in share
-    assert 'aria-activedescendant' in script
+    summary_script = _source(CABINET_ROOT / "static/cabinet/summary-sharing.js")
+    assert "options[0].focus()" in summary_script
+    assert "option.setAttribute('role','option')" in summary_script
+    assert "opener?.focus({preventScroll:true})" in summary_script
+    assert "dialog.showModal()" in summary_script
     assert 'aria-labelledby="meeting-details-title"' in governance
     assert 'aria-modal="true"' in governance
     assert 'aria-haspopup="menu"' in rendering

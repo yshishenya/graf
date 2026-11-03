@@ -705,6 +705,10 @@ PY
   if [[ "$effective_mode" == "fast" && "$has_server" -eq 1 ]]; then
     [[ "$needs_server_unit" -eq 1 ]] && behavior_args+=(--covered tests/unit)
     behavior_targets="$(behavior_tests "$changed_list" --targets "${behavior_args[@]}")" || return $?
+    # The behavior stage runs this whole file with its required timing gate.
+    if [[ $'\n'"$behavior_targets"$'\n' == *$'\n'"$performance_proof"$'\n'* ]]; then
+      performance_covered_by_changed_tests=1
+    fi
     # Whole behavior files execute in the added stage, not again in changed tests.
     local remaining_tests=""
     while IFS= read -r path; do

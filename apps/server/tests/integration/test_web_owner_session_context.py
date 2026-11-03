@@ -2783,9 +2783,29 @@ def test_personal_owner_with_other_billing_owner_can_read_plan_catalog(client) -
     assert 'href="/billing/checkout"' not in response.text
 
 
+@pytest.mark.parametrize("variant,can_continue", [
+    ({}, True),
+    ({"state": "scheduled"}, True),
+    ({"state": "unknown"}, True),
+    ({"invoice_status": "pending"}, True),
+    ({"recurring_consent": False}, True),
+    *[({"invoice_status": state}, False) for state in ("succeeded", "canceled", "failed", "refunded", "unknown")],
+    *[({"state": state}, False) for state in ("succeeded", "succeeded_refused", "succeeded_projected", "canceled", "failed", "reconciliation_gap")],
+    ({"purchase_schema": 2}, False),
+    ({"provider_id": "synthetic-bound-payment"}, False),
+    ({"kind": "storage_upgrade"}, False),
+    ({"kind": "renewal"}, False),
+    ({"key_expired": True}, False),
+    ({"key_missing": True}, False),
+    ({"actor_mismatch": True}, False),
+    ({"amount_minor": 2000}, False),
+    ({"currency": "USD"}, False),
+])
 def test_personal_owner_continues_existing_checkout_without_second_operation(
     monkeypatch,
     client,
+    variant,
+    can_continue,
 ) -> None:
     token = "personal-checkout-recovery-token"
     device_id = UUID("70000000-0000-4000-8000-000000000009")
@@ -2829,16 +2849,19 @@ def test_personal_owner_continues_existing_checkout_without_second_operation(
             operation = BillingOperation(
                 id=operation_id,
                 workspace_id=PERSONAL_WORKSPACE_ID,
-                kind="initial_checkout",
+                kind=variant.get("kind", "initial_checkout"),
                 idempotency_key="existing-provider-key",
-                state="manual_resolution",
-                provider_key_expires_at=datetime.now(UTC) + timedelta(hours=1),
+                state=variant.get("state", "manual_resolution"),
+                provider_id=variant.get("provider_id"),
+                provider_key_expires_at=None if variant.get("key_missing") else datetime.now(UTC) + timedelta(hours=-1 if variant.get("key_expired") else 1),
                 request_snapshot={
                     "plan_code": "personal",
                     "cycle": "month",
                     "payable_amount_minor": 1_000,
                     "offer_consent": True,
-                    "recurring_consent": True,
+                    "recurring_consent": variant.get("recurring_consent", True),
+                    **({"purchase_schema": 2} if variant.get("purchase_schema") == 2 else {}),
+                    **({"billing_actor_user_id": str(uuid4())} if variant.get("actor_mismatch") else {}),
                     "receipt_config": {
                         "tax_system_code": 2,
                         "vat_code": 1,
@@ -2854,9 +2877,9 @@ def test_personal_owner_continues_existing_checkout_without_second_operation(
                     workspace_id=PERSONAL_WORKSPACE_ID,
                     operation_id=operation_id,
                     safe_number="INV-RECOVERY9",
-                    amount_minor=1_000,
-                    currency="RUB",
-                    status="manual_resolution",
+                    amount_minor=variant.get("amount_minor", 1_000),
+                    currency=variant.get("currency", "RUB"),
+                    status=variant.get("invoice_status", "manual_resolution"),
                     receipt_contact_snapshot="owner@example.test",
                 )
             )
@@ -2887,16 +2910,61 @@ def test_personal_owner_continues_existing_checkout_without_second_operation(
         secret=str(client.app.state.web_csrf_secret),
     )
 
+    async def financial_snapshot():
+        from twobrain_rec_server.db.models import BillingEntitlementGrant
+        async with client.app_state["sessionmaker"]() as db:
+            operation = await db.get(BillingOperation, operation_id)
+            invoice = await db.scalar(select(BillingInvoice).where(BillingInvoice.operation_id == operation_id))
+            grants = tuple(await db.scalars(select(BillingEntitlementGrant).where(BillingEntitlementGrant.invoice_id == invoice.id)))
+            return (operation.state, operation.provider_id, operation.idempotency_key,
+                    dict(operation.request_snapshot), invoice.status, invoice.amount_minor,
+                    invoice.currency, len(grants))
+
+    before = client.portal.call(financial_snapshot)
+    page = client.get("/billing/checkout/status/INV-RECOVERY9")
+    assert page.status_code == 200
+    assert ('id="billing-status-continue"' in page.text) is can_continue
+    assert calls == []
+    assert client.portal.call(financial_snapshot) == before
+    if can_continue:
+        assert '<h2 id="billing-operation-title">Проверяем оплату</h2>' in page.text
+        assert '>Оплачено</h2>' not in page.text
+        assert 'data-billing-auto-check="false"' in page.text
+        assert "Результат оплаты пока неизвестен. Повторно платить не нужно." in page.text
+        assert 'id="billing-status-primary" class="button primary"' in page.text
+        assert 'id="billing-status-continue" class="button quiet"' in page.text
+        assert ">Обновить результат</a>" in page.text
+        local_page = client.get("/billing/checkout/status/INV-RECOVERY9?view=local")
+        assert local_page.status_code == 200
+        assert '<h2 id="billing-operation-title">Проверяем оплату</h2>' in local_page.text
+        assert "Результат оплаты пока неизвестен. Повторно платить не нужно." in local_page.text
+        assert 'data-billing-auto-check="false"' in local_page.text
+        assert 'id="billing-status-continue"' not in local_page.text
+        assert 'id="billing-status-refresh"' not in local_page.text
+        assert ">Оплачено</h2>" not in local_page.text
+        assert ">Обновить результат</a>" in local_page.text
+        assert calls == []
+        assert client.portal.call(financial_snapshot) == before
+
     response = client.post(
         "/billing/checkout/status/INV-RECOVERY9/continue",
-        data={"csrf_token": csrf_token},
+        data={"csrf_token": csrf_token, "amount_minor": "1", "recurring_consent": "false", "idempotency_key": "forged-new-key"},
         follow_redirects=False,
     )
 
     assert response.status_code == 303
+    if not can_continue:
+        assert response.headers["location"].startswith("/billing/checkout/status/INV-RECOVERY9")
+        assert calls == []
+        assert client.portal.call(financial_snapshot) == before
+        return
     assert response.headers["location"] == "https://yookassa.test/checkout/recovery-9"
     assert len(calls) == 1
     assert calls[0]["idempotence_key"] == "existing-provider-key"
+    assert calls[0]["amount_minor"] == 1000
+    assert calls[0]["currency"] == "RUB"
+    assert calls[0]["save_payment_method"] is variant.get("recurring_consent", True)
+    assert client.portal.call(financial_snapshot)[-1] == 0
 
     async def read_result() -> tuple[int, int, str, str | None, str | None]:
         async with client.app_state["sessionmaker"]() as db:
@@ -2934,6 +3002,10 @@ def test_personal_owner_continues_existing_checkout_without_second_operation(
     assert checkout.status_code == 200
     assert "https://yookassa.test/checkout/recovery-9" in checkout.text
     assert "Продолжить этот платеж в ЮKassa" in checkout.text
+    assert len(calls) == 1
+
+    repeat = client.post("/billing/checkout/status/INV-RECOVERY9/continue", data={"csrf_token": csrf_token}, follow_redirects=False)
+    assert repeat.status_code == 303
     assert len(calls) == 1
 
 

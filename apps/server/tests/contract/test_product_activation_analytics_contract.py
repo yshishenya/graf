@@ -92,6 +92,6 @@ def test_retention_contract_uses_minimum_ninety_days_and_deletion_truth() -> Non
     assert "posthog_product_events" in categories
     assert "yandex_offline_conversions" in categories
     assert "delivery_gap" in categories
-    assert all(rule.minimum_retention_days >= 90 for rule in retention_rules())
-    assert retention_rule("attribution_bridge").maximum_retention_days == 90
+    assert all(rule.retention_mode in {"until_decision", "provider_controlled"} for rule in retention_rules())
+    assert retention_rule("attribution_bridge").maximum_retention_days is None
     assert retention_rule("yandex_page_events").delete_on_user_request == "manual_process"

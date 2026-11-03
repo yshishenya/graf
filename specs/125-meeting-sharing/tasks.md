@@ -114,12 +114,14 @@ automatic workspace membership.
 **Story goal**: prepare a value-led, consent-based referral path with bounded
 attribution and no meeting-content tracking.
 
-**Independent test**: synthetic invitation → summary view → CTA → verified
-signup yields at most one attributed conversion and no new grant/account on
-repeat opens or forwarding.
+**Independent test**: synthetic invitation → explicit acceptance/new account →
+authorized summary view yields at most one signup conversion per invitation
+and originating auth event. CTA, setup and first own capture are separate later
+steps, not prerequisites for that conversion or another signup. An existing
+account, repeat opens and forwarding yield no new signup conversion/grant/account.
 
 - [ ] T042 [P] [US5] Add a metadata-only event catalog and forbidden-field tests for share/referral funnel events in `apps/server/src/twobrain_rec_server/product_analytics/event_catalog.py` and `apps/server/tests/unit/test_public_analytics.py`
-- [ ] T043 [P] [US5] Define opaque referral lifecycle, retention and deletion contract in `specs/125-meeting-sharing/data-model.md` and `specs/125-meeting-sharing/contracts/meeting-sharing.md`
+- [X] T043 [P] [US5] Define opaque referral lifecycle, retention and deletion contract in `specs/125-meeting-sharing/data-model.md` and `specs/125-meeting-sharing/contracts/meeting-sharing.md` (Issue #4449)
 - [ ] T044 [US5] Implement server-issued idempotent referral attribution only after product/privacy/legal/analytics approval in `apps/server/src/twobrain_rec_server/product_analytics/share_referrals.py` (GATE; no production code before approval)
 - [ ] T045 [US5] Run synthetic funnel, replay, forwarding, self-referral, bot and rollback rehearsal before enabling attribution in `specs/125-meeting-sharing/quickstart.md` (GATE)
 
@@ -129,8 +131,8 @@ repeat opens or forwarding.
 server-side contact index.
 
 - [ ] T046 [P] [US4] Add native macOS contact-picker integration contract and limited-selection handoff in `apps/macos/RecApp/Sources/Cabinet/ContactPickerBridge.swift` (GATE)
-- [ ] T047 [P] [US4] Define Google People/Microsoft Graph delegated read-only scopes, cache TTL, disconnect purge and consent copy in `specs/125-meeting-sharing/research.md` and `specs/125-meeting-sharing/contracts/meeting-sharing.md`
-- [ ] T048 [US4] Keep browser-only path typed-email based and add a negative test proving no full address-book sync is attempted in `apps/server/tests/contract/test_meeting_sharing_contract.py`
+- [X] T047 [P] [US4] Define Google People/Microsoft Graph delegated read-only scopes, cache TTL, disconnect purge and consent copy in `specs/125-meeting-sharing/research.md` and `specs/125-meeting-sharing/contracts/meeting-sharing.md` (Issue #4453)
+- [X] T048 [US4] Keep browser-only path typed-email based and add a negative test proving no full address-book sync is attempted in `apps/server/tests/contract/test_meeting_sharing_contract.py`
 
 ## Phase 9 — Polish and cross-cutting validation
 
@@ -272,3 +274,83 @@ Parallel examples:
 | SC-010–SC-012 parity, rollback and owner comprehension | T019–T020, T028, T036, T040–T052, T075–T077 |
 | SC-013–SC-016 meeting-bound search, bounded expiry, token hygiene and throttling | T004–T011, T021–T028, T037–T045, T052, T075–T077 |
 | SC-017–SC-021 participant distribution, adoption and rollback | Spec/data-model/contract design; synthetic execution requires a later gated task slice |
+
+## Индивидуальная сверка T048 — 2026-10-27
+
+- T048 (Issue #4454): отрицательные проверки настоящего браузерного поиска и
+  двух серверных маршрутов; команды, результаты и границы находятся в
+  [quickstart](quickstart.md#проверка-t048--2026-10-27).
+- Изменена только отметка T048. Исходные описания и порядок задач сохранены;
+  T042–T047 остаются открытыми. Поиск и выбор получателя не принимают весь
+  внешний обмен, Contacts/provider, referral или выпуск F125.
+
+## Индивидуальная сверка T047 — 2026-10-27
+
+- T047 (Issue #4453): завершён только проект подключения контактов Google/
+  Microsoft в research §4 и contract §8.1. Исходная задача требует определить
+  права, срок хранения, отключение и согласие; ручная проверка документов
+  предусмотрена issue. Работающий importer/OAuth не заявляется.
+- Независимое ревью требований: requirements 17/0, security 23/0, UX 21/0;
+  всего 61 подтверждённый пункт, неподтверждённых нет. Анализ среза:
+  CRITICAL 0 / HIGH 0 / MEDIUM 0. Проверки процесса, governance и diff PASS.
+- Сохранены все 77 исходных описаний и порядок задач. Изменена только
+  отметка T047; T042–T046 остаются открытыми, история T048 сохранена.
+  Исполняемая матрица contract §8.1 обязательна перед будущим включением.
+- Принятие PR и закрытие #4453 требуют трёх проверок точного SHA/основы,
+  слияния и live-проверки комментария; это не приёмка всей F125 или выпуска.
+
+## Решение об отмене T046 — 2026-10-27
+
+- T046 / #4451: `NOT_PLANNED` в текущем раннем MVP по решению spec «Решение
+  об объёме T046». Область владельца — `macos`; assignee в GitHub отсутствует.
+- Причина: ручной ввод email и разрешённые workspace/calendar подсказки
+  покрывают выбор получателя; дополнительный системный источник сейчас не нужен.
+- Возврат: конкретная потребность пилота, неудобная для этих путей, затем
+  новое решение об объёме и приёмке. Защитные требования сохранены.
+- Исходная T046 выше остаётся `[ ]`: picker не реализован. Все 77 описаний,
+  порядок и отметки остальных задач сохранены. T047 остаётся только проектом.
+- #4451 закрывается как `NOT_PLANNED` только после принятого PR, подробного
+  комментария и индивидуальной live-сверки state/reason/comment. Эта запись
+  не принимает runtime, всю F125, остальные задачи или выпуск.
+
+## Индивидуальная сверка T043 — 2026-10-27
+
+- T043 (Issue #4449): завершён документальный договор жизненного цикла
+  referral в data-model §7/contract §9.1; исходная issue допускает ручную
+  проверку. 11 случаев и результат находятся в quickstart T043.
+- Независимое итоговое ревью: requirements 19/0, security 24/0, UX 22/0;
+  65 подтверждённых пунктов, неподтверждённых нет. G1–G5 сняты; критерий signup
+  согласован с US2/US5, scenarios §8.4 и Phase 7. Анализ среза после исправления:
+  CRITICAL 0 / HIGH 0 / MEDIUM 0. Проверки процесса, governance и diff PASS.
+- Сохранены все 77 исходных описаний и порядок задач. Изменена только отметка
+  T043; T042/T044/T045 остаются открытыми, T046 — исходная `[ ]` и NOT_PLANNED.
+  Новые код, таблицы, зависимости и сбор событий не добавлены.
+- Три GitHub-проверки точного SHA/основы, слияние и live-проверка комментария
+  обязательны перед закрытием #4449. Это не приёмка всей F125 или выпуска.
+
+## Решение об отмене T042/T044/T045 — 2026-10-27
+
+- T042/#4448, область `observability`: NOT_PLANNED, отдельный каталог будущей
+  воронки и его специальные тесты сняты с текущего раннего MVP. PR #7768
+  с отключённым каталогом не сливается; работающий аудит и общие privacy tests
+  не меняются. Подготовленные код и проверки сохраняются в истории PR.
+- T044/#4450, область `security`: NOT_PLANNED, новая F125 share-origin
+  attribution снята с текущего раннего MVP решением spec «Об объёме T042/T044/T045».
+- T045/#4452, область `tests`: NOT_PLANNED, исполнение матрицы отменённой
+  будущей attribution сейчас не требуется. Тесты действующего sharing,
+  авторизации, повторного принятия, удаления и rollback не отменяются.
+- Прежнее требование воронки сохранено в истории; новый приоритет — полезный
+  обмен без дополнительной связывающей сущности и неиспользуемого каталога.
+  Отдельный вопрос пилота для них сейчас не задан. Назначенных людей в GitHub
+  нет; возвращение согласует владелец проекта, области задач не меняются.
+- Возврат: подтверждённый вопрос пилота, новое решение/переоткрытие issues,
+  предусмотренные одобрения, исходные проверки T042, договор T043 и вся
+  исполняемая матрица T045. Условность Phase 7, dependencies/coverage map и
+  связанных артефактов ограничена решением spec; существующие защиты/F140/F273
+  сохранены. Известные действующие дефекты этой отменой не снимаются.
+- Все 77 исходных описаний, порядок и checkbox сохранены; T042/T044/T045
+  остаются `[ ]`. Принятый проект T043 этим решением не отменяется.
+- Закрывать каждую issue как NOT_PLANNED можно только после независимого ревью
+  конкретного решения, анализа/проверок проекта, принятого PR с тремя точными
+  GitHub gates и отдельного русского комментария с live-сверкой state/reason.
+  Отмена не принимает всю F125, установленное приложение, выпуск или production.

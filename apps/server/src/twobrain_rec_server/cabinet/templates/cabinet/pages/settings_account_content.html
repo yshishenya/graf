@@ -6,6 +6,7 @@
   <div class="cabinet-workspace settings-page settings-page--account">
     <div class="settings-page__content">
     {{ ui.settings_header("Аккаунт") }}
+    {% if billing_return_path %}<p><a class="button quiet" href="{{ billing_return_path }}">Вернуться к оплате</a></p>{% endif %}
     {% if show_account_navigation %}{{ account_ui.navigation(embedded=embedded, active=account_active, csrf_token=csrf_token) }}{% endif %}
     {% if account_outcome %}
     <section class="settings-status{% if account_outcome.kind == 'error' %} settings-status--error{% elif account_outcome.kind == 'warning' %} settings-status--warning{% endif %}" role="{{ 'alert' if account_outcome.kind == 'error' else 'status' }}" tabindex="-1" data-outcome-focus aria-labelledby="account-outcome-title">
@@ -71,9 +72,10 @@
       </ul>
       {% else %}<p class="settings-empty-state" role="status">Подключенных способов входа пока нет.</p>{% endif %}
 
-      <details class="settings-disclosure"><summary>Добавить способ входа</summary>
-      <form class="account-email-form" action="{{ '/desktop/settings/account/email-link/start' if embedded else '/settings/account/email-link/start' }}" method="post">
+      <details class="settings-disclosure"{% if billing_return_path %} open{% endif %}><summary>Добавить способ входа</summary>
+      <form class="account-email-form" action="{{ account_email_start_action }}" method="post">
         {{ sections.csrf_field(csrf_token) }}
+        {% if billing_return_path %}<input type="hidden" name="next" value="{{ billing_return_path }}">{% endif %}
         <span class="account-email-form__heading"><label class="field-label" for="account-email-link">Email</label>{{ ui.tooltip("account-email-link-help", "Отправим код без пароля. Если email уже связан с профилем, сначала покажем результат подключения.") }}</span>
         <span class="account-email-form__controls"><input id="account-email-link" name="email" type="email" autocomplete="email" required maxlength="240" placeholder="you@example.com" aria-describedby="account-email-link-help"><button class="button quiet" type="submit">Подключить</button></span>
       </form>

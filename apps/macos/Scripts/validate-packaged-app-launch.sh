@@ -6,6 +6,46 @@ fail() {
   exit 1
 }
 
+check_readiness_log() {
+  [ -f "$LOG_DIRECTORY/graf.log" ] || fail "candidate did not create its startup log"
+  grep -Eq '(^|[[:space:]])event=app_launch_finished([[:space:]]|$)' "$LOG_DIRECTORY/graf.log" ||
+    fail "candidate did not emit the startup launch marker"
+  grep -Eq '(^|[[:space:]])event=app_main_window_presented([[:space:]]|$)' "$LOG_DIRECTORY/graf.log" ||
+    fail "candidate did not emit the startup readiness marker: main window was never presented"
+}
+
+# Internal read-only observer. Only dev-harness owns launch/quit and fresh logs.
+# This branch cannot launch a Dev binary or terminate an installed process.
+if [ "${1:-}" = --observe-installed-dev ]; then
+  [ "$#" -eq 3 ] || fail "installed Dev observation requires identity and fresh log directory"
+  EXPECTED_IDENTITY=$2
+  LOG_DIRECTORY=$3
+  case "$EXPECTED_IDENTITY" in
+    ''|*[!0-9.:]*) fail "invalid Dev process identity" ;;
+  esac
+  DEV_PID=${EXPECTED_IDENTITY%%:*}
+  case "$DEV_PID" in ''|*[!0-9]*) fail "invalid Dev pid" ;; esac
+  [ "$DEV_PID" -gt 1 ] || fail "invalid Dev pid"
+  LIFECYCLE=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)/dev-app-lifecycle.swift
+  observed=$(swift "$LIFECYCLE" identity "/Applications/GRAF Dev.app") ||
+    fail "installed Dev process is unavailable or ambiguous"
+  [ "$observed" = "$EXPECTED_IDENTITY" ] || fail "installed Dev process identity changed"
+  attempts=0
+  while [ "$attempts" -lt 50 ]; do
+    kill -0 "$DEV_PID" 2>/dev/null || fail "installed Dev exited before 5s"
+    state=$(ps -p "$DEV_PID" -o stat=) || fail "installed Dev exited before 5s"
+    case "$state" in ''|*Z*) fail "installed Dev is not live" ;; esac
+    sleep 0.1
+    attempts=$((attempts + 1))
+  done
+  observed=$(swift "$LIFECYCLE" identity "/Applications/GRAF Dev.app") ||
+    fail "installed Dev process is unavailable or ambiguous"
+  [ "$observed" = "$EXPECTED_IDENTITY" ] || fail "installed Dev process identity changed"
+  check_readiness_log
+  printf 'packaged_app_launch=pass minimum_seconds=5 architecture=native lifecycle=dev-harness\n'
+  exit 0
+fi
+
 [ "$#" -ge 1 ] && [ "$#" -le 3 ] ||
   fail "usage: $0 /absolute/path/GRAF.app [minimum-seconds] [native|arm64|x86_64]"
 
@@ -81,10 +121,6 @@ kill -0 "$CHILD_PID" 2>/dev/null || {
   wait "$CHILD_PID" 2>/dev/null || true
   fail "candidate process exited before ${MINIMUM_SECONDS}s"
 }
-[ -f "$LOG_DIRECTORY/graf.log" ] || fail "candidate did not create its isolated startup log"
-grep -Fq 'event=app_launch_finished' "$LOG_DIRECTORY/graf.log" ||
-  fail "candidate did not emit the startup launch marker"
-grep -Fq 'event=app_main_window_presented' "$LOG_DIRECTORY/graf.log" ||
-  fail "candidate did not emit the startup readiness marker: main window was never presented"
+check_readiness_log
 
 printf 'packaged_app_launch=pass minimum_seconds=%s architecture=%s child_pid_owned=yes\n' "$MINIMUM_SECONDS" "$ARCHITECTURE"

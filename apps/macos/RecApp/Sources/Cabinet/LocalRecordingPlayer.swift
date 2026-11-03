@@ -8,7 +8,7 @@ public final class LocalRecordingPlayer: NSObject, NSWindowDelegate {
     public static let shared = LocalRecordingPlayer()
     private var window: NSWindow?
     private var player: AVPlayer?
-    private var itemID: String?
+    public private(set) var itemID: String?
 
     public func open(url: URL, itemID: String) {
         close()

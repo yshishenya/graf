@@ -59,3 +59,29 @@ described in `docs/agent-guidance/release-and-validation.md`.
 - Re-download public ZIP/PKG/checksum/release notes and verify version, bytes,
   SHA-256, signature, UUID and startup against the exact release SHA.
 - Publish `graf-appcast.xml` last, then re-download and validate it.
+
+## Приёмка установленного Dev для #7209 (T024–T026)
+
+После разрешённого commit из чистого checkout и чтения local-development:
+
+```sh
+infra/scripts/dev-harness.sh status --json
+infra/scripts/dev-harness.sh validate-app-launch --live
+# Только после непосредственной проверки отсутствия записи, звонков,
+# завершения записи и несохранённой работы, если Dev уже работает:
+infra/scripts/dev-harness.sh validate-app-launch --live --restart-idle-app
+infra/scripts/dev-harness.sh status --json
+infra/scripts/dev-harness.sh smoke --live --json
+```
+
+Это обычная installed acceptance с постоянными данными и штатной фоновой
+работой Dev; не изоляция через HOME. При неизвестной занятости не выполнять.
+Проверка должна вернуть точные отдельные SHA инструмента/Dev, оба новых маркера,
+5s жизни единственного PID и восстановленное исходное состояние. При отказе
+graceful quit, отсутствии окна, смерти/замене процесса или ошибке восстановления
+результат FAIL. Не публиковать полный журнал, данные встреч и cookies.
+
+До commit выполнить `python3 -m pytest -q tests/governance/test_dev_launch_validation.py`
+и прежний `apps/macos/Installer/Scripts/test-packaged-app-launch.sh`, signing-custody,
+governance/context/changelog checks. Последние не заменяют actual acceptance и
+новые GitHub governance-fast/macos-pr/pr-metadata на точном SHA/base.

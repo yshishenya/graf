@@ -219,11 +219,13 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     @State private var inspectorExpanded = false
     @State private var custodyExpanded = false
     @ObservedObject private var controlModel = DesktopControlModel.shared
-    @FocusState private var focusedRecordingSessionID: String?
+    @AccessibilityFocusState private var focusedRecordingSessionID: String?
     @ObservedObject private var userTimeContext = DesktopUserTimeContext.shared
     @State private var attentionExpansionDismissed = false
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
+
+    @Environment(\.desktopNotificationCard) private var notificationCard
 
     public init(
         session: CaptureSession?,
@@ -290,6 +292,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
             RecordingTitlebarAccessory(
                 session: recordingStripSession,
                 transitionInProgress: recordingTransitionInProgress,
+                card: notificationCard,
                 onStop: onStopRecording,
                 onPause: onPauseRecording,
                 onResume: onResumeRecording
@@ -324,10 +327,6 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
                 custodyExpanded = true
                 attentionExpansionDismissed = false
             }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .grafOpenLocalRecordingControls)) { _ in
-            inspectorExpanded = true
-            attentionExpansionDismissed = false
         }
         .accessibilityIdentifier("desktop-meeting-shell")
     }
@@ -664,6 +663,11 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("\(DesktopMeetingShellChrome.compactRailLabels[0]): \(captureStatusText)")
                 .accessibilityIdentifier("desktop-meeting-shell-recording-status")
+                .background {
+                    if recordingStripSession != nil {
+                        DesktopNotificationProtectedRegion().allowsHitTesting(false)
+                    }
+                }
 
                 compactCaptureAction
 
@@ -719,6 +723,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
             .help(DesktopMeetingShellChrome.compactRailStopLabel)
             .accessibilityLabel(DesktopMeetingShellChrome.compactRailStopLabel)
             .accessibilityIdentifier("desktop-meeting-shell-stop-recording-button")
+            .background(DesktopNotificationProtectedRegion().allowsHitTesting(false))
         } else {
             Button(action: onStartRecording) {
                 Image(systemName: recordingTransitionInProgress ? "clock" : "record.circle.fill")
@@ -785,8 +790,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
 
                     captureControls
                         .id("capture:" + (session?.id ?? "none"))
-                        .focusable()
-                        .focused($focusedRecordingSessionID, equals: "capture:" + (session?.id ?? "none"))
+                        .accessibilityFocused($focusedRecordingSessionID, equals: "capture:" + (session?.id ?? "none"))
                         .background(
                             RoundedRectangle(cornerRadius: DesktopDesignTokens.Radius.sm)
                                 .fill(DesktopMeetingShellChrome.shellSurfaceColor)
@@ -898,10 +902,9 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
             )
         }
         .id("custody:" + summary.primaryItem.sessionId)
-        .focusable()
-        .focused($focusedRecordingSessionID, equals: "custody:" + summary.primaryItem.sessionId)
         .accessibilityElement(children: summary.safeReport == nil ? .combine : .contain)
         .accessibilityLabel("\(localRecordingTitle(for: summary.primaryItem)). \(summary.title). \(summary.detail(timeZone: userTimeContext.timeZone)). Ответственный: \(summary.ownerLabel).")
+        .accessibilityFocused($focusedRecordingSessionID, equals: "custody:" + summary.primaryItem.sessionId)
     }
 
     private func custodyDetailIcon(for projection: DesktopUploadCustodyProjection) -> String {
@@ -1133,6 +1136,7 @@ public struct DesktopMeetingShellCabinetStatusPresentation: Equatable, Sendable 
 private struct RecordingTitlebarAccessory: NSViewRepresentable {
     let session: CaptureSession?
     let transitionInProgress: Bool
+    let card: DesktopNotificationCardPresenter?
     let onStop: () -> Void
     let onPause: () -> Void
     let onResume: () -> Void
@@ -1145,6 +1149,7 @@ private struct RecordingTitlebarAccessory: NSViewRepresentable {
         nsView.update(
             session: session,
             transitionInProgress: transitionInProgress,
+            card: card,
             onStop: onStop,
             onPause: onPause,
             onResume: onResume
@@ -1159,6 +1164,7 @@ private struct RecordingTitlebarAccessory: NSViewRepresentable {
 private final class RecordingTitlebarAccessoryAnchor: NSView {
     private var session: CaptureSession?
     private var transitionInProgress = false
+    private var card: DesktopNotificationCardPresenter?
     private var onStop: () -> Void = {}
     private var onPause: () -> Void = {}
     private var onResume: () -> Void = {}
@@ -1169,12 +1175,14 @@ private final class RecordingTitlebarAccessoryAnchor: NSView {
     func update(
         session: CaptureSession?,
         transitionInProgress: Bool,
+        card: DesktopNotificationCardPresenter?,
         onStop: @escaping () -> Void,
         onPause: @escaping () -> Void,
         onResume: @escaping () -> Void
     ) {
         self.session = session
         self.transitionInProgress = transitionInProgress
+        self.card = card
         self.onStop = onStop
         self.onPause = onPause
         self.onResume = onResume
@@ -1202,7 +1210,10 @@ private final class RecordingTitlebarAccessoryAnchor: NSView {
             removeAccessory()
             return
         }
-        guard let window else { return }
+        guard let window else {
+            removeAccessory()
+            return
+        }
 
         if installedWindow !== window {
             removeAccessory()
@@ -1214,7 +1225,7 @@ private final class RecordingTitlebarAccessoryAnchor: NSView {
             onStop: onStop,
             onPause: onPause,
             onResume: onResume
-        ))
+        ).environment(\.desktopNotificationCard, card))
         let host = hostingView ?? NSHostingView(rootView: rootView)
         host.rootView = rootView
         host.frame = NSRect(
@@ -1234,6 +1245,9 @@ private final class RecordingTitlebarAccessoryAnchor: NSView {
             accessoryController = controller
             installedWindow = window
             window.addTitlebarAccessoryViewController(controller)
+            // Installation may replace the proposed size with the system's
+            // compact titlebar height. Restore our control strip afterwards.
+            host.setFrameSize(NSSize(width: host.frame.width, height: DesktopMeetingShellChrome.recordingStripHeight))
         } else {
             accessoryController?.fullScreenMinHeight = DesktopMeetingShellChrome.recordingStripHeight
         }
@@ -1303,6 +1317,7 @@ private struct RecordingTitlebarHUD: View {
                 RoundedRectangle(cornerRadius: DesktopDesignTokens.Radius.card, style: .continuous)
                     .stroke(DesktopMeetingShellChrome.recordingStripColor.opacity(0.58), lineWidth: 1)
             )
+            .background(DesktopNotificationProtectedRegion().allowsHitTesting(false))
 
             Spacer(minLength: 0)
         }
