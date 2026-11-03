@@ -1352,3 +1352,143 @@ root target и ограничение text-decoded hash бинарников. П
 запись с уже полученным результатом. Само выполнение очистки независимо
 не заявляется. T113/recovery/capacity не принимаются. Изменено и перечитано
 только это дополнение собственного отчёта; код/checklist/runtime/Git не менялись.
+
+### Предварительная классификация targets UID1001 — 3 ноября,13:52–13:53UTC
+
+Прочитаны только новые адресные снимки и их collectors, без серверных probes
+или нового vendor-аудита:
+
+| Артефакт | SHA256 |
+|---|---|
+| `t113-target-semantics-20261103.json`,106199байт | `c9424bcc301764e27c8c2a44c3e250c1a0ca8550462561fba64ec3feaefcfe17` |
+| его collector,5238байт | `70b9767355d40c0c1367272ae67c976b68d11ad9d356b951183dd527023c8162` |
+| `t113-needrestart-cron-roles-20261103.json`,1926байт | `d9fd7e6123b8df34ec6d49ecb36a3d71305bb13a76efce0cd6ede55a26fe6408` |
+| его collector,4687байт | `aedb470368cc240a50afb0850a8379b782a719cf1e7f73ef6d11dfe2b7b066a4` |
+
+Артефакты в `.dev/growth/`. Наблюдения UID1001,13:52:10UTC и13:53:07UTC.
+Hashes763/7090/26209-байтных файлов совпадают с предыдущими targets; нового
+изменения этих файлов не обнаружено. Проверка не запускала targets/config.
+
+**7090байт: Python watchdog, структура операций установлена.** Прочитан
+полный редуцированный AST source. Он получает параметры путей из окружения
+либо defaults, читает два heartbeat и JSON state; по возрасту heartbeat
+формирует alerts, учитывает cooldown. При наличии alerts читает token из
+отдельного файла и условно вызывает HTTP delivery функцией
+`send_telegram_alert`. Делает атомарную запись STATE через mkdir/mkstemp,
+JSON dump/fsync/replace и удаляет собственный временный файл в finally;
+печатает alerts и возвращает0. В представленном AST нет subprocess,
+вызова package manager, unit restart/stop или динамического exec/eval.
+Это позволяет классифицировать код как наблюдение/доставка/обновление state,
+но пока **не как доказанно harmless для выбранной generation**: реальные
+effective пути STATE/heartbeat/output и их доверенные границы скрыты.
+Обозначение «own STATE» описывает намерение программы, а не уже доказанную
+непересекаемость с защищаемыми данными. Наличие функции доставки не доказывает
+фактическую отправку, действующий token или наблюдение отказа F273.
+
+**26209байт: роль output подтверждена.** Для той же cron-строки отдельный
+пункт roles связывает соответствующий path hash с
+`redirection_destination`,7090байт — с `argument_or_executable`. Поэтому
+26209байт не следует больше учитывать как второй неизвестный исполняемый
+script только из-за первого regex. Содержимое не требуется исследовать как
+код. Остаётся влияние записи/дописывания в этот output и его effective
+resolved path, включая symlink/parent trust; роль output сама по себе не
+доказывает непересечение с выбранной generation. Вид оператора редиректа
+в roles не сохранён, поэтому append/truncate из этого поля не утверждается.
+
+**763байта: отчёт Syncthing правдоподобен, полнота семантики не принята.**
+Виден find/счётчикwc, условие, echo и find `-printf` с `>> $LOG`.
+Однако команды внутри присваиваний/подстановок и сами path assignments
+схлопнуты в literal hashes; shlex output не сохраняет достаточно структуры
+shell для доказательства всех команд/эффектов. Нужен один адресный разбор
+этих присваиваний/подстановок и log destination с сохранением структуры
+операций и безопасной классификацией путей, без вывода частных значений.
+Новый общий поиск или исполнение shell для этого не нужны.
+
+**Следующий конечный вход по этим двум cron jobs:** безопасная таблица
+read/write/network effects и resolved path containment относительно выбранной
+generation, включая соответствующий output/log/STATE и влияющее окружение,
+с проверкой применимых symlink/parent boundaries. Для Python структура действий
+уже прочитана; повторять AST не нужно. Для763байт недостаёт только сохранённой
+структуры скрытых shell-присваиваний/подстановок и их фактических назначений.
+Читать token, отправлять Telegram или запускать watchdog не требуется.
+
+Дополнительно два ранее неименованных hook распознаны как cnf-update-db
+и ещё неразрешённый Pre-Install-Pkgs target; это уточняет конечный список,
+но не принимает семантику hooks. Quoted-key parser needrestart по2 тем же
+файлам не нашёл literal restart/kernelhints/ucodehints setting; видны7
+других nrconf keys. Это уже не прежняя ошибка quoted keys, но всё ещё не
+доказательство effective restart режима/default/влияющего окружения.
+Конкретные hooks/needrestart/recovery пробелы прежнего списка сохраняются.
+
+Изменено и перечитано только это дополнение собственного отчёта.
+Код/spec/plan/tasks/checklist, чужие файлы, Git и сервер не менялись.
+T113/full_preflight/recovery/T0 остаются HOLD; capacity не принята.
+
+### Таблица решений по конкретным hooks и cron — 3 ноября,13:54–13:58UTC
+
+Прочитаны новые адресные данные:
+
+| Снимок в `.dev/growth/` | Байты | SHA256 |
+|---|---:|---|
+| `t113-public-target-sources-20261103.json` | 59881 | `59d12267edb6058cb7e73211a721a181ea89c9edf1a3697d011fb1d2355ba044` |
+| `t113-hook-closure-facts-20261103.json` | 9856 | `3da0fa2ddcea9cda7bb39398932744955662ea3d9e93f0429e1b61d37a561cb9` |
+| `t113-final-target-bindings-20261103.json` | 3626 | `4f27ff7d0660f8ad1bc9120ac8417f514cb62f11ed142e1cc4e2afa00b30654d` |
+
+Причина нового ограниченного source trace — конкретные уже обнаруженные
+needrestart/Ubuntu Pro/PackageKit/AppStream/CNF hooks. Прочитаны их переданные
+публичные package texts и применимые участки needrestart161–283,
+restart_cmd/dispatch410–470/1165–1206; не повторялся общий vendor-аудит.
+Побайтовые SHA256/размеры всех8 переданных public texts и SHA256 двух unit
+texts независимо пересчитаны из JSON: совпали. Collectors checksum-binding
+прочитаны. Они связывают файлы с установленными md5sums/conffiles; это не
+независимая проверка архивов/подписей репозитория. Alias-aware binding двух
+units разрешает прежний `/usr/lib`/`/lib` lookup miss и даёт совпадение с
+ubuntu-pro-client; происхождение больше не помечается «пакет не найден»
+только из-за прежнего alias miss.
+
+| Конкретный вход | Установленный класс/факт | Конечное оставшееся действие |
+|---|---|---|
+| needrestart Post-Invoke | Restart-capable delegate, не harmless:99needrestart вызывает apt-pinvoke `-m u`; helper условно exec needrestart, код содержит реальные service restarts. | Учитывать весь вход как потенциально перезапускающий службы и его последствия в admission/pending/recovery. Не нужно доказывать фактический auto каждого запуска ради такой консервативной классификации. |
+| apt-news/esm-cache Pre-Invoke | Два конкретных асинхронных delegates: `systemctl start --no-block`; обе units oneshot/control-group/Delegate=no, сейчас inactive, без Environment/EnvironmentFiles/drop-ins. | Сохранить обе identities в модели запуска/завершения/ошибки. Возврат hook и текущая inactive не settlement конкретного будущего run. Реализуемый unit-based stop/drain/settlement путь отдельно подтвердить. |
+| PackageKit Post-Invoke/Post-Invoke-Success | Конкретный D-Bus StateHasChanged(cache-update), timeout4; последующий echo может скрыть статус вызова. | Классифицировать endpoint как внешний delegate с возможной отложенной работой, либо доказать безопасное ограниченное действие по принятой package boundary. Ответ D-Bus не объявлять завершением всех последствий. |
+| AppStream Post-Invoke-Success | `appstreamcli refresh --source=os` при writable cache, `|| true`; именованный cache-maintenance delegate. | Сопоставить его применимые записи/cache boundaries с выбранной generation либо покрыть целиком защищаемым update entry. Скрытие exit требует учёта в наблюдении ошибки. |
+| CNF Post-Invoke-Success | Установлены точный `/usr/lib/cnf-update-db` и проверка writable `/var/lib/command-not-found`; прежний неопределённый hook именован. | Та же конкретная классификация cache writes/контроль границ; не повторять поиск его имени. |
+| Pre-Install-Pkgs | Точный `/usr/sbin/dpkg-preconfigure --apt || true` подтверждён equality и hash; прежний unknown target снят. | Оставить внутри защищённой полной package-entry boundary; не классифицировать harmless по одному имени или подавленному exit. |
+| UID1001 shell763байта | V/LOG — literal absolute assignments; наблюдения find/wc и append LOG, N/S распознаны как command substitutions с find/wc. Цели/родители не symlink на момент чтения. | Проверить именно LOG/read-root относительно реального набора защищаемой generation; стандартный denylist не даёт такой приёмки. `known_calls` collector — ограниченный список токенов, не полноценное доказательство отсутствия всех динамических shell effects. |
+| UID1001 watchdog7090байт и output | Ранее прочитанный AST не повторялся. Output26209байт — `>>` destination, не исполняемый script. В crontab явных environment assignments0. | Разрешить effective STATE/heartbeat/output и их принадлежность выбранной generation с учётом наследуемого окружения. Ноль assignments в crontab не означает пустое cron/PAM/process environment. Telegram/targets не запускать. |
+
+**Точный вывод о needrestart.** При `-m u` исходный default `restart=i`
+сбрасывается в undef до main config; переданный main config соответствует
+installed package checksum и не задаёт активных restart/ui overrides,
+добавочных `*.conf`0. Без иных влияний ветка263–274 устанавливает
+restart=a и Ubuntu UI. Однако NEEDRESTART_UI может изменить выбор ветки,
+NEEDRESTART_MODE позже меняет restart mode, NEEDRESTART_SUSPEND может остановить
+helper до exec; есть и DEBIAN_FRONTEND/non-tty fallback. Поэтому утверждение
+«на сервере доказан effectiveauto» было бы ложным: наследуемое manager/process
+environment не установлено. Пустые unit Environment/EnvironmentFiles/drop-ins
+не закрывают наследование. Следующий безопасный вариант — принять класс
+restart-capable без сужения до фактического режима. Если требуется утверждать
+конкретный effective mode, нужен только разрешённый metadata-only результат
+по этим влияющим переменным/источникам, без вывода значений/секретов.
+
+**Ещё один конкретный обнаруженный вход.** В уже прочитанном
+20apt-esm-hook.conf есть `binary::apt::AptCli::Hooks::Upgrade`, условно
+запускающий apt-esm-json-hook с дописыванием в свой log и `|| true`.
+Прежний фильтр семи Pre/Post hooks не охватывал этот key. Это не повод
+нового общего аудита: достаточно решить, возможен ли `apt` CLI Upgrade
+в принятой полной entry-модели; если да, включить именно этот обнаруженный
+delegate/действия и его log в ту же защищённую boundary; если нет — записать
+конкретное основание неприменимости. Не объявлять «семь hooks — вся полнота».
+
+Новые факты существенно сузили unknown: конкретные entry names, defaults,
+package mappings и operator `>>` установлены. Незавершённые факты теперь
+относятся к реальной generation containment, наследуемому окружению при
+необходимости точного mode, конечному settlement обнаруженных delegates,
+наблюдаемому отказу/retry и отдельной ресурсной/restore приёмке.
+Ни один snapshot отсутствия процесса не заменяет репетицию recovery.
+Общий повтор AST/watchdog или ОС не назначается; vendor source trace допустим
+только для конкретного не классифицируемого найденного delegate.
+
+Изменено и перечитано только это дополнение собственного review report.
+Код/spec/plan/tasks/checklist, чужие файлы, сервер и Git не менялись.
+T113/full_preflight/recovery/T0 остаются HOLD; capacity не принята.
