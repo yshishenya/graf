@@ -6,6 +6,8 @@ import os
 import subprocess
 import sys
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from uuid import uuid4
 
 import pytest
@@ -18,6 +20,13 @@ from twobrain_rec_server.billing.observation_alerts import (
 )
 
 NOW = datetime(2026, 11, 3, 12, tzinfo=UTC)
+
+
+@pytest.fixture
+def tmp_path():
+    # The journal rejects shared writable ancestors such as the CI runner's /tmp.
+    with TemporaryDirectory(prefix="graf-billing-observation-test-", dir=Path.home().resolve()) as directory:
+        yield Path(directory)
 
 
 @pytest.fixture

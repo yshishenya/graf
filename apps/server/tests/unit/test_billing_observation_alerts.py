@@ -2,6 +2,8 @@
 import asyncio
 import json
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from uuid import uuid4
 
 import httpx
@@ -10,6 +12,13 @@ import pytest
 from twobrain_rec_server.auth.email_delivery import PostalEmailLoginClient
 
 NOW = datetime(2026, 11, 3, 12, tzinfo=UTC)
+
+
+@pytest.fixture
+def tmp_path():
+    # The journal rejects shared writable ancestors such as the CI runner's /tmp.
+    with TemporaryDirectory(prefix="graf-billing-observation-test-", dir=Path.home().resolve()) as directory:
+        yield Path(directory)
 
 
 def setup_journal(tmp_path, *, role="primary"):
@@ -22,6 +31,18 @@ def setup_journal(tmp_path, *, role="primary"):
     AlertJournal.activate(path, source_profile=profile, source_generation=generation,
                           binding_version=binding, role=role, now=NOW)
     return AlertJournal, path, profile, generation, binding
+
+
+@pytest.mark.parametrize("mode", [0o777, 0o1777])
+def test_activation_rejects_shared_writable_ancestor_without_creating_state(tmp_path, mode):
+    from twobrain_rec_server.billing.observation_alerts import ObservationError
+
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    shared.chmod(mode)
+    with pytest.raises(ObservationError):
+        setup_journal(shared)
+    assert list((shared / "state").iterdir()) == []
 
 
 def sample(profile, generation, now=NOW, *, events=2, failed=0, conflicts=0):
