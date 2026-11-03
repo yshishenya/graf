@@ -11,7 +11,7 @@
   document.querySelectorAll('[data-public-sharing]').forEach(root => {
     const one = selector => root.querySelector(selector);
     const all = selector => [...root.querySelectorAll(selector)];
-    const audio = one('[data-public-audio]');
+    const audio = one('[data-playback-player]');
     const status = one('[data-public-status]');
     let current = parseFragment(location.hash), pendingSeek = null;
     let changed = root.dataset.sourceChanged === 'true';
@@ -30,6 +30,10 @@
       if (current.position !== null) seek(current.position);
     }
     activate(); window.addEventListener('hashchange', activate);
+    root.addEventListener('graf:public-recording', event => {
+      location.hash = '#recording?position_ms=' + Math.round(event.detail.seconds * 1000);
+      activate();
+    });
     all('[data-public-seek]').forEach(link => link.addEventListener('click', () => seek(Number(link.dataset.publicSeek))));
     const welcome = one('[data-public-welcome]');
     let seen = false;
@@ -67,15 +71,13 @@
     });
     one('[data-public-app-dismiss]').addEventListener('click', () => { one('[data-public-app-help]').hidden = true; });
     const refresh = one('[data-public-refresh]');
-    if (refresh) refresh.addEventListener('click', () => { changed = false; pendingSeek = null; location.hash = '#recording'; if (audio) audio.currentTime = 0; refresh.closest('aside').hidden = true; });
+    if (refresh) refresh.addEventListener('click', () => { changed = false; root.dataset.sourceChanged = 'false'; pendingSeek = null; location.hash = '#recording'; if (audio) audio.currentTime = 0; refresh.closest('aside').hidden = true; });
+    const footer = one('.public-reader__player');
+    if (footer && typeof ResizeObserver !== 'undefined') {
+      new ResizeObserver(() => root.style.setProperty('--public-player-height', footer.getBoundingClientRect().height + 'px')).observe(footer);
+    }
     if (audio) {
-      one('[data-public-player-controls]').hidden = false;
-      all('[data-public-skip]').forEach(button => button.addEventListener('click', () => { if (Number.isFinite(audio.duration)) audio.currentTime = Math.max(0, Math.min(audio.duration, audio.currentTime + Number(button.dataset.publicSkip))); }));
-      one('[data-public-speed]').addEventListener('change', event => { audio.playbackRate = Number(event.target.value); });
       audio.addEventListener('loadedmetadata', () => { if (pendingSeek !== null) seek(pendingSeek); });
-      audio.addEventListener('timeupdate', () => all('[data-public-turn]').forEach(turn => {
-        turn.classList.toggle('is-playing', audio.currentTime * 1000 >= Number(turn.dataset.startMs) && audio.currentTime * 1000 < Number(turn.dataset.endMs));
-      }));
       audio.addEventListener('error', () => tell('Запись не загрузилась. Возможно, владелец изменил доступ или обновил запись. Обновите страницу.'));
     }
   });

@@ -5848,6 +5848,8 @@
       shell.dataset.playbackReady = "true";
       const player = shell.querySelector("[data-playback-player]");
       if (!player) return;
+      player.controls = false;
+      const sourceBlocked = () => shell.closest('[data-source-changed="true"]');
       const toggle = shell.querySelector("[data-playback-toggle]");
       const current = shell.querySelector("[data-playback-current]");
       const duration = shell.querySelector("[data-playback-duration]");
@@ -5883,7 +5885,9 @@
         const turn = transcriptTurns().find((turn) => ids.some((id) => (turn.dataset.sourceSegments || "").split(/\s+/).includes(id)))
           || currentTranscriptTurn(seconds);
         if (!turn) return;
-        activateDetailTab("recording");
+        const publicReader = turn.closest('[data-public-sharing]');
+        if (publicReader) publicReader.dispatchEvent(new CustomEvent('graf:public-recording', { detail: { seconds } }));
+        else activateDetailTab("recording");
         scrollTranscriptTurnIntoView(turn, window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth");
         transcriptTurns().forEach((item) => item.classList.remove("is-source-highlight"));
         turn.classList.add("is-source-highlight");
@@ -5930,13 +5934,14 @@
         }, Math.max(10, (interval[1] - player.currentTime) / player.playbackRate * 1000));
       };
       const play = () => {
+        if (sourceBlocked()) return;
         if (playbackError) playbackError.hidden = true;
         if (!enforceSelection()) return;
         try { void player.play().catch(() => reportPlaybackFailure(player)); }
         catch (_error) { reportPlaybackFailure(player); }
       };
       const seekTo = (seconds, { follow = true, autoplay = false, sourceIds = "" } = {}) => {
-        if (!Number.isFinite(seconds)) return;
+        if (!Number.isFinite(seconds) || sourceBlocked()) return;
         try { player.currentTime = Math.max(0, Math.min(playbackDuration() || Infinity, seconds)); }
         catch (_error) { reportPlaybackFailure(player); return; }
         shell.dataset.playbackSourceSegments = sourceIds;

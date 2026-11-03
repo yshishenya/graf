@@ -25,12 +25,20 @@ def reader(*, embedded=False):
             "playback_available": True,
             "transcript": [
                 {
-                    "speaker": "Говорящий 1",
+                    "speaker": "Говорящий",
+                    "speaker_key": "speaker-1",
                     "text": "Проверка расшифровки",
                     "start_ms": 14000,
                     "end_ms": 16000,
                     "time": "0:14",
-                }
+                },
+                {"speaker": "Говорящий", "speaker_key": "speaker-2", "text": "Другая реплика",
+                 "start_ms": 18000, "end_ms": 20000, "time": "0:18"},
+            ],
+            "speakers": [
+                {"speaker_key": f"speaker-{index+1}", "label": "Говорящий", "confirmed": True,
+                 "talk_time_percent": 50, "segments": [{"start_seconds": start, "end_seconds": start+2}]}
+                for index, start in enumerate([14, 18])
             ],
         },
         playback_url="/audio",

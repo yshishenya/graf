@@ -31,6 +31,7 @@ def publish(client, meeting, template, scope="full_meeting"):
 
 def test_full_reader_and_explicit_scope_preserve_legacy(client, tmp_path):
     meeting, template = prepare(client, tmp_path)
+    add_retained_playback_m4a(client, UUID(str(meeting)), b"synthetic-audio")
     link, path = publish(client, meeting, template, "summary_only")
     again, _ = publish(client, meeting, template)
     assert again == link  # Copy cannot silently widen a previously published document.
@@ -56,10 +57,21 @@ def test_full_reader_and_explicit_scope_preserve_legacy(client, tmp_path):
         "summary_sections",
         "protocol",
         "transcript",
+        "speakers",
         "media_version",
         "playback_available",
     }
+    full = response.json()
+    keys = {speaker["speaker_key"] for speaker in full["speakers"]}
+    assert keys and all(key.startswith("speaker-") for key in keys)
+    assert all(turn["speaker_key"] in keys for turn in full["transcript"])
+    assert all(set(speaker) == {"speaker_key", "label", "confirmed", "talk_time_percent", "segments"}
+               for speaker in full["speakers"])
     html = client.get(path, headers={"Accept": "text/html"})
+    assert html.text.count("data-playback-shell") == 1
+    assert html.text.count("data-timeline-track") == len(keys)
+    assert "data-comments-url" not in html.text
+    assert "data-processing-result-id" not in html.text
     assert "data-public-sharing" in html.text and "data-public-transcript" in html.text
     assert "data-public-welcome" in html.text and "Начать пользоваться GRAF" in html.text
     assert html.headers["referrer-policy"] == "no-referrer"

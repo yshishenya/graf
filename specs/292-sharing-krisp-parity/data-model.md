@@ -6,7 +6,7 @@
 
 ## Публикация итогов
 
-PublishedMeetingSummary неизменна до явного update. Состав F286 сохранён. Полная встреча читает текущую принятую расшифровку effective_processing_result_query, фильтруя workspace_id/meeting_id/processing_result_id одновременно. В публичной DTO только label/time/duration/summary/protocol/transcript{speaker,text,start_ms,end_ms}; никаких private metadata/календарных адресов/provider IDs/storage keys/comments. Обновление принятого аудио инвалидирует неподходящие результаты, не подмешивает другую версию.
+PublishedMeetingSummary неизменна до явного update. Состав F286 сохранён. Полная встреча читает текущую принятую расшифровку effective_processing_result_query, фильтруя workspace_id/meeting_id/processing_result_id одновременно. В публичной DTO только label/time/duration/summary/protocol/transcript{speaker,speaker_key,text,start_ms,end_ms,time}; speaker_key — локальный непрозрачный ключ speaker-N страницы по FR-026; никаких private metadata/календарных адресов/provider IDs/storage keys/comments. Обновление принятого аудио инвалидирует неподходящие результаты, не подмешивает другую версию.
 
 ## Доказательство публичного доступа
 
@@ -22,3 +22,5 @@ PublishedMeetingSummary неизменна до явного update. Соста�
 
 
 Общая аудитория: атомарные переходы invite_only/workspace/link описаны в contracts; fingerprint (SHA256/64hex) active общих grants сравнивается под fence. User/invitations вне набора и сохраняются. Публичный media_version (24hex SHA256 revision/result) не раскрывает исходные UUID; несовпадение на playback 409. Fragment grammar и token bound заданы FR-025.
+
+Для общего проигрывателя FR-026 full_meeting также передаёт `speakers[]`: локальный speaker_key, видимая label, confirmed, talk_time_percent и segments{start_seconds,end_seconds}, рассчитанные тем же speaker_state, что у владельца. Никаких provider_speaker_key/source_role/result/source_segment_ids. Совпадающие имена не объединяют разные голоса.

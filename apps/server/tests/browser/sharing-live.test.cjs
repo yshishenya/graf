@@ -11,14 +11,18 @@ const {chromium} = require(require.resolve('playwright',{paths:[process.env.GRAF
   const facts=[];
   let activePage=null,stage="owner_login";
   try {
-    const owner=await browser.newContext({permissions:['clipboard-read','clipboard-write'],viewport:{width:1440,height:1000}});
+    const state=process.env.GRAF_SHARING_OWNER_STATE;
+    const owner=await browser.newContext({...(state&&fs.existsSync(state)?{storageState:state}:{}),permissions:['clipboard-read','clipboard-write'],viewport:{width:1440,height:1000}});
     const page=await owner.newPage();activePage=page;page.setDefaultTimeout(10000);page.on('dialog',d=>d.accept());
-    await page.goto(origin+'/login?next='+encodeURIComponent('/meetings/'+meeting));
+    await page.goto(origin+'/meetings/'+meeting);
+    if(new URL(page.url()).pathname==='/login') {
     await page.locator('input[name=email]').fill('local@graf.test');
     await page.locator('form button[type=submit]').click();
     await page.locator('[data-code-slot]').first().fill('000000');
     await page.waitForURL(origin+'/meetings/'+meeting);
-    await page.getByRole('heading',{name:'Учебная встреча GRAF — проверка общего доступа',exact:true}).waitFor();
+    if(state){fs.writeFileSync(state,JSON.stringify(await owner.storageState()),{mode:0o600});}
+    }
+    await page.locator('h1').filter({hasText:'Учебная встреча GRAF — проверка общего доступа'}).waitFor();
     facts.push('existing_dev_owner_login');
     await page.locator('[data-share-dialog-open]').click();
     await page.locator('[data-summary-share-dialog][open]').waitFor();
@@ -33,6 +37,16 @@ const {chromium} = require(require.resolve('playwright',{paths:[process.env.GRAF
     assert.equal(await page.locator('[data-summary-share-url]').inputValue(),version);
     await page.screenshot({path:path.join(output,'owner.png'),mask:[page.locator('[data-summary-share-url]')]});
     facts.push('owner_open_explicit_full_stable_copy');
+    stage='owner_export';
+    await page.getByRole('tab',{name:'Экспорт',exact:true}).click();
+    await page.locator('[data-export-scope]').selectOption('transcript');
+    await page.locator('[data-export-format]').selectOption('txt');
+    const downloading=page.waitForEvent('download');
+    await page.getByRole('button',{name:'Скачать файл',exact:true}).click();
+    const download=await downloading;assert.equal(await download.failure(),null);
+    assert(fs.statSync(await download.path()).size>0);
+    await page.getByRole('tab',{name:'Поделиться',exact:true}).click();
+    facts.push('existing_owner_export_downloads_transcript');
     const guest=await browser.newContext({permissions:['clipboard-read','clipboard-write'],viewport:{width:1440,height:1000}});
     const reader=await guest.newPage();activePage=reader;stage="recipient";reader.setDefaultTimeout(10000);
     await reader.goto(share);
@@ -42,18 +56,19 @@ const {chromium} = require(require.resolve('playwright',{paths:[process.env.GRAF
     await reader.getByRole('searchbox').fill('Обсудили');
     assert.equal(await reader.locator('[data-public-turn]:visible').count(),1);
     await reader.getByRole('searchbox').fill('');
-    const audio=reader.locator('[data-public-audio]');
+    const audio=reader.locator('[data-playback-player]');
     await reader.locator('[data-public-seek]').last().click();
     await reader.waitForFunction(()=>document.querySelector('audio').readyState>=1);
     assert(Math.abs(await audio.evaluate(a=>a.currentTime)-12.5)<1);
-    await reader.getByLabel('Скорость',{exact:true}).selectOption('1.5');
+    await reader.getByRole('button',{name:'Скорость воспроизведения',exact:true}).click();
+    await reader.locator('[data-playback-speed-option="1.5"]').click();
     assert.equal(await audio.evaluate(a=>a.playbackRate),1.5);
     await audio.evaluate(a=>a.play());
     await reader.waitForFunction(()=>document.querySelector('audio').currentTime>13);
     await audio.evaluate(a=>a.pause());
     await reader.getByRole('button',{name:'Назад на 15 секунд',exact:true}).click();
     assert.equal(await audio.evaluate(a=>a.currentTime),0);
-    await reader.getByRole('button',{name:'Вперёд на 15 секунд',exact:true}).click();
+    await reader.getByRole('button',{name:'Вперед на 15 секунд',exact:true}).click();
     assert.equal(await audio.evaluate(a=>a.currentTime),15);
     await reader.screenshot({path:path.join(output,'recipient.png')});
     facts.push('anonymous_transcript_search_real_m4a_seek_play_pause_skip_speed');

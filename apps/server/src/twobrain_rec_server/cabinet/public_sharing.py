@@ -19,7 +19,7 @@ from twobrain_rec_server.cabinet.queries import (
     shared_meeting_display_metadata,
 )
 from twobrain_rec_server.cabinet.speakers import speaker_names_for_result
-from twobrain_rec_server.cabinet.view_models import transcript_state
+from twobrain_rec_server.cabinet.view_models import speaker_state, transcript_state
 from twobrain_rec_server.db.models import (
     DiarizationSegment,
     MeetingShareGrant,
@@ -141,6 +141,7 @@ async def full_projection(db, *, meeting, summary, outcome_set=None, outcome_ite
     result, version = await current_media(db, meeting=meeting)
     playback = await review_playback_state(db, meeting=meeting, access=public_access())
     turns = []
+    speakers = []
     sources = {}
     if result is not None:
         common = {
@@ -174,10 +175,20 @@ async def full_projection(db, *, meeting, summary, outcome_set=None, outcome_ite
             playback_available=playback.can_play,
             playback_duration_seconds=meeting.duration_seconds,
         )
+        lanes = speaker_state(diarization, transcript_segments=segments, speaker_names=names, can_rename=False)
+        keys = {lane.speaker_key: f"speaker-{index + 1}" for index, lane in enumerate(lanes.speakers)}
+        speakers = [
+            {"speaker_key": keys[lane.speaker_key], "label": lane.label,
+             "confirmed": lane.confirmed, "talk_time_percent": lane.talk_time_percent,
+             "segments": [{"start_seconds": segment.start_seconds, "end_seconds": segment.end_seconds}
+                          for segment in lane.segments]}
+            for lane in lanes.speakers
+        ]
         # Local row order is sufficient; no provider/result/storage identifiers cross this boundary.
         turns = [
             {
                 "speaker": t.speaker_label,
+                "speaker_key": keys[t.speaker_key],
                 "text": t.text,
                 "start_ms": int(t.start_seconds * 1000),
                 "end_ms": int(t.end_seconds * 1000),
@@ -228,6 +239,7 @@ async def full_projection(db, *, meeting, summary, outcome_set=None, outcome_ite
         "summary_sections": sections or summary["summary_sections"],
         "protocol": protocol,
         "transcript": turns,
+        "speakers": speakers,
         "media_version": version,
         "playback_available": playback.can_play,
     }

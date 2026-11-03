@@ -14,8 +14,10 @@ from twobrain_rec_server.api.schemas import (
     NotesActionCategoryState,
     OutcomeItemView,
     OutcomeSourceReferenceView,
+    PlaybackReviewState,
     PreviousRecurringMeetingView,
     SpeakerLane,
+    SpeakerReviewState,
     TranscriptSegmentView,
     TranscriptSpeakerTurnView,
 )
@@ -1079,7 +1081,7 @@ def _render_meeting_detail_content(
         if review.transcript.available and review.transcript.search_enabled
         else []
     )
-    speaker_palette = _speaker_palette(review)
+    speaker_palette = _speaker_palette(review.speakers)
     attribution_notice = _speaker_attribution_notice(review)
     transcript = trusted_component_html(
         _render_transcript(transcript_rows, speaker_palette), source="meeting_detail.transcript"
@@ -1632,10 +1634,10 @@ def _speaker_display_label(label: str) -> str:
     return _ui_text(label)
 
 
-def _speaker_palette(review: MeetingReviewResponse) -> dict[str, int]:
+def _speaker_palette(speakers: SpeakerReviewState) -> dict[str, int]:
     palette: dict[str, int] = {}
     confirmed_index = 0
-    for speaker in review.speakers.speakers:
+    for speaker in speakers.speakers:
         if speaker.confirmed:
             palette[speaker.speaker_key] = confirmed_index % 6 + 1
             confirmed_index += 1
@@ -2304,11 +2306,12 @@ def _render_list_delete_dialog() -> str:
 def _render_transcript(
     segments: list[TranscriptSegmentView | TranscriptSpeakerTurnView],
     speaker_palette: dict[str, int],
+    *, public: bool = False,
 ) -> str:
     return "\n".join(
         f"""
-          <article class="segment speaker-color-{speaker_palette.get(segment.speaker_key, 0)}" data-transcript-turn data-source-segments="{escape(_transcript_source_segment_ids(segment))}" data-speaker-key="{escape(segment.speaker_key)}" data-start-seconds="{escape(str(segment.start_seconds))}" data-end-seconds="{escape(str(segment.end_seconds))}" tabindex="-1">
-            {_render_timestamp(segment)}
+          <article class="segment speaker-color-{speaker_palette.get(segment.speaker_key, 0)}" data-transcript-turn {"data-public-turn" if public else ""} data-source-segments="{escape(_transcript_source_segment_ids(segment))}" data-speaker-key="{escape(segment.speaker_key)}" data-start-seconds="{escape(str(segment.start_seconds))}" data-end-seconds="{escape(str(segment.end_seconds))}" tabindex="-1">
+            {_render_timestamp(segment, public=public)}
             <div class="speaker"><span class="dot" aria-hidden="true"></span><span class="speaker-label">{escape(_speaker_display_label(segment.speaker_label))}</span></div>
             <div class="text">{escape(segment.text)}</div>
           </article>
@@ -2326,7 +2329,11 @@ def _transcript_source_segment_ids(
     return str(getattr(segment, "segment_id", ""))
 
 
-def _render_timestamp(segment: TranscriptSegmentView | TranscriptSpeakerTurnView) -> str:
+def _render_timestamp(segment: TranscriptSegmentView | TranscriptSpeakerTurnView, *, public: bool = False) -> str:
+    if public:
+        start_ms = int(segment.start_seconds * 1000)
+        return (f'<a class="timestamp timestamp-seek" href="#recording?position_ms={start_ms}" '
+                f'data-public-seek="{start_ms}">{escape(segment.timestamp_label)}</a>')
     if segment.seekable and segment.seek_seconds is not None:
         return (
             f'<button class="timestamp timestamp-seek" type="button" '
@@ -2345,27 +2352,7 @@ def _render_playback(
 ) -> str:
     playback_path = playback_path or review.playback.playback_path
     if review.playback.can_play and playback_path:
-        speaker_palette = _speaker_palette(review)
-        speakers = sorted(review.speakers.speakers, key=lambda speaker: -speaker.talk_time_percent)
-        has_speakers = bool(speakers) and review.speakers.available
-        speaker_timeline, speaker_overview = _render_playback_speaker_timeline(review, speaker_palette=speaker_palette)
-        listen_rows = ''.join(
-            f'<label class="playback-listen-row {"speaker-color-" + str(speaker_palette.get(speaker.speaker_key, 0))}" data-speaker-key="{escape(speaker.speaker_key)}">'
-            f'<span class="speaker-manager-dot" aria-hidden="true"></span><span class="speaker-manager-name">{escape(_speaker_display_label(speaker.label))}</span>'
-            f'<input type="checkbox" data-listen-speaker="{escape(speaker.speaker_key)}" aria-label="Слушать: {escape(_speaker_display_label(speaker.label))}"></label>'
-            for speaker in speakers
-        )
-        speed_items = ''.join(
-            f'<button type="button" role="menuitemradio" aria-checked="{str(speed == 1).lower()}" data-playback-speed-option="{speed:g}">{speed:g}</button>'
-            for speed in review.playback.speed_options
-        )
-        avatars = ''.join(
-            f'<button type="button" class="playback-avatar speaker-color-{speaker_palette.get(speaker.speaker_key, 0)}" '
-            f'data-playback-avatar="{escape(speaker.speaker_key)}" data-speaker-key="{escape(speaker.speaker_key)}" '
-            f'aria-label="Следующая реплика: {escape(_speaker_display_label(speaker.label))}" title="{escape(_speaker_display_label(speaker.label))}">'
-            f'<span data-speaker-initials aria-hidden="true">{escape(_speaker_display_label(speaker.label)[:1].upper())}</span></button>'
-            for speaker in speakers
-        )
+        speaker_palette = _speaker_palette(review.speakers)
         result_id = next((turn.processing_result_id for turn in review.transcript.speaker_turns if turn.processing_result_id), None)
         result_id = result_id or (review.content_exports.processing_result_id if review.content_exports else None)
         comment_access = review.access or review.meeting.access
@@ -2378,56 +2365,13 @@ def _render_playback(
             f'data-comments-url="/api/v1/cabinet/meetings/{review.meeting.meeting_id}/comments{comments_query}" '
             f'data-comments-can-comment="{str(can_comment).lower()}" data-comments-available="{str(comments_available).lower()}"'
         )
-        return f"""
-          <section class="playback-bar detail-playback" data-playback-shell data-playback-state="available" data-playback-reason="{escape(review.playback.reason_code)}" data-source-mode="{escape(review.playback.source_mode)}" {comment_attrs} aria-label="Воспроизведение записи" aria-describedby="playback-live-status">
-            <audio class="playback-audio" data-playback-player preload="metadata" src="{escape(playback_path)}"></audio>
-            <div class="speaker-timeline-resize-row"{' hidden' if not has_speakers else ''}>
-              <div class="speaker-timeline-resize" data-speaker-timeline-resize role="separator" aria-orientation="horizontal" aria-controls="speaker-timeline" aria-label="Изменить высоту дорожек спикеров" aria-valuemin="33" aria-valuemax="120" aria-valuenow="120" tabindex="0"></div>
-            </div>
-            <div class="playback-toolbar">
-              <div class="playback-tools">
-                <button type="button" class="playback-round" data-playback-timeline-toggle aria-expanded="true" aria-controls="speaker-timeline" aria-label="Скрыть дорожки" title="Показать или скрыть дорожки"{' disabled' if not has_speakers else ''}>{_ui_icon("timeline")}</button>
-                <span class="playback-divider" aria-hidden="true"></span>
-                <div class="playback-menu-anchor"{' hidden' if len(speakers) <= 1 else ''}>
-                  <button type="button" class="playback-round" data-playback-listen-toggle aria-expanded="false" aria-controls="playback-listen-menu" aria-label="Слушать спикеров" title="Слушать спикеров">{_ui_icon("audio")}<span data-listen-count class="playback-listen-count" hidden></span></button>
-                  <div id="playback-listen-menu" class="playback-menu playback-listen-menu" data-playback-listen-menu role="group" aria-label="Слушать спикеров" hidden>
-                    <label class="playback-listen-row"><span>Все спикеры</span><input type="checkbox" data-listen-all checked></label>
-                    {listen_rows}
-                  </div>
-                </div>
-                <button type="button" class="playback-round" data-playback-comment aria-label="Комментарии" title="Комментарий"{' hidden' if not comments_available else ''}>{_ui_icon("comment")}</button>
-                {_render_speaker_manager(review, embedded=embedded, csrf_token=csrf_token, speaker_palette=speaker_palette, shared_workspace_id=shared_workspace_id)}
-              </div>
-              <div class="playback-controls" aria-label="Управление воспроизведением">
-                <button type="button" class="playback-round" data-playback-skip="-15" aria-label="Назад на 15 секунд" title="Назад на 15 секунд (←)">{_ui_icon("back-15")}</button>
-                <button type="button" class="playback-round primary-play" data-playback-toggle aria-label="Воспроизвести" title="Воспроизвести / пауза (Пробел)"><span data-playback-play-icon>{_ui_icon("play")}</span><span data-playback-pause-icon hidden>{_ui_icon("pause")}</span></button>
-                <button type="button" class="playback-round" data-playback-skip="15" aria-label="Вперед на 15 секунд" title="Вперед на 15 секунд (→)">{_ui_icon("forward-15")}</button>
-                <button type="button" class="playback-round" data-playback-next aria-label="Следующая реплика" title="Следующая реплика (Shift+→)"{' disabled' if not has_speakers else ''}>{_ui_icon("skip-next")}</button>
-                <div class="playback-menu-anchor">
-                  <button type="button" class="playback-speed" data-playback-speed-toggle aria-label="Скорость воспроизведения" aria-haspopup="menu" aria-expanded="false" aria-controls="playback-speed-menu">1x</button>
-                  <div id="playback-speed-menu" class="playback-menu playback-speed-menu" data-playback-speed-menu role="menu" aria-label="Скорость воспроизведения" hidden>{speed_items}</div>
-                </div>
-              </div>
-              <div class="playback-speaker-carousel" data-playback-carousel{' hidden' if not has_speakers else ''}>
-                <span class="playback-active-speaker" data-playback-active-speaker aria-hidden="true">{_ui_icon("audio")}</span>
-                <button type="button" class="playback-round" data-avatar-scroll="-1" aria-label="Предыдущие спикеры" disabled>{_ui_icon("chevron-left")}</button>
-                <div class="playback-avatars" data-playback-avatars>{avatars}</div>
-                <button type="button" class="playback-round" data-avatar-scroll="1" aria-label="Следующие спикеры" disabled>{_ui_icon("chevron-right")}</button>
-              </div>
-            </div>
-            <p class="playback-error" data-playback-error role="status" aria-live="polite" hidden>Воспроизведение временно недоступно.</p>
-            <div class="playback-progress-row">
-              <span class="playback-time" data-playback-current>00:00</span>
-              <span class="timeline-scale playback-scale">
-                <input class="playback-progress" data-playback-progress type="range" min="0" max="{review.playback.duration_seconds}" step="0.01" value="0" aria-label="Позиция записи">
-                <span class="playback-range-track" aria-hidden="true"><span class="playback-speaker-overview">{speaker_overview}</span><span class="playback-range-thumb"></span></span>
-              </span>
-              <span class="playback-time" data-playback-duration>{_timecode(review.playback.duration_seconds)}</span>
-            </div>
-            {speaker_timeline}
-            <span class="sr-only" data-playback-listen-status role="status"></span>
-          </section>
-        """
+        return _render_available_playback(
+            playback=review.playback, speakers_state=review.speakers.model_copy(update={"turns": review.speakers.turns or review.transcript.speaker_turns}),
+            speaker_palette=speaker_palette, playback_path=playback_path,
+            speaker_manager=_render_speaker_manager(review, embedded=embedded, csrf_token=csrf_token,
+                speaker_palette=speaker_palette, shared_workspace_id=shared_workspace_id),
+            comment_attrs=comment_attrs, comments_available=comments_available,
+        )
     storage_action = (
         '<span>Освободите место или обратитесь к владельцу пространства. '
         '<a href="/billing">Объем хранилища</a></span>'
@@ -2449,19 +2393,95 @@ def _render_playback(
     """
 
 
+def _render_available_playback(*, playback: PlaybackReviewState, speakers_state: SpeakerReviewState,
+    speaker_palette: dict[str, int], playback_path: str, speaker_manager: str = "",
+    comment_attrs: str = "", comments_available: bool = False) -> str:
+    speakers = sorted(speakers_state.speakers, key=lambda speaker: -speaker.talk_time_percent)
+    has_speakers = bool(speakers) and speakers_state.available
+    speaker_timeline, speaker_overview = _render_playback_speaker_timeline(speakers_state, duration_seconds=playback.duration_seconds, speaker_palette=speaker_palette)
+    listen_rows = ''.join(
+        f'<label class="playback-listen-row {"speaker-color-" + str(speaker_palette.get(speaker.speaker_key, 0))}" data-speaker-key="{escape(speaker.speaker_key)}">'
+        f'<span class="speaker-manager-dot" aria-hidden="true"></span><span class="speaker-manager-name">{escape(_speaker_display_label(speaker.label))}</span>'
+        f'<input type="checkbox" data-listen-speaker="{escape(speaker.speaker_key)}" aria-label="Слушать: {escape(_speaker_display_label(speaker.label))}"></label>'
+        for speaker in speakers
+    )
+    speed_items = ''.join(
+        f'<button type="button" role="menuitemradio" aria-checked="{str(speed == 1).lower()}" data-playback-speed-option="{speed:g}">{speed:g}</button>'
+        for speed in playback.speed_options
+    )
+    avatars = ''.join(
+        f'<button type="button" class="playback-avatar speaker-color-{speaker_palette.get(speaker.speaker_key, 0)}" '
+        f'data-playback-avatar="{escape(speaker.speaker_key)}" data-speaker-key="{escape(speaker.speaker_key)}" '
+        f'aria-label="Следующая реплика: {escape(_speaker_display_label(speaker.label))}" title="{escape(_speaker_display_label(speaker.label))}">'
+        f'<span data-speaker-initials aria-hidden="true">{escape(_speaker_display_label(speaker.label)[:1].upper())}</span></button>'
+        for speaker in speakers
+    )
+    return f"""
+      <section class="playback-bar detail-playback" data-playback-shell data-playback-state="available" data-playback-reason="{escape(playback.reason_code)}" data-source-mode="{escape(playback.source_mode)}" {comment_attrs} aria-label="Воспроизведение записи" aria-describedby="playback-live-status">
+        <audio class="playback-audio" data-playback-player controls preload="metadata" src="{escape(playback_path)}"></audio>
+        <div class="speaker-timeline-resize-row"{' hidden' if not has_speakers else ''}>
+          <div class="speaker-timeline-resize" data-speaker-timeline-resize role="separator" aria-orientation="horizontal" aria-controls="speaker-timeline" aria-label="Изменить высоту дорожек спикеров" aria-valuemin="33" aria-valuemax="120" aria-valuenow="120" tabindex="0"></div>
+        </div>
+        <div class="playback-toolbar">
+          <div class="playback-tools">
+            <button type="button" class="playback-round" data-playback-timeline-toggle aria-expanded="true" aria-controls="speaker-timeline" aria-label="Скрыть дорожки" title="Показать или скрыть дорожки"{' disabled' if not has_speakers else ''}>{_ui_icon("timeline")}</button>
+            <span class="playback-divider" aria-hidden="true"></span>
+            <div class="playback-menu-anchor"{' hidden' if len(speakers) <= 1 else ''}>
+              <button type="button" class="playback-round" data-playback-listen-toggle aria-expanded="false" aria-controls="playback-listen-menu" aria-label="Слушать спикеров" title="Слушать спикеров">{_ui_icon("audio")}<span data-listen-count class="playback-listen-count" hidden></span></button>
+              <div id="playback-listen-menu" class="playback-menu playback-listen-menu" data-playback-listen-menu role="group" aria-label="Слушать спикеров" hidden>
+                <label class="playback-listen-row"><span>Все спикеры</span><input type="checkbox" data-listen-all checked></label>
+                {listen_rows}
+              </div>
+            </div>
+            <button type="button" class="playback-round" data-playback-comment aria-label="Комментарии" title="Комментарий"{' hidden' if not comments_available else ''}>{_ui_icon("comment")}</button>
+            {speaker_manager}
+          </div>
+          <div class="playback-controls" aria-label="Управление воспроизведением">
+            <button type="button" class="playback-round" data-playback-skip="-15" aria-label="Назад на 15 секунд" title="Назад на 15 секунд (←)">{_ui_icon("back-15")}</button>
+            <button type="button" class="playback-round primary-play" data-playback-toggle aria-label="Воспроизвести" title="Воспроизвести / пауза (Пробел)"><span data-playback-play-icon>{_ui_icon("play")}</span><span data-playback-pause-icon hidden>{_ui_icon("pause")}</span></button>
+            <button type="button" class="playback-round" data-playback-skip="15" aria-label="Вперед на 15 секунд" title="Вперед на 15 секунд (→)">{_ui_icon("forward-15")}</button>
+            <button type="button" class="playback-round" data-playback-next aria-label="Следующая реплика" title="Следующая реплика (Shift+→)"{' disabled' if not has_speakers else ''}>{_ui_icon("skip-next")}</button>
+            <div class="playback-menu-anchor">
+              <button type="button" class="playback-speed" data-playback-speed-toggle aria-label="Скорость воспроизведения" aria-haspopup="menu" aria-expanded="false" aria-controls="playback-speed-menu">1x</button>
+              <div id="playback-speed-menu" class="playback-menu playback-speed-menu" data-playback-speed-menu role="menu" aria-label="Скорость воспроизведения" hidden>{speed_items}</div>
+            </div>
+          </div>
+          <div class="playback-speaker-carousel" data-playback-carousel{' hidden' if not has_speakers else ''}>
+            <span class="playback-active-speaker" data-playback-active-speaker aria-hidden="true">{_ui_icon("audio")}</span>
+            <button type="button" class="playback-round" data-avatar-scroll="-1" aria-label="Предыдущие спикеры" disabled>{_ui_icon("chevron-left")}</button>
+            <div class="playback-avatars" data-playback-avatars>{avatars}</div>
+            <button type="button" class="playback-round" data-avatar-scroll="1" aria-label="Следующие спикеры" disabled>{_ui_icon("chevron-right")}</button>
+          </div>
+        </div>
+        <p class="playback-error" data-playback-error role="status" aria-live="polite" hidden>Воспроизведение временно недоступно.</p>
+        <div class="playback-progress-row">
+          <span class="playback-time" data-playback-current>00:00</span>
+          <span class="timeline-scale playback-scale">
+            <input class="playback-progress" data-playback-progress type="range" min="0" max="{playback.duration_seconds}" step="0.01" value="0" aria-label="Позиция записи">
+            <span class="playback-range-track" aria-hidden="true"><span class="playback-speaker-overview">{speaker_overview}</span><span class="playback-range-thumb"></span></span>
+          </span>
+          <span class="playback-time" data-playback-duration>{_timecode(playback.duration_seconds)}</span>
+        </div>
+        {speaker_timeline}
+        <span class="sr-only" data-playback-listen-status role="status"></span>
+      </section>
+    """
+
+
 def _render_playback_speaker_timeline(
-    review: MeetingReviewResponse,
+    speakers_state: SpeakerReviewState,
     *,
+    duration_seconds: int,
     speaker_palette: dict[str, int],
 ) -> tuple[str, str]:
-    if not review.speakers.available or not review.speakers.speakers:
+    if not speakers_state.available or not speakers_state.speakers:
         return '<div id="speaker-timeline" class="speaker-timeline" data-speaker-timeline data-speaker-timeline-count="0"></div>', ""
-    duration = max(1, review.playback.duration_seconds)
+    duration = max(1, duration_seconds)
     lanes = []
     overview = []
-    turns = review.speakers.turns or review.transcript.speaker_turns
+    turns = speakers_state.turns
     turn_sources = {(turn.speaker_key, round(turn.start_seconds, 3)): " ".join(turn.source_segment_ids) for turn in turns}
-    for speaker in sorted(review.speakers.speakers, key=lambda speaker: -speaker.talk_time_percent):
+    for speaker in sorted(speakers_state.speakers, key=lambda speaker: -speaker.talk_time_percent):
         speaker_label = _speaker_display_label(speaker.label)
         color_class = f"speaker-color-{speaker_palette.get(speaker.speaker_key, 0)}"
         segments = []
@@ -2487,7 +2507,7 @@ def _render_playback_speaker_timeline(
               <span class="timeline-avatar" aria-hidden="true" data-speaker-initials>{escape(speaker_label[:1].upper())}</span>
               <span class="timeline-speaker" title="{escape(speaker_label)}"><span class="timeline-label">{escape(speaker_label)}</span></span>
               <span class="timeline-scale lane-scale"><span class="timeline-track" data-timeline-track role="group" tabindex="0" aria-label="Дорожка {escape(speaker_label)}: стрелки перемещают позицию">{"".join(segments)}<span class="timeline-playhead" data-timeline-playhead aria-hidden="true"></span></span></span>
-              <span class="timeline-share" title="{escape(review.speakers.talk_time_label)}">{speaker.talk_time_percent}%</span>
+              <span class="timeline-share" title="{escape(speakers_state.talk_time_label)}">{speaker.talk_time_percent}%</span>
             </div>
         """)
     return f"""
@@ -2988,6 +3008,22 @@ def _timecode(seconds: int) -> str:
 def render_public_meeting_reader(*, projection, playback_url=None, continue_url, native_url, source_changed=False, authenticated=False, embedded=False):
     if isinstance(projection["occurred_at"], str):
         projection = {**projection, "occurred_at":datetime.fromisoformat(projection["occurred_at"])}
+    turns = [TranscriptSpeakerTurnView(
+        turn_id=f"turn-{index}", sequence=index, start_seconds=turn["start_ms"] / 1000,
+        end_seconds=turn["end_ms"] / 1000, timestamp_label=turn["time"],
+        speaker_label=turn["speaker"], speaker_key=turn["speaker_key"], text=turn["text"],
+        source_role="unknown", seekable=False,
+    ) for index, turn in enumerate(projection.get("transcript", []))]
+    speakers = SpeakerReviewState(
+        available=bool(projection.get("speakers")), assignment_state="available", turns=turns,
+        speakers=[SpeakerLane(**row, can_rename=False) for row in projection.get("speakers", [])],
+    )
+    palette = _speaker_palette(speakers)
+    playback_html = _render_available_playback(
+        playback=PlaybackReviewState(available=True, duration_seconds=projection["duration_seconds"]),
+        speakers_state=speakers, speaker_palette=palette, playback_path=playback_url,
+    ) if projection.get("playback_available") and playback_url else None
+    transcript_html = _render_transcript(turns, palette, public=True)
     return _page_shell(
         projection["meeting_label"], embedded=embedded,
         page_template="cabinet/pages/public_reader_shell.html",
@@ -2995,6 +3031,7 @@ def render_public_meeting_reader(*, projection, playback_url=None, continue_url,
         meeting=projection, full_meeting="transcript" in projection, summary_sections=_localized_shared_summary_sections(projection["summary_sections"]),
         protocol_html=_render_full_protocol(projection["protocol"], source_destination_available=False,
                                           base_heading_level=2, public_sources="transcript" in projection) if projection.get("protocol") else None,
-        playback_url=playback_url, continue_url=continue_url, native_url=native_url,
+        playback_html=trusted_component_html(playback_html or "", source="public_reader.playback"), transcript_html=trusted_component_html(transcript_html, source="public_reader.transcript"),
+        continue_url=continue_url, native_url=native_url,
         source_changed=source_changed, authenticated=authenticated,
     )

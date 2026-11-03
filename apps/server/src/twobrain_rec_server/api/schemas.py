@@ -1917,15 +1917,32 @@ class PublicShareSummaryResponse(BaseModel):
 class PublicTranscriptTurn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     speaker: str
+    speaker_key: str = Field(pattern=r"^speaker-[1-9][0-9]*$")
     text: str
     start_ms: int = Field(ge=0)
     end_ms: int = Field(ge=0)
     time: str
 
 
+class PublicSpeakerInterval(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    start_seconds: float = Field(ge=0, allow_inf_nan=False)
+    end_seconds: float = Field(ge=0, allow_inf_nan=False)
+
+
+class PublicSpeakerLane(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    speaker_key: str = Field(pattern=r"^speaker-[1-9][0-9]*$")
+    label: str
+    confirmed: bool
+    talk_time_percent: int = Field(ge=0, le=100)
+    segments: list[PublicSpeakerInterval]
+
+
 class PublicShareMeetingResponse(PublicShareSummaryResponse):
     model_config = ConfigDict(extra="forbid")
     transcript: list[PublicTranscriptTurn]
+    speakers: list[PublicSpeakerLane]
     media_version: str = Field(pattern=r"^[0-9a-f]{24}$")
     playback_available: bool
 

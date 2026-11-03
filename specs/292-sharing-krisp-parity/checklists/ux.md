@@ -6,6 +6,6 @@
 - [x] UX004 Определены ли loading/empty/error/clipboard/stale/delivery unknown/недоступный контент и несуществующие аудитории? [spec FR-019; Clarifications; quickstart]
 - [x] UX005 Полны ли keyboard/Escape/focus/labels/contrast/theme/no-JS требования и приёмка? [spec FR-013/023; contracts; quickstart]
 - [x] UX006 Определены ли независимая реализация/права на assets и правдивые обещания GRAF? [spec FR-014/016; research]
-- [x] UX007 Есть ли проверяемые сценарии всей встречи/итогов, экспорта/адресного доступа и обоих интерфейсов? [US1–4; quickstart]
+- [x] UX007 Есть ли проверяемые сценарии всей встречи/итогов, экспорта/адресного доступа и обоих интерфейсов? [US1–4; spec FR-026; tasks T014; quickstart]
 
 Результат независимой проверки: см. [review-report.md](../review-report.md). Отметки относятся только к качеству требований; итоговая сверка tasks выполнена; приёмка реализации не выполнена.

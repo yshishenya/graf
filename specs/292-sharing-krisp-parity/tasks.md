@@ -41,7 +41,7 @@
 
 ## Phase 7 — Полнота и приёмка
 
-- [ ] T011 Выполнить focused pytest/node/Swift из `specs/292-sharing-krisp-parity/quickstart.md`, исправить сбои, добавить русский `changes/unreleased/F292.yaml` и metadata-only `specs/292-sharing-krisp-parity/validation.md`. [FR-015/023; SC-001–005]
+- [X] T011 Выполнить focused pytest/node/Swift из `specs/292-sharing-krisp-parity/quickstart.md`, исправить сбои, добавить русский `changes/unreleased/F292.yaml` и metadata-only `specs/292-sharing-krisp-parity/validation.md`. [FR-015/023; SC-001–005]
 - [ ] T012 Проверить браузер и единственный `/Applications/GRAF Dev.app` через dev-harness с чистого exact SHA по `specs/292-sharing-krisp-parity/quickstart.md`: owner/anonymous/external, scope/revoke/range/return/cold/warm, все размеры/темы/keyboard; сохранить обезличенные доказательства в `specs/292-sharing-krisp-parity/validation.md`. [FR-001/013/015/023; SC-001–005]
 - [ ] T013 Выполнить converge, final review и exact-SHA/base `governance-fast`/`macos-pr`/`pr-metadata`, сопоставить tasks/issues без ложного закрытия незавершённой приёмки в `specs/292-sharing-krisp-parity/{tasks,validation}.md`. Production/release не выполнять. [FR-015]
 
@@ -50,3 +50,9 @@
 T001 → T002 → T003 → T004 → T005 → T006. T007 после T003 и T006. T008 после T006; T009 после contracts, T010 после T008/T009. T011 после T007/T008/T010, затем T012 → T013. Внутри каждой фазы тесты приватности до реализации. Без независимого PASS финальной сверки tasks, analyze и issue sync код не начинается.
 
 Параллельные возможности: read-only сверка требований и подготовка локальной среды; сами implementation задачи выполняются последовательно из-за общих файлов. Новых worker agents этот план не требует. Приращения US2→US1→US3→US4 проверяются отдельно, но весь заявленный объём обязателен; промежуточная готовность одной истории не завершает задачу пользователя.
+
+## Phase 8 — Уточнение единого просмотра
+
+- [X] T014 [US2] Переиспользовать рендер и JS/CSS основного проигрывателя в `cabinet/rendering.py`, `templates/cabinet/pages/shared_meeting_reader.html`, `static/cabinet/{cabinet,public-sharing}.js`: дорожки/цвета/доля речи, таймлайн/переход/выбор спикеров/следующая реплика/скорость/сворачивание/клавиатура; безопасные локальные ключи из `cabinet/public_sharing.py`, без внутренних идентификаторов/комментариев. Проверить основной и публичный путь в существующих playback tests и `test_meeting_sharing_parity_ui.py`, а затем в T012. [FR-007/008/018/023/026]
+
+T014 выполняется до завершения T011–T013; требует независимого повторного просмотра уточнённых требований и синхронизации задачи GitHub до кода.
