@@ -133,25 +133,26 @@ def test_invalid_interlock_is_preserved_even_by_recovery(journal_state, tmp_path
         assert (path.read_bytes(), flag.lstat().st_ino) == original
 
 
-def test_second_process_cannot_remove_the_locked_writers_veto(journal_state):
+@pytest.mark.parametrize("startup_delay", [0, 3])
+def test_second_process_cannot_remove_the_locked_writers_veto(journal_state, startup_delay):
     path, *_rest, binding = journal_state
     script = """
-import sys
+import sys,time
+time.sleep(float(sys.argv[2]))
 from twobrain_rec_server.billing.observation_alerts import AlertJournal, ObservationError
+# Interpreter startup is outside the journal's lock budget.
+started = time.monotonic()
 try:
     with AlertJournal(sys.argv[1], recovery=True):
         pass
 except ObservationError:
+    assert 2 <= time.monotonic() - started < 4
     raise SystemExit(3)
 raise SystemExit(9)
 """
-    import time
-
     with AlertJournal(path) as journal:
         journal.begin_record()
-        started = time.monotonic()
-        assert child(script, path) == 3
-        assert time.monotonic() - started < 4
+        assert child(script, path, str(startup_delay)) == 3
         assert path.with_name("journal.jsonl.hold").exists()
         journal.recovery = True
         journal.append("recovery", {"expected_head": journal.head,
