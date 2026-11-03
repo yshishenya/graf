@@ -32,10 +32,10 @@ const assets = path.join(__dirname, '../../src/twobrain_rec_server/cabinet/stati
         if(url.pathname.endsWith('/auto-send'))return route.fulfill({json:{state:'off',rules:{},roster:[]}});
         if(url.pathname.endsWith('/recipients'))return route.fulfill({json:{recipients:[{user_id:'synthetic-person',email:'person@example.test',display_label:'Учебный получатель'}]}});
         if(url.pathname===base+'/shares'&&request.method()==='POST'){
-          const body=request.postDataJSON();grants=[{...body,grant_id:'synthetic-grant',display_name:'Учебный получатель'}];return route.fulfill({json:{grant:grants[0]}});
+          const body=request.postDataJSON();grants=[{...body,grant_id:'synthetic-grant',version:1,display_name:'Учебный получатель'}];return route.fulfill({json:{grant:grants[0]}});
         }
-        if(url.pathname.endsWith('/synthetic-grant/permissions')){Object.assign(grants[0],request.postDataJSON());return route.fulfill({json:grants[0]});}
-        if(url.pathname.endsWith('/synthetic-grant')&&request.method()==='DELETE'){grants=[];return route.fulfill({status:204});}
+        if(url.pathname.endsWith('/synthetic-grant/permissions')){assert.equal(request.postDataJSON().expected_version,grants[0].version);Object.assign(grants[0],request.postDataJSON());grants[0].version++;return route.fulfill({json:grants[0]});}
+        if(url.pathname.endsWith('/synthetic-grant')&&request.method()==='DELETE'){assert.equal(Number(url.searchParams.get('expected_version')),grants[0].version);grants=[];return route.fulfill({status:204});}
         if(url.pathname.endsWith('/link/scope')){assert.equal(request.postDataJSON().expected_version,version);scope=request.postDataJSON().content_scope;version++;return route.fulfill({json:link()});}
         if(url.pathname.endsWith('/link'))return route.fulfill({json:link()});
         return route.abort();

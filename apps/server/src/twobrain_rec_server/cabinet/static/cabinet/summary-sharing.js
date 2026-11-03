@@ -275,8 +275,8 @@
         const role=node('select');role.setAttribute('aria-label',`Права ${grant.display_name}`);
         for(const [value,label] of [['summary','Только итоги'],['viewer','Просмотр встречи'],['commenter','Комментирование'],['editor','Редактирование']]){const option=node('option',label);option.value=value;role.append(option);}
         role.value=grant.content_scope==='summary_only'?'summary':grant.can_edit?'editor':grant.can_comment?'commenter':'viewer';role.disabled=!data.share.can_manage_roles;
-        role.addEventListener('change',()=>action(async()=>{await meetingAPI(`/shares/${grant.grant_id}/permissions`,{method:'PATCH',body:{content_scope:role.value==='summary'?'summary_only':'full_meeting',can_comment:['commenter','editor'].includes(role.value),can_edit:role.value==='editor'}});await loadAccess();setStatus('Права изменены');}));
-        const revoke=node('button','Отозвать');revoke.type='button';revoke.addEventListener('click',()=>action(async()=>{await meetingAPI(`/shares/${grant.grant_id}`,{method:'DELETE'});await loadAccess();setStatus('Доступ отозван');}));row.append(role,revoke);accessList.append(row);
+        role.addEventListener('change',()=>action(async()=>{await meetingAPI(`/shares/${grant.grant_id}/permissions`,{method:'PATCH',body:{expected_version:grant.version,content_scope:role.value==='summary'?'summary_only':'full_meeting',can_comment:['commenter','editor'].includes(role.value),can_edit:role.value==='editor'}});await loadAccess();setStatus('Права изменены');}));
+        const revoke=node('button','Отозвать');revoke.type='button';revoke.addEventListener('click',()=>action(async()=>{await meetingAPI(`/shares/${grant.grant_id}?expected_version=${grant.version}`,{method:'DELETE'});await loadAccess();setStatus('Доступ отозван');}));row.append(role,revoke);accessList.append(row);
       }
       for(const invitation of data.share.active_invitations||[]){
         const row=node('div',null,'share-viewer-row');row.append(node('span',invitation.display_label),node('small',invitation.status==='outcome_unknown'?'Отправка не подтверждена':'Приглашение отправлено','muted'));

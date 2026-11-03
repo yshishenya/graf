@@ -9,13 +9,13 @@
 Из корня, штатным disposable PostgreSQL runner (он создаёт и удаляет собственный контейнер/БД), Python >=3.13:
 
 ```sh
-bash apps/server/scripts/run_local_postgres_tests.sh --focused apps/server/tests/integration/test_summary_sharing.py apps/server/tests/integration/test_recording_share_public_link.py apps/server/tests/integration/test_meeting_share_links.py apps/server/tests/integration/test_cabinet_playback_route.py apps/server/tests/contract/test_recording_share_ui_contract.py apps/server/tests/contract/test_recording_share_link_contract.py
+bash apps/server/scripts/run_local_postgres_tests.sh --focused apps/server/tests/integration/test_meeting_sharing_parity.py apps/server/tests/contract/test_meeting_sharing_parity_ui.py apps/server/tests/integration/test_summary_sharing.py apps/server/tests/integration/test_recording_share_public_link.py apps/server/tests/integration/test_meeting_share_links.py apps/server/tests/integration/test_cabinet_playback_route.py apps/server/tests/contract/test_recording_share_ui_contract.py apps/server/tests/contract/test_recording_share_link_contract.py
 node --test apps/server/tests/browser/summary-sharing-state.test.cjs apps/server/tests/browser/share-recipient-privacy.test.cjs
 swift test --package-path apps/macos --filter 'DesktopCabinet|SharedMeeting|ProductActivationAnalyticsContract'
 python3 scripts/check_spec_kit_governance.py
 ```
 
-Добавленные F292 тесты включить в итоговую точную команду. Проверить стабильную ссылку/409, legacy summary-only, null summary full, narrow projection, чужой workspace/result, revoke/expire/rotate/scope/deletion и каждый Range, 200/206/416/буфер4MiB, headers и отсутствие секретов, безопасный cookie/redirect, parser scheme/query/position/cold pending и сохранение route после входа.
+Проверить стабильную ссылку/409, legacy summary-only, null summary full, narrow projection, чужой workspace/result, revoke/expire/rotate/scope/deletion и каждый Range, 200/206/416/буфер4MiB, headers и отсутствие секретов, безопасный cookie/redirect, parser scheme/query/position/cold pending и сохранение route после входа.
 
 ## Живая матрица
 
@@ -28,3 +28,13 @@ python3 scripts/check_spec_kit_governance.py
 ## Ворота
 
 Независимые security/ux checklist PASS до кода; analyze CRITICAL0/HIGH0; task issue sync. После кода converge и focused checks. PR: governance-fast/macos-pr/pr-metadata exact SHA/base. Production/release не выполняются этой задачей; не называть live acceptance пройденной без фактической проверки.
+
+## Сквозная проверка Dev
+
+`sharing-live.test.cjs` запускается только явно через `GRAF_SHARING_LIVE=1`, на loopback 8081 и на отдельной синтетической встрече существующего `local@graf.test` в его личном пространстве. Нужен настоящий синтетический аудиофайл. Не использовать рабочие встречи. `GRAF_NODE_MODULES` задаёт существующую установку Playwright.
+
+```sh
+GRAF_SHARING_LIVE=1 GRAF_SOURCE_SHA=<installed-full-sha> node apps/server/tests/browser/sharing-live.test.cjs <synthetic-meeting-uuid> <temporary-evidence-dir>
+```
+
+Проверка выполняет два входа; соблюдать действующий лимит 3 запроса кода за 15 минут. Ссылка маскируется на снимке владельца, в итоговый JSON попадают только названия проверенных действий и SHA. После завершения общий доступ отзывается.

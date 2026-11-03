@@ -6592,3 +6592,6 @@ select:focus, .settings-page select:focus, .calendar-settings select:focus {
 .summary-share-dialog [data-sharing-export-host] .content-export-form { padding:0; }
 .public-reader { --reader-line:var(--line); color:var(--text); }
 .public-reader__player,.public-reader__more > div,.public-reader__welcome { background:var(--panel); }
+
+.public-reader__header nav .button { white-space:normal; line-height:1.3; text-align:center; }
+.public-reader__welcome .button { min-height:44px; display:flex; align-items:center; justify-content:center; }

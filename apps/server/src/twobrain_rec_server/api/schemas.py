@@ -1954,6 +1954,7 @@ class ArtifactEgressState(BaseModel):
 
 
 class ShareGrantView(BaseModel):
+    version: int = 1
     can_comment: bool = False
     can_edit: bool = False
     grant_id: UUID

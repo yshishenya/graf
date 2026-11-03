@@ -1005,6 +1005,7 @@ async def share_panel_state(
         grant_views.append(
             ShareGrantView(
                 grant_id=grant.id,
+                version=grant.publication_version,
                 display_name=display,
                 role_label="Can view",
                 status="active",
@@ -2221,6 +2222,7 @@ async def revoke_share_grant(
     actor_user_id: UUID,
     device_id: UUID,
     grant_id: UUID,
+    expected_version: int | None = None,
 ) -> None:
     from twobrain_rec_server.cabinet.egress import record_egress_audit_event
 
@@ -2252,6 +2254,8 @@ async def revoke_share_grant(
     if grant is None:
         raise ProblemDetail(status=404, code="share_grant_not_found", title="Share grant not found")
 
+    if expected_version is not None and grant.publication_version != expected_version:
+        raise ProblemDetail(status=409, code="summary_link_changed", title="Sharing changed; refresh access")
     if grant.audience_type == "link" and grant.share_token_ciphertext:
         raise ProblemDetail(status=409, code="summary_link_changed", title="Use versioned sharing commands")
     await record_egress_audit_event(
@@ -2265,6 +2269,7 @@ async def revoke_share_grant(
         policy_reason="login_required_grant_revoked",
         metadata={"share_grant_id": str(grant.id)},
     )
+    grant.publication_version += 1
     grant.status = "revoked"
     grant.revoked_by_user_id = actor_user_id
     grant.revoked_at = datetime.now(UTC)
@@ -2335,6 +2340,7 @@ async def resolve_share_token(
 def grant_view(grant: MeetingShareGrant, *, display_name: str) -> ShareGrantView:
     return ShareGrantView(
         grant_id=grant.id,
+        version=grant.publication_version,
         display_name=display_name,
         role_label="Can view",
         status=grant.status,  # type: ignore[arg-type]

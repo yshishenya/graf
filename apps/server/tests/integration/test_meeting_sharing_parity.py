@@ -168,7 +168,8 @@ def test_login_continuation_never_copies_share_secret_into_login_url(client, tmp
     assert response.status_code == 303
     token = path.split("/public-shares/")[1].split("?")[0]
     assert token not in response.headers["location"]
-    assert "next=" in response.headers["location"]
+    assert response.headers["location"].startswith("/login?next=")
+    assert client.get(response.headers["location"]).status_code == 200
     assert "httponly" in response.headers["set-cookie"].lower()
     resumed = client.get("/shared-meeting/continue", follow_redirects=False)
     assert resumed.status_code == 303 and resumed.headers["location"] == path
@@ -373,6 +374,7 @@ def test_personal_roles_and_scope_do_not_require_download_permission(client, tmp
         },
     )
     grant = response.json()["grant"]["grant_id"]
+    version = response.json()["grant"]["version"]
     for role, scope in [
         ("editor", "full_meeting"),
         ("commenter", "full_meeting"),
@@ -383,6 +385,7 @@ def test_personal_roles_and_scope_do_not_require_download_permission(client, tmp
             base + f"/shares/{grant}/permissions",
             headers=auth_headers(),
             json={
+                "expected_version": version,
                 "content_scope": scope,
                 "can_comment": role in ("editor", "commenter"),
                 "can_edit": role == "editor",
@@ -390,6 +393,12 @@ def test_personal_roles_and_scope_do_not_require_download_permission(client, tmp
         )
         assert changed.status_code == 200, changed.text
         assert changed.json()["content_scope"] == scope
+        stale = client.patch(base + f"/shares/{grant}/permissions", headers=auth_headers(),
+            json={"expected_version":version,"can_comment":False,"can_edit":False})
+        assert stale.status_code == 409
+        stale_revoke = client.delete(base + f"/shares/{grant}?expected_version={version}", headers=auth_headers())
+        assert stale_revoke.status_code == 409
+        version = changed.json()["version"]
     denied = client.patch(
         base + f"/shares/{grant}/permissions",
         headers=auth_headers_for(user_id=SHARED_USER_ID),

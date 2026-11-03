@@ -13,7 +13,7 @@ from fastapi.responses import (
     Response,
     StreamingResponse,
 )
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import nullslast, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -2597,6 +2597,7 @@ async def revoke_meeting_share_invitation_route(
 async def revoke_meeting_share_grant_route(
     meeting_id: UUID,
     grant_id: UUID,
+    expected_version: Annotated[int | None, Query(ge=1)] = None,
     tenant_scope: TenantScope = TenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
     device: DeviceContext = DeviceDependency,
@@ -2619,6 +2620,7 @@ async def revoke_meeting_share_grant_route(
         actor_user_id=principal.user_id,
         device_id=device.device_id,
         grant_id=grant_id,
+        expected_version=expected_version,
     )
     await db.commit()
     return Response(status_code=204)
@@ -5047,6 +5049,7 @@ async def react_meeting_comment(
 
 
 class CommentGrantPermissions(BaseModel):
+    expected_version: Annotated[int | None, Field(ge=1)] = None
     model_config = ConfigDict(extra="forbid")
     can_comment: bool
     can_edit: bool
@@ -5081,6 +5084,8 @@ async def update_comment_grant_permissions(
     )
     if grant is None:
         discussion.problem(404, "share_not_found")
+    if payload.expected_version is not None and grant.publication_version != payload.expected_version:
+        discussion.problem(409, "summary_link_changed")
     if grant.audience_type == "link":
         discussion.problem(422, "invalid_comment_permission")
     # An explicit role change includes granting the full meeting; a legacy
@@ -5184,7 +5189,7 @@ async def continue_public_meeting(request: Request, share_token: str,
     if tab != "outcomes" or position_ms is not None:
         target += share_fragment(tab, position_ms)
     cookie = seal(target, encryption_key(request.app.state.settings))
-    destination = "/sign-up" if action == "sign-up" else "/sign-in"
+    destination = "/sign-up" if action == "sign-up" else "/login"
     response = RedirectResponse(destination+"?"+urlencode({"next":"/shared-meeting/continue"}),status_code=303)
     response.set_cookie(CONTINUATION_COOKIE, cookie, max_age=600, httponly=True, samesite="lax", secure=request.url.scheme=="https")
     _mark_share_secret_response(response)
