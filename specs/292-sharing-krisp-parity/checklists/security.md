@@ -8,4 +8,8 @@
 - [x] SEC006 Определены ли строгие native inputs, собственная сессия, Dev/production и безопасный TTL возврата без токена в login URL? [spec FR-010/021; contracts]
 - [x] SEC007 Есть ли предметные negative/regression/runtime проверки и граница выпуска? [spec FR-015/023; plan; quickstart]
 
-Результат независимой проверки: см. [review-report.md](../review-report.md). Отметки относятся только к качеству требований; итоговая сверка tasks выполнена; приёмка реализации не выполнена.
+## Фактические ворота выпуска FR-027
+
+- [ ] SEC008 Подтверждены ли для выпуска exact-SHA/base PR checks, frozen train/candidate, единственный authoritative release-full, go decision, cd dry-run/execute/health/rollback и Developer ID/notarization/stapling/Gatekeeper/Sparkle/public readback? [FR-027; T013/T015–T017; release-and-validation.md; macos-notarization.md]. Причина: проверенный validation.md не содержит этих доказательств нового выпуска; T012/T013/T015–T017 открыты. Требования к воротам определены, их фактическое прохождение не подтверждено.
+
+Результат независимой проверки: см. [review-report.md](../review-report.md). SEC001–SEC007 относятся к качеству требований; SEC008 отдельно отражает фактические ворота выпуска. Требования выпуска проверены; итоговая приёмка реализации и выпуска не завершена.

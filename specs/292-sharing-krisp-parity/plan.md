@@ -12,8 +12,8 @@
 **Primary Dependencies**: существующие FastAPI/Pydantic/SQLAlchemy/cryptography, SwiftUI/WKWebView. Новых зависимостей нет.
 **Storage**: существующий PostgreSQL/MeetingShareGrant/PublishedMeetingSummary, серверное хранилище аудио; миграция для scope не нужна.
 **Testing**: pytest, существующие node browser tests, Swift shared tests, живой браузер и единственный GRAF Dev.
-**Risk / Validation Lane**: high-risk-feature — публичный доступ, приватность, авторизация и reference fidelity.
-**Release Gate**: no deploy; текущая задача не выпускает production. До PR обязательны governance-fast/macos-pr/pr-metadata exact SHA/base. При выпуске отдельно release-full, cd dry-run и разрешение выпуска.
+**Risk / Validation Lane**: high-risk-product — публичный доступ, приватность, авторизация и reference fidelity.
+**Release Gate**: пользователь 2026-11-03 явно поручил завершить проверку и выпустить новый production-релиз. После quickstart/converge и exact-SHA/base governance-fast/macos-pr/pr-metadata: линейный merge, CalVer metadata, frozen release train, один authoritative release-full, cd dry-run/execute, Developer ID/notarization/stapling/Gatekeeper/Sparkle и проверка опубликованной версии. Разрешение не заменяет эти ворота.
 **Target Platform**: сервер Linux, браузеры 320/390/1440 px, macOS GRAF Dev/production схема.
 **Project Type**: существующий web-service + desktop-app.
 **Performance Goals**: аудио максимум 4 MiB буфера потока на публичный ответ; общий предел nginx 30 r/s burst60 сохраняется. Не загружать аудио до действия пользователя (preload metadata/none). Длинная расшифровка не создаёт вторую БД-копию.
@@ -34,7 +34,7 @@
 
 ## Validation Plan
 
-quickstart.md содержит точные группы pytest/node/Swift и живую матрицу. Privacy/range/revoke/version/legacy regression обязательны до приёмки. Только synthetic fixtures. До сборки df; минимум 80 GiB целевой запас, ниже 50 GiB тяжёлая сборка не начинается. Проверки GRAF только /Applications/GRAF Dev.app через dev-harness и чистый exact commit; временные build intermediates очищаются после проверки. Состояние production не меняется. CI и runtime evidence отмечаются раздельно.
+quickstart.md содержит точные группы pytest/node/Swift и живую матрицу. Privacy/range/revoke/version/legacy regression обязательны до приёмки. Только synthetic fixtures. До сборки df; минимум 80 GiB целевой запас, ниже 50 GiB тяжёлая сборка не начинается. Проверки GRAF только /Applications/GRAF Dev.app через dev-harness и чистый exact commit; временные build intermediates очищаются после проверки. Production меняется только после ворот выпуска. CI, Dev и production evidence отмечаются раздельно.
 
 ## Project Structure
 

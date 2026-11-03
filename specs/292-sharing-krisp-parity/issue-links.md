@@ -17,3 +17,9 @@
 - T013: https://github.com/yshishenya/graf/issues/7912
 
 - T014: https://github.com/yshishenya/graf/issues/7913
+
+- T015: https://github.com/yshishenya/graf/issues/7916
+
+- T016: https://github.com/yshishenya/graf/issues/7917
+
+- T017: https://github.com/yshishenya/graf/issues/7918

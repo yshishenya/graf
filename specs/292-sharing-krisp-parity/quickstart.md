@@ -29,7 +29,7 @@ python3 scripts/check_spec_kit_governance.py
 
 ## Ворота
 
-Независимые security/ux checklist PASS до кода; analyze CRITICAL0/HIGH0; task issue sync. После кода converge и focused checks. PR: governance-fast/macos-pr/pr-metadata exact SHA/base. Production/release не выполняются этой задачей; не называть live acceptance пройденной без фактической проверки.
+Независимые security/ux checklist PASS до кода; analyze CRITICAL0/HIGH0; task issue sync. После кода converge и focused checks. PR: governance-fast/macos-pr/pr-metadata exact SHA/base. Production/release разрешены пользователем 2026-11-03 и выполняются после полного release gate из release-and-validation.md и macos-notarization.md. Не называть live acceptance пройденной без фактической проверки.
 
 ## Сквозная проверка Dev
 
@@ -42,3 +42,7 @@ GRAF_SHARING_LIVE=1 GRAF_SOURCE_SHA=<installed-full-sha> node apps/server/tests/
 Проверка выполняет два входа; соблюдать действующий лимит 3 запроса кода за 15 минут. Ссылка маскируется на снимке владельца, в итоговый JSON попадают только названия проверенных действий и SHA. После завершения общий доступ отзывается.
 
 FR-026: сравнить на основной и общей странице один и тот же проигрыватель: дорожки/цвета и проценты, клик по интервалу, позиция/активная реплика, следующий спикер, выбор речи, сворачивание, изменение высоты и клавиатура. Проверять два спикера с одинаковым видимым именем отдельно. Гостевая страница не запрашивает комментарии/редактор/контакты; summary-only не получает ключи/интервалы.
+
+## Проверка выпуска FR-027
+
+После T012/T013: T015 фиксирует серверный release train и authoritative full CI; T016 выпускает нотарифицированное macOS-обновление; T017 проверяет опубликованные сервер/страницу/приложение и закрывает задачи только по evidence. Продакшен-проверка использует отдельные синтетические материалы без адресных писем и изменения рабочих встреч. Проверки внешних аккаунтов/истёкшего сеанса выполняются на Dev. Не копировать production backup на Mac; хранить его штатно в закрытом серверном хранилище.

@@ -2418,7 +2418,7 @@ def _render_available_playback(*, playback: PlaybackReviewState, speakers_state:
     )
     return f"""
       <section class="playback-bar detail-playback" data-playback-shell data-playback-state="available" data-playback-reason="{escape(playback.reason_code)}" data-source-mode="{escape(playback.source_mode)}" {comment_attrs} aria-label="Воспроизведение записи" aria-describedby="playback-live-status">
-        <audio class="playback-audio" data-playback-player controls preload="metadata" src="{escape(playback_path)}"></audio>
+        <audio class="playback-audio" data-playback-player preload="metadata" controls src="{escape(playback_path)}"></audio>
         <div class="speaker-timeline-resize-row"{' hidden' if not has_speakers else ''}>
           <div class="speaker-timeline-resize" data-speaker-timeline-resize role="separator" aria-orientation="horizontal" aria-controls="speaker-timeline" aria-label="Изменить высоту дорожек спикеров" aria-valuemin="33" aria-valuemax="120" aria-valuenow="120" tabindex="0"></div>
         </div>

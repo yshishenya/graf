@@ -1,7 +1,7 @@
 # Tasks: F292 — поделиться встречей по образцу Krisp
 
 **Input**: spec.md, plan.md, research.md, data-model.md, contracts/sharing.md, quickstart.md.
-**Lane**: high-risk-feature, no deploy. Источник реализации — этот список; все задачи обязательны. Тесты нужны для приватности/прав и переходов. Reviewer чеклисты не отмечаются реализацией.
+**Lane**: high-risk-product; выпуск — release/production deploy, явно разрешён пользователем 2026-11-03. Источник реализации — этот список; все задачи обязательны. Тесты нужны для приватности/прав и переходов. Reviewer чеклисты не отмечаются реализацией.
 
 ## Phase 1 — Подготовка
 
@@ -43,7 +43,7 @@
 
 - [X] T011 Выполнить focused pytest/node/Swift из `specs/292-sharing-krisp-parity/quickstart.md`, исправить сбои, добавить русский `changes/unreleased/F292.yaml` и metadata-only `specs/292-sharing-krisp-parity/validation.md`. [FR-015/023; SC-001–005]
 - [ ] T012 Проверить браузер и единственный `/Applications/GRAF Dev.app` через dev-harness с чистого exact SHA по `specs/292-sharing-krisp-parity/quickstart.md`: owner/anonymous/external, scope/revoke/range/return/cold/warm, все размеры/темы/keyboard; сохранить обезличенные доказательства в `specs/292-sharing-krisp-parity/validation.md`. [FR-001/013/015/023; SC-001–005]
-- [ ] T013 Выполнить converge, final review и exact-SHA/base `governance-fast`/`macos-pr`/`pr-metadata`, сопоставить tasks/issues без ложного закрытия незавершённой приёмки в `specs/292-sharing-krisp-parity/{tasks,validation}.md`. Production/release не выполнять. [FR-015]
+- [ ] T013 Выполнить converge, final review и exact-SHA/base `governance-fast`/`macos-pr`/`pr-metadata`, сопоставить tasks/issues без ложного закрытия незавершённой приёмки в `specs/292-sharing-krisp-parity/{tasks,validation}.md`. После PASS перейти к T015–T017. [FR-015/027]
 
 ## Зависимости и выполнение
 
@@ -56,3 +56,11 @@ T001 → T002 → T003 → T004 → T005 → T006. T007 после T003 и T006.
 - [X] T014 [US2] Переиспользовать рендер и JS/CSS основного проигрывателя в `cabinet/rendering.py`, `templates/cabinet/pages/shared_meeting_reader.html`, `static/cabinet/{cabinet,public-sharing}.js`: дорожки/цвета/доля речи, таймлайн/переход/выбор спикеров/следующая реплика/скорость/сворачивание/клавиатура; безопасные локальные ключи из `cabinet/public_sharing.py`, без внутренних идентификаторов/комментариев. Проверить основной и публичный путь в существующих playback tests и `test_meeting_sharing_parity_ui.py`, а затем в T012. [FR-007/008/018/023/026]
 
 T014 выполняется до завершения T011–T013; требует независимого повторного просмотра уточнённых требований и синхронизации задачи GitHub до кода.
+
+## Phase 9 — Разрешённый выпуск
+
+- [ ] T015 Подготовить новый CalVer серверный релиз по `docs/agent-guidance/release-and-validation.md`: завершить T012/T013, exact-SHA/base PR gates и линейный merge; `prepare-release.sh`, frozen train/candidate, один authoritative GitHub release-full, train-attest/decide, `cd-remote.sh --dry-run` и штатный execute/health/rollback evidence. [FR-027]
+- [ ] T016 Выпустить macOS GRAF с того же frozen source по `docs/agent-guidance/macos-notarization.md`: Developer ID, hardened runtime/timestamp, Accepted notarization, staple/Gatekeeper, проверенный Sparkle archive/signature, tag/GitHub Release и публичный feed readback. Не публиковать ненотарифицированный пакет. [FR-027]
+- [ ] T017 Проверить опубликованные сервер, страницу получателя и версию приложения на синтетических материалах; записать metadata-only evidence в `validation.md`, сверить tasks/issues и закрыть task issues перед umbrella через live closeout validator с release-full. Очистить только собственные завершённые временные сборки, сохранить журналы и контрольные суммы. [FR-015/023/027]
+
+T015 после T012/T013; подготовка подписанного macOS-пакета T016 может идти параллельно authoritative full CI замороженного кандидата, публикация — после go/tag. T017 после обеих публикаций. Это расширение разрешения на выпуск, без изменения продуктового состава доступа.
