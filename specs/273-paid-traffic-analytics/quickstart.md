@@ -1,5 +1,38 @@
 # Quickstart: проверка готовности аналитики
 
+## Узкая приёмка восстановленных объектов T113/T116, 03.11.2026
+
+Предусловие к коду: независимый PASS checklist/object-readback и scoped analyze.
+Порядок/матрица отказов —
+[проект проверки](validation/t113-object-readback-design-20261103.md).
+Профиль shell/backup остаётся прежним:
+
+```sh
+apps/server/.venv/bin/python -m pytest -q \
+  apps/server/tests/integration/test_deployment_restore_safety.py \
+  apps/server/tests/integration/test_deployment_backup_restore_rehearsal.py
+```
+
+Выделенный checker требует отдельного unit-профиля и настоящего учебного
+MinIO: файлы с пробелами/Unicode/нулевым размером, полное перечисление,
+same-size corruption, missing/extra и сетевой отказ. Fake Docker не заменяет
+эту проверку. Все собственные учебные контейнеры/тома очищаются, сохраняются
+только безопасные итоги. Отдельный профиль требует полные ID установленных
+локальных образов, SDK с minio7.2.20/urllib3 2.7.0 и свободную подсеть
+10.246.82.0/28. Отсутствие входа/daemon/image — ошибка, без skip:
+
+```sh
+apps/server/.venv/bin/python -m pytest -q apps/server/tests/unit/test_rec_object_verify.py
+python3 apps/server/tests/integration/test_deployment_object_restore.py \
+  --minio-image sha256:460b46057cbcf8d01c2f7ceae9209290334b75dc1912235b10ad9bd35de056db \
+  --sdk-image sha256:b52eb3adc2991fa93ca66e626f3382428a41a9802e9f32e982333ee00e2ab83b
+```
+
+Снимок результатов и пределы приёмки:
+[проверка checker](validation/t113-object-readback-validation-20261103.md).
+После штатного выпуска отдельно проверяются обе выбранные копии с ресурсным
+допуском, cleanup и здоровьем продукта. T0/полная F273 и удаление38 не приняты.
+
 Руководство по проверке на живом стенде. Описывает, что запустить и что должно
 получиться, без деталей реализации.
 
