@@ -33,6 +33,10 @@ from twobrain_rec_server.billing.notifications import (
 from twobrain_rec_server.billing.operations import provider_key_is_expired
 from twobrain_rec_server.billing.purchases import settle_acceptance_budget
 from twobrain_rec_server.billing.reconciliation import ProviderScope, validate_purchase_payment
+from twobrain_rec_server.billing.reconciliation_observation import (
+    current_reconciliation_attempt,
+    record_reconciliation_observation,
+)
 from twobrain_rec_server.billing.renewal_charge import (
     charge_renewal_operation,
     pending_renewal_charge_candidates,
@@ -908,6 +912,22 @@ async def run_account_closure_reconciler(
 
 
 async def run_billing_reconciliation_activity(payload: dict[str, str]) -> dict[str, int | str]:
+    """Observe the actual attempt without changing its financial result or retries."""
+    attempt = current_reconciliation_attempt()
+    await record_reconciliation_observation(attempt, "started")
+    try:
+        result = await _run_billing_reconciliation_activity(payload)
+    except asyncio.CancelledError:
+        await record_reconciliation_observation(attempt, "canceled")
+        raise
+    except Exception:
+        await record_reconciliation_observation(attempt, "failed")
+        raise
+    await record_reconciliation_observation(attempt, "succeeded")
+    return result
+
+
+async def _run_billing_reconciliation_activity(payload: dict[str, str]) -> dict[str, int | str]:
     """Run one bounded billing maintenance pass; provider mutations are out of scope."""
     from temporalio.exceptions import ApplicationError
 

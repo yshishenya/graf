@@ -4,6 +4,14 @@
 
 ## Summary
 
+Активный срез03.11.2026 — T077/O16, постоянные наблюдения фактических
+попыток reconciliation по J1–J6. Ответы владельца приняты; этот план
+допускается к независимому ревью требований, но ещё не к реализации.
+Первый проверяемый шаг O16 — журнал и его агрегированное чтение; регулярный
+наблюдатель, почтовые тревоги и сохраняемая реакция остаются обязательным
+продолжением той же T077/O6 с уже принятым порядком5мин/15мин/retry≥5мин.
+Это последовательность исполнения, не отмена или перенос исходных сроков.
+
 Активная доработка 01.11.2026 — T077/#4932: внутренний read-only отчёт
 по [контракту O1–O8](contracts/operator-observation.md). Полоса:
 active Spec Kit slice, high-risk (диагностика/финансы/PostgreSQL).
@@ -79,6 +87,90 @@ tenant context/RLS, cabinet shell, MinIO lifecycle, Temporal, Postal и `httpx`.
 dunning engine или второй платный тариф только ради хранения.
 
 ## Technical Context
+
+### T077/O16: постоянный журнал попыток (03.11.2026)
+
+Полоса: active Spec Kit slice/high-risk-product (PostgreSQL, Temporal,
+диагностика, финансовая граница). Legacy Impact untouched. Без новых служб,
+библиотек, scheduler, Temporal RPC, продуктового API, флага запуска денег
+или нового tenant. O1–O15 CLI сохраняет READ ONLY RR и прежние пределы.
+
+**Constitution Check до исследования:** дизайн сохраняет III/IV/VI,
+metadata-only технический источник, изоляцию и неизменные финансовые
+результаты/согласия/locks. Нет изменения retention Temporal/Langfuse,
+capture/Stop/удаления или выпуска. Принятые ответы находятся в spec,
+Session2026-11-03; адрес получателя не входит в git/evidence.
+
+1. Одна новая append-only таблица `billing_reconciliation_observations`
+   в существующем PostgreSQL; модель рядом с billing models, одна миграция
+   от фактического Alembic head и строка в `db/rls_validation.py`.
+   По модели данных ключ попытки — namespace/workflow_id/workflow_run_id/
+   activity_id/attempt, ключ наблюдения дополняется event_kind. События
+   started/succeeded/failed/canceled неизменяемы; INSERT ON CONFLICT DO NOTHING
+   подавляет повтор того же свидетельства. Другой terminal event сохраняется
+   второй строкой и образует conflict. UPDATE/DELETE запрещены grants и
+   history-trigger; записи не удаляются по возрасту или meeting deletion.
+2. Новый узкий `billing/reconciliation_observation.py` получает identity
+   из `temporalio.activity.info()` текущей workflow activity (SDK1.30.0),
+   проверяет namespace, существующий workflow ID pattern/type, настоящий UUID
+   workflow_run_id, activity_id/type и положительный attempt. Ни payload run_id,
+   ни номер schedule bucket не используются вместо execution run ID.
+   Нет activity context/валидной identity — закрытый сигнал неполноты,
+   без вымышленной записи и без нового отказа финансовой работе.
+3. В `workflows/worker.py::run_billing_reconciliation_activity` добавить
+   наблюдение входа и исхода вокруг существующего тела. Наблюдение started
+   включает и последующий отказ валидации payload; failed — исключение
+   activity, а не банковский отказ. succeeded только после возврата всего
+   существующего тела, включая его cleanup. CancelledError сохраняется как
+   отмена, а не failure. Два COMMIT, maintenance→освобождение locks→webhook→
+   initial checkout, counters/result и исходные исключения остаются прежними.
+4. Каждая запись использует отдельные engine/connection/session и короткую
+   транзакцию; финансовая session не передаётся. Общий предел2с на запись
+   включает settings/connect/context/guard/INSERT/COMMIT/cleanup. До первого
+   SQL задать statement_timeout≤1с/lock_timeout≤0.5с на соединении; точный
+   existing maintenance context и `require_billing_maintenance_database`
+   обязательны. Использовать проверенный способ bounded cleanup из CLI:
+   публичный AsyncConnection, синхронный driver.terminate по deadline,
+   Connection.invalidate перед Session.invalidate, без shield/__aexit__
+   и оставшихся фоновых задач. Это локальный ресурсный образец, CLI не менять.
+5. Timeout/отказ записи не заменяет исходный result/exception и не повторяет
+   финансовую работу. Пробел остаётся unknown/partial. Внешнюю отмену
+   не поглощать: она прекращает работу; запись canceled — ограниченная
+   попытка, а не обещание сохранения при повторной отмене/аварии. При уже
+   возникшем финансовом исключении ошибка записи не подменяет его.
+   Обычный logger выдаёт только фиксированный `billing_observation_unavailable`,
+   без exc_info, identity, payload или исходного текста исключения.
+6. В прежнем `billing/monitoring.py` одна SQL-агрегация по полному ключу
+   попытки и закрытым event_kind; новое семейство `reconciliation_attempts`
+   описано в model/contract. Никакого Temporal RPC, предметных объектов или
+   запуска writer из отчёта. Наблюдаемый attempt>1 считается один раз;
+   отсутствующие меньшие attempt не восстанавливаются. Остальные семейства,
+   особенно addon job_* и heartbeat, сохраняют прежние null.
+7. До кода: согласованные семь документов → reviewer-owned
+   `checklists/reconciliation-observations.md` → независимый PASS → scoped
+   analyze J1–J6 и тот же T077/#4932. Затем RED → модель/миграция/recorder/
+   activity/collector → настоящие PG/ActivityEnvironment/CLI сценарии
+   quickstart → независимые code review/converge → точные source/base gates.
+   Новых task ID/issue нет;87 исходных task lines и58 gaps сохраняются.
+
+**После дизайна:** исключений конституции не выявлено; это оценка проекта,
+не независимый PASS, не фактическая RLS/backup/доставка/финансовая приёмка.
+Непустой журнал запрещает destructive downgrade: миграция должна отказать
+до удаления строк; проверяются пустой downgrade/upgrade и восстановление
+синтетического журнала штатным PG dump/restore без долговечного дампа.
+При disk-full/обрыве/несовместимой схеме запись не даёт ложного успеха,
+а диагностический CLI безопасно отказывает целиком по O3.
+
+**Обязательное продолжение O6:** существующий rec-maintenance и Postal
+`_post_message` пригодны без новой службы. Нужны отдельные внутренние
+recipient binding, сохраняемые reaction/delivery attempts, проверка каждые5мин,
+gap15мин, retry failed/unknown≥5мин и dedup сохранённого accepted.
+Не использовать tenant customer outbox с fake workspace; не менять общий
+EmailLoginDeliveryError или финансовый sender. До POST нужно сохранять попытку
+и next_allowed_at с защитой конкуренции; crash после Postal acceptance до DB
+остаётся unknown и допускает физический дубль при разрешённом повторе.
+Фактическое подключение и приёмка доставки — отдельные ворота этой же T077,
+не свойство журнала. Прежние финансовые/приватностные сроки действуют сейчас.
 
 ### T077: проекция storage (02.11.2026)
 

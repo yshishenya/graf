@@ -18,6 +18,7 @@ from twobrain_rec_server.db.models.billing import (
     BillingInvoice,
     BillingNotificationDelivery,
     BillingOperation,
+    BillingReconciliationObservation,
     BillingWebhookEvent,
     FairUseReviewRecord,
     ObservedProviderRefund,
@@ -412,6 +413,30 @@ async def _storage_inventory(db, as_of):
     )
 
 
+async def _reconciliation_attempts(db):
+    """Only saved attempts; unknown is not a financial failure or heartbeat."""
+    t = BillingReconciliationObservation.__table__.c
+    attempts = select(
+        t.attempt,
+        func.bool_or(t.event_kind == "started").label("started"),
+        func.count().filter(t.event_kind != "started").label("terminals"),
+        func.max(case((t.event_kind != "started", t.event_kind))).label("terminal"),
+    ).group_by(t.namespace, t.workflow_id, t.workflow_run_id, t.activity_id, t.attempt).subquery()
+    outcome = case((attempts.c.terminals > 1, "conflict"),
+                   (attempts.c.terminals == 0, "unknown"), else_=attempts.c.terminal).label("outcome")
+    rows = (await db.execute(select(
+        outcome, func.count().label("count"),
+        func.count().filter(attempts.c.attempt > 1).label("retries"),
+        func.count().filter(~attempts.c.started & (attempts.c.terminals > 0)).label("missing_start"),
+    ).group_by(outcome).order_by(outcome))).mappings().all()
+    return _source("billing_reconciliation_observations", {
+        "attempt_count": sum(row["count"] for row in rows),
+        "groups": [{"outcome": row["outcome"], "count": row["count"]} for row in rows],
+        "observed_retry_attempt_count": sum(row["retries"] for row in rows),
+        "missing_start_count": sum(row["missing_start"] for row in rows),
+    }, reason="conflicting_observations" if any(row["outcome"] == "conflict" for row in rows) else "history_incomplete")
+
+
 async def collect_billing_report(db, *, scope, as_of):
     """Caller owns the bounded READ ONLY REPEATABLE READ transaction."""
     await require_billing_maintenance_database(db)
@@ -448,6 +473,7 @@ async def collect_billing_report(db, *, scope, as_of):
         "refunds_and_receipts": await _refund_inventory(db),
         "deletion_and_fair_use": await _fair_use_inventory(db, as_of),
         "storage": await _storage_inventory(db, as_of),
+        "reconciliation_attempts": await _reconciliation_attempts(db),
     }
     families["ingress_and_duplicates"] = {
         "source": None, "scope": "unavailable", "kind": "current_state",

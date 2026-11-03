@@ -22,6 +22,33 @@ from sqlalchemy.sql import func
 from twobrain_rec_server.db.base import Base
 
 
+class BillingReconciliationObservation(Base):
+    """Immutable evidence of one actual Temporal activity attempt, not money."""
+
+    __tablename__ = "billing_reconciliation_observations"
+    __table_args__ = (
+        CheckConstraint("octet_length(namespace) BETWEEN 1 AND 255", name="reconciliation_namespace"),
+        CheckConstraint(
+            "octet_length(workflow_id) <= 128 AND workflow_id ~ '^billing-reconciliation/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/v1$'",
+            name="reconciliation_workflow_id",
+        ),
+        CheckConstraint("octet_length(activity_id) BETWEEN 1 AND 255", name="reconciliation_activity_id"),
+        CheckConstraint("attempt BETWEEN 1 AND 2147483647", name="reconciliation_attempt"),
+        CheckConstraint("event_kind IN ('started','succeeded','failed','canceled')", name="reconciliation_event_kind"),
+        CheckConstraint("isfinite(observed_at)", name="reconciliation_observed_at"),
+    )
+
+    namespace: Mapped[str] = mapped_column(String(255), primary_key=True)
+    workflow_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    workflow_run_id: Mapped[UUID] = mapped_column(primary_key=True)
+    activity_id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    attempt: Mapped[int] = mapped_column(Integer, primary_key=True)
+    event_kind: Mapped[str] = mapped_column(String(16), primary_key=True)
+    observed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.clock_timestamp()
+    )
+
+
 class BillingPlanVersion(Base):
     __tablename__ = "billing_plan_versions"
     __table_args__ = (

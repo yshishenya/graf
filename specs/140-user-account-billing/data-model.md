@@ -1,3 +1,53 @@
+## T077/O16: наблюдения попыток reconciliation — 03.11.2026
+
+Проект первого шага J1–J6, не приёмка миграции. Одна глобальная служебная
+таблица `billing_reconciliation_observations`, без workspace/user/device:
+
+| Поле | Ограничение и смысл |
+| --- | --- |
+| namespace | Непустая строка UTF-8, не более255байт, actual ActivityInfo.namespace |
+| workflow_id | Существующий billing-reconciliation/<UUID>/v1 pattern, ≤128байт |
+| workflow_run_id | UUID фактического исполнения из ActivityInfo; не payload run_id |
+| activity_id | Непустая строка, ≤255байт, из ActivityInfo |
+| attempt | Целое1..2147483647; положительный фактически наблюдаемый номер |
+| event_kind | Только started/succeeded/failed/canceled |
+| observed_at | Конечный timestamptz UTC, DB clock_timestamp(), NOT NULL |
+
+Составной PK — все пять полей identity плюс event_kind. Валидация выполняется
+до записи, CHECK/NOT NULL/unique в БД сохраняют те же границы. Поле observed_at
+не обновляется при повторе. Append-only, запрет UPDATE/DELETE и destructive
+downgrade непустой таблицы; автоматической очистки/исторического backfill нет.
+Индекс по полному ключу покрывается PK; дополнительные индексы без измеренной
+потребности не нужны. Нет failure text, task_token, counters JSON, payload,
+shop, provider/payment ID, суммы, контактов или meeting content.
+
+Изоляция: глобальный служебный источник ADR003, не tenant-данные и не bypass.
+ENABLE/FORCE RLS, точные session_user=current_user=twobrain_rec_maintenance,
+row_security=on, rec_context_kind=maintenance, rec_maintenance_allowed и
+billing_reconciliation/billing; grants только SELECT/INSERT. App/worker/
+request/SET ROLE/неверные operation/area denied; superuser/BYPASSRLS отвергает
+guard. Добавить в фактический RLS inventory; защищённый backup/restore
+сохраняет наблюдения/ограничения, не создаёт фиктивного tenant audit event.
+
+Read projection: source=billing_reconciliation_observations,
+scope=database_inventory, kind=current_state, coverage всегда partial.
+values: attempt_count, groups[{outcome,count}], observed_retry_attempt_count,
+missing_start_count; outcome — succeeded/failed/canceled/unknown/conflict,
+только непустые группы, sorted. Для ключа несколько разных terminal kinds —
+conflict; один terminal — его исход; ни одного — unknown. Start не требуется
+для сохранения terminal: missing_start_count считает такие ключи отдельно,
+не создаёт искусственный started. attempt_count равен сумме groups;
+retry count — ключи с attempt>1, не сумма номеров и не число денег/HTTP retries.
+Все строки независимо от report_date; future observed_at не становится
+возрастом: возраста/длительности/heartbeat вообще не выводятся. Пустой
+успешный inventory —0/[]/0/0, всё равно partial/reason=history_incomplete;
+при conflict reason=conflicting_observations. Ошибка схемы/доступа — отказ
+всего CLI по O3. Старые addon job_* и heartbeat не заполняются этим источником.
+
+Почтовая reaction/delivery модель не вводится этим первым шагом. Принятые
+owner/email/5мин/15мин/retry≥5мин/явный accepted_risk остаются обязательными
+для следующего подключения по O6, включая сохраняемую попытку до POST.
+
 ## T077: storage projection — 02.11.2026
 
 Read-only JSON projection O15/S1–S6, без таблиц/миграций/новых прав. Root

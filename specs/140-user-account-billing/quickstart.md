@@ -1,5 +1,61 @@
 # Quickstart and validation matrix
 
+## T077/O16: постоянные наблюдения попыток — 03.11.2026
+
+J1–J6, первый шаг — журнал/агрегаты, без запуска тревог. High-risk-product;
+сначала независимый checklists/reconciliation-observations.md и scoped analyze.
+Ниже сценарии, не результаты. Использовать owned apps/server/.venv,
+PYTHONPATH=src:.; перед тестами проверить twobrain_rec_server.__file__.
+До контейнеров проверить свободное место; только одноразовая PostgreSQL17
+с полным Alembic head и настоящими ролями/FORCE RLS, synthetic данные.
+
+1. RED отсутствующего recorder/агрегата; затем проверки actual identity через
+   temporalio.testing.ActivityEnvironment (dataclasses.replace(default_info)),
+   разные execution run ID одного workflow ID, attempt1/2 с пропущенным1,
+   повтор того же события и разные terminal outcomes. Payload UUID не ключ;
+   неверные namespace/pattern/run/activity/attempt и отсутствие activity
+   context не создают поддельную запись или новый financial failure.
+2. Unit activity: настоящий прежний порядок maintenance→COMMIT→webhook→initial
+   checkout→COMMIT/cleanup и тот же возвращаемый counters dict; отказ до/между/
+   после двух COMMIT, payload rejection, cancellation. Перехват recorder
+   timeout/schema/guard failure не меняет исходный result/exception; никакого
+   повторного вызова финансового тела. Внешняя и повторная отмена не теряется.
+3. PG: старт/исход фиксируются разными транзакциями, новый сеанс и новый процесс
+   видят журнал после финансового rollback/crash gap. Одинаковая доставка и
+   конкурентный INSERT не увеличивают unique attempt; success+failure/cancel
+   сохраняют оба свидетельства/conflict. Terminal без start даёт missing_start.
+   Нет terminal после аварии —unknown, неfailed; attempt>1 не создаёт прошлое.
+4. Настоящие роли: maintenance с точным контекстом SELECT/INSERT; app/worker/
+   request/SETROLE/неверные operation/area denied; guard отвергает superuser,
+   BYPASSRLS и row_securityoff. Проверить CHECK/NOTNULL и запрет UPDATE/DELETE.
+   Empty downgrade→upgrade проходит; nonempty downgrade отказывает до потери
+   истории. Dump/restore synthetic журнала сохраняет строки/PK/RLS/запреты;
+   временный дамп убрать finally. Реальные backups/production не трогать.
+5. Общий2с deadline recorder при connect/setup/guard/lock/query/commit/close:
+   driver.terminate, Connection.invalidate→Session.invalidate, нет shield
+   close/фоновой задачи/пула с checkout после выхода. Отдельные сбой записи,
+   обрыв/ошибка COMMIT (unknown), недостаток места через изолированную fault
+   injection: не ложный успех и не money retry. Синтетические SQL/URL/PII
+   sentinels не появляются в stderr/logs; фиксированный закрытый код разрешён.
+6. Реальный CLI/newprocess/RR: empty0 против missing-schema/error; groups
+   sorted, count/observed retry/missing start/conflict точны, разные report_date
+   не фильтруют журнал. Старый снимок согласован, новый видит поздний commit.
+   READONLY до hooks/15с/5с/2с/500gaps/64KiB/no-write и остальные families прежние.
+   Ни Temporal RPC, ни почта, ни новые financial mutations не вызываются.
+7. Пути проверок: tests/unit/test_billing_reconciliation_activity.py и
+   tests/unit/test_billing_monitoring.py; новые PG cases в существующем
+   tests/integration/test_billing_monitoring_postgres.py и затронутый
+   tests/contract/test_billing_reconciliation_workflow.py. Сначала зафиксировать
+   точные новые nodeids, затем узкий runner/XML/log/actual exit/cleanup.
+   Принятые O1–O15 не повторять без затронутой зависимости. После independent
+   code/converge, процесс/Ruff/fragments и три exact source/base PR gates.
+
+Полная приёмка T077 дополнительно требует регулярности/heartbeat, остальных
+источников, внутренних email alerts/retry и сохраняемой реакции O6. Политика
+владельца уже принята и не спрашивается вновь. Настоящее письмо/почтовое
+подтверждение/получение человеком/рабочая конфигурация этим набором не приняты.
+T077/T070[ ],87 task lines/58 прежних gaps/исходные сроки сохранены; Refs#4932.
+
 ## T077: storage projection — 02.11.2026
 
 O15/S1–S6, исходная T077/#4932/high-risk-product. Ниже план, ещё не результаты.
