@@ -74,6 +74,406 @@ STORAGE_TABLES = (Workspace, WorkspaceSubscription, StorageReservation, BillingE
                   BillingStorageEntitlementGrant, TrackArtifact, UploadSession)
 
 
+def test_reconciliation_journal_empty_cli_is_declared_partial(database):
+    result, code = process(database)
+    assert code == 0
+    assert result["families"]["reconciliation_attempts"] == {
+        "source": "billing_reconciliation_observations", "scope": "database_inventory",
+        "kind": "current_state", "coverage": "partial", "reason_code": "history_incomplete",
+        "values": {"attempt_count": 0, "groups": [], "observed_retry_attempt_count": 0, "missing_start_count": 0},
+    }
+
+
+def reconciliation_attempt(**overrides):
+    from twobrain_rec_server.billing.reconciliation_observation import ReconciliationAttempt
+
+    return ReconciliationAttempt(**{
+        "namespace": "private-namespace", "workflow_id": f"billing-reconciliation/{uuid4()}/v1",
+        "workflow_run_id": uuid4(), "activity_id": "private-activity", "attempt": 1, **overrides,
+    })
+
+
+def test_reconciliation_journal_persists_deduplicates_conflicts_and_snapshot(database, monkeypatch):
+    from dataclasses import replace
+
+    from twobrain_rec_server.billing import reconciliation_observation as observation
+
+    monkeypatch.setattr(observation, "get_settings", lambda: settings(database))
+
+    async def probe():
+        engine = create_async_engine(database)
+        first = reconciliation_attempt()
+        failed = replace(first, workflow_run_id=uuid4())
+        unknown = replace(first, attempt=3)
+        canceled = replace(first, activity_id="private-canceled", attempt=5)
+        conflict = replace(first, activity_id="private-conflict", attempt=2)
+        try:
+            for attempt, kinds in ((first, ("started", "succeeded")), (failed, ("started", "failed")),
+                                   (unknown, ("started",)), (canceled, ("canceled",)),
+                                   (conflict, ("succeeded", "failed"))):
+                for kind in kinds:
+                    assert await observation.record_reconciliation_observation(attempt, kind)
+            async with engine.connect() as conn:
+                before = (await conn.execute(text("SELECT row_to_json(t)::text FROM billing_reconciliation_observations t ORDER BY namespace,workflow_id,workflow_run_id,activity_id,attempt,event_kind"))).scalars().all()
+            assert all(await asyncio.gather(*(observation.record_reconciliation_observation(first, "succeeded") for _ in range(4))))
+            async with engine.connect() as conn:
+                assert (await conn.execute(text("SELECT row_to_json(t)::text FROM billing_reconciliation_observations t ORDER BY namespace,workflow_id,workflow_run_id,activity_id,attempt,event_kind"))).scalars().all() == before
+                # A separate transaction rolls back without erasing observation.
+                await conn.execute(text("SELECT pg_advisory_xact_lock(109109)"))
+                assert await observation.record_reconciliation_observation(unknown, "started")
+                await conn.rollback()
+            reader = create_async_engine(settings(database).database_url, execution_options={
+                "isolation_level": "REPEATABLE READ", "postgresql_readonly": True,
+            })
+            try:
+                async with create_sessionmaker(reader)() as db:
+                    db.sync_session.info["tenant_context"] = maintenance_context_settings(MaintenanceTenantContext(
+                        operation_name="billing_reconciliation", actor_id="synthetic", reason_category="synthetic", feature_area="billing"))
+                    old = await monitoring._reconciliation_attempts(db)
+                    assert old["values"] == {"attempt_count": 5, "groups": [
+                        {"outcome": outcome, "count": 1} for outcome in ("canceled", "conflict", "failed", "succeeded", "unknown")],
+                        "observed_retry_attempt_count": 3, "missing_start_count": 2}
+                    assert old["coverage"] == "partial" and old["reason_code"] == "conflicting_observations"
+                    assert await observation.record_reconciliation_observation(unknown, "succeeded")
+                    assert await monitoring._reconciliation_attempts(db) == old
+                async with create_sessionmaker(reader)() as db:
+                    db.sync_session.info["tenant_context"] = maintenance_context_settings(MaintenanceTenantContext(
+                        operation_name="billing_reconciliation", actor_id="synthetic", reason_category="synthetic", feature_area="billing"))
+                    new = await monitoring._reconciliation_attempts(db)
+                    assert new["values"]["attempt_count"] == 5
+                    assert new["values"]["groups"][-1] == {"outcome": "succeeded", "count": 2}
+            finally:
+                await reader.dispose()
+        finally:
+            await engine.dispose()
+    asyncio.run(probe())
+    baseline = asyncio.run(fingerprint(database))
+    one, code = process(database)
+    two, other_code = process(database, day=date(2020, 1, 1))
+    assert code == other_code == 0
+    assert one["families"]["reconciliation_attempts"] == two["families"]["reconciliation_attempts"]
+    assert one["families"]["addon_and_time_credit"]["values"]["job_attempts"] is None
+    assert "private-" not in json.dumps(one)
+    assert asyncio.run(fingerprint(database)) == baseline
+
+
+def test_reconciliation_journal_roles_constraints_and_immutable_history(database, monkeypatch):
+    from dataclasses import asdict
+
+    from sqlalchemy.exc import DBAPIError
+
+    from twobrain_rec_server.billing import reconciliation_observation as observation
+    from twobrain_rec_server.db.models import BillingReconciliationObservation
+    from twobrain_rec_server.db.rls_validation import RLS_COVERED_TABLES
+
+    monkeypatch.setattr(observation, "get_settings", lambda: settings(database))
+    attempt = reconciliation_attempt()
+    table = BillingReconciliationObservation.__table__
+    assert table.name in RLS_COVERED_TABLES
+
+    async def probe():
+        assert await observation.record_reconciliation_observation(attempt, "started")
+        admin = create_async_engine(database)
+        try:
+            async with admin.begin() as conn:
+                assert (await conn.execute(text("SELECT relrowsecurity,relforcerowsecurity FROM pg_class WHERE relname='billing_reconciliation_observations'"))).one() == (True, True)
+                assert (await conn.execute(text("SELECT has_table_privilege('twobrain_rec_maintenance','billing_reconciliation_observations','SELECT,INSERT'),has_table_privilege('twobrain_rec_maintenance','billing_reconciliation_observations','UPDATE'),has_table_privilege('twobrain_rec_maintenance','billing_reconciliation_observations','DELETE')"))).one() == (True, False, False)
+                # Deliberately broad test-only grants prove the exact RLS boundary.
+                await conn.execute(text("GRANT SELECT,INSERT,UPDATE,DELETE ON billing_reconciliation_observations TO twobrain_rec_app,registry_worker,twobrain_rec_maintenance"))
+            for role, context, operation, area, set_role in [
+                ("twobrain_rec_app", "maintenance", "billing_reconciliation", "billing", False),
+                ("registry_worker", "maintenance", "billing_reconciliation", "billing", False),
+                ("registry_worker", "maintenance", "billing_reconciliation", "billing", True),
+                ("twobrain_rec_maintenance", "request", "billing_reconciliation", "billing", False),
+                ("twobrain_rec_maintenance", "worker", "billing_reconciliation", "billing", False),
+                ("twobrain_rec_maintenance", "maintenance", "operator_diagnostics", "billing", False),
+                ("twobrain_rec_maintenance", "maintenance", "billing_reconciliation", "wrong", False),
+            ]:
+                engine = create_async_engine(settings(database, role).database_url)
+                try:
+                    async with engine.begin() as conn:
+                        if set_role:
+                            await conn.execute(text("SET ROLE twobrain_rec_maintenance"))
+                        for key, value in {"app.context_kind": context, "app.maintenance_operation": operation,
+                                           "app.maintenance_feature_area": area, "app.maintenance_actor": "synthetic", "app.maintenance_reason": "synthetic"}.items():
+                            await conn.execute(text("SELECT set_config(:key,:value,true)"), {"key": key, "value": value})
+                        assert (await conn.execute(table.select())).all() == []
+                        with pytest.raises(DBAPIError):
+                            await conn.execute(insert(table).values(**asdict(attempt), event_kind="failed"))
+                finally:
+                    await engine.dispose()
+            invalid = [{"namespace": ""}, {"namespace": "я" * 128}, {"workflow_id": "private-invalid"},
+                       {"workflow_run_id": None}, {"activity_id": ""}, {"activity_id": "я" * 128},
+                       {"attempt": 0}, {"event_kind": "private-outcome"}, {"event_kind": None},
+                       {"observed_at": None}, {"observed_at": text("'infinity'::timestamptz")}]
+            for override in invalid:
+                async with admin.connect() as conn:
+                    with pytest.raises(DBAPIError):
+                        await conn.execute(insert(table).values(**{**asdict(attempt), "event_kind": "failed", **override}))
+            for sql in ("UPDATE billing_reconciliation_observations SET observed_at=clock_timestamp()", "DELETE FROM billing_reconciliation_observations"):
+                async with admin.connect() as conn:
+                    with pytest.raises(DBAPIError, match="history is immutable"):
+                        await conn.execute(text(sql))
+            for role in ("twobrain_rec", "twobrain_rec_app", "registry_worker"):
+                monkeypatch.setattr(observation, "get_settings", lambda role=role: settings(database, role))
+                assert not await observation.record_reconciliation_observation(attempt, "succeeded")
+        finally:
+            await admin.dispose()
+    asyncio.run(probe())
+
+
+def test_reconciliation_journal_faults_deadline_and_whole_cli_schema_failure(database, monkeypatch, caplog):
+    from twobrain_rec_server.billing import reconciliation_observation as observation
+
+    monkeypatch.setattr(observation, "get_settings", lambda: settings(database))
+    attempt = reconciliation_attempt()
+
+    async def faults():
+        engine = create_async_engine(database)
+        try:
+            for body in ("PERFORM pg_sleep(10)", "RAISE EXCEPTION 'private-disk-url-contact' USING ERRCODE='53100'"):
+                async with engine.begin() as conn:
+                    await conn.execute(text(f"CREATE FUNCTION synthetic_observation_fault() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN {body}; RETURN NEW; END $$"))
+                    await conn.execute(text("CREATE TRIGGER synthetic_observation_fault BEFORE INSERT ON billing_reconciliation_observations FOR EACH ROW EXECUTE FUNCTION synthetic_observation_fault()"))
+                try:
+                    began = asyncio.get_running_loop().time()
+                    assert not await observation.record_reconciliation_observation(attempt, "started")
+                    assert asyncio.get_running_loop().time() - began < 2.3
+                finally:
+                    async with engine.begin() as conn:
+                        await conn.execute(text("DROP TRIGGER synthetic_observation_fault ON billing_reconciliation_observations"))
+                        await conn.execute(text("DROP FUNCTION synthetic_observation_fault()"))
+            async with engine.connect() as lock:
+                await lock.execute(text("LOCK TABLE billing_reconciliation_observations IN ACCESS EXCLUSIVE MODE"))
+                began = asyncio.get_running_loop().time()
+                assert not await observation.record_reconciliation_observation(attempt, "started")
+                assert asyncio.get_running_loop().time() - began < 2.3
+                await lock.rollback()
+            assert await observation.record_reconciliation_observation(attempt, "started")
+            async with engine.connect() as conn:
+                assert (await conn.execute(text("SELECT count(*) FROM billing_reconciliation_observations"))).scalar_one() == 1
+        finally:
+            await engine.dispose()
+    asyncio.run(faults())
+    assert "private-disk" not in caplog.text and "postgresql" not in caplog.text
+
+    async def rename(old, new):
+        engine = create_async_engine(database)
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(text(f"ALTER TABLE {old} RENAME TO {new}"))
+        finally:
+            await engine.dispose()
+    asyncio.run(rename("billing_reconciliation_observations", "synthetic_missing_observations"))
+    try:
+        assert process(database) == ({"schema_version": 1, "result_code": "report_unavailable"}, 1)
+        assert not asyncio.run(observation.record_reconciliation_observation(attempt, "succeeded"))
+    finally:
+        asyncio.run(rename("synthetic_missing_observations", "billing_reconciliation_observations"))
+
+
+@pytest.mark.parametrize("stage", ["dialect", "tenant"])
+@pytest.mark.parametrize("cancellation", ["deadline", "external", "repeated"])
+def test_early_sql_cancellation_has_no_graceful_close_tail(database, monkeypatch, stage, cancellation):
+    import asyncpg
+
+    from twobrain_rec_server.billing import reconciliation_observation as observation
+
+    monkeypatch.setattr(observation, "get_settings", lambda: settings(database))
+    monkeypatch.setattr(observation, "OBSERVATION_TIMEOUT_SECONDS", 0.15)
+    original_engine = observation.create_async_engine
+    original_close = asyncpg.Connection.close
+    engines, drivers, reached = [], [], []
+    entered = None
+    def factory(*args, **kwargs):
+        engine = original_engine(*args, **kwargs)
+        engines.append(engine)
+        if stage == "dialect":
+            original_initialize = engine.sync_engine.dialect.initialize
+            def initialize(connection):
+                reached.append("dialect")
+                entered.set()
+                connection.exec_driver_sql("SELECT pg_sleep(10)")
+                original_initialize(connection)
+            monkeypatch.setattr(engine.sync_engine.dialect, "initialize", initialize)
+        else:
+            @event.listens_for(engine.sync_engine, "before_cursor_execute")
+            def before(connection, cursor, statement, params, context, executemany):
+                if "set_config" in statement and not reached:
+                    reached.append("tenant")
+                    entered.set()
+                    connection.exec_driver_sql("SELECT pg_sleep(10)")
+        return engine
+    async def slow_transport_close(self, *, timeout=None):
+        # Model transport close waiting for the peer until native close timeout.
+        # Actual synchronous terminate must release it, rather than another task.
+        drivers.append(self)
+        async with asyncio.timeout(timeout):
+            while not self.is_closed():
+                await asyncio.sleep(0.005)
+        await original_close(self, timeout=timeout)
+    monkeypatch.setattr(observation, "create_async_engine", factory)
+    monkeypatch.setattr(asyncpg.Connection, "close", slow_transport_close)
+    async def probe():
+        nonlocal entered
+        entered = asyncio.Event()
+        before = asyncio.all_tasks()
+        started = asyncio.get_running_loop().time()
+        task = asyncio.create_task(observation.record_reconciliation_observation(reconciliation_attempt(), "started"))
+        if cancellation == "deadline":
+            assert not await task
+        else:
+            await entered.wait()
+            await asyncio.sleep(0.01)
+            task.cancel()
+            if cancellation == "repeated":
+                await asyncio.sleep(0.01)
+                task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+        elapsed = asyncio.get_running_loop().time() - started
+        assert reached == [stage]
+        assert elapsed < 0.5, f"early SQL exceeded total observation budget: {elapsed:.3f}s"
+        await asyncio.sleep(0.02)
+        assert asyncio.all_tasks() == before
+        assert all(d.is_closed() for d in drivers)
+        assert all(e.sync_engine.pool.checkedout() == 0 for e in engines)
+    asyncio.run(probe())
+
+
+def test_reconciliation_journal_migration_roundtrip_backup_restore_and_nonempty_refusal(database, monkeypatch, tmp_path):
+    from pathlib import Path
+
+    from alembic import command
+    from alembic.config import Config
+    from sqlalchemy.exc import DBAPIError
+
+    from twobrain_rec_server.billing import reconciliation_observation as observation
+    from twobrain_rec_server.config import get_settings
+
+    root = Path(__file__).resolve().parents[2]
+    config = Config(str(root / "alembic.ini"))
+    config.set_main_option("script_location", str(root / "src/twobrain_rec_server/db/migrations"))
+    monkeypatch.setenv("TWOBRAIN_DATABASE_URL", database)
+    get_settings.cache_clear()
+    dump = tmp_path / "synthetic-observations.dump"
+    parsed = make_url(database)
+    restored_name = f"test_observation_restore_{uuid4().hex}"
+    candidates = subprocess.check_output(["docker", "ps", "--filter", "name=graf-postgres-test-bootstrap-", "--format", "{{.Names}}"], text=True).split()
+    container = next(name for name in candidates if subprocess.check_output(
+        ["docker", "port", name, "5432/tcp"], text=True).strip() == f"127.0.0.1:{parsed.port}")
+
+    def docker(*args, **kwargs):
+        result = subprocess.run(["docker", "exec", container, *args], capture_output=True, timeout=30, **kwargs)
+        assert result.returncode == 0, "synthetic restore command must succeed"
+        return result
+
+    created = False
+    try:
+        command.downgrade(config, "0108_public_consent")
+        command.upgrade(config, "head")
+        monkeypatch.setattr(observation, "get_settings", lambda: settings(database))
+        assert asyncio.run(observation.record_reconciliation_observation(reconciliation_attempt(), "failed"))
+        with pytest.raises(DBAPIError, match="reconciliation observations exist"):
+            command.downgrade(config, "0108_public_consent")
+        expected = process(database)[0]["families"]["reconciliation_attempts"]
+        dump.write_bytes(docker("pg_dump", "-U", "twobrain_rec", "-d", parsed.database, "--format=custom").stdout)
+        docker("createdb", "-U", "twobrain_rec", restored_name)
+        created = True
+        # The dump is synthetic and temporary; restoring preserves schema/RLS/grants/triggers.
+        result = subprocess.run(["docker", "exec", "-i", container, "pg_restore", "-U", "twobrain_rec", "-d", restored_name],
+                                input=dump.read_bytes(), capture_output=True, timeout=30)
+        assert result.returncode == 0, "synthetic pg_restore must succeed"
+        restored = parsed.set(database=restored_name).render_as_string(hide_password=False)
+        result, code = process(restored)
+        assert code == 0 and result["families"]["reconciliation_attempts"] == expected
+
+        async def flags():
+            engine = create_async_engine(restored)
+            try:
+                async with engine.connect() as conn:
+                    assert (await conn.execute(text("SELECT relrowsecurity,relforcerowsecurity FROM pg_class WHERE relname='billing_reconciliation_observations'"))).one() == (True, True)
+                    with pytest.raises(DBAPIError, match="history is immutable"):
+                        await conn.execute(text("DELETE FROM billing_reconciliation_observations"))
+            finally:
+                await engine.dispose()
+        asyncio.run(flags())
+    finally:
+        get_settings.cache_clear()
+        dump.unlink(missing_ok=True)
+        if created:
+            docker("dropdb", "-U", "twobrain_rec", "--force", restored_name)
+
+
+def test_reconciliation_journal_actual_activity_commit_unknown_and_privileged_guard(database, monkeypatch, caplog):
+    from tests.unit.test_billing_reconciliation_activity import observation_environment
+    from twobrain_rec_server.billing import reconciliation_observation as observation
+    from twobrain_rec_server.workflows import worker
+
+    monkeypatch.setattr(observation, "get_settings", lambda: settings(database))
+    calls = []
+
+    async def financial(payload):
+        calls.append(payload)
+        return {"processed": 3}
+
+    monkeypatch.setattr(worker, "_run_billing_reconciliation_activity", financial)
+
+    async def probe():
+        env = observation_environment(attempt=7)
+        payload = {"run_id": str(uuid4())}
+        assert await env.run(worker.run_billing_reconciliation_activity, payload) == {"processed": 3}
+        assert calls == [payload]
+        engine = create_async_engine(database)
+        try:
+            async with engine.connect() as conn:
+                rows = (await conn.execute(text("SELECT namespace,workflow_run_id::text,attempt,event_kind FROM billing_reconciliation_observations ORDER BY event_kind"))).all()
+                assert rows == [("synthetic", env.info.workflow_run_id, 7, kind) for kind in ("started", "succeeded")]
+                assert all(row[1] != payload["run_id"] for row in rows)
+            base_factory = observation.create_sessionmaker
+
+            def uncertain_factory(engine):
+                factory = base_factory(engine)
+                def create():
+                    db = factory()
+                    commit = db.commit
+                    async def uncertain_commit():
+                        await commit()
+                        raise OSError("private-commit-reply-lost")
+                    db.commit = uncertain_commit
+                    return db
+                return create
+
+            with monkeypatch.context() as patch:
+                patch.setattr(observation, "create_sessionmaker", uncertain_factory)
+                assert not await observation.record_reconciliation_observation(reconciliation_attempt(), "failed")
+            async with engine.connect() as conn:
+                assert (await conn.execute(text("SELECT count(*) FROM billing_reconciliation_observations"))).scalar_one() == 3
+
+            # The guard rejects the actual privileged login even with correct context.
+            async with engine.begin() as conn:
+                await conn.execute(text("ALTER ROLE twobrain_rec_maintenance BYPASSRLS"))
+            try:
+                assert not await observation.record_reconciliation_observation(reconciliation_attempt(), "started")
+            finally:
+                async with engine.begin() as conn:
+                    await conn.execute(text("ALTER ROLE twobrain_rec_maintenance NOBYPASSRLS"))
+
+            real_create = observation.create_async_engine
+            def rls_off_engine(url, **kwargs):
+                kwargs["connect_args"]["server_settings"]["row_security"] = "off"
+                return real_create(url, **kwargs)
+            with monkeypatch.context() as patch:
+                patch.setattr(observation, "create_async_engine", rls_off_engine)
+                assert not await observation.record_reconciliation_observation(reconciliation_attempt(), "started")
+            async with engine.connect() as conn:
+                assert (await conn.execute(text("SELECT count(*) FROM billing_reconciliation_observations"))).scalar_one() == 3
+        finally:
+            await engine.dispose()
+    asyncio.run(probe())
+    assert "private-commit" not in caplog.text and "postgresql" not in caplog.text
+
+
 @pytest.fixture
 def database(registry_database):  # noqa: F811 — imported pytest fixture
     async def setup():
@@ -83,6 +483,9 @@ def database(registry_database):  # noqa: F811 — imported pytest fixture
                 names = ",".join(model.__tablename__ for model in TABLES)
                 for role in ("twobrain_rec_app", "twobrain_rec_maintenance", "registry_worker"):
                     await conn.execute(text(f"GRANT SELECT,INSERT,UPDATE,DELETE ON {names} TO {role}"))
+                # Roles are created by registry_database after migrations; grant
+                # the same two privileges as0109, without any history mutation.
+                await conn.execute(text("GRANT SELECT,INSERT ON billing_reconciliation_observations TO twobrain_rec_maintenance"))
                 for model in (*TABLES, *STORAGE_TABLES):
                     flags = (await conn.execute(text(
                         "select relrowsecurity, relforcerowsecurity from pg_class where relname=:table"
@@ -173,7 +576,7 @@ def test_empty_then_populated_cli_restart_privacy_and_no_writes(database):
     empty, code = process(database)
     assert code == 0 and empty["coverage"] == "partial"
     families = empty["families"]
-    assert len(families) == 11
+    assert len(families) == 12
     assert families["payment_state"]["values"]["operations"]["count"] == 0
     assert families["storage"]["values"]["workspace_count"] == 0
     assert families["ingress_and_duplicates"]["reason_code"] == "uninstrumented"

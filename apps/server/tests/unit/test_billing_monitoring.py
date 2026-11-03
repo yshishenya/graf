@@ -12,6 +12,23 @@ from twobrain_rec_server.readiness.checks import (
 )
 
 
+def test_reconciliation_attempt_inventory_is_partial_empty_and_uses_one_sql_aggregate():
+    from twobrain_rec_server.billing.monitoring import _reconciliation_attempts
+
+    response = MagicMock()
+    response.mappings.return_value.all.return_value = []
+    db = AsyncMock(execute=AsyncMock(return_value=response))
+    result = asyncio.run(_reconciliation_attempts(db))
+    assert result == {
+        "source": "billing_reconciliation_observations", "scope": "database_inventory",
+        "kind": "current_state", "coverage": "partial", "reason_code": "history_incomplete",
+        "values": {"attempt_count": 0, "groups": [], "observed_retry_attempt_count": 0, "missing_start_count": 0},
+    }
+    db.execute.assert_awaited_once()
+    sql = str(db.execute.await_args.args[0]).lower()
+    assert "group by" in sql and "event_kind" in sql and "observed_at" not in sql
+
+
 def test_oldest_age_is_maximum_and_future_is_unknown() -> None:
     now = datetime(2026, 11, 1, tzinfo=UTC)
     rows = [{"count": 2, "oldest_at": now - timedelta(seconds=60), "invalid_time_count": 0},

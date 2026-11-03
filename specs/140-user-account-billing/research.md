@@ -1,3 +1,66 @@
+## T077/O16: решения плана после исследования — 03.11.2026
+
+- Decision: первый шаг — одна append-only таблица наблюдений actual Temporal
+  attempts с уникальностью identity+event_kind и агрегатами; независимые2с
+  транзакции вокруг существующей activity. Rationale: переживает restart,
+  сохраняет конфликт и unknown после финансового commit, без UPDATE истории,
+  нового service и подмены tenant audit. Model/plan/quickstart задают точную
+  форму и проверки. Это проект, ещё не reviewer-owned допуск к коду.
+- Decision: реальные namespace/workflow_id/workflow_run_id/activity_id/attempt
+  из SDK1.30.0 ActivityInfo; workflow_namespace deprecated, использовать
+  namespace. ActivityEnvironment предоставляет официальный synthetic context.
+  Payload UUID/номер bucket, last_failure и retained history не заменяют
+  постоянный журнал всех наблюдений; внешнего Temporal RPC в CLI нет.
+- Decision: уже существующие rec-maintenance и Postal _post_message пригодны
+  для дальнейших внутренних тревог. Независимое исследование почты завершено;
+  транспорт выполняет один POST и различает known rejection и unknown
+  timeout/network/5xx/malformed. Customer financial sender не возвращает
+  acceptance ID, customer outbox требует workspace/user, unknown не повторяет.
+  Новый internal unknown retry≥5мин должен быть отдельной caller policy;
+  общий классификатор и клиентские письма не менять. X-2brain-Delivery-Key
+  не доказательство Postal dedup; accepted не mailbox delivery/read.
+- Alternatives rejected: fake tenant, generic incident/outbox, новый mail
+  service/dependency, изменение финансового retry, пересбор истории через
+  Temporal RPC и claims exactly-once. Реакция O6 требует собственного
+  узкого сохраняемого состояния/попытки до POST и next_allowed_at; crash после
+  приёма до commit остаётся unknown. Этот дальнейший шаг остаётся в T077,
+  принятие owner/email/порядка не выдаётся за настроенную доставку.
+
+## T077/O16: источник попыток и принятые ответы — 03.11.2026
+
+- Исследован существующий scheduler worker.py608–630, workflow
+  billing_reconciliation_workflow.py и activity worker.py910–956. Период5мин,
+  ALLOW_DUPLICATE, один workflow/одна activity, retry policy12 — описания кода,
+  а не приёмка постоянных metrics, heartbeat или отсутствия пропущенных циклов.
+  Два финансовых COMMIT не отменяются последующей ошибкой activity.
+- Candidate: узкий журнал наблюдаемых фактических попыток в существующей
+  PostgreSQL/maintenance. Actual identity берётся из Temporal ActivityInfo;
+  bucket UUID не execution run ID. Повтор доставки/противоречащий исход и
+  авария после финансового commit должны сохранять неизвестность и прежние
+  подтверждения, а не повторять деньги. Это выбор для уточнения, не дизайн
+  модели/миграции и не принятое разрешение новой записи.
+- Alternatives: retained Temporal execution/history пригодны для bounded
+  наблюдения, но не доказывают постоянную полную историю errors/retries.
+  Installed SDK1.30.0 предоставляет attempt/last_failure, не все ошибки;
+  Compose Temporal1.27.2 сам по себе не подтверждает live retention/visibility/
+  read-only ACL. Describe без exactrun может описать latest unrelated run;
+  fetch_history собирает все события. Новый retained-execution inventory
+  не включается в этот срез. Настройки retry и строки grant/operation не
+  принимаются за постоянные показатели заданий.
+- Исследование02.11 не подтвердило owner/channel в проверенных feature/config
+  и соседнем операторском контексте; это не доказывало отсутствия решения везде.
+  Ответы03.11 закрыли этот вопрос: оператор — сам владелец GRAF, канал — почта
+  на указанный им адрес, который не публикуется. Приняты проверка5мин,
+  подтверждённый failure/противоречие и gap15мин, повтор failed/unknown отправки
+  не чаще5мин без повторения одинакового принятого почтовым сервером сообщения,
+  сохраняемые owner/severity/evidence/deadline и реакция до resolved либо явно
+  accepted_risk. Unknown исход не financial failure; прежние сроки сохранены.
+- Это решение требований, не configured/delivered evidence. F273 analytics
+  channel/tenant SupportIncident не переносятся; финансовые mail retry правила
+  не меняются. До реализации — согласованные plan/model/quickstart/tasks,
+  независимый reviewer-owned checklist и scoped analyze. FR-089/O6 остаётся
+  открытым, старые результаты не повторяются.
+
 ## T077: источники storage projection — 02.11.2026
 
 - Decision: существующие effective_paid_storage (purchases.py311–408),

@@ -252,6 +252,20 @@ description: "Dependency-ordered implementation tasks for the GRAF personal acco
 - [X] T076 [US10] Implement Temporal reconciliation, stuck-operation, storage projection, add-on/time-credit and notification maintenance workflows in `apps/server/src/twobrain_rec_server/workflows/billing_reconciliation_workflow.py` and `apps/server/src/twobrain_rec_server/workflows/maintenance_worker.py`.
 - [ ] T077 [US10] Add operational metrics, dashboards, emergency stop and read-only launch diagnostics through existing observability patterns in `apps/server/src/twobrain_rec_server/billing/monitoring.py`, `apps/server/src/twobrain_rec_server/readiness/checks.py`, and `apps/server/src/twobrain_rec_server/admin/metrics.py`. (Issue #4932).
 
+  После PR7898: J1–J6 O16, принятые ответы владельца03.11. Первый шаг —
+  append-only billing_reconciliation_observations в db/models/billing.py,
+  новая миграция от фактического head, db/rls_validation.py, узкий
+  billing/reconciliation_observation.py, текущая activity workflows/worker.py
+  и агрегат billing/monitoring.py (server prefix прежний). Сначала
+  checklists/reconciliation-observations.md/независимый допуск и scoped analyze;
+  затем RED и перечисленные в quickstart unit/PG/CLI/ActivityEnvironment,
+  restart/конкуренция/constraints/roles/rollback/restore/deadline/privacy,
+  независимые code/converge/exact PR gates. Нельзя писать код до допуска.
+  Регулярное наблюдение, почта/retry и сохраняемая реакция с owner/severity/
+  evidence/deadline остаются обязательным продолжением здесь же; принятый
+  порядок5мин/15мин/retry≥5мин и исходные сроки не отменяются. Это не новая
+  задача/issue; исходная строка T077 и все87 task lines сохраняются, T077[ ].
+
   Порядок доработки 01.11.2026: [O1–O8](contracts/operator-observation.md),
   reviewer-owned checklists/operator-observation.md и независимый допуск,
   scoped analyze, подтверждение существующей #4932; затем минимальный
