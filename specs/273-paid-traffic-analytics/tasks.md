@@ -4,6 +4,17 @@ description: "Список задач фичи 273 — готовность ан
 
 # Tasks: Готовность аналитики к платному трафику
 
+## Уточнение существующей T098 — 03.11.2026
+
+Владелец выбрал полное закрытие T098 без продления исключения. Свежая
+[топология](validation/t098-current-topology-20261103.md) содержит три прежних
+направления и уже использует10445 для Stalwart; старый кандидат неприменим.
+T098 продолжается по [проекту I1–I8](validation/t098-topology-design-20261103.md):
+сначала независимый допуск затронутого проекта/checklist/analyze, затем
+причинные/настоящие проверки и полный рабочий переход. Новых задач-дублей нет.
+Текущий отказ loopback443/10445 и отсутствие принятого настоящего special
+baseline сохраняют HOLD применения. Аналитика/IP не включаются.
+
 ## Текущий узкий шаг T113/T116 — восстановленные объекты, 03.11.2026
 
 Это зависимые части существующей открытой T113/#7804, не новые задачи
@@ -331,7 +342,7 @@ T088, T090 и T093 не назначаются дублирующие задач
 
 - [ ] T096 На чистом точном SHA pull request повторно выполнить `infra/scripts/validate-product-analytics-provider-pages.sh` и `infra/scripts/ci-local.sh --fast`, сохранить SHA и результат обязательной проверки (FR-027, validation plan; partial)
 - [ ] T097 Провести на изолированном стенде нагрузочное испытание по `contracts/operations.md` §Нагрузка сайта: p95 минутной частоты по семи полным UTC-суткам, профиль пяти HTML GET-адресов и фазы 5/20/15 минут; не подменять измеренный 5×R инженерной пробой при unknown/нулевом R. Принять абсолютный бюджет и срок расширения, выполнить два замера ёмкости с интервалом не менее 24 часов и заполнить `docs/analytics/product-analytics-capacity-baseline.md` безопасными метаданными и вердиктом PASS/FAIL/INCOMPLETE (FR-039, SC-012; partial)
-- [ ] T098 [US2] Исправить полный путь public443/SNI → dedicated PROXY/TLS receiver → Docker → ASGI по `plan.md` §Полный вход T098 и сценарию 8 `quickstart.md`. Сначала исполняемый изолированный стенд `infra/scripts/check-graf-sni-ingress.py`, затем `infra/nginx/graf-sni-routing.conf`, `infra/nginx/rec.2brain.pro.conf` и закрытая операторская конфигурация; существующие `infra/server/Dockerfile`, `infra/docker-compose.yml`, `infra/env/rec.production.env.example` и middleware/transport tests переиспользуются. Обязательны exact peer, два прежних маршрута, отсутствие старого rec10444 в конечном наборе, обе IP-семьи, spoofing, actual neighbors/special, HTTPS slash, ресурсы/журналы, стадийные apply/rollback и writer→DB→report с порогом 3. До независимых checklist/analyze/issue gates реализации нет; до PR/Full/CD и рабочей матрицы задача не принята. Временная совместимость только по Legacy Impact, IP/provider сами не включаются; raw IP в evidence не выводить (FR-013, FR-061, FR-062; #7698; не выполнено)
+- [ ] T098 [US2] Исправить полный путь public443/SNI → dedicated PROXY/TLS receiver → Docker → ASGI по `plan.md` §Полный вход T098 и сценарию 8 `quickstart.md`. Сначала исполняемый изолированный стенд `infra/scripts/check-graf-sni-ingress.py`, затем `infra/nginx/graf-sni-routing.conf`, `infra/nginx/rec.2brain.pro.conf` и закрытая операторская конфигурация; существующие `infra/server/Dockerfile`, `infra/docker-compose.yml`, `infra/env/rec.production.env.example` и middleware/transport tests переиспользуются. Обязательны exact peer, все три прежних маршрута и пять mail SNI по уточнению I1–I8 от03.11, отсутствие старого rec10444 в конечном наборе, обе IP-семьи, spoofing, actual neighbors/special, HTTPS slash, ресурсы/журналы, стадийные apply/rollback и writer→DB→report с порогом 3. До независимых checklist/analyze/issue gates реализации нет; до PR/Full/CD и рабочей матрицы задача не принята. Временная совместимость только по Legacy Impact, IP/provider сами не включаются; raw IP в evidence не выводить (FR-013, FR-061, FR-062; #7698; не выполнено)
 - [ ] T099 Убрать ручной числитель `consent_visits` из `report-counts.json`: считать и сохранять его из фактических consented events и добавить integration test, где consented visit увеличивает R11 (FR-012, SC-003; partial)
 - [ ] T100 Добавить исполняемую сверку версий и SHA-256 для repository/config/installed guard-копий, подключить mismatch к readiness и approval gate и покрыть расхождение тестом (FR-038; partial)
 - [ ] T101 Получить metadata-only подтверждение провайдера для двух конкретных принятых операторов с MFA, отзывом доступа и ротацией при смене состава; readiness должен блокировать отсутствие или просрочку такого подтверждения (FR-037, FR-060; partial)
