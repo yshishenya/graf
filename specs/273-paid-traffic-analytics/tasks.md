@@ -4,6 +4,34 @@ description: "Список задач фичи 273 — готовность ан
 
 # Tasks: Готовность аналитики к платному трафику
 
+## Текущий узкий шаг T113/T116 — восстановленные объекты, 03.11.2026
+
+Это зависимые части существующей открытой T113/#7804, не новые задачи
+аналитики и не закрытие T116. Проект:
+[object-readback](validation/t113-object-readback-design-20261103.md),
+независимый requirements gate10/0, прежние четыре списка117/0 без изменения.
+
+Порядок внутри T113:
+
+1. После scoped analyze и сверки открытой #7804 сначала причинные тесты
+   `apps/server/tests/unit/test_rec_object_verify.py`, расширение
+   `apps/server/tests/integration/test_deployment_restore_safety.py` и
+   настоящий учебный SDK/MinIO профиль
+   `apps/server/tests/integration/test_deployment_object_restore.py`.
+2. Выделить `infra/scripts/rec-object-verify.py` по O1–O4/O6–O8: эталон
+   до mirror, точные ключи/размеры/SHA256, конечный readback, закрытый вывод.
+3. Включить checker в `infra/scripts/rehearse-rec-restore.sh` до cleanup
+   по O5–O8, со своим контейнером, корректной отменой и подтверждённым
+   завершением. Callers scheduled/workflow сохраняют прежний договор.
+4. Полные профильные проверки shell/backup/snapshot, независимое code review,
+   convergence, собственный fragment `changes/unreleased/F273-object-readback.yaml`,
+   exact-SHA PR и штатный выпуск. Перед реальной операцией — отдельные
+   ресурсный допуск, две последовательные копии и cleanup каждой.
+
+Все четыре части пока не выполнены. После проверки реализации обновить
+доказательства здесь; checkbox T113 и issue7804 остаются открытыми до полной
+исходной приёмки. Удаления backup и рабочая T0 не входят в этот кодовый срез.
+
 **Input**: Design documents from `/specs/273-paid-traffic-analytics/`
 
 **Prerequisites**: [plan.md](plan.md), [spec.md](spec.md), [research.md](research.md), [data-model.md](data-model.md), [contracts/](contracts/), [quickstart.md](quickstart.md), [legal-basis.md](legal-basis.md)
