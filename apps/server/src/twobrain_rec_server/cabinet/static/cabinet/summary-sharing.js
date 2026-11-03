@@ -102,7 +102,11 @@
     dialog.addEventListener('cancel',event=>{event.preventDefault();close();});
     dialog.addEventListener('click',event=>{if(event.target===dialog)close();});
     dialog.addEventListener('close',()=>{closed=true;clearTimeout(pollTimer);});
-    function setBusy(value) {busy=value;copy.disabled=value||general?.capabilities?.link===false;send.disabled=value;dialog.setAttribute('aria-busy',String(value));}
+    function setBusy(value) {
+      busy=value;copy.disabled=value||!general||general.capabilities?.link===false;send.disabled=value;
+      dialog.querySelectorAll('[data-sharing-audience],[data-sharing-scope],[data-summary-share-expiry]').forEach(control=>{control.disabled=value||!general;});
+      dialog.setAttribute('aria-busy',String(value));
+    }
     async function action(fn) {
       if(busy)return;setBusy(true);setStatus('');
       try {await fn();}catch(error){if(error.status===409){await loadLink();await loadGeneral();await loadAccess();await loadAuto();}setStatus(errorText(error),true);}
@@ -315,7 +319,7 @@
     document.addEventListener('pointerdown',event=>{if(dialog.open&&!dialog.contains(event.target)&&!opener?.contains(event.target))close();},{signal:eventSignal});
     window.addEventListener('resize',()=>{if(dialog.open)place();},{signal:eventSignal});
     async function open(mode='link') {
-      closed=false;tab(mode);if(!dialog.open)dialog.show();place();title.focus({preventScroll:true});try{await loadGeneral();await loadAccess();}catch(error){setStatus(errorText(error),true);}await loadAuto();place();
+      closed=false;tab(mode);setBusy(true);if(!dialog.open)dialog.show();place();title.focus({preventScroll:true});try{await loadGeneral();await loadAccess();}catch(error){setStatus(errorText(error),true);}finally{setBusy(false);}await loadAuto();place();
       if(sendKey)try{await checkBatch();}catch(error){setStatus(errorText(error),true);}
     }
     const requestedMode=opener?.dataset.summaryShareMode||'link';

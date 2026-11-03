@@ -11,6 +11,7 @@ const assets = path.join(__dirname, '../../src/twobrain_rec_server/cabinet/stati
       page.setDefaultTimeout(5000);
       const mutations=[], errors=[];
       let version=1, audience='invite_only', scope='summary_only', grants=[];
+      let releaseGeneral;const generalGate=new Promise(resolve=>{releaseGeneral=resolve;});
       const fingerprint=()=>version.toString(16).padStart(64,'0');
       const link=()=>audience==='link'?{state:'active',grant_id:'synthetic-link',version,content_scope:scope,share_url:'https://graf.test/synthetic-reader',expires_at:'2026-12-01T00:00:00Z'}:{state:'absent'};
       const general=()=>({audience,content_scope:scope,fingerprint:fingerprint(),capabilities:{workspace:false,link:true},link:link()});
@@ -23,6 +24,7 @@ const assets = path.join(__dirname, '../../src/twobrain_rec_server/cabinet/stati
         const base='/api/v1/cabinet/meetings/synthetic-meeting';
         if(request.method()!=='GET')mutations.push({path:url.pathname,method:request.method(),body:request.postDataJSON()});
         if(url.pathname===base+'/sharing/general-access'){
+          if(request.method()==='GET')await generalGate;
           if(request.method()==='POST'){
             const body=request.postDataJSON();assert.equal(body.expected_fingerprint,fingerprint());audience=body.audience;scope=body.content_scope;version++;
           }
@@ -43,7 +45,11 @@ const assets = path.join(__dirname, '../../src/twobrain_rec_server/cabinet/stati
       await page.goto('https://graf.test/share');
       await page.evaluate(()=>Object.defineProperty(navigator,'clipboard',{value:{writeText:async text=>{window.copied=text;}}}));
       await page.addScriptTag({path:path.join(assets,'summary-sharing.js')});
+      assert.equal(await page.locator('[data-sharing-scope]').isDisabled(),true);
+      assert.equal(await page.locator('[data-summary-share-copy]').isDisabled(),true);
+      releaseGeneral();
       await page.locator('[data-sharing-audience] option[value=workspace]:disabled').waitFor({state:'attached'});
+      await page.locator('[data-sharing-scope]:enabled').waitFor();
       assert.equal(mutations.length,0,'Opening must not grant access');
       await page.getByRole('combobox',{name:'Что доступно получателю'}).selectOption('full_meeting');
       assert.equal(mutations.length,0,'Selecting unpublished scope must not publish');

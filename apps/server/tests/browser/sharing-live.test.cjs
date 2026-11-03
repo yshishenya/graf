@@ -26,7 +26,9 @@ const {chromium} = require(require.resolve('playwright',{paths:[process.env.GRAF
     facts.push('existing_dev_owner_login');
     await page.locator('[data-share-dialog-open]').click();
     await page.locator('[data-summary-share-dialog][open]').waitFor();
+    await page.locator('[data-sharing-scope]:enabled').waitFor();
     await page.getByRole('combobox',{name:'Что доступно получателю'}).selectOption('full_meeting');
+    await page.locator('[data-summary-share-dialog][aria-busy=false]').waitFor();
     await page.getByRole('button',{name:'Скопировать ссылку',exact:true}).click();
     await page.getByText('Ссылка скопирована',{exact:true}).waitFor();
     const share=await page.locator('[data-summary-share-url]').inputValue();
