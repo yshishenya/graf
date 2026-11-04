@@ -1005,6 +1005,7 @@ async def share_panel_state(
         grant_views.append(
             ShareGrantView(
                 grant_id=grant.id,
+                version=grant.publication_version,
                 display_name=display,
                 role_label="Can view",
                 status="active",
@@ -1217,6 +1218,11 @@ async def create_scoped_share_grant(
             return existing, raw_token
     elif audience_type not in {"workspace", "team", "link"} or not broader_audience_enabled:
         raise ProblemDetail(status=403, code="share_policy_blocked", title="Share is not available")
+    if audience_type in {"workspace", "team"} and await db.scalar(select(MeetingShareGrant.id).where(
+        MeetingShareGrant.workspace_id == workspace_id, MeetingShareGrant.meeting_id == meeting.id,
+        MeetingShareGrant.audience_type == "link", MeetingShareGrant.status == "active",
+        MeetingShareGrant.share_token_ciphertext.is_not(None))):
+        raise ProblemDetail(status=409, code="summary_link_changed", title="Use versioned sharing commands")
     if audience_type == "team":
         # Feature 121 has no canonical team entity/membership boundary yet. Keep the
         # policy switch fail-closed instead of returning a grant that nobody can use.
@@ -1258,6 +1264,8 @@ async def create_scoped_share_grant(
         .with_for_update()
     )
     if existing is not None:
+        if existing.audience_type == "link" and existing.share_token_ciphertext:
+            raise ProblemDetail(status=409, code="summary_link_changed", title="Use versioned sharing commands")
         can_comment, can_edit = preserve_comment_permissions(existing, decision, content_scope, permissions_requested, can_comment, can_edit)
         existing.share_token_hash = hash_share_token(raw_token)
         existing.content_scope = content_scope
@@ -1370,6 +1378,8 @@ async def rotate_share_link(
     )
     if grant is None:
         raise ProblemDetail(status=404, code="share_not_found", title="Share not found")
+    if grant.audience_type == "link" and grant.share_token_ciphertext:
+        raise ProblemDetail(status=409, code="summary_link_changed", title="Use versioned sharing commands")
     raw_token = secrets.token_urlsafe(32)
     grant.share_token_hash = hash_share_token(raw_token)
     grant.rotated_at = datetime.now(UTC)
@@ -1589,12 +1599,6 @@ async def create_share_invitation(
             status=422,
             code="external_share_scope_invalid",
             title="Summary invitations cannot include recording artifacts",
-        )
-    if content_scope == "full_meeting" and (not can_download or not can_export):
-        raise ProblemDetail(
-            status=422,
-            code="external_share_scope_invalid",
-            title="Recording invitations must include download and export access",
         )
     if content_scope not in {"summary_only", "full_meeting"}:
         raise ProblemDetail(
@@ -2218,6 +2222,7 @@ async def revoke_share_grant(
     actor_user_id: UUID,
     device_id: UUID,
     grant_id: UUID,
+    expected_version: int | None = None,
 ) -> None:
     from twobrain_rec_server.cabinet.egress import record_egress_audit_event
 
@@ -2249,6 +2254,10 @@ async def revoke_share_grant(
     if grant is None:
         raise ProblemDetail(status=404, code="share_grant_not_found", title="Share grant not found")
 
+    if expected_version is not None and grant.publication_version != expected_version:
+        raise ProblemDetail(status=409, code="summary_link_changed", title="Sharing changed; refresh access")
+    if grant.audience_type == "link" and grant.share_token_ciphertext:
+        raise ProblemDetail(status=409, code="summary_link_changed", title="Use versioned sharing commands")
     await record_egress_audit_event(
         db,
         workspace_id=workspace_id,
@@ -2260,6 +2269,7 @@ async def revoke_share_grant(
         policy_reason="login_required_grant_revoked",
         metadata={"share_grant_id": str(grant.id)},
     )
+    grant.publication_version += 1
     grant.status = "revoked"
     grant.revoked_by_user_id = actor_user_id
     grant.revoked_at = datetime.now(UTC)
@@ -2330,6 +2340,7 @@ async def resolve_share_token(
 def grant_view(grant: MeetingShareGrant, *, display_name: str) -> ShareGrantView:
     return ShareGrantView(
         grant_id=grant.id,
+        version=grant.publication_version,
         display_name=display_name,
         role_label="Can view",
         status=grant.status,  # type: ignore[arg-type]

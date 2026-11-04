@@ -208,7 +208,46 @@ final class EmbeddedCabinetJavaScriptConfirmTests: XCTestCase {
         }
     }
 
-    private func makeCabinet(realDocument: Bool = false, baseURL: URL? = nil) -> (WKWebView, NSWindow, EmbeddedCabinetWebView.Coordinator, EmbeddedCabinetNavigationController) {
+    func testNativePanelRestoresFirstResponderOnlyToOriginalActiveCabinet() {
+        let host = NativePanelFocusTestWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+                                              styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        let (view, window, coordinator, navigation) = makeCabinet(window: host)
+        defer { coordinator.detachNavigationController(from: view); window.close() }
+        XCTAssertTrue(window.makeFirstResponder(window))
+        navigation.restoreFocusAfterNativePanel(webView: view, in: window)
+        let responder = window.firstResponder as? NSView
+        XCTAssertTrue(responder === view || responder?.isDescendant(of: view) == true)
+
+        for boundary in ["inactive", "sheet", "foreign", "detached", "replaced"] {
+            XCTAssertTrue(window.makeFirstResponder(window))
+            host.reportsKeyWindow = boundary != "inactive"
+            let other = NativePanelFocusTestWindow(contentRect: NSRect(x: 0, y: 0, width: 100, height: 100),
+                                                   styleMask: .titled, backing: .buffered, defer: false)
+            other.isReleasedWhenClosed = false
+            if boundary == "foreign" { other.orderFront(nil); XCTAssertTrue(other.makeFirstResponder(other)) }
+            if boundary == "sheet" { window.beginSheet(other) }
+            if boundary == "detached" { coordinator.detachNavigationController(from: view) }
+            if boundary == "replaced" {
+                let replacement = WKWebView(frame: .zero)
+                Self.retainedWebViews.append(replacement)
+                view.addSubview(replacement)
+                let url = origin.appendingPathComponent("desktop/meetings")
+                navigation.attach(webView: replacement, routePolicy: DesktopCabinetRoutePolicy(baseURL: origin),
+                                  fallbackRequest: URLRequest(url: url), initialRequest: URLRequest(url: url),
+                                  sessionExpired: false)
+                XCTAssertTrue(window.makeFirstResponder(window))
+            }
+            let before = window.firstResponder
+            let otherBefore = other.firstResponder
+            navigation.restoreFocusAfterNativePanel(webView: view, in: boundary == "foreign" ? other : window)
+            XCTAssertTrue(window.firstResponder === before, boundary)
+            XCTAssertTrue(other.firstResponder === otherBefore, boundary)
+            if boundary == "sheet" { window.endSheet(other) }
+            other.close()
+        }
+    }
+
+    private func makeCabinet(realDocument: Bool = false, baseURL: URL? = nil, window suppliedWindow: NSWindow? = nil) -> (WKWebView, NSWindow, EmbeddedCabinetWebView.Coordinator, EmbeddedCabinetNavigationController) {
         _ = NSApplication.shared
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
@@ -218,7 +257,7 @@ final class EmbeddedCabinetJavaScriptConfirmTests: XCTestCase {
         let documentURL = origin.appendingPathComponent("desktop/settings/account")
         (view as? ConfirmationTestWebView)?.documentURL = documentURL
         Self.retainedWebViews.append(view)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+        let window = suppliedWindow ?? NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
                               styleMask: [.titled, .closable], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = view
@@ -255,4 +294,10 @@ final class EmbeddedCabinetJavaScriptConfirmTests: XCTestCase {
 private final class ConfirmationTestWebView: WKWebView {
     var documentURL: URL?
     override var url: URL? { documentURL }
+}
+
+@MainActor
+private final class NativePanelFocusTestWindow: NSWindow {
+    var reportsKeyWindow = true
+    override var isKeyWindow: Bool { reportsKeyWindow }
 }

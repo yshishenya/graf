@@ -284,7 +284,8 @@ public enum DesktopCabinetWorkspace {
         configuration: DesktopCabinetConfiguration
     ) -> DesktopCabinetRecoveryTarget? {
         if shouldUseLocalLoginRecovery(for: state, configuration: configuration) {
-            return .embedded(loginRoute(configuration: configuration))
+            let next = retryableDocumentRoute(currentRoute: currentRoute, initialRoute: initialRoute, configuration: configuration)
+            return .embedded(sharedLoginContinuation(next) ?? loginRoute(configuration: configuration, next: firstPartyPath(next)))
         }
         switch state {
         case .expiredSession, .workspaceReselectionRequired:
@@ -293,7 +294,7 @@ public enum DesktopCabinetWorkspace {
                 initialRoute: initialRoute,
                 configuration: configuration
             )
-            return .embedded(loginRoute(configuration: configuration, next: nextRoute.path))
+            return .embedded(sharedLoginContinuation(nextRoute) ?? loginRoute(configuration: configuration, next: firstPartyPath(nextRoute)))
         case .offline, .timeout, .malformedResponse, .blockedRoute:
             return .embedded(
                 retryableDocumentRoute(
@@ -307,6 +308,28 @@ public enum DesktopCabinetWorkspace {
         default:
             return nil
         }
+    }
+
+    private static func sharedLoginContinuation(_ url: URL) -> URL? {
+        guard var parts = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              parts.path.hasPrefix("/api/v1/cabinet/public-shares/"),
+              SharedMeetingHandoff.safeToken(String(parts.path.dropFirst("/api/v1/cabinet/public-shares/".count)))
+        else { return nil }
+        let fragment = parts.fragment ?? "outcomes"
+        parts.path += "/continue"
+        parts.fragment = nil
+        parts.queryItems?.append(URLQueryItem(name: "action", value: "sign-in"))
+        parts.queryItems?.append(URLQueryItem(name: "tab", value: fragment.hasPrefix("recording") ? "recording" : "outcomes"))
+        let prefix = "recording?position_ms="
+        if fragment.hasPrefix(prefix) {
+            parts.queryItems?.append(URLQueryItem(name: "position_ms", value: String(fragment.dropFirst(prefix.count))))
+        }
+        return parts.url
+    }
+
+    private static func firstPartyPath(_ url: URL) -> String {
+        guard let parts = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return url.path }
+        return parts.percentEncodedPath + (parts.percentEncodedQuery.map { "?" + $0 } ?? "") + (parts.percentEncodedFragment.map { "#" + $0 } ?? "")
     }
 
     public static func shouldUseLocalLoginRecovery(

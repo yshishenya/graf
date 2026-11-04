@@ -805,3 +805,65 @@ def test_workspace_continuation_preserves_client_and_expiry(client):
             assert replacement.expires_at == deadline
             await db.commit()
     client.portal.call(exercise)
+
+
+@pytest.mark.parametrize("scenario", [
+    "email", "oauth", "wrong_fingerprint", "inactive_identity",
+    "unverified_email", "inactive_membership",
+])
+def test_workspace_switch_preserves_verified_email_identity(client, scenario):
+    from twobrain_rec_server.auth.sessions import create_login_device, fingerprint_identity
+    from twobrain_rec_server.db.models import AuthSessionDeviceBinding, ExternalIdentity
+
+    async def exercise():
+        async with client.app_state["sessionmaker"]() as db:
+            provider = "yandex" if scenario == "oauth" else "email"
+            subject = "OpaqueCaseSensitiveSubject" if scenario == "oauth" else "a" * 64
+            canonical = subject if scenario == "oauth" else "f292-owner@example.test"
+            identity = ExternalIdentity(
+                user_id=USER_ID, provider=provider, provider_subject=subject,
+                email=" F292-Owner@Example.Test ", is_active=scenario != "inactive_identity",
+                is_verified=scenario not in {"unverified_email", "oauth"},
+            )
+            db.add(identity)
+            device = await create_login_device(db, user_id=USER_ID, workspace_id=WORKSPACE_ID,
+                                              user_agent="GRAFDesktop/2026.11.04.1")
+            deadline = datetime.now(UTC) + timedelta(minutes=20)
+            issued = await issue_auth_session(
+                db, user_id=USER_ID, workspace_id=WORKSPACE_ID, device_id=device.id,
+                provider=provider, expires_at=deadline,
+                claims_fingerprint=fingerprint_identity(
+                    "someone-else@example.test" if scenario == "wrong_fingerprint" else canonical,
+                    provider, WORKSPACE_ID,
+                ),
+            )
+            db.add(AuthSessionDeviceBinding(auth_session_id=issued.id,
+                                           registered_device_id=device.id, device_state="trusted"))
+            if scenario == "inactive_membership":
+                membership = await db.get(WorkspaceMembership, (PERSONAL_WORKSPACE_ID, USER_ID))
+                membership.status = "inactive"
+            await db.commit()
+            current_id = issued.id
+            for source, target in [(WORKSPACE_ID, PERSONAL_WORKSPACE_ID),
+                                   (PERSONAL_WORKSPACE_ID, WORKSPACE_ID)]:
+                args = dict(organization_id=ORG_ID, current_workspace_id=source,
+                            internal_workspace_id=AUTH_BOOTSTRAP_WORKSPACE_ID, user_id=USER_ID,
+                            current_session_id=current_id, target_workspace_id=target)
+                if scenario not in {"email", "oauth"}:
+                    with pytest.raises(ProblemDetail) as error:
+                        await activate_workspace_session(db, **args)
+                    assert error.value.code == (
+                        "workspace_activation_unavailable" if scenario == "inactive_membership"
+                        else "auth_session_invalid"
+                    )
+                    assert (await db.get(AuthSession, current_id)).status == "active"
+                    return
+                previous = await db.get(AuthSession, current_id)
+                activated = await activate_workspace_session(db, **args)
+                replacement = await db.get(AuthSession, activated.issued_session.id)
+                assert previous.status == "replaced"
+                assert replacement.expires_at == deadline
+                assert replacement.claims_fingerprint == fingerprint_identity(canonical, provider, target)
+                current_id = replacement.id
+                await db.commit()
+    client.portal.call(exercise)

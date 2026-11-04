@@ -48,7 +48,9 @@ def test_share_fragment_is_meeting_bound_and_has_truthful_capability_copy() -> N
     assert "data-share-comment-role" not in source
     assert "data-share-dialog open" not in source
     assert "расшифровка" in source.lower()
-    assert "Запись и расшифровка останутся закрыты" in source
+    assert 'value="summary_only"' in source
+    assert 'value="full_meeting"' in source
+    assert "Только итоги" in source
 
 
 def test_share_client_keeps_external_disabled_flow_inert_and_handles_returned_url() -> None:

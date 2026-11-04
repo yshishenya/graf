@@ -512,10 +512,11 @@ final class ProductActivationAnalyticsContractTests: XCTestCase {
         let devBuilder = try Self.readRepositoryFile("apps/macos/Scripts/build-dev-app.sh")
         let installer = try Self.readRepositoryFile("apps/macos/Installer/Scripts/build-local-installer.sh")
 
-        for source in [devBuilder, installer] {
-            XCTAssertTrue(source.contains("<key>CFBundleURLTypes</key>"))
-            XCTAssertTrue(source.contains("<string>grafrec</string>"))
-        }
+        XCTAssertTrue(devBuilder.contains("<key>CFBundleURLTypes</key>"))
+        XCTAssertTrue(installer.contains("<key>CFBundleURLTypes</key>"))
+        XCTAssertTrue(devBuilder.contains("<string>grafrec-dev</string>"))
+        XCTAssertFalse(devBuilder.contains("<string>grafrec</string>"))
+        XCTAssertTrue(installer.contains("<string>grafrec</string>"))
     }
 
     /// FR-022: первый запуск связывает ссылку с аккаунтом.

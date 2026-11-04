@@ -17,7 +17,8 @@ const { chromium, webkit } = require(require.resolve('playwright', { paths: [pro
       if (url.origin !== 'https://graf.test' || request.method() !== 'GET') return route.abort();
       if (url.pathname === '/share') return route.fulfill({ contentType: 'text/html', body:
         '<meta charset="utf-8"><meta name="graf-time-user" content="synthetic-owner"><meta name="graf-workspace" content="synthetic-workspace">' + fs.readFileSync(process.argv[2], 'utf8') });
-      if (url.pathname === base + '/link') return route.fulfill({ json: { state: 'absent' } });
+      if (url.pathname === base.replace('/summary-sharing','') + '/sharing/general-access') return route.fulfill({json:{audience:'invite_only',fingerprint:'a'.repeat(64),content_scope:'summary_only',link:{state:'absent'}}});
+      if (url.pathname === base.replace('/summary-sharing','') + '/access') return route.fulfill({json:{share:{active_grants:[],active_invitations:[]}}});
       if (url.pathname === base + '/auto-send') return route.fulfill({ json: { state: 'off', roster: [], rules: {} } });
       if (url.pathname === base + '/recipients') return route.fulfill({ json: { recipients: url.searchParams.get('query') === 'teammate' ? [
         { email: 'teammate@example.test', display_label: 'Synthetic Teammate', source: 'workspace' }
@@ -49,9 +50,9 @@ const { chromium, webkit } = require(require.resolve('playwright', { paths: [pro
     assert.equal(await input.inputValue(), '');
     assert.deepEqual(await page.evaluate(() => contactCalls), []);
     assert.deepEqual(errors, []);
-    assert.equal(requests.length, 5, JSON.stringify(requests));
+    assert.equal(requests.length, 6, JSON.stringify(requests));
     assert(requests.every(r => r.origin === 'https://graf.test' && r.method === 'GET' &&
-      ['/share', base + '/link', base + '/auto-send', base + '/recipients'].includes(r.path)), JSON.stringify(requests));
+      ['/share', base.replace('/summary-sharing','') + '/sharing/general-access', base.replace('/summary-sharing','') + '/access', base + '/auto-send', base + '/recipients'].includes(r.path)), JSON.stringify(requests));
     assert.deepEqual(requests.filter(r => r.path === base + '/recipients').map(r => r.query), ['teammate', 'unknown@example.test']);
     console.log('PASS: real share fragment and script; suggestion and typed email stay local; no Contacts, permission, bridge, provider, grant or delivery request');
   } finally { await browser.close(); }

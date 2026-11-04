@@ -139,6 +139,11 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
 
         let path = normalizedPath(url.path)
         let components = path.split(separator: "/").map(String.init)
+        if let route = publicSharedRoute(for: url) {
+            return DesktopCabinetRouteDecision(route: route, decision: .allow,
+                reason: route.kind == .artifactDownload ? .allowedArtifactDownload : .allowedMeetingDetail,
+                userMessage: "Общая встреча")
+        }
         if let sharedRoute = sharedRoute(for: url, components: components) {
             return DesktopCabinetRouteDecision(
                 route: sharedRoute,
@@ -647,6 +652,38 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
         return false
     }
 
+    private func publicSharedRoute(for url: URL) -> DesktopCabinetRoute? {
+        guard let parts = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              parts.percentEncodedPath == url.path else { return nil }
+        if parts.path == "/shared-meeting/continue", parts.query == nil, parts.fragment == nil {
+            return DesktopCabinetRoute(path: parts.path, kind: .meetingDetail)
+        }
+        let prefix = "/api/v1/cabinet/public-shares/"
+        guard parts.path.hasPrefix(prefix),
+              let values = SharedMeetingHandoff.values(parts.queryItems, allowed: ["workspace_id", "media_version", "action", "tab", "position_ms"]),
+              values["workspace_id"].flatMap(UUID.init(uuidString:)) != nil,
+              values["media_version"] == nil || SharedMeetingHandoff.safeVersion(values["media_version"]!),
+              SharedMeetingHandoff.safeFragment(parts.fragment) else { return nil }
+        let tail = String(parts.path.dropFirst(prefix.count)).split(separator: "/", omittingEmptySubsequences: false)
+        guard tail.count <= 2, let token = tail.first, SharedMeetingHandoff.safeToken(String(token)) else { return nil }
+        let suffix = tail.count == 2 ? String(tail[1]) : ""
+        if suffix.isEmpty && tail.count == 1 {
+            guard Set(values.keys).isSubset(of: ["workspace_id", "media_version"]) else { return nil }
+            return DesktopCabinetRoute(path: parts.path, kind: .meetingDetail)
+        }
+        guard parts.fragment == nil else { return nil }
+        if suffix == "playback", values["media_version"] != nil,
+           Set(values.keys).isSubset(of: ["workspace_id", "media_version"]) {
+            return DesktopCabinetRoute(path: parts.path, kind: .artifactDownload)
+        }
+        if suffix == "continue", values["action"] == nil || ["sign-in", "sign-up"].contains(values["action"]!),
+           values["tab"] == nil || ["outcomes", "recording"].contains(values["tab"]!),
+           values["position_ms"] == nil || (values["tab"] == "recording" && SharedMeetingHandoff.position(values["position_ms"]!) != nil) {
+            return DesktopCabinetRoute(path: parts.path, kind: .meetingDetail)
+        }
+        return nil
+    }
+
     private func sharedRoute(for url: URL, components: [String]) -> DesktopCabinetRoute? {
         let meetingId: String
         let kind: DesktopCabinetRouteKind
@@ -664,10 +701,10 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
         guard UUID(uuidString: meetingId) != nil,
               let parsed = URLComponents(url: url, resolvingAgainstBaseURL: false),
               parsed.percentEncodedPath == "/" + components.joined(separator: "/"),
-              parsed.fragment == nil || (kind == .meetingDetail && ["outcomes", "recording"].contains(parsed.percentEncodedFragment ?? "")),
-              let items = parsed.queryItems, items.count == 1,
-              items[0].name == "workspace_id",
-              let workspaceId = items[0].value, UUID(uuidString: workspaceId) != nil
+              parsed.fragment == nil || (kind == .meetingDetail && SharedMeetingHandoff.safeFragment(parsed.fragment)),
+              let values = SharedMeetingHandoff.values(parsed.queryItems, allowed: ["workspace_id", "media_version"]),
+              let workspaceId = values["workspace_id"], UUID(uuidString: workspaceId) != nil,
+              values["media_version"] == nil || SharedMeetingHandoff.safeVersion(values["media_version"]!)
         else { return nil }
         return DesktopCabinetRoute(path: url.path, meetingId: meetingId, kind: kind)
     }

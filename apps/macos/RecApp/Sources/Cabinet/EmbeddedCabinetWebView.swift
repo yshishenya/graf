@@ -427,6 +427,13 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
         self.webView === webView
     }
 
+    func restoreFocusAfterNativePanel(webView: WKWebView?, in window: NSWindow?) {
+        guard let webView, let window, self.webView === webView,
+              webView.window === window, window.isKeyWindow, window.isVisible,
+              window.attachedSheet == nil else { return }
+        window.makeFirstResponder(webView)
+    }
+
     fileprivate func isNavigating(to request: URLRequest) -> Bool {
         guard isLoading, let url = request.url else { return false }
         return activeNavigationURL == url || pendingNavigationURL == url
@@ -1900,7 +1907,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         private var onLocalRecordingAction: LocalRecordingAction = { _, _ in }
         private var onVisibleRecordings: VisibleRecordingsAction = { _ in }
         private var onDeleteRecordings: DeletionAction = { _ in .failed }
-        private weak var downloadHostWindow: NSWindow?
+        private weak var downloadWebView: WKWebView?
         private var isActive = true
         private var userTimeDocumentRevision: UInt64 = 0
         private var authNavigationBarrier: UUID?
@@ -2538,7 +2545,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             didBecome download: WKDownload
         ) {
             guard navigationController.isAttached(to: webView) else { return }
-            downloadHostWindow = webView.window
+            downloadWebView = webView
             download.delegate = self
             if navigationController.navigationDidFinish(
                 webView: webView,
@@ -2556,7 +2563,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             didBecome download: WKDownload
         ) {
             guard navigationController.isAttached(to: webView) else { return }
-            downloadHostWindow = webView.window
+            downloadWebView = webView
             download.delegate = self
             if navigationController.navigationDidFinish(
                 webView: webView,
@@ -2587,7 +2594,10 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             panel.title = "Сохранить файл"
             panel.message = "Выберите папку и имя файла."
             panel.prompt = "Сохранить"
-            let finish: (NSApplication.ModalResponse) -> Void = { [weak self] response in
+            let hostWebView = downloadWebView
+            let hostWindow = hostWebView?.window
+            downloadWebView = nil
+            let finish: (NSApplication.ModalResponse) -> Void = { [weak self, weak hostWebView, weak hostWindow] response in
                 guard let self, self.isActive else {
                     completionHandler(nil)
                     return
@@ -2596,7 +2606,6 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
                     response: response,
                     selectedURL: panel.url
                 )
-                self.downloadHostWindow = nil
                 if destination == nil {
                     self.logNavigationEvent(
                         "cabinet_download_cancelled",
@@ -2606,8 +2615,13 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
                     self.logNavigationEvent("cabinet_download_started", detail: "result=started")
                 }
                 completionHandler(destination)
+                // AppKit finishes dismissing the sheet before the next main-queue turn.
+                DispatchQueue.main.async { [weak self, weak hostWebView, weak hostWindow] in
+                    guard let self, self.isActive else { return }
+                    self.navigationController.restoreFocusAfterNativePanel(webView: hostWebView, in: hostWindow)
+                }
             }
-            if let window = downloadHostWindow {
+            if let window = hostWindow {
                 panel.beginSheetModal(for: window, completionHandler: finish)
             } else {
                 panel.begin(completionHandler: finish)

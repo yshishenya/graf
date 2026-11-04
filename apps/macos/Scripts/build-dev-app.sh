@@ -132,7 +132,7 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<EOF
       <string>pro.2brain.graf.attribution</string>
       <key>CFBundleURLSchemes</key>
       <array>
-        <string>grafrec</string>
+        <string>grafrec-dev</string>
       </array>
     </dict>
   </array>
