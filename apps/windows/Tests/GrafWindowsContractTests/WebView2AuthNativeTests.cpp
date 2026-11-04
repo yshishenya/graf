@@ -33,6 +33,8 @@ struct WebView2HistoryNativeFixture {
     int capturedResetId = -1;
     std::string capturedResetUrl;
 
+    static std::string observedNonce(WebView2Host const& owner) { return owner.documentNonce_; }
+
     bool observeActivation(WebView2Host& owner) {
         if (originalActivate || !owner.nativeActivateDocument_) return false;
         originalActivate = owner.nativeActivateDocument_;
@@ -181,6 +183,11 @@ bool historyCancelScenario() { return scenario == "cancel-history-host" || scena
 bool sameDocumentScenario() { return scenario == "history-same-document"; }
 bool historyRaceScenario() { return scenario == "history-race-native-first" || scenario == "history-race-script-first"; }
 bool historyResetScenario() { return scenario == "history-reset"; }
+bool sharedReaderScenario() { return scenario == "shared-reader-session"; }
+std::string sharedReaderPath() {
+    return "/api/v1/cabinet/public-shares/" + std::string(43, 'a') +
+        "?workspace_id=22222222-2222-4222-8222-222222222222#outcomes";
+}
 bool freshLoginScenario() { return scenario == "history-fresh-login-redirect"; }
 bool staleResetScenario() { return scenario == "history-reset-stale-readback"; }
 bool accountBoundaryScenario() { return scenario == "history-reset-account-boundary"; }
@@ -296,6 +303,10 @@ struct ProbeApp : ApplicationT<ProbeApp> {
         bool get = false, post = false, loaded = false;
     } resetDocument;
     std::array<ResetDocument, 3> freshLoginDocuments{}; // C200, list302, login200; real native observations only.
+    unsigned sharedPhase = 0, sharedEffects = 0, sharedForgedMessages = 0;
+    std::array<unsigned, 3> sharedResponses{};
+    std::array<std::uint64_t, 3> sharedResponseNavigation{}, sharedResponseGeneration{};
+    std::string sharedOldNonce; // Observed real handshake only; never printed or assigned to the host.
     unsigned freshLoginPhase = 0, freshLoginAuth = 0, freshLoginCookieReads = 0, freshLoginSignedOut = 0;
     unsigned freshLoginInvalidations = 0;
     std::uint64_t freshLoginRedirectGeneration = 0;
@@ -2012,8 +2023,94 @@ struct ProbeApp : ApplicationT<ProbeApp> {
         });
     }
 
+    void checkSharedReader() {
+        const auto phase = sharedPhase;
+        if (phase > 2 || completions < phase + 1 || sharedResponses[phase] == 0) return;
+        const auto expected = origin + (phase == 1 ? sharedReaderPath() : initialPath);
+        const auto state = host->runtimeState();
+        if (state == WebRuntimeState::initializing) return; // Await real terminal admission, under the unchanged deadline.
+        if (starts != phase + 1 || completions != phase + 1 || sharedResponses[phase] != 1 ||
+            !observedSuccess || observedStatus != 200 || observedError != CoreWebView2WebErrorStatus::Unknown ||
+            lastStartedNavigationId != lastCompletedNavigationId ||
+            sharedResponseNavigation[phase] != lastCompletedNavigationId ||
+            sharedResponseGeneration[phase] != host->documentGeneration()) {
+            finish(false, "shared-native-response-completion-correlation"); return;
+        }
+        if (state != (phase == 1 ? WebRuntimeState::unprivileged : WebRuntimeState::ready)) {
+            finish(false, "shared_public_reader_must_reconcile_own_cookie_without_bridge"); return;
+        }
+        if (host->currentUrl() != expected || to_string(view.CoreWebView2().Source()) != expected ||
+            host->safeRecoveryUrl() != expected) { finish(false, "shared-current-reader-url"); return; }
+        const auto generation = host->documentGeneration();
+        if (phase == 1 && !WebView2HistoryNativeFixture::observedNonce(*host).empty()) {
+            finish(false, "shared-public-retained-nonce"); return;
+        }
+        const auto dispatcher = view.DispatcherQueue();
+        const auto quotedNonce = Windows::Data::Json::JsonValue::CreateStringValue(to_hstring(sharedOldNonce)).Stringify();
+        std::wstring script = L"(() => { const oldNonce=" + std::wstring(quotedNonce.c_str()) + LR"JS(;
+          const marker=document.getElementById('synthetic-marker');
+          const publicPage=marker?.dataset.kind==='shared-public';
+          let bits=marker?.dataset.kind===(publicPage?'shared-public':'shared-cabinet')?1:0;
+          if(window.__grafDesktopBridgeInstalled) bits|=2;
+          if(document.documentElement.dataset.syntheticNativeReady==='1') bits|=4;
+          if(document.documentElement.dataset.syntheticLocalSeen==='1') bits|=8;
+          if(!document.cookie.includes('synthetic-shared-')) bits|=16;
+          if(!window.__syntheticSharedSent && ((publicPage && bits===17) || (!publicPage && (bits&23)===23))) {
+            window.__syntheticSharedSent=true;
+            if(publicPage) {
+              const requests=[['request_app_update',{}],['local_recording',{action:'open',id:'synthetic-shared-local'}],
+                ['visible_recordings',{version:1,ids:['synthetic-shared-local']}],['delete_selection',{}],
+                ['native_settings',{}],['calendar_join',{}],['calendar_join_cancel',{}]];
+              requests.forEach(([command,payload],i)=>window.chrome.webview.postMessage({protocol:'graf.desktop.bridge',
+                version:1,direction:'web_to_native',message_id:100+i,nonce:oldNonce,origin:location.origin,
+                command,payload,sent_at_monotonic_ms:Math.floor(performance.now())}));
+            } else {
+              const button=document.createElement('button');button.setAttribute('data-graf-app-update','');
+              document.body.append(button);button.click();button.remove();
+            }
+          }
+          return bits;
+        })())JS";
+        scriptPending = true;
+        view.CoreWebView2().ExecuteScriptAsync(script).Completed([this, dispatcher, phase, generation](auto const& operation, auto const&) {
+            dispatcher.TryEnqueue([this, operation, phase, generation] {
+                scriptPending = false;
+                if (probeExit != 2) return;
+                try {
+                    if (phase != sharedPhase || generation != host->documentGeneration()) {
+                        finish(false, "shared-unexpected-script-document-change"); return;
+                    }
+                    const int bits = std::stoi(to_string(operation.GetResults()));
+                    if (phase == 1 && bits != 17) { finish(false, "shared-public-native-publication"); return; }
+                    if (phase != 1 && (bits & 23) != 23) return; // Real bootstrap delivery may follow completion.
+                    if (currentCookieReads < phase + 1 || updateCallbacks < (phase == 0 ? 1u : phase == 1 ? 1u : 2u) ||
+                        (phase == 1 && sharedForgedMessages < 7)) return;
+                    if (authCallbacks != phase + 1 || currentCookieReads != phase + 1 || signedOutObservations ||
+                        authInvalidations || sharedEffects || sharedForgedMessages != (phase == 0 ? 0u : 7u) ||
+                        updateCallbacks != (phase == 2 ? 2u : 1u)) {
+                        finish(false, "shared-cookie-or-forged-native-effect"); return;
+                    }
+                    const auto nonce = WebView2HistoryNativeFixture::observedNonce(*host);
+                    if (phase == 0) {
+                        if (nonce.empty()) { finish(false, "shared-privileged-handshake-missing"); return; }
+                        sharedOldNonce = nonce;
+                    } else if (phase == 2 && (nonce.empty() || nonce == sharedOldNonce)) {
+                        finish(false, "shared-return-must-use-fresh-nonce"); return;
+                    }
+                    std::printf("T121_SHARED_NATIVE phase=%u PASS=1 COOKIE_NATIVE=1 PUBLIC_BRIDGE=%u EFFECTS=%u\n",
+                        phase, phase == 1 ? 0u : 1u, sharedEffects); std::fflush(stdout);
+                    if (phase == 2) { finish(true, "shared-reader-own-cookie-revocation-return"); return; }
+                    ++sharedPhase;
+                    const auto target = origin + (sharedPhase == 1 ? sharedReaderPath() : initialPath);
+                    if (host->navigate(target).decision != RouteDecision::allow) finish(false, "shared-navigation-admission");
+                } catch (...) { finish(false, "shared-script-or-transition"); }
+            });
+        });
+    }
+
     void checkDocument() {
         if (probeExit != 2 || !profileVerified || scriptPending || !view.CoreWebView2() || !completions) return;
+        if (sharedReaderScenario()) { checkSharedReader(); return; }
         if (freshLoginScenario()) { checkFreshLogin(); return; }
         if (redirectHeldScenario() && historyPhase == 3) { checkRedirectHeld(); return; }
         if (redirectHeldScenario() && historyPhase == 4) { checkStaleReset(); return; }
@@ -2176,6 +2273,13 @@ struct ProbeApp : ApplicationT<ProbeApp> {
             });
             host->setAuthSessionHandler([this](std::string token, bool currentCookieRead) {
                 ++authCallbacks;
+                if (sharedReaderScenario()) {
+                    if (currentCookieRead) ++currentCookieReads; else ++authInvalidations;
+                    if (currentCookieRead && token.empty()) ++signedOutObservations;
+                    const auto expected = sharedPhase == 1 ? "synthetic-shared-public-session" : "synthetic-shared-cabinet-session";
+                    if (!currentCookieRead || token != expected) finish(false, "shared-real-cookie-token");
+                    return; // The real native cookie is observed; no account authority is fabricated.
+                }
                 if (accountHistoryScenario()) {
                     if (currentCookieRead) { ++currentCookieReads; if (token.empty()) ++signedOutObservations; }
                     else ++authInvalidations;
@@ -2206,6 +2310,15 @@ struct ProbeApp : ApplicationT<ProbeApp> {
                     host->bindUserTimeAccount(origin, "11111111-1111-4111-8111-111111111111",
                         "22222222-2222-4222-8222-222222222222", std::move(token), 1);
             });
+            if (sharedReaderScenario()) {
+                host->setUpdateHandler([this] { ++updateCallbacks; });
+                host->setLocalRecordingHandler([this](auto) { ++sharedEffects; });
+                host->setVisibleRecordingsHandler([this](auto value) { if (!value.ids.empty()) ++sharedEffects; });
+                host->setDeletionSelectionHandler([this](auto) { ++sharedEffects; });
+                host->setNativeSettingsHandler([this](auto const&) { ++sharedEffects; return std::string{}; });
+                host->setCalendarJoinHandlers([this](auto) { ++sharedEffects; }, [this](auto) { ++sharedEffects; });
+                WebViewLocalRecordingRow row; row.id = "synthetic-shared-local"; host->setLocalRecordings({std::move(row)});
+            }
             if (scenario == "initial200") host->setUpdateHandler([this] {
                 ++updateCallbacks; // Actual bridge dispatch only; never invokes an installer.
                 if (updateCallbacks != 1 || updatePhase < 3) finish(false, "unexpected-update-dispatch");
@@ -2264,6 +2377,33 @@ struct ProbeApp : ApplicationT<ProbeApp> {
                         sameDirectoryIdentity(actualProfile, profilePath);
                     std::printf("PROFILE_EXACT_MATCH=%d NAVIGATIONS_BEFORE_CHECK=%u\n", int(profileVerified), starts);
                     if (!profileVerified || starts != 0) { core.Stop(); sender.Close(); finish(false, "profile-isolation"); return; }
+                    if (sharedReaderScenario()) {
+                        core.WebMessageReceived([this](auto const&, auto const& args) {
+                            if (sharedPhase != 1) return;
+                            try {
+                                const auto value = Windows::Data::Json::JsonObject::Parse(args.WebMessageAsJson());
+                                if (value.GetNamedString(L"protocol", L"") == L"graf.desktop.bridge") ++sharedForgedMessages;
+                            } catch (...) { finish(false, "shared-message-observation"); }
+                        });
+                        core.WebResourceResponseReceived([this](auto const&, auto const& args) {
+                            try {
+                                const auto request = args.Request(); const auto headers = request.Headers();
+                                if (!headers.Contains(L"Sec-Fetch-Dest") || headers.GetHeader(L"Sec-Fetch-Dest") != L"document") return;
+                                const auto path = sharedPhase == 1 ? sharedReaderPath().substr(0, sharedReaderPath().find('#')) : initialPath;
+                                const auto responseHeaders = args.Response().Headers();
+                                if (sharedPhase > 2 || to_string(request.Uri()) != origin + path || request.Method() != L"GET" ||
+                                    args.Response().StatusCode() != 200 || !responseHeaders.Contains(L"Content-Type") ||
+                                    responseHeaders.GetHeader(L"Content-Type") != L"text/html; charset=utf-8" ||
+                                    !headers.Contains(L"X-GRAF-Desktop-Navigation") ||
+                                    to_string(headers.GetHeader(L"X-GRAF-Desktop-Navigation")) != std::to_string(host->documentGeneration()) ||
+                                    ++sharedResponses[sharedPhase] != 1) { finish(false, "shared-real-get-html-response"); return; }
+                                sharedResponseNavigation[sharedPhase] = lastStartedNavigationId;
+                                sharedResponseGeneration[sharedPhase] = host->documentGeneration();
+                                std::printf("T121_SHARED_RESPONSE phase=%u GET=1 HTML=1 STATUS=200 TAG_MATCH=1\n", sharedPhase);
+                                std::fflush(stdout);
+                            } catch (...) { finish(false, "shared-response-observation"); }
+                        });
+                    }
                     core.NavigationCompleted([this](auto const&, auto const& event) {
                         if (redirectHeldScenario() && historyPhase == 3) {
                             if (responseMarkerExists(L"unexpected-http")) {
@@ -2722,7 +2862,7 @@ int wmain(int argc, wchar_t** argv) {
         completionFailureDiagnostic = true;
     }
     bool known = false;
-    for (const auto name : {"history-get-repeated-url", "history-host-ordinary-back", "initial200", "login400", "email503", "cabinet401", "cabinet503", "login429", "email429",
+    for (const auto name : {"shared-reader-session", "history-get-repeated-url", "history-host-ordinary-back", "initial200", "login400", "email503", "cabinet401", "cabinet503", "login429", "email429",
         "email-json503", "reselect", "billing401", "meeting401", "transport-reset", "tls-failure", "login-post400",
         "history-get", "history-post", "history-entry", "history-entry-same-url", "cancel-before-start", "history-host-same-url",
         "cancel-history-host", "cancel-history-script", "history-same-document", "history-race-native-first", "history-race-script-first", "history-reset",

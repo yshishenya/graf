@@ -11,7 +11,7 @@ import urllib.parse
 root = pathlib.Path(sys.argv[1])
 scenario = sys.argv[2]
 port = int(sys.argv[3])
-if scenario not in {"history-get-repeated-url", "history-host-ordinary-back", "initial200", "login400", "email503", "cabinet401", "cabinet503",
+if scenario not in {"shared-reader-session", "history-get-repeated-url", "history-host-ordinary-back", "initial200", "login400", "email503", "cabinet401", "cabinet503",
                     "login429", "email429", "email-json503", "reselect", "billing401",
                     "meeting401", "transport-reset", "tls-failure", "login-post400",
                     "history-get", "history-post", "history-entry", "history-entry-same-url", "cancel-before-start", "history-host-same-url",
@@ -31,6 +31,8 @@ if scenario == "history-host-ordinary-back":
 if scenario == "history-get-repeated-url":
     history_paths = (history_paths[0], history_paths[1], history_paths[0])
 # cabinet GET, login GET, email GET, safe login next, unexpected path, non-GET.
+shared_path = "/api/v1/cabinet/public-shares/" + "a" * 43
+shared_query = "workspace_id=22222222-2222-4222-8222-222222222222"
 counts = [0] * 6
 lock = threading.Lock()
 
@@ -64,6 +66,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     f"<button type='{button_type}'>Synthetic</button></form>")
         # The real product bootstrap emits native_ready. Only a boolean is retained.
         listener = "window.chrome?.webview?.addEventListener('message',e=>{if(e.data?.command==='native_ready'&&typeof e.data.nonce==='string')document.documentElement.dataset.syntheticNativeReady='1';});"
+        if scenario == "shared-reader-session":
+            listener += "window.chrome.webview.addEventListener('message',e=>{if(e.data?.command==='local_recordings')document.documentElement.dataset.syntheticLocalSeen='1';});"
         accepted = " data-post-accepted='1'" if post_accepted else ""
         identity = ("<meta name='graf-time-user' content='11111111-1111-4111-8111-111111111111'>"
                     "<meta name='graf-workspace' content='22222222-2222-4222-8222-222222222222'>"
@@ -80,6 +84,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json" if kind == "json" else "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", "no-store")
+        if scenario == "shared-reader-session":
+            token = "synthetic-shared-public-session" if kind == "shared-public" else "synthetic-shared-cabinet-session"
+            self.send_header("Set-Cookie", f"__Host-twobrain_rec_owner_session={token}; Path=/; Secure; HttpOnly; SameSite=Lax")
         if scenario == "initial200":
             self.send_header("Set-Cookie", "__Host-twobrain_rec_owner_session=synthetic-inventory-session; Path=/; Secure; HttpOnly; SameSite=Lax")
         if scenario in {"history-reset-account-boundary", "history-account-boundary-redirect-held"}:
@@ -95,6 +102,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if path == "/favicon.ico":
             self.send_response(204)
             self.end_headers()
+            return
+        if scenario == "shared-reader-session":
+            valid = (path == cabinet_path and not parsed.query) or (path == shared_path and parsed.query == shared_query)
+            with lock:
+                counts[0 if valid else 4] += 1
+            self.page(200 if valid else 404, "shared-public" if valid and path == shared_path else "shared-cabinet" if valid else "error")
             return
         if scenario == "history-account-boundary-redirect-held" and path == cabinet_path:
             with lock:

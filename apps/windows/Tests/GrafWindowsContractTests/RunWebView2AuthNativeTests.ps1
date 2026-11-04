@@ -8,7 +8,7 @@ param(
   [Parameter(Mandatory=$true)][string]$SyntheticCertificate,
   [Parameter(Mandatory=$true)][string]$SyntheticPrivateKey,
   [ValidateNotNullOrEmpty()]
-  [ValidateSet('history-get-repeated-url','history-host-ordinary-back','initial200','login400','email503','cabinet401','cabinet503','login429','email429','email-json503','reselect','billing401','meeting401','transport-reset','tls-failure','login-post400','history-get','history-post','history-entry','history-entry-same-url','cancel-before-start','history-host-same-url','cancel-history-host','cancel-history-script','history-same-document','history-race-native-first','history-race-script-first','history-reset','history-host-get','history-host-quarantine','history-pending-read-fence','history-terminal-held','history-fresh-login-redirect','history-reset-stale-readback','history-reset-account-boundary','history-account-boundary-redirect-held')]
+  [ValidateSet('shared-reader-session','history-get-repeated-url','history-host-ordinary-back','initial200','login400','email503','cabinet401','cabinet503','login429','email429','email-json503','reselect','billing401','meeting401','transport-reset','tls-failure','login-post400','history-get','history-post','history-entry','history-entry-same-url','cancel-before-start','history-host-same-url','cancel-history-host','cancel-history-script','history-same-document','history-race-native-first','history-race-script-first','history-reset','history-host-get','history-host-quarantine','history-pending-read-fence','history-terminal-held','history-fresh-login-redirect','history-reset-stale-readback','history-reset-account-boundary','history-account-boundary-redirect-held')]
   [string[]]$Scenarios = @('initial200','login400','email503','cabinet401','cabinet503','login429','email429','email-json503','reselect','billing401','meeting401','transport-reset','tls-failure','login-post400','history-get','history-post','history-entry','history-entry-same-url','cancel-before-start','history-host-same-url','cancel-history-host','cancel-history-script','history-same-document'),
   [switch]$CompletionFailureDiagnostic
 )
@@ -21,6 +21,7 @@ $out = Join-Path ([IO.Path]::GetTempPath()) ('graf-t103-native-' + [Guid]::NewGu
 New-Item -ItemType Directory -Path $out | Out-Null
 Write-Output ('T103_TEMP_DIRECTORY=' + $out)
 $expected = @{
+  'shared-reader-session' = '3 0 0 0 0 0'
   initial200 = '1 0 0 0 0 0'; login400 = '0 1 0 0 0 0'; email503 = '1 0 1 0 0 0'
   cabinet401 = '1 1 0 1 0 0'; cabinet503 = '1 0 0 0 0 0'
   login429 = '0 1 0 0 0 0'; email429 = '1 0 1 0 0 0'; 'email-json503' = '1 0 1 0 0 0'
@@ -158,6 +159,13 @@ try {
         $countsMatch = $row -cmatch '\A[2-3] 0 0 0 0 0\z'
       } else { $countsMatch = $row -ceq $expected[$scenario] }
       $pass = $fixtureExitCode -eq 0 -and $countsMatch -and (Get-Item -LiteralPath "$caseRoot\server.err").Length -eq 0 -and $watch.ElapsedMilliseconds -le 35000
+      if ($scenario -eq 'shared-reader-session') {
+        $sharedLines = @(Get-Content -LiteralPath "$caseRoot\fixture.out")
+        foreach ($phase in 0..2) {
+          $pattern = '^T121_SHARED_NATIVE phase=' + $phase + ' PASS=1 COOKIE_NATIVE=1 PUBLIC_BRIDGE=' + $(if ($phase -eq 1) { '0' } else { '1' }) + ' EFFECTS=0$'
+          $pass = $pass -and @($sharedLines | Where-Object { $_ -cmatch $pattern }).Count -eq 1
+        }
+      }
       if ($CompletionFailureDiagnostic) {
         $lines = @(Get-Content -LiteralPath "$caseRoot\fixture.out")
         $control = @($lines | Where-Object { $_ -cmatch '^T103_NATIVE ' })

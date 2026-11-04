@@ -2700,3 +2700,172 @@ Governance, YAML и diff whitespace — PASS. Doctor с глобальным CLI
 закреплённым CLI1.0.7 --doctor --frozen PASS. Lock/skills/расширения не менялись,
 новые зависимости не устанавливались. GitHub head/base проверки после нового
 коммита обязательны; expired old-reader exception сохраняет merge/release HOLD.
+
+
+### T117 — точная очистка исторической искусственной пробы (2026-11-04)
+
+После checkpoint коммита f5d61539fc0fbcdd4a05f7416054fa1ac8e2ea57
+независимая проверка исходной DSH-сессии подтвердила назначение дополнительного
+файла5709bytes: это desktop-upload-queue.v2.before-migrate, созданный Copy-Item
+до синтетической пробы и позже использованный для восстановления реестра.
+Сопоставлены SHA имени, команда12664 и её сохранённый результат12670. Это
+не доказывает нынешние bytes и не разрешает удалить backup. Он сохранён.
+
+Однострочный r4 допуск этого точного сохраняемого имени не выдаёт ему DELETE,
+не читает/не хеширует содержимое и не меняет production migration allowlist.
+Все прочие неизвестные root files по-прежнему отказывают. Независимое полное
+337-line review: SOURCE GO C0/H0. Script r4 SHA-256:
+`e55b900ec63fdf459add59ae3677bc10f7f4c4fb83a6a0c36c805d57b1b1204d`.
+Отдельный r4 Windows SelfTest PASS2cases и temporary cleanup PASS; прежний r3
+SelfTest не использован вместо его исполнения.
+
+Рабочий r4 Inspect: INSPECT_EXACT_FIXTURE, Success=true, readonly, process0,
+67entries/13directories; snapshot и retained hashes до/после совпали.
+Только после чтения этого результата отдельно назначен Apply. Он завершён
+штатно EXACT_FIXTURE_REMOVED: Success=true/DeleteRequested=true/AbsenceProved=true,
+67→66entries. Все13directory objects сохранены. Ledger7647bytes SHA до/после:
+`569cd2d8f42d682239f9eaaabd1732b6521288561be44af0c175864950d237fe`;
+retained metadata snapshot до/после:
+`c269805ec9bf28108ad544a8729516c073bd7e52e612eda8b5d81d5bb7bdffdd`.
+Удалена только точная382-byte искусственная проба по её удерживаемому handle.
+Пакеты, backup, владельцы, ключи и ACL не менялись; audio/key content reads0,
+копий0, migration0, app launch/install0, trust changes0. Process guards0.
+
+Receipts SHA-256: SelfTest
+`f3142e6a9b9d9c0c499ef17126bb4513eaa5a8801ac2724659d677440d57aab6`;
+Inspect `961f6ad4d6af20a5694d2d8b1d62559a73249b7537c61626b520ea09f06117c3`;
+Apply `296e94c3ee82288fa053dea8f85556c52a322c9cb21eaa6b331079e4d0fe7d75`.
+Это отдельная локальная операция над доказанным тестовым артефактом, не новый
+автоматический cleanup клиентов и не готовность T117. Сохраняемый backup
+остаётся дополнительным root file; его безопасное сохранение вне active root
+требует отдельной проверенной операции. Запись ещё не объявляется разблокированной.
+
+
+### T097 — обновление установленного MSIX до 0.1.0.16 (2026-11-04)
+
+Исходник: f5d61539fc0fbcdd4a05f7416054fa1ac8e2ea57 и единственное отличие
+225 Windows inputs — development manifest0.1.0.15→0.1.0.16. Это внутренний
+тестовый пакет, не публичный CalVer-релиз. Полная повторная компиляция через
+существующий packaging project Build Release/x64 завершена build0; свежие
+production EXE/AppMain.obj, PE0x8664, test payload отсутствует. Подпись
+существующим сертификатом CN=GRAF: Valid; новых сертификатов, изменения
+доверия, экспорта ключа и timestamp-запроса нет. Статический smoke PASS;
+проверки валидатора6/6 signature,2/2 native WebView2,6/6 resource-language PASS.
+Source225/configuration110/Debug24 и прежняя установка до update неизменны.
+Временный packaging output удалён после terminal acceptance; итоговый MSIX
+и журналы сохранены вне Git.
+
+MSIX SHA-256:
+`275320838343c225e5718d8ec48dd07e03578e61ae838a0548228efe0589e549`;
+его payload EXE и установленный EXE совпадают:
+`7aacbc65019bebb8c76bbce10dd31ff60a9077dbc786150790ebcab6c84d26c3`.
+Обычный Add-AppxPackage обновил0.1.0.15→0.1.0.16, StatusOk; без reset,
+uninstall, Force или запуска интерфейса. Все22 файла содержимого пакета
+проверены по SHA. Метаданный снимок пяти областей пользовательских данных
+до/после совпал, доверие к сертификатам неизменно, source225 повторно совпали.
+Содержимое рабочих записей, ключей и cookies не читалось. Отдельная
+IApplicationActivationManager-активация точного установленного AUMID с
+--verify-audio-backend: exit73, terminal=true, без принудительного завершения,
+устройств и аудиозахвата. Это доступность настоящего AEC backend в MSIX,
+не приёмка живой записи и не T097/T118 completion.
+
+Receipts SHA-256: build
+`ce120469c32f0fa192e84789dc3c92355720bd148898aa8d8afc4aa1871adc24`;
+install `96c2ddaa7e086c828b638962bf5f900962debef6c5ef5064e83bf548527231cd`;
+packaged AEC `b5db763087ca836bdde546bb7cd12d3d11eff66e15003531c3506839efad83d1`.
+Предыдущая попытка packaging r2 штатно отказала до MSBuild на запрещённом
+вложенном PowerShell-файле, сохранив manifest0.16 и остальные inputs. Для
+успешного r3 разрешение Bypass задано только процессу проверки; постоянная
+ExecutionPolicy, registry, UAC и trust не менялись. Прежний отказ сохранён.
+
+GitHub governance-fast41895822528 и macos-pr41895822570 завершены success
+для точного f5d61539fc0fbcdd4a05f7416054fa1ac8e2ea57. Общий validator
+PR7331 всё ещё отказывает: pr-metadata не принимает истёкшее old-reader
+исключение. Срок не продлён; merge/release HOLD сохраняется до T117 retirement.
+Живая UI/Record, cold/warm shared activation, hardware и clean-image gates
+этим обновлением не закрыты.
+
+
+### 2026-11-04 — T117: сохранение прежней резервной копии и T097: первый обычный запуск 0.16
+
+Под ранее подтверждённым порядком восстановления выполнены отдельные SelfTest,
+Inspect и Apply узкой операции переноса единственной известной прежней резервной
+копии очереди. Это прежний файл5709B, не вновь созданная копия. Native rename
+сохранил тот же файловый объект, размер, время изменения и права файла; очередь
+7647B и метаданные остальных объектов совпали до/после. В активном дереве66→65
+объектов,13 каталогов без изменений. Новый отдельный каталог восстановления
+создан сразу с правами только текущего пользователя. Существующие права
+исходного файла и родителя не менялись. Рабочие записи, очередь и backup не
+удалялись; содержимое backup не читалось и не копировалось. Прежний открытый
+backup остаётся plaintext exception, не доказательством полного шифрования.
+
+SelfTest подтвердил сохранение объекта неверного размера и перенос того же
+объекта правильного размера; временные искусственные объекты удалены. Прежние
+кандидаты с неподходящей проверкой прав/Win32 rename87 завершились отказом,
+без переноса рабочего backup; их не выдают за PASS. Успешный кандидат использует
+существующий в продукте handle-relative NtSetInformationFile с проверкой обоих
+статусов. Проверка исходника независимым агентом: C0/H0/M0.
+
+SHA-256 операционного скрипта:
+`e803ef37f6f3d63cc76c98a442fd1b2447cbfdf488465d309b120f0ecb677f9e`;
+SelfTest receipt `dfd0b129146101cc603454110779cfcfd72020f89e7c617059e15a9596e64ac5`;
+Inspect `7052e200fbef0a1701cf2fd42082cab95c262091f682116b236b5b69b6c9b24c`;
+Apply `c7aaa896cead328af515667c1f99b6e5bd2f51de1232ea6da3444de91c68fabf`.
+Частные пути, файловые идентификаторы, права в исходной форме и хеши
+пользовательского содержимого сохранены только в локальных закрытых материалах.
+
+Обычный запуск установленного GRAF0.1.0.16 показал общую страницу встреч
+с действующим входом. Однако нативная панель всё ещё сообщает о недоступности
+защищённого хранилища; «Начать запись» отключено. Root без .custody-v1;
+сохранились12 прежних каталогов и очередь. Проверка source выявила отдельный
+барьер: lockRoot требует privateAcl текущего пользователя, у прежнего root
+права унаследованы. Это ещё не точный runtime-код ошибки и не разрешение
+ослабить privateAcl либо автоматически менять права существующих данных.
+Migration/Record/T097 не объявлены принятыми. UI-снимок с частными данными
+остаётся вне Git. Перед изолированным тестом приложение штатно завершено
+через собственную команду трея; exit подтверждён, force не применялся.
+
+
+### 2026-11-04 — T121: настоящий WebView2 public reader / own cookie / возврат
+
+Добавлен только явный сценарий shared-reader-session в существующий native
+fixture и loopback helper; прежний набор по умолчанию не меняется. Три фазы:
+собственный кабинет → публичная общая страница → собственный кабинет.
+Все данные искусственные; настоящий CookieManager читает собственную cookie,
+реальные correlated GET/HTML200 и navigation completions подтверждаются
+независимыми наблюдателями. Fixture не назначает host identity/ready/nonce.
+
+RED со старым Host de710ea7… и текущими совместимыми header/route/test inputs:
+сборка PASS, первая privileged фаза PASS, затем actual public GET/HTML200,
+но targeted failure shared_public_reader_must_reconcile_own_cookie_without_bridge,
+state0. Fixture exit1, server exit0, counts2/0/0/0/0/0, browser exited PASS.
+Это воспроизведение дефекта допуска публичной страницы, не setup/TLS/build fail.
+
+GREEN с текущим Host: все три фазы PASS, cookie reads3, bridge1/0/1;
+на публичной странице отсутствуют nonce/bootstrap/local publication, семь
+реально полученных forged запросов не дали native effects. Возврат требует
+нового genuine nonce и повторного настоящего bridge callback. Fixture/server
+exit0, counts3/0/0/0/0/0, временный профиль удалён; wrapper terminal/accepted
+true и own_processes0 в обеих фазах. Установленный0.16,225 production inputs,
+24 Debug EXE,110-test configuration, Release runtime и generated headers
+не изменились. Гостевая production tree не получила тестовые наложения.
+
+Независимый reviewer исходников и квалификации RED: C0/H0/M0. Python syntax,
+git diff --check, F200 YAML, governance и frozen bootstrap doctor PASS.
+Receipt SHA-256: RED
+`a77f34e863e8b4a9e595b6927207bc335455d3f9617ee4d259e7ce0dcce77b33`;
+GREEN `5bee0f7bb90aeba8dae1741aa1130de8e5fc7c7a64b0fbfec04b27d0bc7d7aea`.
+Runner `7a4421b070538b67412eef6b42bf51d1f539d1dc92932d2ce02af10cde097cf0`;
+patch `1342c04d063c598a477569fccf60b36690e4e1dab962ce37b056662e00059172`.
+
+Предел: это direct SDK/WebView2 synthetic native proof, не installed cold/warm
+activation, не настоящий серверный login/continuation и не AppMain account
+recovery. Детерминированный late-cookie/context и весь T121 остаются открыты.
+Аудиоустройства, trust, рабочие записи и сервер не менялись. Тестовые методы
+не добавлены в публичный мост приложения.
+
+Независимая проверка полного GREEN журнала,12 receipt-связей и текущей
+шестифайловой дельты: COMMIT GO, C0/H0/M0. Все225 Windows-файлов Main
+совпали с GREEN manifest. После terminal acceptance два отдельных временных
+дерева исходников теста удалены; production tree, установленный пакет и
+рабочие записи не затронуты. Итоговые журналы, manifests и receipts сохранены.
