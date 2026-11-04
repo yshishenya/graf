@@ -855,6 +855,25 @@ struct NativeCaptureStorageTestPeer {
     }
     static auto projection(const NativeCapture& capture) { return capture.protectedQueueValue_; }
     static bool recoveryIntentPending(const NativeCapture& capture) { return capture.pendingRecovery_.has_value(); }
+    static bool lifecycleActive(const NativeCapture& capture) {
+        return capture.lifecycleFlight_ || capture.lifecycleThread_.joinable();
+    }
+    static std::string lifecycleCursor(const NativeCapture& capture) {
+        return std::string(capture.lifecycleCursor_.begin(), capture.lifecycleCursor_.end());
+    }
+    static bool lifecycleNativeExit(NativeCapture& capture) {
+        return capture.lifecycleThread_.joinable() && WaitForSingleObject(capture.lifecycleThread_.native_handle(), 0) == WAIT_OBJECT_0;
+    }
+    static bool lifecycleAnswerRetained(const NativeCapture& capture) {
+        return capture.lifecycleFlight_ && capture.lifecycleFlight_->answer && !capture.lifecycleFlight_->waiting.id;
+    }
+    static bool lifecycleWaiting(const NativeCapture& capture) {
+        return capture.lifecycleFlight_ && capture.lifecycleFlight_->waiting.id;
+    }
+    static bool lifecycleResultReady(const NativeCapture& capture) {
+        std::lock_guard<std::mutex> lock(capture.storageStartup_->mutex);
+        return capture.storageStartup_->resultReady && capture.storageStartup_->ticket.kind == NativeCapture::QueueMutationKind::lifecycleResult;
+    }
     static bool deletionResponseRetained(const NativeCapture& capture) {
         return capture.deletionFlight_ && capture.deletionFlight_->response && !capture.deletionThread_.joinable() &&
             capture.deletionFlight_->phase == NativeCapture::DeletionFlight::Phase::result;
@@ -1416,7 +1435,284 @@ void protectedDeletionIntent() {
             static_cast<unsigned>(cut), durable ? 1U : 0U);
     }
 }
+std::string lifecycleOrigin(unsigned n) {
+    char name[40]; std::snprintf(name, sizeof(name), "generated-life-%03u", n); return name;
+}
+std::string lifecycleLocal(unsigned n) {
+    char name[40]; std::snprintf(name, sizeof(name), "generated-local-%03u", n); return name;
+}
+std::uint64_t seedLifecycleQueue(const std::filesystem::path& root, unsigned count, bool audio = false, bool needsAuth = false) {
+    return std::async(std::launch::async, [root, count, audio, needsAuth] {
+        auto cancel = std::make_shared<std::atomic<bool>>(false);
+        auto opened = ProtectedCustodyStoreOwner::open(root, cancel); assert(opened.ok());
+        auto owner = std::move(*opened.value);
+        if (audio) {
+            auto writer = V5LocalRecordingWriter::open(owner, lifecycleOrigin(0), cancel); assert(writer.ok());
+            CanonicalAudioFrame frame; frame.mixed.fill(0.25F);
+            for (unsigned n = 0; n != 500; ++n) { frame.ptsFrames = n * 480; assert((*writer.value)->append(frame)); }
+            assert((*writer.value)->finalize().normalPackage()); writer.value.reset();
+        }
+        std::string json;
+        DesktopUploadQueueService queue(root / L"unused.json", root,
+            [&](const auto&, const auto&, std::string_view bytes) { json.assign(bytes); return true; });
+        queue.setClock([] { return 1000; });
+        for (unsigned n = 0; n != count; ++n) {
+            UploadCustodyItem row{lifecycleLocal(n), lifecycleOrigin(n), lifecycleOrigin(n), root / lifecycleOrigin(n),
+                UploadQueueStatus::uploaded, {11,22,33}, 3, "",
+                "11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"};
+            if (needsAuth && n == 2) { row.status = UploadQueueStatus::needsAuth; row.safeReason = "auth_required"; }
+            assert(queue.enqueue(std::move(row)));
+        }
+        assert(queue.deletionOperations().empty()); // No locally requested deletion to accept.
+        CustodyBytes bytes(json.begin(), json.end());
+        const auto saved = commitProtectedCustodyMetadata(owner, owner->queueContext(), owner->queueGeneration(), bytes, cancel);
+        assert(saved.state == CustodyCommitState::committed);
+        return saved.targetGeneration;
+    }).get(); // Every seed owner/writer/lease is released before Native startup.
+}
+std::string lifecycleAnswer(const CustodyString& body, unsigned mode = 0) {
+    const auto fields = DesktopApiClient::jsonObjectFields(body); assert(fields);
+    const auto origins = DesktopApiClient::jsonArrayValues(fields->at("origins")); assert(origins && !origins->empty() && origins->size() <= 100);
+    std::string answer = "[";
+    for (std::size_t n = 0; n != origins->size(); ++n) {
+        if (mode == 1 && n) break; // Incomplete batch; never a partial acceptance.
+        if (n) answer += ',';
+        const auto id = mode == 2 ? origins->front() : (*origins)[n];
+        answer += "{\"target_type\":\"own_origin\",\"target_id\":"; answer += id;
+        if (id == "\"generated-life-000\"") {
+            answer += R"(,"state":"canceled_before_creation","receipt":{"receipt_type":"origin_cancellation","request_id":"77777777-7777-4777-8777-777777777777","phase":"accepted","local_recording_id":)";
+            answer += mode == 3 ? "\"foreign-origin\"" : std::string(id); answer += "}}";
+        } else answer += ",\"state\":\"allowed\"}";
+    }
+    answer += ']'; return answer;
+}
+void protectedLifecycleApplication() {
+    const auto baseline = CustodyOwnedMemory::usedBytes();
+    const DesktopHttpTransport::UploadSend account = [](const auto&, const auto& request) -> DesktopHttpTransport::UploadResponse {
+        assert(request.method == "GET");
+        if (request.path == "/desktop/settings/spaces")
+            return {200, R"({"spaces":[{"id":"22222222-2222-4222-8222-222222222222","active":true}]})"};
+        assert(request.path == "/api/v1/auth/me");
+        return {200, R"({"user_id":"11111111-1111-4111-8111-111111111111","workspace_id":"22222222-2222-4222-8222-222222222222","active_session_id":"33333333-3333-4333-8333-333333333333"})"};
+    };
+    const auto gate = R"({"user_id":"11111111-1111-4111-8111-111111111111","workspace_id":"22222222-2222-4222-8222-222222222222","recording_deletion_protocol_version":1})";
+    {
+        Fixture fixture; const auto generation = seedLifecycleQueue(fixture.root, 211, true);
+        const auto original = snapshot(fixture.root / lifecycleOrigin(0)); assert(!original.empty());
+        unsigned gets = 0, deletes = 0, purgeAcks = 0;
+        std::atomic<bool> exitHeld{false}, exitReleased{false}, exitTimedOut{false};
+        std::vector<std::vector<std::string>> pages;
+        std::mutex networkMutex;
+        const DesktopHttpTransport::ProtectedUploadSend wire = [&](const auto& config, const auto& request) {
+            assert(config.scopedAccount && config.scopedAccount->userId == "11111111-1111-4111-8111-111111111111" &&
+                config.scopedAccount->workspaceId == "22222222-2222-4222-8222-222222222222");
+            DesktopHttpTransport::ProtectedUploadResponse response; response.status = 200;
+            std::lock_guard<std::mutex> lock(networkMutex);
+            if (request.method == "DELETE") ++deletes;
+            if (request.path.find("/ack") != CustodyString::npos) ++purgeAcks;
+            if (request.method == "GET") { assert(request.path == DesktopApiClient::notificationContextPath); ++gets; response.body = gate; }
+            else {
+                assert(request.method == "POST" && request.path == DesktopApiClient::lifecyclePath);
+                const auto fields = DesktopApiClient::jsonObjectFields(request.body); assert(fields);
+                const auto ids = DesktopApiClient::jsonArrayValues(fields->at("origins")); assert(ids);
+                std::vector<std::string> page;
+                for (auto id : *ids) page.emplace_back(id.substr(1, id.size()-2));
+                assert(page.size() <= 100);
+                if (pages.empty()) {
+                    struct ExitCut {
+                        std::atomic<bool>* held = nullptr; std::atomic<bool>* released = nullptr; std::atomic<bool>* timedOut = nullptr;
+                        ~ExitCut() {
+                            if (!held) return;
+                            held->store(true); const auto deadline = GetTickCount64() + 10000;
+                            while (!released->load() && GetTickCount64() < deadline) Sleep(1);
+                            if (!released->load()) timedOut->store(true);
+                        }
+                    };
+                    thread_local ExitCut exit;
+                    exit.held = &exitHeld; exit.released = &exitReleased; exit.timedOut = &exitTimedOut;
+                }
+                pages.push_back(std::move(page));
+                response.body = lifecycleAnswer(request.body);
+            }
+            return response;
+        };
+        {
+            NativeCapture capture(fixture.root, {std::make_shared<GeneratedAec>(), false}, account, wire);
+            startAndAdopt(capture, generation);
+            capture.setAuthSessionToken("generated-lifecycle-session");
+            assert(waitFor([&] { NativeCaptureStorageTestPeer::pollAccount(capture); return capture.currentAccount().has_value(); }));
+            capture.startRecordingLifecycle(); // Same unconditional native shell activation as AppMain.
+            capture.setVisibleRecordingItemIDs({lifecycleLocal(0), lifecycleLocal(210)}, capture.authGeneration());
+            assert(waitFor([&] { capture.pollUploads(); return exitHeld.load(); }));
+            for (unsigned n = 0; n != 3; ++n) capture.pollUploads();
+            assert(NativeCaptureStorageTestPeer::lifecycleActive(capture) && !capture.updateWorkDrained());
+            assert(NativeCaptureStorageTestPeer::projection(capture)->deletionOperations().empty());
+            assert(NativeCaptureStorageTestPeer::lifecycleCursor(capture).empty());
+            { std::lock_guard<std::mutex> lock(networkMutex); assert(pages.size() == 1); }
+            exitReleased.store(true);
+            bool started = false;
+            assert(waitFor([&] {
+                capture.pollUploads();
+                const bool active = NativeCaptureStorageTestPeer::lifecycleActive(capture); started = started || active;
+                if (active) capture.setVisibleRecordingItemIDs({lifecycleLocal(0), lifecycleLocal(210)}, capture.authGeneration());
+                return started && !active;
+            }));
+            auto adopted = NativeCaptureStorageTestPeer::projection(capture);
+            assert(adopted && adopted->items().size() == 211 && adopted->deletionOperations().size() == 1);
+            const auto& accepted = adopted->deletionOperations().front();
+            assert(accepted.phase == DeletionOperationPhase::accepted && std::string_view(accepted.targetId) == lifecycleOrigin(0));
+            assert(accepted.receiptRequestId == "77777777-7777-4777-8777-777777777777" && accepted.operationId != accepted.receiptRequestId);
+            assert(accepted.attemptCount == 0 && accepted.nextAttemptAtMs == 0);
+            assert(adopted->deletionBlocks(adopted->items().front()));
+            assert(snapshot(fixture.root / lifecycleOrigin(0)) == original);
+            assert(NativeCaptureStorageTestPeer::lifecycleCursor(capture) == lifecycleOrigin(100));
+            // Clear document priority. Existing periodic/recovery triggers must
+            // still advance native history without any WebView or visible IDs.
+            capture.setVisibleRecordingItemIDs({}, capture.authGeneration());
+            for (unsigned end : {200U, 210U, 100U}) {
+                capture.recover(RecoveryTrigger::scheduled); bool cycle = false;
+                assert(waitFor([&] { capture.pollUploads(); const auto active = NativeCaptureStorageTestPeer::lifecycleActive(capture);
+                    cycle = cycle || active; return cycle && !active; }));
+                assert(NativeCaptureStorageTestPeer::lifecycleCursor(capture) == lifecycleOrigin(end));
+            }
+            capture.shutdown();
+            assert(waitFor([&] { capture.pollUploads(); return capture.shutdownWorkDrained(); }));
+        }
+        assert(snapshot(fixture.root / lifecycleOrigin(0)) == original && !exitTimedOut.load());
+        {
+            std::lock_guard<std::mutex> lock(networkMutex);
+            assert(!deletes && !purgeAcks && gets == 5 && pages.size() == 5);
+            assert((pages[0] == std::vector<std::string>{lifecycleOrigin(0), lifecycleOrigin(210)}));
+            assert(pages[1].front() == lifecycleOrigin(1) && pages[1].back() == lifecycleOrigin(100));
+            assert(pages[2].front() == lifecycleOrigin(101) && pages[2].back() == lifecycleOrigin(200));
+            assert(pages[3].front() == lifecycleOrigin(201) && pages[3].back() == lifecycleOrigin(210));
+            assert(pages[4] == pages[1]);
+        }
+        // FIRST fresh regular owner, after Native and every thread/value/pin
+        // have gone. No candidate bytes are injected into its readback.
+        std::async(std::launch::async, [&] {
+            auto cancel = std::make_shared<std::atomic<bool>>(false);
+            auto opened = ProtectedCustodyStoreOwner::open(fixture.root, cancel); assert(opened.ok());
+            auto value = (*opened.value)->readQueueValue(cancel); assert(value.ok());
+            const auto snapshot = *value.value;
+            assert(snapshot->items().size() == 211 && snapshot->deletionOperations().size() == 1);
+            const auto& receipt = snapshot->deletionOperations().front();
+            assert(receipt.phase == DeletionOperationPhase::accepted && std::string_view(receipt.targetId) == lifecycleOrigin(0) && receipt.attemptCount == 0);
+            assert(receipt.actorUserId == "11111111-1111-4111-8111-111111111111" && receipt.workspaceId == "22222222-2222-4222-8222-222222222222");
+            assert(std::string_view(receipt.serverOrigin) == DesktopHttpConfig{}.baseOrigin &&
+                receipt.receiptRequestId == "77777777-7777-4777-8777-777777777777");
+            for (unsigned n = 0; n != 211; ++n) {
+                const auto& row = snapshot->items()[n];
+                assert(std::string_view(row.localRecordingId) == lifecycleLocal(n) && std::string_view(row.directoryId) == lifecycleOrigin(n));
+                assert(row.acceptedBytes == (std::array<std::uint64_t,3>{11,22,33}) && row.attempts == 3);
+            }
+            const auto before = snapshot->serialize(cancel); assert(before.ok());
+            const CustodyVector<CustodyString> origins{CustodyString(lifecycleOrigin(0).c_str())};
+            const auto body = CustodyString("{\"origins\":[\"generated-life-000\"]}");
+            const auto entries = DesktopApiClient::decodeLifecycleEntries<CustodyString>(lifecycleAnswer(body)); assert(entries);
+            for (unsigned edge = 0; edge != 7; ++edge) {
+                auto copy = std::allocate_shared<ProtectedUploadQueueValue>(CustodyAllocator<ProtectedUploadQueueValue>{}, *snapshot);
+                auto answer = *entries; auto targets = origins;
+                if (edge == 1) answer[0].receipt->requestId = "88888888-8888-4888-8888-888888888888";
+                if (edge == 2) answer[0].targetId = "foreign-origin";
+                if (edge == 3) targets.push_back(targets.front());
+                if (edge == 4) answer.clear();
+                if (edge >= 5) { answer[0].receipt.reset(); answer[0].state = edge == 5 ? LifecycleState::allowed : LifecycleState::unavailable; }
+                bool changed = false;
+                const bool valid = copy->applyLifecycleEntries(targets, answer, receipt.actorUserId, receipt.workspaceId,
+                    receipt.serverOrigin, receipt.updatedAtMs + 1, changed, cancel.get());
+                assert(valid == (edge == 0 || edge >= 5) && !changed);
+                if (valid) { const auto after = copy->serialize(cancel); assert(after.ok() && after.value == before.value); }
+            }
+        }).get();
+    }
+    assert(waitFor([&] { return CustodyOwnedMemory::usedBytes() == baseline; }));
+    // Refuse complete malformed/stale replies before any durable effect. The
+    // existing IO wrappers also prove not-committed vs ambiguous adoption.
+    for (unsigned mode = 1; mode != 10; ++mode) {
+        Fixture fixture; const auto generation = seedLifecycleQueue(fixture.root, 3, false, mode == 9);
+        const auto before = snapshot(fixture.root);
+        std::atomic<unsigned> posts{0}; std::atomic<bool> release{false}, held{false};
+        const DesktopHttpTransport::ProtectedUploadSend wire = [&](const auto& config, const auto& request) {
+            DesktopHttpTransport::ProtectedUploadResponse response; response.status = 200;
+            if (request.method == "GET") { assert(request.path == DesktopApiClient::notificationContextPath); response.body = gate;
+                if (mode == 4) response.body = R"({"user_id":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","workspace_id":"22222222-2222-4222-8222-222222222222","recording_deletion_protocol_version":1})";
+            } else {
+                assert(request.method == "POST" && request.path == DesktopApiClient::lifecyclePath); ++posts;
+                if (mode >= 5) { held.store(true); while (!release.load() && !config.cancellation->load()) Sleep(1); }
+                response.body = lifecycleAnswer(request.body, mode <= 3 ? mode : 0);
+            }
+            return response;
+        };
+        {
+            NativeCapture capture(fixture.root, {std::make_shared<GeneratedAec>(), false}, account, wire);
+            startAndAdopt(capture, generation); capture.setAuthSessionToken("generated-lifecycle-negative");
+            assert(waitFor([&] { NativeCaptureStorageTestPeer::pollAccount(capture); return capture.currentAccount().has_value(); }));
+            capture.startRecordingLifecycle(); bool active = false;
+            if (mode >= 5) {
+                assert(waitFor([&] { capture.pollUploads(); return held.load(); }));
+                if (mode == 9) {
+                    // Real auth recovery changes the queue while lifecycle HTTP
+                    // is held. Its missing generated package cannot reach HTTP.
+                    assert(waitFor([&] { capture.pollUploads(); return NativeCaptureStorageTestPeer::generation(capture) > generation && capture.localQueueComplete(); }));
+                    assert(NativeCaptureStorageTestPeer::projection(capture)->deletionOperations().empty());
+                }
+                if (mode == 5) capture.setAuthSessionToken({}, true);
+                release.store(true);
+                if (mode >= 6) {
+                    assert(waitFor([&] { return NativeCaptureStorageTestPeer::lifecycleNativeExit(capture); }));
+                    if (mode == 8) {
+                        CustodyAllocator<char> allocator;
+                        const auto count = CustodyOwnedMemory::limit - CustodyOwnedMemory::usedBytes();
+                        auto* pressure = allocator.allocate(count);
+                        capture.pollUploads();
+                        const bool retained = NativeCaptureStorageTestPeer::lifecycleAnswerRetained(capture) && posts == 1 &&
+                            NativeCaptureStorageTestPeer::projection(capture)->deletionOperations().empty();
+                        allocator.deallocate(pressure, count);
+                        assert(retained);
+                    }
+                    ioCut.store(mode == 6 ? IoCut::flush : mode == 7 ? IoCut::ambiguousRename : IoCut::none);
+                    assert(waitFor([&] { capture.pollUploads(); return NativeCaptureStorageTestPeer::lifecycleWaiting(capture); }));
+                    assert(waitFor([&] { return NativeCaptureStorageTestPeer::lifecycleResultReady(capture); }));
+                    if (mode == 9) {
+                        const auto ticket = NativeCaptureStorageTestPeer::ticket(capture); assert(ticket && ticket->baseGeneration > generation);
+                    }
+                    assert(NativeCaptureStorageTestPeer::projection(capture)->deletionOperations().empty());
+                    assert(NativeCaptureStorageTestPeer::lifecycleCursor(capture).empty());
+                    ioCut.store(IoCut::none);
+                    if (mode == 7) denyDeletionReadback.store(true);
+                    NativeCaptureStorageTestPeer::pollStorage(capture);
+                    if (mode == 7) {
+                        assert(NativeCaptureStorageTestPeer::projection(capture)->deletionOperations().empty());
+                        denyDeletionReadback.store(false); capture.recover(RecoveryTrigger::scheduled);
+                        assert(waitFor([&] { capture.pollUploads(); return NativeCaptureStorageTestPeer::projection(capture)->deletionOperations().size() == 1; }));
+                    }
+                }
+            }
+            assert(waitFor([&] { capture.pollUploads(); active = active || NativeCaptureStorageTestPeer::lifecycleActive(capture);
+                return !NativeCaptureStorageTestPeer::lifecycleActive(capture) && (active || mode >= 5 || mode == 4); }));
+            if (mode < 7) assert(NativeCaptureStorageTestPeer::projection(capture)->deletionOperations().empty());
+            if (mode >= 8) assert(NativeCaptureStorageTestPeer::projection(capture)->deletionOperations().size() == 1);
+            capture.shutdown(); assert(waitFor([&] { capture.pollUploads(); return capture.shutdownWorkDrained(); }));
+        }
+        ioCut.store(IoCut::none); denyDeletionReadback.store(false);
+        if (mode <= 5) assert(snapshot(fixture.root) == before);
+        // Explicit recovery after ambiguous readback may coalesce one next
+        // background cycle; no autonomous retry loop or destructive call exists.
+        assert(mode == 7 ? posts >= 1 && posts <= 2 : posts == (mode == 4 ? 0U : 1U));
+        std::async(std::launch::async, [&] {
+            auto cancel = std::make_shared<std::atomic<bool>>(false);
+            auto owner = ProtectedCustodyStoreOwner::open(fixture.root, cancel); assert(owner.ok());
+            auto read = (*owner.value)->readQueueValue(cancel); assert(read.ok());
+            assert((*read.value)->deletionOperations().size() == (mode >= 7 ? 1U : 0U));
+        }).get();
+        assert(waitFor([&] { return CustodyOwnedMemory::usedBytes() == baseline; }));
+    }
+    std::fprintf(stderr, "PROTECTED_LIFECYCLE generated_origins=211 external_receipt=1 devices=0 real_network=0 delete=0 purge_ack=0\n");
+}
+
 void protectedDeletionApplication() {
+    protectedLifecycleApplication();
     const DesktopHttpTransport::UploadSend account = [](const auto&, const auto& request) -> DesktopHttpTransport::UploadResponse {
         assert(request.method == "GET");
         if (request.path == "/desktop/settings/spaces")

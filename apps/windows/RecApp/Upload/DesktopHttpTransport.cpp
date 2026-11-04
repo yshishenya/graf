@@ -1028,6 +1028,27 @@ std::shared_ptr<const ProtectedDeletionResponse> protectedDeletionCall(
 }
 } // namespace
 
+std::shared_ptr<const ProtectedDeletionResponse> DesktopHttpTransport::recordingLifecycleProtected(
+    const ProtectedDesktopHttpConfig& config, const CustodyVector<CustodyString>& origins,
+    bool readProtocolGate, const ProtectedUploadSend& send) {
+    return protectedDeletionCall(config, readProtocolGate, send, [&](auto& call) -> std::string_view {
+        if (origins.empty() || origins.size() > 100) return "invalid_selection";
+        call.method = "POST"; call.path = DesktopApiClient::lifecyclePath;
+        call.body = "{\"origins\":[";
+        for (std::size_t n = 0; n != origins.size(); ++n) {
+            json_detail::checkCancellation(config.cancellation.get());
+            if (!DesktopUploadQueueService::validIdentity(origins[n])) return "invalid_selection";
+            for (std::size_t previous = 0; previous != n; ++previous)
+                if (origins[previous] == origins[n]) return "invalid_selection";
+            if (n) call.body += ',';
+            // validIdentity permits only ASCII letters, digits, '_' and '-'.
+            call.body += '"'; call.body += origins[n]; call.body += '"';
+        }
+        call.body += "],\"meeting_ids\":[]}";
+        return {};
+    });
+}
+
 std::shared_ptr<const ProtectedDeletionResponse> DesktopHttpTransport::deletionProtected(
     const ProtectedDesktopHttpConfig& config, const BasicDeletionRequestPlan<CustodyString>& entry,
     bool readProtocolGate, const ProtectedUploadSend& send) {

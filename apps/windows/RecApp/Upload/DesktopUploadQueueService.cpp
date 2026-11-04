@@ -1044,6 +1044,79 @@ bool ProtectedUploadQueueValue::planDeletionSelection(const ProtectedDeletionTar
     return true;
 }
 
+bool ProtectedUploadQueueValue::applyLifecycleEntries(const CustodyVector<CustodyString>& origins,
+    const BasicLifecycleEntries<CustodyString>& entries, std::string_view user,
+    std::string_view workspace, std::string_view origin, std::uint64_t now, bool& changed,
+    const std::atomic<bool>* cancellation) {
+    changed = false;
+    if (!cancellation || origins.empty() || origins.size() > 100 || entries.size() != origins.size() ||
+        !DesktopApiClient::accountId(user) || !DesktopApiClient::accountId(workspace) ||
+        !DesktopUploadQueueService::validServerOrigin(origin)) return false;
+    // Check the complete selection before touching the private copy. The worker
+    // still discards the entire candidate on any later conflict/cancellation.
+    for (std::size_t n = 0; n != origins.size(); ++n) {
+        json_detail::checkCancellation(cancellation);
+        if (!DesktopUploadQueueService::validIdentity(origins[n])) return false;
+        for (std::size_t previous = 0; previous != n; ++previous)
+            if (origins[previous] == origins[n]) return false;
+        if (std::none_of(items_.begin(), items_.end(), [&](const auto& row) {
+            return row.directoryId == origins[n] && std::string_view(row.ownerUserId) == user &&
+                std::string_view(row.ownerWorkspaceId) == workspace;
+        })) return false;
+        if (std::count_if(entries.begin(), entries.end(), [&](const auto& entry) {
+            return entry.target == DeletionTarget::ownOrigin && entry.targetId == origins[n];
+        }) != 1) return false;
+    }
+    for (const auto& entry : entries) {
+        json_detail::checkCancellation(cancellation);
+        if (entry.state == LifecycleState::allowed || entry.state == LifecycleState::unavailable) {
+            if (entry.receipt) return false;
+            // These states never erase an accepted receipt or grant purge. This
+            // ledger has no accessState field; existing server-bound access stays closed.
+            continue;
+        }
+        if (entry.state != LifecycleState::deletionAccepted && entry.state != LifecycleState::canceledBeforeCreation)
+            return false;
+        if (!entry.receipt || (!entry.meetingId.empty() && entry.meetingId != entry.receipt->meetingId)) return false;
+        const auto derived = DesktopApiClient::deletionOperationId(
+            DeletionScope{std::string(user), std::string(workspace)}, DeletionTarget::ownOrigin, entry.targetId);
+        if (!DesktopApiClient::accountId(derived)) return false;
+        auto existing = std::find_if(operations_.begin(), operations_.end(), [&](const auto& record) {
+            return std::string_view(record.operationId) == derived;
+        });
+        if (existing != operations_.end() && (existing->target != DeletionTarget::ownOrigin ||
+            existing->targetId != entry.targetId || std::string_view(existing->actorUserId) != user ||
+            std::string_view(existing->workspaceId) != workspace || std::string_view(existing->serverOrigin) != origin)) return false;
+        Operation record;
+        if (existing != operations_.end()) record = *existing;
+        else {
+            record.operationId.assign(derived.begin(), derived.end()); record.target = DeletionTarget::ownOrigin;
+            record.targetId = entry.targetId; record.actorUserId.assign(user.begin(), user.end());
+            record.workspaceId.assign(workspace.begin(), workspace.end()); record.serverOrigin.assign(origin.begin(), origin.end());
+            record.requestedAtMs = record.updatedAtMs = now;
+        }
+        if (!deletionReceiptMatches(record, *entry.receipt)) return false;
+        if (existing != operations_.end() && deletionPhaseIsAccepted(existing->phase)) {
+            if (record.receiptRequestId != entry.receipt->requestId) return false;
+        } else {
+            if (!acceptDeletionValue(record, *entry.receipt, now)) return false;
+            if (existing == operations_.end()) operations_.push_back(std::move(record));
+            else *existing = std::move(record);
+            changed = true;
+        }
+        if (!entry.receipt->meetingId.empty()) for (auto& row : items_) {
+            json_detail::checkCancellation(cancellation);
+            if (row.directoryId != entry.targetId || std::string_view(row.ownerUserId) != user ||
+                std::string_view(row.ownerWorkspaceId) != workspace) continue;
+            if (!row.meetingId.empty() && row.meetingId != entry.receipt->meetingId) return false;
+            if (row.meetingId.empty()) { row.meetingId = entry.receipt->meetingId; row.updatedAtMs = now; changed = true; }
+        }
+    }
+    if (changed) updatedAtMs_ = now;
+    json_detail::checkCancellation(cancellation);
+    return true;
+}
+
 bool ProtectedUploadQueueValue::applyDeletionAnswer(const Operation& expected,
     const BasicDeletionWireResult<CustodyString>& wire, std::uint64_t now, bool& changed,
     const std::atomic<bool>* cancellation) {

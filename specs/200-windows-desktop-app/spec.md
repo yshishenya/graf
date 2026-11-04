@@ -427,6 +427,9 @@ meeting-приложений с обратимой настройкой и ви�
   and cancellation-only `calendar_join_cancel` requests are accepted, each on its
   exact approved route with its own payload/capability checks; no web
   acknowledgement establishes capture, upload or deletion truth.
+  Local access MUST also match the current document, cookie and native local
+  scope; a session fingerprint or document hint alone MUST NOT establish the
+  currently active workspace or network-confirmed identity.
   `request_app_update` is only a bounded intent to open the native update UI;
   it accepts no URL, path, command or installer payload and cannot install software
   directly from the web document.
@@ -506,11 +509,14 @@ meeting-приложений с обратимой настройкой и ви�
   saving claim, without deleting existing artifacts. The carrier and its
   crash-safe transitions belong to the scoped T116 plan; this requirement does
   not itself authorize a new persistent format or weaken short/delete fences.
-- **FR-013**: The Windows queue MUST reuse the compatible v3 ledger with a v2
-  reader (the historical filename remains `desktop-upload-queue.v2`) and
-  preserve immutable local identity, server truth, accepted ranges, retry records,
-  retention and conflict state. It MUST quarantine malformed ledgers rather than
-  replacing them with an empty queue.
+- **FR-013**: The Windows queue MUST write the local v4 ledger and read v2/v3/v4
+  (the historical filename remains `desktop-upload-queue.v2`), preserving local
+  identity, server truth, accepted ranges, retries, retention and conflicts.
+  Persisted access and same-session local scope MUST preserve Mac offline access
+  after restart; a new network lookup MUST NOT be a prerequisite for that access.
+  Malformed legacy ledgers retain existing isolation rules; protected payload
+  refusal preserves artifacts and blocks unsafe effects, never an empty queue,
+  silent downgrade or fallback to a peer slot that omits newer access truth.
 - **FR-014**: Upload MUST go only through existing GRAF desktop APIs; the client
   MUST never send audio directly to MediaScribe or store MediaScribe credentials.
   Upload MUST resume after launch, activation, auth recovery, network recovery,
@@ -548,6 +554,9 @@ meeting-приложений с обратимой настройкой и ви�
 - **FR-022**: Windows deletion and local purge behavior MUST use the existing
   GRAF lifecycle truth and MUST acknowledge local purge only after deletion,
   tombstone or cryptographic unrecoverability has been verified.
+  Persisted non-owner access MUST block content, including active consumers and
+  upload, without granting deletion/purge authority; later access updates MUST
+  NOT clear an accepted receipt or a newer revocation via a stale upload result.
 
 ### Key Entities
 
@@ -564,8 +573,9 @@ meeting-приложений с обратимой настройкой и ви�
   output framing.
 - **LocalRecordingPackage**: user-scoped directory containing manifest, canonical
   ASR artifact, review playback artifact, hashes, byte counts and integrity state.
-- **UploadCustodyItem**: queue projection over the compatible v3/v2 ledger with local
-  identity, server truth, retry owner/action, accepted ranges and retention state.
+- **UploadCustodyItem**: queue projection over the v4 ledger (v2/v3 readable),
+  with local identity, persisted nullable access truth, retry owner/action,
+  accepted ranges, retention and one last authenticated local-session context.
 - **WebViewBridgeEnvelope**: version, message id, session nonce, origin-bound
   direction, request name and bounded payload. Used for web-to-native requests
   and native initialization/typed replies; `local_recordings` has its separate display
@@ -651,9 +661,11 @@ Classification: remove
 пустой прежний рабочий каталог не позволял сохранять реальные per-app правила.
 Неиспользуемые значения HKCU не удаляются, пользовательские записи не затрагиваются.
 
-Действующие общие контракты v5 записей и совместимой v3/v2 очереди сохраняются как текущий
-продуктовый формат, не как запасная устаревшая реализация. Удаление серверных
-полей и API работающего macOS-клиента вне этого среза; Windows не расширяет их.
+Контракт v5 записей сохраняется. Локальная очередь получает узкое расширение
+v4 T088 с чтением v2/v3/v4; совместимость прежних очередей является продуктовым
+форматом, не запасной реализацией. Серверные и crypto-envelope схемы не меняются.
+Удаление серверных полей и API работающего macOS-клиента вне этого среза;
+Windows не расширяет их.
 Трассировка удаления и проверки: T080–T084, quickstart.md и validation-2026-09-06.md.
 
 ## Clarifications
@@ -679,9 +691,46 @@ Classification: remove
   без прежнего локального delete intent принимается сразу как подтверждённое
   состояние существующей модели, после защищённого commit/readback/adoption;
   до adoption её нельзя публиковать как принятую или разрешать очистку.
-  Новых server/ledger схем, DELETE, purge ACK и разрешения очистки это уточнение
-  не добавляет. Это конкретизация T088 и FR-006/013/022, не новый task ID и не
-  отметка о выполнении T088 или других открытых задач.
+  Сама подсказка и приём внешней квитанции не требуют новых server/ledger схем,
+  DELETE, purge ACK или разрешения очистки. Персистентный локальный доступ
+  отдельно уточняется следующей сессией T088 с локальной queue v4. Это
+  конкретизация T088 и FR-006/013/022, не новый task ID и не отметка о выполнении
+  T088 или других открытых задач.
+
+### Session 2026-11-04 — T088: персистентный доступ и offline scope
+
+Агентское техническое уточнение исходного требования полного Mac-паритета.
+Q/A ниже — структура проектной записи, не фактическая беседа с пользователем
+и не его отдельное подтверждение схемы. Local v4, raw safe-code ≤64 и способ
+вычисления fingerprint — инженерные предложения в этом scope для Main/reviewer;
+пользователь выбрал поведение продукта, а не эти детали реализации.
+
+- Q: Как сохранить Mac-доступ после холодного запуска? → A: В той же защищённой
+  очереди хранить nullable bounded raw `access_state` и последний native scope
+  с отпечатком сессии. Только `null` и точное `owner` сами по себе не блокируют
+  содержимое; `unknown`, `access_revoked`, `stale_device_identity` и другие
+  nonowner safe codes сохраняются и блокируют. Scope, deletion и integrity gates
+  действуют независимо. `allowed` даёт `owner`, `unavailable` даёт `unknown`
+  только записи с meetingId; отсутствие sync-state поля не стирает отказ.
+- Q: Что доказывает совпадение session fingerprint? → A: Только ту же native
+  сессию для восстановления локальной области, не актуальность online workspace
+  и не network confirmedIdentity. Cold offline разрешён при совпадении области
+  записи и текущего документа/cookie. Same-cookie переход A→B требует новой
+  native проверки области; HTML/hint лишь запускает сверку или отказ. Документ B
+  не использует cached A. Выход/смена сессии отзывает старые потребители.
+- Q: Каков совместимый формат? → A: Только local `desktop-upload-queue.v4`,
+  чтение v2/v3/v4, прежнее имя файла. Protected reads сохраняют старые bytes до
+  обычного commit; old v3 reader отвергает v4 при проверке BOTH без выбора
+  старого понятного slot. T117 exact-source migration и сохранение originals
+  не заменяются upgrade; server/crypto/bridge API и таймер не добавляются.
+- Q: Когда новое состояние допускает эффект? → A: Положительное разрешение —
+  после полного native ответа, проверки scope/subject/generation, protected
+  commit/readback и adoption. Полностью проверенный restrictive answer сначала
+  закрывает новые admissions и отменяет playback/upload; upload действительно
+  освобождает flight до submit lifecycle-команды. Cancelled result получает ACK
+  без применения; после drain новый private candidate проходит commit/readback/
+  adoption. Late upload не снимает новый отказ. Receipt, deletion/purge/ACK fences, fair background и Start/Stop остаются.
+  Это уточнение существующих FR-006/013/022 и T088, не новый task или приёмка.
 
 ### Session 2026-10-22 — безопасная история кабинета T103
 

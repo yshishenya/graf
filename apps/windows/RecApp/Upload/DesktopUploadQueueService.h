@@ -218,6 +218,12 @@ public:
     [[nodiscard]] bool planLocalRemoval(std::size_t index, std::string_view user, std::string_view workspace,
         std::uint64_t nowMs, ProtectedDeletionPlan&, bool& changed, const std::atomic<bool>* cancellation,
         bool resumeIntent = false);
+    // Verified external receipts transform a private candidate directly. No
+    // local request/queued intent is created; the storage owner must commit/adopt.
+    [[nodiscard]] bool applyLifecycleEntries(const CustodyVector<CustodyString>& origins,
+        const BasicLifecycleEntries<CustodyString>& entries, std::string_view user,
+        std::string_view workspace, std::string_view origin, std::uint64_t nowMs,
+        bool& changed, const std::atomic<bool>* cancellation);
     [[nodiscard]] bool applyDeletionAnswer(const Operation& expected, const BasicDeletionWireResult<CustodyString>&,
         std::uint64_t nowMs, bool& changed, const std::atomic<bool>* cancellation);
     [[nodiscard]] bool planDeletionSelection(const ProtectedDeletionTargets&, std::string_view user,

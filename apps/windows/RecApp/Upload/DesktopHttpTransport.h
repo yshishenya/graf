@@ -233,6 +233,9 @@ public:
         bool readProtocolGate, const ProtectedUploadSend& send = {});
     [[nodiscard]] DesktopDeletionResponse requestDeletion(std::string_view path, std::string body,
                                                           const DeletionScope& scope) const;
+    [[nodiscard]] static std::shared_ptr<const ProtectedDeletionResponse> recordingLifecycleProtected(
+        const ProtectedDesktopHttpConfig&, const CustodyVector<CustodyString>& origins,
+        bool readProtocolGate, const ProtectedUploadSend& send = {});
     [[nodiscard]] DesktopDeletionResponse recordingLifecycle(const std::vector<std::string>& origins,
                                                             const std::vector<std::string>& meetingIds,
                                                             const DeletionScope& scope) const;

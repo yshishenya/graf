@@ -135,13 +135,6 @@ enum class LifecycleState {
     unavailable,
 };
 
-struct LifecycleEntry {
-    DeletionTarget target = DeletionTarget::ownOrigin;
-    std::string targetId;
-    LifecycleState state = LifecycleState::unavailable;
-    std::string meetingId;
-};
-
 // What the server accepted. `receiptType` says which shape arrived; an unknown
 // shape is a failure, never a success.
 template<class String> struct BasicDeletionReceipt {
@@ -153,6 +146,17 @@ template<class String> struct BasicDeletionReceipt {
     [[nodiscard]] bool accepted() const noexcept { return phase == "accepted"; }
 };
 using DeletionReceipt = BasicDeletionReceipt<std::string>;
+
+template<class String> struct BasicLifecycleEntry {
+    DeletionTarget target = DeletionTarget::ownOrigin;
+    String targetId;
+    LifecycleState state = LifecycleState::unavailable;
+    String meetingId;
+    std::optional<BasicDeletionReceipt<String>> receipt;
+};
+using LifecycleEntry = BasicLifecycleEntry<std::string>;
+template<class String> using BasicLifecycleEntries = std::conditional_t<std::is_same_v<String, std::string>,
+    std::vector<BasicLifecycleEntry<String>>, CustodyVector<BasicLifecycleEntry<String>>>;
 
 // A purge task the server asks this device to carry out: remove the local copies
 // of a meeting it has already deleted, and answer with what could be proven.
@@ -265,7 +269,9 @@ public:
     [[nodiscard]] static std::optional<std::int64_t> calendarAuthExpiryFromHeader(std::string_view raw);
     // Strict: every listed entry must be a complete, known shape, or the whole
     // answer is rejected. A partial list would hide a target the user selected.
-    [[nodiscard]] static std::optional<std::vector<LifecycleEntry>> decodeLifecycleEntries(std::string_view json);
+    template<class String = std::string>
+    [[nodiscard]] static std::optional<BasicLifecycleEntries<String>> decodeLifecycleEntries(
+        std::string_view json, const std::atomic<bool>* cancellation = nullptr);
     template<class String = std::string>
     [[nodiscard]] static std::optional<BasicDeletionReceipt<String>> decodeDeletionReceipt(
         std::string_view json, const std::atomic<bool>* cancellation = nullptr);

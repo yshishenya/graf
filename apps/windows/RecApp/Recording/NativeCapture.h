@@ -170,7 +170,7 @@ class NativeCapture final {
     friend struct NativeCaptureStorageTestPeer;
 public:
     enum class QueueTicketState { pending, committed, notCommitted, ambiguous };
-    enum class QueueMutationKind { recovery, recording, uploadPrepare, uploadResult, deletionIntent, deletionResult, deletionPurge, manualSend };
+    enum class QueueMutationKind { recovery, recording, uploadPrepare, uploadResult, deletionIntent, deletionResult, deletionPurge, lifecycleResult, manualSend };
     struct QueueMutationTicket {
         std::uint64_t id = 0, baseGeneration = 0, targetGeneration = 0, epoch = 0;
         CustodyContext context{};
@@ -210,6 +210,24 @@ private:
         CustodyVector<CustodyString> awaiting;
         std::size_t ensureIndex = 0;
     };
+    struct LifecycleBatch {
+        CustodyVector<CustodyString> origins;
+        std::optional<BasicLifecycleEntries<CustodyString>> entries;
+        std::shared_ptr<const ProtectedDeletionResponse> response;
+        bool background = false, allocationDeferred = false;
+    };
+    struct LifecycleFlight {
+        ProtectedDesktopHttpConfig config;
+        std::uint64_t epoch = 0;
+        CustodyVector<CustodyString> origins;
+        CustodyVector<unsigned char> checked;
+        bool inventoryBuilt = false;
+        bool checkedBackground = false;
+        QueueMutationTicket waiting;
+        std::shared_ptr<const LifecycleBatch> answer;
+        std::shared_ptr<std::atomic<bool>> cancelled = std::allocate_shared<std::atomic<bool>>(
+            CustodyAllocator<std::atomic<bool>>{}, false);
+    };
     struct RecordingWork {
         std::mutex mutex;
         std::shared_ptr<IAec3Processor> processor;
@@ -230,7 +248,7 @@ private:
         ReasonCode failure = ReasonCode::none;
         RecordingStopReason stopReason = RecordingStopReason::interruption;
     };
-    enum class StorageCommand { recovery, recoverRecording, prepareRecording, finalizeRecording, prepareUpload, uploadResult, deletionIntent, deletionResult, deletionPurge };
+    enum class StorageCommand { recovery, recoverRecording, prepareRecording, finalizeRecording, prepareUpload, uploadResult, deletionIntent, deletionResult, deletionPurge, lifecycleResult };
     struct DeletionWork {
         std::shared_ptr<const ProtectedUploadQueueValue> snapshot;
         std::size_t index = 0;
@@ -242,6 +260,7 @@ private:
         std::shared_ptr<ProtectedDeletionPlan> plan;
         std::optional<BasicLocalPurgeTask<CustodyString>> serverTask;
         BasicDeletionWireResult<CustodyString> answer;
+        std::shared_ptr<const LifecycleBatch> lifecycle;
         std::shared_ptr<std::atomic<bool>> cancelled = std::allocate_shared<std::atomic<bool>>(
             CustodyAllocator<std::atomic<bool>>{}, false);
     };
@@ -369,6 +388,8 @@ public:
         if (deletionThread_.joinable()) deletionThread_.join();
         deletionFuture_ = {};
         deletionFlight_.reset();
+        if (lifecycleThread_.joinable()) lifecycleThread_.join();
+        lifecycleFuture_ = {}; lifecycleFlight_.reset();
         shutdown();
         // The controller joins acquisition/dispatcher before the lost-poll
         // finalizer handoff. No native writer is destroyed on this UI thread.
@@ -444,6 +465,7 @@ public:
         const bool signedOutObserved = token.empty() && currentCookieRead;
         if (authSessionToken_ == token && authSignedOutObserved_ == signedOutObserved) return;
         if (deletionContinuationCancellation_) deletionContinuationCancellation_->store(true);
+        cancelRecordingLifecycle(true);
         closeLocalPlayback();
         if (storageStartup_) {
             std::lock_guard<std::mutex> lock(storageStartup_->mutex);
@@ -463,6 +485,229 @@ public:
         if (authSessionToken_.empty()) protectedRecoveryEpoch_.reset();
         else recover(graf::windows::RecoveryTrigger::authRecovered);
     }
+    // Native shell service activation is independent of a WebView/document.
+    // It shares the existing recovery cadence; no constructor IO or new timer.
+    void startRecordingLifecycle() noexcept {
+        if (!lifecycleEnabled_) { lifecycleEnabled_ = true; lifecycleRequested_ = true; }
+    }
+    void setVisibleRecordingItemIDs(const std::vector<std::string>& ids, std::uint64_t epoch) noexcept try {
+        if (epoch != authGeneration_ || !currentAccount_ || ids.size() > 100) return;
+        CustodyVector<CustodyString> replacement;
+        replacement.reserve(ids.size());
+        for (const auto& id : ids) {
+            if (!DesktopUploadQueueService::validIdentity(id) ||
+                std::find(replacement.begin(), replacement.end(), std::string_view(id)) != replacement.end()) return;
+            replacement.emplace_back(id.data(), id.size());
+        }
+        lifecycleVisible_.swap(replacement); // Hint only; native rows determine all targets.
+        // Repeated hints change only priority. Existing startup/recovery/open
+        // intents drive the finite cycle; document publication cannot make a loop.
+    } catch (...) {} // Failed hint allocation leaves previous priority unchanged.
+private:
+    void cancelRecordingLifecycle(bool scopeChanged = false) noexcept {
+        if (lifecycleFlight_) lifecycleFlight_->cancelled->store(true);
+        if (scopeChanged) {
+            lifecycleVisible_.clear(); lifecycleOpen_.clear(); lifecycleCursor_.clear();
+            lifecycleUser_.clear(); lifecycleWorkspace_.clear(); lifecycleOrigin_.clear(); lifecycleEpoch_ = 0;
+            lifecycleRetryAt_ = 0;
+        }
+    }
+    bool lifecycleContextCurrent(const LifecycleFlight& flight) const noexcept {
+        return currentAccount_ && flight.epoch == authGeneration_ && flight.config.confirmedIdentity &&
+            std::string_view(flight.config.sessionToken) == authSessionToken_ &&
+            std::string_view(flight.config.confirmedIdentity->userId) == currentAccount_->userId &&
+            std::string_view(flight.config.workspaceId) == currentAccount_->workspaceId &&
+            flight.config.baseOrigin == lifecycleOrigin_;
+    }
+    void retireRecordingLifecycle() {
+        lifecycleFlight_.reset();
+        if (deletionShutdownPending_ && !deletionFlight_) shutdown();
+    }
+    static bool lifecycleReceiptKnown(const ProtectedUploadQueueValue& value, const ProtectedUploadQueueValue::Item& row,
+        std::string_view user, std::string_view workspace, std::string_view origin) {
+        return std::any_of(value.deletionOperations().begin(), value.deletionOperations().end(), [&](const auto& operation) {
+            return deletionPhaseIsAccepted(operation.phase) && std::string_view(operation.actorUserId) == user &&
+                std::string_view(operation.workspaceId) == workspace && std::string_view(operation.serverOrigin) == origin &&
+                (operation.target == DeletionTarget::ownOrigin ? operation.targetId == row.directoryId :
+                    (!row.meetingId.empty() && operation.targetId == row.meetingId));
+        });
+    }
+    void pollRecordingLifecycle() try {
+        if (lifecyclePolling_) return;
+        const native_capture_detail::CustodyMutationScope polling(lifecyclePolling_);
+        if (lifecycleThread_.joinable()) {
+            // Future readiness precedes thread-local teardown. Reap actual exit
+            // before consuming a result, allowing a second flight or draining.
+            if (WaitForSingleObject(lifecycleThread_.native_handle(), 0) != WAIT_OBJECT_0) return;
+            lifecycleThread_.join();
+            auto answer = lifecycleFuture_.get(); lifecycleFuture_ = {};
+            if (lifecycleFlight_) lifecycleFlight_->answer = std::move(answer);
+        }
+        if (lifecycleFlight_) {
+            auto& flight = *lifecycleFlight_;
+            if (!lifecycleContextCurrent(flight) || shuttingDown_ || exitAdmissionBlocked_ || updateAdmissionBlocked_ ||
+                flight.cancelled->load()) {
+                flight.cancelled->store(true); retireRecordingLifecycle(); return;
+            }
+            if (flight.waiting.id) {
+                if (!lastLifecycleTicket_ || lastLifecycleTicket_->id != flight.waiting.id ||
+                    lastLifecycleTicket_->state == QueueTicketState::pending) return;
+                if (lastLifecycleTicket_->state != QueueTicketState::committed) {
+                    retireRecordingLifecycle(); return; // Worker retains ambiguous publication/reconciliation.
+                }
+                // Only a result already adopted by pollStorageStartup advances
+                // checked/cursor. Construct first so a quota refusal cannot skip history.
+                CustodyString cursor = lifecycleCursor_;
+                if (flight.answer->background) cursor = flight.answer->origins.back();
+                for (const auto& origin : flight.answer->origins) {
+                    const auto at = std::lower_bound(flight.origins.begin(), flight.origins.end(), origin);
+                    if (at == flight.origins.end() || *at != origin) throw std::logic_error("lifecycle_inventory");
+                    flight.checked[static_cast<std::size_t>(at - flight.origins.begin())] = 1;
+                }
+                lifecycleCursor_.swap(cursor);
+                if (flight.answer->background) flight.checkedBackground = true;
+                const auto expiry = flight.answer->response->authExpiresAt;
+                flight.answer.reset(); flight.waiting = {};
+                if (expiry && sessionExpiryHandler_) { sessionExpiryHandler_(*expiry); return; }
+            }
+            if (flight.answer) {
+                if (flight.answer->origins.empty()) { retireRecordingLifecycle(); return; }
+                if (!flight.answer->entries && !flight.answer->allocationDeferred) {
+                    if (flight.answer->response && flight.answer->response->status == 429)
+                        lifecycleRetryAt_ = GetTickCount64() + static_cast<std::uint64_t>(flight.answer->response->retryAfterSeconds) * 1000;
+                    retireRecordingLifecycle(); return;
+                }
+                if (flight.answer->entries) {
+                    if (pendingRecovery_ || !storageStartup_) return;
+                    const auto observation = localObservation();
+                    if (!observation.complete || !observation.value) return;
+                    // Rebase only this verified domain answer onto the latest adopted
+                    // value. Worker rechecks every target, identity and queue generation.
+                    auto command = std::allocate_shared<DeletionWork>(CustodyAllocator<DeletionWork>{});
+                    command->snapshot = observation.value; command->lifecycle = flight.answer;
+                    command->user = flight.config.confirmedIdentity->userId; command->workspace = flight.config.workspaceId;
+                    command->origin = flight.config.baseOrigin; command->cancelled = flight.cancelled;
+                    const auto ticket = submitProtectedDeletion(std::move(command), QueueMutationKind::lifecycleResult);
+                    if (ticket) flight.waiting = *ticket;
+                    return;
+                }
+            }
+        }
+        if (shuttingDown_ || exitAdmissionBlocked_ || updateAdmissionBlocked_ || !lifecycleEnabled_ ||
+            !currentAccount_ || authSessionToken_.empty() || !storageStartup_ || GetTickCount64() < lifecycleRetryAt_) return;
+        const auto observation = localObservation();
+        if (!observation.complete || !observation.value) return;
+        if (!lifecycleFlight_) {
+            if (!lifecycleRequested_) return;
+            auto flight = std::allocate_shared<LifecycleFlight>(CustodyAllocator<LifecycleFlight>{});
+            flight->epoch = authGeneration_;
+            auto& config = flight->config;
+            config.sessionToken = std::string_view(authSessionToken_); config.workspaceId = std::string_view(currentAccount_->workspaceId);
+            config.confirmedIdentity.emplace(); config.confirmedIdentity->userId = std::string_view(currentAccount_->userId);
+            config.confirmedIdentity->workspaceId = config.workspaceId;
+            config.scopedAccount = BasicDeletionScope<CustodyString>{config.confirmedIdentity->userId, config.workspaceId};
+            config.cancellation = flight->cancelled;
+            if (lifecycleEpoch_ && (lifecycleEpoch_ != authGeneration_ ||
+                std::string_view(lifecycleUser_) != currentAccount_->userId ||
+                std::string_view(lifecycleWorkspace_) != currentAccount_->workspaceId)) {
+                lifecycleVisible_.clear(); lifecycleOpen_.clear(); lifecycleCursor_.clear();
+            }
+            lifecycleUser_ = config.confirmedIdentity->userId; lifecycleWorkspace_ = config.workspaceId; lifecycleOrigin_ = config.baseOrigin; lifecycleEpoch_ = authGeneration_;
+            lifecycleRequested_ = false; lifecycleFlight_ = std::move(flight);
+        }
+        auto& flight = *lifecycleFlight_;
+        const bool retryDecode = flight.answer && flight.answer->allocationDeferred;
+        auto batch = retryDecode ? std::allocate_shared<LifecycleBatch>(CustodyAllocator<LifecycleBatch>{}, *flight.answer) :
+            std::allocate_shared<LifecycleBatch>(CustodyAllocator<LifecycleBatch>{});
+        const auto config = flight.config;
+        const auto send = protectedWire_;
+        const auto cycle = lifecycleFlight_;
+        const auto snapshot = observation.value;
+        const auto visible = lifecycleVisible_;
+        const auto opened = lifecycleOpen_;
+        const auto cursor = lifecycleCursor_;
+        std::packaged_task<std::shared_ptr<const LifecycleBatch>()> task([batch, config, send, cycle, snapshot, visible, opened, cursor, retryDecode] {
+            try {
+                batch->allocationDeferred = false;
+                if (!retryDecode) {
+                    const auto cancellation = config.cancellation.get();
+                    auto& flight = *cycle; // Exclusive until actual thread exit; UI only cancels.
+                    if (!flight.inventoryBuilt) {
+                        for (const auto& row : snapshot->items()) {
+                            json_detail::checkCancellation(cancellation);
+                            if (row.ownerUserId != config.confirmedIdentity->userId || row.ownerWorkspaceId != config.workspaceId ||
+                                lifecycleReceiptKnown(*snapshot, row, config.confirmedIdentity->userId, config.workspaceId, config.baseOrigin)) continue;
+                            if (!DesktopUploadQueueService::validIdentity(row.directoryId)) return std::shared_ptr<const LifecycleBatch>(batch);
+                            flight.origins.push_back(row.directoryId);
+                        }
+                        std::sort(flight.origins.begin(), flight.origins.end());
+                        flight.origins.erase(std::unique(flight.origins.begin(), flight.origins.end()), flight.origins.end());
+                        flight.checked.resize(flight.origins.size(), 0); flight.inventoryBuilt = true;
+                    }
+                    const auto unchecked = [&](const auto& origin) {
+                        const auto at = std::lower_bound(flight.origins.begin(), flight.origins.end(), origin);
+                        return at != flight.origins.end() && *at == origin && !flight.checked[static_cast<std::size_t>(at - flight.origins.begin())];
+                    };
+                    CustodyVector<CustodyString> priority;
+                    for (const auto& row : snapshot->items()) {
+                        json_detail::checkCancellation(cancellation);
+                        if (row.ownerUserId != config.confirmedIdentity->userId || row.ownerWorkspaceId != config.workspaceId || !unchecked(row.directoryId)) continue;
+                        bool first = row.localRecordingId == opened || std::find(visible.begin(), visible.end(), row.localRecordingId) != visible.end();
+                        if (!first) for (const auto& op : snapshot->deletionOperations()) {
+                            json_detail::checkCancellation(cancellation);
+                            if (op.actorUserId == row.ownerUserId && op.workspaceId == row.ownerWorkspaceId && op.serverOrigin == config.baseOrigin &&
+                                (op.target == DeletionTarget::ownOrigin ? op.targetId == row.directoryId : (!row.meetingId.empty() && op.targetId == row.meetingId))) {
+                                first = true; break;
+                            }
+                        }
+                        if (first) priority.push_back(row.directoryId);
+                    }
+                    std::sort(priority.begin(), priority.end()); priority.erase(std::unique(priority.begin(), priority.end()), priority.end());
+                    for (const auto& origin : priority) {
+                        json_detail::checkCancellation(cancellation); batch->origins.push_back(origin);
+                        if (batch->origins.size() == 100) break;
+                    }
+                    if (batch->origins.empty() && !flight.checkedBackground) {
+                        batch->background = true;
+                        for (const auto& origin : flight.origins) {
+                            json_detail::checkCancellation(cancellation);
+                            if (unchecked(origin) && origin > cursor) batch->origins.push_back(origin);
+                            if (batch->origins.size() == 100) break;
+                        }
+                        if (batch->origins.empty()) for (const auto& origin : flight.origins) {
+                            json_detail::checkCancellation(cancellation);
+                            if (unchecked(origin)) batch->origins.push_back(origin);
+                            if (batch->origins.size() == 100) break;
+                        }
+                    }
+                    if (batch->origins.empty()) return std::shared_ptr<const LifecycleBatch>(batch);
+                    batch->response = DesktopHttpTransport::recordingLifecycleProtected(config, batch->origins, true, send);
+                }
+                if (!batch->response || !batch->response->accepted()) return std::shared_ptr<const LifecycleBatch>(batch);
+                batch->entries = DesktopApiClient::decodeLifecycleEntries<CustodyString>(batch->response->body, config.cancellation.get());
+                if (!batch->entries || batch->entries->size() != batch->origins.size() ||
+                    std::any_of(batch->entries->begin(), batch->entries->end(), [&](const auto& entry) {
+                        return entry.target != DeletionTarget::ownOrigin ||
+                            std::find(batch->origins.begin(), batch->origins.end(), entry.targetId) == batch->origins.end();
+                    })) batch->entries.reset();
+            } catch (const std::bad_alloc&) {
+                batch->entries.reset(); batch->allocationDeferred = batch->response && batch->response->accepted();
+            } catch (...) { batch->entries.reset(); }
+            return std::shared_ptr<const LifecycleBatch>(batch);
+        });
+        auto future = task.get_future();
+        lifecycleThread_ = std::thread(std::move(task));
+        lifecycleFuture_ = std::move(future);
+        if (retryDecode) flight.answer.reset();
+    } catch (const std::bad_alloc&) {
+        // Keep a completed answer/committed ticket for retry after quota relief.
+        // No second HTTP request and no cursor movement precede adoption.
+    } catch (...) {
+        // No detached job. A running charged task stays owned until actual exit.
+        if (lifecycleFlight_) lifecycleFlight_->cancelled->store(true);
+        if (!lifecycleThread_.joinable()) retireRecordingLifecycle();
+    }
+public:
     [[nodiscard]] const std::string& authSessionToken() const noexcept { return authSessionToken_; }
     [[nodiscard]] const auto& currentAccount() const noexcept { return currentAccount_; }
     [[nodiscard]] auto authGeneration() const noexcept { return authGeneration_; }
@@ -506,6 +751,7 @@ public:
         // a durable-success reply. The worker outcome is adopted by polling.
         if (trigger == graf::windows::RecoveryTrigger::authRecovered) protectedRecoveryEpoch_ = authGeneration_;
         if (!pendingRecovery_ || trigger == graf::windows::RecoveryTrigger::authRecovered) pendingRecovery_ = trigger;
+        lifecycleRequested_ = true;
     }
     void pollUploads() {
         pollStorageStartup(!pendingRecovery_); // ACKs always run; display yields to a pending upload intent.
@@ -513,6 +759,7 @@ public:
         scheduler_.retireProtected();
         pollProtectedDeletion(); // Retained answers drain even after exit/update closed admission.
         resumeProtectedLocalDeletion();
+        pollRecordingLifecycle();
         if (storageStartup_ && protectedQueueValue_) {
             if (!shuttingDown_ && !exitAdmissionBlocked_ && !updateAdmissionBlocked_ && pendingRecovery_)
                 requestProtectedUpload();
@@ -541,6 +788,7 @@ public:
         if (exitAdmissionBlocked_) return;
         closeLocalPlayback();
         exitAdmissionBlocked_ = true;
+        cancelRecordingLifecycle();
         cancelUnstartedRecording();
         if (deletionContinuationCancellation_) deletionContinuationCancellation_->store(true);
         pendingRecovery_.reset();
@@ -553,7 +801,7 @@ public:
     }
     void shutdown() {
         requestShutdown();
-        if (deletionFlight_) { deletionShutdownPending_ = true; return; }
+        if (deletionFlight_ || lifecycleFlight_ || lifecycleThread_.joinable()) { deletionShutdownPending_ = true; return; }
         if (shuttingDown_) return;
         shuttingDown_ = true;
         stopStorageStartup();
@@ -672,7 +920,12 @@ public:
             return std::string_view(row.localRecordingId) == id && std::string_view(row.ownerUserId) == currentAccount_->userId &&
                 std::string_view(row.ownerWorkspaceId) == currentAccount_->workspaceId;
         });
-        if (found == rows.end() || !playbackRowCurrent(*observation.value, *found)) return false;
+        if (found == rows.end()) return false;
+        if (lifecycleEnabled_) {
+            lifecycleOpen_ = found->localRecordingId;
+            if (!lifecycleFlight_) lifecycleRequested_ = true;
+        }
+        if (!playbackRowCurrent(*observation.value, *found)) return false;
         if (found->status == UploadQueueStatus::quarantined &&
             (std::string_view(found->sessionId) == activeRecordingSession() || !observation.timings ||
              !observation.timings->playableDegraded(observation.value, static_cast<std::size_t>(found - rows.begin())))) return false;
@@ -1311,10 +1564,12 @@ private:
         }
         ticket.context = work.context; ticket.baseGeneration = ticket.targetGeneration = work.generation;
         lastQueueTicket_ = ticket;
-        lastDeletionTicket_ = ticket;
+        if (kind == QueueMutationKind::lifecycleResult) lastLifecycleTicket_ = ticket;
+        else lastDeletionTicket_ = ticket;
         if (kind == QueueMutationKind::deletionIntent) lastDeletionPlan_.reset();
         work.command = kind == QueueMutationKind::deletionIntent ? StorageCommand::deletionIntent :
-            kind == QueueMutationKind::deletionPurge ? StorageCommand::deletionPurge : StorageCommand::deletionResult;
+            kind == QueueMutationKind::deletionPurge ? StorageCommand::deletionPurge :
+            kind == QueueMutationKind::lifecycleResult ? StorageCommand::lifecycleResult : StorageCommand::deletionResult;
         work.commandReady = work.inFlight = true;
         work.wake.notify_all();
         return ticket;
@@ -1386,6 +1641,7 @@ public:
     void setUpdateAdmissionBlocked(bool blocked) noexcept {
         updateAdmissionBlocked_ = blocked;
         if (blocked) {
+            cancelRecordingLifecycle();
             cancelUnstartedRecording();
             if (controller_ && indicator().visible) {
                 try { (void)controller_->stop(RecordingStopReason::interruption); } catch (...) {}
@@ -1396,7 +1652,7 @@ public:
     }
     [[nodiscard]] bool updateAdmissionBlocked() const noexcept { return updateAdmissionBlocked_; }
     [[nodiscard]] bool updateWorkDrained() const noexcept {
-        if (deletionContinuationId_) return false;
+        if (deletionContinuationId_ || lifecycleFlight_ || lifecycleThread_.joinable()) return false;
         if (storageStartup_) {
             std::lock_guard<std::mutex> lock(storageStartup_->mutex);
             if (updateAdmissionBlocked_ && (!storageStartup_->terminal ||
@@ -2479,9 +2735,10 @@ private:
                 const bool recoveringRecording = command == StorageCommand::recoverRecording;
                 const bool uploading = command == StorageCommand::prepareUpload || command == StorageCommand::uploadResult;
                 const bool deleting = command == StorageCommand::deletionIntent || command == StorageCommand::deletionResult ||
-                    command == StorageCommand::deletionPurge;
+                    command == StorageCommand::deletionPurge || command == StorageCommand::lifecycleResult;
                 auto& commit = uploading ? uploadCommit : commandCommit;
                 bool commitReturned = false;
+                bool lifecycleRefused = false;
                 std::optional<V5WriterResult> recordingResult;
                 bool shortRemoved = false;
                 try {
@@ -2564,6 +2821,13 @@ private:
                                     deletion->origin, now, *deletion->plan, ticket.changed, cancellation.get())));
                             if (!prepared)
                                 ticket.error = CustodyFileError::conflict;
+                        }
+                        else if (command == StorageCommand::lifecycleResult) {
+                            if (deletion->snapshot != value || !deletion->lifecycle || !deletion->lifecycle->entries ||
+                                !copy->applyLifecycleEntries(deletion->lifecycle->origins, *deletion->lifecycle->entries,
+                                    deletion->user, deletion->workspace, deletion->origin, now, ticket.changed, cancellation.get())) {
+                                lifecycleRefused = true; ticket.error = CustodyFileError::conflict;
+                            }
                         }
                         else if (command == StorageCommand::deletionResult) {
                             if (deletion->snapshot != value || deletion->index >= deletion->snapshot->deletionOperations().size() ||
@@ -2665,7 +2929,7 @@ private:
                 work->resultReady = true;
                 work->retryAfterSeconds = command == StorageCommand::uploadResult ? network->result->retryAfterSeconds : 0;
                 work->authExpiresAt = command == StorageCommand::uploadResult ? network->result->authExpiresAt : std::nullopt;
-                work->queueFailed = ticket.error != CustodyFileError::none || ticket.state == QueueTicketState::ambiguous;
+                work->queueFailed = (!lifecycleRefused && ticket.error != CustodyFileError::none) || ticket.state == QueueTicketState::ambiguous;
                 // Lost UI polling retains candidate and commit. Close/update
                 // instead reconciles physical truth here before actual drain.
                 work->wake.wait(lock, [&] { return work->resultAdopted || work->stop; });
@@ -2888,6 +3152,7 @@ private:
             if (storageStartup_->resultReady && !storageStartup_->resultAdopted) {
                 lastQueueTicket_ = storageStartup_->ticket;
                 if (lastQueueTicket_->kind == QueueMutationKind::manualSend) lastManualSendTicket_ = lastQueueTicket_;
+                if (lastQueueTicket_->kind == QueueMutationKind::lifecycleResult) lastLifecycleTicket_ = lastQueueTicket_;
                 if (lastQueueTicket_->kind == QueueMutationKind::deletionIntent || lastQueueTicket_->kind == QueueMutationKind::deletionResult ||
                     lastQueueTicket_->kind == QueueMutationKind::deletionPurge)
                     lastDeletionTicket_ = lastQueueTicket_;
@@ -3137,6 +3402,15 @@ private:
     std::optional<QueueMutationTicket> lastQueueTicket_;
     std::optional<QueueMutationTicket> lastManualSendTicket_;
     std::optional<QueueMutationTicket> lastDeletionTicket_;
+    std::optional<QueueMutationTicket> lastLifecycleTicket_;
+    std::shared_ptr<LifecycleFlight> lifecycleFlight_;
+    std::thread lifecycleThread_;
+    std::future<std::shared_ptr<const LifecycleBatch>> lifecycleFuture_;
+    CustodyVector<CustodyString> lifecycleVisible_;
+    CustodyString lifecycleOpen_, lifecycleCursor_, lifecycleUser_, lifecycleWorkspace_, lifecycleOrigin_;
+    std::uint64_t lifecycleEpoch_ = 0, lifecycleRetryAt_ = 0;
+    bool lifecycleEnabled_ = false, lifecycleRequested_ = false;
+    std::size_t lifecyclePolling_ = 0;
     std::shared_ptr<const ProtectedDeletionPlan> lastDeletionPlan_;
     std::uint64_t deletionContinuationId_ = 0, deletionContinuationEpoch_ = 0;
     std::shared_ptr<std::atomic<bool>> deletionContinuationCancellation_;

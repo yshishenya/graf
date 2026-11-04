@@ -3654,8 +3654,9 @@ YAML и точная проверка трёх команд, затем GitHub c
 
 Узкая конкретизация существующих T088/FR-006/013/022, high-risk-product lane.
 Пользовательский результат и образец Mac уже приняты; здесь выбран технический
-binding для §8.1 bridge contract. Новых task IDs, серверных/ledger схем
-и серверного API нет; T088 остаётся открытой до проверенной реализации.
+binding для §8.1 bridge contract. Новых task IDs и серверного API нет;
+сама подсказка/квитанция не требует новой ledger-схемы. Дополнение persistent
+access ниже выбирает только local queue v4. T088 остаётся открытой до приёмки.
 
 Порядок реализации после текущих квалификаций:
 
@@ -3743,3 +3744,72 @@ not-committed/ambiguous commit не публикуют успех до adoption.
 неизменность исходных пакетов и возврат leases/jobs/pins/памяти к исходному уровню.
 Это покрытие доказывает получение/сохранение истины, не право удаления, очистку
 оригиналов/карантина или завершение T088/FR-022.
+
+### T088: persistent access и восстановление локальной области — 2026-11-04
+
+Продолжение FR-006/013/022, high-risk-product; порядок Main → requirements review
+→ отдельно назначенные tests/code. Базовый bridge/receipt срез и его результаты
+не принимают offline access. Формат — data-model §7.1 и local-custody §7.1.
+
+1. Расширить existing `BasicUploadCustodyItem`/`ProtectedUploadQueueValue` и
+   shared `decodeQueueLedger`/`serializeQueueLedger`: v4 writer, v2/v3/v4 reader,
+   nullable raw access и один authenticated context. Проверить strict codec,
+   canonical bytes, прежние adapters/copy/persist и BOTH mixed-version отказ
+   old reader сначала в existing `DesktopUploadQueueV2Tests`; новых файлов
+   состояния/фреймворка/task IDs и схем server/crypto/package-state нет.
+2. В `NativeCapture` вычислять fingerprint существующим SHA256 из эффективного
+   native identity-request origin/auth headers; не из полного HTTP config,
+   document claims или cached scope. После настоящего account/notification
+   proof сохранять context существующим recovery/lifecycle worker commit даже
+   без origins. На cold startup восстанавливать отдельный local content scope
+   после native cookie observation и принятой queue; network `currentAccount_`
+   и `confirmedIdentity` из cache не заполнять. Смена runtime сессии отзывает
+   restoration и потребителей; процессный epoch на диск не писать.
+3. `pollAccount` останавливается при `currentAccount_`, а setAuthSessionToken
+   возвращает рано при прежнем cookie. Один private coalesced revalidation intent
+   ставят existing recover(activation/wake/scheduled/authRecovered), validated
+   WebView reconcileAuthSessionForDocument → AppMain authSessionHandler даже
+   при прежнем token, и проверенный transport scope_changed. Вызовы объединяются
+   в один accountFuture; pending intent не теряется, retry использует прежний
+   accountRetryAt_, без нового timer. Same-URL SPA без события достигается
+   existing scheduled recovery 30s. Fresh config без confirmedIdentity/workspace
+   выполняет spaces → auth/me, затем existing notification-context gate.
+   Сохранить existing IdentityResult.status до NativeCapture: нынешний nullable
+   no-arg getter теряет его; переиспользовать accountIdentity(IdentityGet) и
+   native requestIdentity adapter внутри transport, не новый parser/API/schema.
+   Transient failure оставляет local cache, но не подтверждает online workspace;
+   authRequired не становится offline success. Native B вызывает общую existing
+   auth-epoch/cancel invalidation даже с тем же token (не повторный вызов раннего
+   setAuthSessionToken). AppMain инвалидирует прежние привязки по authGeneration
+   также при asynchronous native смене. DOM mismatch закрывает действие, не
+   присваивает B и не открывает доступ; cache fingerprint не workspace proof.
+4. Подключить local scope к `localObservation`/созданию `DisplayWork`, open и
+   playback predicates, а в `AppMain` отделить local document binding от
+   network/reminder identity. Host сохраняет cookie/HTML/route/nonce fences.
+   Общий content predicate используется в canOpen, native open/authorize/seek,
+   fresh-owner PlaybackExchange, manual/automatic upload selection и его IO/
+   continuation, а также прежнем local-removal gate. Nonowner отменяет active
+   consumer только после проверки полного scope/target-valid restrictive answer.
+   До submitProtectedDeletion выполнить scheduler.cancel и closeLocalPlayback;
+   пока busy/work.upload, удерживать answer и не пускать pendingRecovery upload.
+   resultReady cancelled flight получает ACK без applyUploadResult/commit;
+   actual done+leaseReleased → retireProtected, затем lifecycle submit с новым
+   snapshot, commit/readback/adopt. Already-started publication проходит прежний
+   reconciliation до применения отказа. Nullable access включить в existing
+   sameUploadIdentity; нового access revision counter нет. Actual drain/leases/
+   pins продолжают прежний жизненный цикл, positive access только после adoption.
+5. В `applyLifecycleEntries` менять private access field; existing
+   `decodeSyncStateUsing` → `BasicUploadServerTruth` → apply сохраняет bounded
+   raw access, включая access_revoked/stale_device_identity. Missing/null
+   sync-state — no new value, не erase cached nonowner. Старый response не
+   перебазируется поверх нового отказа без fresh owner/scope/generation/subject
+   проверки. Квитанции монотонны, cleanup/ACK полномочия не расширяются.
+
+Targets: `Contracts/WindowsDesktopContracts.h`, `Upload/DesktopUploadQueueService.*`,
+`Upload/DesktopHttpTransport.cpp`, `Recording/NativeCapture.h`, `AppMain.cpp`,
+`Web/WebView2Host.*`; существующий `Storage/Sha256.h` переиспользуется.
+Изменения `ProtectedCustodyMetadata.cpp`, CMake, Mac/server и generic auth
+refactor не являются необходимой частью этого выбора. T117 migration сначала
+копирует exact исходный ledger; v4 upgrade — последующая обычная queue mutation.
+Проверки/RED→GREEN — quickstart T088 persistent access, без новых CLI/deadlines;
+generated metadata/audio, devices/network 0, прежние budgets и fair cursor.

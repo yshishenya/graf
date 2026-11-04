@@ -414,7 +414,7 @@ actions. Raw input is never used as a hidden fallback.
 
 The Windows writer finalizes local package before any network call. The queue:
 
-- writes `desktop-upload-queue.v3`, reads v2/v3, preserving the historical
+- writes `desktop-upload-queue.v4`, reads v2/v3/v4, preserving the historical
   `desktop-upload-queue.v2` filename and item identity; unsupported versions are
   quarantined, never overwritten by an empty ledger or downgraded on rollback;
 - writes atomically and quarantines malformed documents;
@@ -428,6 +428,27 @@ The Windows writer finalizes local package before any network call. The queue:
 
 The client talks only to the existing GRAF desktop upload API. No audio request
 goes from Windows directly to MediaScribe, MinIO or an upstream provider.
+
+### T088: persistent local access — 2026-11-04
+
+Native хранит raw nullable access и один authenticated session context по
+local-custody §7.1; новый server/bridge API не создаётся. После cold restart
+тот же native credential может восстановить local scope без сети, но не
+network `confirmedIdentity`. Доступ требует совпадения record owner, local
+scope и текущего разрешённого HTML-документа/cookie; decrypt/inspection не
+подтверждает аккаунт. Только null/exact owner не блокируют сами по себе.
+
+Nonowner, включая access_revoked/stale_device_identity, запрещает playback и
+upload, отзывает active consumers и сохраняет исходные файлы. Existing owner,
+quarantine, package integrity, deletion/receipt и native drain fences остаются;
+allowed не разрешает purge/ACK и не стирает accepted deletion.
+
+Same-cookie workspace change не покрывается одним fingerprint: нынешние
+pollAccount/currentAccount и token early-return должны получить bounded native
+revalidation по existing recovery/document mismatch/scope-change сигналам.
+Hint запускает сверку/отказ, но не устанавливает новую область. Offline document
+B не получает cached A. Network/reminder identity из local cache не заполняется;
+Start/Stop и разрешения записи этой поправкой не расширяются/не ограничиваются.
 
 ### Уточнение 2026-09-06: принадлежность локальной записи (T083)
 

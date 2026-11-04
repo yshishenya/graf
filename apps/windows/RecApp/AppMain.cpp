@@ -524,6 +524,7 @@ public:
             });
             capture_ = std::make_unique<NativeCapture>(localCustodyRoot(), selectAec());
             capture_->startStorageValidation();
+            capture_->startRecordingLifecycle();
             capture_->notificationCard().setDarkTheme(shellIsDark_);
             capture_->notificationCard().protectedFramesProvider = [this] { return notificationProtectedFrames(); };
             capture_->notificationCard().interactionPermitProvider = [this] { return interactionPermit(); };
@@ -1246,6 +1247,9 @@ private:
                     calendarFlight_->document->intent.requestId == request.intent.requestId &&
                     calendarFlight_->document->intent.eventId == request.intent.eventId) cancelCalendarJoin();
             });
+        host.setVisibleRecordingsHandler([this](graf::windows::WebView2Host::VisibleRecordingsRequest request) {
+            if (capture_) capture_->setVisibleRecordingItemIDs(request.ids, request.authGeneration);
+        });
         host.setLocalRecordingHandler([this](auto request) {
             handleLocalRecording(request);
         });

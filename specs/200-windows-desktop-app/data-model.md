@@ -2,10 +2,10 @@
 
 Документ описывает продуктовые и межслойные сущности. Он не создаёт новую
 серверную таблицу: локальная модель должна проецироваться на существующий v5
-manifest и локальный ledger: запись `desktop-upload-queue.v3`, чтение v2/v3,
-историческое имя файла `desktop-upload-queue.v2`. Неизвестная схема изолируется,
-не заменяется пустой очередью; откат приложения не должен перезаписывать v3
-старым писателем. Старые упоминания v2 ниже описывают совместимость/имя файла,
+manifest и локальный ledger: запись `desktop-upload-queue.v4`, чтение v2/v3/v4,
+историческое имя файла `desktop-upload-queue.v2`. Неизвестная схема отклоняется
+по существующим legacy/protected правилам, не заменяется пустой очередью;
+старый writer не получает права перезаписать v4 после отказа. Старые упоминания v2 ниже описывают совместимость/имя файла,
 а не разрешение потери операций удаления новой схемы.
 
 ## 1. WindowsDesktopSession
@@ -265,6 +265,35 @@ The ledger is written atomically. A malformed document is quarantined with a
 bounded reason code and a recoverable backup; it is never replaced by an empty
 document. Server reconciliation wins over local guesses for server meeting,
 media revision, upload session and accepted ranges.
+
+### 7.1. T088: persisted access и последний authenticated context
+
+Это расширение только logical queue; исторические T115/T116 v3-read-v2 ниже
+описывают свои прежние срезы, не запрещают выбранную здесь v4 T088.
+Нормативный strict wire и fingerprint — local-custody contract §7.1.
+
+| Поле | Wire / значение | Правило |
+| --- | --- | --- |
+| Item.accessState | `access_state`: null либо 1–64 ASCII `[a-z0-9_-]` | exact owner/null не блокируют сами по себе; все другие строки блокируют content; raw код сохраняется |
+| Queue.lastAuthenticatedContext | `last_authenticated_context`: null либо object | один последний native proof, не реестр аккаунтов и не network identity |
+| Context | ровно `server_origin`, `actor_user_id`, `workspace_id`, `session_fingerprint` | existing origin/account validation; digest 64 lowercase hex; scope не из DOM |
+
+Для v4 оба новых ключа обязательны в своих объектах, null явно разрешён.
+Decode v2/v3 даёт отсутствующие access/context, не owner/unknown по умолчанию.
+Process auth generation, cancellation и queue native identity не сериализуются;
+при восстановлении привязываются к текущему настоящему владельцу.
+
+Lifecycle allowed → owner; unavailable → unknown только при meetingId.
+Sync-state bounded nonowner (включая access_revoked/stale_device_identity)
+сохраняется; отсутствующее/null поле sync-state не очищает сохранённое значение.
+New unknown/receipt не снимается поздним upload result. Deletion operations,
+accepted ranges, retry/conflict и retained artifacts сохраняются отдельно.
+Only fresh owner candidate + commit/readback/adoption меняют принятую проекцию.
+
+Offline restore требует текущего native credential fingerprint и совпадения
+record owner/local scope/document account. Fingerprint не подтверждает текущий
+online workspace: same-cookie A→B требует native scope revalidation. Logout/
+auth switch отзывает local capability, не назначает владельца unowned записи.
 
 ## 8. WebViewBridgeEnvelope
 

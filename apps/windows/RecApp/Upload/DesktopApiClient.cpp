@@ -661,13 +661,17 @@ std::optional<BasicNotificationContext<String>> DesktopApiClient::decodeNotifica
     return context;
 }
 
-std::optional<std::vector<LifecycleEntry>> DesktopApiClient::decodeLifecycleEntries(std::string_view json) {
-    const auto values = jsonArrayValues(json);
+template<class String>
+std::optional<BasicLifecycleEntries<String>> DesktopApiClient::decodeLifecycleEntries(
+    std::string_view json, const std::atomic<bool>* cancellation) {
+    json_detail::checkCancellation(cancellation);
+    const auto values = ProtocolJsonReader<String>(json, 32, false, cancellation).readArray();
     if (!values || values->size() > 100) return std::nullopt;
-    std::vector<LifecycleEntry> entries;
+    BasicLifecycleEntries<String> entries;
     entries.reserve(values->size());
     for (const auto value : *values) {
-        const auto fields = jsonObjectFields(value);
+        json_detail::checkCancellation(cancellation);
+        const auto fields = ProtocolJsonReader<String>(value, 32, false, cancellation).read();
         if (!fields) return std::nullopt;
         const auto targetType = fields->find("target_type");
         const auto targetId = fields->find("target_id");
@@ -677,7 +681,7 @@ std::optional<std::vector<LifecycleEntry>> DesktopApiClient::decodeLifecycleEntr
         const auto id = plainString(targetId->second);
         const auto name = plainString(state->second);
         if (!type || !id || !name || id->empty() || id->size() > 300) return std::nullopt;
-        LifecycleEntry entry;
+        BasicLifecycleEntry<String> entry;
         if (*type == "own_origin") {
             entry.target = DeletionTarget::ownOrigin;
             if (!safeIdentity(*id)) return std::nullopt;
@@ -705,11 +709,23 @@ std::optional<std::vector<LifecycleEntry>> DesktopApiClient::decodeLifecycleEntr
         if (meetingId != fields->end() && meetingId->second != "null") {
             const auto linked = plainString(meetingId->second);
             if (!linked || !accountId(*linked)) return std::nullopt;
-            entry.meetingId = std::string(*linked);
+            entry.meetingId = *linked;
         }
-        entry.targetId = std::string(*id);
+        entry.targetId = *id;
+        for (const auto& previous : entries)
+            if (previous.target == entry.target && previous.targetId == entry.targetId) return std::nullopt;
+        const auto receipt = fields->find("receipt");
+        if (entry.state == LifecycleState::deletionAccepted || entry.state == LifecycleState::canceledBeforeCreation) {
+            if (receipt == fields->end()) return std::nullopt;
+            entry.receipt = decodeDeletionReceipt<String>(receipt->second, cancellation);
+            if (!entry.receipt || (entry.target == DeletionTarget::ownOrigin ?
+                entry.receipt->localRecordingId != entry.targetId :
+                (entry.receipt->receiptType != "meeting_deletion" || entry.receipt->meetingId != entry.targetId)) ||
+                (!entry.meetingId.empty() && entry.meetingId != entry.receipt->meetingId)) return std::nullopt;
+        } else if (receipt != fields->end() && receipt->second != "null") return std::nullopt;
         entries.push_back(std::move(entry));
     }
+    json_detail::checkCancellation(cancellation);
     return entries;
 }
 
@@ -954,6 +970,8 @@ template std::string DesktopApiClient::idempotencyKey<std::string>(std::string_v
 template CustodyString DesktopApiClient::idempotencyKey<CustodyString>(std::string_view, std::string_view, std::string_view);
 template std::optional<std::array<std::pair<std::string_view, std::string_view>, 2>> DesktopApiClient::scopedAccountHeaders<std::string>(const BasicDeletionScope<std::string>&);
 template std::optional<std::array<std::pair<std::string_view, std::string_view>, 2>> DesktopApiClient::scopedAccountHeaders<CustodyString>(const BasicDeletionScope<CustodyString>&);
+template std::optional<BasicLifecycleEntries<std::string>> DesktopApiClient::decodeLifecycleEntries<std::string>(std::string_view, const std::atomic<bool>*);
+template std::optional<BasicLifecycleEntries<CustodyString>> DesktopApiClient::decodeLifecycleEntries<CustodyString>(std::string_view, const std::atomic<bool>*);
 template std::optional<BasicDeletionReceipt<std::string>> DesktopApiClient::decodeDeletionReceipt<std::string>(std::string_view, const std::atomic<bool>*);
 template std::optional<BasicNotificationContext<std::string>> DesktopApiClient::decodeNotificationContext<std::string>(std::string_view, const std::atomic<bool>*);
 template std::optional<BasicNotificationContext<CustodyString>> DesktopApiClient::decodeNotificationContext<CustodyString>(std::string_view, const std::atomic<bool>*);

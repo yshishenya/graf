@@ -31,6 +31,49 @@ std::string replaceOnce(std::string text, std::string_view before, std::string_v
     return text;
 }
 
+void testProtectedLifecycleTransport() {
+    const auto baseline = CustodyOwnedMemory::usedBytes();
+    {
+        ProtectedDesktopHttpConfig config;
+        config.workspaceId = kWorkspace; config.sessionToken = "generated-lifecycle-session";
+        config.confirmedIdentity = BasicDesktopAccountIdentity<CustodyString>{CustodyString(kActor), CustodyString(kWorkspace)};
+        config.scopedAccount = BasicDeletionScope<CustodyString>{CustodyString(kActor), CustodyString(kWorkspace)};
+        auto cancel = std::allocate_shared<std::atomic<bool>>(CustodyAllocator<std::atomic<bool>>{}, false);
+        config.cancellation = cancel;
+        unsigned calls = 0;
+        const DesktopHttpTransport::ProtectedUploadSend wire = [&](const auto& actual, const auto& call) {
+            ++calls;
+            assert(actual.scopedAccount && actual.scopedAccount->userId == kActor && actual.scopedAccount->workspaceId == kWorkspace);
+            DesktopHttpTransport::ProtectedUploadResponse response; response.status = 200;
+            if (calls == 1) {
+                assert(call.method == "GET" && call.path == DesktopApiClient::notificationContextPath);
+                response.body = R"({"user_id":"11111111-1111-4111-8111-111111111111","workspace_id":"22222222-2222-4222-8222-222222222222","recording_deletion_protocol_version":1})";
+            } else {
+                assert(calls == 2 && call.method == "POST" && call.path == DesktopApiClient::lifecyclePath);
+                assert(call.body == R"({"origins":["generated-origin"],"meeting_ids":[]})");
+                response.body = R"([{"target_type":"own_origin","target_id":"generated-origin","state":"allowed"}])";
+            }
+            return response;
+        };
+        const CustodyVector<CustodyString> origins{CustodyString("generated-origin")};
+        const auto result = DesktopHttpTransport::recordingLifecycleProtected(config, origins, true, wire);
+        assert(result && result->accepted() && calls == 2);
+        assert(DesktopApiClient::decodeLifecycleEntries<CustodyString>(result->body)->size() == 1);
+        for (const auto& invalid : {CustodyVector<CustodyString>{},
+            CustodyVector<CustodyString>{CustodyString("a/b")},
+            CustodyVector<CustodyString>{CustodyString("duplicate"), CustodyString("duplicate")},
+            CustodyVector<CustodyString>(101, CustodyString("generated"))}) {
+            const auto refused = DesktopHttpTransport::recordingLifecycleProtected(config, invalid, true, wire);
+            assert(refused && !refused->answered() && calls == 2);
+        }
+        config.scopedAccount->userId = "55555555-5555-4555-8555-555555555555";
+        assert(!DesktopHttpTransport::recordingLifecycleProtected(config, origins, true, wire)->answered() && calls == 2);
+        cancel->store(true);
+        assert(!DesktopHttpTransport::recordingLifecycleProtected(config, origins, true, wire)->answered() && calls == 2);
+    }
+    assert(CustodyOwnedMemory::usedBytes() == baseline);
+}
+
 void testProtectedDeletionTransport() {
     const auto baseline = CustodyOwnedMemory::usedBytes();
     {
@@ -311,6 +354,13 @@ void testRequestBodies() {
     assert(!DesktopApiClient::validLifecycleSelection(std::vector<std::string>(101, "directory"), {}, 100));
 }
 
+void testLifecycleCannotAcceptWithoutReceipt() {
+    // Accepted on another device: there need not be a local deletion request.
+    // A state label alone is still not a receipt and cannot block/purge content.
+    assert(!DesktopApiClient::decodeLifecycleEntries(
+        R"([{"target_type":"own_origin","target_id":"generated-origin","state":"canceled_before_creation"}])"));
+}
+
 void testLifecycleDecoding() {
     const auto entries = std::string("[") +
         "{\"target_type\":\"own_origin\",\"target_id\":\"directory-1\",\"state\":\"allowed\",\"meeting_id\":null,\"receipt\":null}," +
@@ -319,7 +369,9 @@ void testLifecycleDecoding() {
         "\",\"receipt\":{\"receipt_type\":\"meeting_deletion\",\"phase\":\"accepted\",\"request_id\":\"" +
         std::string(kRequest) + "\",\"meeting_id\":\"" + std::string(kMeeting) +
         "\",\"deletion_epoch\":3,\"report_url\":\"/report\",\"lifecycle\":{\"state\":\"deleting\",\"label\":\"Удаление\",\"can_retry\":false,\"can_view_report\":true}}}," +
-        "{\"target_type\":\"own_origin\",\"target_id\":\"directory-2\",\"state\":\"canceled_before_creation\"}," +
+        "{\"target_type\":\"own_origin\",\"target_id\":\"directory-2\",\"state\":\"canceled_before_creation\","
+        "\"receipt\":{\"receipt_type\":\"origin_cancellation\",\"request_id\":\"" + std::string(kRequest) +
+        "\",\"local_recording_id\":\"directory-2\",\"phase\":\"accepted\"}}," +
         "{\"target_type\":\"own_origin\",\"target_id\":\"directory-3\",\"state\":\"unavailable\"}]";
     const auto decoded = DesktopApiClient::decodeLifecycleEntries(entries);
     assert(decoded && decoded->size() == 4);
@@ -328,6 +380,14 @@ void testLifecycleDecoding() {
     assert((*decoded)[1].target == DeletionTarget::meeting && (*decoded)[1].state == LifecycleState::deletionAccepted);
     assert((*decoded)[1].targetId == kMeeting && (*decoded)[1].meetingId == kMeeting);
     assert((*decoded)[2].state == LifecycleState::canceledBeforeCreation);
+    assert((*decoded)[2].receipt && (*decoded)[2].receipt->requestId == kRequest);
+    const auto charged = DesktopApiClient::decodeLifecycleEntries<CustodyString>(entries);
+    assert(charged && charged->size() == 4 && (*charged)[2].receipt && (*charged)[2].receipt->localRecordingId == "directory-2");
+    assert(!DesktopApiClient::decodeLifecycleEntries(replaceOnce(entries, "directory-2\",\"phase", "foreign-origin\",\"phase")));
+    assert(!DesktopApiClient::decodeLifecycleEntries(replaceOnce(entries, std::string(kRequest), "not-a-uuid")));
+    assert(!DesktopApiClient::decodeLifecycleEntries(replaceOnce(entries, "\"phase\":\"accepted\"", "\"phase\":\"queued\"")));
+    const auto duplicate = R"([{"target_type":"own_origin","target_id":"directory-1","state":"allowed"},{"target_type":"own_origin","target_id":"directory-1","state":"unavailable"}])";
+    assert(!DesktopApiClient::decodeLifecycleEntries(duplicate));
     assert((*decoded)[3].state == LifecycleState::unavailable);
     assert(DesktopApiClient::decodeLifecycleEntries("[]")->empty());
     // One unusable entry rejects the whole answer: a partial list would hide a
@@ -724,6 +784,8 @@ void testDeletionWaitReasonsReachThePageInItsOwnSpelling() {
 }
 
 int main() {
+    testLifecycleCannotAcceptWithoutReceipt();
+    testProtectedLifecycleTransport();
     testProtectedDeletionTransport();
     testMissingMeetingDeletion();
     testProtectedPurgeCodec();

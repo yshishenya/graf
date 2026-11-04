@@ -315,6 +315,119 @@ queue removal прежде cleanup, marker/state удаляются послед
 отменяет jobs, ждёт/сохраняет их ownership как existing lifecycle требует;
 не делает encoding/network в destructor и не выдаёт expired lease за completion.
 
+### 7.1. T088: persistent access в local queue v4 — 2026-11-04
+
+Это только logical `desktop-upload-queue.v4` в existing protected queue object.
+Writer v4 / reader v2,v3,v4; envelope/roles/IDs/package-state и историческое имя
+ledger неизменны. Existing logical bounds (включая 4MiB), cancellation, charged
+memory/IO, unknown/deletion/originals и root-history barriers сохраняются.
+
+**Wire.** V4 сохраняет все canonical v3 fields/значения и добавляет row
+`access_state` после `updated_at_ms`, root `last_authenticated_context` после
+`purge_acknowledgements`. Nullable ключи обязательны; strict UTF-8, без BOM,
+duplicate decoded/unknown/missing v4 keys, неверного типа/числа/trailing bytes.
+Existing v2/v3 decode policy не переписывается; отсутствующие новые значения =
+nil. Context object имеет ровно `server_origin`,`actor_user_id`,`workspace_id`,
+`session_fingerprint` с existing account/origin bounds и digest 64 lowercase hex.
+Access = null либо непустой raw ASCII safe code `[a-z0-9_-]` длиной ≤64.
+Только null/exact `owner` сами по себе не блокируют; любая иная допустимая строка
+блокирует content. Нет case folding, неизвестного enum→owner/nil или разрешения
+из malformed input. Raw access_revoked/stale_device_identity сохраняются.
+
+**Truth.** Только полный проверенный native lifecycle/sync-state меняет access
+частного candidate: allowed→owner; unavailable→unknown при meetingId, без него
+не меняет прежнее access. Missing/null sync-state означает no new value, не
+стирает cached nonowner. Более новый refusal/deletion не снимается late upload
+result. До adoption необходимы native context/generation/subject checks, полный
+commit и независимый readback; ambiguous сохраняет ownership/reconciliation,
+не публикует доступ. Receipt сильнее access, no receipt не становится purge.
+
+**Fingerprint и restore.** Инженерный выбор Windows: existing SHA256 получает
+ровно UTF-8 bytes следующего JSON, без BOM, whitespace и конечного LF:
+
+```json
+{"headers":{"x-auth-session":"generated-session-1"},"origin":"https://rec.2brain.pro"}
+```
+
+Здесь значения заменяются на точные validated native `baseOrigin` и effective
+`sessionToken` действительного unscoped identity request; нет дополнительного
+trim/casefold/URL-normalization. Порядок ключей ровно указанный, header key
+lowercase; JSON экранирует `"` как `\"`, `\` как `\\`, U+0000..001F как
+`\u00xx` с lowercase hex, остальные UTF-8 bytes сохраняет, `/` не экранирует.
+Empty token или неуспешное native cookie observation не создаёт fingerprint.
+Нынешний WinHTTP отправляет X-Auth-Session, не наследует browser cookies и не
+следует redirects. Scope из cache/HTML, X-Workspace-Id/expected-scope headers,
+client-version, device, timeout/retry/cancel/authGeneration/nonce не входят.
+Изменение поддерживаемого auth header set требует явного обновления этого
+binding; digest между Mac и Windows не обязан совпадать.
+Token живёт только в существующей native authentication/preimage memory, не
+сохраняется в queue, diagnostics или evidence. Cached digest — ключ совпадения
+прежнего native proof, не самостоятельное server permission.
+
+Cold restore выполняется из принятой защищённой очереди после первого
+достоверного native cookie observation, при совпадении fingerprint/origin и
+owner pair. Default empty bootstrap/failed cookie read не равны signed-out.
+Runtime logout/auth switch отзывает restoration и consumers; офлайн-ошибка
+сама по себе не стирает прежнюю truth. Local scope не становится network
+currentAccount/confirmedIdentity. Same-cookie workspace change требует fresh
+native spaces/auth-me/context proof. Existing validated document cookie callback
+`reconcileAuthSessionForDocument` → AppMain authSessionHandler запрашивает
+coalesced native revalidation и при том же token; `recover` activation/wake/
+scheduled/authRecovered и typed `scope_changed` запускают тот же путь. Same-URL
+SPA без document callback использует existing scheduled recovery (30s при
+нынешних admission/deferral guards), без нового таймера или нового deadline. `pollAccount` разрешает один fresh lookup при установленном
+revalidation intent даже с `currentAccount_`; config без confirmedIdentity и
+workspaceId использует spaces → auth/me, затем protocol notification-context.
+DOM mismatch закрывает действие, но не назначает B. Fresh native B меняет
+existing auth epoch и отменяет старые works даже с прежним cookie; transient
+network failure не стирает принятую local cache и не подтверждает online A/B.
+Pending scope revalidation не разрешает новые scoped network effects из старого
+confirmedIdentity; offline local content сохраняет свои отдельные scope fences.
+Документ B не использует cached A. Native queue
+context/generation/process epoch при чтении берутся у настоящего владельца,
+не из JSON того же объекта.
+
+**Consumers.** Local observation/display, WebView canOpen/action, native
+open/authorize/pause/seek и fresh-owner PlaybackExchange используют одну access/
+scope/deletion проверку. Native package/normal/degraded/active gates и no plaintext
+fallback сохраняются. Перед restrictive cancel полностью проверяются native
+scope/epoch, весь набор targets/entries, owners, receipt bindings и актуальный
+snapshot существующим applyLifecycleEntries на private copy, без публикации.
+Malformed/foreign/partial/stale answer не отменяет consumers. Для проверенного
+nonowner/receipt закрываются новые reads/parts; closeLocalPlayback и existing
+scheduler.cancel отменяют consumers ДО submitProtectedDeletion, который сейчас
+отказывает при work.upload или scheduler.busy(). Lifecycle answer удерживается;
+pendingRecovery не запускает новый upload и не задерживает его применение.
+Cancelled network resultReady получает resultAdopted с proceed=false, без
+uploadResult candidate/commit; cancellation проверяется также у границы commit.
+Actual completion освобождает package/proof/result, сбрасывает work.upload и
+выставляет leaseReleased; retireProtected требует done && leaseReleased.
+Только после этого lifecycle candidate строится заново из последнего adopted
+snapshot, revalidates все targets, затем commit/readback/adopt; cursor двигается
+лишь после adoption. Cancel не откатывает уже начавшуюся публикацию: ambiguous/
+committed upload сначала проходит имеющийся physical readback/adoption, затем
+retained refusal применяется к его результату. Нет нового access revision
+counter. Новый nullable access участвует в existing sameUploadIdentity, чтобы
+сам domain applyUploadResult не принимал expected row с иным access; updatedAt
+не превращается в общий новый механизм версии. Positive owner не открывает
+admission до adoption. Реальные Shutdown/drain/pins не заменяются atomic cancel. Upload
+selection/retry/continuation и existing local-removal gates не обходят nonowner.
+Accepted ranges/server IDs/local media сохраняются, purge/ACK остаются отдельно
+авторизованными. Fair lifecycle background и ограничения Start/Stop неизменны.
+
+**Upgrade / old reader.** Protected read не пишет: исходные BOTH snapshots
+остаются exact bytes до обычного commit. V2/v3 decode не создаёт owner/cache.
+Первый обычный mutation атомарно пишет v4, сохраняя старые identity/ranges/
+receipt/conflict значения. Новый reader проверяет mixed v3/v4 BOTH; old v3
+reader отвергает v4 при проверке любого slot, без fallback к понятному peer,
+пустой очереди или auto-repair. Две специальные перезаписи slots не нужны.
+T117 migration сначала копирует exact source bytes и сохраняет originals;
+v4 upgrade не встраивается вместо copy/barrier/admission. Existing legacy v2
+acknowledged upgrade и isolation policy не объявляются pure no-write read.
+Ambiguous commit не обещает physical byte identity; existing reconciliation
+сохраняет artifacts. Это не защита от rollback всего диска и не замена T117
+барьеров старого reader, retained originals/quarantine и authorized cleanup.
+
 ## 8. Restart-safe migration и старый reader
 
 Legacy reader доступен **только** worker миграции, никогда regular inspect/hash/
@@ -429,7 +542,9 @@ enum/schema/bound или identity mismatch = recovery-required, не default/nul
 index; direct historical barrier имеет отдельный validator ниже, не открывается
 как current mutable record. Generation≥1, роль задаётся fixed location.
 Запись payload для target generation готовится
-до публикации. Это не изменение существующих logical v5 manifest/v3/v2 codecs.
+до публикации. Эти три authority codecs не меняют logical v5/v3/v2;
+отдельное расширение logical queue v4 T088 определяется §7.1 и не добавляет
+четвёртую authority/envelope схему.
 
 Уточнение владельца 2026-10-04: package-state имеет **ровно девять** top-level
 полей `schema`, `store_id`, `object_id`, `generation`, `directory_id`, `phase`,
@@ -481,7 +596,8 @@ state commit с теми же sealed semantics снимает старую live 
 Intent queue требует directory_id=null, package — identity. `ledger_anchor`
 имеет ровно object_id:id/null, generation:u64/null, length:u64, sha256:sha.
 Legacy ledger = первые два null; protected = оба non-null. Hash/length entire
-validated logical v3/read-v2 snapshot — stamp всех owner/range/deletion/purge
+validated logical source snapshot (v2/v3; v4 при уже обновлённой очереди) —
+stamp всех owner/range/deletion/purge
 полей, не их выборочный пересказ. При virgin empty queue length0/hash empty
 bytes допустимы только по доказанному virgin root. Снимок и matching pin
 удерживаются до switch; changed stamp запрещает switch. После switch anchor
