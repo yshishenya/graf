@@ -2261,3 +2261,52 @@ Governance прошёл с project-pinned PATH. Первый doctor без PATH 
 глобальный CLI1.2.6 и отказал; повтор с pinned CLI1.0.7 — doctor OK.
 Это принятие узкого исправления; T117/T118, installed acceptance, настоящий
 сервер и аппаратные gates остаются открытыми, задачи/reviewer markers не менялись.
+
+## 2026-11-04 — полный Release checkpoint и новая основа master
+
+Lifetime fix сохранён и отправлен в76ad794c2394e651adde74bd722414e0e8f5515c.
+Первый SSH push отказал publickey; повтор через существующий gh credential
+helper/HTTPS прошёл без изменения remote/auth settings. PR7331 остаётся draft,
+REST подтвердил exact head/body; gh pr edit отказал из-за Projects classic,
+поэтому использован штатный REST PATCH. Metadata по точному SHA отказывает
+только на expiry; исключение не продлевалось, merge/release не выполнялись.
+
+Из exact checkpoint Main выполнил полный GrafWindows.sln Rebuild Release x64:
+exit0/host0, machine0x8664, fresh AppMain.obj и production EXE без test payload
+markers. EXE SHA256 `e32744dbde830f381f94a4bd1971eb741199e9e0d02741699a7f32adae89d057`,
+AppMain.obj `5c6139ec7d32eeb8370da54b85c481e3e29de3268ab2dc72f7f14bb18afeda9f`.
+Source225 до/после совпали,24 Debug test EXE и installed0.1.0.15 сохранены;
+build_processes0/no-force. Установка/запуск/звук/trust не выполнялись.
+Result SHA256 `58e7a39492a9e71d36f969b8f85c103ab9855ad9edb17934ca8d5b87468fc2e4`.
+
+Read-only inventory пользовательского root подтвердил legacy ledger и
+отдельный quarantine без protected store.id. Только существование/размеры,
+без чтения содержимого; записи/ключи не менялись. Неизвестный quarantine
+остаётся блокирующим; generated migration PASS не разрешает его обход.
+
+Свежий remote master перешёл с20393b9b… на5485b92ec3489b8c39b8e6f23c8667d8fa286b5f:
+F292 sharing и подготовка релиза. merge-tree подтвердил clean merge, затем
+master принят через --no-commit без переписывания feature history. Входящие
+изменения Mac/server/CHANGELOG сохранены как опубликованная основа; собственных
+правок серверной логики или сборки корневого CHANGELOG не выполнялось.
+Source225 Windows совпадают с проверенным checkpoint. Новая функция Mac
+выявила отдельный HIGH: Windows не обрабатывает shared-meeting activation,
+новые public reader routes и auth continuation с вкладкой/позицией. После
+независимого bounded convergence review добавлена открытая T121; это не T106
+attribution и не T119 calendar join. Runtime allowlist пока не расширен.
+
+На совмещённых общих страницах первый pytest selection:218 PASS, один отказ
+из-за отсутствующего локального .venv пути и две setup errors без isolated
+PostgreSQL. Это ошибки подготовки, не квалифицированные product RED. Подключён
+существующий Python environment временной локальной ссылкой, без установки
+или изменения пакетов; после проверки удалена только эта созданная ссылка. Непройденные случаи и новая F292 integration проверены
+штатным run_local_postgres_tests.sh --focused с UV_NO_SYNC=1:16 PASS25,42s,
+phase pass30s, isolated_container_removed. Новые public-sharing/owner/auth-return
+browser проверки входили в первоначальные успешные случаи. Настоящий сервер
+и пользовательские данные не использовались; полнота Windows sharing не заявляется.
+
+Независимое bounded SOURCE review объединённых четырёх общих файлов и
+Phase21/T121 — C0/H0. Подтверждено121 задач/93 checked/28 open; старые
+задачи и reviewer-owned checklists не менялись. Новая T121 сначала требует
+уточнения spec/contract/plan/quickstart, review/analyze и issue sync; внешний
+issue до нового analyze не создавался. Продуктовый Windows allowlist не менялся.

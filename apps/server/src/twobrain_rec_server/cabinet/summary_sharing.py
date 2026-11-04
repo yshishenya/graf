@@ -12,6 +12,7 @@ from sqlalchemy import select, text
 
 from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.cabinet.access import (
+    TEAM_VISIBLE_VALUES,
     decide_meeting_access,
     enforce_share_rate_limit,
     hash_invitation_address,
@@ -22,6 +23,7 @@ from twobrain_rec_server.cabinet.access import (
 from twobrain_rec_server.cabinet.queries import shared_meeting_display_metadata
 from twobrain_rec_server.db.models import (
     DispatchIntent,
+    Meeting,
     MeetingOutcomeItem,
     MeetingShareGrant,
     UserIdentity,
@@ -278,6 +280,7 @@ async def link_view(db, *, grant, settings):
             "expires_at": None,
             "share_url": None,
             "summary": None,
+            "content_scope": "summary_only",
         }
     snapshot = (
         await db.get(PublishedMeetingSummary, grant.published_summary_id)
@@ -285,7 +288,7 @@ async def link_view(db, *, grant, settings):
         else None
     )
     expired = grant.expires_at is not None and grant.expires_at <= datetime.now(UTC)
-    available = bool(grant.share_token_ciphertext and snapshot and not expired)
+    available = bool(grant.share_token_ciphertext and (snapshot or grant.content_scope == "full_meeting") and not expired)
     token = (
         open_sealed(grant.share_token_ciphertext, encryption_key(settings)) if available else None
     )
@@ -300,6 +303,7 @@ async def link_view(db, *, grant, settings):
         if token
         else None,
         "summary": snapshot_view(snapshot) if snapshot else None,
+        "content_scope": grant.content_scope,
     }
 
 
@@ -313,7 +317,10 @@ async def create_link(
     device_id,
     template_key,
     expires_in_days=30,
+    content_scope="summary_only",
 ):
+    if content_scope not in ("summary_only", "full_meeting"):
+        fail("public_share_scope_invalid", 422)
     if (
         not settings.share_public_links_enabled
         or not settings.share_public_links_abuse_gate_approved
@@ -327,6 +334,12 @@ async def create_link(
     existing = await current_link(db, workspace_id=workspace_id, meeting_id=meeting_id)
     if existing:
         return await link_view(db, grant=existing, settings=settings)
+    if (meeting.visibility or "").lower() in TEAM_VISIBLE_VALUES:
+        fail("summary_link_changed")
+    if await db.scalar(select(MeetingShareGrant.id).where(
+        MeetingShareGrant.workspace_id == workspace_id, MeetingShareGrant.meeting_id == meeting_id,
+        MeetingShareGrant.audience_type == "workspace", MeetingShareGrant.status == "active")):
+        fail("summary_link_changed")
     await enforce_share_rate_limit(
         db,
         workspace_id=workspace_id,
@@ -335,12 +348,9 @@ async def create_link(
         action_key="grant",
     )
     snapshot = await create_summary_snapshot(
-        db,
-        workspace_id=workspace_id,
-        meeting=meeting,
-        template_key=template_key,
-        owner_user_id=actor_user_id,
-    )
+        db, workspace_id=workspace_id, meeting=meeting,
+        template_key=template_key, owner_user_id=actor_user_id,
+    ) if content_scope == "summary_only" else None
     token = secrets.token_urlsafe(32)
     grant = MeetingShareGrant(
         id=uuid4(),
@@ -348,14 +358,14 @@ async def create_link(
         meeting_id=meeting_id,
         grant_type="link",
         audience_type="link",
-        content_scope="summary_only",
+        content_scope=content_scope,
         can_download=False,
         can_export=False,
         created_by_user_id=actor_user_id,
         status="active",
         share_token_hash=hash_share_token(token),
         share_token_ciphertext=seal(token, encryption_key(settings)),
-        published_summary_id=snapshot.id,
+        published_summary_id=snapshot.id if snapshot else None,
         publication_version=1,
         expires_at=datetime.now(UTC) + timedelta(days=expires_in_days),
         metadata_json={},
@@ -369,7 +379,7 @@ async def create_link(
         actor_user_id=actor_user_id,
         device_id=device_id,
         action="summary_link_published",
-        metadata={"share_grant_id": str(grant.id), "published_summary_id": str(snapshot.id)},
+        metadata={"share_grant_id": str(grant.id), "content_scope": content_scope},
     )
     return await link_view(db, grant=grant, settings=settings)
 
@@ -387,6 +397,7 @@ async def change_link(
     operation,
     template_key=None,
     expires_in_days=30,
+    content_scope=None,
 ):
     meeting = await owner_meeting(
         db, workspace_id=workspace_id, meeting_id=meeting_id, actor_user_id=actor_user_id
@@ -408,7 +419,20 @@ async def change_link(
             actor_user_id,
         )
         grant.share_token_ciphertext = None
-    elif operation in ("update", "rotate", "expiry"):
+    elif operation in ("update", "rotate", "expiry", "scope"):
+        if operation == "scope":
+            if content_scope not in ("summary_only", "full_meeting"):
+                fail("public_share_scope_invalid", 422)
+            if content_scope == "summary_only":
+                snapshot = await create_summary_snapshot(
+                    db, workspace_id=workspace_id, meeting=meeting,
+                    template_key=template_key, owner_user_id=actor_user_id,
+                )
+                grant.published_summary_id = snapshot.id
+            else:
+                grant.published_summary_id = None
+            grant.content_scope = content_scope
+            grant.can_download = grant.can_export = grant.can_comment = grant.can_edit = False
         if operation == "update":
             if not template_key:
                 fail("invalid_summary_template", 422)
@@ -428,7 +452,7 @@ async def change_link(
             )
             grant.rotated_at = datetime.now(UTC)
             # Explicit replacement of a legacy link publishes the selected current format.
-            if grant.published_summary_id is None:
+            if grant.published_summary_id is None and grant.content_scope == "summary_only":
                 if not template_key:
                     fail("invalid_summary_template", 422)
                 snapshot = await create_summary_snapshot(
@@ -732,3 +756,82 @@ async def retry_recipient(db, *, batch, recipient_id, settings):
         )
     )
     await db.flush()
+
+
+async def general_access_view(db, *, workspace_id, meeting_id, settings):
+    meeting = await db.scalar(select(Meeting).where(
+        Meeting.workspace_id == workspace_id, Meeting.id == meeting_id,
+    ).execution_options(populate_existing=True))
+    grants = (await db.scalars(select(MeetingShareGrant).where(
+        MeetingShareGrant.workspace_id == workspace_id, MeetingShareGrant.meeting_id == meeting_id,
+        MeetingShareGrant.audience_type.in_(("link", "workspace")),
+        MeetingShareGrant.status == "active",
+    ).order_by(MeetingShareGrant.id).execution_options(populate_existing=True))).all()
+    visibility = (meeting.visibility or "private").lower() if meeting else "private"
+    fingerprint = sha256(json.dumps({
+        "visibility": visibility,
+        "grants": [[str(g.id), g.publication_version, g.content_scope, g.audience_type,
+                    g.expires_at.isoformat() if g.expires_at else None] for g in grants],
+    }, separators=(",", ":")).encode()).hexdigest()
+    now = datetime.now(UTC)
+    effective = [g for g in grants if g.expires_at is None or g.expires_at > now]
+    link = next((g for g in grants if g.audience_type == "link"), None)
+    legacy_workspace = visibility in TEAM_VISIBLE_VALUES
+    audience = ("link" if any(g.audience_type == "link" for g in effective)
+                else "workspace" if effective or legacy_workspace else "invite_only")
+    return {
+        "audience": audience, "fingerprint": fingerprint,
+        "content_scope": ("full_meeting" if legacy_workspace else
+                          effective[0].content_scope if effective else
+                          link.content_scope if link else "summary_only"),
+        "capabilities": {
+            "workspace": bool(settings.share_workspace_audience_enabled),
+            "link": bool(settings.share_public_links_enabled and settings.share_public_links_abuse_gate_approved),
+            "external_invitations": bool(settings.share_external_invitations_enabled),
+        },
+        "link": await link_view(db, grant=link, settings=settings),
+    }
+
+
+async def change_general_access(db, *, settings, workspace_id, meeting_id, actor_user_id,
+                                device_id, audience, expected_fingerprint, content_scope="summary_only",
+                                template_key="meeting_minutes", expires_in_days=30):
+    from twobrain_rec_server.cabinet.access import create_scoped_share_grant
+    meeting = await owner_meeting(db, workspace_id=workspace_id, meeting_id=meeting_id,
+                                  actor_user_id=actor_user_id)
+    state = await general_access_view(db, workspace_id=workspace_id, meeting_id=meeting_id, settings=settings)
+    if state["fingerprint"] != expected_fingerprint:
+        fail("summary_link_changed")
+    if audience not in ("invite_only", "workspace", "link"):
+        fail("invalid_share_audience", 422)
+    await enforce_share_rate_limit(db, workspace_id=workspace_id, user_id=actor_user_id,
+                                  device_id=device_id, action_key="grant")
+    if audience == "workspace" and not settings.share_workspace_audience_enabled:
+        fail("share_workspace_audience_disabled", 403)
+    if audience == "link" and not (settings.share_public_links_enabled and settings.share_public_links_abuse_gate_approved):
+        fail("share_not_found", 404)
+    # Retire legacy visibility along with broad grants; addressed grants stay independent.
+    meeting.visibility = "private"
+    # One general audience. Addressed grants and invitations are deliberately untouched.
+    grants = (await db.scalars(select(MeetingShareGrant).where(
+        MeetingShareGrant.workspace_id == workspace_id, MeetingShareGrant.meeting_id == meeting_id,
+        MeetingShareGrant.audience_type.in_(("link", "workspace")), MeetingShareGrant.status == "active",
+    ))).all()
+    for grant in grants:
+        if grant.audience_type != audience:
+            grant.status, grant.revoked_at, grant.revoked_by_user_id = "revoked", datetime.now(UTC), actor_user_id
+            grant.share_token_ciphertext = None
+            grant.publication_version += 1
+    await db.flush()
+    if audience == "link":
+        await create_link(db, settings=settings, workspace_id=workspace_id, meeting_id=meeting_id,
+                          actor_user_id=actor_user_id, device_id=device_id, template_key=template_key,
+                          expires_in_days=expires_in_days, content_scope=content_scope)
+    elif audience == "workspace":
+        await create_scoped_share_grant(db, workspace_id=workspace_id, meeting=meeting,
+             actor_user_id=actor_user_id, device_id=device_id, audience_type="workspace",
+             audience_id=workspace_id, content_scope=content_scope, can_download=False,
+             can_export=False, expires_at=None, broader_audience_enabled=settings.share_workspace_audience_enabled)
+    await audit(db, workspace_id=workspace_id, meeting_id=meeting_id, actor_user_id=actor_user_id,
+                device_id=device_id, action="share_general_audience_changed", metadata={"audience_type": audience})
+    return await general_access_view(db, workspace_id=workspace_id, meeting_id=meeting_id, settings=settings)

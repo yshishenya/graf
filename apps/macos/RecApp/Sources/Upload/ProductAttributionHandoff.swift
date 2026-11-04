@@ -33,7 +33,7 @@ public enum ProductActivationAttributionReliability: String, Codable, CaseIterab
 /// клика Яндекс.Директа остаётся в записи посещения и в ссылку не попадает
 /// (FR-016, FR-028).
 public struct ProductAttributionHandoff: Codable, Equatable, Sendable {
-    public static let urlScheme = "grafrec"
+    public static var urlScheme: String { SharedMeetingHandoff.applicationScheme }
     public static let urlHost = "attribution"
     public static let bridgeQueryItem = "bridge"
     public static let fallbackQueryItem = "fallback"

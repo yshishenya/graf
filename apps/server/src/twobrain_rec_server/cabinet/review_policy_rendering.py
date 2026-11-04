@@ -69,6 +69,7 @@ def render_meeting_share_fragment(review: MeetingReviewResponse, *, share_worksp
         "cabinet/fragments/meeting_share.html",
         meeting_id=review.meeting.meeting_id,
         share=review.share,
+        artifacts=review.artifacts,
         share_workspace_id=share_workspace_id,
     )
 

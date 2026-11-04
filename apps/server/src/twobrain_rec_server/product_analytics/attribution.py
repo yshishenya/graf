@@ -281,6 +281,7 @@ def build_public_bridge_context(
     *,
     bridge_token: str | None = None,
     ttl_hours: int = ATTRIBUTION_BRIDGE_TTL_HOURS,
+    app_scheme: str = APP_HANDOFF_SCHEME,
     registry: AttributionBridgeRegistry | None = None,
 ) -> dict[str, Any]:
     """Build the bridge of a public page render and record it for resolution.
@@ -306,7 +307,7 @@ def build_public_bridge_context(
         "bridge_expires_at": bridge.expires_at.isoformat(),
         "yclid_present": bridge.yclid_present,
         "yandex_identity_sources_present": bridge.yandex_identity_sources_present(),
-        "app_handoff_url": build_app_handoff_url(bridge),
+        "app_handoff_url": build_app_handoff_url(bridge, scheme=app_scheme),
         "source_context_fields": list(ATTRIBUTION_FIELDS),
         "source_context": dict(bridge.source_context),
     }
@@ -321,6 +322,7 @@ def create_attribution_bridge(
     source_context: Mapping[str, Any],
     bridge_token: str | None = None,
     ttl_hours: int = ATTRIBUTION_BRIDGE_TTL_HOURS,
+    app_scheme: str = APP_HANDOFF_SCHEME,
     bridge_id: str | None = None,
     now: datetime | None = None,
 ) -> AttributionBridgeRecord:
@@ -569,8 +571,9 @@ def parse_app_handoff_url(url: str) -> AttributionHandoff | None:
     """Read the handoff link of the download page without a browser."""
     if not isinstance(url, str):
         return None
-    prefix = f"{APP_HANDOFF_SCHEME}://{APP_HANDOFF_HOST}"
-    if not url.startswith(prefix):
+    from urllib.parse import urlsplit
+    parts = urlsplit(url)
+    if parts.scheme not in (APP_HANDOFF_SCHEME, "grafrec-dev") or parts.netloc != APP_HANDOFF_HOST or parts.path or parts.fragment:
         return None
     query = url.partition("?")[2]
     values = dict(parse_qsl(query, keep_blank_values=False))

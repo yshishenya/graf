@@ -450,6 +450,7 @@ private struct ContentView: View {
             }
         }
         .onAppear {
+            openPendingSharedMeeting()
             AppLog.writeRaw(
                 event: "app_opened",
                 detail: "\(currentApplicationIdentityDetail) capture=app_owned_system_audio microphone=app_owned"
@@ -539,6 +540,9 @@ private struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecDesktopCabinetDidShowMeetingDetail)) { event in
             reportFirstResultViewed(meetingId: event.userInfo?["meetingId"] as? String)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .grafSharedMeetingHandoffDidArrive)) { _ in
+            openPendingSharedMeeting()
         }
         .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecDesktopAttributionHandoffDidArrive)) { _ in
             openCabinetSignInWithAttributionHandoff(reason: "attribution_handoff")
@@ -709,6 +713,12 @@ private struct ContentView: View {
     /// Этот же путь используют все входы в кабинет: и первый, и повторный вход
     /// из раздела поддержки. Маршрут собирает `DesktopCabinetWorkspace.signInRoute`,
     /// поэтому метки не могут потеряться на одном из входов.
+    private func openPendingSharedMeeting() {
+        guard let configuration = desktopCabinetConfiguration,
+              let route = SharedMeetingHandoffInbox.shared.take(configuration: configuration, state: &desktopCabinetState) else { return }
+        selectedCabinetRoute = route
+    }
+
     private func openCabinetSignInWithAttributionHandoff(reason: String) {
         guard let configuration = desktopCabinetConfiguration else { return }
         let handoff = attributionHandoffs.current()
@@ -3339,6 +3349,11 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
     /// Ссылка со страницы загрузки: метки кампании попадают в приложение (FR-022).
     func application(_: NSApplication, open urls: [URL]) {
         for url in urls {
+            if SharedMeetingHandoffInbox.shared.receive(url) {
+                presentMainWindow(reason: "shared_meeting_handoff")
+                NotificationCenter.default.post(name: .grafSharedMeetingHandoffDidArrive, object: nil)
+                continue
+            }
             let store = ProductAttributionHandoffStore()
             // Разбор и запись живут в хранилище, поэтому тот же путь проверяем
             // тестом; здесь остаются только журнал и показ окна.

@@ -1,9 +1,24 @@
-<dialog class="share-dialog summary-share-dialog" id="meeting-share-dialog" role="dialog" aria-modal="true" aria-labelledby="share-dialog-title" aria-describedby="share-dialog-status-{{ meeting_id }}" data-share-dialog data-summary-share-dialog data-meeting-id="{{ meeting_id }}" data-share-workspace-id="{{ share_workspace_id or '' }}">
+<dialog class="share-dialog summary-share-dialog" id="meeting-share-dialog" role="dialog" aria-modal="false" aria-labelledby="share-dialog-title" aria-describedby="share-dialog-status-{{ meeting_id }}" data-share-dialog data-summary-share-dialog data-meeting-id="{{ meeting_id }}" data-share-workspace-id="{{ share_workspace_id or '' }}">
   <section class="share-dialog__surface">
     <header class="share-dialog__header">
-      <h2 id="share-dialog-title" tabindex="-1" data-summary-share-title>Поделиться итогами</h2>
+      <h2 id="share-dialog-title" tabindex="-1" data-summary-share-title>Поделиться встречей</h2>
       <button type="button" class="icon-button" aria-label="Закрыть" data-summary-share-close>×</button>
     </header>
+    <div class="summary-share-tabs" role="tablist" aria-label="Действия со встречей"><button type="button" role="tab" aria-selected="true" id="meeting-sharing-tab" aria-controls="meeting-sharing-panel" data-meeting-sharing-tab="share">Поделиться</button><button type="button" role="tab" tabindex="-1" aria-selected="false" id="meeting-sharing-export-tab" aria-controls="meeting-sharing-export-panel" data-meeting-sharing-tab="export">Экспорт</button></div>
+    <section id="meeting-sharing-export-panel" role="tabpanel" aria-labelledby="meeting-sharing-export-tab" data-meeting-sharing-panel="export" hidden><div data-sharing-export-host></div><p data-sharing-export-empty>Файлы для экспорта пока не готовы.</p>{% for artifact in artifacts|default([]) %}{% if artifact.artifact_class == 'audio' %}<div class="share-viewer-row"><span>Аудиозапись</span>{% if artifact.action == 'download' and artifact.state == 'available' %}<a href="/api/v1/cabinet/meetings/{{ meeting_id }}/downloads/audio{% if share_workspace_id %}?workspace_id={{ share_workspace_id }}{% endif %}">Скачать запись</a>{% else %}<span class="muted">Пока недоступна</span>{% endif %}</div>{% endif %}{% endfor %}</section>
+    <section id="meeting-sharing-panel" role="tabpanel" aria-labelledby="meeting-sharing-tab" data-meeting-sharing-panel="share">
+    <form data-sharing-invite-form class="sharing-invitation-form">
+      <label for="sharing-person-{{ meeting_id }}">Пригласить человека</label>
+      <div class="share-recipient-row"><input id="sharing-person-{{ meeting_id }}" type="text" autocomplete="off" placeholder="Имя или email" role="combobox" aria-expanded="false" aria-autocomplete="list" aria-controls="sharing-people-{{ meeting_id }}" data-sharing-person><button type="submit">Пригласить</button></div>
+      <div id="sharing-people-{{ meeting_id }}" role="listbox" data-sharing-people hidden></div>
+      <label>Права<select data-sharing-invite-role><option value="summary">Только итоги</option><option value="viewer">Просмотр встречи</option><option value="commenter">Комментирование</option><option value="editor">Редактирование</option></select></label>
+      <label><input type="checkbox" data-sharing-invite-export> Разрешить скачивание и экспорт</label>
+      <p class="muted">Адресат войдёт со своей почтой. Приглашение не добавляет его в ваше пространство.</p>
+    </form>
+    <div class="sharing-access-list" aria-label="У кого есть доступ"><div class="share-viewer-row"><strong>Вы</strong><span class="muted">Владелец</span></div><div data-sharing-access-list></div></div>
+    <label>Общий доступ<select data-sharing-audience><option value="invite_only">Только приглашённые</option><option value="workspace">Все в пространстве</option><option value="link">Любой со ссылкой</option></select></label>
+    <label>Что доступно получателю<select data-sharing-scope><option value="summary_only">Только итоги</option><option value="full_meeting">Итоги, расшифровка и запись</option></select></label>
+    <p class="muted" data-sharing-audience-description>Доступ есть только у приглашённых людей.</p>
     <div data-summary-share-editor>
       <div class="summary-share-tabs" role="tablist" aria-label="Как поделиться">
         <button type="button" role="tab" id="summary-link-tab" aria-controls="summary-link-panel" aria-selected="true" data-summary-share-tab="link">По ссылке</button>
@@ -12,17 +27,16 @@
       <p class="summary-share-document"><span data-summary-share-format>Выбранные итоги</span> <button type="button" class="button quiet" data-summary-share-preview>Посмотреть</button></p>
       <div class="summary-share-preview" data-summary-share-preview-content hidden tabindex="-1" aria-label="Итоги для получателя"></div>
       <section id="summary-link-panel" role="tabpanel" aria-labelledby="summary-link-tab" data-summary-share-panel="link">
-        <p>Любой со ссылкой сможет прочитать итоги.</p>
-        <p class="muted">Запись и расшифровка останутся закрыты.</p>
+        <p class="muted">По общей ссылке доступно чтение. Комментирование и редактирование задаются лично.</p>
         <label class="summary-share-expiry">Срок ссылки
           <select name="expires_in_days" data-summary-share-expiry><option value="7">7 дней</option><option value="30" selected>30 дней</option><option value="90">90 дней</option></select>
         </label>
         <p class="muted" data-summary-share-expiry-date></p>
-        <label data-summary-share-url-label hidden>Ссылка на итоги<input readonly type="url" autocomplete="off" spellcheck="false" data-summary-share-url></label>
+        <label data-summary-share-url-label hidden><span data-sharing-link-label>Ссылка на итоги</span><input readonly type="url" autocomplete="off" spellcheck="false" data-summary-share-url></label>
         <button type="button" class="button primary summary-share-primary" data-summary-share-copy>Скопировать ссылку</button>
         <details data-summary-link-controls hidden>
           <summary>Настройки ссылки</summary>
-          <p class="muted">Изменения итогов появятся по ссылке только после обновления.</p>
+          <p class="muted" data-sharing-update-description>Изменения итогов появятся по ссылке только после обновления.</p>
           <div class="summary-share-actions">
             <button type="button" class="button quiet" data-summary-link-action="update">Обновить итоги</button>
             <button type="button" class="button quiet" data-summary-link-action="expiry">Изменить срок</button>
@@ -57,6 +71,7 @@
       <ul class="summary-share-recipients" data-summary-share-result-recipients></ul>
       <p data-summary-share-result-copy></p>
       <div class="summary-share-actions"><button type="button" class="button quiet" data-summary-share-check>Проверить</button><button type="button" class="button quiet" data-summary-share-cancel hidden>Отменить отправку</button><button type="button" class="button primary" data-summary-share-done>Готово</button></div>
+    </section>
     </section>
     <p class="share-dialog__status" id="share-dialog-status-{{ meeting_id }}" role="status" aria-live="polite" aria-atomic="true" data-share-status></p>
   </section>

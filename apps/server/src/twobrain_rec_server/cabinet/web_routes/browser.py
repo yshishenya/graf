@@ -834,3 +834,46 @@ async def meeting_share_fragment(
             csrf_token=_csrf_token_for_principal(request, principal),
         )
     return cabinet_html_response(render_meeting_share_fragment(response, share_workspace_id=db.info.get("share_owner_workspace")), hx_request=True)
+
+
+@router.get("/shared-meeting/continue")
+async def resume_public_meeting(request: Request):
+    """A sealed short-lived first-party return route, never a login query secret."""
+    import re
+    from urllib.parse import parse_qs, urlsplit
+
+    from cryptography.fernet import Fernet, InvalidToken
+
+    from twobrain_rec_server.cabinet.public_sharing import (
+        CONTINUATION_COOKIE,
+        TOKEN,
+        share_fragment,
+    )
+    from twobrain_rec_server.cabinet.summary_sharing import encryption_key
+    target = "/meetings"
+    value = request.cookies.get(CONTINUATION_COOKIE)
+    if value:
+        try:
+            candidate = Fernet(encryption_key(request.app.state.settings)).decrypt(value.encode(), ttl=600).decode()
+            parsed = urlsplit(candidate)
+            token = parsed.path.removeprefix("/api/v1/cabinet/public-shares/")
+            query = parse_qs(parsed.query, keep_blank_values=True, strict_parsing=True)
+            if (parsed.scheme or parsed.netloc or not parsed.path.startswith("/api/v1/cabinet/public-shares/")
+                or not TOKEN.fullmatch(token) or set(query) - {"workspace_id", "media_version"}
+                or any(len(v) != 1 for v in query.values())):
+                raise ValueError("invalid continuation")
+            UUID(query["workspace_id"][0])
+            if "media_version" in query and not re.fullmatch(r"[0-9a-f]{24}", query["media_version"][0]):
+                raise ValueError("invalid media version")
+            if parsed.fragment:
+                fragment = re.fullmatch(r"(outcomes|recording)(?:\?position_ms=([0-9]{1,8}))?", parsed.fragment)
+                if not fragment:
+                    raise ValueError("invalid fragment")
+                share_fragment(fragment[1], int(fragment[2]) if fragment[2] else None)
+            target = candidate
+        except (InvalidToken, ValueError, UnicodeError, KeyError):
+            pass
+    response = RedirectResponse(target, status_code=303)
+    response.delete_cookie(CONTINUATION_COOKIE)
+    response.headers.update({"Cache-Control":"private, no-store", "Referrer-Policy":"no-referrer", "X-Robots-Tag":"noindex, nofollow"})
+    return response

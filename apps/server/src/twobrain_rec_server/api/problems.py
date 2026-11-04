@@ -213,7 +213,7 @@ def _is_browser_auth_handoff_path(path: str) -> bool:
         "/desktop/account/fair-use",
         "/referrals",
         "/billing",
-    } or path.startswith(("/billing/", "/referrals/", "/settings/provider-links/"))
+    } or path.startswith(("/billing/", "/referrals/", "/settings/provider-links/", "/shared-meetings/"))
 
 
 def _is_browser_invitation_path(path: str) -> bool:

@@ -52,6 +52,8 @@ TRUSTED_HTML_SOURCES = frozenset(
         "meeting_detail.governance",
         "meeting_detail.outcomes",
         "meeting_detail.playback",
+        "public_reader.playback",
+        "public_reader.transcript",
         "meeting_detail.revision_status",
         "meeting_detail.share_panel",
         "meeting_detail.speaker_lanes",

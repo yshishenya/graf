@@ -35,12 +35,14 @@ class LinkRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     template_key: str = Field(min_length=1, max_length=64)
     expires_in_days: Literal[7, 30, 90] = 30
+    content_scope: Literal["summary_only", "full_meeting"] = "summary_only"
 
 
 class LinkChangeRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     grant_id: UUID
     expected_version: int = Field(ge=1)
+    content_scope: Literal["summary_only", "full_meeting"] | None = None
     template_key: str | None = Field(default=None, min_length=1, max_length=64)
     expires_in_days: Literal[7, 30, 90] = 30
 
@@ -125,6 +127,7 @@ async def create_link(
         device_id=scope.device_id,
         template_key=payload.template_key,
         expires_in_days=payload.expires_in_days,
+        content_scope=payload.content_scope,
     )
     await db.commit()
     return private_response(view)
@@ -134,7 +137,7 @@ async def create_link(
 async def change_link(
     request: Request,
     meeting_id: UUID,
-    operation: Literal["update", "rotate", "expiry"],
+    operation: Literal["update", "rotate", "expiry", "scope"],
     payload: LinkChangeRequest,
     scope: TenantScope = Tenant,
     db: AsyncSession | None = Db,
@@ -702,3 +705,27 @@ async def recipient_candidates(
                 }
             )
     return private_response({"recipients": results})
+
+
+class GeneralAccessRequest(LinkRequest):
+    template_key: str = Field(default="meeting_minutes", min_length=1, max_length=64)
+    audience: Literal["invite_only", "workspace", "link"]
+    expected_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+@router.get("/meetings/{meeting_id}/sharing/general-access")
+async def general_access(request: Request, meeting_id: UUID, scope: TenantScope = Tenant, db: AsyncSession | None = Db):
+    db = db_required(db)
+    await sharing.owner_meeting(db, **owner_args(scope, meeting_id))
+    return private_response(await sharing.general_access_view(db, workspace_id=scope.workspace_id,
+                                        meeting_id=meeting_id, settings=request.app.state.settings))
+
+
+@router.post("/meetings/{meeting_id}/sharing/general-access", dependencies=[Csrf])
+async def set_general_access(request: Request, meeting_id: UUID, payload: GeneralAccessRequest,
+                             scope: TenantScope = Tenant, db: AsyncSession | None = Db):
+    db = db_required(db)
+    view = await sharing.change_general_access(db, settings=request.app.state.settings,
+              **owner_args(scope, meeting_id), device_id=scope.device_id, **payload.model_dump())
+    await db.commit()
+    return private_response(view)

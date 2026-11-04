@@ -3216,7 +3216,7 @@ def test_detail_tabs_write_both_supported_url_hashes() -> None:
 
     assert "history.replaceState" in script
     assert 'window.location.hash === "#outcomes"' in script
-    assert 'window.location.hash === "#recording"' in script
+    assert r'/^#recording(?:\?position_ms=[0-9]{1,8})?$/.test(window.location.hash)' in script
 
 
 def test_detail_shell_exposes_active_review_player_timeline_and_mobile_safe_contract() -> None:
