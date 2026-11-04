@@ -4,13 +4,11 @@
 
 ## Summary
 
-Активный срез03.11.2026 — T077/O16, постоянные наблюдения фактических
-попыток reconciliation по J1–J6. Ответы владельца приняты; этот план
-допускается к независимому ревью требований, но ещё не к реализации.
-Первый проверяемый шаг O16 — журнал и его агрегированное чтение; регулярный
-наблюдатель, почтовые тревоги и сохраняемая реакция остаются обязательным
-продолжением той же T077/O6 с уже принятым порядком5мин/15мин/retry≥5мин.
-Это последовательность исполнения, не отмена или перенос исходных сроков.
+Активный срез03.11.2026 — T077/O16 J5/J6 после принятого PR7914/J1–J4.
+Ответы владельца приняты. Ниже подготовлен дизайн регулярной проверки,
+почтовых тревог и сохраняемой реакции для независимых checklist/analyze;
+это ещё не допуск к коду или установке. Порядок5мин/15мин/retry≥5мин,
+исходные сроки и полный остаток той же T077/O6 сохраняются.
 
 Активная доработка 01.11.2026 — T077/#4932: внутренний read-only отчёт
 по [контракту O1–O8](contracts/operator-observation.md). Полоса:
@@ -88,6 +86,113 @@ dunning engine или второй платный тариф только рад
 
 ## Technical Context
 
+### T077/O16 J5/J6: независимое наблюдение и реакция (03.11.2026)
+
+Полоса active Spec Kit slice/high-risk-product; Legacy Impact untouched.
+Решения владельца — Session2026-11-03. Первый шаг J1–J4 принят PR7914;
+его financial body/recorder/0109 и O1–O15 CLI не меняются. Новых служб,
+образов, зависимостей, БД, generic incident/outbox или публичного API нет.
+Переиспользовать существующий application runtime image, PostgreSQL guard,
+PostalEmailLoginClient и systemd для ограниченных разовых контейнеров.
+
+**Constitution Check до Phase0:** III/IV/VI и Docker baseline сохранены;
+только технические метаданные, секреты отдельно, без финансовых mutation,
+изменения согласия, tenant bypass, capture/Stop или retention. Независимое
+исследование подтвердило source-возможность варианта A; установленный маршрут
+почты, образы и доступы ещё не приняты. Не выдавать их за предположенный успех.
+
+1. Основной systemd timer на существующем astraglobal вызывает fixed launcher
+   каждые300с. Встречный timer на ОС2brain.dev проверяет его durable tick,
+   независимо от rec-maintenance/Temporal/PostgreSQL. Основной запуск читает
+   также статус встречной проверки. Оба запускают тот же закреплённый image
+   через `docker run --rm --pull never`, без Compose dependencies/start/restart.
+   Это два разовых задания, не новые постоянно работающие службы. Host wrapper
+   только проверяет закрепление/запускает/ограничивает процесс; прикладная
+   логика исполняется в Docker. Общий отказ обоих узлов/Postal/сети остаётся
+   честной недоступностью, не принятой владельцем безопасностью.
+2. `infra/scripts/billing-observation-probe.sh` — root-owned fixed wrapper
+   цели и фиксированных status-команд. SSH forced-command разрешает только
+   заранее заданный read-only режим, без shell/PTY/forwarding/agent/env/stdin,
+   SQL, image или аргументов клиента. Host keys закреплены. Wrapper не отдаёт
+   Docker socket; command из SSH_ORIGINAL_COMMAND не исполняется. Отдельные
+   ключи для source/status; никакой relay через них. Разовый source-контейнер
+   non-root/read-only/cap-drop/no-new-privileges получает только DB secret и
+   точный maintenance context. Публичного порта/HTTP endpoint нет.
+3. Узкие `billing/observation_probe.py` и `cli/billing_observation_probe.py`
+   читают только0109: один RR/READ ONLY снимок до hooks, exact maintenance,
+   cumulative event/failed-event/conflicting-attempt counts, last_event_at.
+   Не использовать MAX(time) как cursor: поздний commit виден приростом count.
+   Source profile/generation задаётся защищённой установкой, не tenant input;
+   понижение любого счётчика/смена generation/плохое время создаёт gap.
+   Restore той же/большей мощности нельзя всегда обнаружить counts: процедура
+   любого restore обязана перевести наблюдение в recovery hold и сменить
+   generation после сверки, а не обещать автоматическое распознавание.
+   Пустота не heartbeat. Сведения об API/container running его не подменяют.
+   Предметный basis задаётся таблицей A2: failure только failed_event_count,
+   conflict только conflicting_attempt_count; при bootstrap общий event_count
+   не тревога. Success-only прирост/новый as_of не меняют их basis/message.
+   Gap использует зафиксированный anchor эпизода; recovery не закрывает incident.
+4. `billing/observation_alerts.py` и `cli/billing_observation_alerts.py` —
+   один controller для tick/witness/status/local relay. Только стандартная
+   библиотека и уже установленный Postal dataclass; общий Settings не читать.
+   Launcher `infra/scripts/check-billing-observation.sh` запускает fixed module
+   в заранее доставленном image с ID/platform/source label+env проверками.
+   Ограниченный writable state принадлежит выделенному non-root UID; root
+   владеет конфигурацией/родительским каталогом/launchers и relay inbox.
+   Bind mounts не дают контейнеру host shell/socket/общие env или секреты
+   YooKassa/MinIO/встреч. SSH выполняет launcher до запуска контроллера,
+   передавая ему лишь bounded source/status envelopes через закрытый input
+   mount; контроллер не вызывает host commands. Ответ — закрытый JSON.
+5. Авторитетный FS journal и его fail-closed/recovery описаны в модели/A3.
+   Одна блокировка на writer/tick/relay/backup, durable reservation до POST,
+   accepted dedup и сохранённые next_allowed_at независимо от PostgreSQL.
+   Mail-only Postal-клиент получает закрытые endpoint/key/sender/recipient;
+   один POST с прежним classifier, новые повторы только здесь. Адрес и секреты
+   не входят в argv/state/stdout/evidence. Настоящая доступность Postal с обоих
+   узлов без основной БД/maintenance — отдельная обязательная приёмка A7.
+   Очередность A4: записать новые основания, выбрать eligible по сохраняемому
+   queue_seq/incident key, durable reservation переставляет сообщение в конец
+   до POST, даже при unknown. Старый повтор не занимает все слоты; срок300с
+   сохраняется при смене basis/binding, restart сохраняет порядок.
+   Eligible только текущие basis_revision/binding_version открытого incident;
+   прежние key/attempts остаются историей вне очереди. Поздний outcome старого
+   key не подтверждает notified текущего; исходный retry deadline сохраняется.
+6. Owner relay — только эксплуатационно доверенный локальный перенос root
+   фактического конкретного решения в этом чате. Root-owned create-once
+   manifest, exact source_profile/source_generation/incident_id/
+   incident_generation/expected_basis_revision/basis_hash, message ref/time
+   и decision digest; сравнение под lock. Accepted decision/consumed ref —
+   одна durable запись до ответа. Root-доступ не выдаётся за проверку автора
+   чата; компрометация custodian остаётся пределом. Ни SQL role, ни имя actor,
+   ни письмо/тишина не меняют состояние. Resolved требует доказательства.
+   Basis_revision меняет только новое основание A2, а не journal sequence,
+   tick, попытка письма или lifecycle. Под lock проверить текущий basis и
+   допустимость перехода; при старом основании после closure не создавать
+   новое поколение. Все номера/переходы определены A5/моделью.
+7. Порядок: семь согласованных документов → новый reviewer-owned
+   `checklists/observation-alerts.md`/независимый допуск → tasks-stage пояснение
+   под той же T077 → scoped analyze A1–A7/J5/J6 → sync существующей #4932 →
+   RED → source/controller/launchers/units/config templates/run guide/tests/
+   F140 fragment → независимые code review и converge → exact source/base
+   governance-fast/macos-pr/pr-metadata/common before/after/tree-parent.
+   Старые68 проверок/PR7914 не повторять без затронутой зависимости.
+
+Пути новых units: `infra/systemd/graf-billing-observation{,-witness}.{service,timer}`;
+пример без секретов `infra/env/billing-observation.example.json`; установка/
+restore/rollback — `infra/docs/billing-observation.md`. Проверки:
+`apps/server/tests/unit/test_billing_observation_alerts.py`,
+`apps/server/tests/integration/test_billing_observation_alerts.py`,
+`apps/server/tests/integration/test_billing_monitoring_postgres.py`,
+`apps/server/tests/contract/test_billing_observation_infra.py`.
+Существующие source/table/writers/customer mail/F273 не расширяются.
+
+**После Phase1:** дизайн сохраняет конституционные границы; новых исключений
+нет. Это root design assessment, не независимый PASS или работающая почта.
+Сценарии A7 обязательны; при неподтверждённом внешнем маршруте доставка остаётся
+unavailable. До независимых checklist/analyze кода нет; установка и реальная
+почта ожидают отдельного эксплуатационного разрешения. Весь FR089/O6,
+прочие источники,58 gaps, T070/T077[ ] остаются открытыми.
+
 ### T077/O16: постоянный журнал попыток (03.11.2026)
 
 Полоса: active Spec Kit slice/high-risk-product (PostgreSQL, Temporal,
@@ -161,13 +266,14 @@ Session2026-11-03; адрес получателя не входит в git/evid
 При disk-full/обрыве/несовместимой схеме запись не даёт ложного успеха,
 а диагностический CLI безопасно отказывает целиком по O3.
 
-**Обязательное продолжение O6:** существующий rec-maintenance и Postal
-`_post_message` пригодны без новой службы. Нужны отдельные внутренние
+**Обязательное продолжение O6 (уточнено J5/J6 выше):** Postal
+`_post_message` пригоден без новой службы; соседний rec-maintenance loop
+не обеспечивает независимость от общей остановки/БД. Нужны отдельные внутренние
 recipient binding, сохраняемые reaction/delivery attempts, проверка каждые5мин,
 gap15мин, retry failed/unknown≥5мин и dedup сохранённого accepted.
 Не использовать tenant customer outbox с fake workspace; не менять общий
 EmailLoginDeliveryError или финансовый sender. До POST нужно сохранять попытку
-и next_allowed_at с защитой конкуренции; crash после Postal acceptance до DB
+и next_allowed_at с защитой конкуренции; crash после Postal acceptance до journal
 остаётся unknown и допускает физический дубль при разрешённом повторе.
 Фактическое подключение и приёмка доставки — отдельные ворота этой же T077,
 не свойство журнала. Прежние финансовые/приватностные сроки действуют сейчас.

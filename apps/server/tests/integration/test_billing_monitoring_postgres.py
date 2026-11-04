@@ -25,11 +25,12 @@ from sqlalchemy import (
     values,
 )
 from sqlalchemy.engine import make_url
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from tests.integration.test_billing_registry import registry_database, settings  # noqa: F401
 from twobrain_rec_server.billing import monitoring
+from twobrain_rec_server.billing.database import BillingMaintenanceDatabaseError
 from twobrain_rec_server.billing.registry import canonical_hash
 from twobrain_rec_server.cli import billing_monitoring as cli
 from twobrain_rec_server.db.models import (
@@ -72,6 +73,343 @@ TABLES = (BillingAuditEvent, BillingOperation, BillingInvoice, BillingWebhookEve
           MeetingDeletionRequest)
 STORAGE_TABLES = (Workspace, WorkspaceSubscription, StorageReservation, BillingEntitlementGrant,
                   BillingStorageEntitlementGrant, TrackArtifact, UploadSession)
+
+
+def test_observation_source_probe_partial_counts_roles_and_no_writes(database, caplog):
+    from twobrain_rec_server.cli.billing_observation_probe import run
+
+    profile, generation = str(uuid4()), str(uuid4())
+
+    def config(role="twobrain_rec_maintenance"):
+        return {"source_profile": profile, "source_generation": generation,
+                "database_url": settings(database, role).database_url}
+
+    async def probe():
+        empty = await run(config())
+        assert empty == {"schema_version": 1, "source_profile": profile, "source_generation": generation,
+                         "as_of": empty["as_of"], "coverage": "partial", "event_count": 0,
+                         "failed_event_count": 0, "conflicting_attempt_count": 0, "last_event_at": None}
+        engine = create_async_engine(database)
+        try:
+            workflow = f"billing-reconciliation/{uuid4()}/v1"
+            run_id = str(uuid4())
+            statement = text("""INSERT INTO billing_reconciliation_observations
+                (namespace,workflow_id,workflow_run_id,activity_id,attempt,event_kind,observed_at)
+                VALUES ('private-source-namespace',:workflow,:run,'private-source-activity',:attempt,:kind,:at)""")
+            old = datetime.now(UTC) - timedelta(days=30)
+            async with engine.begin() as conn:
+                for attempt, kinds in ((1, ("started", "succeeded")), (2, ("started", "failed")),
+                                       (3, ("succeeded", "failed")), (4, ("started",))):
+                    for kind in kinds:
+                        await conn.execute(statement, {"workflow": workflow, "run": run_id,
+                                                       "attempt": attempt, "kind": kind, "at": old})
+            async def fingerprint():
+                async with engine.connect() as conn:
+                    return (await conn.execute(text("SELECT row_to_json(t)::text FROM billing_reconciliation_observations t "
+                                                    "ORDER BY namespace,workflow_id,workflow_run_id,activity_id,attempt,event_kind"))).scalars().all()
+            before = await fingerprint()
+            for _ in range(2):
+                result = await run(config())
+                assert result["event_count"] == 7 and result["failed_event_count"] == 2
+                assert result["conflicting_attempt_count"] == 1 and result["coverage"] == "partial"
+                assert datetime.fromisoformat(result["last_event_at"]) == old
+                assert "private-source" not in json.dumps(result) and len(json.dumps(result).encode()) < 16384
+            assert await fingerprint() == before
+            for role in ("twobrain_rec_app", "registry_worker", "twobrain_rec"):
+                with pytest.raises((BillingMaintenanceDatabaseError, DBAPIError)):
+                    await run(config(role))
+            # A new process imports only the source command and gets no application settings.
+            env = {k: v for k, v in os.environ.items() if not k.startswith("TWOBRAIN_")}
+            env["SYNTHETIC_SOURCE_CONFIG"] = json.dumps(config())
+            script = ("import asyncio,json,os; from twobrain_rec_server.cli.billing_observation_probe import run; "
+                      "print(json.dumps(asyncio.run(run(json.loads(os.environ['SYNTHETIC_SOURCE_CONFIG'])))))")
+            child = subprocess.run([sys.executable, "-c", script], env=env, capture_output=True, text=True, timeout=20)
+            assert child.returncode == 0 and child.stderr == ""
+            assert json.loads(child.stdout)["event_count"] == 7
+            assert "private-source" not in child.stdout and "postgresql" not in child.stdout
+            assert await fingerprint() == before
+        finally:
+            await engine.dispose()
+
+    asyncio.run(probe())
+    assert "private-source" not in caplog.text and "postgresql" not in caplog.text
+
+
+def test_observation_source_rr_detects_old_late_commit_and_read_only_before_hooks(database):
+    from twobrain_rec_server.billing.observation_probe import collect_probe
+    from twobrain_rec_server.cli.billing_observation_probe import run
+
+    profile, generation = str(uuid4()), str(uuid4())
+
+    async def probe():
+        writer = create_async_engine(database)
+        reader = create_async_engine(settings(database).database_url, execution_options={
+            "isolation_level": "REPEATABLE READ", "postgresql_readonly": True,
+        })
+        try:
+            async with writer.begin() as late:
+                await late.execute(text("""INSERT INTO billing_reconciliation_observations
+                    (namespace,workflow_id,workflow_run_id,activity_id,attempt,event_kind,observed_at)
+                    VALUES ('private-late',:workflow,:run,'private-late',1,'failed',:at)"""),
+                    {"workflow": f"billing-reconciliation/{uuid4()}/v1", "run": str(uuid4()),
+                     "at": datetime.now(UTC) - timedelta(days=30)})
+                async with create_sessionmaker(reader)() as db:
+                    db.sync_session.info["tenant_context"] = maintenance_context_settings(MaintenanceTenantContext(
+                        operation_name="billing_reconciliation", actor_id="synthetic", reason_category="synthetic",
+                        feature_area="billing"))
+                    first = await collect_probe(db, source_profile=profile, source_generation=generation)
+                    assert first["event_count"] == 0
+                    await late.commit()
+                    same = await collect_probe(db, source_profile=profile, source_generation=generation)
+                    assert same["event_count"] == 0 and same["last_event_at"] is None
+            observed = []
+
+            def before_sql(conn, _cursor, _statement, _parameters, _context, _many):
+                row = conn.connection.cursor()
+                try:
+                    row.execute("SELECT current_setting('transaction_read_only'),current_setting('transaction_isolation')")
+                    observed.append(row.fetchone())
+                finally:
+                    row.close()
+
+            # Includes tenant-context hooks of the actual source CLI.
+            event.listen(__import__('sqlalchemy').engine.Engine, "before_cursor_execute", before_sql)
+            try:
+                result = await run({"source_profile": profile, "source_generation": generation,
+                                    "database_url": settings(database).database_url})
+            finally:
+                event.remove(__import__('sqlalchemy').engine.Engine, "before_cursor_execute", before_sql)
+            assert result["event_count"] == result["failed_event_count"] == 1
+            assert result["conflicting_attempt_count"] == 0
+            assert datetime.fromisoformat(result["last_event_at"]) < datetime.fromisoformat(result["as_of"]) - timedelta(days=29)
+            assert observed and all(tuple(row) == ("on", "repeatable read") for row in observed)
+        finally:
+            await reader.dispose()
+            await writer.dispose()
+
+    asyncio.run(probe())
+
+
+def test_observation_source_early_sql_timeout_cancel_and_no_backend_tail(database, monkeypatch):
+    import time
+
+    from twobrain_rec_server.cli import billing_observation_probe as source_cli
+
+    original_factory = source_cli.create_async_engine
+    application = f"synthetic-source-{uuid4()}"
+
+    def factory(*args, **kwargs):
+        kwargs["connect_args"]["server_settings"]["application_name"] = application
+        engine = original_factory(*args, **kwargs)
+
+        @event.listens_for(engine.sync_engine, "begin")
+        def slow_setup(conn):
+            assert conn.exec_driver_sql("SHOW transaction_read_only").scalar_one() == "on"
+            assert conn.exec_driver_sql("SHOW transaction_isolation").scalar_one() == "repeatable read"
+            conn.exec_driver_sql("SELECT pg_sleep(30)")
+
+        return engine
+
+    monkeypatch.setattr(source_cli, "create_async_engine", factory)
+
+    async def probe():
+        config = {"source_profile": str(uuid4()), "source_generation": str(uuid4()),
+                  "database_url": settings(database).database_url}
+        started = time.monotonic()
+        with pytest.raises((DBAPIError, TimeoutError)):
+            await source_cli.run(config)
+        assert 4 < time.monotonic() - started < 8
+        task = asyncio.create_task(source_cli.run(config))
+        await asyncio.sleep(0.2)
+        task.cancel()
+        started = time.monotonic()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert time.monotonic() - started < 2
+        admin = original_factory(database)
+        try:
+            async with admin.connect() as conn:
+                count = (await conn.execute(text("SELECT count(*) FROM pg_stat_activity WHERE application_name=:name"),
+                                            {"name": application})).scalar_one()
+                assert count == 0
+        finally:
+            await admin.dispose()
+
+    asyncio.run(probe())
+
+
+@pytest.mark.parametrize("invalid", ["set_role", "context", "schema", "force_rls", "nonfinite"])
+def test_observation_source_negative_boundary_is_whole_safe_unavailable(database, monkeypatch, capsys, invalid):
+    from twobrain_rec_server.billing import observation_probe
+    from twobrain_rec_server.cli import billing_observation_alerts as alerts_cli
+    from twobrain_rec_server.cli import billing_observation_probe as source_cli
+
+    role = "registry_worker" if invalid == "set_role" else "twobrain_rec_maintenance"
+    config = {"source_profile": str(uuid4()), "source_generation": str(uuid4()),
+              "database_url": settings(database, role).database_url}
+    original_factory = source_cli.create_async_engine
+
+    def factory(*args, **kwargs):
+        engine = original_factory(*args, **kwargs)
+        if invalid == "set_role":
+            @event.listens_for(engine.sync_engine, "begin")
+            def impersonate(conn):
+                conn.exec_driver_sql("SET LOCAL ROLE twobrain_rec_maintenance")
+        if invalid == "context":
+            @event.listens_for(engine.sync_engine, "before_cursor_execute")
+            def wrong_context(conn, _cursor, statement, _parameters, _context, _many):
+                if "from pg_roles where rolname" in statement:
+                    cursor = conn.connection.cursor()
+                    try:
+                        cursor.execute("SELECT set_config('app.maintenance_feature_area','synthetic_wrong',true)")
+                    finally:
+                        cursor.close()
+        return engine
+
+    async def alter(statement):
+        engine = create_async_engine(database)
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(text(statement))
+        finally:
+            await engine.dispose()
+
+    revert = None
+    if invalid == "schema":
+        asyncio.run(alter("ALTER TABLE billing_reconciliation_observations RENAME COLUMN observed_at TO synthetic_missing"))
+        revert = "ALTER TABLE billing_reconciliation_observations RENAME COLUMN synthetic_missing TO observed_at"
+    elif invalid == "force_rls":
+        asyncio.run(alter("ALTER TABLE billing_reconciliation_observations NO FORCE ROW LEVEL SECURITY"))
+        revert = "ALTER TABLE billing_reconciliation_observations FORCE ROW LEVEL SECURITY"
+    elif invalid == "nonfinite":
+        # Keep the migrated finite-time CHECK intact; test a broken SQL projection.
+        real_text = observation_probe.text
+        monkeypatch.setattr(observation_probe, "text", lambda sql: real_text(sql.replace(
+            "max(observed_at) AS last_event_at", "'infinity'::timestamptz AS last_event_at")))
+    monkeypatch.setattr(source_cli, "create_async_engine", factory)
+    monkeypatch.setattr(alerts_cli, "read_protected", lambda _path: config)
+    try:
+        with pytest.raises(SystemExit) as exited:
+            source_cli.main()
+        assert exited.value.code == 1
+        output = capsys.readouterr()
+        assert json.loads(output.out) == {"schema_version": 1, "result_code": "observation_unavailable"}
+        assert output.err == "" and "postgresql" not in output.out and "synthetic_wrong" not in output.out
+    finally:
+        if revert is not None:
+            asyncio.run(alter(revert))
+
+
+@pytest.mark.parametrize("stage", ["before", "during"])
+def test_observation_source_database_outage_does_not_leave_a_backend(database, monkeypatch, stage):
+    import socket
+    import time
+
+    from twobrain_rec_server.cli import billing_observation_probe as source_cli
+
+    config = {"source_profile": str(uuid4()), "source_generation": str(uuid4()),
+              "database_url": settings(database).database_url}
+    original_factory, original_probe = source_cli.create_async_engine, source_cli.collect_probe
+    application = f"synthetic-outage-{uuid4()}"
+
+    def factory(*args, **kwargs):
+        kwargs["connect_args"]["server_settings"]["application_name"] = application
+        return original_factory(*args, **kwargs)
+
+    monkeypatch.setattr(source_cli, "create_async_engine", factory)
+
+    async def scenario():
+        admin = original_factory(database)
+        try:
+            if stage == "before":
+                with socket.socket() as unavailable:
+                    unavailable.bind(("127.0.0.1", 0))
+                    port = unavailable.getsockname()[1]
+                    config["database_url"] = make_url(config["database_url"]).set(port=port).render_as_string(hide_password=False)
+                    started = time.monotonic()
+                    with pytest.raises(OSError):
+                        await source_cli.run(config)
+                    assert time.monotonic() - started < 18
+            else:
+                async def disconnected(db, **kwargs):
+                    async with admin.begin() as conn:
+                        assert (await conn.execute(text(
+                            "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE application_name=:name"
+                        ), {"name": application})).scalar_one() is True
+                    return await original_probe(db, **kwargs)
+
+                monkeypatch.setattr(source_cli, "collect_probe", disconnected)
+                with pytest.raises(DBAPIError):
+                    await source_cli.run(config)
+            async with admin.connect() as conn:
+                assert (await conn.execute(text("SELECT count(*) FROM pg_stat_activity WHERE application_name=:name"),
+                                          {"name": application})).scalar_one() == 0
+        finally:
+            await admin.dispose()
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("stage", ["connect", "close"])
+def test_observation_source_total_budget_includes_connect_and_close(database, monkeypatch, stage):
+    import time
+    from contextlib import suppress
+
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    from twobrain_rec_server.cli import billing_observation_probe as source_cli
+
+    original_factory = source_cli.create_async_engine
+    application = f"synthetic-budget-{uuid4()}"
+    reached = []
+
+    def factory(*args, **kwargs):
+        kwargs["connect_args"]["server_settings"]["application_name"] = application
+        return original_factory(*args, **kwargs)
+
+    class SlowClose(AsyncSession):
+        async def close(self):
+            reached.append(True)
+            await asyncio.sleep(30)
+            await super().close()
+
+    monkeypatch.setattr(source_cli, "create_async_engine", factory)
+    if stage == "close":
+        monkeypatch.setattr(source_cli, "create_sessionmaker", lambda engine: async_sessionmaker(engine, class_=SlowClose))
+
+    async def scenario():
+        config = {"source_profile": str(uuid4()), "source_generation": str(uuid4()),
+                  "database_url": settings(database).database_url}
+        server, writers = None, []
+        if stage == "connect":
+            def silent(_reader, writer):
+                writers.append(writer)
+            server = await asyncio.start_server(silent, "127.0.0.1", 0)
+            config["database_url"] = make_url(config["database_url"]).set(
+                port=server.sockets[0].getsockname()[1]).render_as_string(hide_password=False)
+        started = time.monotonic()
+        try:
+            with pytest.raises(TimeoutError):
+                await source_cli.run(config)
+            assert 14 < time.monotonic() - started < 18
+            assert bool(reached) == (stage == "close")
+            admin = original_factory(database)
+            try:
+                async with admin.connect() as conn:
+                    assert (await conn.execute(text("SELECT count(*) FROM pg_stat_activity WHERE application_name=:name"),
+                                              {"name": application})).scalar_one() == 0
+            finally:
+                await admin.dispose()
+        finally:
+            if server is not None:
+                server.close()
+            for writer in writers:
+                # The silent TCP fixture never completes PostgreSQL/SSL negotiation.
+                writer.transport.abort()
+                with suppress(OSError, TimeoutError):
+                    await asyncio.wait_for(writer.wait_closed(), 1)
+            if server is not None:
+                await server.wait_closed()
+    asyncio.run(scenario())
 
 
 def test_reconciliation_journal_empty_cli_is_declared_partial(database):

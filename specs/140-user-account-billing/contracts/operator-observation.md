@@ -6,9 +6,11 @@
 [импорт B1–B3](registry-operator-import.md),
 [security](security-privacy-compliance.md). Никакой новой службы/зависимости.
 
-Статус O16 от03.11.2026 — ответы владельца по J5/J6 приняты в spec,
-проект плана первого шага подготовлен, независимый допуск ещё впереди. O1–O15 и исходная T077
-сохраняются; принятое назначение канала не доказывает фактическую доставку.
+Статус O16 от03.11.2026 — первый шаг J1–J4/агрегаты принят через PR7914;
+текущий следующий шаг J5/J6 уточняется. Ответы владельца, включая явное
+решение в этом чате для конкретного accepted_risk, приняты в spec.
+Новый план и независимый допуск к реакции/тревогам ещё впереди. O1–O15 и
+исходная T077 сохраняются; назначение канала не доказывает фактическую доставку.
 
 ## O1. Вход и полномочия
 
@@ -620,9 +622,10 @@ expired-active не доказательство своевременной оч
 ## O16. Проект следующего среза: журнал попыток reconciliation
 
 03.11.2026. Требования исходной T077/#4932 после PR7898, с принятыми
-ответами владельца по J5/J6. План и независимые checklist/analyze ещё не
-приняты; код/миграция/новые записи/тревоги не допущены. O1–O15 остаются
-действующими для принятого отчёта. Будущая запись узкого источника не меняет
+ответами владельца по J5/J6. Первый шаг J1–J4/агрегаты принят через PR7914.
+Для следующего шага J5/J6 подготовлен план A1–A7 ниже; независимые
+checklist/analyze ещё не приняты, код/установка/записи реакции не допущены. O1–O15
+остаются действующими для принятого отчёта. Запись узкого источника не меняет
 read-only поведение CLI. Общего принятия финансового или приватностного риска нет.
 
 **J1 — потребность и единица.** Оператору нужны сохраняемые наблюдения
@@ -688,6 +691,15 @@ failure/противоречащий outcome — detected при следующ�
 подтверждённой ошибкой. Эти технические пороги не заменяют transient15мин/24ч,
 fair-use≤24ч, receipt canceled немедленно/pending3дня, registry/F278FR041≤24ч
 или primary eligible purge≤24ч.
+Успешная проверка источника, последнее событие reconciliation и живой
+наблюдатель — разные свидетельства. Цикл в rec-maintenance вне Temporal
+может пережить обычный отказ Temporal, но не доказывает контроль собственной
+остановки. При общей недоступности БД нельзя обещать сохранённую попытку до
+POST или своевременную доставку тем же процессом. После восстановления
+прошлый gap сохраняет исходное время; он не становится уведомлением,
+доставленным во время отказа. Для полного O6 нужны отдельно доказанные
+независимый контроль наблюдателя и поведение при общей недоступности БД.
+Работающий API, Docker restart и проверка при выпуске сами этого не доказывают.
 Сохраняемая реакция следует O6: detected→contained→owner_assigned→notified→
 investigating→resolved|accepted_risk, с severity, реальным owner, evidence class/
 reference, сроком, containment, основанием разрешения и временем закрытия.
@@ -706,8 +718,16 @@ runtime launch-gates и отказ в оплаченном сроке не во�
 
 **J6 — принятое назначение и оставшиеся ворота.** Владелец GRAF назначил
 себя ответственным за инциденты биллинга и приватности, выбрал почту и принял
-порядок J5 в ответах03.11 (§Session 2026-11-03 в spec). Ответов об owner/channel/
-этом порядке больше не требуется. Repository-audit остаётся ответственным за
+порядок J5 в ответах03.11 (§Session 2026-11-03 в spec). Принятие конкретного
+риска подтверждается отдельным явным решением владельца в этом чате,
+с сохранением ссылки на основание, связи с конкретной тревогой и времени.
+Служебный исполнитель только переносит принятое решение в журнал;
+произвольные --owner/--operator/actor_id или maintenance SQL не доказывают
+личность и не создают accepted_risk. Письмо, молчание и общая политика
+также не являются решением. Доверенная граница переноса и сохранения
+основания должна быть определена в плане; вымышленная проверка автора
+или автоматическое принятие риска запрещены. Ответов об owner/channel/
+порядке/способе решения больше не требуется. Repository-audit отвечает за
 подключение; это не новая роль, разрешение финансовых действий или tenant bypass.
 Analytics/F273 Telegram, customer notification outbox/Postal и tenant
 SupportIncident не становятся внутренним журналом автоматически; фиктивный
@@ -749,3 +769,236 @@ heartbeat или принятия всех maintenance jobs. No-write/DB-only O1
 Непустой журнал защищён от UPDATE/DELETE/destructive downgrade; сроки
 retention финансов/Temporal/Langfuse не меняются. Реальные права/RLS,
 restart/rollback/restore/cancel/timeout/privacy проверяются до принятия кода.
+
+### O16/J5/J6: контракт независимого наблюдения A1–A7
+
+03.11.2026, продолжение после PR7914. Ниже нормативный дизайн, ещё не
+проверенная реализация. Источник ограничен billing reconciliation0109;
+остальные семьи и полный FR089/O6 этим не принимаются.
+
+**A1 — чтение и три разных свидетельства.** Fixed source probe возвращает
+schema_version=1, source_profile/generation, UTC as_of, coverage=partial,
+event_count, failed_event_count, conflicting_attempt_count и nullable
+last_event_at. Только целые неотрицательные counters≤9223372036854775807;
+conflict — ключ попытки с несколькими terminal kinds, failed — сохранённый
+event_kind=failed, не отказ банка. Никаких identity строк0109 или частных
+полей наружу. Exact maintenance/FORCE RLS/READ ONLY RR до первого SQL/hooks;
+15с весь DB probe, statement5с/lock2с, output≤16KiB, whole unavailable при
+ошибке схемы/доступа/предела/непредставимом времени. O1–O15 CLI прежний.
+Источник успешно прочитан, producer имеет последнее событие, observer
+зафиксировал завершение цикла — независимые поля; source/status чтение само
+не обновляет ни producer, ни durable observer tick. last_event_at — сигнал
+свежести, не cursor для новых failure/conflict. Поздний commit старой даты
+должен обнаруживаться приростом накопленных counters.
+
+**A2 — расписание и incident basis.** Два systemd timer/oneshot на существующих
+узлах, интервалы300с, без случайной дополнительной задержки, без параллельных
+writer. Основной внешний observer читает source и tick встречного witness;
+witness читает только durable tick основного observer. Оба живут вне
+rec-maintenance/Temporal/PostgreSQL и публикуют собственный завершённый tick.
+Невозможность прочитать source не мешает durable tick с outcome=unavailable.
+Kinds: reconciliation_failure, reconciliation_conflict, source_gap,
+producer_gap, observer_gap, witness_gap, source_discontinuity. Gap не financial
+failure. На первой активации failed_event_count>0 создаёт историческую
+reconciliation_failure, conflicting_attempt_count>0 — reconciliation_conflict,
+обе unresolved. Один event_count>0 при двух нулевых предметных счётчиках
+не создаёт этих тревог. Последний успех чтения/события/tick или
+durable activation при их отсутствии — начало своего15мин интервала;
+при возрасте≥900с gap detected, включая точное равенство. Будущее время,
+clock rollback, уменьшение counters, новая source generation или нарушенная
+схема создают discontinuity/unknown, не зелёное состояние или сброс истории.
+Незавершённая activity после300с остаётся unknown. Её старт не доказывает
+успешное завершение финансовой работы. Любой restore требует recovery hold
+и сверки поколения; counts не обнаруживают все возможные восстановления.
+Проверка —300с, это не обещание доставки за900с: следующий tick и бюджет
+добавляют задержку. На здоровом расписании обнаружение порога≤300с после
+его достижения; полный tick≤60с, remote source wrapper≤25с с cleanup,
+SSH/status budgets входят в60с. При неисправном scheduler своевременность
+не заявляется; witness фиксирует фактический gap.
+
+Основание не равно всему source_sample. Для каждого kind канонический basis
+содержит source_profile, проверенную source_generation, kind и только поля
+следующей таблицы; очередные as_of/received_at/возраст в hash не входят.
+
+| Kind | Стабильная предметная часть basis / новое основание |
+| --- | --- |
+| reconciliation_failure | Текущее failed_event_count; новое основание только при его строгом приросте в том же поколении. event_count, последний success и времена чтения его не меняют. |
+| reconciliation_conflict | Текущее conflicting_attempt_count; новое основание только при его строгом приросте. Рост одного failed_event_count или event_count его не меняет. |
+| source_gap | Последний сохранённый успешный source-check, либо activation при его отсутствии; при продолжающейся недоступности anchor неизменен. |
+| producer_gap | Последний допустимый last_event_at, либо activation, если события не было. Изменение возраста/общего count без нового last_event_at не меняет anchor. |
+| observer_gap / witness_gap | Последний допустимый durable peer tick и его head ref, либо activation при отсутствии tick. Status read не меняет anchor. |
+| source_discontinuity | Сохранённый sequence первой записи текущего эпизода discontinuity и закрытый reason code; последующие invalid samples/времена не меняют этот эпизод. |
+
+Gap anchor фиксируется, когда впервые достигнут порог900с. Успешное новое
+свидетельство прекращает текущий эпизод gap, но не закрывает его incident.
+Последующая потеря с новым anchor создаёт новое основание. Эпизод
+discontinuity прекращается только явным recovery custodian с проверкой
+lineage/времени; автоматическое улучшение sample его не завершает.
+При нескольких причинах discontinuity первая запись выбирает один code
+в порядке schema_invalid, source_generation_changed, counters_decreased,
+source_time_invalid, local_clock_rollback; сырые неверные значения не сохранять.
+До проверки lineage предметные counters не принимаются как новый baseline.
+Сам отказ source не запрещает письмо о discontinuity из исправного внешнего
+журнала; recovery hold после restore или отказа FS/часов запрещает POST по A3/A4.
+После сверенного нового source_generation его
+ненулевые failed/conflict counts снова требуют исторических тревог.
+В каждом принятом поколении последние предметные counts сохраняются и после
+закрытия incident: неизменный ненулевой count не создаёт его заново.
+
+**A3 — durable журнал вне общей БД.** Каждый узел хранит свой узкий журнал
+на защищённой локальной FS; основной авторитетен для source incidents,
+witness — только для observer_gap. Нет concurrent writers/двух авторитетных
+копий одного incident. Один lock≤2с объединяет tick/relay/backup; отсутствующий
+после activation/повреждённый журнал не создаётся как пустой заново.
+Create-once activation и append-only checksum/hash-chain records с fsync
+файла, при создании также каталога; одна запись — одна атомарно принимаемая
+версия перехода. Частичный tail, неверная цепочка, fsync/диск/лимит дают
+recovery hold и запрещают POST; хвост не обрезается и история не удаляется.
+Полные границы/схема — в модели. Отдельного изменяемого authoritative snapshot
+или нескольких файлов, объявленных одной транзакцией, нет. До POST durable
+record содержит incident/message identity, attempt=unknown и next_allowed_at.
+При восстановлении незавершённая попытка остаётся unknown. Backup под lock
+включает всю цепочку/consumed refs/accepted outcomes/activation/сроки; restore
+проверяется отдельно, сохраняет старые времена и начинает с hold без рассылки.
+Откат всех доступных копий и свидетелей не объявляется обнаружимым автоматически.
+
+Уточнение A3 после проверки отказа fsync: перед каждой записью под тем же
+lock создаётся фиксированный соседний `journal.jsonl.hold` через защищённый
+O_EXCL/NOFOLLOW,0600,owner/nlink/identity checks. Он содержит только постоянный
+признак формата, никогда не копию head/accepted/consumed/сроков. Сначала fsync
+этого файла и каталога, затем append+fsync журнала, затем unlink только своего
+проверенного файла запрета и fsync каталога. До завершения всей цепочки нет
+POST или успешного ответа. Это запретительный предохранитель, не второй
+источник состояния и не обещание общей атомарной транзакции двух файлов.
+Уже существующий/неверный/недоступный запрет обычный запуск не присваивает
+и не снимает; status не выдаёт такой хвост за подтверждённый tick. Activation
+ставит запрет до создания журнала; restore не очищает его копированием.
+Авария внутри записи требует явной сверки custodian и восстановления;
+авария после снятого запрета вокруг POST оставляет unknown и прежний retry≥300с.
+Storage-only recovery при целой проверенной цепочке может сохранить source
+generation и все accepted/consumed/паузы; source discontinuity/restore требуют
+сверенного нового поколения. Неполный хвост автоматически не исправляется.
+Если fsync каталога после unlink отказал, журнал уже синхронизирован, но
+видимый запрет может отсутствовать: вернуть ошибку и попытаться восстановить
+его. Полный отказ FS/откат всех копий не позволяет гарантировать сохранение
+нового признака. Все барьеры входят в60с; синхронный fsync не объявляется
+прерываемым Python timeout, внешний ограниченный runner обязан ограничить процесс.
+
+**A4 — письмо.** Только существующий Postal dataclass с минимальной закрытой
+конфигурацией, без общего Settings, customer outbox или fake workspace.
+Текст содержит закрытый kind, severity, технический incident reference,
+detected/deadline UTC и безопасную evidence class; ни адрес, ни exception,
+SQL/URL/деньги/Temporal identity/meeting data в журнал/вывод не входят.
+Получатель — назначенный владелец, opaque binding version из закрытого
+профиля, без email в данных incident. Deadline доставки одного POST≤10с
+в общем60с budget; outcome только failed/unknown/accepted, accepted требует
+сохранённого подтверждения транспорта. Acceptance ref хранить лишь digest.
+Одинаковый message key с durable accepted не посылать повторно. Retry failed/
+unknown≥300с по сохранённому next_allowed_at; rollback часов не ускоряет его.
+При сомнении в clock/state POST запрещён до восстановления. Crash после
+приёма до durable outcome — unknown, разрешённый повтор может дублировать
+физическое письмо. Mailbox/read/exactly-once не обещаются. Не более одного
+POST за tick на узел. Каждое новое message identity получает queue_seq —
+sequence записи его создания. Сначала зафиксировать все новые основания tick,
+потом выбрать среди eligible минимальную пару (queue_seq, incident key).
+Eligibility требует открытого incident, совпадения message identity с его
+текущей basis_revision и текущей binding_version закрытого почтового профиля,
+отсутствия durable accepted этого key и now≥next_allowed_at incident.
+Прежние key/attempts/reservations/accepted/queue_seq остаются неизменной
+историей вне очереди; failed/unknown старой identity не разрешает её POST.
+Срок последней reservation данного incident сохраняется также при смене
+revision/binding, поэтому такая смена не ускоряет повтор раньше300с.
+Поздний outcome прежнего key относится только к его истории и не подтверждает
+notified текущей identity; даже accepted текущего key не возвращает старый
+failed/unknown key в очередь. Новая сущность для прежних версий не нужна.
+В durable reservation до POST queue_seq выбранного сообщения меняется на
+sequence этой reservation; оно встаёт за уже ожидающими eligible сообщениями
+даже при failed/unknown/crash. Исход отправки не возвращает старый queue_seq.
+Не выбирать по detected_at. При конечном числе сохраняющихся eligible
+сообщений каждое получит слот не позднее их числа последующих здоровых ticks;
+restart восстанавливает тот же порядок. При одинаковом queue_seq tie по
+incident key детерминирован. Accepted удаляется только из допуска к отправке,
+вся его история сохраняется. Финансовые/customer retry и classifier не меняются.
+
+**A5 — реакция и принятое решение.** Каждый incident сохраняет detected,
+contained (только честная отметка неполноты/действие восстановления наблюдения),
+owner_assigned=владелец GRAF, notified лишь после durable accepted текущей
+message identity по A4, investigating
+и resolved|accepted_risk. Source failure/conflict — severity=high технической
+сверки, gap/discontinuity — high потери наблюдения, не оценка суммы/утечки.
+Первый follow-up deadline=detected+300с на проверку/повтор доставки; исходный
+detected/deadline не сдвигать повтором. Пропущенный deadline сохранять с
+breached=true, это не доказательство ответа человека за300с. Investigating
+требует сохранённого действия custodian; notified не означает прочтение.
+Готовность источника после gap сама не закрывает incident и historical failure.
+Только новое предметное основание по A2 меняет basis_hash/basis_revision;
+обычный success, sample/tick, попытка почты и переход реакции их не меняют.
+Source_generation — эксплуатационно сверенное поколение источника.
+Incident_generation начинается с1 для пары source_profile/role/kind и
+увеличивается лишь после закрытого incident при новом основании; incident_id
+новый в каждом таком поколении. У открытого incident новое основание
+увеличивает basis_revision с1, сохраняя историю прежней revision и исходные
+detected/deadline; для новой revision текущие подтверждения notified/closure
+не наследуются. Смена binding_version также не переносит notified прежнего
+key на текущий; basis и конкретное решение владельца сама по себе не меняет.
+Новый message key не покрыт прежним accepted; новое основание не покрыто
+прежним решением риска. Прежние identity не отправляются по A4.
+После закрытия неизменное основание ничего не создаёт; новое свидетельство
+по A2 создаёт следующее incident_generation с basis_revision=1. Journal sequence
+версирует каждую запись, но не является версией основания или решения.
+Конкретный accepted_risk
+требует явного решения владельца в этом чате; manifest связывает
+source_profile/source_generation,
+incident_id/incident_generation/expected_basis_revision/basis_hash,
+message ref/time и digest
+точного решения. Root custodian переносит реальное решение через отдельный
+локальный защищённый create-once файл. Это доверенный перенос, не проверка
+подписи/автора чата. Произвольный actor/owner/DB role/почтовый ответ не дают
+полномочия; старое основание, replay/consumed ref, другой incident/source,
+hash/schema/permission mismatch отклоняются без изменения. Перенос/consumed
+ref и переход — одна durable запись до успешного ответа. Resolved требует
+актуальной evidence class/ref устранения; факт отправки письма недостаточен.
+Expected_basis_revision сравнивается с текущей basis_revision под lock;
+отдельной ожидаемой версии lifecycle/tick нет. Допустимость перехода также
+проверяется по текущему состоянию. Поэтому неизменное основание после новых
+samples/mail attempts не делает конкретный manifest устаревшим, а прирост
+относящегося к kind счётчика или новый gap anchor делает. Принятие одного
+риска не покрывает другое основание/поколение; replay не разрешает повторный
+переход даже при совпадающем basis.
+
+**A6 — исполнение и секреты.** Root-owned fixed launchers/SSH config/host keys,
+отдельные source/status ключи, forced command без shell/PTY/forwarding/stdin/
+client env и без выполнения SSH_ORIGINAL_COMMAND. Caller не выбирает SQL,
+image, module или путь и не получает Docker socket. Заранее закреплённый
+image ID/platform/source label+env; pull/build/Compose start при аварии нет.
+Контейнеры non-root/read-only/cap-drop/no-new-privileges с узкими mounts,
+лимитами CPU/memory/pids и ограниченным cleanup даже после SSH disconnect.
+Основной mail-only runner не получает DB/YooKassa/MinIO/meeting secrets;
+DB secret остаётся на цели. Root и выделенный UID журнала — доверенная
+эксплуатационная граница, не защита от compromised root/controller.
+Не читать/менять F273 channel/права/конфигурацию. Нет runtime financial gate.
+
+**A7 — приёмка и пределы.** До кода: отдельный reviewer-owned checklist,
+scoped analyze и прежняя #4932. Изолированно доказать stopped maintenance,
+DB outage до/во время probe, Temporal/producer outage, старый late commit,
+bootstrap без success, counters restore/rollback, stop каждого observer,
+SSH/Docker hang/disconnect/invalid image, bounded cleanup/privacy/no-write,
+concurrency/crash/fsync/disk-full/partial tail/limits/backup restore и owner
+relay negative/positive. Письма в этих проверках только synthetic transport.
+Отдельно доказать успешный bootstrap без failure/conflict; неизменные
+basis/message/owner manifest при success-only росте event_count и новых
+as_of; late failed/conflict increment меняет только свой kind; продолжающийся
+gap и новый gap после recovery различаются. Две eligible тревоги при постоянно
+unknown старой получают по попытке, включая restart и равные queue_seq/tie.
+Отдельно M1 unknown/failed → смена basis_revision, в другом сценарии смена
+binding_version → M2 accepted → restart: M1 больше не POST, M2 dedup,
+прежняя история и исходный next_allowed_at incident≥last reservation+300с
+сохранены. Поздний accepted M1 не делает M2 notified и не возвращает M1
+в очередь, в том числе до accepted M2.
+Отдельная разрешённая установка требует независимого Postal route с обоих
+узлов при DB/maintenance outage, pinned images/keys/FS custody, регулярных
+ticks и учебного письма с подтверждением владельца; production отказ для
+учения не создавать. Серверное accepted отдельно от mailbox/read. Общая потеря
+двух узлов/сети/почты — недоступность без гарантии тревоги, не accepted_risk.
+Без фактической приёмки полный O6 остаётся открыт; остальные семьи,58 gaps,
+T070/T077[ ],87 task lines и все исходные сроки сохраняются.
