@@ -1,5 +1,91 @@
-## T077/O16: решения плана после исследования — 03.11.2026
+## T077/O16 J5/J6: Phase0 решения независимого контроля — 03.11.2026
 
+- **Уточнение после независимого ревью R1/R2:** стабильный basis по каждому
+  kind задаёт A2, отдельно от source_sample. Failure/conflict используют только
+  свой накопленный счётчик; bootstrap success-only и новые времена чтения
+  не вызывают письма и не аннулируют owner manifest. Gap привязан к эпизоду,
+  а source/incident generations, basis_revision и journal sequence различены.
+  **Rationale:** одна и та же тревога сохраняет identity и границу конкретного
+  решения владельца. **Alternatives:** hash всего sample/общий event_count
+  для failure отвергнуты как источник ложных повторов.
+- **Уточнение R2:** один POST/tick выбирается по durable queue_seq; reservation
+  до POST переставляет выбранное сообщение за ожидающими. Retry≥300с действует
+  и при смене basis/binding. **Rationale:** failed/unknown старого письма не
+  лишает новые конечного доступа к отправке; crash/restart не сбрасывает
+  порядок. **Alternatives:** detected_at как старшинство и очередь только
+  в памяти отвергнуты. Это технические уточнения принятого порядка, не новые
+  ответы владельца или PASS повторного ревью; A7 требует предметных сценариев.
+- **Уточнение R3:** отправлять только текущие basis_revision/binding_version
+  открытого incident. Прежние identities/attempts/reservations/accepted
+  сохраняются вне очереди; поздний исход прежнего key не подтверждает notified
+  текущего. Next_allowed_at incident сохраняется при смене обеих версий.
+  **Rationale:** accepted нового письма не должен оставлять старый unknown/
+  failed key доступным для повторов. **Alternatives:** повтор всех старых
+  key и удаление истории отвергнуты; отдельная сущность superseded не нужна.
+- **Decision:** вариант A: основной systemd запуск на существующем
+  astraglobal, fixed SSH source probe2brain.dev, встречный witness на целевой
+  ОС. Разовые контейнеры существующего закреплённого application image;
+  никаких новых server/service/dependency/DB/public endpoints. **Rationale:**
+  остановка rec-maintenance/общей БД не уничтожает внешний journal/почтовую
+  reservation, а witness обнаруживает отсутствие внешнего durable tick.
+  **Alternatives:** внутренний loop не переживает общую остановку; HTTPS
+  heartbeat создаёт лишнюю публичную границу; готовый F273 mechanism не
+  установлен/не доказан и имеет другое назначение. Его права/канал не брать.
+- **Decision:** отдельная ограниченная read-only projection0109 и cumulative
+  counts, три отдельных свидетельства source-check/producer-event/observer-tick.
+  **Rationale:** старый aggregate не измеряет freshness; MAX(timestamp) cursor
+  пропускает поздний commit. Counts/generation/drop обнаруживают часть restore,
+  но не все: любой restore проходит recovery hold и сверку lineage. Первый
+  ненулевой historical failure не становится resolved baseline. SQL/права и
+  целые пределы фиксируются в плане/модели/A1, без новой таблицы или Temporal RPC.
+- **Decision:** один защищённый FS append-only journal на узел, hash-chain,
+  единая блокировка, fsync и replay; source incidents принадлежат primary,
+  observer_gap — witness. **Rationale:** POST reservation/next_allowed_at и
+  реакция должны сохраняться без основной PostgreSQL. Не выдавать несколько
+  atomic replace за одну транзакцию; partial tail/лимит/ошибка — hold, не reset.
+  Модель задаёт конечные пределы и backup/restore с сохранением всей истории.
+  **Alternatives:** tenant outbox/fake workspace, generic incident service,
+  новая БД/зависимость/почтовая служба и молчаливое удаление истории отвергнуты.
+- **Decision:** mail-only Postal dataclass без global Settings/customer retry,
+  один POST и отдельная internal policy failed/unknown≥300с, accepted dedup.
+  Приём до durable outcome остаётся unknown с возможным физическим дублем.
+  **Rationale:** существующий classifier переиспользуется без финансовых
+  изменений; Postal acceptance не mailbox/read. Endpoint/key/recipient только
+  в закрытой конфигурации. Independent route с обоих узлов пока не доказан:
+  это обязательная эксплуатационная приёмка, не предположение Phase0.
+- **Decision:** root-custodian перенос конкретного решения из этого чата,
+  create-once manifest со source/incident/version/basis/message ref/time/hash,
+  consumed ref и переход в одной durable записи. **Rationale:** владелец
+  выбрал решение здесь; DB role или имя actor не удостоверяют его. Hash
+  проверяет байты, не автора; доверенная эксплуатационная передача явно
+  ограничена custody root, без выдуманной подписи или новой системы ролей.
+- **Phase0 outcome:** технический вариант и границы выбраны для Phase1;
+  новых неразрешённых product clarifications нет. Неизвестные installed route,
+  custody/keys/pinned images и live delivery остаются named installation gates
+  A7, не подставленными значениями и не разрешением production. Источник
+  рекомендаций — независимый391-строчный source report с29 сверенными hashes;
+  это research, не checklist/analyze/code/converge PASS.
+
+## T077/O16: решения первого шага после исследования — 03.11.2026
+
+- Уточнение следующего шага J5/J6 после принятого PR7914: владелец выбрал
+  отдельное явное решение в этом чате для принятия конкретного риска.
+  В журнале сохраняются связь с данной тревогой, ссылка на основание и время;
+  письмо/молчание/строка owner/служебная DB role не заменяют его решение.
+  Это принятое требование, не приёмка механизма переноса или принятие риска.
+- Новое независимое исследование исходников: соседний цикл существующего
+  rec-maintenance может работать вне Temporal, но общая остановка процесса
+  или БД лишает его возможности сохранить heartbeat/попытку до POST.
+  API health/live и внешний HTTPS availability probe подтверждают доступность
+  API, не работу maintenance; CD running/restart check выполняется при выпуске.
+  Обнаружение прошлого gap после восстановления не доказывает своевременную
+  доставку. Постоянный независимый контроль этого случая и доверенная граница
+  переноса решения владельца разрешены дизайном J5/J6 выше; их установленная
+  работа требует отдельной приёмки A7.
+  F273/SupportIncident/customer outbox не назначаются автоматически;
+  новая служба или общая система ролей из исследования не следуют.
+  Это research/design, не checklist/analyze или допуск к коду.
+  Полный O6, сроки и исходная T077 остаются открытыми.
 - Decision: первый шаг — одна append-only таблица наблюдений actual Temporal
   attempts с уникальностью identity+event_kind и агрегатами; независимые2с
   транзакции вокруг существующей activity. Rationale: переживает restart,
@@ -582,7 +668,11 @@ monthly/annual или региональный selector, аудитория и s
   Крайние непредставимые границы дают честный unavailable, не исключение
   всего отчёта или произвольное ограничение коммерческой даты.
 
-Архитектурных research unknowns нет. Product-market hypotheses
+Вывод исходного исследования 06–07.08.2026 об отсутствии архитектурных
+неизвестных относится только к изученной тогда области. Для J5/J6 T077
+технический дизайн независимого контроля наблюдателя/общей БД и переноса
+решения владельца определён в Phase0/Phase1 J5/J6 выше; реализация,
+независимые ворота и установленная работа ещё не приняты. Product-market hypotheses
 о целевом сегменте/JTBD, WTP, base/add-on packaging, campaign economics и
 launch business thresholds остаются неразрешёнными blocking research
 questions. Ценностная иерархия уже зафиксирована как проверяемая гипотеза,
