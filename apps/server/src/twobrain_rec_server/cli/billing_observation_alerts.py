@@ -99,7 +99,6 @@ def restore():
 
 async def run(mode):
     deadline = time.monotonic() + 60
-    now = datetime.now(UTC)
     if mode == "status":
         with AlertJournal(JOURNAL, deadline=deadline, read_only=True) as journal:
             return journal.status()
@@ -108,9 +107,10 @@ async def run(mode):
         return {"schema_version": 1, "result_code": "recovery_hold"}
     config = configuration()
     if mode == "activate":
-        AlertJournal.activate(JOURNAL, **{k: config[k] for k in ("source_profile", "source_generation", "binding_version", "role")}, now=now)
+        AlertJournal.activate(JOURNAL, **{k: config[k] for k in ("source_profile", "source_generation", "binding_version", "role")}, now=datetime.now(UTC))
         return {"schema_version": 1, "result_code": "activated"}
     with AlertJournal(JOURNAL, deadline=deadline, clock=lambda: datetime.now(UTC), recovery=mode == "recover") as journal:
+        now = datetime.now(UTC)
         require(journal.activation["source_profile"] == config["source_profile"]
                 and journal.activation["role"] == config["role"])
         if mode == "transfer":

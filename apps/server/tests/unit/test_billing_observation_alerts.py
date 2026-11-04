@@ -952,3 +952,70 @@ def test_new_timely_closed_generation_does_not_erase_an_older_missed_deadline(tm
     with cls(path, read_only=True) as journal:
         assert [i["breached"] for i in journal.incidents.values()] == [True, False]
         assert [i["incident_generation"] for i in journal.incidents.values()] == [1, 2]
+
+
+@pytest.mark.parametrize("mode,rollback", [("tick", False), ("witness", False),
+    ("transfer", False), ("recover", False), ("tick", True), ("witness", True)])
+def test_cli_reads_operation_time_after_journal_replay(tmp_path, monkeypatch, mode, rollback):
+    from twobrain_rec_server.billing.observation_alerts import ObservationError, digest, stamp
+    from twobrain_rec_server.cli import billing_observation_alerts as cli
+
+    role = "witness" if mode == "witness" else "primary"
+    cls, path, profile, generation, binding = setup_journal(tmp_path, role=role)
+    clock = {"now": NOW + timedelta(seconds=1), "head": None}
+    next_generation = str(uuid4()) if mode == "recover" else generation
+    decision = None
+    if mode == "transfer":
+        with cls(path) as journal:
+            journal.detect("reconciliation_failure", {"count": 1}, NOW)
+            incident = journal.current("reconciliation_failure")
+            decision = {"source_profile": profile, "source_generation": generation,
+                "incident_id": incident["incident_id"], "incident_generation": 1,
+                "expected_basis_revision": 1, "basis_hash": incident["basis_hash"], "action": "investigating",
+                "evidence_class": "operational_review", "evidence_ref": "synthetic:review",
+                "message_ref": "synthetic:overlap:1", "message_at": stamp(NOW),
+                "decision_digest": digest("synthetic decision")}
+
+    class JoinedJournal(cls):
+        def __enter__(self):
+            # Another writer finishes after invocation, before this writer replays its history.
+            with cls(self.path) as previous:
+                previous.append("tick", {"completed_at": stamp(NOW + timedelta(seconds=2)),
+                    "source_check": "unavailable", "binding_version": binding})
+            result = super().__enter__()
+            clock.update(now=NOW + timedelta(seconds=1 if rollback else 3), head=self.head)
+            return result
+
+    class Clock:
+        @staticmethod
+        def now(_zone):
+            return clock["now"]
+
+    posts = []
+    monkeypatch.setattr(cli, "JOURNAL", path)
+    monkeypatch.setattr(cli, "AlertJournal", JoinedJournal)
+    monkeypatch.setattr(cli, "datetime", Clock)
+    monkeypatch.setattr(cli, "configuration", lambda: {"role": role, "source_profile": profile,
+        "source_generation": next_generation, "binding_version": binding,
+        "mail": {"api_url": "https://postal.invalid", "api_key": "synthetic-key",
+                 "from_address": "sender@example.invalid", "recipient": "synthetic@example.invalid",
+                 "host_header": None}})
+    monkeypatch.setattr(cli, "PostalEmailLoginClient", lambda *args, **kwargs: postal(posts))
+    monkeypatch.setattr(cli, "envelope", lambda name: sample(profile, generation, clock["now"])
+                        if name == "/input/source.json" else None)
+    monkeypatch.setattr(cli, "read_protected", lambda _path: decision if mode == "transfer" else {
+        "expected_head": clock["head"], "source_generation": next_generation,
+        "evidence_ref": "synthetic:verified"})
+    if rollback:
+        with pytest.raises(ObservationError):
+            asyncio.run(cli.run(mode))
+    else:
+        asyncio.run(cli.run(mode))
+    with cls(path, read_only=True) as journal:
+        assert journal.hold is rollback
+        if rollback:
+            assert journal.discontinuity["reason"] == "local_clock_rollback"
+        else:
+            assert journal.last_now == stamp(NOW + timedelta(seconds=3))
+            assert journal.discontinuity is None
+    assert posts == []

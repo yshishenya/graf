@@ -500,3 +500,78 @@ def test_actual_restore_refuses_invalid_backup_without_replacing_history(journal
         cli.restore()
     assert path.read_bytes() == before
     assert (target == path) or not target.exists()
+
+
+def test_cli_tick_waits_for_a_real_writer_without_false_clock_rollback(journal_state):
+    import selectors
+
+    path, profile, generation, binding = journal_state
+    script = """
+import asyncio,fcntl,json,sys
+from datetime import UTC,datetime,timedelta
+from pathlib import Path
+from twobrain_rec_server.billing.observation_alerts import AlertJournal
+from twobrain_rec_server.cli import billing_observation_alerts as cli
+start=datetime(2026,11,3,12,tzinfo=UTC)
+clock=[start+timedelta(seconds=1)]
+original=fcntl.flock
+signalled=False
+def flock(fd,operation):
+    global signalled
+    try:
+        return original(fd,operation)
+    except BlockingIOError:
+        if not signalled:
+            print('blocked',flush=True)
+            signalled=True
+        raise
+fcntl.flock=flock
+class JoinedJournal(AlertJournal):
+    def __enter__(self):
+        result=super().__enter__()
+        clock[0]=start+timedelta(seconds=3)
+        return result
+class Clock:
+    @staticmethod
+    def now(zone):
+        return clock[0]
+class Mail:
+    def __init__(self,*args,**kwargs):
+        pass
+    async def _post_message(self,message):
+        raise AssertionError('unexpected mail')
+cli.JOURNAL=Path(sys.argv[1])
+cli.AlertJournal=JoinedJournal
+cli.datetime=Clock
+cli.PostalEmailLoginClient=Mail
+cli.configuration=lambda:{'role':'primary','source_profile':sys.argv[2],
+    'source_generation':sys.argv[3],'binding_version':sys.argv[4],
+    'mail':{'api_url':'https://postal.invalid','api_key':'synthetic-key',
+        'from_address':'sender@example.invalid','recipient':'synthetic@example.invalid','host_header':None}}
+cli.envelope=lambda name:{'schema_version':1,'source_profile':sys.argv[2],
+    'source_generation':sys.argv[3],'coverage':'partial','as_of':clock[0].isoformat(),
+    'event_count':2,'failed_event_count':0,'conflicting_attempt_count':0,
+    'last_event_at':clock[0].isoformat()} if name=='/input/source.json' else None
+print(json.dumps(asyncio.run(cli.run('tick'))))
+"""
+    process = None
+    try:
+        with AlertJournal(path) as previous:
+            process = subprocess.Popen([sys.executable, "-c", script, str(path), profile, generation, binding],
+                                       stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            with selectors.DefaultSelector() as selector:
+                selector.register(process.stdout, selectors.EVENT_READ)
+                assert selector.select(timeout=5), "child did not reach the held lock"
+                assert process.stdout.readline().strip() == "blocked"
+            previous.append("tick", {"completed_at": (NOW + timedelta(seconds=2)).isoformat(),
+                                    "source_check": "unavailable", "binding_version": binding})
+        output, error = process.communicate(timeout=10)
+        assert process.returncode == 0 and error == ""
+        assert json.loads(output)["completed_at"] == (NOW + timedelta(seconds=3)).isoformat()
+        with AlertJournal(path, read_only=True) as journal:
+            assert not journal.hold and journal.discontinuity is None and not journal.incidents
+            assert journal.status()["completed_at"] == (NOW + timedelta(seconds=3)).isoformat()
+    finally:
+        if process is not None and process.poll() is None:
+            process.kill()
+            process.communicate(timeout=5)
