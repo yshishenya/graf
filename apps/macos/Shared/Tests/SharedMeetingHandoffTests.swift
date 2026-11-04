@@ -41,12 +41,35 @@ final class SharedMeetingHandoffTests: XCTestCase {
     @MainActor
     func testColdAndWarmIntentIsConsumedOnceAndLatestWins() throws {
         let inbox = SharedMeetingHandoffInbox()
+        var state = DesktopCabinetState.ready
         let configuration = DesktopCabinetConfiguration(baseURL: try XCTUnwrap(URL(string: "https://graf.example.test")))
         XCTAssertTrue(inbox.receive(try XCTUnwrap(URL(string: link)), expectedScheme: "grafrec-dev"))
         XCTAssertTrue(inbox.receive(try XCTUnwrap(URL(string: link.replacingOccurrences(of: "14000", with: "24000"))), expectedScheme: "grafrec-dev"))
-        XCTAssertEqual(inbox.take(configuration: configuration)?.fragment, "recording?position_ms=24000")
-        XCTAssertNil(inbox.take(configuration: configuration))
+        XCTAssertEqual(inbox.take(configuration: configuration, state: &state)?.fragment, "recording?position_ms=24000")
+        XCTAssertNil(inbox.take(configuration: configuration, state: &state))
         XCTAssertTrue(inbox.receive(try XCTUnwrap(URL(string: link)), expectedScheme: "grafrec-dev"))
-        XCTAssertNotNil(inbox.take(configuration: configuration))
+        XCTAssertNotNil(inbox.take(configuration: configuration, state: &state))
+    }
+
+    @MainActor
+    func testNewIntentLoadsFromRecoveryWithoutChangingAnEmptyInboxState() throws {
+        let configuration = DesktopCabinetConfiguration(baseURL: try XCTUnwrap(URL(string: "https://graf.example.test")))
+        for original in DesktopCabinetState.allCases {
+            let inbox = SharedMeetingHandoffInbox()
+            var state = original
+            XCTAssertNil(inbox.take(configuration: configuration, state: &state))
+            XCTAssertEqual(state, original)
+            XCTAssertFalse(inbox.receive(try XCTUnwrap(URL(string: link + "&tab=outcomes")), expectedScheme: "grafrec-dev"))
+            XCTAssertNil(inbox.take(configuration: configuration, state: &state))
+            XCTAssertEqual(state, original)
+            XCTAssertTrue(inbox.receive(try XCTUnwrap(URL(string: link)), expectedScheme: "grafrec-dev"))
+            let route = try XCTUnwrap(inbox.take(configuration: configuration, state: &state))
+            XCTAssertEqual(state, .loading)
+            XCTAssertEqual(route.fragment, "recording?position_ms=14000")
+            XCTAssertTrue(DesktopCabinetWorkspace.shouldShowEmbeddedSurface(for: state, currentRoute: route, initialRoute: nil, configuration: configuration))
+            state = .notFound
+            XCTAssertNil(inbox.take(configuration: configuration, state: &state))
+            XCTAssertEqual(state, .notFound, "An already consumed intent must not override the server refusal")
+        }
     }
 }

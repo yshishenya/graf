@@ -715,7 +715,7 @@ private struct ContentView: View {
     /// поэтому метки не могут потеряться на одном из входов.
     private func openPendingSharedMeeting() {
         guard let configuration = desktopCabinetConfiguration,
-              let route = SharedMeetingHandoffInbox.shared.take(configuration: configuration) else { return }
+              let route = SharedMeetingHandoffInbox.shared.take(configuration: configuration, state: &desktopCabinetState) else { return }
         selectedCabinetRoute = route
     }
 

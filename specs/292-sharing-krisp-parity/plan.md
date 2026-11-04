@@ -60,3 +60,8 @@ quickstart.md содержит точные группы pytest/node/Swift и ж
 ## Приёмочный R6 / T023
 
 Согласовать fingerprint почтовой identity в существующем `auth/workspace_onboarding.py` с `auth_email_flow.py` и `provider_links.py`. Применить нормализацию только для email при проверке исходной identity и выпуске replacement fingerprint; OAuth subject, проверки membership/срока/device, блокировка/замена и RLS неизменны. Email требует verified identity; OAuth не получает нового требования verified. Новый тест в существующей workspace onboarding группе до исправления (hashed subject/email туда и обратно, wrong fingerprint/inactive identity/unverified email/inactive membership, OAuth roundtrip), затем PostgreSQL focused, canonical auth regressions и отдельный Dev grant/role/revoke. Никаких новых зависимостей/API/миграций. Полный high-risk-product lane сохраняется.
+
+
+### R7/R8: уточнение приёмки клавиатуры и recovery
+
+T024 ограничена loadAccess: проверить текущий focus внутри accessList непосредственно после получения ответа и до replaceChildren; вернуть title только при удалении активной строки. T025 ограничена существующим inbox consume и его app caller: успешный consume атомарно устанавливает loading, который уже показывает EmbeddedCabinetWebView; последующие server auth/route/error остаются прежними. Предметные browser/Swift RED до кода, независимое requirements/source review, установленная проверка; новые API/права/хранилища не нужны.

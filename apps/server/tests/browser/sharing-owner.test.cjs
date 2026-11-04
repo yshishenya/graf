@@ -10,7 +10,7 @@ const assets = path.join(__dirname, '../../src/twobrain_rec_server/cabinet/stati
       const page = await browser.newPage({viewport:{width,height:680}});
       page.setDefaultTimeout(5000);
       const mutations=[], errors=[];
-      let version=1, audience='invite_only', scope='summary_only', grants=[], workspaceEnabled=false, linkEnabled=true;
+      let version=1, audience='invite_only', scope='summary_only', grants=[], workspaceEnabled=false, linkEnabled=true, holdAccess=null;
       let releaseGeneral;const generalGate=new Promise(resolve=>{releaseGeneral=resolve;});
       const fingerprint=()=>version.toString(16).padStart(64,'0');
       const link=()=>audience==='link'?{state:'active',grant_id:'synthetic-link',version,content_scope:scope,share_url:'https://graf.test/synthetic-reader',expires_at:'2026-12-01T00:00:00Z'}:{state:width===320?'expired':'replacement_required',grant_id:'old-link',version,content_scope:'summary_only'};
@@ -30,7 +30,7 @@ const assets = path.join(__dirname, '../../src/twobrain_rec_server/cabinet/stati
           }
           return route.fulfill({json:general()});
         }
-        if(url.pathname===base+'/access')return route.fulfill({json:{share:{active_grants:grants,active_invitations:[],can_manage_roles:true}}});
+        if(url.pathname===base+'/access'){if(holdAccess)await holdAccess;return route.fulfill({json:{share:{active_grants:grants,active_invitations:[],can_manage_roles:true}}});}
         if(url.pathname.endsWith('/auto-send'))return route.fulfill({json:{state:'off',rules:{},roster:[]}});
         if(url.pathname.endsWith('/recipients'))return route.fulfill({json:{recipients:[{user_id:'synthetic-person',email:'person@example.test',display_label:'Учебный получатель'}]}});
         if(url.pathname===base+'/shares'&&request.method()==='POST'){
@@ -89,11 +89,27 @@ const assets = path.join(__dirname, '../../src/twobrain_rec_server/cabinet/stati
       await page.getByRole('combobox',{name:'Права Учебный получатель',exact:true}).waitFor();
       const invitation=mutations.find(x=>x.path.endsWith('/shares'));
       assert.equal(invitation.body.can_comment,true);assert.equal(invitation.body.can_edit,false);assert.equal(invitation.body.can_download,false);
+      await page.getByRole('combobox',{name:'Права Учебный получатель',exact:true}).focus();
       await page.getByRole('combobox',{name:'Права Учебный получатель',exact:true}).selectOption('summary');
       await page.getByText('Права изменены',{exact:true}).waitFor();
       assert.equal(grants[0].content_scope,'summary_only');assert.equal(grants[0].can_comment,false);
-      await page.getByRole('button',{name:'Отозвать',exact:true}).click();
+      assert.equal(await page.locator('[data-summary-share-title]').evaluate(el=>el===document.activeElement),true,'Replacing a focused role must preserve dialog keyboard focus');
+      await page.keyboard.press('Escape');assert.equal(await panel.isVisible(),false);
+      await panel.evaluate(el=>el.show());
+      let releaseAccess;holdAccess=new Promise(resolve=>{releaseAccess=resolve;});
+      const accessRequested=page.waitForRequest(request=>new URL(request.url()).pathname==='/api/v1/cabinet/meetings/synthetic-meeting/access');
+      await page.getByRole('combobox',{name:'Права Учебный получатель',exact:true}).focus();
+      await page.getByRole('combobox',{name:'Права Учебный получатель',exact:true}).selectOption('viewer');
+      await accessRequested;
+      await page.locator('[data-sharing-person]').focus();releaseAccess();holdAccess=null;
+      await page.getByText('Права изменены',{exact:true}).waitFor();
+      assert.equal(await page.locator('[data-sharing-person]').evaluate(el=>el===document.activeElement),true,'A delayed access response must not steal focus moved outside the list');
+      await page.getByRole('button',{name:'Отозвать',exact:true}).focus();
+      await page.getByRole('button',{name:'Отозвать',exact:true}).press('Enter');
       await page.getByText('Доступ отозван',{exact:true}).waitFor();assert.equal(grants.length,0);
+      assert.equal(await page.locator('[data-summary-share-title]').evaluate(el=>el===document.activeElement),true,'Revoking the focused row must preserve dialog keyboard focus');
+      await page.keyboard.press('Escape');assert.equal(await panel.isVisible(),false);
+      await panel.evaluate(el=>el.show());
       linkEnabled=false;
       await page.getByRole('combobox',{name:'Общий доступ',exact:true}).selectOption('workspace');
       await page.getByText('Общий доступ сохранён',{exact:true}).waitFor();

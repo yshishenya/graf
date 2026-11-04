@@ -282,7 +282,8 @@
     }));
     const accessList=find('[data-sharing-access-list]');
     async function loadAccess(){
-      const data=await meetingAPI('/access');accessList.replaceChildren();
+      const data=await meetingAPI('/access');
+      const restoreFocus=accessList.contains(document.activeElement);accessList.replaceChildren();
       for(const grant of data.share.active_grants||[]){
         const row=node('div',null,'share-viewer-row'), identity=node('span');identity.append(node('strong',grant.display_name),node('small',grant.content_scope==='full_meeting'?'Вся встреча':'Только итоги','muted'));row.append(identity);
         const role=node('select');role.setAttribute('aria-label',`Права ${grant.display_name}`);
@@ -295,6 +296,7 @@
         const row=node('div',null,'share-viewer-row');row.append(node('span',invitation.display_label),node('small',invitation.status==='outcome_unknown'?'Отправка не подтверждена':'Приглашение отправлено','muted'));
         const revoke=node('button','Отменить');revoke.type='button';revoke.addEventListener('click',()=>action(async()=>{await meetingAPI(`/share-invitations/${invitation.invitation_id}`,{method:'DELETE'});await loadAccess();setStatus('Приглашение отменено');}));row.append(revoke);accessList.append(row);
       }
+      if(restoreFocus)title.focus({preventScroll:true});
     }
     const person=find('[data-sharing-person]'), people=find('[data-sharing-people]');let chosen=null,peopleRevision=0,peopleTimer;
     person.addEventListener('input',()=>{chosen=null;clearTimeout(peopleTimer);const revision=++peopleRevision;peopleTimer=setTimeout(async()=>{

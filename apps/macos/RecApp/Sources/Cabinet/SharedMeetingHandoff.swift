@@ -85,10 +85,11 @@ public final class SharedMeetingHandoffInbox {
         pending = intent
         return true
     }
-    public func take(configuration: DesktopCabinetConfiguration) -> URL? {
-        guard let pending else { return nil }
+    public func take(configuration: DesktopCabinetConfiguration, state: inout DesktopCabinetState) -> URL? {
+        guard let pending, let route = pending.route(configuration: configuration) else { return nil }
         self.pending = nil
-        return pending.route(configuration: configuration)
+        state = .loading
+        return route
     }
 }
 
