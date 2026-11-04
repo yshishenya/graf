@@ -487,29 +487,56 @@ void WebView2Host::invalidateUserTime() noexcept {
     ++userTimeRevision_;
 }
 
+bool WebView2Host::sameNetworkAccount(const UserTimeRead& a, const UserTimeRead& b) noexcept {
+    return a.origin == b.origin && a.user == b.user && a.workspace == b.workspace &&
+        a.token == b.token && a.authGeneration == b.authGeneration;
+}
+
 void WebView2Host::bindUserTimeAccount(std::string origin, std::string user, std::string workspace,
     std::string sessionToken, std::uint64_t authGeneration) {
-    if (origin != policy_.trustedOrigin() || !DesktopApiClient::accountId(user) ||
-        !DesktopApiClient::accountId(workspace) || sessionToken.empty()) {
-        origin.clear(); user.clear(); workspace.clear(); sessionToken.clear();
+    const bool unknown = origin.empty() && user.empty() && workspace.empty() && sessionToken.empty();
+    const bool confirmed = origin == policy_.trustedOrigin() && DesktopApiClient::accountId(user) &&
+        DesktopApiClient::accountId(workspace) && !sessionToken.empty();
+    if (!confirmed) { origin.clear(); user.clear(); workspace.clear(); sessionToken.clear(); }
+    UserTimeRead next{std::move(origin), std::move(user), std::move(workspace), std::move(sessionToken),
+                      {}, {}, authGeneration, 0, 0};
+    const bool sameConfirmed = confirmed && !historyNetworkAccount_.token.empty() &&
+        sameNetworkAccount(historyNetworkAccount_, next);
+    const bool temporaryUnknown = unknown && !historyNetworkAccount_.token.empty() &&
+        historyNetworkAccount_.authGeneration == authGeneration;
+    const bool interruptedHistory = (historyBusy() || accountNavigation_) &&
+        runtimeState_ == WebRuntimeState::initializing;
+    if (!sameConfirmed && !temporaryUnknown) clearAccountNavigation();
+    if (temporaryUnknown && !accountNavigation_ && ordinaryNavigation_ && navigationId_ != 0 &&
+        runtimeState_ == WebRuntimeState::initializing &&
+        (navigationMethod_.empty() || navigationMethod_ == "GET") &&
+        (historyStage_ == HistoryStage::navigating || historyStage_ == HistoryStage::accepting)) {
+        accountNavigation_ = AccountNavigation{navigationId_, documentGeneration_, navigationStartedAt_, navigationUrl_};
     }
-    const bool changed = userTimeAccount_.origin != origin || userTimeAccount_.user != user ||
-        userTimeAccount_.workspace != workspace || userTimeAccount_.token != sessionToken ||
-        userTimeAccount_.authGeneration != authGeneration;
-    if (changed) {
-        const bool interruptedHistory = historyBusy() && runtimeState_ == WebRuntimeState::initializing;
+    const bool waiting = accountNavigation_ && navigationId_ != 0 &&
+        historyStage_ != HistoryStage::resetting && (temporaryUnknown || sameConfirmed) &&
+        checkAccountNavigation(monotonicMilliseconds());
+    const bool changed = !sameNetworkAccount(userTimeAccount_, next);
+    if (changed || (!confirmed && !unknown)) {
+        // Revoke ALL old proofs/callback tags even when the actual document GET may wait.
         clearHistorySession();
-        // History proofs stay revoked until a future actual GET is accepted in this session.
         const bool retainLocal = localDocumentIdentity_ && localContentDocumentCurrent() &&
-            localAccount_.authGeneration == authGeneration && user.empty() && workspace.empty();
+            localAccount_.authGeneration == authGeneration && next.user.empty() && next.workspace.empty();
         invalidateUserTime();
         localDocumentIdentity_ = retainLocal;
-        userTimeAccount_ = {std::move(origin), std::move(user), std::move(workspace), std::move(sessionToken),
-                            {}, {}, authGeneration, 0, 0};
-        if (interruptedHistory) fail("history-session-changed", 0);
+        userTimeAccount_ = std::move(next);
+        if (interruptedHistory && !waiting) fail("history-session-changed", 0);
+    }
+    if (confirmed && runtimeState_ != WebRuntimeState::closed && !(interruptedHistory && !waiting)) {
+        // Compare against A above BEFORE replacing it. No document fields/proofs are cached.
+        historyNetworkAccount_ = {userTimeAccount_.origin, userTimeAccount_.user, userTimeAccount_.workspace,
+                                 userTimeAccount_.token, {}, {}, userTimeAccount_.authGeneration, 0, 0};
     }
     refreshUserTime();
     if (changed && protectedLocalMode_ && nativePublishLocalRecordings_) nativePublishLocalRecordings_();
+    // Reuse the original response/completion latch; no Navigate/reload or extra HTTP.
+    const auto finish = nativeFinishDocument_;
+    if (waiting && sameConfirmed && finish) finish();
 }
 
 bool WebView2Host::userTimeDocumentCurrent() const {
@@ -643,9 +670,11 @@ bool WebView2Host::reconcileAuthSessionForDocument(std::uint64_t generation, std
     std::string url, std::string token, bool reconciled) {
     const auto alive = alive_;
     if (!authSessionDocumentCurrent(generation, nonce, url)) return false;
-    if (reconciled && historyCookieObserved_ && historyCookieToken_ != token) {
+    if (reconciled && ((historyCookieObserved_ && historyCookieToken_ != token) ||
+        (!historyNetworkAccount_.token.empty() && historyNetworkAccount_.token != token))) {
         // Cookie changes are an actual session boundary even if the account
         // owner has not yet finished its asynchronous account confirmation.
+        clearAccountNavigation();
         clearHistorySession();
     }
     if (reconciled) { historyCookieToken_ = token; historyCookieObserved_ = true; }
@@ -661,6 +690,8 @@ bool WebView2Host::reconcileAuthSessionForDocument(std::uint64_t generation, std
 }
 
 void WebView2Host::setRuntimeState(WebRuntimeState state) noexcept {
+    if (state == WebRuntimeState::authRequired || state == WebRuntimeState::closed ||
+        state == WebRuntimeState::unavailable) clearAccountNavigation();
     if (state == WebRuntimeState::authRequired || state == WebRuntimeState::closed)
         clearHistorySession();
     if (state != WebRuntimeState::ready) {
@@ -686,6 +717,7 @@ void WebView2Host::setRuntimeState(WebRuntimeState state) noexcept {
         nativeReadUserTime_ = {};
         revokeCalendarDocument();
         runtimeState_ = WebRuntimeState::unavailable;
+        clearAccountNavigation();
         documentNonce_.clear();
         nativeReplyCalendarJoin_ = {};
         bridge_.invalidate();
@@ -693,6 +725,7 @@ void WebView2Host::setRuntimeState(WebRuntimeState state) noexcept {
 }
 
 void WebView2Host::fail(std::string_view stage, std::int32_t code) noexcept {
+    clearAccountNavigation();
     history_.clear();
     historyNeedsReset_ = true;
     historySingleForward_.clear();
@@ -783,6 +816,16 @@ RouteEvaluation WebView2Host::beginDocumentNavigation(std::string_view url, std:
         return route;
     }
     if (route.kind == RouteKind::nativeSettings || route.kind == RouteKind::artifactDownload) return route;
+    const bool ordinary = !redirected && nativeReadHistory_ && historyStage_ == HistoryStage::idle &&
+        !historyTarget_ && !historyTraversal_ && authContinuation_ == AuthContinuation::none &&
+        !payment_.started() && !startsPayment && route.kind != RouteKind::billing &&
+        policy_.allowsNativeBridge(url) && (method.empty() || method == "GET");
+    if (accountNavigation_) {
+        accountNavigation_.reset(); // A replacement must never reuse the old pending intent.
+        if (redirected) { fail("history-session-changed", 0); return {}; }
+    }
+    ordinaryNavigation_ = ordinary;
+    navigationStartedAt_ = now;
     if (nativeReadHistory_) {
         if (historyStage_ == HistoryStage::idle) {
             ++historyOperation_;
@@ -823,6 +866,10 @@ RouteEvaluation WebView2Host::beginDocumentNavigation(std::string_view url, std:
     cancelDialog();
     ++documentGeneration_;
     navigationId_ = id;
+    if (ordinaryNavigation_ && userTimeAccount_.token.empty() && !historyNetworkAccount_.token.empty() &&
+        userTimeAccount_.authGeneration == historyNetworkAccount_.authGeneration) {
+        accountNavigation_ = AccountNavigation{id, documentGeneration_, now, navigationUrl_};
+    }
     failureDetail_.clear();
     setRuntimeState(WebRuntimeState::initializing);
     return route;
@@ -834,6 +881,10 @@ bool WebView2Host::observeDocumentResponse(std::string_view url, std::uint64_t g
     if (navigationId_ == 0 || generation != documentGeneration_ ||
         withoutFragment(url) != withoutFragment(navigationUrl_) || !policy_.sharesOrigin(url)) return false;
     navigationMethod_ = std::string(method);
+    if (accountNavigation_ && method != "GET") {
+        fail("history-account-method", 0);
+        return false;
+    }
     documentResponse_ = response;
     if (const auto safe = policy_.safeRecoveryUrl(navigationUrl_, method); !safe.empty()) safeRecoveryUrl_ = safe;
     return true;
@@ -868,7 +919,10 @@ bool WebView2Host::observeDocumentCompletion(std::string_view url, std::uint64_t
 }
 
 WebResponseDecision WebView2Host::tryFinishDocumentNavigation(std::uint64_t now) {
+    if (!checkAccountNavigation(now)) return WebResponseDecision::unavailable;
     if (navigationId_ == 0 || !documentCompletion_) return WebResponseDecision::ignore;
+    if (accountNavigation_ && (!sameNetworkAccount(historyNetworkAccount_, userTimeAccount_) ||
+        !documentResponse_ || navigationMethod_ != "GET")) return WebResponseDecision::ignore;
     const auto completion = *documentCompletion_;
     const bool httpDocument = completion.succeeded ||
         (completion.httpErrorDocument && completion.status >= 400 && completion.status <= 599);
@@ -1008,12 +1062,16 @@ WebResponseDecision WebView2Host::completeDocumentNavigation(std::string_view ur
     const WebDocumentResponse& response, std::uint64_t now) {
     using D = WebResponseDecision;
     if (runtimeState_ == WebRuntimeState::closed || id == 0 || id != navigationId_) return D::ignore;
+    if (!checkAccountNavigation(now)) return D::unavailable;
+    if (accountNavigation_ && (!sameNetworkAccount(historyNetworkAccount_, userTimeAccount_) ||
+        !documentResponse_ || navigationMethod_ != "GET")) return D::ignore;
     if (url.substr(0, url.find('#')) != std::string_view(navigationUrl_).substr(0, navigationUrl_.find('#'))) {
         fail("document-changed", 0);
         return D::blocked;
     }
     navigationId_ = 0;
     const auto result = policy_.response(url, response, activeAuthContinuation(), payment_.live(now)).decision;
+    if (result != D::cabinet) clearAccountNavigation();
     payment_.loaded(policy_, url, now);
     currentUrl_ = std::string(url);
     recoveryReason_ = result;
@@ -1062,6 +1120,7 @@ void WebView2Host::cancelDialog() noexcept {
 }
 
 void WebView2Host::close() noexcept {
+    clearAccountNavigation();
     revokeCalendarDocument();
     if (alive_) alive_->store(false);
     ++documentGeneration_;
@@ -1198,6 +1257,24 @@ void WebView2Host::cancelHistoryIntent() noexcept {
     historyTraversal_ = historyCommandAcknowledged_ = historyTerminalValidated_ = false;
 }
 
+void WebView2Host::clearAccountNavigation() noexcept {
+    accountNavigation_.reset();
+    historyNetworkAccount_ = {};
+    ordinaryNavigation_ = false;
+}
+
+bool WebView2Host::checkAccountNavigation(std::uint64_t now) {
+    if (!accountNavigation_) return true;
+    const auto& pending = *accountNavigation_;
+    if (pending.generation != documentGeneration_ || pending.url != navigationUrl_ ||
+        (pending.id != navigationId_ && !(navigationId_ == 0 && committedDocumentUrl_ == pending.url)) ||
+        now < pending.startedAt || now - pending.startedAt >= kResponseWaitMs) {
+        fail("history-timeout", 0);
+        return false;
+    }
+    return true;
+}
+
 void WebView2Host::clearHistorySession() noexcept {
     ++historySession_;
     history_.clear();
@@ -1272,13 +1349,14 @@ bool WebView2Host::admitHistoryNavigation(std::string_view url, std::uint64_t id
 
 void WebView2Host::prepareHistoryAcceptance(std::string source) {
     if (historyStage_ != HistoryStage::navigating || !nativeReadHistory_) return;
-    if (!historyTarget_) historyStartedAt_ = monotonicMilliseconds();
+    if (!historyTarget_ && !accountNavigation_) historyStartedAt_ = monotonicMilliseconds();
     historyStage_ = HistoryStage::accepting;
     const auto operation = historyOperation_, session = historySession_, generation = documentGeneration_;
     const auto navigation = navigationId_, revision = history_.revision();
     nativeReadHistory_(source, [this, operation, session, generation, navigation, revision, source](auto snapshot) {
         if (operation != historyOperation_ || session != historySession_ || generation != documentGeneration_ ||
             historyStage_ != HistoryStage::accepting || navigation != navigationId_) return;
+        if (!checkAccountNavigation(monotonicMilliseconds())) return;
         if (!snapshot || currentUrl_ != source || history_.revision() != revision) {
             fail("history-snapshot", 0); return;
         }
@@ -1301,6 +1379,7 @@ void WebView2Host::prepareHistoryAcceptance(std::string source) {
 }
 
 void WebView2Host::finishHistoryAcceptance() {
+    if (!checkAccountNavigation(monotonicMilliseconds())) return;
     const auto current = history_.current();
     if (!current || !historyTerminalValidated_ || history_.revision() != historyTerminalRevision_) {
         fail("history-terminal", 0); return;
@@ -1321,11 +1400,13 @@ void WebView2Host::finishHistoryAcceptance() {
     nativeResetHistory_([this, operation, session, generation, expected = *current](bool acknowledged) {
         if (operation != historyOperation_ || session != historySession_ || generation != documentGeneration_ ||
             historyStage_ != HistoryStage::resetting) return;
+        if (!checkAccountNavigation(monotonicMilliseconds())) return;
         if (!acknowledged || currentUrl_ != expected.url || navigationId_ != 0) { fail("history-reset", 0); return; }
         const auto revision = history_.revision();
         nativeReadHistory_(expected.url, [this, operation, session, generation, expected, revision](auto snapshot) {
             if (operation != historyOperation_ || session != historySession_ || generation != documentGeneration_ ||
                 historyStage_ != HistoryStage::resetting) return;
+            if (!checkAccountNavigation(monotonicMilliseconds())) return;
             if (!snapshot || navigationId_ != 0 || currentUrl_ != expected.url || snapshot->entries.size() != 1 ||
                 snapshot->currentIndex != 0 || snapshot->entries[0].id != expected.id || snapshot->entries[0].url != expected.url ||
                 !history_.acceptSnapshot(revision, std::move(snapshot->entries), 0, expected.url) ||
@@ -2311,8 +2392,9 @@ void WebView2Host::attach(winrt::Microsoft::UI::Xaml::Controls::WebView2 control
             historyTimer.IsRepeating(true);
             historyTimer.Tick([this, alive](auto const& timer, auto const&) {
                 if (!alive->load()) { timer.Stop(); return; }
-                if (!historyBusy() || (historyStage_ == HistoryStage::navigating && !historyTarget_)) return;
                 const auto now = monotonicMilliseconds();
+                if (!checkAccountNavigation(now)) return;
+                if (!historyBusy() || (historyStage_ == HistoryStage::navigating && !historyTarget_)) return;
                 if (now < historyStartedAt_ || now - historyStartedAt_ >= kResponseWaitMs)
                     fail("history-timeout", 0);
             });
@@ -2742,6 +2824,7 @@ void WebView2Host::attach(winrt::Microsoft::UI::Xaml::Controls::WebView2 control
             // readback may reach this continuation. Reset never fabricates finish.
             nativeActivateDocument_ = [this, alive, dispatcher, core] {
                 if (!alive->load() || navigationId_ != 0 || historyBusy() || committedDocumentUrl_.empty()) return;
+                if (!checkAccountNavigation(monotonicMilliseconds())) return;
                 try {
                     const auto source = utf8(core.Source());
                     if (source != currentUrl_ || source != committedDocumentUrl_) {
@@ -2757,6 +2840,9 @@ void WebView2Host::attach(winrt::Microsoft::UI::Xaml::Controls::WebView2 control
                         fail("response-metadata", E_ACCESSDENIED);
                         return;
                     }
+                    // Full history admission is complete; this wait grants no later cookie authority.
+                    accountNavigation_.reset();
+                    ordinaryNavigation_ = false;
                     const auto generation = documentGeneration_;
                     std::string nonce;
                     if (!publicDocument) {
@@ -3038,6 +3124,19 @@ void WebView2Host::attach(winrt::Microsoft::UI::Xaml::Controls::WebView2 control
                 if (!alive->load() || navigationId_ == 0 || !documentCompletion_) return;
                 try {
                     const auto now = monotonicMilliseconds();
+                    if (!checkAccountNavigation(now)) return;
+                    if (accountNavigation_) {
+                        // A is comparison-only while unknown. Real GET headers and completion
+                        // must arrive before creating NEW history tags/readback for this document.
+                        if (!sameNetworkAccount(historyNetworkAccount_, userTimeAccount_) ||
+                            !documentResponse_ || navigationMethod_ != "GET") return;
+                        if (historyStage_ == HistoryStage::idle) {
+                            ++historyOperation_;
+                            historyStage_ = HistoryStage::navigating;
+                            historyNavigation_ = navigationId_;
+                            historyStartedAt_ = accountNavigation_->startedAt;
+                        }
+                    }
                     const auto source = utf8(core.Source());
                     const auto& completion = *documentCompletion_;
                     if (source.substr(0, source.find('#')) != completion.url.substr(0, completion.url.find('#'))) {

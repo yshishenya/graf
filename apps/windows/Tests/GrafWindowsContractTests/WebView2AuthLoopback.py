@@ -11,7 +11,9 @@ import urllib.parse
 root = pathlib.Path(sys.argv[1])
 scenario = sys.argv[2]
 port = int(sys.argv[3])
-if scenario not in {"shared-reader-session", "history-get-repeated-url", "history-host-ordinary-back", "initial200", "login400", "email503", "cabinet401", "cabinet503",
+revalidation_scenarios = {"history-revalidation-terminal", "history-revalidation-preheaders", "history-revalidation-before-start"}
+revalidation_negative_scenarios = {'history-revalidation-no-anchor', 'history-revalidation-workspace-boundary', 'history-revalidation-token-boundary', 'history-revalidation-epoch-boundary', 'history-revalidation-post', 'history-revalidation-timeout-unknown', 'history-revalidation-timeout-reconfirmed', 'history-revalidation-close'}
+if scenario not in revalidation_scenarios | revalidation_negative_scenarios | {"shared-reader-session", "history-get-repeated-url", "history-host-ordinary-back", "initial200", "login400", "email503", "cabinet401", "cabinet503",
                     "login429", "email429", "email-json503", "reselect", "billing401",
                     "meeting401", "transport-reset", "tls-failure", "login-post400",
                     "history-get", "history-post", "history-entry", "history-entry-same-url", "cancel-before-start", "history-host-same-url",
@@ -53,11 +55,25 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 counts[5] += 1
         return True
 
+    def hold_negative_response(self):
+        (root / "response-held").write_text("NEGATIVE_SETTINGS_BEFORE_HEADERS", encoding="ascii")
+        deadline = time.monotonic() + 8  # Existing held-response budget, never a product deadline.
+        while not (root / "response-release").exists():
+            if (root / "stop.request").exists():
+                self.close_connection = True
+                return False
+            if time.monotonic() >= deadline:
+                (root / "response-timeout").write_text("HOLD_TIMEOUT", encoding="ascii")
+                self.close_connection = True
+                return False
+            time.sleep(0.01)
+        return True
+
     def page(self, status, kind, post_accepted=False):
         form = ""
-        if kind == "form" or kind == "history-a" or post_accepted:
-            post_target = history_paths[1] if scenario in history_posts else "/login"
-            submits = scenario == "login-post400" or scenario in history_posts
+        if kind == "form" or kind == "history-a" or post_accepted or (scenario == "history-revalidation-post" and kind == "revalidation-meetings"):
+            post_target = "/desktop/settings/account" if scenario == "history-revalidation-post" else history_paths[1] if scenario in history_posts else "/login"
+            submits = scenario == "login-post400" or scenario in history_posts or scenario == "history-revalidation-post"
             method = f" method='POST' action='{post_target}'" if submits else ""
             button_type = "submit" if submits else "button"
             input_value = " value='synthetic-value'" if post_accepted else ""
@@ -72,7 +88,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         identity = ("<meta name='graf-time-user' content='11111111-1111-4111-8111-111111111111'>"
                     "<meta name='graf-workspace' content='22222222-2222-4222-8222-222222222222'>"
                     "<meta name='graf-time-session' content='33333333-3333-4333-8333-333333333333'>"
-                    "<meta name='graf-time-preferred' content='UTC'>") if scenario == "initial200" else ""
+                    "<meta name='graf-time-preferred' content='UTC'>") if scenario == "initial200" or scenario in revalidation_scenarios or scenario in revalidation_negative_scenarios else ""
         data = ("<!doctype html><html><head><meta charset='utf-8'><title>Synthetic T103</title>"
                 f"{identity}"
                 "<link rel='icon' href='data:,'></head><body>"
@@ -86,6 +102,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         if scenario == "shared-reader-session":
             token = "synthetic-shared-public-session" if kind == "shared-public" else "synthetic-shared-cabinet-session"
+            self.send_header("Set-Cookie", f"__Host-twobrain_rec_owner_session={token}; Path=/; Secure; HttpOnly; SameSite=Lax")
+        if scenario in revalidation_scenarios:
+            self.send_header("Set-Cookie", "__Host-twobrain_rec_owner_session=synthetic-revalidation-session; Path=/; Secure; HttpOnly; SameSite=Lax")
+        if scenario in revalidation_negative_scenarios:
+            token = "synthetic-revalidation-session-b" if scenario == "history-revalidation-token-boundary" and kind == "revalidation-settings" else "synthetic-revalidation-session"
             self.send_header("Set-Cookie", f"__Host-twobrain_rec_owner_session={token}; Path=/; Secure; HttpOnly; SameSite=Lax")
         if scenario == "initial200":
             self.send_header("Set-Cookie", "__Host-twobrain_rec_owner_session=synthetic-inventory-session; Path=/; Secure; HttpOnly; SameSite=Lax")
@@ -102,6 +123,46 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if path == "/favicon.ico":
             self.send_response(204)
             self.end_headers()
+            return
+        if scenario in revalidation_negative_scenarios:
+            valid = path in {cabinet_path, "/desktop/settings/account"} and not parsed.query and not (
+                scenario == "history-revalidation-post" and path == "/desktop/settings/account")
+            with lock:
+                counts[0 if valid else 4] += 1
+            if not valid:
+                self.page(404, "error")
+                return
+            if path == "/desktop/settings/account" and scenario == "history-revalidation-timeout-unknown" and not self.hold_negative_response():
+                return
+            try:
+                self.page(200, "revalidation-meetings" if path == cabinet_path else "revalidation-settings")
+            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, ssl.SSLEOFError, ssl.SSLZeroReturnError):
+                (root / "response-disconnected").write_text("CLIENT_DISCONNECTED", encoding="ascii")
+            return
+        if scenario in revalidation_scenarios:
+            valid = path in {cabinet_path, "/desktop/settings/account"} and not parsed.query
+            with lock:
+                counts[0 if valid else 4] += 1
+            if not valid:
+                self.page(404, "error")
+                return
+            if path == "/desktop/settings/account" and scenario != "history-revalidation-terminal":
+                # Existing held-response protocol; no headers until the native witness releases it.
+                (root / "response-held").write_text("GET_SETTINGS_BEFORE_HEADERS", encoding="ascii")
+                deadline = time.monotonic() + 8
+                while not (root / "response-release").exists():
+                    if (root / "stop.request").exists():
+                        self.close_connection = True
+                        return
+                    if time.monotonic() >= deadline:
+                        (root / "response-timeout").write_text("HOLD_TIMEOUT", encoding="ascii")
+                        self.close_connection = True
+                        return
+                    time.sleep(0.01)
+            try:
+                self.page(200, "revalidation-meetings" if path == cabinet_path else "revalidation-settings")
+            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, ssl.SSLEOFError, ssl.SSLZeroReturnError):
+                (root / "response-disconnected").write_text("CLIENT_DISCONNECTED", encoding="ascii")
             return
         if scenario == "shared-reader-session":
             valid = (path == cabinet_path and not parsed.query) or (path == shared_path and parsed.query == shared_query)
@@ -201,8 +262,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         valid = False
         lengths = self.headers.get_all("Content-Length", [])
-        target = history_paths[1] if scenario in history_posts else "/login"
-        if ((scenario == "login-post400" or scenario in history_posts) and self.path == target
+        target = "/desktop/settings/account" if scenario == "history-revalidation-post" else history_paths[1] if scenario in history_posts else "/login"
+        if ((scenario == "login-post400" or scenario in history_posts or scenario == "history-revalidation-post") and self.path == target
                 and not self.headers.get("Transfer-Encoding") and len(lengths) == 1
                 and lengths[0].isascii() and lengths[0].isdecimal()
                 and len(lengths[0]) <= 3 and 0 < int(lengths[0]) <= 256):
@@ -217,6 +278,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if not valid:
             with lock:
                 counts[4] += 1
+        if scenario == "history-revalidation-post":
+            if not valid or not self.hold_negative_response():
+                return
+            try:
+                self.page(200, "revalidation-settings")
+            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, ssl.SSLEOFError, ssl.SSLZeroReturnError):
+                (root / "response-disconnected").write_text("CLIENT_DISCONNECTED", encoding="ascii")
+            return
         self.close_connection = True
         self.page(200 if valid and scenario in history_posts else 400,
                   ("history-b" if scenario in history_posts else "form") if valid else "error",

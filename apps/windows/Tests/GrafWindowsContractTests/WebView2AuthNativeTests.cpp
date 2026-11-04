@@ -11,6 +11,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <array>
+#include <algorithm>
 #include <climits>
 #include <cmath>
 #include <stdexcept>
@@ -27,6 +28,8 @@ namespace graf::windows {
 struct WebView2HistoryNativeFixture {
     std::function<void(std::string, WebView2Host::HistoryRead)> originalRead;
     std::function<void()> originalActivate, pending;
+    std::function<void()> pendingFresh;
+    unsigned freshCaptures = 0, freshDeliveries = 0;
     DWORD uiThread = 0;
     unsigned reads = 0, captures = 0, deliveries = 0, activations = 0;
     bool terminal = false, reset = false, held = false, stopping = false, unexpected = false;
@@ -92,6 +95,50 @@ struct WebView2HistoryNativeFixture {
         return true;
     }
 
+    bool holdRevalidationFreshRead(WebView2Host& owner) {
+        if (!originalRead || !terminal || captures || pendingFresh) return false;
+        const auto installedRead = owner.nativeReadHistory_;
+        owner.nativeReadHistory_ = [this, &owner, installedRead](std::string source, WebView2Host::HistoryRead complete) {
+            const bool fresh = held && captures == 1 && owner.historyStage_ == WebView2Host::HistoryStage::accepting;
+            installedRead(std::move(source), [this, fresh, complete = std::move(complete)](auto result) mutable {
+                if (!fresh || stopping) { complete(std::move(result)); return; }
+                if (GetCurrentThreadId() != uiThread || freshCaptures || pendingFresh || !result) {
+                    unexpected = true; complete(std::move(result)); return;
+                }
+                ++freshCaptures;
+                pendingFresh = [complete = std::move(complete), result = std::move(result)]() mutable {
+                    complete(std::move(result));
+                };
+                std::puts("T097_NEGATIVE_FRESH_READ REAL_RESULT=1 ORIGINAL_CONTINUATION=1 HELD=1");
+                std::fflush(stdout);
+            });
+        };
+        return true;
+    }
+    void deliverFresh() {
+        if (GetCurrentThreadId() != uiThread || !pendingFresh || freshDeliveries) { unexpected = true; return; }
+        ++freshDeliveries;
+        auto complete = std::exchange(pendingFresh, {});
+        complete();
+    }
+    std::uint64_t originalDeadline(WebView2Host const& owner, std::uint64_t navigation) const {
+        if (!navigation || owner.navigationId_ != navigation || !owner.navigationStartedAt_ ||
+            owner.navigationStartedAt_ > GetTickCount64()) return 0;
+        // Native Starting records this once; acceptance/readback must not move the origin.
+        const auto navigationDeadline = owner.navigationStartedAt_ + owner.kResponseWaitMs;
+        return owner.documentCompletion_ ? (std::min)(navigationDeadline,
+            owner.documentCompletion_->observedAt + owner.kResponseWaitMs) : navigationDeadline;
+    }
+    bool noNewAuthority(WebView2Host const& owner) const {
+        return owner.documentNonce_.empty() && !owner.userTimeDocumentCurrent() && !owner.localNetworkAccountCurrent();
+    }
+    bool binding(WebView2Host const& owner, std::string const& token, bool workspaceB, std::uint64_t epoch) const {
+        const auto& value = owner.userTimeAccount_;
+        return value.origin == owner.policy_.trustedOrigin() && value.user == "11111111-1111-4111-8111-111111111111" &&
+            value.workspace == (workspaceB ? "55555555-5555-4555-8555-555555555555" : "22222222-2222-4222-8222-222222222222") &&
+            value.token == token && value.authGeneration == epoch;
+    }
+
     void deliver() {
         if (GetCurrentThreadId() != uiThread || !held || !pending || deliveries) {
             unexpected = true; return;
@@ -108,6 +155,7 @@ struct WebView2HistoryNativeFixture {
         if (originalRead) owner.nativeReadHistory_ = std::exchange(originalRead, {});
         owner.nativeActivateDocument_ = std::exchange(originalActivate, {});
         if (held) deliver(); // The host remains alive until its real continuation is settled.
+        if (pendingFresh) deliverFresh();
     }
 
     bool selecting(WebView2Host const& owner) const {
@@ -139,6 +187,25 @@ struct WebView2HistoryNativeFixture {
             owner.historyStage_ == WebView2Host::HistoryStage::navigating &&
             owner.runtimeState_ == WebRuntimeState::initializing && owner.documentNonce_.empty() &&
             !owner.documentResponse_ && !owner.documentCompletion_;
+    }
+    bool unknownAccount(WebView2Host const& owner) const {
+        const auto& value = owner.userTimeAccount_;
+        return value.origin.empty() && value.user.empty() && value.workspace.empty() &&
+            value.token.empty() && value.authGeneration == 1 && !owner.userTimeDocumentCurrent() &&
+            !owner.localNetworkAccountCurrent();
+    }
+    bool ordinaryBeforeHeaders(WebView2Host const& owner, std::uint64_t navigation) const {
+        return navigation && owner.navigationId_ == navigation && owner.historyNavigation_ == navigation &&
+            !owner.historyTraversal_ && !owner.historyTarget_ && owner.historyFreshTag_.empty() &&
+            owner.runtimeState_ == WebRuntimeState::initializing && owner.documentNonce_.empty() &&
+            owner.navigationMethod_.empty() && !owner.documentResponse_ && !owner.documentCompletion_;
+    }
+    bool confirmedDocument(WebView2Host const& owner) const {
+        return owner.userTimeDocumentCurrent() && owner.localDocumentIdentity_ &&
+            owner.localDocumentAccount_.documentGeneration == owner.documentGeneration_ &&
+            owner.localDocumentAccount_.user == owner.userTimeAccount_.user &&
+            owner.localDocumentAccount_.workspace == owner.userTimeAccount_.workspace &&
+            owner.localDocumentAccount_.token == owner.userTimeAccount_.token;
     }
     bool account(WebView2Host const& owner, std::string const& token, bool workspaceB) const {
         const auto& value = owner.userTimeAccount_;
@@ -183,6 +250,28 @@ bool historyCancelScenario() { return scenario == "cancel-history-host" || scena
 bool sameDocumentScenario() { return scenario == "history-same-document"; }
 bool historyRaceScenario() { return scenario == "history-race-native-first" || scenario == "history-race-script-first"; }
 bool historyResetScenario() { return scenario == "history-reset"; }
+enum class RevalidationNegative { none, noAnchor, workspace, token, epoch, post, timeoutUnknown, timeoutReconfirmed, closed };
+RevalidationNegative revalidationNegative() {
+    if (scenario == "history-revalidation-no-anchor") return RevalidationNegative::noAnchor;
+    if (scenario == "history-revalidation-workspace-boundary") return RevalidationNegative::workspace;
+    if (scenario == "history-revalidation-token-boundary") return RevalidationNegative::token;
+    if (scenario == "history-revalidation-epoch-boundary") return RevalidationNegative::epoch;
+    if (scenario == "history-revalidation-post") return RevalidationNegative::post;
+    if (scenario == "history-revalidation-timeout-unknown") return RevalidationNegative::timeoutUnknown;
+    if (scenario == "history-revalidation-timeout-reconfirmed") return RevalidationNegative::timeoutReconfirmed;
+    if (scenario == "history-revalidation-close") return RevalidationNegative::closed;
+    return RevalidationNegative::none;
+}
+bool revalidationNegativeScenario() { return revalidationNegative() != RevalidationNegative::none; }
+bool revalidationNegativeHeaders() {
+    return revalidationNegative() == RevalidationNegative::post || revalidationNegative() == RevalidationNegative::timeoutUnknown;
+}
+bool revalidationScenario() {
+    return scenario == "history-revalidation-terminal" || scenario == "history-revalidation-preheaders" ||
+        scenario == "history-revalidation-before-start";
+}
+bool revalidationTerminal() { return scenario == "history-revalidation-terminal"; }
+bool revalidationBeforeStart() { return scenario == "history-revalidation-before-start"; }
 bool sharedReaderScenario() { return scenario == "shared-reader-session"; }
 std::string sharedReaderPath() {
     return "/api/v1/cabinet/public-shares/" + std::string(43, 'a') +
@@ -303,6 +392,18 @@ struct ProbeApp : ApplicationT<ProbeApp> {
         bool get = false, post = false, loaded = false;
     } resetDocument;
     std::array<ResetDocument, 3> freshLoginDocuments{}; // C200, list302, login200; real native observations only.
+    unsigned negativePhase = 0;
+    std::uint64_t negativeDeadline = 0, negativeSettingsGeneration = 0, negativeFailureAt = 0, negativeResponseAt = 0;
+    bool negativeRepeated = false, negativeReconfirmed = false, negativeCookiePending = false;
+    bool negativeSettingsCompleted = false, negativeSettingsCancelled = false;
+    std::string negativeObservedToken;
+    std::array<std::uint64_t, 3> negativeTerminalBoundary{};
+    unsigned revalidationPhase = 0, revalidationEffects = 0;
+    bool revalidationUnknown = false, revalidationStartedUnknown = false;
+    std::uint64_t revalidationNavigation = 0, revalidationInitialGeneration = 0;
+    std::array<unsigned, 2> revalidationResponses{};
+    std::array<std::uint64_t, 2> revalidationResponseGeneration{}, revalidationResponseNavigation{};
+    std::string revalidationToken, revalidationOldNonce; // Real native observations; never printed.
     unsigned sharedPhase = 0, sharedEffects = 0, sharedForgedMessages = 0;
     std::array<unsigned, 3> sharedResponses{};
     std::array<std::uint64_t, 3> sharedResponseNavigation{}, sharedResponseGeneration{};
@@ -365,6 +466,12 @@ struct ProbeApp : ApplicationT<ProbeApp> {
             pass = false; reason = "held-redirect-server-received-unexpected-get";
         }
         if (redirectHeldScenario() && !releaseRedirectResponse()) { pass = false; reason = "held-redirect-release-write"; }
+        if (revalidationScenario() && !revalidationTerminal() && !releaseRedirectResponse()) {
+            pass = false; reason = "revalidation-held-response-release";
+        }
+        if (revalidationNegativeScenario() && !releaseRedirectResponse()) {
+            pass = false; reason = "negative-held-response-release";
+        }
         probeExit = pass ? 0 : 1;
         std::printf("T103_NATIVE case=%s result=%s reason=%s profile_verified=%d starts=%u completions=%u status=%u state=%d\n",
             scenario.c_str(), pass ? "PASS" : "FAIL", reason, int(profileVerified), starts,
@@ -375,7 +482,7 @@ struct ProbeApp : ApplicationT<ProbeApp> {
         std::fflush(stdout);
         closingAt = GetTickCount64();
         closing.store(true);
-        try { if ((controlledHistoryScenario() || heldResetScenario() || redirectHeldScenario()) && host) historyFixture.restore(*host); } catch (...) { ++teardownErrors; probeExit = 1; }
+        try { if ((controlledHistoryScenario() || heldResetScenario() || redirectHeldScenario() || revalidationScenario() || revalidationNegativeScenario()) && host) historyFixture.restore(*host); } catch (...) { ++teardownErrors; probeExit = 1; }
         traceTeardown("host-close-enter");
         try { if (host) host->close(); } catch (...) { ++teardownErrors; probeExit = 1; }
         traceTeardown("host-close-return");
@@ -2023,6 +2130,420 @@ struct ProbeApp : ApplicationT<ProbeApp> {
         });
     }
 
+    bool negativeBindingCurrent() const {
+        const auto kind = revalidationNegative();
+        if (kind == RevalidationNegative::timeoutUnknown) return historyFixture.unknownAccount(*host);
+        return historyFixture.binding(*host, kind == RevalidationNegative::token ? negativeObservedToken : revalidationToken,
+            kind == RevalidationNegative::workspace, kind == RevalidationNegative::epoch ? 2 : 1);
+    }
+
+    void probeNegativeInitial() {
+        const auto generation = host->documentGeneration();
+        const auto queue = view.DispatcherQueue();
+        scriptPending = true;
+        view.CoreWebView2().ExecuteScriptAsync(LR"JS((()=>{
+          return document.getElementById('synthetic-marker')?.dataset.kind==='revalidation-meetings' &&
+            document.querySelector('meta[name="graf-time-user"]')?.content==='11111111-1111-4111-8111-111111111111' &&
+            document.querySelector('meta[name="graf-workspace"]')?.content==='22222222-2222-4222-8222-222222222222' &&
+            window.__grafDesktopBridgeInstalled && document.documentElement.dataset.syntheticNativeReady==='1';
+        })())JS").Completed([this, queue, generation](auto const& operation, auto const&) {
+            queue.TryEnqueue([this, operation, generation, queue] {
+                scriptPending = false;
+                if (probeExit != 2) return;
+                try {
+                    const auto kind = revalidationNegative();
+                    if (negativePhase || generation != host->documentGeneration() || host->runtimeState() != WebRuntimeState::ready) {
+                        finish(false, "negative-initial-document-changed"); return;
+                    }
+                    if (operation.GetResults() != L"true") return;
+                    if (kind != RevalidationNegative::noAnchor && (!historyFixture.confirmedDocument(*host) ||
+                        !historyFixture.account(*host, revalidationToken, false))) {
+                        finish(false, "negative-missing-confirmed-network-A"); return;
+                    }
+                    revalidationInitialGeneration = generation;
+                    const bool installed = revalidationNegativeHeaders() ? historyFixture.observeActivation(*host) :
+                        historyFixture.install(*host, true);
+                    if (!installed || (kind == RevalidationNegative::timeoutReconfirmed &&
+                        !historyFixture.holdRevalidationFreshRead(*host))) {
+                        finish(false, "negative-native-adapter-install"); return;
+                    }
+                    if (kind == RevalidationNegative::noAnchor) {
+                        host->bindUserTimeAccount({}, {}, {}, {}, 1);
+                        if (!historyFixture.unknownAccount(*host) || host->runtimeState() != WebRuntimeState::ready) {
+                            finish(false, "negative-no-anchor-setup"); return;
+                        }
+                    }
+                    negativePhase = 1;
+                    std::printf("T097_NEGATIVE_INITIAL REAL_COOKIE=1 HTML_IDENTITY=1 CONFIRMED_A=%d\n",
+                        int(kind != RevalidationNegative::noAnchor)); std::fflush(stdout);
+                    if (kind == RevalidationNegative::post) {
+                        scriptPending = true;
+                        view.CoreWebView2().ExecuteScriptAsync(LR"JS((()=>{
+                          const form=document.getElementById('synthetic-form');
+                          if(!form || form.method!=='post' || new URL(form.action).pathname!=='/desktop/settings/account')return false;
+                          document.getElementById('synthetic-input').value='synthetic-value';
+                          form.requestSubmit();return true;
+                        })())JS").Completed([this, queue](auto const& submit, auto const&) {
+                            queue.TryEnqueue([this, submit] {
+                                scriptPending = false;
+                                try { if (submit.GetResults() != L"true" && !revalidationNavigation)
+                                    finish(false, "negative-post-not-submitted"); }
+                                catch (...) { if (!revalidationNavigation) finish(false, "negative-post-submit-failed"); }
+                            });
+                        });
+                    } else if (host->navigate(origin + "/desktop/settings/account").decision != RouteDecision::allow)
+                        finish(false, "negative-settings-not-admitted");
+                } catch (...) { finish(false, "negative-initial-probe"); }
+            });
+        });
+    }
+
+    void readNegativeToken() {
+        negativeCookiePending = true;
+        const auto generation = host->documentGeneration();
+        const auto core = view.CoreWebView2(); const auto queue = view.DispatcherQueue();
+        try {
+            core.CookieManager().GetCookiesAsync(to_hstring(origin)).Completed([this, generation, queue](auto const& operation, auto const&) {
+                queue.TryEnqueue([this, generation, operation] {
+                    negativeCookiePending = false;
+                    if (probeExit != 2) return;
+                    try {
+                        if (negativePhase != 2 || host->documentGeneration() != generation ||
+                            host->runtimeState() != WebRuntimeState::initializing || !historyFixture.noNewAuthority(*host)) {
+                            finish(false, "negative-token-read-not-pending"); return;
+                        }
+                        std::string observed;
+                        for (const auto& cookie : operation.GetResults())
+                            if (cookie.Name() == L"__Host-twobrain_rec_owner_session") { observed = to_string(cookie.Value()); break; }
+                        if (observed != "synthetic-revalidation-session-b" || observed == revalidationToken) {
+                            finish(false, "negative-token-not-actual-new-cookie"); return;
+                        }
+                        negativeObservedToken = std::move(observed);
+                        std::puts("T097_NEGATIVE_COOKIE OWN_MANAGER_READ=1 DIFFERENT_TOKEN=1"); std::fflush(stdout);
+                        negativeReconfirmed = true;
+                        host->bindUserTimeAccount(origin, "11111111-1111-4111-8111-111111111111",
+                            "22222222-2222-4222-8222-222222222222", negativeObservedToken, 1);
+                    } catch (...) { finish(false, "negative-native-cookie-read"); }
+                });
+            });
+        } catch (...) { negativeCookiePending = false; finish(false, "negative-native-cookie-start"); }
+    }
+
+    void checkRevalidationNegative() {
+        const auto kind = revalidationNegative();
+        const auto now = GetTickCount64();
+        const bool timeout = kind == RevalidationNegative::timeoutUnknown || kind == RevalidationNegative::timeoutReconfirmed;
+        if (historyFixture.unexpected || revalidationEffects || historyFixture.activations || updateCallbacks ||
+            authInvalidations || signedOutObservations || authCallbacks > 1 || responseMarkerExists(L"response-timeout") ||
+            (responseMarkerExists(L"response-disconnected") && !(kind == RevalidationNegative::timeoutUnknown &&
+                negativeFailureAt && host->runtimeState() == WebRuntimeState::unavailable))) {
+            finish(false, "negative-early-authority-or-adapter"); return;
+        }
+        if (negativePhase == 0) {
+            if (completions != 1 || revalidationResponses[0] != 1 || authCallbacks != 1 ||
+                host->runtimeState() != WebRuntimeState::ready) return;
+            if (kind != RevalidationNegative::noAnchor && !historyFixture.confirmedDocument(*host)) return;
+            probeNegativeInitial(); return;
+        }
+        if (negativePhase == 1) {
+            if (revalidationNegativeHeaders()) {
+                if (!responseMarkerExists(L"response-held") || starts != 2) return;
+                if (!historyFixture.ordinaryBeforeHeaders(*host, revalidationNavigation) || completions != 1 || revalidationResponses[1]) {
+                    finish(false, "negative-preheaders-native-setup"); return;
+                }
+            } else {
+                if (!historyFixture.held) return;
+                if (!historyFixture.accepting(*host, revalidationNavigation) || revalidationResponses[1] != 1 ||
+                    completions != 2 || !observedSuccess || observedStatus != 200) {
+                    finish(false, "negative-held-terminal-native-setup"); return;
+                }
+            }
+            if (host->documentGeneration() <= revalidationInitialGeneration ||
+                !historyFixture.noNewAuthority(*host) || !revalidationNavigation) {
+                finish(false, "negative-native-correlation-setup"); return;
+            }
+            negativeSettingsGeneration = host->documentGeneration();
+            negativeDeadline = historyFixture.originalDeadline(*host, revalidationNavigation);
+            if (!negativeDeadline || negativeDeadline <= now) {
+                finish(false, "negative-original-navigation-budget-setup"); return;
+            }
+            std::printf("T097_NEGATIVE_SETUP kind=%s NATIVE_CORRELATION=1 AUTHORITY=0\n", scenario.c_str()); std::fflush(stdout);
+            negativePhase = 2;
+            if (kind != RevalidationNegative::noAnchor) host->bindUserTimeAccount({}, {}, {}, {}, 1);
+            if (!historyFixture.unknownAccount(*host) || !historyFixture.noNewAuthority(*host)) {
+                finish(false, "negative-unknown-retained-network"); return;
+            }
+            if (kind != RevalidationNegative::noAnchor && host->runtimeState() != WebRuntimeState::initializing) {
+                finish(false, "negative-refused-before-bad-case-trigger"); return;
+            }
+            if (kind == RevalidationNegative::closed) {
+                closing.store(true); // Fixture lifetime only: expect the real browser exit caused by close below.
+                host->close();
+                const auto boundary = historyFixture.boundary(*host);
+                historyFixture.deliver();
+                if (historyFixture.boundary(*host) != boundary || host->runtimeState() != WebRuntimeState::closed ||
+                    !historyFixture.noNewAuthority(*host) || historyFixture.activations || historyFixture.deliveries != 1 ||
+                    authCallbacks != 1 || updateCallbacks) { finish(false, "negative-close-callback-revived"); return; }
+                std::puts("T097_NEGATIVE_CALLBACKS ORIGINAL_DELIVERIES=1 FRESH_DELIVERIES=0 INERT=1");
+                std::printf("T097_REVALIDATION_NEGATIVE_PASS kind=%s BAD_CASE_PROVED=1 NO_ADMISSION=1\n", scenario.c_str());
+                std::fflush(stdout); finish(true, "revalidation-negative-safe-refusal"); return;
+            }
+            if (kind == RevalidationNegative::token) { readNegativeToken(); return; }
+            if (!timeout) {
+                negativeReconfirmed = true;
+                host->bindUserTimeAccount(origin, "11111111-1111-4111-8111-111111111111",
+                    kind == RevalidationNegative::workspace ? "55555555-5555-4555-8555-555555555555" : "22222222-2222-4222-8222-222222222222",
+                    revalidationToken, kind == RevalidationNegative::epoch ? 2 : 1);
+                if (kind == RevalidationNegative::post && !releaseRedirectResponse()) finish(false, "negative-post-response-release");
+            }
+            return;
+        }
+        if (negativePhase == 2) {
+            if (negativeCookiePending) return;
+            if (timeout && host->runtimeState() == WebRuntimeState::initializing) {
+                if (!negativeRepeated && now + 4000 >= negativeDeadline) {
+                    negativeRepeated = true;
+                    host->bindUserTimeAccount({}, {}, {}, {}, 1);
+                    std::puts("T097_NEGATIVE_REPEAT_UNKNOWN SAME_ORIGINAL_DEADLINE=1"); std::fflush(stdout);
+                }
+                if (kind == RevalidationNegative::timeoutReconfirmed && !negativeReconfirmed && now + 3000 >= negativeDeadline) {
+                    negativeReconfirmed = true; confirmRevalidationAccount();
+                    std::puts("T097_NEGATIVE_RECONFIRMED A=1 ORIGINAL_DEADLINE_REQUIRED=1"); std::fflush(stdout);
+                }
+                return;
+            }
+            if (host->runtimeState() != WebRuntimeState::unavailable || !negativeFailureAt ||
+                !historyFixture.noNewAuthority(*host) || !negativeBindingCurrent()) {
+                finish(false, "negative-bad-case-not-refused"); return;
+            }
+            if (timeout) {
+                if (!negativeRepeated || negativeFailureAt < negativeDeadline || negativeFailureAt - negativeDeadline > 100 ||
+                    host->failureDetail() != "history-timeout · 0x00000000" ||
+                    (kind == RevalidationNegative::timeoutReconfirmed && (!negativeReconfirmed || historyFixture.freshCaptures != 1))) {
+                    finish(false, "negative-original-five-second-budget-not-proved"); return;
+                }
+                std::printf("T097_NEGATIVE_DEADLINE ORIGINAL_5000MS=1 OBSERVED_TICK_LAG_MS=%llu FRESH_READ=%u\n",
+                    static_cast<unsigned long long>(negativeFailureAt - negativeDeadline), historyFixture.freshCaptures);
+                std::fflush(stdout);
+            } else if (!negativeReconfirmed || host->failureDetail() != (kind == RevalidationNegative::post ?
+                "history-account-method · 0x00000000" : "history-session-changed · 0x00000000")) {
+                finish(false, "negative-wrong-refusal-cause"); return;
+            }
+            if (kind == RevalidationNegative::post && (!negativeResponseAt || negativeFailureAt < negativeResponseAt)) {
+                finish(false, "negative-post-refused-before-method-proof"); return;
+            }
+            negativeTerminalBoundary = historyFixture.boundary(*host);
+            if (historyFixture.held) historyFixture.deliver();
+            if (historyFixture.pendingFresh) historyFixture.deliverFresh();
+            if (revalidationNegativeHeaders() && !releaseRedirectResponse()) { finish(false, "negative-late-response-release"); return; }
+            negativePhase = 3;
+        }
+        const auto boundary = historyFixture.boundary(*host);
+        // A late browser commit may invalidate an already revoked snapshot.
+        const bool lateRevocation = kind == RevalidationNegative::timeoutUnknown &&
+            boundary[0] == negativeTerminalBoundary[0] && boundary[1] == negativeTerminalBoundary[1] &&
+            boundary[2] > negativeTerminalBoundary[2] && historyFixture.resetRevoked(*host) &&
+            !host->canGoBack() && !host->canGoForward() && host->failureDetail() == "history-timeout · 0x00000000";
+        if ((boundary != negativeTerminalBoundary && !lateRevocation) || host->runtimeState() != WebRuntimeState::unavailable ||
+            host->documentGeneration() != negativeSettingsGeneration || !historyFixture.noNewAuthority(*host) ||
+            !negativeBindingCurrent() || historyFixture.activations || authCallbacks != 1 || updateCallbacks) {
+            const auto observedBoundary = historyFixture.boundary(*host);
+            std::printf("T097_NEGATIVE_LATE_GUARD session_expected=%llu session_actual=%llu "
+                "operation_expected=%llu operation_actual=%llu revision_expected=%llu revision_actual=%llu "
+                "state=%d generation_expected=%llu generation_actual=%llu no_authority=%d binding_current=%d "
+                "activations=%u auth_callbacks=%u update_callbacks=%u proof_revoked=%d back=%d forward=%d timeout_cause=%d\n",
+                static_cast<unsigned long long>(negativeTerminalBoundary[0]), static_cast<unsigned long long>(observedBoundary[0]),
+                static_cast<unsigned long long>(negativeTerminalBoundary[1]), static_cast<unsigned long long>(observedBoundary[1]),
+                static_cast<unsigned long long>(negativeTerminalBoundary[2]), static_cast<unsigned long long>(observedBoundary[2]),
+                int(host->runtimeState()), static_cast<unsigned long long>(negativeSettingsGeneration),
+                static_cast<unsigned long long>(host->documentGeneration()), int(historyFixture.noNewAuthority(*host)),
+                int(negativeBindingCurrent()), historyFixture.activations, authCallbacks, updateCallbacks,
+                int(historyFixture.resetRevoked(*host)), int(host->canGoBack()), int(host->canGoForward()),
+                int(host->failureDetail() == "history-timeout · 0x00000000"));
+            std::fflush(stdout);
+            finish(false, "negative-late-result-revived-document"); return;
+        }
+        if (!negativeSettingsCompleted) return; // Actual matching browser terminal, not an unavailable marker alone.
+        if ((revalidationResponses[1] != 1 && !(kind == RevalidationNegative::timeoutUnknown &&
+                negativeSettingsCancelled && revalidationResponses[1] == 0)) ||
+            (responseMarkerExists(L"response-disconnected") && !negativeSettingsCancelled)) {
+            finish(false, "negative-late-response-or-cancellation-not-proved"); return;
+        }
+        if ((!revalidationNegativeHeaders() && historyFixture.deliveries != 1) ||
+            (kind == RevalidationNegative::timeoutReconfirmed && historyFixture.freshDeliveries != 1)) {
+            finish(false, "negative-original-continuation-not-delivered"); return;
+        }
+        if (!revalidationNegativeHeaders()) {
+            std::printf("T097_NEGATIVE_CALLBACKS ORIGINAL_DELIVERIES=%u FRESH_DELIVERIES=%u INERT=1\n",
+                historyFixture.deliveries, historyFixture.freshDeliveries);
+        }
+        std::printf("T097_REVALIDATION_NEGATIVE_PASS kind=%s BAD_CASE_PROVED=1 NO_ADMISSION=1\n", scenario.c_str());
+        std::fflush(stdout); finish(true, "revalidation-negative-safe-refusal");
+    }
+
+    void confirmRevalidationAccount() {
+        host->bindUserTimeAccount(origin, "11111111-1111-4111-8111-111111111111",
+            "22222222-2222-4222-8222-222222222222", revalidationToken, 1);
+    }
+
+    void probeRevalidationDocument(bool initial) {
+        const auto phase = revalidationPhase;
+        const auto generation = host->documentGeneration();
+        const auto queue = view.DispatcherQueue();
+        scriptPending = true;
+        // Read the actual synthetic HTML identity and actual product handshake; never install either.
+        const std::wstring script = std::wstring(L"(() => { const initial=") + (initial ? L"true;" : L"false;") + LR"JS(
+          const kind=document.getElementById('synthetic-marker')?.dataset.kind;
+          const identity=document.querySelector('meta[name="graf-time-user"]')?.content==='11111111-1111-4111-8111-111111111111' &&
+            document.querySelector('meta[name="graf-workspace"]')?.content==='22222222-2222-4222-8222-222222222222';
+          const ready=window.__grafDesktopBridgeInstalled && document.documentElement.dataset.syntheticNativeReady==='1';
+          const valid=kind===(initial?'revalidation-meetings':'revalidation-settings') && identity && ready;
+          if(valid && !initial && !window.__syntheticRevalidationUpdate) {
+            window.__syntheticRevalidationUpdate=true;
+            const button=document.createElement('button');button.setAttribute('data-graf-app-update','');
+            document.body.append(button);button.click();button.remove();
+          }
+          return valid?1:0;
+        })())JS";
+        view.CoreWebView2().ExecuteScriptAsync(script).Completed([this, queue, phase, generation, initial](auto const& operation, auto const&) {
+            queue.TryEnqueue([this, operation, phase, generation, initial] {
+                scriptPending = false;
+                if (probeExit != 2) return;
+                try {
+                    if (phase != revalidationPhase || generation != host->documentGeneration() ||
+                        !historyFixture.account(*host, revalidationToken, false) || !historyFixture.confirmedDocument(*host)) {
+                        finish(false, "revalidation-ready-context-changed"); return;
+                    }
+                    if (operation.GetResults() != L"1") return; // Await genuine bootstrap, under the unchanged fixture deadline.
+                    if (!initial) {
+                        if (updateCallbacks == 0) return; // Actual bridge message can follow script completion.
+                        if (updateCallbacks != 1 || revalidationEffects || starts != 2 || completions != 2 ||
+                            authCallbacks != 2 || currentCookieReads != 2 || signedOutObservations || authInvalidations ||
+                            historyFixture.activations != 1 || historyFixture.unexpected ||
+                            (!revalidationTerminal() && (historyFixture.captures || historyFixture.deliveries)) ||
+                            (revalidationTerminal() && (historyFixture.captures != 1 || historyFixture.deliveries != 1))) {
+                            finish(false, "revalidation-final-effects-or-counts"); return;
+                        }
+                        std::puts("T097_REVALIDATION_PASS GETS=2 NEW_ADMISSION=1 EFFECTS=0");
+                        std::fflush(stdout);
+                        finish(true, "ordinary-settings-same-account-revalidation"); return;
+                    }
+                    revalidationInitialGeneration = generation;
+                    revalidationOldNonce = WebView2HistoryNativeFixture::observedNonce(*host);
+                    if (revalidationOldNonce.empty() || authCallbacks != 1 || starts != 1 || completions != 1 || updateCallbacks) {
+                        finish(false, "revalidation-initial-setup"); return;
+                    }
+                    const bool installed = revalidationTerminal() ? historyFixture.install(*host, true) :
+                        historyFixture.observeActivation(*host);
+                    if (!installed) { finish(false, "revalidation-native-observer-install"); return; }
+                    if (revalidationBeforeStart()) {
+                        host->bindUserTimeAccount({}, {}, {}, {}, 1);
+                        revalidationUnknown = true;
+                        if (!historyFixture.unknownAccount(*host) || host->runtimeState() != WebRuntimeState::ready) {
+                            finish(false, "revalidation-unknown-before-start-setup"); return;
+                        }
+                        std::puts("T097_REVALIDATION_PRIOR_READY CONFIRMED_NETWORK_A=1 UNKNOWN=1");
+                    }
+                    revalidationPhase = 1;
+                    std::puts("T097_REVALIDATION_INITIAL REAL_COOKIE=1 REAL_HTML_IDENTITY=1 REAL_READY=1");
+                    std::fflush(stdout);
+                    if (host->navigate(origin + "/desktop/settings/account").decision != RouteDecision::allow)
+                        finish(false, "revalidation-settings-navigation-denied");
+                } catch (...) { finish(false, "revalidation-document-probe"); }
+            });
+        });
+    }
+
+    void checkRevalidation() {
+        if (historyFixture.unexpected || revalidationEffects || responseMarkerExists(L"response-timeout") ||
+            responseMarkerExists(L"response-disconnected")) { finish(false, "revalidation-observer-or-server"); return; }
+        if (host->runtimeState() == WebRuntimeState::unavailable) {
+            finish(false, revalidationPhase >= 2 && host->failureDetail() == "history-session-changed · 0x00000000" ?
+                "ordinary_settings_must_survive_same_account_revalidation" : "revalidation-unexpected-unavailable");
+            return;
+        }
+        if (revalidationPhase == 0) {
+            if (completions != 1 || revalidationResponses[0] != 1 || authCallbacks != 1 ||
+                host->runtimeState() != WebRuntimeState::ready || !historyFixture.confirmedDocument(*host)) return;
+            probeRevalidationDocument(true); return;
+        }
+        if (revalidationPhase == 1) {
+            if (revalidationTerminal()) {
+                if (!historyFixture.held) return;
+                if (!historyFixture.accepting(*host, revalidationNavigation) || revalidationResponses[1] != 1 ||
+                    completions != 2 || !observedSuccess || observedStatus != 200 ||
+                    revalidationResponseNavigation[1] != revalidationNavigation ||
+                    revalidationResponseGeneration[1] != host->documentGeneration()) {
+                    finish(false, "revalidation-held-terminal-setup"); return;
+                }
+            } else {
+                if (!responseMarkerExists(L"response-held") || starts != 2) return;
+                if (!historyFixture.ordinaryBeforeHeaders(*host, revalidationNavigation) || completions != 1 ||
+                    revalidationResponses[1] || (revalidationBeforeStart() && !revalidationStartedUnknown)) {
+                    finish(false, "revalidation-preheaders-setup"); return;
+                }
+            }
+            if (!revalidationNavigation || host->documentGeneration() <= revalidationInitialGeneration ||
+                authCallbacks != 1 || currentCookieReads != 1 || historyFixture.activations || updateCallbacks ||
+                !WebView2HistoryNativeFixture::observedNonce(*host).empty()) {
+                finish(false, "revalidation-no-early-authority-setup"); return;
+            }
+            std::printf("T097_REVALIDATION_SETUP terminal=%d before_start=%d REAL_NATIVE_START=1 RESPONSE_GET=%d\n",
+                int(revalidationTerminal()), int(revalidationBeforeStart()), int(revalidationTerminal()));
+            std::fflush(stdout);
+            revalidationPhase = 2; // All setup proofs precede the unique target failure.
+            if (!revalidationUnknown) {
+                host->bindUserTimeAccount({}, {}, {}, {}, 1);
+                revalidationUnknown = true;
+            }
+            if (!historyFixture.unknownAccount(*host) || historyFixture.activations || updateCallbacks ||
+                !WebView2HistoryNativeFixture::observedNonce(*host).empty()) {
+                finish(false, "revalidation-unknown-retained-authority"); return;
+            }
+            std::puts("T097_REVALIDATION_UNKNOWN EFFECTIVE_NETWORK=0 NEW_NONCE=0 NEW_ACTIVATION=0");
+            confirmRevalidationAccount();
+            if (!revalidationTerminal() && !releaseRedirectResponse()) {
+                finish(false, "revalidation-release-before-headers"); return;
+            }
+            return;
+        }
+        if (revalidationPhase == 2) {
+            if (host->runtimeState() != WebRuntimeState::ready || authCallbacks < 2 ||
+                !historyFixture.confirmedDocument(*host)) return;
+            if (host->currentUrl() != origin + "/desktop/settings/account" ||
+                to_string(view.CoreWebView2().Source()) != host->currentUrl() ||
+                revalidationResponses[1] != 1 || revalidationResponseNavigation[1] != revalidationNavigation ||
+                revalidationResponseGeneration[1] != host->documentGeneration() || !observedSuccess ||
+                observedStatus != 200 || observedError != CoreWebView2WebErrorStatus::Unknown ||
+                lastCompletedNavigationId != revalidationNavigation || !historyFixture.account(*host, revalidationToken, false)) {
+                finish(false, "revalidation-new-admission-correlation"); return;
+            }
+            const auto nonce = WebView2HistoryNativeFixture::observedNonce(*host);
+            if (nonce.empty() || nonce == revalidationOldNonce) { finish(false, "revalidation-fresh-nonce"); return; }
+            if (revalidationTerminal()) {
+                if (!historyFixture.held || historyFixture.reads < 2 || historyFixture.captures != 1 ||
+                    historyFixture.deliveries || historyFixture.activations != 1) {
+                    finish(false, "revalidation-requires-new-actual-history-read"); return;
+                }
+                const auto boundary = historyFixture.boundary(*host);
+                const auto generation = host->documentGeneration(), revision = host->userTimeRevision();
+                const auto auth = authCallbacks;
+                historyFixture.deliver();
+                if (historyFixture.boundary(*host) != boundary || host->documentGeneration() != generation ||
+                    host->userTimeRevision() != revision || authCallbacks != auth ||
+                    WebView2HistoryNativeFixture::observedNonce(*host) != nonce ||
+                    host->runtimeState() != WebRuntimeState::ready || historyFixture.activations != 1 ||
+                    !historyFixture.account(*host, revalidationToken, false)) {
+                    finish(false, "revalidation-old-original-callback-not-inert"); return;
+                }
+                std::puts("T097_REVALIDATION_OLD_CALLBACK DELIVERED_ONCE=1 INERT=1 NEW_SNAPSHOT=1");
+                std::fflush(stdout);
+            }
+            revalidationPhase = 3;
+        }
+        probeRevalidationDocument(false);
+    }
+
     void checkSharedReader() {
         const auto phase = sharedPhase;
         if (phase > 2 || completions < phase + 1 || sharedResponses[phase] == 0) return;
@@ -2110,6 +2631,8 @@ struct ProbeApp : ApplicationT<ProbeApp> {
 
     void checkDocument() {
         if (probeExit != 2 || !profileVerified || scriptPending || !view.CoreWebView2() || !completions) return;
+        if (revalidationNegativeScenario()) { checkRevalidationNegative(); return; }
+        if (revalidationScenario()) { checkRevalidation(); return; }
         if (sharedReaderScenario()) { checkSharedReader(); return; }
         if (freshLoginScenario()) { checkFreshLogin(); return; }
         if (redirectHeldScenario() && historyPhase == 3) { checkRedirectHeld(); return; }
@@ -2260,6 +2783,8 @@ struct ProbeApp : ApplicationT<ProbeApp> {
             panel.Arrange(Windows::Foundation::Rect{0,0,800,600});
             host = std::make_unique<WebView2Host>(WebViewRoutePolicy(origin));
             host->setRuntimeHandler([this](WebRuntimeState state) {
+                if (revalidationNegativeScenario() && negativePhase >= 2 && !negativeFailureAt && state == WebRuntimeState::unavailable)
+                    negativeFailureAt = GetTickCount64();
                 std::printf("HOST_STATE=%d\n", int(state));
                 if (accountHistoryScenario() && accountBoundAt && !accountUnavailableAt && state == WebRuntimeState::unavailable)
                     accountUnavailableAt = GetTickCount64();
@@ -2273,6 +2798,27 @@ struct ProbeApp : ApplicationT<ProbeApp> {
             });
             host->setAuthSessionHandler([this](std::string token, bool currentCookieRead) {
                 ++authCallbacks;
+                if (revalidationNegativeScenario()) {
+                    if (!currentCookieRead || token != "synthetic-revalidation-session" || !revalidationToken.empty()) {
+                        finish(false, "negative-unexpected-auth-callback"); return;
+                    }
+                    ++currentCookieReads;
+                    revalidationToken = std::move(token);
+                    if (revalidationNegative() != RevalidationNegative::noAnchor) confirmRevalidationAccount();
+                    return; // no-anchor deliberately withholds all network identity confirmation.
+                }
+                if (revalidationScenario()) {
+                    if (!currentCookieRead || token != "synthetic-revalidation-session") {
+                        finish(false, "revalidation-real-cookie-token"); return;
+                    }
+                    ++currentCookieReads;
+                    if (revalidationToken.empty()) {
+                        revalidationToken = std::move(token);
+                        confirmRevalidationAccount(); // Synthetic backend proof, using only the actual native token.
+                    } else if (token != revalidationToken || !historyFixture.account(*host, revalidationToken, false))
+                        finish(false, "revalidation-cookie-rebound-account");
+                    return;
+                }
                 if (sharedReaderScenario()) {
                     if (currentCookieRead) ++currentCookieReads; else ++authInvalidations;
                     if (currentCookieRead && token.empty()) ++signedOutObservations;
@@ -2310,6 +2856,24 @@ struct ProbeApp : ApplicationT<ProbeApp> {
                     host->bindUserTimeAccount(origin, "11111111-1111-4111-8111-111111111111",
                         "22222222-2222-4222-8222-222222222222", std::move(token), 1);
             });
+            if (revalidationNegativeScenario()) {
+                host->setUpdateHandler([this] { ++updateCallbacks; });
+                host->setLocalRecordingHandler([this](auto) { ++revalidationEffects; });
+                host->setVisibleRecordingsHandler([this](auto value) { if (!value.ids.empty()) ++revalidationEffects; });
+                host->setDeletionSelectionHandler([this](auto) { ++revalidationEffects; });
+                host->setCalendarJoinHandlers([this](auto) { ++revalidationEffects; }, [this](auto) { ++revalidationEffects; });
+            }
+            if (revalidationScenario()) {
+                host->setUpdateHandler([this] {
+                    ++updateCallbacks;
+                    if (revalidationPhase != 3 || !historyFixture.confirmedDocument(*host))
+                        finish(false, "revalidation-early-update-effect");
+                });
+                host->setLocalRecordingHandler([this](auto) { ++revalidationEffects; });
+                host->setVisibleRecordingsHandler([this](auto value) { if (!value.ids.empty()) ++revalidationEffects; });
+                host->setDeletionSelectionHandler([this](auto) { ++revalidationEffects; });
+                host->setCalendarJoinHandlers([this](auto) { ++revalidationEffects; }, [this](auto) { ++revalidationEffects; });
+            }
             if (sharedReaderScenario()) {
                 host->setUpdateHandler([this] { ++updateCallbacks; });
                 host->setLocalRecordingHandler([this](auto) { ++sharedEffects; });
@@ -2377,6 +2941,50 @@ struct ProbeApp : ApplicationT<ProbeApp> {
                         sameDirectoryIdentity(actualProfile, profilePath);
                     std::printf("PROFILE_EXACT_MATCH=%d NAVIGATIONS_BEFORE_CHECK=%u\n", int(profileVerified), starts);
                     if (!profileVerified || starts != 0) { core.Stop(); sender.Close(); finish(false, "profile-isolation"); return; }
+                    if (revalidationNegativeScenario()) core.WebResourceResponseReceived([this](auto const&, auto const& args) {
+                        if (probeExit != 2) return;
+                        try {
+                            const auto request = args.Request(); const auto headers = request.Headers();
+                            if (!headers.Contains(L"Sec-Fetch-Dest") || headers.GetHeader(L"Sec-Fetch-Dest") != L"document") return;
+                            const auto slot = negativePhase == 0 ? 0u : 1u;
+                            const auto expected = origin + (slot == 0 ? initialPath : "/desktop/settings/account");
+                            const auto method = slot == 1 && revalidationNegative() == RevalidationNegative::post ? L"POST" : L"GET";
+                            const auto response = args.Response(); const auto rh = response.Headers();
+                            if (to_string(request.Uri()) != expected || request.Method() != method || response.StatusCode() != 200 ||
+                                !rh.Contains(L"Content-Type") || rh.GetHeader(L"Content-Type") != L"text/html; charset=utf-8" ||
+                                !headers.Contains(L"X-GRAF-Desktop-Navigation") ||
+                                to_string(headers.GetHeader(L"X-GRAF-Desktop-Navigation")) != std::to_string(host->documentGeneration()) ||
+                                ++revalidationResponses[slot] != 1) { finish(false, "negative-real-response-correlation"); return; }
+                            revalidationResponseGeneration[slot] = host->documentGeneration();
+                            revalidationResponseNavigation[slot] = lastStartedNavigationId;
+                            if (slot == 1) negativeResponseAt = GetTickCount64();
+                            std::printf("T097_NEGATIVE_RESPONSE slot=%u METHOD=%s CORRELATED_HTML200=1\n", slot,
+                                slot == 1 && revalidationNegative() == RevalidationNegative::post ? "POST" : "GET");
+                            std::fflush(stdout);
+                        } catch (...) { finish(false, "negative-response-observer"); }
+                    });
+                    if (revalidationScenario()) core.WebResourceResponseReceived([this](auto const&, auto const& args) {
+                        if (probeExit != 2) return;
+                        try {
+                            const auto request = args.Request(); const auto headers = request.Headers();
+                            if (!headers.Contains(L"Sec-Fetch-Dest") || headers.GetHeader(L"Sec-Fetch-Dest") != L"document") return;
+                            const auto slot = revalidationPhase == 0 ? 0u : 1u;
+                            const auto expected = origin + (slot == 0 ? initialPath : "/desktop/settings/account");
+                            const auto response = args.Response(); const auto responseHeaders = response.Headers();
+                            if (to_string(request.Uri()) != expected || request.Method() != L"GET" ||
+                                response.StatusCode() != 200 || !responseHeaders.Contains(L"Content-Type") ||
+                                responseHeaders.GetHeader(L"Content-Type") != L"text/html; charset=utf-8" ||
+                                !headers.Contains(L"X-GRAF-Desktop-Navigation") ||
+                                to_string(headers.GetHeader(L"X-GRAF-Desktop-Navigation")) != std::to_string(host->documentGeneration()) ||
+                                headers.Contains(L"X-GRAF-History-Intent") || ++revalidationResponses[slot] != 1) {
+                                finish(false, "revalidation-real-get-html-correlation"); return;
+                            }
+                            revalidationResponseGeneration[slot] = host->documentGeneration();
+                            revalidationResponseNavigation[slot] = lastStartedNavigationId;
+                            std::printf("T097_REVALIDATION_RESPONSE slot=%u EXACT_ROUTE=1 GET=1 HTML200=1 GENERATION_TAG=1\n", slot);
+                            std::fflush(stdout);
+                        } catch (...) { finish(false, "revalidation-response-observation"); }
+                    });
                     if (sharedReaderScenario()) {
                         core.WebMessageReceived([this](auto const&, auto const& args) {
                             if (sharedPhase != 1) return;
@@ -2448,6 +3056,16 @@ struct ProbeApp : ApplicationT<ProbeApp> {
                         }
                         if (raceStartedAt) for (auto& item : raceNavigations) if (item.id == event.NavigationId()) {
                             item.completed = true; item.success = event.IsSuccess(); item.error = event.WebErrorStatus();
+                        }
+                        if (revalidationNegativeScenario() && revalidationNavigation && event.NavigationId() == revalidationNavigation) {
+                            if (negativeSettingsCompleted || (!event.IsSuccess() &&
+                                event.WebErrorStatus() != CoreWebView2WebErrorStatus::OperationCanceled) ||
+                                (event.IsSuccess() && event.HttpStatusCode() != 200)) {
+                                finish(false, "negative-browser-terminal-not-matching"); return;
+                            }
+                            negativeSettingsCompleted = true;
+                            negativeSettingsCancelled = !event.IsSuccess();
+                            std::puts("T097_NEGATIVE_BROWSER_TERMINAL MATCHING_NAVIGATION=1 OBSERVED=1"); std::fflush(stdout);
                         }
                         ++completions;
                         lastCompletedNavigationId = event.NavigationId();
@@ -2681,6 +3299,32 @@ struct ProbeApp : ApplicationT<ProbeApp> {
                 }
                 ++starts;
                 lastStartedNavigationId = event.NavigationId();
+                if (revalidationNegativeScenario()) {
+                    if (!event.NavigationId() || event.IsRedirected() || starts > 2 ||
+                        event.NavigationKind() == CoreWebView2NavigationKind::BackOrForward ||
+                        event.RequestHeaders().Contains(L"X-GRAF-History-Intent") ||
+                        to_string(event.Uri()) != origin + (starts == 1 ? initialPath : "/desktop/settings/account")) {
+                        finish(false, "negative-native-ordinary-start"); return;
+                    }
+                    if (starts == 2) revalidationNavigation = event.NavigationId();
+                }
+                if (revalidationScenario()) {
+                    if (!event.NavigationId() || event.IsRedirected() ||
+                        event.NavigationKind() == CoreWebView2NavigationKind::BackOrForward ||
+                        event.RequestHeaders().Contains(L"X-GRAF-History-Intent") || starts > 2 ||
+                        to_string(event.Uri()) != origin + (starts == 1 ? initialPath : "/desktop/settings/account")) {
+                        finish(false, "revalidation-real-ordinary-start"); return;
+                    }
+                    if (starts == 2) {
+                        revalidationNavigation = event.NavigationId();
+                        revalidationStartedUnknown = revalidationUnknown && historyFixture.unknownAccount(*host);
+                        if (revalidationBeforeStart() && !revalidationStartedUnknown) {
+                            finish(false, "revalidation-before-start-order-not-proven"); return;
+                        }
+                        std::printf("T097_REVALIDATION_START ORDINARY=1 UNKNOWN=%d\n", int(revalidationStartedUnknown));
+                        std::fflush(stdout);
+                    }
+                }
                 if (freshLoginScenario()) {
                     const auto index = starts - 1;
                     const auto expectedUrl = origin + (index == 0 ? initialPath : index == 1 ? "/desktop/meetings" : loginNext);
@@ -2862,7 +3506,7 @@ int wmain(int argc, wchar_t** argv) {
         completionFailureDiagnostic = true;
     }
     bool known = false;
-    for (const auto name : {"shared-reader-session", "history-get-repeated-url", "history-host-ordinary-back", "initial200", "login400", "email503", "cabinet401", "cabinet503", "login429", "email429",
+    for (const auto name : {"history-revalidation-no-anchor", "history-revalidation-workspace-boundary", "history-revalidation-token-boundary", "history-revalidation-epoch-boundary", "history-revalidation-post", "history-revalidation-timeout-unknown", "history-revalidation-timeout-reconfirmed", "history-revalidation-close", "history-revalidation-terminal", "history-revalidation-preheaders", "history-revalidation-before-start", "shared-reader-session", "history-get-repeated-url", "history-host-ordinary-back", "initial200", "login400", "email503", "cabinet401", "cabinet503", "login429", "email429",
         "email-json503", "reselect", "billing401", "meeting401", "transport-reset", "tls-failure", "login-post400",
         "history-get", "history-post", "history-entry", "history-entry-same-url", "cancel-before-start", "history-host-same-url",
         "cancel-history-host", "cancel-history-script", "history-same-document", "history-race-native-first", "history-race-script-first", "history-reset",

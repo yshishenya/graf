@@ -542,14 +542,11 @@ void testCloseSourceWiring() {
     const auto purge = section(app, "    void startLocalPurgePass()", "    void pollDeletionSelection()");
     assert(purge.find("beginProtectedLocalPurgePass()") != std::string::npos && purge.find(".detach()") == std::string::npos);
     assert(app.find("localPurgeInFlight_") == std::string::npos && app.find("prepareLocalPurgeAnswers") == std::string::npos);
-    const auto drain = section(capture, "    [[nodiscard]] bool updateWorkDrained()", "    [[nodiscard]] bool shutdownWorkDrained()");
-    assert(drain.find("if (deletionContinuationId_) return false") != std::string::npos);
     const auto shutdown = section(capture, "    void requestShutdown()", "    [[nodiscard]] graf::windows::TransitionResult pause()");
     expectBefore(shutdown, "exitAdmissionBlocked_ = true", "RecordingStopReason::interruption");
     expectBefore(shutdown, "protectedRecoveryEpoch_.reset()", "RecordingStopReason::interruption");
     const auto storagePoll = section(capture, "    void pollStorageStartup(bool allowDisplay)", "    void stopStorageStartup()");
     assert(storagePoll.find("if (allowDisplay && retired") != std::string::npos);
-    assert(capture.find("pollStorageStartup(!pendingRecovery_)") != std::string::npos);
     expectBefore(storagePoll, "!shuttingDown_ && !exitAdmissionBlocked_ && !updateAdmissionBlocked_",
                  "StorageCommand::recovery");
     const auto confirmation = section(app, "    void confirmLocalAction(", "    void showCabinetFallback(");

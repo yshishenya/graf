@@ -8,7 +8,7 @@ param(
   [Parameter(Mandatory=$true)][string]$SyntheticCertificate,
   [Parameter(Mandatory=$true)][string]$SyntheticPrivateKey,
   [ValidateNotNullOrEmpty()]
-  [ValidateSet('shared-reader-session','history-get-repeated-url','history-host-ordinary-back','initial200','login400','email503','cabinet401','cabinet503','login429','email429','email-json503','reselect','billing401','meeting401','transport-reset','tls-failure','login-post400','history-get','history-post','history-entry','history-entry-same-url','cancel-before-start','history-host-same-url','cancel-history-host','cancel-history-script','history-same-document','history-race-native-first','history-race-script-first','history-reset','history-host-get','history-host-quarantine','history-pending-read-fence','history-terminal-held','history-fresh-login-redirect','history-reset-stale-readback','history-reset-account-boundary','history-account-boundary-redirect-held')]
+  [ValidateSet('history-revalidation-no-anchor','history-revalidation-workspace-boundary','history-revalidation-token-boundary','history-revalidation-epoch-boundary','history-revalidation-post','history-revalidation-timeout-unknown','history-revalidation-timeout-reconfirmed','history-revalidation-close','history-revalidation-terminal','history-revalidation-preheaders','history-revalidation-before-start','shared-reader-session','history-get-repeated-url','history-host-ordinary-back','initial200','login400','email503','cabinet401','cabinet503','login429','email429','email-json503','reselect','billing401','meeting401','transport-reset','tls-failure','login-post400','history-get','history-post','history-entry','history-entry-same-url','cancel-before-start','history-host-same-url','cancel-history-host','cancel-history-script','history-same-document','history-race-native-first','history-race-script-first','history-reset','history-host-get','history-host-quarantine','history-pending-read-fence','history-terminal-held','history-fresh-login-redirect','history-reset-stale-readback','history-reset-account-boundary','history-account-boundary-redirect-held')]
   [string[]]$Scenarios = @('initial200','login400','email503','cabinet401','cabinet503','login429','email429','email-json503','reselect','billing401','meeting401','transport-reset','tls-failure','login-post400','history-get','history-post','history-entry','history-entry-same-url','cancel-before-start','history-host-same-url','cancel-history-host','cancel-history-script','history-same-document'),
   [switch]$CompletionFailureDiagnostic
 )
@@ -21,6 +21,17 @@ $out = Join-Path ([IO.Path]::GetTempPath()) ('graf-t103-native-' + [Guid]::NewGu
 New-Item -ItemType Directory -Path $out | Out-Null
 Write-Output ('T103_TEMP_DIRECTORY=' + $out)
 $expected = @{
+  'history-revalidation-no-anchor' = '2 0 0 0 0 0'
+  'history-revalidation-workspace-boundary' = '2 0 0 0 0 0'
+  'history-revalidation-token-boundary' = '2 0 0 0 0 0'
+  'history-revalidation-epoch-boundary' = '2 0 0 0 0 0'
+  'history-revalidation-post' = '1 0 0 0 0 1'
+  'history-revalidation-timeout-unknown' = '2 0 0 0 0 0'
+  'history-revalidation-timeout-reconfirmed' = '2 0 0 0 0 0'
+  'history-revalidation-close' = '2 0 0 0 0 0'
+  'history-revalidation-terminal' = '2 0 0 0 0 0'
+  'history-revalidation-preheaders' = '2 0 0 0 0 0'
+  'history-revalidation-before-start' = '2 0 0 0 0 0'
   'shared-reader-session' = '3 0 0 0 0 0'
   initial200 = '1 0 0 0 0 0'; login400 = '0 1 0 0 0 0'; email503 = '1 0 1 0 0 0'
   cabinet401 = '1 1 0 1 0 0'; cabinet503 = '1 0 0 0 0 0'
@@ -159,6 +170,61 @@ try {
         $countsMatch = $row -cmatch '\A[2-3] 0 0 0 0 0\z'
       } else { $countsMatch = $row -ceq $expected[$scenario] }
       $pass = $fixtureExitCode -eq 0 -and $countsMatch -and (Get-Item -LiteralPath "$caseRoot\server.err").Length -eq 0 -and $watch.ElapsedMilliseconds -le 35000
+      if ($scenario -in @('history-revalidation-no-anchor','history-revalidation-workspace-boundary','history-revalidation-token-boundary','history-revalidation-epoch-boundary','history-revalidation-post','history-revalidation-timeout-unknown','history-revalidation-timeout-reconfirmed','history-revalidation-close')) {
+        $lines = @(Get-Content -LiteralPath "$caseRoot\fixture.out")
+        $confirmed = [int]($scenario -ne 'history-revalidation-no-anchor')
+        foreach ($marker in @("T097_NEGATIVE_INITIAL REAL_COOKIE=1 HTML_IDENTITY=1 CONFIRMED_A=$confirmed",
+            "T097_NEGATIVE_SETUP kind=$scenario NATIVE_CORRELATION=1 AUTHORITY=0",
+            'T097_NEGATIVE_BROWSER_TERMINAL MATCHING_NAVIGATION=1 OBSERVED=1',
+            "T097_REVALIDATION_NEGATIVE_PASS kind=$scenario BAD_CASE_PROVED=1 NO_ADMISSION=1")) {
+          $pass = $pass -and @($lines | Where-Object { $_ -ceq $marker }).Count -eq 1
+        }
+        $pass = $pass -and (Get-Item -LiteralPath "$caseRoot\fixture.err").Length -eq 0
+        if ($scenario -notin @('history-revalidation-post','history-revalidation-timeout-unknown')) {
+          $fresh = [int]($scenario -eq 'history-revalidation-timeout-reconfirmed')
+          $marker = "T097_NEGATIVE_CALLBACKS ORIGINAL_DELIVERIES=1 FRESH_DELIVERIES=$fresh INERT=1"
+          $pass = $pass -and @($lines | Where-Object { $_ -ceq $marker }).Count -eq 1
+        }
+        if ($scenario -eq 'history-revalidation-token-boundary') {
+          $pass = $pass -and @($lines | Where-Object { $_ -ceq 'T097_NEGATIVE_COOKIE OWN_MANAGER_READ=1 DIFFERENT_TOKEN=1' }).Count -eq 1
+        }
+        if ($scenario -eq 'history-revalidation-post') {
+          $pass = $pass -and @($lines | Where-Object { $_ -ceq 'T097_NEGATIVE_RESPONSE slot=1 METHOD=POST CORRELATED_HTML200=1' }).Count -eq 1
+        }
+        if ($scenario -in @('history-revalidation-timeout-unknown','history-revalidation-timeout-reconfirmed')) {
+          $fresh = [int]($scenario -eq 'history-revalidation-timeout-reconfirmed')
+          $pass = $pass -and @($lines | Where-Object { $_ -ceq 'T097_NEGATIVE_REPEAT_UNKNOWN SAME_ORIGINAL_DEADLINE=1' }).Count -eq 1 -and
+            @($lines | Where-Object { $_ -cmatch ('^T097_NEGATIVE_DEADLINE ORIGINAL_5000MS=1 OBSERVED_TICK_LAG_MS=(100|[1-9]?[0-9]) FRESH_READ=' + $fresh + '$') }).Count -eq 1
+          if ($fresh) {
+            $pass = $pass -and @($lines | Where-Object { $_ -ceq 'T097_NEGATIVE_RECONFIRMED A=1 ORIGINAL_DEADLINE_REQUIRED=1' }).Count -eq 1 -and
+              @($lines | Where-Object { $_ -ceq 'T097_NEGATIVE_FRESH_READ REAL_RESULT=1 ORIGINAL_CONTINUATION=1 HELD=1' }).Count -eq 1
+          }
+        }
+      }
+      if ($scenario -in @('history-revalidation-terminal','history-revalidation-preheaders','history-revalidation-before-start')) {
+        $lines = @(Get-Content -LiteralPath "$caseRoot\fixture.out")
+        $terminal = [int]($scenario -eq 'history-revalidation-terminal')
+        $beforeStart = [int]($scenario -eq 'history-revalidation-before-start')
+        foreach ($marker in @(
+            'T097_REVALIDATION_INITIAL REAL_COOKIE=1 REAL_HTML_IDENTITY=1 REAL_READY=1',
+            "T097_REVALIDATION_SETUP terminal=$terminal before_start=$beforeStart REAL_NATIVE_START=1 RESPONSE_GET=$terminal",
+            'T097_REVALIDATION_UNKNOWN EFFECTIVE_NETWORK=0 NEW_NONCE=0 NEW_ACTIVATION=0',
+            'T097_REVALIDATION_RESPONSE slot=0 EXACT_ROUTE=1 GET=1 HTML200=1 GENERATION_TAG=1',
+            'T097_REVALIDATION_RESPONSE slot=1 EXACT_ROUTE=1 GET=1 HTML200=1 GENERATION_TAG=1',
+            'T097_REVALIDATION_PASS GETS=2 NEW_ADMISSION=1 EFFECTS=0')) {
+          $pass = $pass -and @($lines | Where-Object { $_ -ceq $marker }).Count -eq 1
+        }
+        $pass = $pass -and (Get-Item -LiteralPath "$caseRoot\fixture.err").Length -eq 0
+        if ($terminal) {
+          $pass = $pass -and @($lines | Where-Object { $_ -ceq 'T097_REVALIDATION_OLD_CALLBACK DELIVERED_ONCE=1 INERT=1 NEW_SNAPSHOT=1' }).Count -eq 1
+        }
+        if ($beforeStart) {
+          foreach ($marker in @('T097_REVALIDATION_PRIOR_READY CONFIRMED_NETWORK_A=1 UNKNOWN=1',
+              'T097_REVALIDATION_START ORDINARY=1 UNKNOWN=1')) {
+            $pass = $pass -and @($lines | Where-Object { $_ -ceq $marker }).Count -eq 1
+          }
+        }
+      }
       if ($scenario -eq 'shared-reader-session') {
         $sharedLines = @(Get-Content -LiteralPath "$caseRoot\fixture.out")
         foreach ($phase in 0..2) {

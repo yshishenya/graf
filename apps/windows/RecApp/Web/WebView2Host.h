@@ -338,6 +338,9 @@ private:
         std::uint64_t authGeneration = 0, documentGeneration = 0, revision = 0;
     };
     UserTimeRead userTimeAccount_;
+    // Comparison only: the last confirmed NETWORK tuple, never local/DOM identity.
+    UserTimeRead historyNetworkAccount_;
+    static bool sameNetworkAccount(const UserTimeRead&, const UserTimeRead&) noexcept;
     UserTimeRead localAccount_;
     UserTimeRead localDocumentAccount_;
     std::shared_ptr<const ProtectedUploadQueueValue> protectedLocalValue_;
@@ -483,6 +486,15 @@ private:
     std::function<void(std::string_view)> nativeFreshHistory_;
     void cancelHistoryIntent() noexcept;
     void clearHistorySession() noexcept;
+    struct AccountNavigation {
+        std::uint64_t id, generation, startedAt;
+        std::string url;
+    };
+    std::optional<AccountNavigation> accountNavigation_;
+    std::uint64_t navigationStartedAt_ = 0;
+    bool ordinaryNavigation_ = false;
+    void clearAccountNavigation() noexcept;
+    [[nodiscard]] bool checkAccountNavigation(std::uint64_t now);
     [[nodiscard]] bool historyBusy() const noexcept { return historyStage_ != HistoryStage::idle; }
     [[nodiscard]] bool meetingHistoryExit() const;
     void requestHistoryNavigation(bool back);
