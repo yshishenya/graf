@@ -37,28 +37,30 @@ def test_playback_read_contract_is_durable_and_has_no_repair_mutation(client) ->
     assert set(playback_paths) == {
         "/api/v1/cabinet/meetings/{meeting_id}/playback",
         "/api/v1/cabinet/shared-meetings/{meeting_id}/playback",
+        "/api/v1/cabinet/public-shares/{share_token}/playback",
     }
     assert all(set(operations) == {"get"} for operations in playback_paths.values())
-    operation = playback_paths["/api/v1/cabinet/meetings/{meeting_id}/playback"]["get"]
-    range_parameter = next(
-        parameter for parameter in operation["parameters"] if parameter["name"] == "Range"
-    )
-    assert range_parameter["in"] == "header"
-    assert range_parameter["required"] is False
-    responses = operation["responses"]
-    assert {"200", "206", "416", "503"} <= set(responses)
-    for status_code in ("200", "206"):
-        assert responses[status_code]["content"]["audio/mp4"]["schema"] == {
-            "type": "string",
-            "format": "binary",
-        }
-        assert "Accept-Ranges" in responses[status_code]["headers"]
-        assert "Content-Disposition" in responses[status_code]["headers"]
-    assert "Content-Range" in responses["206"]["headers"]
-    for status_code in ("416", "503"):
-        assert responses[status_code]["content"]["application/problem+json"]["schema"] == {
-            "$ref": "#/components/schemas/Problem"
-        }
+    for operations in playback_paths.values():
+        operation = operations["get"]
+        range_parameter = next(
+            parameter for parameter in operation["parameters"] if parameter["name"] == "Range"
+        )
+        assert range_parameter["in"] == "header"
+        assert range_parameter["required"] is False
+        responses = operation["responses"]
+        assert {"200", "206", "416", "503"} <= set(responses)
+        for status_code in ("200", "206"):
+            assert responses[status_code]["content"]["audio/mp4"]["schema"] == {
+                "type": "string",
+                "format": "binary",
+            }
+            assert "Accept-Ranges" in responses[status_code]["headers"]
+            assert "Content-Disposition" in responses[status_code]["headers"]
+        assert "Content-Range" in responses["206"]["headers"]
+        for status_code in ("416", "503"):
+            assert responses[status_code]["content"]["application/problem+json"]["schema"] == {
+                "$ref": "#/components/schemas/Problem"
+            }
 
     source_roles = components["PlaybackReviewState"]["properties"]["included_sources"][
         "items"

@@ -103,6 +103,9 @@ async def test_observation_preserves_activity_outcome_and_never_repeats_financia
 async def test_observation_failure_has_only_fixed_log_code_and_external_cancel_survives(monkeypatch, caplog):
     from twobrain_rec_server.billing import reconciliation_observation as observation
 
+    # Alembic disables existing loggers when another test prepares its database.
+    monkeypatch.setattr(observation.logger, "disabled", False)
+    caplog.set_level("WARNING", logger=observation.logger.name)
     attempt = observation_environment().run(observation.current_reconciliation_attempt)
     monkeypatch.setattr(observation, "_persist_observation", AsyncMock(side_effect=RuntimeError("private-SQL-URL-contact")))
     assert await observation.record_reconciliation_observation(attempt, "started") is False

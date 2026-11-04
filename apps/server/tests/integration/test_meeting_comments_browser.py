@@ -36,8 +36,7 @@ def test_browser_comments_use_real_http_and_database(client):
                 .where(MeetingShareGrant.meeting_id == seeds.ready_id)
             ))
 
-    # The summary-only dialog no longer edits legacy recording roles. Their
-    # real HTTP/DB contract remains supported independently of that dialog.
+    # Opening and previewing summary sharing must preserve existing recording roles.
     for can_comment, can_edit in ((True, False), (True, True), (False, False)):
         response = client.patch(
             f"/api/v1/cabinet/meetings/{seeds.ready_id}/shares/{grant_id}/permissions",
@@ -96,8 +95,10 @@ const { chromium, webkit } = require(path.join(process.env.GRAF_NODE_MODULES, 'p
     await page.goto(process.env.GRAF_SYNTHETIC_URL);
     await page.locator('[data-detail-tab="recording"]').click();
     await page.locator('[data-share-dialog-open]').click();
-    const share = page.getByRole('dialog', { name: 'Поделиться итогами', exact: true });
+    const share = page.getByRole('dialog', { name: 'Поделиться встречей', exact: true });
     await share.waitFor();
+    await share.locator('[data-sharing-scope]:enabled').waitFor();
+    await share.getByRole('combobox', { name: 'Что доступно получателю', exact: true }).selectOption('summary_only');
     assert.equal(await share.locator('[data-share-existing-role], [data-share-comment-role]').count(), 0);
     assert.equal(await share.locator('audio, [data-playback-comment], [data-detail-tab="recording"]').count(), 0);
     await share.getByRole('tab', { name: 'По почте', exact: true }).click();

@@ -5144,7 +5144,8 @@ async def ensure_desktop_local_purge_task_route(
     return task
 
 
-@router.get("/cabinet/public-shares/{share_token}/playback", response_class=StreamingResponse)
+@router.get("/cabinet/public-shares/{share_token}/playback",
+            response_class=StreamingResponse, responses=PLAYBACK_RESPONSES)
 async def play_public_meeting_audio(request: Request, share_token: str,
     workspace_id: Annotated[UUID, Query()], media_version: Annotated[str, Query(pattern=r"^[0-9a-f]{24}$")],
     range_header: Annotated[str | None, Header(alias="Range")] = None,

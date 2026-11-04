@@ -639,3 +639,61 @@ T026 browser addressed login/URL-context/revoke404, T022 public audio15, T023 na
 **Готовность: T012 можно фиксировать как выполненную; T013 review/convergence часть готова к docs checkpoint. Выпуска не было и выпуск НЕ ПРИНЯТ.** T015/T016/T017 требуют frozen train/candidate, authoritative release-full/go, штатный CD, Developer ID/notarization/stapling/Gatekeeper/Sparkle, публичный readback и closeout. Ни этот review, ни17/0 requirements не дают права пропустить их.
 
 Оба requirement checklist перечитаны: security **9/0**, UX **8/0**, всего **17/0 требований**. Изменены только reviewer-owned security.md/ux.md/review-report.md; чужие изменения сохранены.
+
+## T028 — независимая проверка накопленных выпускных проверок
+
+Проверена рабочая копия `/tmp/graf-f292-validation-fix` от HEAD `5485b92ec3489b8c39b8e6f23c8667d8fa286b5f`, незакоммиченный T028 diff; задача связана с Issue #7930. Первоначальный и расширенный планы проверены до кода; прочитан предметный analyze. Это узкое согласование проверок и канонических контрактов с уже принятой реализацией, в прежнем полном high-risk/release lane. Проверка исходников **PASS, блокирующих замечаний нет**. Это не выпускная приёмка нового коммита.
+
+Проверены все изменения тестов, шаблонов, OpenAPI, матрицы RLS, tasks и issue-links. Четыре изменения продукта — только механические `ё → е` в двух шаблонах; логика продукта, авторизация, RLS policies и миграции не изменены. Сохранены:
+
+- Браузерный сценарий комментариев: актуальное имя панели, ожидание enabled scope и явный `summary_only`; прежние HTTP/DB проверки адресных прав, узкая проекция предпросмотра без transcript/audio/comments, весь цикл create/reload/reply/react/edit/resolve/reopen/delete и заключительное равенство сохранённых ACL. Устаревшие selectors не заменены удалением предметных проверок.
+- Контракт воспроизведения: точное множество с добавленным действующим публичным playback GET; только GET для всех playback paths; прежние Range/response и отсутствие repair mutation assertions сохранены.
+- Доступность: sharing явно проверяется как немодальная `aria-modal=false`/`dialog.show()`, остальные модальные окна сохраняют проверки `aria-modal=true`, ловушки фокуса и возврата; naming/combobox/listbox/фокус отправителя не удалены. Предыдущая живая приёмка клавиатуры/Escape/focus не переобъявляется новой проверкой GUI.
+- RLS: production/test/migration inventory сохраняют строгое равенство полного перечня. Добавлена ровно таблица `billing_reconciliation_observations` и источник0109. Матрица соответствует миграции: ENABLE/FORCE RLS, точная maintenance role/context/operation/feature, SELECT/INSERT, отсутствие request/worker доступа, запрет UPDATE/DELETE и блокировка downgrade при наличии истории. Категория test operator отличается от production billing, но общее покрытие совпадает; права0107 к0109 не переносятся.
+- Billing logging: `monkeypatch` временно снимает `logger.disabled`, `caplog` задаёт WARNING и оба механизма восстанавливают предыдущее состояние. Production logging не меняется. Проверки фиксированного безопасного кода без `exc_info` и распространения внешнего `CancelledError` сохранены. Probe показывает отключённый logger после Alembic `env.py:fileConfig`, поэтому одного уровня caplog недостаточно; диагностические print в diff отсутствуют.
+
+Независимое структурное сравнение YAML: удалённых paths **0**, operations **0**, component schemas **0**. Единственное удаление листа `$ref` — замена ответа публичного reader на `anyOf` из `PublicShareMeetingResponse` и прежнего `PublicShareSummaryResponse`; прежняя схема сохранена. Остальные additions соответствуют существующим F292 general-access/continue/playback, scopes, версиям и публичным speaker/transcript projections. Изменённые parameters добавляют существующие `scope` и `expected_version`. Точный runtime-equality test не ослаблен; он входит в прошедший предметный набор. `git diff --check` PASS.
+
+Прочитаны предоставленные журналы (reviewer сам тесты не запускал): RED **9 failures**, затем PostgreSQL focused **171 PASS**; отдельный настоящий WebKit→HTTP→PostgreSQL сценарий вместе с log unit **2 PASS**. В последнем логе есть `logging_order_probe=ERROR_disabled`; основной исполнитель подтвердил, что временный plugin перед вызовом ставил ERROR/disabled=True и затем удалён. Это проверка устойчивости теста к прежнему состоянию logger, не изменение production поведения. Журналы содержат cleanup isolated PostgreSQL container. Два предупреждения pytest/httpx не являются новыми failures.
+
+Контрольные суммы прочитанных доказательств SHA-256:
+
+| Журнал | SHA-256 |
+| --- | --- |
+| `graf-f292-t028-red.log` | `84606b6d29007c54de03419d246d1b6baf9b9f6a706625435d23f55beafcfed9` |
+| `graf-f292-t028-green.log` | `c60c492b7e3c375c574298206a2582aba02b46220442120d4b36fa9df17036ca` |
+| `graf-f292-t028-webkit-order.log` | `d18f4177e7dba1bfa0c6e55c91befa50b332332c42f08855d5aec9a986fe5665` |
+| `graf-f292-logging-probe-combined.log` | `4773b902c49cf8e301852fb463a14abdc33e8b2ec710f2d7f0fa87fb1c621bd9` |
+
+Дополнительно прочитаны готовые `validation.md` и `changes/unreleased/F292.yaml`: результаты9/155→171+2, объём исправлений и граница нового full изложены согласованно с diff/журналами. Они не заявляют production или выпуск PASS. Внешнее состояние abandoned кандидата здесь отдельно не проверялось.
+
+**Остаток выпуска:** failed `release-full`41810155228 не становится успешным и кандидат5485 не принят. Новый commit требует собственных exact PR/base checks, нового frozen source/candidate, authoritative full и остальных FR-027 ворот. Этот review разрешает продолжить штатную проверку нового исходного состояния; production и публичный выпуск **НЕ ПРИНЯТЫ**.
+
+Оба reviewer-owned checklist перечитаны полностью: security **9 checked / 0 unchecked**, UX **8 checked / 0 unchecked**, всего **17/0 требований**. Checkbox state не менялся; он оценивает качество требований, не исход `release-full`. Reviewer изменил только собственный `review-report.md`, не менял код, спецификацию, план, tasks, Git/GitHub, коммиты или выпуск.
+
+## T028 — дополнение до кода: публичный playback contract
+
+Замечание PR7931 `discussion_r4466326041` выявило пропущенный в предыдущем source review пробел: добавление публичного пути в точное множество и синхронизация runtime OpenAPI сами по себе не проверяли полноту его ответов. Прежний контракт проверял Range/response только у owner GET. У публичного decorator отсутствует `responses=PLAYBACK_RESPONSES`; strict runtime equality поэтому мог закрепить пустой200. Предыдущий PASS не является доказательством полноты этого публичного API-контракта; до устранения замечания конечная проверка T028 требует дополнения.
+
+Прочитаны обновлённые plan/T028, общий `PLAYBACK_RESPONSES`, публичный handler и общий `playback_artifact`/range response builder. Общий объект описывает реальные200/206 audio/mp4 binary и заголовки,404/409/416/503 Problem. Публичный handler уже использует тот же playback_artifact, передаёт Range и public proof/media_version и возвращает artifact status/headers; добавление общего объекта к decorator соответствует действующему поведению и не меняет тело/права. **План дополнения PASS до кода.**
+
+Обязательные условия конечного review: предметный RED на публичном response contract до decorator; все прежние Range/200/206/416/503 проверки выполняются для каждого из трёх точных GET, без ослабления множества/GET-only/схем/заголовков; изменения handler ограничены decorator; canonical OpenAPI пересоздаётся из runtime с сохранением порядка и строгого equality; diff не удаляет операции/схемы. Реальные public Range/revoke/media fence проверки остаются. Затем нужны новые предметные результаты и exact PR/base gates нового SHA, далее новый candidate/full; старые171+2 и review не подменяют их.
+
+Reviewer не менял plan/tasks/API/tests/GitHub. Checklist state сохранён: security **9/0**, UX **8/0**, всего **17/0 требований**. Публичный выпуск остаётся **НЕ ПРИНЯТ**.
+
+## T028 — конечная проверка дополнения публичного playback
+
+Проверен незакоммиченный diff от `0fce3e6f1b81ce6dc3510fcd5b36f19ae8b68b11` в `/tmp/graf-f292-validation-fix`, включая API decorator, контракт, canonical OpenAPI, plan/tasks, validation и fragment. **Дополнение source review PASS, блокирующих замечаний нет; выявленный пробел публичного API-контракта устранён.** Это завершает предметное source review T028 вместе с ранее принятым основным срезом; новые exact PR и выпускные ворота остаются отдельными.
+
+Единственная правка API-кода — `responses=PLAYBACK_RESPONSES` в decorator публичного playback GET; тело handler и все зависимости/аргументы неизменны. Прежние Range/header/200/206/416/503 assertions перенесены без удаления в цикл по всем playback paths; точное множество трёх путей и GET-only сохранены. Проверка публичного маршрута теперь падает при прежних200/422. Common response contract соответствует уже проверенному общему обработчику потока, не создаёт новых прав или ответвлений.
+
+Независимое структурное сравнение YAML с HEAD: изменения находятся **только** в responses публичного playback GET — добавлены206/404/409/416/503,200 binary content/headers и уточнено200 description. Удалений **0**, изменений остальных операций/схем **0**. Читаемый diff67+/1 не скрывает пересборку иных API. Strict runtime equality test сохранён и входит в прошедшую группу. `git diff --check` PASS.
+
+Прочитан предметный RED: **1 failed / 2 passed**, ошибка на публичных responses `{200,422}` вместо обязательных200/206/416/503. Прочитан итоговый PostgreSQL focused log: **40 passed**, collection digest `058b1a269e68c97b8f5db2803fd8256eb8d66e6f4136e7eb7473d71bf5653b57`, cleanup isolated container PASS. Набор включает playback contract, точное OpenAPI equality, реальные public Range/revoke/media-fence и ограничения file permissions/summary-only. Reviewer сам тесты/GUI не запускал; новое GUI подтверждение для decorator metadata не требуется. Два предупреждения pytest/httpx прежние. Validation/fragment согласованы с diff и честно отделяют прошлые171+2 от нового40 и будущих exact/full результатов.
+
+SHA-256 прочитанных журналов:
+
+- `graf-f292-t028-playback-contract-red.log`: `98c153ca4eb12914b08ae50e2b7e4e112f8f3e12155881b5bb58f98c8e74b86a`.
+- `graf-f292-t028-playback-contract-green.log`: `8c8f246002e201e3b3eb0bafb25e3f39a073e3cbe677aaa2d4f728da28d16f31`.
+
+Прежний failed authoritative run41810155228 и5485 кандидат остаются неприемлемыми для выпуска. Будущий commit должен получить собственные exact SHA/base PR checks и resolution замечания, затем новый frozen candidate/full и FR-027. Публичный выпуск **НЕ ПРИНЯТ**. Checklist state перепроверен: security **9 checked / 0 unchecked**, UX **8/0**, всего **17/0 требований**; это качество требований, не release PASS. Изменён только reviewer-owned report; чужие изменения сохранены.
