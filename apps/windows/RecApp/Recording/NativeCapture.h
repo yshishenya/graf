@@ -1288,6 +1288,8 @@ public:
         if (!observation.complete || observation.value != expectedSnapshot) return std::nullopt;
         auto deletion = std::allocate_shared<DeletionWork>(CustodyAllocator<DeletionWork>{});
         deletion->snapshot = expectedSnapshot; deletion->serverTask = task;
+        if (deletionFlight_) deletion->origin = std::string_view(deletionFlight_->config.baseOrigin);
+        else { const auto origin = DesktopHttpConfig{}.baseOrigin; deletion->origin.assign(origin.begin(), origin.end()); }
         deletion->user = std::string_view(currentAccount_->userId);
         deletion->workspace = std::string_view(currentAccount_->workspaceId);
         if (continuationId) {
@@ -3001,7 +3003,7 @@ private:
                             else {
                                 auto removed = owner->purgeLocalPackage(value->items()[deletion->index].localRecordingId,
                                     ticket.baseGeneration, *copy, now, cancellation,
-                                    deletion->serverTask ? &*deletion->serverTask : nullptr, deletion->user, deletion->workspace);
+                                    deletion->serverTask ? &*deletion->serverTask : nullptr, deletion->user, deletion->workspace, deletion->origin);
                                 ticket.error = removed.error; ticket.nativeError = removed.nativeError;
                                 ticket.changed = removed.ok() && *removed.value;
                             }

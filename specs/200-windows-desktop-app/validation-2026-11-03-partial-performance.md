@@ -2310,3 +2310,117 @@ Phase21/T121 — C0/H0. Подтверждено121 задач/93 checked/28 ope
 задачи и reviewer-owned checklists не менялись. Новая T121 сначала требует
 уточнения spec/contract/plan/quickstart, review/analyze и issue sync; внешний
 issue до нового analyze не создавался. Продуктовый Windows allowlist не менялся.
+
+## 2026-11-04 — исходная регрессия перед T117 delete/purge cleanup
+
+На source HEAD `c3c07df72d5b5599393cd97286b06d620a046320` выполнен прежний
+`NativeProtectedPurgeFlight`: 1/1 PASS, 88,28s, CTest/host exit0. Новые тесты
+cleanup ещё не применены; это исходная регрессия, не RED/GREEN нового пути.
+Проверены прежние 13 режимов на искусственных данных, включая cold proof;
+devices/audio/real network0. Source225 до/после, все24 Debug PE и config110
+не изменены; source/build mutations отсутствуют. Installed0.1.0.15 сохранил
+EXE `e6094e4de8b919ba94db652eae4f11ef9762c89d4d0b16f23e19f9342bfa02c5`.
+Own processes/builds0, штатное завершение, forced cleanup0.
+Внешний result SHA256:
+`dce0f7d483cca4a104a5a89cb5f3b411fee793a94238491e4813eaaef72e0aef`.
+T117, установленное приложение, hardware и release остаются открытыми.
+
+## 2026-11-04 — требования T121, текущий analyze и добавочная issue sync
+
+Применён проверенный docs-r2: spec, bridge§11, plan и quickstart. Patch SHA256
+`50a3e969dd779d2d5b7ed4178c221df10573c2b86fbcdfc84c4b46ffc6b42ab2`.
+Независимое исходное review C0/H0; M1 о различии UUID syntax/account authority
+исправлено. Дополнено native own-session cookie reconciliation публичного
+reader без bridge. Точный текущий requirements/checklist gate T117/T121 —
+`review-2026-11-04-t117-delete-purge-current-gate-source.md`:477 checked/0 open,
+маркеры сохранены. Main analyze текущей дельты после tasks: C0/H0/M0;
+22FR/10SC,121 task/93 checked/28 open. Новые технические и пользовательские
+сценарии относятся к T121; старые T106/T119 и storage scope не меняются.
+Findings реализации в открытых tasks не выдаются за принятый код.
+
+После поиска открытых/закрытых issues через GitHub создан единственный владелец
+T121 — #7933. Ensure PASS без изменения управляемых файлов; validate PASS,
+272 Spec Kit issues. Дополнена issue-map; закрытий/новых task markers нет.
+Продуктовый handler/allowlist T121 ещё не изменён. Приёмка runtime, установленного
+MSIX, аппаратуры и release остаётся отдельной.
+
+## 2026-11-04 — T117 test-only r2: ранний отказ, не целевой RED
+
+Test source `c02d301fb1aa12f1d8b8cebd70cd36a265005ec25e05e07d54fcd7115233ce5e`
+собран: build0. Старые13 purge-flight режимов прошли; новый сценарий остановился
+на немедленном beginProtectedLocalPurgePass, до проверки cleanup. Case8/host1;
+qualified_red=false. Причина конкретного отказа не установлена этим журналом.
+Terminal guard подтвердил source225/config110, неизменность23 посторонних PE,
+installed hash, source attributes, own/build processes0; forced cleanup0.
+Production не изменён. Отдельный reviewed r3 меняет только admission ожидание
+на существующий waitFor/pollUploads с прежними10s/CTest240, без обхода guards.
+R2 сохраняется как неквалифицированный отказ, не доказательство дефекта cleanup.
+
+## 2026-11-04 — T117 delete_purge: квалифицированный r3 RED → GREEN
+
+Reviewed test-only r3 `699af8ac70100a5967be1563c270d5c8ff72fe7f51cce26a844a495b25ca407c`
+на прежней production: build0/CTest8/host0,88,55s. Все13 старых режимов прошли;
+новый positive прошёл adopted intent/generation, purge ACK и package absence,
+затем отказал на точном assert4911: migration original остался. Это целевой
+RED, независимо квалифицированный reviewer, не ранний admission/fixture отказ.
+Result SHA256 `d125084a532bb46211a4991bac23a949015ea7b7293c5dc0e314a77931456c7f`.
+
+После RED применён reviewed production patch
+`955e03ccc738117a0b0906d2b5a3c2c0e3055993d218fe699dc5f38c63ab6587`:
+NativeCapture передаёт origin в существующий server-purge continuation;
+StoreOwner связывает cleanup с одной accepted operation/receipt, точным
+account/workspace/origin и правом на все historical rows. Существующая
+authorization не перепривязывается. BOTH pending до unlink и actual absence
+до BOTH complete сохранены; history/job leases освобождены до recycle.
+Новый parser/schema/очередь и startup/GC cleanup не добавлены.
+
+Тот же test r3 с новым кодом: build/CTest/host0,1/1 PASS140,35s при прежнем
+CTest240. Прежние13 и новые10 режимов, включая cold recovery/negative rights,
+прошли. Result SHA256:
+`a2c01e70020e456cfc18f58026948841d038e115479fc3abdb37279fcde215b2`.
+Source225/config110 exact; изменён только Native test PE,23 прочих сохранены;
+installed0.1.0.15/EXE hash и attributes сохранены, own/build processes0,
+forced cleanup0. Это generated/source-qualified срез, не installed/hardware
+приёмка. Partial-unlink/restart, busy/OOM/cancel внутри нового cleanup пути
+и следующий unrelated purge не объявляются покрытыми этими10 режимами.
+Неизвестный пользовательский quarantine не читался/не менялся. T117/T118 открыты.
+
+## 2026-11-04 — T117: соседние пути и полная прежняя migration-pair регрессия
+
+После GREEN на тех же225 исходниках пересобраны существующие
+ProtectedCustodyFilesTests и NativeCaptureStartupTests: build0.
+NativeCaptureStartupTests, NativeProtectedReadModel и
+NativeProtectedLocalRemoval:3/3 PASS,88,30s. Затем отдельный прежний
+ProtectedCustodyFilesTests --migration-pair завершился exit0, с обоими
+linked_end/protected_end. Проверены прежние schema1/schema2 queue/package
+матрицы, включая allocation/cancellation cuts и retry; эти проверки не
+подменяют ещё открытые fault cases нового server-purge cleanup.
+
+Host0/terminal=true; source225 до/после, configuration110 неизменна.
+Из24 Debug PE пересобраны только два выбранных target; остальные22 сохранены,
+включая GREEN Native EXE. Built/post PE совпадают, source attributes сохранены.
+Installed0.1.0.15/EXE hash прежний, own processes/builds0, forced cleanup0.
+Внешний result SHA256:
+`2dee0086c73908ff2585b22c4ff881db2c2b1e7ae54fc7f648e66101af8a178d`.
+Независимое SOURCE/runtime и Ponytail review T117 production-r2/test-r3:
+C0/H0; новые parser/schema/framework не добавлены. Полная F200, installed,
+физическая x64, 60min/AEC, публичная подпись и release не приняты.
+
+## 2026-11-04 — T117: полная Release x64 сборка текущего исправления
+
+GrafWindows.sln /t:Rebuild /p:Configuration=Release /p:Platform=x64:
+build0/host0, terminal=true, active builds0. Проверено реальное обновление
+AppMain.obj и EXE, machine0x8664; test payload markers отсутствуют.
+Production EXE SHA256:
+`0b4ef451a37dbb1ed0fa7ab3b8f73d7a4b23ac9e5d4fe8d1cb167c6713b728b0`.
+Result SHA256:
+`69d57f752a7f16743a013dd646823b7ffc1367af22546ff1159fbd20b4dec9a1`.
+Все225 исходников до/после и в Main совпадают; все24 Debug test PE и
+установленный EXE сохранены. AEC3 проверен существующим provenance validator.
+Установка/запуск, чтение аудио, сеть и изменение доверия к сертификатам0.
+
+Scoped convergence сверила остаток T117 и требования T121 с действующими
+владельцами: новых дублирующих задач0;121 task/93 checked/28 open. Это не
+полная сходимость F200. T117/#7445, T118/#7446 и T121/#7933 остаются открытыми.
+Governance и frozen doctor проходят с закреплённым проектным CLI1.0.7;
+глобальный CLI1.2.6 не заменялся. YAML fragment и whitespace проверки PASS.

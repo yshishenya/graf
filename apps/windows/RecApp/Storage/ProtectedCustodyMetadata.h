@@ -56,7 +56,7 @@ public:
     [[nodiscard]] CustodyFileResult<bool> purgeLocalPackage(std::string_view localId, std::uint64_t expectedGeneration,
         ProtectedUploadQueueValue& candidate, std::uint64_t nowMs, std::shared_ptr<const std::atomic<bool>> cancellation,
         const BasicLocalPurgeTask<CustodyString>* serverTask = nullptr,
-        std::string_view user = {}, std::string_view workspace = {});
+        std::string_view user = {}, std::string_view workspace = {}, std::string_view origin = {});
     // Worker-only, after EOS/native consumer drain. Actual authenticated short
     // intent and absence of queue references authorize this exact package only.
     // Retain unresolved ownership on refusal/error; recoveryRequired after a
@@ -96,11 +96,12 @@ private:
         const CustodyContext& bootstrapContext, std::uint64_t queueGeneration,
         std::shared_ptr<const ProtectedCustodyPackagePair>, std::shared_ptr<const std::atomic<bool>>,
         std::shared_ptr<const ProtectedCustodyMigrationPair>);
-    // Explicit native owner-confirmation continuation only; never startup/GC.
+    // Explicit owner confirmation or confirmed server-purge continuation; never startup/GC.
     // The worker must drain consumers and bind the UI epoch/account before entry.
     [[nodiscard]] CustodyFileResult<bool> cleanupMigrationOriginals(std::string_view directory,
         const CustodyId& transaction, std::string_view user, std::string_view workspace,
-        std::uint64_t expectedQueueGeneration, std::shared_ptr<const std::atomic<bool>>);
+        std::uint64_t expectedQueueGeneration, std::shared_ptr<const std::atomic<bool>>,
+        const BasicLocalPurgeTask<CustodyString>* serverTask = nullptr, std::string_view origin = {});
     [[nodiscard]] CustodyFileResult<bool> revalidatePackageState(
         std::shared_ptr<const ProtectedCustodyPackagePair>, std::shared_ptr<const std::atomic<bool>>);
     // Defined beside the existing charged queue decoder, not a second parser.

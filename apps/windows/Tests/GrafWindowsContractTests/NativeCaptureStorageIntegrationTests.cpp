@@ -1060,6 +1060,11 @@ struct NativeCaptureStorageTestPeer {
     static bool deletionFlightRetired(const NativeCapture& capture) {
         return !capture.deletionFlight_ && !capture.deletionThread_.joinable() && !capture.deletionContinuationId_;
     }
+    static std::optional<NativeCapture::QueueMutationTicket> purgeIntentTicket(const NativeCapture& capture) {
+        if (!capture.deletionFlight_ || capture.deletionFlight_->phase != NativeCapture::DeletionFlight::Phase::purgeIntent)
+            return std::nullopt;
+        return capture.protectedDeletionTicket(capture.deletionFlight_->waiting.id);
+    }
     static bool deletionPurgeWaiting(const NativeCapture& capture) {
         return capture.deletionFlight_ && capture.deletionFlight_->phase == NativeCapture::DeletionFlight::Phase::purge;
     }
@@ -4740,6 +4745,209 @@ void nativeMigratedLocalRemoval() {
     }
     assert(waitFor([&] { return CustodyOwnedMemory::usedBytes() == baseline; }));
     std::fputs("NATIVE_MIGRATED_LOCAL_REMOVAL intent_adopted=1 actual_recycle=1 purge_adopted=1 cold=1 root_history_unchanged=1 originals_retained=1 unrelated_ops_ack_unchanged=1 device_audio=0 real_network=0\n", stderr);
+}
+
+// Real migrated custody and Native HTTP/adoption; only generated legacy bytes.
+void nativeMigratedDeletePurge() {
+    const auto baseline = CustodyOwnedMemory::usedBytes();
+    for (unsigned mode = 0; mode != 10; ++mode) {
+        Fixture fixture;
+        auto seed = seedMigrationReadModel(fixture.root, true);
+        constexpr auto user = "11111111-1111-4111-8111-111111111111";
+        constexpr auto foreign = "99999999-9999-4999-8999-999999999999";
+        constexpr auto workspace = "22222222-2222-4222-8222-222222222222";
+        constexpr auto meeting = "88888888-8888-4888-8888-888888888888";
+        const std::string actor = mode == 2 ? foreign : user;
+        const auto packagePath = fixture.root / L"legacy-package";
+        const auto originalPath = fixture.root / L".custody-v1" / L"legacy.originals" / L"ledger";
+        const auto operationId = DesktopApiClient::deletionOperationId(DeletionScope{user, workspace}, DeletionTarget::meeting, meeting);
+        const auto taskJson = [](bool acknowledged = false) {
+            return std::string(R"({"task_id":"77777777-7777-4777-8777-777777777777","meeting_id":"88888888-8888-4888-8888-888888888888","task_type":"purge_local_buffers","state":")") +
+                (acknowledged ? "acknowledged" : "pending") + R"(","expires_at":"2026-12-20T12:00:00Z"})";
+        };
+        auto task = DesktopApiClient::decodeLocalPurgeTask<CustodyString>(taskJson()); assert(task);
+        const std::string receipt = R"({"receipt_type":"meeting_deletion","request_id":"55555555-5555-4555-8555-555555555555","meeting_id":"88888888-8888-4888-8888-888888888888","phase":"accepted","local_recording_id":"legacy-package"})";
+        std::async(std::launch::async, [&] {
+            std::string json;
+            DesktopUploadQueueService queue(fixture.root / L"unused.json", fixture.root,
+                [&](const auto&, const auto&, std::string_view bytes) { json.assign(bytes); return true; });
+            queue.setClock([] { return 2000; });
+            for (unsigned i = 0; i != (mode == 3 ? 2U : 1U); ++i) {
+                auto path = packagePath;
+                if (i) {
+                    // Reuse the private-DACL generated fixture, then move only
+                    // our generated package before any protected owner exists.
+                    auto extra = seedMigrationReadModel(fixture.parent / L"extra", true);
+                    path = fixture.root / L"legacy-other";
+                    std::filesystem::rename(extra.package.packageDirectory, path);
+                    const auto manifestPath = path / L"manifest.json";
+                    std::ifstream input(manifestPath, std::ios::binary); assert(input);
+                    std::string manifest(std::istreambuf_iterator<char>(input), {}); input.close();
+                    const auto at = manifest.find("legacy-session"); assert(at != std::string::npos);
+                    manifest.replace(at, 14, "legacy-other-session");
+                    std::ofstream output(manifestPath, std::ios::binary); output << manifest; assert(output);
+                }
+                UploadCustodyItem row{i ? "legacy-other-recording" : "legacy-recording", i ? "legacy-other" : "legacy-package",
+                    i ? "legacy-other-session" : "legacy-session", path, UploadQueueStatus::needsAuth, {11, 22, 33}, 3, "auth_required",
+                    mode == 6 ? "" : user, mode == 6 ? "" : workspace};
+                assert(queue.enqueue(row));
+                BasicDesktopTransportResult<std::string> uploaded; uploaded.status = DesktopTransportStatus::uploaded;
+                uploaded.serverTruth.emplace(); uploaded.serverTruth->localRecordingId = row.localRecordingId;
+                uploaded.serverTruth->meetingId = i ? foreign : meeting; uploaded.serverTruth->meetingExists = true;
+                assert(queue.applyUploadResult(row.localRecordingId, uploaded));
+            }
+            if (mode == 5 || mode == 7) {
+                const std::string origin = mode == 5 ? "https://example.test" : "https://rec.2brain.pro";
+                const DesktopAccountIdentity owner{user, workspace};
+                const auto plan = queue.planDeletionSelection({{DeletionTarget::ownOrigin, "legacy-package"}}, owner, origin);
+                assert(plan.requests.size() == 1);
+                if (mode == 5) assert(queue.applyDeletionAnswer(plan.requests[0], owner, origin, {200, receipt}));
+            }
+            const auto fields = DesktopApiClient::jsonObjectFields(json); assert(fields);
+            std::string items(fields->at("items"));
+            const std::string access = ",\"access_state\":null";
+            for (auto at = items.find(access); at != std::string::npos; at = items.find(access)) items.erase(at, access.size());
+            seed.ledger = std::string(R"({"schema_version":"desktop-upload-queue.v3","items":)") + items +
+                ",\"updated_at_ms\":" + std::string(fields->at("updated_at_ms")) + ",\"deletion_operations\":" +
+                std::string(fields->at("deletion_operations")) + R"(,"purge_acknowledgements":[]})";
+            std::ofstream output(fixture.root / L"desktop-upload-queue.v2", std::ios::binary);
+            output << seed.ledger; assert(output && !std::filesystem::exists(fixture.root / L".custody-v1"));
+        }).get();
+        std::atomic<unsigned> requests{0}, successfulAcks{0};
+        std::atomic<bool> listed{false}, releaseList{false};
+        const DesktopHttpTransport::UploadSend account = [&](const auto&, const auto& request) -> DesktopHttpTransport::UploadResponse {
+            if (request.path == "/desktop/settings/spaces") return {200, R"({"spaces":[{"id":"22222222-2222-4222-8222-222222222222","active":true}]})"};
+            assert(request.path == "/api/v1/auth/me");
+            return {200, std::string(R"({"user_id":")") + actor + R"(","workspace_id":"22222222-2222-4222-8222-222222222222","active_session_id":"33333333-3333-4333-8333-333333333333"})"};
+        };
+        const DesktopHttpTransport::ProtectedUploadSend wire = [&](const auto& config, const auto& request) -> DesktopHttpTransport::ProtectedUploadResponse {
+            const auto response = [](std::string_view body, unsigned status = 200) {
+                DesktopHttpTransport::ProtectedUploadResponse answer; answer.status = status; answer.body.assign(body.begin(), body.end()); return answer;
+            };
+            assert(config.scopedAccount && config.confirmedIdentity && std::string_view(config.scopedAccount->userId) == actor);
+            if (request.path == DesktopApiClient::notificationContextPath)
+                return response(std::string(R"({"user_id":")") + actor + R"(","workspace_id":"22222222-2222-4222-8222-222222222222","recording_deletion_protocol_version":1})");
+            if (request.path == DesktopApiClient::meetingDeletionPath<CustodyString>(meeting)) {
+                ++requests; assert(request.method == "POST");
+                if (mode == 1) return response("{}", 503);
+                if (mode == 8) return response("{}", 403);
+                auto body = receipt;
+                if (mode == 4) { const auto at = body.find(meeting); assert(at != std::string::npos); body.replace(at, std::strlen(meeting), foreign); }
+                return response(body);
+            }
+            if (request.path == DesktopApiClient::purgeTasksPath) {
+                assert(request.method == "GET"); listed.store(true);
+                if (mode == 9) while (!releaseList.load()) Sleep(1);
+                return response(std::string(R"({"tasks":[)") + taskJson() + "]}");
+            }
+            if (request.path == DesktopApiClient::localPurgeAckPath<CustodyString>(task->taskId)) {
+                const bool success = request.body.find("local_artifacts_deleted") != CustodyString::npos;
+                if (success) ++successfulAcks;
+                auto json = taskJson(success);
+                if (!success) { const auto at = json.find("pending"); assert(at != std::string::npos); json.replace(at, 7, "failed"); }
+                return response(json);
+            }
+            // An unrelated lifecycle refresh can be scheduled after a flight
+            // retires; explicit transient failure grants no proof and no real IO.
+            assert(request.path == DesktopApiClient::lifecyclePath);
+            return response("{}", 503);
+        };
+        CustodyContext context{};
+        Snapshot beforePurge;
+        std::uint64_t generation = 0, authorizationGeneration = 0;
+        {
+            NativeCapture capture(fixture.root, {std::make_shared<GeneratedAec>(), false}, account, wire);
+            capture.startStorageValidation(); assert(waitFor([&] { return NativeCaptureStorageTestPeer::ready(capture); }));
+            assert(NativeCaptureStorageTestPeer::opened(capture) && !NativeCaptureStorageTestPeer::generation(capture));
+            assert(!capture.localQueueComplete() && !capture.readiness().storageWritable);
+            capture.pollUploads(); assert(capture.localQueueComplete());
+            { const auto work = NativeCaptureStorageTestPeer::storageWork(capture); std::lock_guard<std::mutex> lock(work->mutex); context = work->context; }
+            assert(snapshot(fixture.root).at(L".custody-v1\\legacy.originals\\ledger") == sha256(seed.ledger));
+            capture.setAuthSessionToken("generated-migrated-purge-owner");
+            assert(waitFor([&] { NativeCaptureStorageTestPeer::pollAccount(capture); return capture.currentAccount().has_value(); }));
+            if (mode != 2 && mode != 5 && mode != 6 && mode != 7) {
+                const auto ticket = capture.beginProtectedDeletionSelection({{DeletionTarget::ownOrigin, "legacy-package"}}); assert(ticket);
+                std::optional<NativeCapture::DeletionCompletion> completion;
+                assert(waitFor([&] { capture.pollUploads(); completion = capture.takeProtectedDeletionCompletion(ticket->id); return completion.has_value(); }));
+                const auto value = NativeCaptureStorageTestPeer::projection(capture); assert(value);
+                const auto found = std::find_if(value->deletionOperations().begin(), value->deletionOperations().end(),
+                    [&](const auto& operation) { return std::string_view(operation.operationId) == operationId; });
+                assert(found != value->deletionOperations().end());
+                const bool accepted = mode == 0 || mode == 3 || mode == 9;
+                assert(deletionPhaseIsAccepted(found->phase) == accepted);
+                if (accepted) assert(found->receiptRequestId == "55555555-5555-4555-8555-555555555555" &&
+                    found->actorUserId == user && found->workspaceId == workspace && found->serverOrigin == "https://rec.2brain.pro");
+            }
+            beforePurge = snapshot(fixture.root);
+            const bool beganPurge = waitFor([&] { capture.pollUploads(); return capture.beginProtectedLocalPurgePass(); });
+            if (!beganPurge) logQueueAdmission(capture, "migrated_purge", mode);
+            assert(beganPurge);
+            if (mode == 9) {
+                const bool reached = waitFor([&] { capture.pollUploads(); return listed.load(); });
+                if (!reached) releaseList.store(true);
+                assert(reached); capture.setAuthSessionToken({}); releaseList.store(true);
+            }
+            assert(waitFor([&] {
+                NativeCaptureStorageTestPeer::pollStorage(capture);
+                const auto intent = NativeCaptureStorageTestPeer::purgeIntentTicket(capture);
+                if (mode == 0 && intent && intent->state == NativeCapture::QueueTicketState::pending) return false;
+                if (mode == 0 && intent && intent->state == NativeCapture::QueueTicketState::committed) {
+                    const auto value = NativeCaptureStorageTestPeer::projection(capture);
+                    assert(intent->kind == NativeCapture::QueueMutationKind::deletionIntent && intent->epoch == capture.authGeneration());
+                    assert(intent->context.objectId == context.objectId && intent->targetGeneration == NativeCaptureStorageTestPeer::generation(capture));
+                    assert(value && !value->items().empty() && value->items()[0].safeReason == "local_delete_pending");
+                    if (!authorizationGeneration) authorizationGeneration = intent->targetGeneration;
+                    else assert(authorizationGeneration == intent->targetGeneration);
+                }
+                capture.pollUploads();
+                return NativeCaptureStorageTestPeer::deletionFlightRetired(capture);
+            }));
+            const auto value = NativeCaptureStorageTestPeer::projection(capture); assert(value);
+            if (mode == 0) assert(authorizationGeneration != 0);
+            assert(value->localPurgeAcknowledged(*task) == (mode == 0));
+            assert(successfulAcks == (mode == 0 ? 1U : 0U));
+            assert(std::filesystem::exists(packagePath) == (mode != 0));
+            assert(std::filesystem::exists(originalPath) == (mode != 0) &&
+                "confirmed_full_scope_server_purge_must_cleanup_migration_originals");
+            if (mode != 0) {
+                const auto after = snapshot(fixture.root);
+                for (const auto& file : beforePurge) if (file.first.rfind(L".custody-v1\\queue\\", 0) != 0)
+                    assert(after.at(file.first) == file.second);
+            }
+            generation = NativeCaptureStorageTestPeer::generation(capture);
+            capture.shutdown(); assert(waitFor([&] { capture.pollUploads(); return capture.shutdownWorkDrained(); }));
+            assert(NativeCaptureStorageTestPeer::released(capture));
+        }
+        std::async(std::launch::async, [&] {
+            auto cancel = std::make_shared<std::atomic<bool>>(false);
+            auto bootstrap = ProtectedCustodyBootstrapPair::read(fixture.root, cancel); assert(bootstrap.ok());
+            assert((*bootstrap.value)->current().context.storeId == context.storeId);
+            for (const auto& slot : (*bootstrap.value)->slots()) assert(slot.mode == CustodyBootstrapMode::protectedStore && !slot.transactionId);
+            auto history = ProtectedCustodyMigrationPair::read(*bootstrap.value, cancel); assert(history.ok());
+            for (const auto& slot : (*history.value)->slots()) {
+                assert(slot.stage == (mode == 0 ? CustodyMigrationStage::complete : CustodyMigrationStage::switched));
+                if (mode == 0) {
+                    assert(slot.authorization && slot.authorization->kind == CustodyCleanupKind::deletePurge);
+                    const auto& authorization = *slot.authorization;
+                    assert(std::string_view(authorization.operationId.data()) == operationId && std::string_view(operationId) != std::string_view(task->taskId) &&
+                        operationId != "55555555-5555-4555-8555-555555555555");
+                    assert(std::string_view(authorization.actorUserId.data()) == user && std::string_view(authorization.workspaceId.data()) == workspace &&
+                        authorization.queueObjectId == context.objectId && authorization.queueGeneration == authorizationGeneration);
+                } else assert(!slot.authorization);
+            }
+        }).get();
+        const auto stable = snapshot(fixture.root);
+        {
+            NativeCapture cold(fixture.root, {std::make_shared<GeneratedAec>(), false}, account, wire); startAndAdopt(cold, generation);
+            assert(NativeCaptureStorageTestPeer::projection(cold)->localPurgeAcknowledged(*task) == (mode == 0));
+            cold.shutdown(); assert(waitFor([&] { cold.pollUploads(); return cold.shutdownWorkDrained(); }));
+            assert(NativeCaptureStorageTestPeer::released(cold));
+        }
+        assert(snapshot(fixture.root) == stable);
+        assert(stable.at(L"desktop-upload-queue.v2") == stable.at(L"desktop-upload-queue.v2.quarantine"));
+        assert(requests == ((mode == 2 || mode == 5 || mode == 6 || mode == 7) ? 0U : 1U));
+    }
+    assert(waitFor([&] { return CustodyOwnedMemory::usedBytes() == baseline; }));
 }
 
 void unknownRootIsPreserved() {
@@ -10055,6 +10263,7 @@ int main(int argc, char** argv) {
     }
     if (argc == 2 && std::string_view(argv[1]) == "--protected-purge-flight") {
         protectedPurgeFlight();
+        nativeMigratedDeletePurge();
         assert(waitFor([] { return CustodyOwnedMemory::usedBytes() == idleOwnedBytes; }));
         return 0;
     }

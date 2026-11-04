@@ -3813,3 +3813,64 @@ refactor не являются необходимой частью этого в
 копирует exact исходный ledger; v4 upgrade — последующая обычная queue mutation.
 Проверки/RED→GREEN — quickstart T088 persistent access, без новых CLI/deadlines;
 generated metadata/audio, devices/network 0, прежние budgets и fair cursor.
+
+## T121: shared-meeting handoff после master5485b92 — 2026-11-04
+
+Existing F200 high-risk auth/privacy/navigation slice, no deploy. Clarify уже
+определён пользовательским Mac parity и actual F292 source; новых продуктовых
+вопросов нет. Owner T121, нормативные поля/маршруты — bridge §11, поведение —
+spec Session2026-11-04. T106/T119 и storage T116–T118 не переопределяются.
+
+1. В existing Windows contract tests сначала RED для shared intent/route и
+   public capability isolation. Переиспользовать syntax-only UUID validator
+   WebViewRoutePolicy (upper/lowercase и nil), URL policy, single-instance activation, cabinet.open и actual document response
+   latch. Один небольшой typed value для intent допустим; отдельный router,
+   store, generic capability framework или новый JSON/server parser не нужен.
+2. В AppMain receiveActivation/applyPendingActivation отделить host shared-meeting
+   от attribution, сохранив его parser/store/sign-in поведение. Один latest-valid
+   pending shared intent; existing admission/lifetime/UI dispatch. Сначала
+   canonical route, затем обычная navigation: external URI не назначает account.
+3. WebViewRoutePolicy: единые strict validators §11 для создания и повторной
+   проверки routes. Не добавлять public reader в общий meetingDetail с bridge
+   по умолчанию. Явно отделить read-only navigation/media от native permissions;
+   isAllowedDownload не принимает public media/continuation или public blob.
+4. WebView2Host: успешный current correlated HTML response публичного reader
+   должен показываться без bridge. Сейчас completeDocumentNavigation допускает
+   cabinet только при allowsNativeBridge, а nativeActivateDocument требует bridge;
+   простое расширение route allowlist либо оставит fail, либо выдаст лишние права.
+   Использовать существующий unprivileged display lifecycle с точным current
+   response/completion proof, без ослабления T103 history GET fences и без
+   влияния на auth/payment states. После replacement старые native actions,
+   nonce, local publication/visibility/user-time callbacks не актуальны.
+5. Recovery: нынешний safeRecoveryUrl требует bridge и теряет query/fragment;
+   изменить только bounded shared-reader GET handling, не общий произвольный
+   next. Public login идёт через серверный continue; addressed login сохраняет
+   canonical query/fragment. Согласовать signInUrlBuilder, requested/safe URL,
+   redirect response и fresh intent из recovery, сохранив attribution T106.
+   Native cookie read сейчас запущен внутри bridge activation, а
+   reconcileAuthSessionForDocument требует ready/nonce/allowsNativeBridge.
+   Отделить existing own-cookie/session reconciliation для доказанно текущего
+   unprivileged public document от выдачи bridge; не включать bridge ради
+   refresh сессии. Сохранить native cookie read, generation/source/response
+   proof, stale cancellation и существующее account/context confirmation.
+   Прежние privileged-document checks не ослаблять; intent/DOM не назначают
+   account, а публичному reader не публикуются local rows/nonce/effects.
+6. Connected callers review перед SOURCE GO: navigate/begin/complete/activate,
+   source/history changes, native script installation/message validation,
+   userTimeDocumentCurrent/localContentDocumentCurrent, inventory publication,
+   visible/local recording/deletion/calendar handlers, downloads/new-window,
+   response/header correlation и cabinet/native lifetime. Header X-GRAF-Client
+   может выбирать embedded presentation, но не выдаёт bridge/account authority.
+   Shared-page media использует WebView network, без нового native fetch/cache.
+
+Технический риск, требующий реализации/доказательства, конкретен: текущий host
+связывает successful cabinet display с bridge authority. Это не неясный
+продуктовый выбор; ветка read-only должна пройти и portable, и actual SDK path.
+Windows manifest сейчас регистрирует только grafrec: Mac grafrec-dev нельзя
+объявить установленным Windows protocol без соответствующего package evidence.
+
+До кода обязательны independent requirements/design review, применимый текущий
+reviewer-checklist gate, analyze без unresolved C/H и issue sync по T121; данный
+проект не объявляет их пройденными и не создаёт issue. Затем focused source,
+synthetic/actual WebView2 и installed T097/T063 evidence отдельно. Никакой новой
+серверной схемы, бизнес-логики, public DTO или durable local storage.

@@ -1555,3 +1555,32 @@ invalidContent; это только первый dependency RED, не весь o
 Receipt остаётся monotonic, без receipt нет deletion/purge/ACK; счётчики DELETE/
 purge ACK=0, no auto cleanup. Это покрытие существующего T088, не отметка о
 полной T088/T117/T118, hardware, installed или release приёмке.
+
+## T121: scoped acceptance shared-meeting — 2026-11-04
+
+Prerequisites: принятые spec/bridge§11/plan, independent review/checklist gate,
+current analyze и issue sync. До этого runtime allowlist не меняется.
+Все IDs/token/media и записи искусственные. Полный URI/token/credentials и
+приватный ответ не попадают в diagnostics; evidence — checks/коды/счётчики.
+
+| Срез | Необходимые наблюдаемые проверки |
+| --- | --- |
+| Strict intent | два положительных варианта meeting/token; outcomes/recording; position 0/86400000; exact version; unknown/duplicate/encoded-duplicate/empty/both/neither, malformed UTF-8/percent, userinfo/port/path/fragment, overflow/overbound, token/version bounds, wrong registered scheme, URI cap отклонены без изменения pending |
+| UUID syntax vs authority | uppercase/lowercase UUID и nil проходят только синтаксический intent/route parse; оба emitted UUID canonical lowercase. Account/owner/доступ без независимого session/server proof не подтверждаются; nil/unknown resource не даёт local effects; прежние accountId checks неизменны |
+| Route/media | точные §11 paths/query/fragment; foreign origin/port, encoded separators, arbitrary next, extra keys, misplaced position запрещены; public audio Range/seek через existing server; summary-only не содержит full media; media не открывает native Save/export/blob |
+| Cold/repeat | actual cold activation до cabinet ready и single-instance redirect; один pending, latest valid wins, invalid не стирает; каждый accepted intent потреблён один раз; новый valid из recovery начинает загрузку, 403/404 не оживляет старый; update/closing gate сохранён |
+| Public capability | valid HTML+actual response/completion показывается без bridge; вошедший и гость не получают local rows/nonce/effects; forged old nonce/known local ID/visible/delete/settings/calendar requests не dispatch; replacement cancels stale actions/publication; возврат к own cabinet требует свежих прежних gates |
+| Auth continuation | public sign-in/sign-up идут через sealed server continue без token в login next; addressed next сохраняет workspace/media_version/tab/position; app/browser cookies не копируются; 401/reselect/offline/timeout дают текущий безопасный retry, revoked/foreign grant не раскрывает local data |
+| Public login cookie reconciliation | собственная cookie после login читается native cookie manager и обновляет app-session/account recovery без public bridge; stale document/account callback и unknown read не подменяют сессию. Не только успешная web-навигация: проверить actual native callback/current account proof, отсутствие nonce/local rows/effects и сохранение own-cabinet gates |
+| Stale/context | A→B intent, account/workspace switch/logout/navigation во время load/login/media: старые callbacks не меняют актуальную страницу/owner; новая публичная ссылка после logout остаётся допустима; native capture/Stop независимы |
+| Shared player | tab/seek/speed и exact generated Range bytes; stale media_version не применяет старую позицию, явный existing refresh начинает с начала; закрытая/summary-only ссылка не расширяет доступ; Mac и Windows используют общий UI |
+| Regressions | attribution T106 parse/store/expiry/activation/recovery, auth provider/payment, local playback/delete/visibility, notification refreshPending, history GET/POST fences и прежние own-cabinet capabilities сохранены |
+
+Parser/route/state tests дополняют существующие ProductAttributionHandoffTests,
+WebViewRoutePolicyTests и WebView2HostLifecycleTests; actual shared browser
+fixtures переиспользуются. Portable CMake не доказывает AppMain WinRT/MSIX
+activation: нужен обычный full Release build и отдельный actual WebView2
+response/cookie/redirect/message test. Точный installed MSIX cold/warm activation
+и тот же Mac journey принадлежат T097/T063; фиксировать source/PE/package hashes
+раздельно. Ни doc/source/build PASS, ни browser PASS не закрывает T121/F200,
+установленную/аппаратную приёмку или release gates.

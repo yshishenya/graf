@@ -621,3 +621,106 @@ Same-document событие сохраняет current authority, но не п�
 POST-запись в GET. До replacement отмена не инвалидирует живой документ.
 Reset очищает только browser navigation history, не сессию и данные. Никакого
 нового bridge intent, разрешения script traversal или personal-history logging.
+
+## 11. T121: открытие общей встречи F292 — 2026-11-04
+
+Это внешний protocol activation, не новая команда envelope §3/§5. Он передаёт
+только контекст просмотра; доверенный origin берётся из конфигурации приложения.
+Публичный reader не является привилегированным документом кабинета.
+
+### 11.1. Строгий intent
+
+Форма: `grafrec://shared-meeting?v=1&workspace_id=<UUID>&meeting_id=<UUID>&tab=outcomes|recording`
+либо та же форма с `share_token` вместо `meeting_id`; оба/ни одного запрещены.
+Scheme выбирается из регистрации текущего пакета: нынешний Windows MSIX имеет
+`grafrec`. Mac Dev использует `grafrec-dev`; принимать его в Windows по одному
+флагу страницы нельзя — потребуется фактическая регистрация соответствующего
+пакета и отдельное installed evidence, без изменения production scheme.
+
+| Поле | Точная граница после однократного URI decoding |
+| --- | --- |
+| `v` | обязательно, только `1` |
+| `workspace_id` | обязательно, синтаксический UUID стандартной 36-символьной формы, hex обоих регистров, включая nil; builder пишет lowercase |
+| `meeting_id` | UUID той же синтаксической формы, включая nil; builder пишет lowercase |
+| `share_token` | 32–128 ASCII bytes, только `A-Z a-z 0-9 _ -` |
+| `tab` | обязательно, `outcomes` или `recording` |
+| `position_ms` | необязательно, только при recording; 1–8 ASCII digits, 0..86400000, overflow отклоняется |
+| `media_version` | необязательно, ровно 24 lowercase hex characters |
+
+UUID intent/route — только синтаксис, не account authority. Как Mac UUID.init,
+принимать upper/lowercase и nil UUID; нормализовать workspace и meeting при
+построении URL. Не применять DesktopApiClient::accountId к входному intent:
+его lowercase/non-nil ограничения остаются у настоящих account checks.
+
+Каждый ключ встречается ровно один раз; неизвестный/пустой ключ или значение,
+дубликат после decoding, неверное percent encoding/UTF-8, управляющие символы,
+userinfo/port/path/fragment и произвольные url/next/origin/cookie запрещены.
+`+` не становится пробелом; повторного decoding нет. Верхняя граница URI —
+существующие 16 KiB activation, с проверкой до неограниченного преобразования
+и отдельно по UTF-8 bytes. Attribution parser с first-value-wins не подходит;
+его прежнее поведение T106 не меняется. В settings/log/diagnostics не сохранять
+исходный URI, token, построенный URL или содержимое ответа.
+
+### 11.2. Канонические маршруты и отсутствие новых полномочий
+
+Ниже W — единственный workspace_id, V — необязательный media_version из 11.1,
+T — допустимый share token. Query order не даёт полномочий; набор ключей точный,
+дубликаты/пустые значения запрещены. Путь должен быть каноническим без encoded
+separators/dot segments, другой authority/scheme/port не наследует допуск.
+Reader fragment: отсутствует, outcomes, recording либо recording?position_ms=N
+с теми же числовыми границами. Произвольный fragment запрещён.
+
+| Маршрут на configured origin | Контекст и допустимое назначение |
+| --- | --- |
+| `/shared-meetings/<meeting UUID>?workspace_id=W[&media_version=V]` | адресный GET reader, допустимый reader fragment; собственный вход и серверный grant |
+| `/api/v1/cabinet/public-shares/T?workspace_id=W[&media_version=V]` | публичный GET reader, допустимый reader fragment; без native bridge/nonce/inventory |
+| `/api/v1/cabinet/public-shares/T/playback?workspace_id=W&media_version=V` | только media request reader, без fragment; не новый download/export или нативный Save picker |
+| `/api/v1/cabinet/public-shares/T/continue?workspace_id=W[&media_version=V][&action=sign-in|sign-up][&tab=outcomes|recording][&position_ms=N]` | top-level GET continuation; без fragment, position только при recording; серверные defaults sign-in/outcomes |
+| `/shared-meeting/continue` | точный top-level GET без query/fragment; сервер поглощает короткий cookie и строит возврат |
+
+Существующие адресные media `/api/v1/cabinet/shared-meetings/<UUID>/playback`
+и отдельно разрешённые downloads сохраняют собственные серверные проверки;
+media resource не становится привилегированным top-level document.
+Возврат сервера на существующие routes проходит прежнюю policy, не широкий
+prefix allow. Auth/provider/payment allowlists и их bounds не расширяются.
+
+Navigation allow, media read и native bridge — отдельные решения. Публичный
+reader/continuation, включая вошедшего пользователя, не получает native_ready,
+local_recordings, visible_recordings, local playback/open/send/delete,
+delete_selection, settings/calendar/Record effects или blob/native download.
+Предыдущие pending native actions/publication/callbacks отзываются до замены
+документа. Подделанный envelope с прежним nonce либо известным local ID
+отвергается. Обычные native controls приложения остаются независимыми.
+Адресный маршрут сам также не доказывает локального владельца: прежние
+account/cookie/epoch/document/row gates сохраняются; intent не добавляет прав.
+
+### 11.3. Жизненный цикл и вход
+
+Переиспользовать существующий single-instance activation redirect и UI dispatch.
+Один pending intent в памяти живёт до готовности cabinet/configuration;
+потребляется один раз при принятии навигации. Новая допустимая активация
+заменяет прежнюю и её continuations; невалидная не очищает pending.
+Logout/смена аккаунта/закрытие/явная замена маршрута отменяют старую отложенную
+операцию. После этого новая внешняя публичная ссылка допустима без входа.
+Собственные update/custody admission gates не обходятся для показа ссылки.
+
+Для публичного sign-in строится только 11.2 `/T/continue` с проверенными
+query fields; token не вкладывается в login next. Сервер уже выдаёт sealed
+HttpOnly cookie max-age600 и login/sign-up с next=/shared-meeting/continue.
+Нативный код не читает/не воспроизводит этот cookie и не делает собственный
+resolver/membership mutation. Этот URL не проходит attribution query decorator.
+После публичного login существующее native чтение session cookie собственного
+configured-origin WebView profile (не sealed continuation cookie) должно
+reconcile текущую app session и
+запустить прежнее независимое подтверждение account/context, даже когда
+целевой reader не имеет bridge. Результат связывается с живым host, текущими
+navigation/document generation и URL/response proof; stale read не применяется.
+Чтение идёт через native cookie manager, не DOM/message/intent. Оно не выдаёт
+nonce, local publication или native effects публичной странице. Неудачное
+чтение cookie не приравнивается к logout; существующие unknown/retry и
+подтверждённая смена сессии сохраняют прежний смысл.
+Адресный вход использует существующий login builder с однократно encoded
+локальным next, сохраняя workspace/query/fragment; current app session остаётся
+единственным auth source. Ошибочный media request не заменяет reader recovery
+на API URL. 401/reselect/offline/timeout имеют явный повтор через текущий
+validated reader; 403/404/revoked не запускают прежний intent автоматически.

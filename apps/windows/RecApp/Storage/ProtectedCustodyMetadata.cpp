@@ -1440,7 +1440,7 @@ CustodyFileResult<bool> ProtectedCustodyStoreOwner::recyclePackage(
 CustodyFileResult<bool> ProtectedCustodyStoreOwner::purgeLocalPackage(std::string_view localId,
     std::uint64_t expectedGeneration, ProtectedUploadQueueValue& candidate, std::uint64_t now,
     std::shared_ptr<const std::atomic<bool>> cancellation, const BasicLocalPurgeTask<CustodyString>* serverTask,
-    std::string_view user, std::string_view workspace) try {
+    std::string_view user, std::string_view workspace, std::string_view origin) try {
     if (!cancellation || !identity(localId)) return {std::nullopt, CustodyFileError::invalidInput, 0};
     if (serverTask && (!validLocalBufferPurgeTask(*serverTask) || !DesktopApiClient::accountId(user) ||
         !DesktopApiClient::accountId(workspace))) return {false, CustodyFileError::none, 0};
@@ -1518,6 +1518,39 @@ CustodyFileResult<bool> ProtectedCustodyStoreOwner::purgeLocalPackage(std::strin
     }
     const DesktopLocalPurgeService purge(rootPath());
     if (!purge.isSafePackageDirectory(path, true)) return {false, CustodyFileError::none, 0};
+    if (serverTask) {
+        CustodyId transaction{}; bool needsCleanup = false;
+        {
+            CustodyNativeJob job;
+            if (!job) return {std::nullopt, CustodyFileError::allocationFailed, ERROR_NOT_ENOUGH_QUOTA};
+            std::optional<CustodyVector<CustodyString>> scopes;
+            checked = root_->validateStoreInventory(false, cancellation, false, &scopes);
+            if (!checked.ok()) return checked;
+            if (scopes && std::any_of(scopes->begin(), scopes->end(), [](const auto& scope) { return scope.empty(); })) {
+                // Independent fixed-role Birth/BOTH discovery, not transaction
+                // from the current JSON. Retire this history lease before cleanup.
+                auto opened = ProtectedCustodyFiles::openStoreObject(root_, CustodyRole::migrationIntent, false, {}, true);
+                if (!opened.ok()) return {std::nullopt, opened.error, opened.nativeError};
+                auto intent = std::move(*opened.value);
+                CustodyMetadataIndices indices; std::array<CustodyMigrationValue, 2> values{};
+                struct Wipe { std::array<CustodyMigrationValue, 2>& value; ~Wipe() { SecureZeroMemory(value.data(), sizeof(value)); } } wipe{values};
+                auto read = ProtectedCustodyMigrationPair::readValues(*intent, intent->context(), std::nullopt,
+                    CustodyMigrationSubject::queue, {}, cancellation, nullptr, false, indices, values);
+                if (!read.ok()) return read;
+                transaction = values[indices.selectedSlot].transactionId;
+                needsCleanup = std::any_of(values.begin(), values.end(), [](const auto& value) {
+                    return value.stage != CustodyMigrationStage::complete;
+                });
+            }
+        } // Discovery job and history lease are gone before cleanup.
+        // BOTH complete already proved absence in validate(); never replace
+        // that authorization with a later package's operation or task.
+        if (needsCleanup) {
+            auto cleaned = cleanupMigrationOriginals({}, transaction, user, workspace,
+                expectedGeneration, cancellation, serverTask, origin);
+            if (!cleaned.ok()) return cleaned;
+        } // No cleanup/history/member lease survives into recyclePackage.
+    }
     std::error_code error;
     auto status = std::filesystem::symlink_status(path, error);
     const auto absent = [&] {
@@ -1668,7 +1701,8 @@ CustodyFileResult<bool> ProtectedCustodyStoreOwner::revalidatePackageState(
 
 CustodyFileResult<bool> ProtectedCustodyStoreOwner::cleanupMigrationOriginals(std::string_view name,
     const CustodyId& transaction,std::string_view user,std::string_view workspace,
-    std::uint64_t expectedGeneration,std::shared_ptr<const std::atomic<bool>> cancellation) try {
+    std::uint64_t expectedGeneration,std::shared_ptr<const std::atomic<bool>> cancellation,
+    const BasicLocalPurgeTask<CustodyString>* serverTask,std::string_view origin) try {
     const auto reject=[](CustodyFileError error,std::uint32_t native=0)->CustodyFileResult<bool> { return {std::nullopt,error,native}; };
     if (!root_ || !cancellation || (!name.empty() && !identity(name)) ||
         !DesktopApiClient::accountId(user) || !DesktopApiClient::accountId(workspace) || !expectedGeneration ||
@@ -1677,6 +1711,8 @@ CustodyFileResult<bool> ProtectedCustodyStoreOwner::cleanupMigrationOriginals(st
     return reject(CustodyFileError::unsupportedPlatform);
 #else
     if (failed_ || shortDiscard_ || cancellation->load()) return reject(CustodyFileError::recoveryRequired);
+    if (serverTask && (!name.empty() || !validLocalBufferPurgeTask(*serverTask) ||
+        !DesktopUploadQueueService::validServerOrigin(origin))) return reject(CustodyFileError::invalidInput);
     std::shared_ptr<const ProtectedUploadQueueValue> current;
     {
         CustodyNativeJob job; if (!job) return reject(CustodyFileError::allocationFailed,ERROR_NOT_ENOUGH_QUOTA);
@@ -1689,6 +1725,11 @@ CustodyFileResult<bool> ProtectedCustodyStoreOwner::cleanupMigrationOriginals(st
         auto checked=validate(cancellation,&current,true); if (!checked.ok()) return checked;
     } // Full cold closure refuses any active incompatible consumer before authorization.
     if (!current || queueGeneration_!=expectedGeneration) return reject(CustodyFileError::conflict);
+    const ProtectedUploadQueueValue::Operation* purgeOperation = nullptr;
+    const auto covers = [](const auto& operation, const auto& row) {
+        return (operation.target == DeletionTarget::meeting && operation.targetId == row.meetingId) ||
+            (operation.target == DeletionTarget::ownOrigin && operation.targetId == row.directoryId);
+    };
     const auto allowed=[&](const ProtectedUploadQueueValue& value,bool historical)->bool {
         bool found=name.empty();
         for (const auto& row:value.items()) {
@@ -1697,15 +1738,23 @@ CustodyFileResult<bool> ProtectedCustodyStoreOwner::cleanupMigrationOriginals(st
             // Current login never claims an unknown historical/current owner.
             if (std::string_view(row.ownerUserId)!=user || std::string_view(row.ownerWorkspaceId)!=workspace)
                 return false;
-            if (!historical && (row.status==UploadQueueStatus::uploading || value.deletionBlocks(row) ||
-                row.safeReason=="capture_prepared" || row.safeReason=="local_delete_pending")) return false;
+            if (serverTask) {
+                if (!purgeOperation || (historical && !covers(*purgeOperation, row))) return false;
+                if (!historical && (row.status == UploadQueueStatus::uploading || row.safeReason == "capture_prepared")) return false;
+                if (!historical && (value.deletionBlocks(row) || row.safeReason == "local_delete_pending") &&
+                    (!covers(*purgeOperation, row) || row.meetingId != serverTask->meetingId ||
+                     row.status != UploadQueueStatus::uploaded || row.safeReason != "local_delete_pending")) return false;
+            } else {
+                if (!historical && (row.status==UploadQueueStatus::uploading || value.deletionBlocks(row) ||
+                    row.safeReason=="capture_prepared" || row.safeReason=="local_delete_pending")) return false;
+            }
             const auto path=std::filesystem::u8path(row.packageDirectory.begin(),row.packageDirectory.end());
             const auto expected=root_->trustedRoot()/std::filesystem::u8path(row.directoryId.begin(),row.directoryId.end());
             if (path!=expected || !AtomicFileStore::isWithinRoot(root_->trustedRoot(),path)) return false;
         }
         return found;
     };
-    if (!allowed(*current,false)) return reject(CustodyFileError::conflict);
+    if (!serverTask && !allowed(*current,false)) return reject(CustodyFileError::conflict);
     std::shared_ptr<const ProtectedCustodyPackagePair> package;
     std::optional<CustodyPackageReaders> readers;
     if (!name.empty()) {
@@ -1728,34 +1777,69 @@ CustodyFileResult<bool> ProtectedCustodyStoreOwner::cleanupMigrationOriginals(st
     auto checked=readIntent(); if (!checked.ok()) return checked;
     for (const auto& value:values) if (value.stage<CustodyMigrationStage::switched || !value.barrier)
         return reject(CustodyFileError::recoveryRequired);
-    std::array<char,32> operation{};
-    for (std::size_t i=0;i<transaction.size();++i) {
-        operation[i*2]="0123456789abcdef"[transaction[i]>>4]; operation[i*2+1]="0123456789abcdef"[transaction[i]&15];
-    }
-    const auto matches=[&](const CustodyCleanupAuthorization& a) {
-        return a.kind==CustodyCleanupKind::ownerConfirmation && text(a.operationId)==std::string_view(operation.data(),operation.size()) &&
-            text(a.actorUserId)==user && text(a.workspaceId)==workspace && a.queueObjectId==queueContext_.objectId &&
-            a.queueGeneration<=expectedGeneration;
-    };
     const auto& selected=values[indices.selectedSlot];
-    if (selected.authorization && !matches(*selected.authorization)) return reject(CustodyFileError::conflict);
-    for (const auto& value:values) if (value.authorization && !matches(*value.authorization)) return reject(CustodyFileError::conflict);
     CustodyBytes legacy;
     checked=intent->validateMigrationFiles(selected,values[1U-indices.selectedSlot],cancellation,false,name.empty() ? &legacy : nullptr);
     if (!checked.ok()) return checked;
+    std::shared_ptr<const ProtectedUploadQueueValue> historical;
     if (name.empty()) {
         if (legacy.empty()) {
             if (!selected.authorization || selected.stage<CustodyMigrationStage::cleanupPending) return reject(CustodyFileError::recoveryRequired);
         } else {
             auto old=decodeMigrationQueue({reinterpret_cast<const char*>(legacy.data()),legacy.size()},cancellation.get());
             if (!old.ok()) return reject(old.error,old.nativeError);
-            if (!allowed(**old.value,true)) return reject(CustodyFileError::conflict); // ALL original ledger rows.
-            // An old row absent from current authority is not guessed to belong to
-            // this login. It needs the separately confirmed deletion/purge path.
-            for (const auto& row:(*old.value)->items()) if (std::none_of(current->items().begin(),current->items().end(),[&](const auto& now) {
-                return row.localRecordingId==now.localRecordingId && row.directoryId==now.directoryId && row.sessionId==now.sessionId &&
-                    row.ownerUserId==now.ownerUserId && row.ownerWorkspaceId==now.ownerWorkspaceId;
-            })) return reject(CustodyFileError::conflict);
+            historical=std::move(*old.value);
+        }
+    }
+    const auto validOperation = [&](const auto& operation) {
+        if (!serverTask || !deletionPhaseIsAccepted(operation.phase) || operation.receiptRequestId.empty() ||
+            std::string_view(operation.actorUserId) != user || std::string_view(operation.workspaceId) != workspace ||
+            std::string_view(operation.serverOrigin) != origin) return false;
+        // The server task is a continuation selector, never the operation ID.
+        return std::any_of(current->items().begin(), current->items().end(), [&](const auto& row) {
+            return row.meetingId == serverTask->meetingId && row.status == UploadQueueStatus::uploaded &&
+                row.safeReason == "local_delete_pending" && std::string_view(row.ownerUserId) == user &&
+                std::string_view(row.ownerWorkspaceId) == workspace && covers(operation, row);
+        });
+    };
+    if (serverTask) {
+        const auto found = std::find_if(current->deletionOperations().begin(), current->deletionOperations().end(), [&](const auto& operation) {
+            if (!validOperation(operation)) return false;
+            if (selected.authorization && (selected.authorization->kind != CustodyCleanupKind::deletePurge ||
+                text(selected.authorization->operationId) != std::string_view(operation.operationId))) return false;
+            // A partial-unlink retry has no original bytes left: only its exact
+            // already durable authorization may supply the previous scope proof.
+            return historical ? std::all_of(historical->items().begin(), historical->items().end(), [&](const auto& row) {
+                return std::string_view(row.ownerUserId) == user && std::string_view(row.ownerWorkspaceId) == workspace && covers(operation, row);
+            }) : selected.authorization.has_value();
+        });
+        if (found == current->deletionOperations().end()) return reject(CustodyFileError::conflict);
+        purgeOperation = &*found;
+        if (!allowed(*current,false)) return reject(CustodyFileError::conflict);
+    }
+    std::array<char,32> operation{};
+    for (std::size_t i=0;i<transaction.size();++i) {
+        operation[i*2]="0123456789abcdef"[transaction[i]>>4]; operation[i*2+1]="0123456789abcdef"[transaction[i]&15];
+    }
+    const std::string_view operationId = serverTask ? std::string_view(purgeOperation->operationId) :
+        std::string_view(operation.data(),operation.size());
+    const auto matches=[&](const CustodyCleanupAuthorization& a) {
+        return a.kind==(serverTask ? CustodyCleanupKind::deletePurge : CustodyCleanupKind::ownerConfirmation) &&
+            text(a.operationId)==operationId && text(a.actorUserId)==user && text(a.workspaceId)==workspace &&
+            a.queueObjectId==queueContext_.objectId && a.queueGeneration<=expectedGeneration;
+    };
+    for (const auto& value:values) if (value.authorization && !matches(*value.authorization)) return reject(CustodyFileError::conflict);
+    if (historical) {
+        if (!allowed(*historical,true)) return reject(CustodyFileError::conflict); // ALL original ledger rows.
+        for (const auto& row:historical->items()) {
+            const auto now=std::find_if(current->items().begin(),current->items().end(),[&](const auto& item) {
+                return row.localRecordingId==item.localRecordingId;
+            });
+            if (now==current->items().end()) {
+                if (!serverTask) return reject(CustodyFileError::conflict);
+            } else if (row.directoryId!=now->directoryId || row.sessionId!=now->sessionId || row.packageDirectory!=now->packageDirectory ||
+                row.ownerUserId!=now->ownerUserId || row.ownerWorkspaceId!=now->ownerWorkspaceId ||
+                (serverTask && !row.meetingId.empty() && row.meetingId!=now->meetingId)) return reject(CustodyFileError::conflict);
         }
     }
     std::optional<std::array<std::uint8_t,32>> queueHash;
@@ -1780,6 +1864,13 @@ CustodyFileResult<bool> ProtectedCustodyStoreOwner::cleanupMigrationOriginals(st
                 auto decoded=decodeMigrationQueue({reinterpret_cast<const char*>(bytes.value->data()),bytes.value->size()},cancellation.get());
                 if (!decoded.ok()) return reject(decoded.error,decoded.nativeError);
                 if (slot!=pair.value->selectedSlot) continue;
+                if (serverTask) {
+                    const auto& operations=(*decoded.value)->deletionOperations();
+                    const auto found=std::find_if(operations.begin(),operations.end(),[&](const auto& operation) { return std::string_view(operation.operationId)==operationId; });
+                    if (found==operations.end() || !validOperation(*found) || found->target!=purgeOperation->target ||
+                        found->targetId!=purgeOperation->targetId || found->receiptRequestId!=purgeOperation->receiptRequestId)
+                        return reject(CustodyFileError::conflict);
+                }
                 if (!allowed(**decoded.value,false)) return reject(CustodyFileError::conflict);
                 const auto hash=custody_detail::digest(bytes.value->data(),bytes.value->size());
                 if (!hash) return reject(CustodyFileError::hashFailed);
@@ -1818,7 +1909,8 @@ CustodyFileResult<bool> ProtectedCustodyStoreOwner::cleanupMigrationOriginals(st
     if (values[indices.selectedSlot].stage==CustodyMigrationStage::switched) {
         auto next=values[indices.selectedSlot]; next.stage=CustodyMigrationStage::cleanupPending;
         next.authorization.emplace(); auto& authorization=*next.authorization;
-        std::copy(operation.begin(),operation.end(),authorization.operationId.begin());
+        authorization.kind=serverTask ? CustodyCleanupKind::deletePurge : CustodyCleanupKind::ownerConfirmation;
+        std::copy(operationId.begin(),operationId.end(),authorization.operationId.begin());
         std::copy(user.begin(),user.end(),authorization.actorUserId.begin());
         std::copy(workspace.begin(),workspace.end(),authorization.workspaceId.begin());
         authorization.queueObjectId=queueContext_.objectId; authorization.queueGeneration=expectedGeneration;
