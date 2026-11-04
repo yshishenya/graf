@@ -1995,3 +1995,154 @@ PASS будущих изменений. Исходники/test donor готов
 для implementation checkpoint; push/merge/release этой записью не выполняются.
 Открыты native initial migration→adopt→mutation→cold restart, cleanup caller/
 delete-purge/retirement, installed/auth/upload/accessibility/hardware acceptance.
+
+## 2026-11-04 — промежуточный коммит и актуальная идентичность PR
+
+Промежуточный этап сохранён коммитом
+`159f539903c7df9d0716b2658f2f82c70e51b8f1` и отправлен в
+`origin/codex/200-windows-followup`. Main повторно проверил remote ref и
+`headRefOid` PR7331: оба равны этому SHA; PR открыт как draft. После коммита
+закреплённые governance и doctor/frozen прошли с Spec Kit1.0.7/bootstrap0.11.0.
+Все225 source inputs совпали и с рабочими файлами, и с Git objects коммита.
+Это связывает прежние локальные результаты с тем же содержимым, но не
+превращает их в exact-SHA GitHub или установленную приёмку.
+
+Описание PR обновлено по существующему шаблону с exact source SHA и
+ограничениями последних трёх проверок. Remote body сверено после обновления;
+SHA256 `3da5695390133f63076fcf5ebc301f77109652d6c3ceff3c4343d078d487d96d`.
+`gh pr edit` отказал на устаревшем GraphQL projectCards до записи; Main
+проверил отсутствие изменения и применил тот же body через REST PATCH.
+Новый metadata run41799447077 сохранил единственный отказ: срок исключения
+совместимости должен быть в будущем UTC. Прежний SHA mismatch устранён;
+исключение2026-11-01 не продлевается. Merge/release запрещены до retirement.
+Source runs41798787888/41798787929 и их text-reuse runs41799446485/
+41799446589 на момент этой записи ещё выполняются; PASS не присваивается.
+
+Следующая существующая регрессия `ProtectedCustodyFilesTests` запущена
+Main отдельно, без сборки/копирования исходников и без `--migration-pair`.
+Источник225 `31891dbab92994628ecad98a1ef0009b659a55eecf3d1d415abb37079a50a04a`,
+EXE `be882cb4171ef2e52356d500cc97e813495b489116275ce0c2dfe00dfeb90a35`;
+runner `0b511466441d53d7884bde270bf7cf8ac3a5230feeefb5b7ed57d44db0a46462`.
+Сохранены configuration110/PE23/installed0.1.0.15, внешний предел600s,
+no-force и новый generated TEMP с кириллицей/пробелом. Результат пока pending.
+
+## 2026-11-04 — обычная файловая регрессия после T117: PASS
+
+Тот же запуск завершился штатно: host0/CTest0, существующий точный
+`ProtectedCustodyFilesTests`1/1 PASS422,23s (общее время422,24s). Сборка и
+копирование исходников не выполнялись. Main сверил первичные result/host/log
+и binding/SHA256SUMS, сравнил все225 source inputs, все23 EXE и полную
+configuration110 до/после. Изменений нет. Установленный0.1.0.15/EXE
+`e6094e4de8b919ba94db652eae4f11ef9762c89d4d0b16f23e19f9342bfa02c5`
+сохранён, атрибуты исходников не менялись, own0/build0/no-force.
+
+Main terminal SHA256
+`80ed1a22e52588dac50c0846c3d4e4498cec5dfbf41649de6d8df47f6232418b`;
+classification `ACTUAL_EXISTING_DEFAULT_FILES_CTEST_PASS_NO_BUILD_NO_SOURCE_CHANGE`.
+31 зарегистрированная команда отсутствует по прежнему состоянию unbuilt
+targets; они не запускались и не засчитаны. Unicode fixture использован, но
+отдельного runtime encoding receipt в этой оболочке нет. Это регрессия
+обычных файловых операций, не ещё не написанная Native startup интеграция,
+не whole-product/installed/physical acceptance и не закрытие T117.
+
+GitHub source `macos-pr`41798787929 на exact159f539903c7df9d0716b2658f2f82c70e51b8f1
+завершился success; его text-reuse41799446589 также success. Source
+governance41798787888 пока выполняется. Metadata по-прежнему blocked expiry;
+успех одного required check не разрешает merge.
+
+## 2026-11-04 — календарный тест и подготовка Native migration
+
+Source governance41798787888 на159f539903c7df9d0716b2658f2f82c70e51b8f1
+завершился отказом в `test_calendar_native_join_ui.py[False]`: общий счётчик
+подсказок видимости вырос1→2. Ограниченное воспроизведение показало реальную
+автопрокрутку после click и дополнительное допустимое сообщение `offscreen-local`
+между двумя наблюдениями. Это не доказательство пропуска malformed input.
+В тесте начальная позиция, отправка семи прежних неправильных payload и сбор
+результатов теперь выполняются в одном синхронном `page.evaluate`.
+Product scripts, семь отрицательных случаев и положительные проверки сохранены.
+Независимое SOURCE review — C0/H0. Main применил тест с SHA256
+`c0789c13fbb9e882b59901d201fc98ced114d496dc09c17d2f1ce44bc8782962`:
+прямой Node запуск прошёл Chromium/WebKit; настоящий Python renderer —2/2 PASS
+для embedded=false/true, также в обоих движках. Сохранённое предупреждение
+pytest об уже импортированной fixture не является пропуском теста.
+Оба процесса exit0; журнал Python SHA256
+`f337a8e4ab69b366e43e0bd1bec9ab5edd3e990792f98e4bef2f501b4eb85492`.
+Это локальная проверка изменённого теста, не новый GitHub PASS.
+
+Первый Native migration test0b3b с прежним startup23c3 дал build0/CTest8,
+assert4170 за2,97s. После однострочного подключения migration21e7 тот же
+тест снова дал build0/CTest8, assert4170 за2,67s, error3/unsafePath.
+Main квалифицировал второй результат как
+`ACTUAL_UNEXPECTED_NATIVE_STARTUP_FAILURE`: host1, источник225, configuration110,
+посторонние22 EXE и установленный0.1.0.15 сохранены; own0/build0/no-force.
+Это отказ, а не GREEN или приёмка T117.
+
+Независимая повторная проверка обнаружила ошибку положительной фикстуры:
+generated helper создавал root с унаследованной DACL вместо protected DACL
+текущего SID. Main подтвердил в гостевой Windows только безопасные признаки:
+protected=false, rule_count=5, exact_private=false. SID и содержимое записей
+не выводились. Первая read-only команда отказала на синтаксисе, вторая —
+на execution policy; третья штатно прочитала ACL с exit0. Политика не менялась.
+Прежний SOURCE GO подготовки исправлен reviewer на H1; эти два падения
+не различают отсутствие migration hook и неверную подготовку каталога.
+Для функционального RED→GREEN нужны новая закрытая generated root/package
+фикстура и повтор обоих вариантов startup. Production ACL-проверка сохраняется;
+unknown quarantine не разрешается обходить. Задачи и checklists не закрыты.
+
+## 2026-11-04 — Native initial migration и восстановление очереди
+
+Положительная generated fixture исправлена: root/package создаются с explicit
+protected current-user DACL, как существующая FilesFixture. Производственные
+ACL-проверки не менялись. Независимый source reviewer подтвердил исправление;
+неиспользованный вариант с дополнительным include не применялся.
+
+Исправленный тест с прежним startup дал build0/CTest8: точный
+`native_startup_must_migrate_valid_legacy_before_ready_admission`, error13
+(recoveryRequired), 3,31s. Это квалифицированный RED, в отличие от прежних
+падений на unsafePath. После подключения `ProtectedCustodyMigration::open`
+startup прошёл; следующий отказ на `readers.ok()` выявил удерживаемую самим
+тестом inspection lease. Её срок ограничен существующим образцом scope:
+все проверки сохранены, независимые readers открываются после освобождения.
+Поэтому окончательный тест отличается от RED также этой поздней правкой
+времени жизни; идентичность байтов теста между RED и GREEN не заявляется.
+
+Окончательный `NativeProtectedReadModel` прошёл: build0/CTest0, 1/1 Passed
+18,88s. Native SHA256 `21e7cfd8eb43371a437bcfa76dbf6647a65044c54b218b323f220345c0363dfc`,
+тест `5e3c67c97d4860873fb8751692588b8ed4942878dd22aa91e2d5acd53c08383a`.
+Запускатель вернул host1/ACTUAL_CASE_PASS_REQUIRED: он дополнительно искал
+маркер успешного stderr, который CTest --output-on-failure не печатает.
+Исходный отказ запускателя сохранён; Main и независимый reviewer отдельно
+подтвердили фактический PASS теста по exit0 и точной строке CTest.
+
+Проверены v2/v3, initial ACK/adoption, реальная последующая mutation/commit,
+cold restart, сохранность UUID/session/ranges/operations/purge ACK, exact
+logical bytes и retained originals, BOTH history и повторный холодный запуск.
+Неизвестный quarantine блокирует два запуска без изменения snapshot.
+Source225 совпадает с Main, configuration110 неизменна, built/postflight PE23
+согласованы, посторонние22 EXE и installed0.1.0.15 сохранены; own0/build0/no-force.
+Классификация `ACTUAL_NATIVE_READMODEL_CTEST_PASS_WRAPPER_ORACLE_FAILURE`.
+Звук устройств и реальная сеть не использовались. Initial ambiguous switch,
+cleanup caller/delete-purge/retirement и установленная приёмка остаются открыты.
+
+## 2026-11-04 — обычная Native storage регрессия текущего startup
+
+На том же EXE без новой сборки/копирования запущен существующий точный
+`NativeCaptureStorageIntegrationTests`: host0/CTest0, 1/1 Passed299,69s
+(общее299,70s). Здесь проверка результата опирается на exit0 и точную
+строку Passed, без маркера подавленного успешного stderr. Main сверил
+source225 с текущей рабочей копией, configuration110 и все23 PE до/после:
+изменений нет. Установленный0.1.0.15/EXE e6094e4d… сохранён;
+own0/build0/no-force, runtime encoding receipt не заявляется.
+Result SHA256 `56a3152a15212503a26cf53a92671a6fa3eb470e0413d456589351b3ad2a52ee`.
+
+Независимый ограниченный convergence audit подтвердил существующих owners:
+Native migration/fixture lifetime — T117, atomic visible-recordings observation
+test — T088; новых CRITICAL/HIGH findings и непокрытых новых задач нет.
+22FR/10SC, tasks120/93checked/27open, reviewer checklists198/477checked/0unchecked.
+Родительские задачи и reviewer markers не менялись. Это не whole-feature
+converged и не installed acceptance. Governance и frozen doctor прошли с
+project-pinned CLI1.0.7; первый вызов governance без pinned PATH отказал из-за
+глобального CLI1.2.6, после выбора закреплённого CLI выполнен успешно.
+Скрипт prerequisites этой закреплённой версии не знает --require-spec;
+повтор с поддерживаемыми --require-tasks/--include-tasks и отдельной проверкой
+наличия spec.md подтвердил тот же каталог F200, инструменты не менялись.

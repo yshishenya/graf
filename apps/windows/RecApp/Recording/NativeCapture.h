@@ -2446,7 +2446,7 @@ private:
         CustodyFileError error = CustodyFileError::none;
         std::uint32_t nativeError = 0;
         try {
-            auto opened = ProtectedCustodyStoreOwner::open(work->root, work->cancellation);
+            auto opened = ProtectedCustodyMigration::open(work->root, work->cancellation);
             error = opened.error; nativeError = opened.nativeError;
             if (opened.ok()) {
                 owner = std::move(*opened.value);

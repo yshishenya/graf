@@ -92,8 +92,8 @@ const row = id => `<article><a href="#" data-calendar-join="${id}">Подклю�
       const localAction = await page.evaluate(() => window.messages.find(item => item.command === 'local_recording'));
       assert.deepEqual(localAction.payload, {action:'open',id:'visible-local'});
       assert(localAction.message_id > firstHint.message_id, 'hint and local_recording share private monotonic send');
-      const beforeInvalidHints = (await hints()).length;
-      await page.evaluate(() => {
+      const invalidHints = await page.evaluate(() => {
+        const before = window.messages.length;
         const post = body => window.webkit.messageHandlers.grafLocalRecording.postMessage(body);
         for (const body of [
           {action:'visibleRecordings',version:2,ids:[]}, {action:'visibleRecordings',version:1.1,ids:[]},
@@ -102,8 +102,9 @@ const row = id => `<article><a href="#" data-calendar-join="${id}">Подклю�
           {action:'visibleRecordings',version:1,ids:[],extra:true},
           {action:'visibleRecordings',version:1,ids:Array.from({length:101},(_,i)=>`local-${i}`)}
         ]) post(body);
+        return window.messages.slice(before).filter(item => item.command === 'visible_recordings');
       });
-      assert.equal((await hints()).length, beforeInvalidHints, 'malformed hints are not shortened or partially forwarded');
+      assert.deepEqual(invalidHints, [], 'malformed hints are not shortened or partially forwarded');
       await page.evaluate(() => window.webkit.messageHandlers.grafLocalRecording.postMessage({action:'deleteSelection',version:1,requestId:'44444444-4444-4444-8444-444444444444',localIds:['visible-local'],meetingIds:[]}));
       assert.deepEqual(await page.evaluate(() => window.messages.find(item => item.command === 'delete_selection').payload),
         {action:'deleteSelection',version:1,requestId:'44444444-4444-4444-8444-444444444444',localIds:['visible-local'],meetingIds:[]});
