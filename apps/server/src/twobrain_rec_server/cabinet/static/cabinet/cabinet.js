@@ -8483,12 +8483,13 @@
           "success"
         );
         setBusy(false);
-        close();
+        if (form.closest("dialog") === dialog) close();
+        else if (form.closest("dialog[open]")) submit.focus({ preventScroll: true });
       } catch (error) {
         const code = error instanceof Error ? error.message : "export_failed";
         setStatus(errorMessage(code), "error");
         setBusy(false);
-        if (submit.isConnected && !submit.disabled && dialog.open) submit.focus({ preventScroll: true });
+        if (submit.isConnected && !submit.disabled && form.closest("dialog[open]")) submit.focus({ preventScroll: true });
       } finally {
         setBusy(false);
       }
