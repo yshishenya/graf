@@ -3635,3 +3635,17 @@ quarantine checks под тем же Unicode TEMP; исправить narrow pat
 в этих тестах, не переносить проверки в ASCII каталог и не повышать deadlines.
 После SOURCE gate — targeted GREEN, затем текущий общий набор. Это исправление
 наблюдаемой регрессии T116, не начало T117 и не разрешение трогать real quarantine.
+
+### Ресурсы браузерных проверок календаря в CI — 2026-11-04
+
+На SHA39572 governance-fast41742725170 выявил два отказа уже принятого
+rendered calendar→Windows shim test: Chromium PASS, WebKit binary отсутствует.
+Сам shim намеренно проверяет оба движка; локальная проверка обоих уже прошла.
+Техническое исправление существующей F200/T119 validation, high-risk-product:
+в трёх текущих Playwright install commands governance-fast/release-full
+установить chromium и webkit той же закреплённой версии. Тесты, состав движков,
+таймауты, package lock и scopes jobs не менять. Новых требований/задач/зависимостей
+нет. До изменения — независимый bounded requirements/SOURCE разбор; после —
+YAML и точная проверка трёх команд, затем GitHub code proof нового SHA.
+Это исправляет подготовку CI, не принимает Windows/WebKit/installed parity
+и не разрешает переименовать исходный отсутствующий-browser FAIL в PASS.
