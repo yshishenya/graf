@@ -15,7 +15,7 @@
         {% if full_meeting %}<a href="#recording" data-public-tab="recording">Расшифровка</a>{% endif %}
       </div>
       <button type="button" class="button quiet" data-public-copy hidden>Копировать</button>
-      <details class="public-reader__more"><summary aria-label="Действия со встречей">Ещё</summary><div><button type="button" data-public-copy-link>Скопировать ссылку</button><a href="{{ native_url }}" data-public-native{% if embedded %} hidden{% endif %}>Открыть в GRAF</a>{% if not embedded %}<a href="/download">Установить GRAF</a>{% endif %}</div></details>
+      <details class="public-reader__more"><summary aria-label="Действия со встречей">Еще</summary><div><button type="button" data-public-copy-link>Скопировать ссылку</button><a href="{{ native_url }}" data-public-native{% if embedded %} hidden{% endif %}>Открыть в GRAF</a>{% if not embedded %}<a href="/download">Установить GRAF</a>{% endif %}</div></details>
     </div>
     <p role="status" aria-live="polite" data-public-status></p>
     {% if source_changed %}<aside class="public-reader__notice" role="status">Запись обновилась. Старая позиция не применена. <button type="button" data-public-refresh>Слушать новую запись с начала</button></aside>{% endif %}

@@ -21,7 +21,7 @@ def test_share_fragment_exposes_explicit_materials_and_personal_roles_accessibly
     assert 'aria-controls="share-recipient-results-synthetic-meeting"' in html
     assert 'aria-live="polite"' in html
     assert "Итоги, расшифровка и запись" in html
-    assert "Только приглашённые" in html
+    assert "Только приглашенные" in html
     assert "Все в пространстве" in html
     assert "Любой со ссылкой" in html
     assert "can_download" not in html and "can_export" not in html

@@ -156,6 +156,10 @@ BILLING_REGISTRY_MIGRATION = (
     REPO_ROOT
     / "apps/server/src/twobrain_rec_server/db/migrations/versions/0107_billing_registry.py"
 )
+RECONCILIATION_OBSERVATIONS_MIGRATION = (
+    REPO_ROOT
+    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0109_billing_reconciliation_observations.py"
+)
 
 
 def test_rls_migration_covers_every_current_tenant_table() -> None:
@@ -192,6 +196,7 @@ def test_rls_migration_covers_every_current_tenant_table() -> None:
         + FAIR_USE_MIGRATION.read_text(encoding="utf-8")
         + WORKSPACE_ONBOARDING_MIGRATION.read_text(encoding="utf-8")
         + BILLING_REGISTRY_MIGRATION.read_text(encoding="utf-8")
+        + RECONCILIATION_OBSERVATIONS_MIGRATION.read_text(encoding="utf-8")
     )
 
     for table_name in sorted(RLS_COVERED_TABLES):

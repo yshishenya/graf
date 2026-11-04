@@ -9285,6 +9285,15 @@ paths:
           type: string
           format: uuid
           title: Grant Id
+      - name: expected_version
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: integer
+            minimum: 1
+          - type: 'null'
+          title: Expected Version
       - name: workspace_id
         in: query
         required: false
@@ -9441,7 +9450,10 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PublicShareSummaryResponse'
+                anyOf:
+                - $ref: '#/components/schemas/PublicShareMeetingResponse'
+                - $ref: '#/components/schemas/PublicShareSummaryResponse'
+                title: Response Resolvepublicmeetingshare
         '422':
           description: Validation Error
           content:
@@ -12273,6 +12285,7 @@ paths:
           - update
           - rotate
           - expiry
+          - scope
           type: string
           title: Operation
       - name: X-User-Id
@@ -13110,6 +13123,339 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/cabinet/public-shares/{share_token}/playback:
+    get:
+      tags:
+      - cabinet
+      summary: Play Public Meeting Audio
+      operationId: play_public_meeting_audio_api_v1_cabinet_public_shares__share_token__playback_get
+      parameters:
+      - name: share_token
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Share Token
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      - name: media_version
+        in: query
+        required: true
+        schema:
+          type: string
+          pattern: ^[0-9a-f]{24}$
+          title: Media Version
+      - name: Range
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Range
+      responses:
+        '200':
+          description: Complete canonical review M4A.
+          content:
+            audio/mp4:
+              schema:
+                type: string
+                format: binary
+          headers:
+            Accept-Ranges:
+              description: Supported byte range unit. Always `bytes`.
+              schema:
+                type: string
+            Content-Disposition:
+              description: Safe inline playback filename.
+              schema:
+                type: string
+            Content-Length:
+              description: Number of bytes in this response body.
+              schema:
+                type: integer
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+        '206':
+          description: Requested byte range from the canonical review M4A.
+          content:
+            audio/mp4:
+              schema:
+                type: string
+                format: binary
+          headers:
+            Accept-Ranges:
+              description: Supported byte range unit. Always `bytes`.
+              schema:
+                type: string
+            Content-Disposition:
+              description: Safe inline playback filename.
+              schema:
+                type: string
+            Content-Length:
+              description: Number of bytes in this response body.
+              schema:
+                type: integer
+            Content-Range:
+              description: Returned byte interval and complete object length.
+              schema:
+                type: string
+        '404':
+          description: Meeting not found.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: Playback is not available.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '416':
+          description: Requested byte range is malformed or unsatisfiable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503':
+          description: Canonical storage is temporarily unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /api/v1/cabinet/public-shares/{share_token}/continue:
+    get:
+      tags:
+      - cabinet
+      summary: Continue Public Meeting
+      operationId: continue_public_meeting_api_v1_cabinet_public_shares__share_token__continue_get
+      parameters:
+      - name: share_token
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Share Token
+      - name: workspace_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      - name: action
+        in: query
+        required: false
+        schema:
+          enum:
+          - sign-in
+          - sign-up
+          type: string
+          default: sign-in
+          title: Action
+      - name: tab
+        in: query
+        required: false
+        schema:
+          enum:
+          - outcomes
+          - recording
+          type: string
+          default: outcomes
+          title: Tab
+      - name: position_ms
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: integer
+            maximum: 86400000
+            minimum: 0
+          - type: 'null'
+          title: Position Ms
+      - name: media_version
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            pattern: ^[0-9a-f]{24}$
+          - type: 'null'
+          title: Media Version
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/cabinet/meetings/{meeting_id}/sharing/general-access:
+    get:
+      tags:
+      - summary-sharing
+      summary: General Access
+      operationId: general_access_api_v1_cabinet_meetings__meeting_id__sharing_general_access_get
+      parameters:
+      - name: meeting_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Meeting Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    post:
+      tags:
+      - summary-sharing
+      summary: Set General Access
+      operationId: set_general_access_api_v1_cabinet_meetings__meeting_id__sharing_general_access_post
+      parameters:
+      - name: meeting_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Meeting Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GeneralAccessRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /shared-meeting/continue:
+    get:
+      tags:
+      - cabinet-web
+      - cabinet-web
+      summary: Resume Public Meeting
+      description: A sealed short-lived first-party return route, never a login query
+        secret.
+      operationId: resume_public_meeting_shared_meeting_continue_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
 components:
   schemas:
     CalendarJoinTargetResponse:
@@ -14247,6 +14593,20 @@ components:
         can_edit:
           type: boolean
           title: Can Edit
+        expected_version:
+          anyOf:
+          - type: integer
+            minimum: 1.0
+          - type: 'null'
+          title: Expected Version
+        content_scope:
+          anyOf:
+          - type: string
+            enum:
+            - summary_only
+            - full_meeting
+          - type: 'null'
+          title: Content Scope
       additionalProperties: false
       type: object
       required:
@@ -19561,6 +19921,10 @@ components:
             format: date-time
           - type: 'null'
           title: Expires At
+        version:
+          type: integer
+          title: Version
+          default: 1
       type: object
       required:
       - grant_id
@@ -21431,6 +21795,14 @@ components:
           - 90
           title: Expires In Days
           default: 30
+        content_scope:
+          anyOf:
+          - type: string
+            enum:
+            - summary_only
+            - full_meeting
+          - type: 'null'
+          title: Content Scope
       additionalProperties: false
       type: object
       required:
@@ -21452,6 +21824,13 @@ components:
           - 90
           title: Expires In Days
           default: 30
+        content_scope:
+          type: string
+          enum:
+          - summary_only
+          - full_meeting
+          title: Content Scope
+          default: summary_only
       additionalProperties: false
       type: object
       required:
@@ -21489,3 +21868,176 @@ components:
       required:
       - expected_version
       title: RuleDisable
+    GeneralAccessRequest:
+      properties:
+        template_key:
+          type: string
+          maxLength: 64
+          minLength: 1
+          title: Template Key
+          default: meeting_minutes
+        expires_in_days:
+          type: integer
+          enum:
+          - 7
+          - 30
+          - 90
+          title: Expires In Days
+          default: 30
+        content_scope:
+          type: string
+          enum:
+          - summary_only
+          - full_meeting
+          title: Content Scope
+          default: summary_only
+        audience:
+          type: string
+          enum:
+          - invite_only
+          - workspace
+          - link
+          title: Audience
+        expected_fingerprint:
+          type: string
+          pattern: ^[0-9a-f]{64}$
+          title: Expected Fingerprint
+      additionalProperties: false
+      type: object
+      required:
+      - audience
+      - expected_fingerprint
+      title: GeneralAccessRequest
+    PublicShareMeetingResponse:
+      properties:
+        meeting_label:
+          type: string
+          title: Meeting Label
+        occurred_at:
+          type: string
+          format: date-time
+          title: Occurred At
+        duration_seconds:
+          type: integer
+          minimum: 0.0
+          title: Duration Seconds
+        summary_sections:
+          items:
+            additionalProperties: true
+            type: object
+          type: array
+          title: Summary Sections
+        protocol:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Protocol
+        transcript:
+          items:
+            $ref: '#/components/schemas/PublicTranscriptTurn'
+          type: array
+          title: Transcript
+        speakers:
+          items:
+            $ref: '#/components/schemas/PublicSpeakerLane'
+          type: array
+          title: Speakers
+        media_version:
+          type: string
+          pattern: ^[0-9a-f]{24}$
+          title: Media Version
+        playback_available:
+          type: boolean
+          title: Playback Available
+      additionalProperties: false
+      type: object
+      required:
+      - meeting_label
+      - occurred_at
+      - duration_seconds
+      - transcript
+      - speakers
+      - media_version
+      - playback_available
+      title: PublicShareMeetingResponse
+    PublicSpeakerInterval:
+      properties:
+        start_seconds:
+          type: number
+          minimum: 0.0
+          title: Start Seconds
+        end_seconds:
+          type: number
+          minimum: 0.0
+          title: End Seconds
+      additionalProperties: false
+      type: object
+      required:
+      - start_seconds
+      - end_seconds
+      title: PublicSpeakerInterval
+    PublicSpeakerLane:
+      properties:
+        speaker_key:
+          type: string
+          pattern: ^speaker-[1-9][0-9]*$
+          title: Speaker Key
+        label:
+          type: string
+          title: Label
+        confirmed:
+          type: boolean
+          title: Confirmed
+        talk_time_percent:
+          type: integer
+          maximum: 100.0
+          minimum: 0.0
+          title: Talk Time Percent
+        segments:
+          items:
+            $ref: '#/components/schemas/PublicSpeakerInterval'
+          type: array
+          title: Segments
+      additionalProperties: false
+      type: object
+      required:
+      - speaker_key
+      - label
+      - confirmed
+      - talk_time_percent
+      - segments
+      title: PublicSpeakerLane
+    PublicTranscriptTurn:
+      properties:
+        speaker:
+          type: string
+          title: Speaker
+        speaker_key:
+          type: string
+          pattern: ^speaker-[1-9][0-9]*$
+          title: Speaker Key
+        text:
+          type: string
+          title: Text
+        start_ms:
+          type: integer
+          minimum: 0.0
+          title: Start Ms
+        end_ms:
+          type: integer
+          minimum: 0.0
+          title: End Ms
+        time:
+          type: string
+          title: Time
+      additionalProperties: false
+      type: object
+      required:
+      - speaker
+      - speaker_key
+      - text
+      - start_ms
+      - end_ms
+      - time
+      title: PublicTranscriptTurn
