@@ -422,7 +422,7 @@ meeting-приложений с обратимой настройкой и ви�
   Native initialization uses the `native_ready` envelope. Native
   `local_recordings` display messages use the separate `command/nonce/rows/operations/recoveryRequired`
   shape, bound to the current approved document and nonce, and grant no native
-  authority. Only typed `request_app_quit`, `local_recording`, `app_appearance`,
+  authority. Only typed `request_app_quit`, `local_recording`, `visible_recordings`, `app_appearance`,
   `native_settings`, `delete_selection`, `request_app_update`, `calendar_join`
   and cancellation-only `calendar_join_cancel` requests are accepted, each on its
   exact approved route with its own payload/capability checks; no web
@@ -657,6 +657,31 @@ Classification: remove
 Трассировка удаления и проверки: T080–T084, quickstart.md и validation-2026-09-06.md.
 
 ## Clarifications
+
+### Session 2026-11-04 — T088: подсказка видимости и внешняя квитанция
+
+- Пользователь уже выбрал актуальный Mac как образец. Существующий publisher
+  `visibleRecordings` переносится без нового пользовательского действия.
+  Технический выбор: отдельная строковая команда `visible_recordings` в нынешнем
+  allowlist `WebViewBridge::isAllowedWebCommand`, конверт и поля §3 bridge contract,
+  точный Mac payload `{"action":"visibleRecordings","version":1,"ids":[]}`.
+  Подходящей существующей команды нет; новый enum/универсальный dispatcher не
+  нужен. `local_recording` сохраняет ровно `action:open|send|delete` и `id`;
+  `delete_selection` для подсказки и внешней квитанции не вызывается.
+- Подсказка содержит не более 100 уникальных local IDs последней нативной
+  проекции, проверяется по текущему nonce/message_id/маршруту, cookie, аккаунту,
+  пространству и поколению авторизации. Она меняет только приоритет в памяти;
+  не является полномочием или намерением удаления. Старый документ/аккаунт не
+  передаёт полномочия через очередь отложенных сообщений или сетевой ответ.
+- Независимый нативный обход не зависит от видимости кабинета и продвигает
+  фоновый курсор при повторяющихся приоритетах. Ответ существующего lifecycle
+  API проверяется целиком в подтверждённой области аккаунта. Внешняя квитанция
+  без прежнего локального delete intent принимается сразу как подтверждённое
+  состояние существующей модели, после защищённого commit/readback/adoption;
+  до adoption её нельзя публиковать как принятую или разрешать очистку.
+  Новых server/ledger схем, DELETE, purge ACK и разрешения очистки это уточнение
+  не добавляет. Это конкретизация T088 и FR-006/013/022, не новый task ID и не
+  отметка о выполнении T088 или других открытых задач.
 
 ### Session 2026-10-22 — безопасная история кабинета T103
 

@@ -3649,3 +3649,97 @@ rendered calendar→Windows shim test: Chromium PASS, WebKit binary отсутс
 YAML и точная проверка трёх команд, затем GitHub code proof нового SHA.
 Это исправляет подготовку CI, не принимает Windows/WebKit/installed parity
 и не разрешает переименовать исходный отсутствующий-browser FAIL в PASS.
+
+### T088: verified lifecycle по Mac publisher — 2026-11-04
+
+Узкая конкретизация существующих T088/FR-006/013/022, high-risk-product lane.
+Пользовательский результат и образец Mac уже приняты; здесь выбран технический
+binding для §8.1 bridge contract. Новых task IDs, серверных/ledger схем
+и серверного API нет; T088 остаётся открытой до проверенной реализации.
+
+Порядок реализации после текущих квалификаций:
+
+1. В `Web/RecordingDeletionBridge.cpp` расширить нынешний `kDocumentScript`
+   (`RecordingDeletionBridge::documentScript`): перед имеющейся веткой
+   `deleteSelection` принять точный Mac `visibleRecordings` и передать событие
+   `graf:visible-recordings` без фильтрации/усечения IDs. В `Web/WebView2Host.cpp`
+   существующий `kDesktopBridgeScript` получает отдельный listener этого события
+   и передаёт payload через приватный `send('visible_recordings', ...)`.
+   Сохранить publisher `cabinet.js`, его coalescing/visibility reset, нынешние
+   `GRAFRecordingDeletionBridgeVersion = 1` и установку `grafLocalRecording`;
+   не оборачивать/переустанавливать handler и не менять ветку удаления.
+   В `Web/WebViewBridge.cpp`
+   `isAllowedWebCommand` добавить ровно эту строку: тип команды сейчас строковый,
+   нового enum не требуется. Существующие команды семантически не подходят.
+   В `parseEnvelope`/приёме сообщения проверить точные исходные поля новой
+   команды до WinRT Stringify, переиспользуя `DesktopApiClient::jsonObjectFields`
+   по образцу calendar, затем обычную проверку конверта. Не расширять payload
+   `local_recording`. В host переиспользовать проверки текущего защищённого
+   документа (`localPlaybackDocumentCurrent`), аккаунта/cookie и последней
+   проекции; проверить маршрут списка/встречи и detail UUID по нынешней policy.
+   Пустой список отзывает видимость, навигация отзывает её нативно. Пробросить
+   только проверенные local IDs и нативный контекст в владельца очереди.
+2. В `Recording/NativeCapture.h`, нынешних `pollUploads`/`pollAccount` и
+   startup/wake/network recovery подключить один объединяемый lifecycle flight
+   для подтверждённых origin/user/workspace/authGeneration. Запрос строится из
+   неизменяемого снимка принятой защищённой очереди; local IDs отображаются в
+   принадлежащие аккаунту directory/origin IDs нативно. Использовать существующие
+   `DesktopHttpTransport::recordingLifecycle` и
+   `DesktopApiClient::decodeLifecycleEntries` с существующим verified scope и
+   account headers. Сеть выполнять вне mutex значения/очереди; сохранить бюджеты
+   памяти/IO, отмену и ограничения admission/Stop существующего владельца.
+   Как в Mac `runRecordingLifecycleSync`: уникальные отсортированные origins,
+   приоритет видимых/открытых и имеющих deletion operation, максимум 100 целей
+   на запрос; каждый origin не более раза за цикл (`checked`). После приоритетов
+   — одна фоновая страница от курсора, с переходом к началу. Повторные открытия
+   не сбрасывают `checked`/курсор; курсор двигается после успешного принятия
+   страницы. Использовать нынешние периодические/recovery триггеры, без нового
+   таймера. Отсутствие WebView/пустая видимость не останавливает фон. Смена
+   области аккаунта отменяет старый flight и сбрасывает его приоритет/курсор;
+   навигация в том же аккаунте отзывает только приоритет документа, не отдельные
+   нативные полномочия фоновой проверки.
+3. В `Upload/DesktopUploadQueueService.*` дополнить существующее преобразование
+   `ProtectedUploadQueueValue` обработкой проверенного lifecycle ответа без
+   локальной операции: нынешний `applyDeletionAnswer` требует существующую
+   операцию, поэтому сам по себе этого случая не покрывает. Проверить точное
+   покрытие batch, отсутствие дублей/чужих целей, известное состояние и соответствие
+   receipt типу/ID цели и проверенной области аккаунта. `receipt.requestId`
+   обязан быть валидным UUID; первая внешняя квитанция не требует отсутствующего
+   локального request ID, а повтор сверяется с сохранённым receiptRequestId.
+   Без прежнего intent создать сразу принятое состояние в существующей модели операций;
+   не вызывать `planDeletionSelection`, не создавать queued/sending намерение.
+   Совпадающий повтор идемпотентен, конфликт квитанций отклоняется. `allowed` и
+   `unavailable` следуют Mac server-truth semantics, не снимают принятую квитанцию
+   и не разрешают purge; неизвестный/частичный ответ не принимается частично.
+   Нынешний storage worker `NativeCapture` создаёт частный candidate, проверяет
+   snapshot/queue generation/область, делает существующий полный защищённый
+   commit и независимый readback, затем adoption. Только после adoption меняются
+   опубликованная проекция и блокировки содержимого. При конфликте поколений —
+   повторная сверка, не перезапись более новой очереди; при ambiguous commit —
+   существующая reconciliation с сохранением артефактов. Смена аккаунта не
+   публикует старый результат и не отменяет уже сохранённую истину под видом
+   пустой очереди. Доработка не требует менять занятый `ProtectedCustodyMetadata.cpp`.
+
+Минимальное связанное покрытие до реализации: добавить rendered
+publisher→Windows shim случай по существующему образцу `CalendarJoinShimTests.cjs`,
+с реальным `cabinet.js` и обоими нативными scripts; расширить существующие
+`RecordingDeletionBridgeTests`, `WebViewBridgeEnvelopeTests` и
+`WebView2HostLifecycleTests`. Проверить положительный путь из текущей проекции
+и отказ для старых nonce,
+message_id, документа/маршрута/detail UUID, cookie/аккаунта/authGeneration,
+неверных типов/версии, extra/duplicate fields, ID вне проекции, дублей и >100 IDs.
+Отдельно — `ids:[]`, навигационный отзыв и неизменность прежнего local_recording.
+В существующем `NativeCaptureStorageIntegrationTests` расширить настоящий
+startup/pollUploads путь на синтетической непустой защищённой очереди: >200 origins,
+повторяемый видимый приоритет, фоновый прогресс/обход без WebView, scoped ответ,
+первая внешняя квитанция при пустом списке deletion operations → commit/adoption
+→ освобождение всех владельцев → первый новый обычный владелец читает ровно одну
+принятую операцию; повтор не дублирует её. Это ожидаемый RED нынешнего кода,
+а не fixture, вставляющая delete intent напрямую. Отказы полного batch, чужой
+области/цели/receipt, stale auth generation, конфликта queue generation и
+not-committed/ambiguous commit не публикуют успех до adoption. Использовать
+сгенерированные метаданные и подставной transport: реальные устройства/сеть 0;
+считать вызовы DELETE/purge ACK (оба 0), проверять отсутствие локальной очистки,
+неизменность исходных пакетов и возврат leases/jobs/pins/памяти к исходному уровню.
+Это покрытие доказывает получение/сохранение истины, не право удаления, очистку
+оригиналов/карантина или завершение T088/FR-022.

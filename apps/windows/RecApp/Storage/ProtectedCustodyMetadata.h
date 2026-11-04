@@ -181,8 +181,9 @@ class ProtectedCustodyBootstrapPair;
 class ProtectedCustodyMigrationPair final {
 public:
     // Worker-only bootstrap linkage, not startup admission or queue authority.
-    // Fixed root/queue IDs and expected tuple come from the retained discovery
-    // parent, never a caller path or this intent's JSON.
+    // Fixed root/queue IDs and scope come from the retained discovery parent.
+    // Transaction comes from its migrating tuple, or from independently
+    // authenticated direct Birth for BOTH protected/null root bootstrap slots.
     [[nodiscard]] static CustodyFileResult<std::shared_ptr<const ProtectedCustodyMigrationPair>> read(
         std::shared_ptr<const ProtectedCustodyBootstrapPair>,
         std::shared_ptr<const std::atomic<bool>> cancellation);
@@ -198,7 +199,7 @@ public:
     ProtectedCustodyMigrationPair(const ProtectedCustodyMigrationPair&) = delete;
 private:
     [[nodiscard]] static CustodyFileResult<std::shared_ptr<const ProtectedCustodyMigrationPair>> readImpl(
-        const std::filesystem::path&, CustodyContext, const CustodyId& transaction,
+        const std::filesystem::path&, CustodyContext, std::optional<CustodyId> transaction,
         CustodyMigrationSubject, std::string_view directory,
         std::shared_ptr<const std::atomic<bool>>, std::shared_ptr<const ProtectedCustodyBootstrapPair>);
     ProtectedCustodyMigrationPair(CustodyPin&&, std::shared_ptr<const ProtectedCustodyBootstrapPair>&&,

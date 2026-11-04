@@ -533,6 +533,17 @@ CustodyFileResult<std::shared_ptr<const ProtectedCustodyMigrationPair>> Protecte
     return {std::nullopt, CustodyFileError::unsupportedPlatform, 0};
 #else
     const auto& selected = bootstrap->current();
+    if (selected.mode == CustodyBootstrapMode::protectedStore) {
+        for (const auto& peer : bootstrap->slots()) {
+            if (peer.mode != CustodyBootstrapMode::protectedStore || peer.transactionId || peer.subject || peer.directory)
+                return {std::nullopt, CustodyFileError::invalidInput, 0};
+        }
+        const auto& root = bootstrap->lease_->trustedRoot();
+        // Completed root history has no bootstrap transaction selector. Only
+        // independently authenticated direct Birth may supply that expectation.
+        return readImpl(root, CustodyContext{{}, {}, CustodyRole::migrationIntent}, std::nullopt,
+            CustodyMigrationSubject::queue, {}, std::move(cancellation), std::move(bootstrap));
+    }
     if (selected.mode != CustodyBootstrapMode::migrating)
         return {std::nullopt, CustodyFileError::invalidInput, 0};
     for (const auto& peer : bootstrap->slots()) {
@@ -552,7 +563,7 @@ CustodyFileResult<std::shared_ptr<const ProtectedCustodyMigrationPair>> Protecte
     return readImpl(root, own, transaction, subject, name, std::move(cancellation), {});
 }
 CustodyFileResult<std::shared_ptr<const ProtectedCustodyMigrationPair>> ProtectedCustodyMigrationPair::readImpl(
-    const std::filesystem::path& root, CustodyContext own, const CustodyId& transaction,
+    const std::filesystem::path& root, CustodyContext own, std::optional<CustodyId> transaction,
     CustodyMigrationSubject subject, std::string_view name, std::shared_ptr<const std::atomic<bool>> cancellation,
     std::shared_ptr<const ProtectedCustodyBootstrapPair> bootstrap) try {
     using Proof = std::shared_ptr<const ProtectedCustodyMigrationPair>;
@@ -560,6 +571,7 @@ CustodyFileResult<std::shared_ptr<const ProtectedCustodyMigrationPair>> Protecte
         return {std::nullopt, error, native};
     };
     if (own.role != CustodyRole::migrationIntent || !cancellation ||
+        (!transaction && (!bootstrap || subject != CustodyMigrationSubject::queue)) ||
         (subject == CustodyMigrationSubject::queue ? !name.empty() :
          subject != CustodyMigrationSubject::package || !identity(name))) return reject(CustodyFileError::invalidInput);
 #ifndef _WIN32
@@ -600,8 +612,35 @@ CustodyFileResult<std::shared_ptr<const ProtectedCustodyMigrationPair>> Protecte
         auto plain = ProtectedCustodyCodec::openBlock(own, 0, entry.version, static_cast<std::uint32_t>(index.logicalLength), *cipher.value);
         if (!plain.ok()) return reject(codecFileError(plain.error), plain.nativeError);
         if (cancelled()) return reject(CustodyFileError::ioFailed, ERROR_OPERATION_ABORTED);
-        auto parsed = readCustodyMigration({reinterpret_cast<const char*>(plain.value->data()), plain.value->size()},
-            own, index.generation, transaction, subject, name);
+        const std::string_view json{reinterpret_cast<const char*>(plain.value->data()), plain.value->size()};
+        auto expectedTransaction = transaction;
+        if (!expectedTransaction) {
+            std::array<CustodyMigrationValue, 2> provisional{};
+            WipeValues wipeProvisional{provisional};
+            // Locator only: no semantic expectation or path is taken from this
+            // current JSON. Fixed role/position and native context stay on lease.
+            if (!PackageJson(json).read(provisional[0]) || !provisional[0].barrier)
+                return reject(CustodyFileError::invalidContent);
+            const auto& ref = *provisional[0].barrier;
+            if (ref.objectId != own.objectId || ref.generation != 1 || !ref.blockVersion ||
+                ref.envelopeBytes <= 16 || ref.envelopeBytes > ProtectedCustodyCodec::blockEnvelopeLimit(packageLimit))
+                return reject(CustodyFileError::invalidContent);
+            auto envelope = lease->readMigrationBirthEnvelope(ref.blockVersion, static_cast<std::uint32_t>(ref.envelopeBytes));
+            if (!envelope.ok()) return reject(envelope.error, envelope.nativeError);
+            if (cancelled()) return reject(CustodyFileError::ioFailed, ERROR_OPERATION_ABORTED);
+            if (envelope.value->size() != ref.envelopeBytes) return reject(CustodyFileError::invalidContent);
+            const auto hash = custody_detail::digest(envelope.value->data(), envelope.value->size());
+            if (!hash) return reject(codecFileError(CustodyCodecError::hashFailed));
+            if (*hash != ref.sha256) return reject(CustodyFileError::invalidContent);
+            if (cancelled()) return reject(CustodyFileError::ioFailed, ERROR_OPERATION_ABORTED);
+            auto birthPlain = ProtectedCustodyCodec::openMigrationBirthBlock(own, ref.blockVersion, *envelope.value);
+            if (!birthPlain.ok()) return reject(codecFileError(birthPlain.error), birthPlain.nativeError);
+            if (cancelled()) return reject(CustodyFileError::ioFailed, ERROR_OPERATION_ABORTED);
+            if (!PackageJson({reinterpret_cast<const char*>(birthPlain.value->data()), birthPlain.value->size()}).read(provisional[1]))
+                return reject(CustodyFileError::invalidContent);
+            expectedTransaction = provisional[1].transactionId;
+        }
+        auto parsed = readCustodyMigration(json, own, index.generation, *expectedTransaction, subject, name);
         if (!parsed.ok()) return reject(codecFileError(parsed.error), parsed.nativeError);
         values[slot] = *parsed.value;
         SecureZeroMemory(&*parsed.value, sizeof(CustodyMigrationValue));
@@ -615,7 +654,7 @@ CustodyFileResult<std::shared_ptr<const ProtectedCustodyMigrationPair>> Protecte
             auto envelope = lease->readMigrationBirthEnvelope(ref.blockVersion, static_cast<std::uint32_t>(ref.envelopeBytes));
             if (!envelope.ok()) return reject(envelope.error, envelope.nativeError);
             if (cancelled()) return reject(CustodyFileError::ioFailed, ERROR_OPERATION_ABORTED);
-            auto birth = readCustodyMigrationBirth(*envelope.value, own, values[slot], transaction, subject, name);
+            auto birth = readCustodyMigrationBirth(*envelope.value, own, values[slot], values[slot].transactionId, subject, name);
             if (!birth.ok()) return reject(codecFileError(birth.error), birth.nativeError);
             SecureZeroMemory(&*birth.value, sizeof(CustodyMigrationValue));
         }

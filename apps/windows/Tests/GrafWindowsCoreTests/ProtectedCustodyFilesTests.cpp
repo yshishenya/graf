@@ -1643,6 +1643,68 @@ void linkedMigrationPairs() {
             noEffects(); assert(writerArtifacts(f) == artifacts); }
         assert(CustodyOwnedMemory::usedBytes() == owned); locks(identities(f, birth.subject), false);
     };
+    // Completed ROOT QUEUE metadata provenance only: no copied ledger, other
+    // barrier copies, retained media roots, StoreOwner admission or GC proof.
+    for (const bool mismatchedTransaction : {false, true}) {
+        Fixture f(CustodyRole::bootstrap, L"bootstrap");
+        const auto birth = makeBirth(f, 2, CustodyMigrationSubject::queue);
+        const auto cipher = sealBirth(birth);
+        auto first = copied(birth, 5, CustodyMigrationStage::switched);
+        auto last = copied(birth, 6, CustodyMigrationStage::switched);
+        first.barrier = last.barrier = barrier(birth, cipher);
+        // Both current records agree with each other, but not the separately
+        // authenticated immutable Birth. Pair agreement alone must not pass.
+        if (mismatchedTransaction) {
+            first.transactionId[0] ^= 1; last.transactionId = first.transactionId;
+        }
+        prepare(f, birth, cipher, {first, last});
+        for (const auto generation : {2U, 3U}) {
+            auto value = bootstrapValue(f, birth, generation);
+            value.mode = CustodyBootstrapMode::protectedStore;
+            value.transactionId.reset(); value.subject.reset(); value.directory.reset();
+            commitBootstrap(f, value);
+        }
+        const auto owned = CustodyOwnedMemory::usedBytes();
+        const auto artifacts = writerArtifacts(f);
+        const auto paths = identities(f, CustodyMigrationSubject::queue);
+        inject(FileFault::none);
+        {
+            auto parent = ProtectedCustodyBootstrapPair::read(f.root, cancelled); assert(parent.ok());
+            for (const auto& value : (*parent.value)->slots()) {
+                assert(value.mode == CustodyBootstrapMode::protectedStore);
+                assert(!value.transactionId && !value.subject && !value.directory);
+            }
+            // No caller-supplied transaction or expectation taken from current JSON.
+            auto result = Pair::read(*parent.value, cancelled);
+            if (mismatchedTransaction) {
+                assert(!result.ok() && !result.value && result.error == CustodyFileError::invalidContent);
+            } else {
+                assert(result.ok() && result.value && *result.value);
+                const auto& pair = **result.value;
+                assert(pair.current().generation == 6 && pair.current().schema == 2);
+                for (unsigned slot = 0; slot < 2; ++slot) {
+                    const auto& value = pair.slots()[slot];
+                    assert(value.generation == 5 + slot && pair.indices().indices[slot].generation == value.generation);
+                    assert(value.context.storeId == birth.context.storeId && value.context.objectId == birth.context.objectId);
+                    assert(value.context.role == CustodyRole::migrationIntent && value.transactionId == birth.transactionId);
+                    assert(value.subject == CustodyMigrationSubject::queue && !value.directory);
+                    assert(value.stage == CustodyMigrationStage::switched && !value.authorization);
+                    assert(value.sourceCount == 1 && value.sources[0].kind == CustodyMigrationSourceKind::ledger);
+                    assert(value.sources[0].destinationObjectId == queueId && value.barrier && value.barrier->blockVersion == 17);
+                }
+                auto retained = *result.value; result.value.reset(); parent.value.reset();
+                locks(paths, true); noEffects();
+                { std::array<CustodyNativeJob, 4> jobs; for (const auto& job : jobs) assert(job); }
+                { std::array<CustodyPin, 30> pins; for (const auto& pin : pins) assert(pin); CustodyPin overflow; assert(!overflow); }
+                retained.reset();
+            }
+            noEffects();
+        }
+        assert(CustodyOwnedMemory::usedBytes() == owned); locks(paths, false);
+        assert(writerArtifacts(f) == artifacts);
+        assert(!std::filesystem::exists(f.root/L".custody-v1"/L"queue"/L"index.0"));
+        assert(!std::filesystem::exists(f.root/L".custody-v1"/L"queue"/L"index.1"));
+    }
     // Gate transition table is deliberately NOT startup/queue admission.
     for (unsigned variant = 0; variant < 6; ++variant) {
         Fixture f(CustodyRole::bootstrap, L"bootstrap"); auto birth = makeBirth(f, 1, CustodyMigrationSubject::queue);

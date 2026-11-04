@@ -886,3 +886,103 @@ Terminal SHA `0fca52be3a8aa66147fdd5dffc5f6370f65952add003efdfb9ecf2e42f5d5ecf`.
 тот же исходный набор62, source2258a012 и exact8PE из целевого успешного запуска,
 без пересборки/копирования/установки. Предыдущие отказы сохранены. Пока набор
 выполняется, его результат не объявляется PASS и T116/T117 остаются открыты.
+
+## 2026-11-04 — единый текущий набор62 завершился PASS
+
+`t116-current-cohesive-62-r3` завершился host0/CTest0: ровно исходные62
+сценария выполнены, все PASS, total3814.87s. Main сверил exact requested set,
+JUnit и result; прежние RED/r2 остаются отдельными отказами, не частью этого PASS.
+Terminal `b0a2eabaa03701b2e8d8e4f2e94f5a13e5c5f8dda80744713fd9cbf8464e7e83`.
+Source225 `8a012f484acd5129e79464ebd90711563c748b6c4d97153d848cacd764c20334`
+и восемь PE из целевого GREEN не изменились; predecessor terminal совпадает
+с0fca52be… выше. Сохранены configuration110 со всеми командами/свойствами,
+original deadlines, installed0.1.0.15 и EXE, own0/no forced cleanup. Runtime
+UTF16 TEMP/TMP с кириллицей и пробелом и контрольные суммы launcher подтверждены.
+
+Ключевые времена: Partial152.567/180s; Resume238.116/240s;
+LargeUploadParts656.456/900s. Малый запас Resume отражается как ограничение
+устойчивости по времени, не устраняется увеличением cap. Весь NativeCapture
+default case274.992s использует общий1800s, а не отдельный Resume240.
+Выполнены также protected files311.836, writer106.141, privacy manifest211.709,
+privacy degraded206.573 и owner232.11s. Это Debug correctness в Parallels,
+не принятая производительность записи/Stop, физическая x64 или SC-003.
+
+Источники Windows соответствуют39572 и последующему1aecf44621e2ea4c169525138ea3d9240c04a054:
+последний меняет только CI/docs. Новый MSIX не установлен; device audio,
+реальная сеть, пользовательские записи и сертификаты не использовались.
+Независимая terminal qualification запрошена. Технический набор не закрывает
+целиком T116/T117/T118, установленные и аппаратные критерии. Следующий срез
+T117 — проверенное обнаружение завершённой истории без transaction в bootstrap;
+оно не даёт обычной queue authority, разрешения очистки или обхода карантина.
+
+
+## 2026-11-04 — T117: воспроизведён отказ чтения завершённой истории
+
+Первый test-only запуск `t117-completed-history-red` остановился на строке1612
+при создании index fixture: поколения4/5 не соответствовали slots0/1.
+Это ошибка тестовых данных, не продуктовый RED. Отдельный terminal
+`fb850eb79e2b74c1e8836cdbc54936afb6a8e9229d291506d5ec4e864428cde6`
+сохраняет classification `fixture_setup_failure_not_T117_RED`.
+
+После четырёх числовых поправок (g5/slot0, g6/slot1, selected6, 5+slot)
+тот же тест на прежнем production-коде дошёл до целевого положительного
+assert1682 и отказал: `t117-completed-history-red-r2`, build0/host0/case3.
+Terminal `1d97b37d1e788f2653163a0bd25eadd45063dbc054c5e4db042664b6bab8ac9d`,
+source225 `eb7ae8eddac028e74bfa431fe20365dda4736e199885e19c6b38e31f8bb5c140`.
+Конфигурация110 byte-identical до/после, прочие7PE и установленный GRAF
+не менялись, own0/no forced cleanup; runtimeUTF16 с кириллицей и пробелом PASS.
+Независимый bounded verdict C0/H0 подтвердил именно target RED.
+
+Только после этого применён ранее отдельно проверенный SOURCE GO C0/H0
+production candidate: ProtectedCustodyMetadata.cpp4b9718d7… и .h5db8fb93… .
+BOTH protected/null bootstrap разрешает обнаружить историю ROOT QUEUE:
+текущий JSON задаёт лишь ограниченный locator, transaction берётся из отдельно
+аутентифицированного immutable Birth. Затем оба current records проходят
+строгую проверку, связь с Birth, native queue identity и progression под
+непрерывным lease. Новый parser/schema/public API не добавлены.
+
+Запущен `t117-completed-history-green`: source225
+`56f62701580049455531059084511d1fa5fc97ce52e7bcf784a9729ee5bf703f`,
+wrapper `0b19653e398c0512171c87d54fa8f8364563865b4a3e0bf283fd9e9e20036ad2`.
+После одной сборки Files идут существующий --migration-pair и полный CTest
+ProtectedCustodyFilesTests, без изменения configuration110 и сроков.
+Результат ещё не принят. Этот срез читает только provenance: обычный
+StoreOwner, copy/switch/cleanup/GC и все barrier copies не разрешаются.
+T117, просроченное исключение old reader и блокировка выпуска остаются открыты.
+Рабочие записи, учётная запись, сертификаты и установленный пакет не менялись.
+
+
+## 2026-11-04 — T117 metadata history: RED → GREEN подтверждён
+
+`t117-completed-history-green` завершился host0/build0/CLI0/fullFiles0.
+Полный CTest ProtectedCustodyFilesTests PASS956.16s (CTest total956.19s).
+Main terminal `6ef4d600adf74bb1e15eb58c06f21bbae01e3f3eba46856140a77b916829f389`;
+предшественник — квалифицированный target RED1d97b37d… на1682, не ошибочный
+fixture FAIL1612. Windows source22556f627… неизменен, ровно те же110 CTest
+byte-identical до/после. Files PE
+`e317d26bf1d0fb9680d559b077a99f0c1569ebd35e0364b7b5e847e5e7bba07f`;
+остальные7PE не менялись. После запуска: own0/no forced cleanup,
+installed0.1.0.15/EXE unchanged, UTF16 TEMP/TMP с кириллицей и пробелом PASS.
+
+В stderr CLI — ровно16 прежних CUSTODY_BOOTSTRAP_INTENT_NATIVE_ID diagnostic
+строк для schema2 × subjects0/1 × faults0..7. actual_error совпадает с expected,
+нативные коды соответствуют существующим assertions; чужой текст/assertion
+квалификатор не принимает. Пустой stderr не требуется от этих намеренных
+отрицательных проверок. Test/runner/prod условия и сроки не ослаблены.
+
+Время заметно больше прежнего311.836s; точная причина различия не установлена.
+Метаданные одного измерения гостя: доступно3295MiB из9210MiB, тестовый процесс
+работал; это не доказывает причину и не является SC-003. Срок1800s не менялся.
+Источник62PASS8a012… остаётся прежним источником, не переименован в56f627… .
+Независимая финальная квалификация этого GREEN запрошена. Ни StoreOwner
+после migration, ни copy/switch/cleanup engine, ни T117 целиком не закрыты.
+
+Следующий test-only donor обычного cold open остаётся вне репозитория:
+реальные generated v5 bytes, очередь после двух последующих commits, все
+barrier copies и отдельный retained packed root. До его применения необходимы
+проверка подготовки и самостоятельный target RED; готовность приложения
+не выводится из этого metadata-only результата.
+
+Независимая финальная квалификация GREEN завершена: scoped GO C0/H0,
+225/225 исходников и24 receipt pins сверены; прежний SOURCE GO сохранён.
+Разрешён промежуточный checkpoint этого среза, не приёмка всего приложения.

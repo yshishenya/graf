@@ -112,6 +112,7 @@ The initial allowlist is intentionally small:
 |---|---|---:|
 | `request_app_quit` | validate exact `{"action":"quit"}`; stop active capture and wait for native finalization before closing | yes, close waits for finalization |
 | `local_recording` | validate exact `{"action":"open\|send\|delete","id":"known-local-id"}` and the current row capability; see section 8 | only when current native state permits that action; deletion is blocked during capture/upload |
+| `visible_recordings` | exact Mac `{"action":"visibleRecordings","version":1,"ids":[]}`; 0–100 unique current-projection local IDs, current document/account/route; see §8.1 | RAM priority hint only; no capture/queue/deletion effect |
 | `app_appearance` | bounded `theme` enum: system/light/dark, updates native appearance only | yes |
 | `native_settings` | versioned request to exact recording/notification settings handler on its matching settings route; no arbitrary method invocation | yes; recording state still gates capture-related changes |
 | `delete_selection` | typed version 1 `deleteSelection`, valid request ID, at most 100 unique known local IDs/server meeting UUIDs; current route and native capability rechecked | active capture/upload targets cannot be purged |
@@ -205,6 +206,54 @@ Windows использует существующий `window.GRAFLocalRecording
 с нативным жизненным циклом удаления. Право конкретной установки/аккаунта
 проверяется нативно по серверным возможностям перед эффектом; наличие команды
 не является разрешением удаления. Успех сохранения запроса не означает очистку.
+
+### 8.1. T088: приоритет видимых записей — 2026-11-04
+
+Существующий Mac publisher `publishVisibleRecordings` в `cabinet.js` передаёт
+в `window.webkit.messageHandlers.grafLocalRecording.postMessage` ровно
+`{"action":"visibleRecordings","version":1,"ids":["known-local-id"]}`.
+Windows сохраняет этот вызов общего кабинета: существующий
+`RecordingDeletionBridge::documentScript` получает отдельную ветку
+`visibleRecordings`, которая передаёт точный payload событием
+`graf:visible-recordings`. Существующий `kDesktopBridgeScript` принимает только
+это событие и передаёт его через приватный `send` как отдельную команду
+`visible_recordings`. Нынешний обработчик/флаг версии не переустанавливаются.
+Непосредственный raw `visibleRecordings` не является нативной командой. Эта ветка
+не расширяет `local_recording` или `delete_selection` и не добавляет
+универсальную пересылку методов/действий.
+
+Используется существующий конверт §3 с `command:visible_recordings`.
+Nonce и возрастающий `message_id` назначает приватный `send`, не publisher;
+аккаунт и поколение авторизации в payload не передаются. Проверки источника
+и доверенного origin остаются обязательными.
+
+Payload имеет ровно три поля: `action` — строка `visibleRecordings`, `version` —
+целое JSON-число 1, `ids` — массив от 0 до 100 уникальных строк. Каждый ID
+принадлежит последней полной нативной проекции текущего аккаунта и допускаемого
+маршрута списка/просмотра встречи; в просмотре совпадает также meeting UUID.
+Применяются существующие границы длины local ID. Пути, origin ID, server meeting
+ID и аккаунт из страницы не заменяют local ID. Лишние/повторные поля, дробная
+версия, неверный тип, повтор ID, неизвестный ID или превышение лимита отклоняют
+всю подсказку. Проверка исходного JSON предшествует нормализации WinRT.
+
+До замены приоритета проверяются разрешённый текущий документ и маршрут,
+конверт/nonce/message_id, подтверждённая cookie, HTML-личность и совпадение native
+origin/user/workspace/authGeneration, как для защищённой локальной проекции.
+Поколение документа и authGeneration берутся нативно, не из payload. Навигация,
+выход, смена аккаунта/пространства или поколения авторизации отзывают старую
+подсказку. Отказ не меняет прежний приоритет; валидный `ids:[]` очищает только
+приоритет видимости. Сброс документа отзывает приоритет независимо от доставки
+пустого сообщения страницей.
+
+Подсказка заменяет только ограниченный набор приоритетов в памяти. Она не
+создаёт намерение удаления, не меняет очередь/квитанцию и не разрешает отправку,
+удаление, очистку или доступ к файлам. Она допустима при записи без блокирующего
+IO; существующие ограничения фоновых работ сохраняются. Проверка lifecycle
+использует отдельную нативно подтверждённую область аккаунта и работает также
+без открытого WebView. Повторные подсказки не вытесняют фоновый обход
+(раздел T088 в plan.md). Серверная квитанция становится локальной истиной только после
+проверки полного ответа, защищённого commit/readback и adoption; ни это сообщение,
+ни web acknowledgement не подтверждают удаление или purge ACK (FR-013/FR-022).
 
 ## 9. Актуальные границы паритета (2026-09-26)
 
