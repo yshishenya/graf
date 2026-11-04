@@ -13,6 +13,8 @@ class ProtectedUploadQueueValue;
 class ProtectedCustodyRecordingPackage;
 class ProtectedCustodyPackagePair;
 class ProtectedCustodyMigrationPair;
+class ProtectedCustodyQueueMigration;
+class ProtectedCustodyMigration;
 class ProtectedCustodyWriter;
 class ProtectedPackedCustodyOwner;
 struct V5WriterResult;
@@ -65,6 +67,11 @@ public:
     ~ProtectedCustodyStoreOwner();
     ProtectedCustodyStoreOwner(const ProtectedCustodyStoreOwner&) = delete;
 private:
+    friend class ProtectedCustodyMigration;
+    friend class ProtectedCustodyQueueMigration;
+    friend class ProtectedCustodyFiles;
+    friend class NativeCapture;
+    friend struct ProtectedCustodyMigrationTestPeer;
     friend class LocalRecordingPackage;
     friend class V5LocalRecordingWriter;
     [[nodiscard]] CustodyFileResult<ReasonCode> recoveryReason(
@@ -84,8 +91,24 @@ private:
     [[nodiscard]] CustodyFileResult<bool> validateMigrationPackageHistory(
         std::shared_ptr<const ProtectedCustodyPackagePair>, std::shared_ptr<const std::atomic<bool>>,
         std::shared_ptr<const ProtectedCustodyMigrationPair> history = {});
+    [[nodiscard]] static CustodyFileResult<bool> validateMigrationPackageHistoryImpl(
+        const std::shared_ptr<ProtectedCustodyFiles>& root, const CustodyContext& queueContext,
+        const CustodyContext& bootstrapContext, std::uint64_t queueGeneration,
+        std::shared_ptr<const ProtectedCustodyPackagePair>, std::shared_ptr<const std::atomic<bool>>,
+        std::shared_ptr<const ProtectedCustodyMigrationPair>);
+    // Explicit native owner-confirmation continuation only; never startup/GC.
+    // The worker must drain consumers and bind the UI epoch/account before entry.
+    [[nodiscard]] CustodyFileResult<bool> cleanupMigrationOriginals(std::string_view directory,
+        const CustodyId& transaction, std::string_view user, std::string_view workspace,
+        std::uint64_t expectedQueueGeneration, std::shared_ptr<const std::atomic<bool>>);
+    [[nodiscard]] CustodyFileResult<bool> revalidatePackageState(
+        std::shared_ptr<const ProtectedCustodyPackagePair>, std::shared_ptr<const std::atomic<bool>>);
     // Defined beside the existing charged queue decoder, not a second parser.
     [[nodiscard]] static CustodyFileResult<bool> validateQueueValue(std::string_view, const std::atomic<bool>*);
+    // Migration-only use of the SAME pure queue decoder, whose existing friend
+    // boundary stays StoreOwner. No public selector or mutating legacy load.
+    [[nodiscard]] static CustodyFileResult<std::shared_ptr<const ProtectedUploadQueueValue>> decodeMigrationQueue(
+        std::string_view, const std::atomic<bool>*);
 #ifdef _WIN32
     [[nodiscard]] CustodyFileResult<bool> recyclePackage(std::shared_ptr<const ProtectedCustodyPackagePair>,
         std::shared_ptr<const std::atomic<bool>> cancellation, bool* effectAttempted = nullptr);
@@ -204,11 +227,20 @@ public:
     ProtectedCustodyMigrationPair(const ProtectedCustodyMigrationPair&) = delete;
 private:
     friend class ProtectedCustodyStoreOwner;
+    friend struct ProtectedCustodyMigrationTestPeer;
     [[nodiscard]] static CustodyFileResult<std::shared_ptr<const ProtectedCustodyMigrationPair>> readImpl(
         const std::filesystem::path&, CustodyContext, std::optional<CustodyId> transaction,
         CustodyMigrationSubject, std::string_view directory,
         std::shared_ptr<const std::atomic<bool>>, std::shared_ptr<const ProtectedCustodyBootstrapPair>,
         std::unique_ptr<ProtectedCustodyFiles> prepared = {});
+    friend class ProtectedCustodyMigration;
+    friend class ProtectedCustodyQueueMigration;
+    // Same strict BOTH/native Birth validator for readonly factory and the
+    // continuously writable migration coordinator; never upgrade a read proof.
+    [[nodiscard]] static CustodyFileResult<bool> readValues(ProtectedCustodyFiles&, const CustodyContext&,
+        std::optional<CustodyId>, CustodyMigrationSubject, std::string_view,
+        const std::shared_ptr<const std::atomic<bool>>&, const ProtectedCustodyBootstrapPair*, bool preparing,
+        CustodyMetadataIndices&, std::array<CustodyMigrationValue,2>&);
     ProtectedCustodyMigrationPair(CustodyPin&&, std::shared_ptr<const ProtectedCustodyBootstrapPair>&&,
         std::unique_ptr<ProtectedCustodyFiles>&&,
         CustodyMetadataIndices&&, const std::array<CustodyMigrationValue, 2>&);
@@ -273,6 +305,43 @@ private:
     mutable std::mutex queueRead_;
     CustodyMetadataIndices indices_;
     std::array<CustodyBootstrapValue, 2> values_;
+};
+
+// Migration-worker ownership only. Prepared/fenced does NOT expose an ordinary
+// StoreOwner or queue projection and authorizes no capture/network/purge effect.
+class ProtectedCustodyQueueMigration final {
+public:
+    [[nodiscard]] static CustodyFileResult<std::shared_ptr<ProtectedCustodyQueueMigration>> prepare(
+        const std::filesystem::path&, std::shared_ptr<const std::atomic<bool>>);
+    [[nodiscard]] const CustodyMigrationValue& current() const noexcept { return values_[indices_.selectedSlot]; }
+    [[nodiscard]] CustodyContext queueContext() const noexcept { return queue_->context(); }
+    ~ProtectedCustodyQueueMigration();
+    ProtectedCustodyQueueMigration(const ProtectedCustodyQueueMigration&) = delete;
+private:
+    friend class ProtectedCustodyMigration;
+    [[nodiscard]] static CustodyFileResult<std::shared_ptr<ProtectedCustodyQueueMigration>> openImpl(
+        const std::filesystem::path&, std::shared_ptr<const std::atomic<bool>>, bool copyAndSwitch);
+    [[nodiscard]] static CustodyFileResult<std::shared_ptr<ProtectedCustodyQueueMigration>> openProtected(
+        const std::filesystem::path&, std::shared_ptr<const std::atomic<bool>>);
+    ProtectedCustodyQueueMigration() = default;
+    std::optional<CustodyPin> pin_;
+    std::shared_ptr<ProtectedCustodyFiles> root_;
+    std::unique_ptr<ProtectedCustodyFiles> queue_, intent_, bootstrap_;
+    std::shared_ptr<const std::atomic<bool>> cancellation_;
+    CustodyMetadataIndices indices_;
+    std::array<CustodyMigrationValue,2> values_{};
+    CustodyBytes source_;
+};
+
+// Sole native startup worker. Never exposes a provisional queue/package owner.
+class ProtectedCustodyMigration final {
+public:
+    [[nodiscard]] static CustodyFileResult<std::shared_ptr<ProtectedCustodyStoreOwner>> open(
+        const std::filesystem::path&, std::shared_ptr<const std::atomic<bool>>);
+private:
+    friend class NativeCapture;
+    [[nodiscard]] static CustodyFileResult<bool> migratePackage(ProtectedCustodyQueueMigration&,
+        std::string_view directory, std::string_view session, const CustodyBytes&, std::uint64_t queueGeneration);
 };
 
 // Worker-only immutable bytes of BOTH fixed queue slots, retaining the genuine
@@ -349,6 +418,7 @@ public:
     ProtectedCustodyPackagePair(const ProtectedCustodyPackagePair&) = delete;
 private:
     friend class ProtectedCustodyStoreOwner;
+    friend class ProtectedCustodyMigration;
     friend class ProtectedCustodyRecordingPackage;
 #ifdef _WIN32
     friend CustodyFileResult<CustodyPackageReaders> openProtectedCustodyReaders(
@@ -391,6 +461,8 @@ private:
         std::shared_ptr<const std::atomic<bool>>, ProtectedCustodyFiles*);
     friend class ProtectedCustodyStoreOwner;
     friend class ProtectedCustodyRecordingPackage;
+    friend class ProtectedCustodyMigration;
+    friend class ProtectedCustodyQueueMigration;
 public:
     CustodyMetadataCommit() = default;
     CustodyMetadataCommit(const CustodyMetadataCommit&) = delete;

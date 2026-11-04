@@ -6,8 +6,12 @@
 #endif
 #include <cassert>
 #include <cstdio>
+#include <cstdlib>
 #include <stdexcept>
 #include <vector>
+#if defined(_MSC_VER) && defined(_DEBUG)
+#include <crtdbg.h>
+#endif
 #ifdef _WIN32
 #include <winrt/base.h>
 #endif
@@ -77,6 +81,11 @@ struct ProtectedUploadQueueValueTestPeer {
             if (deletionEdge == 10) operation.workspaceId = "55555555-5555-4555-8555-555555555555";
             value->operations_.push_back(std::move(operation));
         }
+        return value;
+    }
+    static std::shared_ptr<const ProtectedUploadQueueValue> accessInventory(std::string_view access) {
+        auto value = std::const_pointer_cast<ProtectedUploadQueueValue>(playbackInventory());
+        value->items_[1].accessState = CustodyString(access);
         return value;
     }
     static std::shared_ptr<const ProtectedUploadQueueValue> unassignedInventory(unsigned edge = 0) {
@@ -254,7 +263,48 @@ struct WebView2CalendarJoinFixture {
 };
 }
 
+
+void testOfflineLocalDocumentBinding() {
+    const auto baseline = CustodyOwnedMemory::usedBytes();
+    {
+        WebView2CalendarJoinFixture f;
+        f.timeReader(); f.authTime();
+        auto value = ProtectedUploadQueueValueTestPeer::playbackInventory();
+        f.host.setProtectedLocalRecordings(value, true, "https://rec.2brain.pro",
+            "11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222", 7);
+        assert(f.timeReads.size() == 1 && "cached_local_scope_requires_own_document_read_without_network_binding");
+        assert(!f.host.localRecordingActionAllowed("open", "synthetic-row-1"));
+        f.finishTime(0, f.timeMetadata());
+        assert(f.host.localRecordingActionAllowed("open", "synthetic-row-1")); // Server bound, nullable access.
+        assert(!f.host.localRecordingActionAllowed("send", "synthetic-row-1"));
+        assert(f.host.preferredUserTimeZone().empty()); // Cache is not reminder/network authority.
+        for (const auto access : {"owner", "unknown", "access_revoked", "stale_device_identity"}) {
+            f.host.setProtectedLocalRecordings(ProtectedUploadQueueValueTestPeer::accessInventory(access), true,
+                "https://rec.2brain.pro", "11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222", 7);
+            assert(f.host.localRecordingActionAllowed("open", "synthetic-row-1") == (std::string_view(access) == "owner"));
+        }
+        f.host.setProtectedLocalRecordings(value, true, "https://rec.2brain.pro",
+            "11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222", 7);
+        const auto oldDocument = f.host.documentGeneration();
+        f.newTimeDocument(); f.authTime();
+        assert(!f.host.localPlaybackDocumentCurrent(oldDocument, "nonce-1"));
+        assert(f.timeReads.size() == 2);
+        f.finishTime(0, f.timeMetadata()); // Stale completion cannot authorize the new document.
+        assert(!f.host.localRecordingActionAllowed("open", "synthetic-row-1"));
+        f.finishTime(1, f.timeMetadata("UTC", "11111111-1111-4111-8111-111111111111",
+            "55555555-5555-4555-8555-555555555555")); // Offline document B versus cached A.
+        assert(!f.host.localRecordingActionAllowed("open", "synthetic-row-1"));
+        f.newTimeDocument(); f.authTime(); f.finishTime(2, f.timeMetadata());
+        assert(f.host.localRecordingActionAllowed("open", "synthetic-row-1"));
+        f.authTime("other-session");
+        assert(!f.host.localRecordingActionAllowed("open", "synthetic-row-1"));
+        f.host.close();
+    }
+    assert(CustodyOwnedMemory::usedBytes() == baseline);
+}
+
 void testProtectedPlaybackPermission() {
+    testOfflineLocalDocumentBinding();
     const auto before = CustodyOwnedMemory::usedBytes();
     {
         WebView2CalendarJoinFixture f;
@@ -265,7 +315,7 @@ void testProtectedPlaybackPermission() {
         };
         update();
         assert(!f.host.localRecordingActionAllowed("open", "synthetic-row-0"));
-        f.timeReader(); f.timeAccount(); f.timeCookie(); f.finishTime(0, f.timeMetadata());
+        f.timeReader(); f.timeAccount(); update(); f.timeCookie(); f.finishTime(0, f.timeMetadata());
         const auto document = f.host.documentGeneration();
         assert(f.host.localPlaybackDocumentCurrent(document, "nonce-1"));
         assert(!f.host.localPlaybackDocumentCurrent(0, "nonce-1"));
@@ -274,7 +324,7 @@ void testProtectedPlaybackPermission() {
         assert(f.host.localRecordingActionAllowed("open", "synthetic-row-0") &&
             "protected_owned_local_row_must_allow_validation_request");
         assert(f.host.localRecordingActionAllowed("open", "synthetic-row-5")); // Rejected deletion does not revoke content.
-        for (unsigned n : {1U,2U,3U,4U,6U,7U,8U})
+        for (unsigned n : {2U,3U,4U,6U,7U,8U})
             assert(!f.host.localRecordingActionAllowed("open", "synthetic-row-" + std::to_string(n)));
         assert(f.host.localRecordingActionAllowed("send", "synthetic-row-0"));
         assert(f.host.localRecordingActionAllowed("send", "synthetic-row-1")); // Reconcile an existing server identity.
@@ -294,7 +344,7 @@ void testProtectedPlaybackPermission() {
         const auto rows = json_detail::JsonReader<>(fields->at("rows")).readArray(); assert(rows);
         for (const auto row : *rows) {
             const auto rowFields = json_detail::JsonReader<>(row).read(); assert(rowFields);
-            const bool allowed = rowFields->at("id") == "\"synthetic-row-0\"" || rowFields->at("id") == "\"synthetic-row-5\"";
+            const bool allowed = rowFields->at("id") == "\"synthetic-row-0\"" || rowFields->at("id") == "\"synthetic-row-1\"" || rowFields->at("id") == "\"synthetic-row-5\"";
             assert(rowFields->at("canOpen") == (allowed ? "true" : "false"));
             const bool sendAllowed = allowed || rowFields->at("id") == "\"synthetic-row-1\"";
             assert(rowFields->at("canSend") == (sendAllowed ? "true" : "false"));
@@ -327,9 +377,10 @@ void testProtectedPlaybackPermission() {
     }
     for (unsigned edge = 0; edge != 4; ++edge) {
         WebView2CalendarJoinFixture f;
+        f.timeReader(); f.timeAccount();
         f.host.setProtectedLocalRecordings(ProtectedUploadQueueValueTestPeer::playbackInventory(), true, "https://rec.2brain.pro",
             "11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222", 1);
-        f.timeReader(); f.timeAccount(); f.timeCookie(); f.finishTime(0, f.timeMetadata());
+        f.timeCookie(); f.finishTime(0, f.timeMetadata());
         const auto document = f.host.documentGeneration();
         assert(f.host.localPlaybackDocumentCurrent(document, "nonce-1"));
         if (edge == 0) f.timeAccount({}, 2); // Logout.
@@ -385,7 +436,7 @@ void testVisibleRecordingsAreAccountBoundPriorityOnly() {
         const std::string one = R"({"action":"visibleRecordings","version":1,"ids":["synthetic-row-0"]})";
         const auto send = [&](std::string body) { f.receiveVisible(f.visibleMessage(std::move(body))); };
         update(); send(one); assert(hints.empty());
-        f.timeReader(); f.timeAccount(); f.timeCookie();
+        f.timeReader(); f.timeAccount(); update(); f.timeCookie();
         send(one); assert(hints.empty()); // Cookie without current HTML identity is insufficient.
         f.finishTime(0, f.timeMetadata());
         assert(publications && f.inventoryMessage().find("synthetic-row-0") != CustodyString::npos);
@@ -480,9 +531,10 @@ void testVisibleRecordingsAreAccountBoundPriorityOnly() {
         unsigned publications = 0;
         f.host.setVisibleRecordingsHandler([&](const auto& request) { hints.push_back(request); });
         f.inventoryPublisher(publications);
+        f.timeReader(); f.timeAccount();
         f.host.setProtectedLocalRecordings(ProtectedUploadQueueValueTestPeer::visibleInventory(), true,
             "https://rec.2brain.pro", "11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222", 1);
-        f.timeReader(); f.timeAccount(); f.timeCookie(); f.finishTime(0, f.timeMetadata());
+        f.timeCookie(); f.finishTime(0, f.timeMetadata());
         const auto message = f.visibleMessage(R"({"action":"visibleRecordings","version":1,"ids":["synthetic-row-0"]})");
         f.receiveVisible(message); assert(hints.size() == 1 && !hints.back().ids.empty());
         if (boundary == 0) f.timeAccount("synthetic-session", 2, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
@@ -829,6 +881,14 @@ void testUserTimeIsBoundToNativeAccountAndDocument() {
 }
 
 int main() {
+#ifdef _MSC_VER
+    _set_error_mode(_OUT_TO_STDERR);
+    _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
+#endif
+#if defined(_MSC_VER) && defined(_DEBUG)
+    _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_FILE);
+    _CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);
+#endif
     {
         // Reuse the existing host/presentation fixture, not a copy of AppMain.
         WebView2CalendarJoinFixture f;

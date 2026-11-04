@@ -21,6 +21,8 @@
 #include "../Upload/DesktopUploadQueueService.h"
 #include "../Upload/DesktopUploadRecoveryScheduler.h"
 #include "../Upload/DesktopHttpTransport.h"
+#include "../Storage/Sha256.h"
+#include "../Web/WebView2Host.h"
 #include "V5LocalRecordingWriter.h"
 #include "ProtectedLocalRecordingPlayback.h"
 #include <algorithm>
@@ -222,7 +224,9 @@ private:
         CustodyVector<CustodyString> origins;
         CustodyVector<unsigned char> checked;
         bool inventoryBuilt = false;
+        bool protocolGateCurrent = false;
         bool checkedBackground = false;
+        bool draining = false; // Fully validated restriction only; never a positive content grant.
         QueueMutationTicket waiting;
         std::shared_ptr<const LifecycleBatch> answer;
         std::shared_ptr<std::atomic<bool>> cancelled = std::allocate_shared<std::atomic<bool>>(
@@ -261,6 +265,7 @@ private:
         std::optional<BasicLocalPurgeTask<CustodyString>> serverTask;
         BasicDeletionWireResult<CustodyString> answer;
         std::shared_ptr<const LifecycleBatch> lifecycle;
+        std::shared_ptr<const ProtectedUploadQueueValue::AuthenticatedContext> authenticatedContext;
         std::shared_ptr<std::atomic<bool>> cancelled = std::allocate_shared<std::atomic<bool>>(
             CustodyAllocator<std::atomic<bool>>{}, false);
     };
@@ -463,27 +468,17 @@ public:
     }
     void setAuthSessionToken(std::string token, bool currentCookieRead = false) {
         const bool signedOutObserved = token.empty() && currentCookieRead;
-        if (authSessionToken_ == token && authSignedOutObserved_ == signedOutObserved) return;
-        if (deletionContinuationCancellation_) deletionContinuationCancellation_->store(true);
-        cancelRecordingLifecycle(true);
-        closeLocalPlayback();
-        if (storageStartup_) {
-            std::lock_guard<std::mutex> lock(storageStartup_->mutex);
-            if (storageStartup_->display) storageStartup_->display->cancelled->store(true);
-            if (storageStartup_->deletion) storageStartup_->deletion->cancelled->store(true);
-            cancelUnstartedRecording(*storageStartup_);
-            storageStartup_->wake.notify_all();
+        const bool changed = authSessionToken_ != token || authSignedOutObserved_ != signedOutObserved;
+        if (changed) {
+            if (nativeCookieObserved_) localRestorationAllowed_ = false;
+            invalidateAuthentication();
+            authSessionToken_ = std::move(token);
+            authSignedOutObserved_ = signedOutObserved;
+            if (authSessionToken_.empty()) protectedRecoveryEpoch_.reset();
+            else recover(graf::windows::RecoveryTrigger::authRecovered);
         }
-        scheduler_.cancel();
-        if (accountCancellation_) accountCancellation_->store(true);
-        authSessionToken_ = std::move(token);
-        authSignedOutObserved_ = signedOutObserved;
-        ++authGeneration_;
-        currentAccount_.reset();
-        accountRetryAt_ = 0;
-        localPurgeRetryAt_ = 0;
-        if (authSessionToken_.empty()) protectedRecoveryEpoch_.reset();
-        else recover(graf::windows::RecoveryTrigger::authRecovered);
+        if (currentCookieRead) nativeCookieObserved_ = true;
+        if (currentCookieRead && !authSessionToken_.empty()) requestAccountRevalidation();
     }
     // Native shell service activation is independent of a WebView/document.
     // It shares the existing recovery cadence; no constructor IO or new timer.
@@ -504,10 +499,116 @@ public:
         // intents drive the finite cycle; document publication cannot make a loop.
     } catch (...) {} // Failed hint allocation leaves previous priority unchanged.
 private:
+    void invalidateAuthentication() {
+        if (deletionContinuationCancellation_) deletionContinuationCancellation_->store(true);
+        cancelRecordingLifecycle(true);
+        closeLocalPlayback();
+        if (storageStartup_) {
+            std::lock_guard<std::mutex> lock(storageStartup_->mutex);
+            if (storageStartup_->display) storageStartup_->display->cancelled->store(true);
+            if (storageStartup_->deletion) storageStartup_->deletion->cancelled->store(true);
+            if (storageStartup_->upload) storageStartup_->upload->cancelled->store(true);
+            cancelUnstartedRecording(*storageStartup_);
+            storageStartup_->wake.notify_all();
+        }
+        scheduler_.cancel();
+        if (accountCancellation_) accountCancellation_->store(true);
+        ++authGeneration_;
+        currentAccount_.reset(); provenAccount_.reset();
+        pendingAuthenticatedContext_.reset(); authenticatedContextTicket_.reset();
+        lifecycleGateFresh_ = false;
+        accountRetryAt_ = 0; localPurgeRetryAt_ = 0;
+    }
+    void requestAccountRevalidation() noexcept {
+        accountRevalidationRequested_ = true;
+        lifecycleGateFresh_ = false;
+        pendingAuthenticatedContext_.reset(); authenticatedContextTicket_.reset();
+        if (!accountFuture_.valid()) accountRetryAt_ = 0;
+        // The retained local tuple is not a grant to continue scoped HTTP.
+        currentAccount_.reset(); scheduler_.cancel(); cancelRecordingLifecycle();
+        if (deletionContinuationCancellation_) deletionContinuationCancellation_->store(true);
+        if (storageStartup_) {
+            std::lock_guard<std::mutex> lock(storageStartup_->mutex);
+            if (storageStartup_->upload) storageStartup_->upload->cancelled->store(true);
+            if (storageStartup_->deletion) storageStartup_->deletion->cancelled->store(true);
+            storageStartup_->wake.notify_all();
+        }
+    }
+    static std::string nativeSessionFingerprint(const DesktopHttpConfig& config) {
+        // Exact UTF-8 JSON bytes shared with the Mac binding: no whitespace,
+        // normalization, short control escapes, BOM or trailing newline.
+        std::string bytes = "{\"headers\":{\"x-auth-session\":";
+        const auto quote = [&](std::string_view text) {
+            bytes += '"';
+            constexpr char hex[] = "0123456789abcdef";
+            for (const unsigned char c : text) {
+                if (c == '"' || c == '\\') { bytes += '\\'; bytes += static_cast<char>(c); }
+                else if (c < 32) {
+                    bytes += "\\u00"; bytes += hex[c >> 4]; bytes += hex[c & 15];
+                } else bytes += static_cast<char>(c);
+            }
+            bytes += '"';
+        };
+        quote(config.sessionToken); bytes += "},\"origin\":"; quote(config.baseOrigin); bytes += '}';
+        return sha256(bytes);
+    }
+    static bool sameAuthenticatedContext(const ProtectedUploadQueueValue::AuthenticatedContext& a,
+        const ProtectedUploadQueueValue::AuthenticatedContext& b) noexcept {
+        return a.serverOrigin == b.serverOrigin && a.actorUserId == b.actorUserId &&
+            a.workspaceId == b.workspaceId && a.sessionFingerprint == b.sessionFingerprint;
+    }
+    LocalProblemContext localContentContext() const {
+        if (!lifecycleEnabled_) return currentAccount_ ? LocalProblemContext{DesktopHttpConfig{}.baseOrigin,
+            currentAccount_->userId, currentAccount_->workspaceId} : LocalProblemContext{};
+        if (!nativeCookieObserved_ || authSessionToken_.empty() || authSignedOutObserved_ || !localRestorationAllowed_ ||
+            !protectedQueueValue_ || !protectedQueueValue_->lastAuthenticatedContext()) return {};
+        const auto& context = *protectedQueueValue_->lastAuthenticatedContext();
+        DesktopHttpConfig config; config.sessionToken = authSessionToken_;
+        if (std::string_view(context.serverOrigin) != config.baseOrigin ||
+            std::string_view(context.sessionFingerprint) != nativeSessionFingerprint(config) ||
+            (currentAccount_ && (std::string_view(context.actorUserId) != currentAccount_->userId ||
+                std::string_view(context.workspaceId) != currentAccount_->workspaceId))) return {};
+        return {std::string(context.serverOrigin.begin(), context.serverOrigin.end()),
+            std::string(context.actorUserId.begin(), context.actorUserId.end()),
+            std::string(context.workspaceId.begin(), context.workspaceId.end())};
+    }
+    // One context command uses the existing lifecycle ticket, worker commit and
+    // independent readback/adoption. No origin inventory or synthetic entry.
+    bool pollAuthenticatedContext() {
+        if (!pendingAuthenticatedContext_) return false;
+        if (shuttingDown_ || exitAdmissionBlocked_ || updateAdmissionBlocked_) {
+            pendingAuthenticatedContext_.reset(); authenticatedContextTicket_.reset(); return false;
+        }
+        if (!currentAccount_ || !storageStartup_) return true;
+        if (authenticatedContextTicket_) {
+            if (!lastLifecycleTicket_ || lastLifecycleTicket_->id != *authenticatedContextTicket_ ||
+                lastLifecycleTicket_->state == QueueTicketState::pending) return true;
+            if (lastLifecycleTicket_->epoch == authGeneration_ && lastLifecycleTicket_->state == QueueTicketState::committed &&
+                protectedQueueValue_ && protectedQueueValue_->lastAuthenticatedContext() &&
+                sameAuthenticatedContext(*protectedQueueValue_->lastAuthenticatedContext(), *pendingAuthenticatedContext_))
+                localRestorationAllowed_ = true;
+            authenticatedContextTicket_.reset(); pendingAuthenticatedContext_.reset();
+            return false;
+        }
+        if (lifecycleFlight_) return true;
+        const auto observation = localObservation();
+        if (!observation.complete || !observation.value) return true;
+        if (observation.value->lastAuthenticatedContext() &&
+            sameAuthenticatedContext(*observation.value->lastAuthenticatedContext(), *pendingAuthenticatedContext_)) {
+            localRestorationAllowed_ = true; pendingAuthenticatedContext_.reset(); return false;
+        }
+        auto command = std::allocate_shared<DeletionWork>(CustodyAllocator<DeletionWork>{});
+        command->snapshot = observation.value; command->authenticatedContext = pendingAuthenticatedContext_;
+        command->user = pendingAuthenticatedContext_->actorUserId; command->workspace = pendingAuthenticatedContext_->workspaceId;
+        command->origin = pendingAuthenticatedContext_->serverOrigin;
+        if (const auto ticket = submitProtectedDeletion(std::move(command), QueueMutationKind::lifecycleResult))
+            authenticatedContextTicket_ = ticket->id;
+        return true;
+    }
     void cancelRecordingLifecycle(bool scopeChanged = false) noexcept {
         if (lifecycleFlight_) lifecycleFlight_->cancelled->store(true);
         if (scopeChanged) {
-            lifecycleVisible_.clear(); lifecycleOpen_.clear(); lifecycleCursor_.clear();
+            lifecycleVisible_.clear(); lifecycleOpen_.clear(); lifecycleCursor_.clear(); lifecycleRestrictions_.clear();
             lifecycleUser_.clear(); lifecycleWorkspace_.clear(); lifecycleOrigin_.clear(); lifecycleEpoch_ = 0;
             lifecycleRetryAt_ = 0;
         }
@@ -518,6 +619,11 @@ private:
             std::string_view(flight.config.confirmedIdentity->userId) == currentAccount_->userId &&
             std::string_view(flight.config.workspaceId) == currentAccount_->workspaceId &&
             flight.config.baseOrigin == lifecycleOrigin_;
+    }
+    bool restrictiveLifecyclePending() const noexcept {
+        // Transient revalidation/cancel does not erase a previously verified
+        // denial. A real session/scope change increments the existing epoch.
+        return !lifecycleRestrictions_.empty() && lifecycleEpoch_ == authGeneration_;
     }
     void retireRecordingLifecycle() {
         lifecycleFlight_.reset();
@@ -567,7 +673,16 @@ private:
                 lifecycleCursor_.swap(cursor);
                 if (flight.answer->background) flight.checkedBackground = true;
                 const auto expiry = flight.answer->response->authExpiresAt;
-                flight.answer.reset(); flight.waiting = {};
+                lifecycleRestrictions_.erase(std::remove_if(lifecycleRestrictions_.begin(), lifecycleRestrictions_.end(),
+                    [&](const auto& origin) {
+                        if (std::find(flight.answer->origins.begin(), flight.answer->origins.end(), origin) != flight.answer->origins.end())
+                            return true; // Fresh target answer was committed/read back/adopted.
+                        return std::none_of(protectedQueueValue_->items().begin(), protectedQueueValue_->items().end(), [&](const auto& row) {
+                            return row.directoryId == origin && protectedLocalContentAllowed(*protectedQueueValue_, row,
+                                flight.config.confirmedIdentity->userId, flight.config.workspaceId);
+                        }); // A persisted denial or removed row already closes its common content gate.
+                    }), lifecycleRestrictions_.end());
+                flight.answer.reset(); flight.waiting = {}; flight.draining = false;
                 if (expiry && sessionExpiryHandler_) { sessionExpiryHandler_(*expiry); return; }
             }
             if (flight.answer) {
@@ -575,14 +690,50 @@ private:
                 if (!flight.answer->entries && !flight.answer->allocationDeferred) {
                     if (flight.answer->response && flight.answer->response->status == 429)
                         lifecycleRetryAt_ = GetTickCount64() + static_cast<std::uint64_t>(flight.answer->response->retryAfterSeconds) * 1000;
-                    retireRecordingLifecycle(); return;
+                    const bool scopeChanged = flight.answer->response && flight.answer->response->safeReason == "scope_changed";
+                    retireRecordingLifecycle();
+                    if (scopeChanged) requestAccountRevalidation();
+                    return;
                 }
                 if (flight.answer->entries) {
-                    if (pendingRecovery_ || !storageStartup_) return;
+                    if (!storageStartup_) return;
+                    if (flight.draining) {
+                        // Cancellation is not executor completion or native release.
+                        if (scheduler_.busy()) return;
+                        std::lock_guard<std::mutex> lock(storageStartup_->mutex);
+                        if (storageStartup_->upload) return;
+                    }
                     const auto observation = localObservation();
                     if (!observation.complete || !observation.value) return;
-                    // Rebase only this verified domain answer onto the latest adopted
-                    // value. Worker rechecks every target, identity and queue generation.
+                    const auto& user = flight.config.confirmedIdentity->userId;
+                    const auto& workspace = flight.config.workspaceId;
+                    auto copy = std::allocate_shared<ProtectedUploadQueueValue>(
+                        CustodyAllocator<ProtectedUploadQueueValue>{}, *observation.value);
+                    const auto now = static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                        std::chrono::system_clock::now().time_since_epoch()).count());
+                    bool changed = false;
+                    if (!copy->applyLifecycleEntries(flight.answer->origins, *flight.answer->entries,
+                        user, workspace, flight.config.baseOrigin, now, changed, flight.cancelled.get())) {
+                        retireRecordingLifecycle(); return; // No effects from even a late invalid private prefix.
+                    }
+                    auto restrictions = lifecycleRestrictions_; // Allocate the full closure before any cancellation.
+                    bool restrictive = false;
+                    for (std::size_t n = 0; n != copy->items().size(); ++n) {
+                        if (protectedLocalContentAllowed(*observation.value, observation.value->items()[n], user, workspace) &&
+                            !protectedLocalContentAllowed(*copy, copy->items()[n], user, workspace)) {
+                            restrictive = true;
+                            const auto& origin = copy->items()[n].directoryId;
+                            if (std::find(restrictions.begin(), restrictions.end(), origin) == restrictions.end()) restrictions.push_back(origin);
+                        }
+                    }
+                    lifecycleRestrictions_.swap(restrictions);
+                    flight.draining = flight.draining || restrictive;
+                    if (flight.draining) {
+                        closeLocalPlayback(); scheduler_.cancel(); // Entire scope/target answer already checked.
+                        if (scheduler_.busy()) return;
+                    }
+                    // Revalidate again after actual drain against this latest adopted
+                    // snapshot. Only the worker can commit/read back/adopt the answer.
                     auto command = std::allocate_shared<DeletionWork>(CustodyAllocator<DeletionWork>{});
                     command->snapshot = observation.value; command->lifecycle = flight.answer;
                     command->user = flight.config.confirmedIdentity->userId; command->workspace = flight.config.workspaceId;
@@ -593,6 +744,7 @@ private:
                 }
             }
         }
+        if (pendingAuthenticatedContext_ && pollAuthenticatedContext()) return;
         if (shuttingDown_ || exitAdmissionBlocked_ || updateAdmissionBlocked_ || !lifecycleEnabled_ ||
             !currentAccount_ || authSessionToken_.empty() || !storageStartup_ || GetTickCount64() < lifecycleRetryAt_) return;
         const auto observation = localObservation();
@@ -601,6 +753,7 @@ private:
             if (!lifecycleRequested_) return;
             auto flight = std::allocate_shared<LifecycleFlight>(CustodyAllocator<LifecycleFlight>{});
             flight->epoch = authGeneration_;
+            flight->protocolGateCurrent = lifecycleGateFresh_; lifecycleGateFresh_ = false;
             auto& config = flight->config;
             config.sessionToken = std::string_view(authSessionToken_); config.workspaceId = std::string_view(currentAccount_->workspaceId);
             config.confirmedIdentity.emplace(); config.confirmedIdentity->userId = std::string_view(currentAccount_->userId);
@@ -681,7 +834,10 @@ private:
                         }
                     }
                     if (batch->origins.empty()) return std::shared_ptr<const LifecycleBatch>(batch);
-                    batch->response = DesktopHttpTransport::recordingLifecycleProtected(config, batch->origins, true, send);
+                    // The immediately preceding fresh identity lookup already
+                    // read this gate for this exact immutable scope/session.
+                    const bool readGate = !flight.protocolGateCurrent; flight.protocolGateCurrent = false;
+                    batch->response = DesktopHttpTransport::recordingLifecycleProtected(config, batch->origins, readGate, send);
                 }
                 if (!batch->response || !batch->response->accepted()) return std::shared_ptr<const LifecycleBatch>(batch);
                 batch->entries = DesktopApiClient::decodeLifecycleEntries<CustodyString>(batch->response->body, config.cancellation.get());
@@ -752,9 +908,10 @@ public:
         if (trigger == graf::windows::RecoveryTrigger::authRecovered) protectedRecoveryEpoch_ = authGeneration_;
         if (!pendingRecovery_ || trigger == graf::windows::RecoveryTrigger::authRecovered) pendingRecovery_ = trigger;
         lifecycleRequested_ = true;
+        requestAccountRevalidation();
     }
     void pollUploads() {
-        pollStorageStartup(!pendingRecovery_); // ACKs always run; display yields to a pending upload intent.
+        pollStorageStartup(!pendingRecovery_ || !currentAccount_); // Offline display cannot wait for network recovery.
         pollAccount();
         scheduler_.retireProtected();
         pollProtectedDeletion(); // Retained answers drain even after exit/update closed admission.
@@ -898,6 +1055,7 @@ public:
         std::shared_ptr<const graf::windows::ProtectedUploadQueueValue> value;
         bool complete = false;
         std::shared_ptr<const ProtectedLocalRecordingTimings> timings;
+        LocalProblemContext contentContext;
     };
     struct LocalPlaybackObservation {
         ProtectedLocalRecordingPlayback::Snapshot media;
@@ -912,13 +1070,15 @@ public:
             true, playback->preparing, playback->terminal} : LocalPlaybackObservation{};
     }
     [[nodiscard]] bool openLocalPlayback(std::string_view id, std::uint64_t documentGeneration, bool muted = false) try {
-        if (!documentGeneration || id.empty() || id.size() > 300 || !currentAccount_) return false;
+        const auto context = localContentContext();
+        if (!documentGeneration || id.empty() || id.size() > 300 || context.owner.empty() || context.workspace.empty() ||
+            restrictiveLifecyclePending()) return false;
         const auto observation = localObservation();
         if (!observation.complete || !observation.value) return false;
         const auto& rows = observation.value->items();
         const auto found = std::find_if(rows.begin(), rows.end(), [&](const auto& row) {
-            return std::string_view(row.localRecordingId) == id && std::string_view(row.ownerUserId) == currentAccount_->userId &&
-                std::string_view(row.ownerWorkspaceId) == currentAccount_->workspaceId;
+            return std::string_view(row.localRecordingId) == id && std::string_view(row.ownerUserId) == context.owner &&
+                std::string_view(row.ownerWorkspaceId) == context.workspace;
         });
         if (found == rows.end()) return false;
         if (lifecycleEnabled_) {
@@ -979,11 +1139,12 @@ public:
             work.stop || work.terminal || work.queueFailed || work.reconciliationPending ||
             work.error != graf::windows::CustodyFileError::none) return {};
         const auto display = work.display;
+        const auto context = localContentContext();
         const bool current = display && display->done.load(std::memory_order_acquire) && !display->cancelled->load() &&
-            display->epoch == authGeneration_ && display->snapshot == protectedQueueValue_ && currentAccount_ &&
-            std::string_view(display->user) == currentAccount_->userId && std::string_view(display->workspace) == currentAccount_->workspaceId;
+            display->epoch == authGeneration_ && display->snapshot == protectedQueueValue_ && !context.owner.empty() &&
+            std::string_view(display->user) == context.owner && std::string_view(display->workspace) == context.workspace;
         return {protectedQueueValue_, protectedQueueComplete(work),
-            current ? display->result : nullptr};
+            current ? display->result : nullptr, context};
     }
 
     [[nodiscard]] const auto& localItems() const noexcept { return queue_.items(); }
@@ -1776,11 +1937,8 @@ private:
                 row.sessionId == expected.sessionId && row.packageDirectory == expected.packageDirectory &&
                 row.ownerUserId == expected.ownerUserId && row.ownerWorkspaceId == expected.ownerWorkspaceId;
         });
-        // Server-bound access needs its own fresh server authority. Do not infer
-        // it from a cached uploaded status or content inspection.
-        if (found == value.items().end() || !found->meetingId.empty() || found->ownerUserId.empty() ||
-            found->ownerWorkspaceId.empty() ||
-            found->safeReason == "local_delete_pending") return false;
+        if (found == value.items().end() || !protectedLocalContentAllowed(value, *found,
+            std::string_view(expected.ownerUserId), std::string_view(expected.ownerWorkspaceId))) return false;
         if (expected.status == UploadQueueStatus::quarantined || found->status == UploadQueueStatus::quarantined) {
             if (!isPreparedOwnedRecording(expected) || !isPreparedOwnedRecording(*found) ||
                 !sameUploadIdentity(*found, expected) || found->updatedAtMs != expected.updatedAtMs) return false;
@@ -1789,15 +1947,16 @@ private:
     }
     // Caller holds the storage value mutex. Fresh native validation is still
     // required by the executor before any command that can emit/change audio.
-    bool playbackCurrent(const std::shared_ptr<PlaybackWork>& playback) const {
-        if (!playback || playback->terminal || playback->cancelled->load() || !currentAccount_ ||
+    bool playbackCurrent(const std::shared_ptr<PlaybackWork>& playback) const noexcept try {
+        const auto context = localContentContext();
+        if (!playback || playback->terminal || playback->cancelled->load() || context.owner.empty() ||
             shuttingDown_ || exitAdmissionBlocked_ || updateAdmissionBlocked_ ||
             storageStartup_->stop || storageStartup_->queueFailed || playback->epoch != authGeneration_ ||
             playback->serial == (std::numeric_limits<std::uint64_t>::max)() || !protectedQueueValue_) return false;
         const auto& row = playback->snapshot->items()[playback->index];
-        return std::string_view(row.ownerUserId) == currentAccount_->userId && std::string_view(row.ownerWorkspaceId) == currentAccount_->workspaceId &&
+        return std::string_view(row.ownerUserId) == context.owner && std::string_view(row.ownerWorkspaceId) == context.workspace &&
             playbackRowCurrent(*protectedQueueValue_, row);
-    }
+    } catch (...) { return false; }
     static void runPlayback(const StorageWorkReference& work, const std::shared_ptr<PlaybackExchange>& exchange) noexcept {
         const auto operation = exchange->operation;
         std::shared_ptr<const LocalRecordingPackage::ProtectedInspection> proof;
@@ -1904,21 +2063,22 @@ private:
         std::optional<std::size_t> manualIndex = std::nullopt, bool confirmUnowned = false) try {
         if (deletionContinuationId_) return std::nullopt;
         std::lock_guard<std::mutex> lock(storageStartup_->mutex);
-        if (storageStartup_->display && !storageStartup_->display->done.load(std::memory_order_acquire)) {
-            storageStartup_->display->cancelled->store(true);
-            storageStartup_->wake.notify_all();
-            return std::nullopt; // Keep recovery intent until the shared inspection slot actually drains.
-        }
         if (storageStartup_->upload && storageStartup_->reconciliationPending) {
             storageStartup_->reconcileRequested = true;
             pendingRecovery_.reset();
             storageStartup_->wake.notify_all();
             return std::nullopt; // Existing recovery intent retries physical validation, never HTTP.
         }
+        if (pendingAuthenticatedContext_ || restrictiveLifecyclePending()) return std::nullopt;
         if (!currentAccount_ || !storageStartup_->adopted || storageStartup_->stop || storageStartup_->queueFailed ||
             storageStartup_->inFlight || storageStartup_->recoveryCancellation || storageStartup_->upload || storageStartup_->recording || scheduler_.busy() ||
             (manualIndex && snapshot != protectedQueueValue_) || (!manualIndex && !pendingRecovery_) ||
             storageStartup_->nextTicket == (std::numeric_limits<std::uint64_t>::max)()) return std::nullopt;
+        if (storageStartup_->display && !storageStartup_->display->done.load(std::memory_order_acquire)) {
+            storageStartup_->display->cancelled->store(true);
+            storageStartup_->wake.notify_all();
+            return std::nullopt; // Keep recovery intent until the shared inspection slot actually drains.
+        }
         ProtectedDesktopHttpConfig config;
         config.sessionToken.assign(authSessionToken_.begin(), authSessionToken_.end());
         config.workspaceId.assign(currentAccount_->workspaceId.begin(), currentAccount_->workspaceId.end());
@@ -2590,8 +2750,11 @@ private:
                         const bool current = !work->stop && !work->queueFailed && value == display->snapshot && !display->cancelled->load();
                         lock.unlock();
                         try {
-                            const bool deleting = display->snapshot->deletionBlocks(row);
-                            if (current && !deleting && (row.status != UploadQueueStatus::quarantined ||
+                            const bool readable = protectedLocalContentAllowed(*display->snapshot, row,
+                                std::string_view(display->user), std::string_view(display->workspace));
+                            const bool claimable = isPreparedUnownedRecording(row) && !uploadAccessBlocks(row) &&
+                                !display->snapshot->deletionBlocks(row);
+                            if (current && (readable || claimable) && (row.status != UploadQueueStatus::quarantined ||
                                 recoveryRowCurrent(*display->snapshot, row, isPreparedUnownedRecording(row)))) {
                                 auto pair = owner->readPackage(row.directoryId, display->cancelled);
                                 if (pair.error == CustodyFileError::allocationFailed) display->cancelled->store(true);
@@ -2614,7 +2777,8 @@ private:
                         if (current.ok() && !flight->cancelled->load()) {
                             const auto& rows = (*current.value)->items();
                             const auto found = std::find_if(rows.begin(), rows.end(), [&](const auto& row) { return sameUploadIdentity(row, expected); });
-                            if (found != rows.end() && !(*current.value)->deletionBlocks(*found)) {
+                            if (found != rows.end() && protectedLocalContentAllowed(**current.value, *found,
+                                std::string_view(expected.ownerUserId), std::string_view(expected.ownerWorkspaceId))) {
                                 auto pair = owner->readPackage(expected.directoryId, flight->cancelled);
                                 const bool invalidPackage = pair.ok() && (*pair.value)->current().phase != CustodyPackagePhase::sealedNormal;
                                 if (pair.ok() && !invalidPackage) network->pair = std::move(*pair.value);
@@ -2689,6 +2853,13 @@ private:
                         network->phase = ProtectedNetworkWork::Phase::resultAdopted;
                         work->wake.notify_all();
                         continue;
+                    }
+                    if (network->flight->cancelled->load()) {
+                        // The executor must receive its ACK and actually exit, but
+                        // a cancelled answer never allocates/applies a queue command.
+                        network->proceed = false;
+                        network->phase = ProtectedNetworkWork::Phase::resultAdopted;
+                        work->wake.notify_all(); continue;
                     }
                     if (work->nextTicket == (std::numeric_limits<std::uint64_t>::max)()) {
                         work->queueFailed = true; network->proceed = false;
@@ -2823,11 +2994,22 @@ private:
                                 ticket.error = CustodyFileError::conflict;
                         }
                         else if (command == StorageCommand::lifecycleResult) {
-                            if (deletion->snapshot != value || !deletion->lifecycle || !deletion->lifecycle->entries ||
-                                !copy->applyLifecycleEntries(deletion->lifecycle->origins, *deletion->lifecycle->entries,
-                                    deletion->user, deletion->workspace, deletion->origin, now, ticket.changed, cancellation.get())) {
-                                lifecycleRefused = true; ticket.error = CustodyFileError::conflict;
+                            bool valid = deletion->snapshot == value;
+                            if (valid && deletion->authenticatedContext) {
+                                const auto& context = *deletion->authenticatedContext;
+                                valid = context.actorUserId == deletion->user && context.workspaceId == deletion->workspace &&
+                                    context.serverOrigin == deletion->origin;
+                                if (valid && (!copy->lastAuthenticatedContext() ||
+                                    !sameAuthenticatedContext(*copy->lastAuthenticatedContext(), context))) {
+                                    valid = copy->setLastAuthenticatedContext(context, now, cancellation.get());
+                                    ticket.changed = valid;
+                                }
+                            } else if (valid) {
+                                valid = deletion->lifecycle && deletion->lifecycle->entries &&
+                                    copy->applyLifecycleEntries(deletion->lifecycle->origins, *deletion->lifecycle->entries,
+                                        deletion->user, deletion->workspace, deletion->origin, now, ticket.changed, cancellation.get());
                             }
+                            if (!valid) { lifecycleRefused = true; ticket.error = CustodyFileError::conflict; }
                         }
                         else if (command == StorageCommand::deletionResult) {
                             if (deletion->snapshot != value || deletion->index >= deletion->snapshot->deletionOperations().size() ||
@@ -2898,6 +3080,7 @@ private:
                             auto bytes = copy->serialize(cancellation);
                             ticket.error = bytes.error; ticket.nativeError = bytes.nativeError;
                             if (bytes.ok()) {
+                                json_detail::checkCancellation(cancellation.get());
                                 auto saved = commitProtectedCustodyMetadata(owner, ticket.context,
                                     ticket.baseGeneration, *bytes.value, cancellation);
                                 commitReturned = true;
@@ -3045,7 +3228,8 @@ private:
                     }
                 } else if (command == StorageCommand::uploadResult) {
                     lock.lock();
-                    network->proceed = ticket.state == QueueTicketState::committed && ticket.error == CustodyFileError::none && !work->stop;
+                    network->proceed = ticket.state == QueueTicketState::committed && ticket.error == CustodyFileError::none &&
+                        !work->stop && !network->flight->cancelled->load();
                     network->phase = ProtectedNetworkWork::Phase::resultAdopted;
                     work->wake.notify_all();
                     lock.unlock();
@@ -3203,14 +3387,15 @@ private:
             const bool retired = !work.display || (work.display->done.load(std::memory_order_acquire) &&
                 (work.display->snapshot != protectedQueueValue_ || work.display->epoch != authGeneration_ ||
                     (!work.display->result && std::chrono::steady_clock::now() >= work.display->retryAt)));
-            if (allowDisplay && retired && currentAccount_ && protectedQueueValue_ && work.adopted && !work.stop && !work.queueFailed &&
+            const auto content = localContentContext();
+            if (allowDisplay && retired && !content.owner.empty() && protectedQueueValue_ && work.adopted && !work.stop && !work.queueFailed &&
                 !work.inFlight && !work.recoveryCancellation && !work.upload && !deletionContinuationId_ && (!work.resultReady || work.resultAdopted) &&
                 !shuttingDown_ && !exitAdmissionBlocked_ && !updateAdmissionBlocked_) try {
                 auto display = std::allocate_shared<DisplayWork>(CustodyAllocator<DisplayWork>{});
                 display->snapshot = protectedQueueValue_;
                 display->epoch = authGeneration_;
-                display->user.assign(currentAccount_->userId.begin(), currentAccount_->userId.end());
-                display->workspace.assign(currentAccount_->workspaceId.begin(), currentAccount_->workspaceId.end());
+                display->user.assign(content.owner.begin(), content.owner.end());
+                display->workspace.assign(content.workspace.begin(), content.workspace.end());
                 work.display = std::move(display);
                 work.wake.notify_all();
             } catch (...) {} // Existing polling retries a refused charged allocation.
@@ -3247,33 +3432,104 @@ private:
         finalizeStoppedRecording(*storageStartup_);
         storageStartup_->wake.notify_all();
     }
+    struct AccountProof {
+        DesktopHttpTransport::IdentityResult account;
+        std::shared_ptr<const ProtectedUploadQueueValue::AuthenticatedContext> context;
+    };
     void pollAccount() {
         if (accountFuture_.valid() && accountFuture_.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
-            std::optional<graf::windows::DesktopAccountIdentity> result;
+            AccountProof result; result.account.status = DesktopTransportStatus::retryableFailure;
             try { result = accountFuture_.get(); } catch (...) {}
             if (accountRequestGeneration_ == authGeneration_) {
-                currentAccount_ = std::move(result);
-                accountRetryAt_ = GetTickCount64() + 30000;
+                const auto& identity = result.account.identity;
+                if (identity) {
+                    const auto previousContent = localContentContext();
+                    if ((provenAccount_ && (provenAccount_->userId != identity->userId ||
+                        provenAccount_->workspaceId != identity->workspaceId)) ||
+                        (!previousContent.owner.empty() && (previousContent.owner != identity->userId ||
+                            previousContent.workspace != identity->workspaceId))) {
+                        localRestorationAllowed_ = false;
+                        invalidateAuthentication();
+                        protectedRecoveryEpoch_ = authGeneration_;
+                        pendingRecovery_ = RecoveryTrigger::authRecovered;
+                    }
+                    currentAccount_ = identity; provenAccount_ = identity;
+                    pendingAuthenticatedContext_ = std::move(result.context);
+                    lifecycleGateFresh_ = !!pendingAuthenticatedContext_;
+                    lifecycleRequested_ = true;
+                } else if (result.account.status != DesktopTransportStatus::retryableFailure) {
+                    localRestorationAllowed_ = false;
+                    invalidateAuthentication();
+                }
+                accountRetryAt_ = identity && accountRevalidationRequested_ ? 0 : GetTickCount64() + 30000;
+                if (accountRevalidationRequested_) currentAccount_.reset();
             }
         }
-        if (shuttingDown_ || exitAdmissionBlocked_ || authSessionToken_.empty() || currentAccount_ || accountFuture_.valid() || GetTickCount64() < accountRetryAt_) return;
-        graf::windows::DesktopHttpConfig config;
-        config.sessionToken = authSessionToken_;
-        accountCancellation_ = std::make_shared<std::atomic_bool>(false);
-        config.cancellation = accountCancellation_;
-        std::packaged_task<std::optional<graf::windows::DesktopAccountIdentity>()> task([config = std::move(config), wire = wire_] {
-            const graf::windows::DesktopHttpTransport transport(config);
-            if (!wire) return transport.accountIdentity();
-            return transport.accountIdentity([&wire](const auto& value, std::string_view path) {
-                auto response = wire(value, {"GET", std::string(path), "", true});
-                return DesktopHttpTransport::IdentityResponse{response.status, std::move(response.body), response.transportFailed};
-            }).identity;
+        if (shuttingDown_ || exitAdmissionBlocked_ || updateAdmissionBlocked_ || authSessionToken_.empty() ||
+            accountFuture_.valid() || (currentAccount_ && !accountRevalidationRequested_) ||
+            GetTickCount64() < accountRetryAt_) return;
+        DesktopHttpConfig config; config.sessionToken = authSessionToken_;
+        accountCancellation_ = std::make_shared<std::atomic_bool>(false); config.cancellation = accountCancellation_;
+        const bool protocolRequired = lifecycleEnabled_;
+        std::packaged_task<AccountProof()> task([config, wire = wire_, protocol = protectedWire_, protocolRequired] {
+            AccountProof proof;
+            proof.account.status = DesktopTransportStatus::retryableFailure;
+            try {
+                const DesktopHttpTransport transport(config);
+                DesktopHttpTransport::IdentityGet get;
+                if (wire) get = [&wire](const auto& value, std::string_view path) {
+                    auto response = wire(value, {"GET", std::string(path), "", true});
+                    return DesktopHttpTransport::IdentityResponse{response.status, std::move(response.body), response.transportFailed};
+                };
+                proof.account = transport.accountIdentity(get);
+                if (!proof.account.identity || !protocolRequired) return proof;
+                const auto& identity = *proof.account.identity;
+                BasicDeletionWireResult<std::string> gate;
+                if (protocol) {
+                    ProtectedDesktopHttpConfig scoped;
+                    scoped.baseOrigin = config.baseOrigin; scoped.sessionToken = config.sessionToken;
+                    scoped.workspaceId = identity.workspaceId; scoped.cancellation = config.cancellation;
+                    scoped.confirmedIdentity = BasicDesktopAccountIdentity<CustodyString>{CustodyString(identity.userId), CustodyString(identity.workspaceId)};
+                    scoped.scopedAccount = BasicDeletionScope<CustodyString>{CustodyString(identity.userId), CustodyString(identity.workspaceId)};
+                    const auto answer = protocol(scoped, {"GET", CustodyString(DesktopApiClient::notificationContextPath), {}, true});
+                    gate = {answer.status, std::string(answer.body.begin(), answer.body.end()), answer.transportFailed,
+                        DesktopHttpTransport::rateLimitPauseSeconds(answer.status, std::string_view(answer.retryAfter)), {}};
+                } else {
+                    auto scoped = config; scoped.workspaceId = identity.workspaceId;
+                    scoped.confirmedIdentity = identity;
+                    const auto answer = DesktopHttpTransport(scoped).notificationContext({identity.userId, identity.workspaceId});
+                    gate = {answer.status, answer.body, answer.transportFailed, answer.retryAfterSeconds, answer.safeReason};
+                }
+                const auto reason = DesktopUploadQueueService::deletionGateReason(gate, identity, config.cancellation.get());
+                if (!reason.empty()) {
+                    proof.account.identity.reset();
+                    proof.account.status = reason == "authentication" || reason == "scope_changed" ?
+                        DesktopTransportStatus::authRequired : DesktopTransportStatus::retryableFailure;
+                    return proof;
+                }
+                auto context = std::allocate_shared<ProtectedUploadQueueValue::AuthenticatedContext>(
+                    CustodyAllocator<ProtectedUploadQueueValue::AuthenticatedContext>{});
+                context->serverOrigin = config.baseOrigin; context->actorUserId = identity.userId;
+                context->workspaceId = identity.workspaceId; context->sessionFingerprint = nativeSessionFingerprint(config);
+                proof.context = std::move(context);
+                return proof;
+            } catch (...) {
+                proof.account.identity.reset(); proof.account.status = DesktopTransportStatus::retryableFailure;
+                return proof;
+            }
         });
         accountRequestGeneration_ = authGeneration_;
         try {
             auto future = task.get_future();
             std::thread(std::move(task)).detach();
-            accountFuture_ = std::move(future);
+            accountFuture_ = std::move(future); accountRevalidationRequested_ = false;
+            // Stop old scoped continuations before the fresh lookup is pending.
+            currentAccount_.reset(); scheduler_.cancel(); cancelRecordingLifecycle();
+            if (storageStartup_) {
+                std::lock_guard<std::mutex> lock(storageStartup_->mutex);
+                if (storageStartup_->upload) storageStartup_->upload->cancelled->store(true);
+                storageStartup_->wake.notify_all();
+            }
         } catch (...) { accountRetryAt_ = GetTickCount64() + 30000; }
     }
 
@@ -3407,6 +3663,7 @@ private:
     std::thread lifecycleThread_;
     std::future<std::shared_ptr<const LifecycleBatch>> lifecycleFuture_;
     CustodyVector<CustodyString> lifecycleVisible_;
+    CustodyVector<CustodyString> lifecycleRestrictions_; // Validated restrictive targets only, retained through failed publication.
     CustodyString lifecycleOpen_, lifecycleCursor_, lifecycleUser_, lifecycleWorkspace_, lifecycleOrigin_;
     std::uint64_t lifecycleEpoch_ = 0, lifecycleRetryAt_ = 0;
     bool lifecycleEnabled_ = false, lifecycleRequested_ = false;
@@ -3445,7 +3702,12 @@ private:
     std::optional<graf::windows::DesktopAccountIdentity> currentAccount_;
     std::optional<graf::windows::DesktopAccountIdentity> recordingAccount_;
     std::string recordingOrigin_;
-    std::future<std::optional<graf::windows::DesktopAccountIdentity>> accountFuture_;
+    std::future<AccountProof> accountFuture_;
+    std::optional<DesktopAccountIdentity> provenAccount_;
+    bool accountRevalidationRequested_ = false, lifecycleGateFresh_ = false;
+    bool nativeCookieObserved_ = false, localRestorationAllowed_ = true;
+    std::shared_ptr<const ProtectedUploadQueueValue::AuthenticatedContext> pendingAuthenticatedContext_;
+    std::optional<std::uint64_t> authenticatedContextTicket_;
     std::shared_ptr<std::atomic_bool> accountCancellation_;
     std::uint64_t authGeneration_ = 0;
     std::uint64_t accountRequestGeneration_ = 0;

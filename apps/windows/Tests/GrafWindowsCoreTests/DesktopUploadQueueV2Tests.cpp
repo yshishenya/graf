@@ -447,6 +447,7 @@ void testProtectedManualSend(std::string_view source) {
         auto cancel = std::make_shared<std::atomic<bool>>(false);
         const auto decoded = ProtectedUploadQueueValueTestPeer::decode(source, cancel.get()); assert(decoded.ok());
         const auto& published = **decoded.value;
+        const auto publishedBefore = published.serialize(cancel); assert(publishedBefore.ok());
         const auto owner = std::string_view(published.items().front().ownerUserId);
         const auto workspace = std::string_view(published.items().front().ownerWorkspaceId);
         const std::string_view foreign = "99999999-9999-4999-8999-999999999999";
@@ -573,7 +574,243 @@ void testProtectedManualSend(std::string_view source) {
         catch (const std::bad_alloc&) { refused = true; }
         allocator.deallocate(pressure, pressureBytes); assert(refused);
         const auto unchanged = published.serialize(cancel); assert(unchanged.ok());
-        assert(std::string_view(reinterpret_cast<const char*>(unchanged.value->data()), unchanged.value->size()) == source);
+        assert(*unchanged.value == *publishedBefore.value);
+    }
+    assert(CustodyOwnedMemory::usedBytes() == baseline);
+}
+
+// T088 dependency RED: existing decode entry point; no new production interface.
+void testV4CodecRed() {
+    using namespace graf::windows;
+    const std::string_view source = R"({"schema_version":"desktop-upload-queue.v4","items":[{"local_recording_id":"generated-recording","directory_id":"generated-directory","session_id":"generated-session","package_directory":"/generated/package","status":4,"accepted_bytes":[11,22,33],"attempts":3,"safe_reason":"","owner_user_id":"11111111-1111-4111-8111-111111111111","owner_workspace_id":"22222222-2222-4222-8222-222222222222","meeting_id":"generated-meeting","media_revision_id":"generated-revision","upload_session_id":"generated-upload","server_status":"ready","processing_status":"done","media_revision_status":"ready","updated_at_ms":1000,"access_state":"access_revoked"}],"updated_at_ms":1000,"deletion_operations":[],"purge_acknowledgements":[],"last_authenticated_context":{"server_origin":"https://example.test","actor_user_id":"11111111-1111-4111-8111-111111111111","workspace_id":"22222222-2222-4222-8222-222222222222","session_fingerprint":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}})";
+    const auto baseline = CustodyOwnedMemory::usedBytes();
+    {
+        const std::atomic<bool> cancel{false};
+        const auto decoded = ProtectedUploadQueueValueTestPeer::decode(source, &cancel);
+        assert(decoded.ok()); // First intended RED: current v3 reader returns invalidContent.
+        const auto bytes = (*decoded.value)->serialize(std::make_shared<std::atomic<bool>>(false));
+        assert(bytes.ok());
+        assert(std::string_view(reinterpret_cast<const char*>(bytes.value->data()), bytes.value->size()) == source);
+    }
+    assert(CustodyOwnedMemory::usedBytes() == baseline);
+}
+
+std::string_view v4QueueFixture() {
+    return R"({"schema_version":"desktop-upload-queue.v4","items":[{"local_recording_id":"generated-recording","directory_id":"generated-directory","session_id":"generated-session","package_directory":"/generated/package","status":4,"accepted_bytes":[11,22,33],"attempts":3,"safe_reason":"","owner_user_id":"11111111-1111-4111-8111-111111111111","owner_workspace_id":"22222222-2222-4222-8222-222222222222","meeting_id":"generated-meeting","media_revision_id":"generated-revision","upload_session_id":"generated-upload","server_status":"ready","processing_status":"done","media_revision_status":"ready","updated_at_ms":1000,"access_state":"access_revoked"}],"updated_at_ms":1000,"deletion_operations":[],"purge_acknowledgements":[],"last_authenticated_context":{"server_origin":"https://example.test","actor_user_id":"11111111-1111-4111-8111-111111111111","workspace_id":"22222222-2222-4222-8222-222222222222","session_fingerprint":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}})";
+}
+
+void testV4CodecAndDomain(const std::filesystem::path& root) {
+    using namespace graf::windows;
+    const auto baseline = CustodyOwnedMemory::usedBytes();
+    {
+        auto cancel = std::make_shared<std::atomic<bool>>(false);
+        const auto fixture = std::string(v4QueueFixture());
+        const auto replace = [](std::string text, std::string_view from, std::string_view to) {
+            const auto at = text.find(from); assert(at != std::string::npos);
+            text.replace(at, from.size(), to); return text;
+        };
+        const auto decode = [&](std::string_view text) { return ProtectedUploadQueueValueTestPeer::decode(text, cancel.get()); };
+        const auto text = [](const CustodyBytes& bytes) { return std::string(bytes.begin(), bytes.end()); };
+        const auto seed = decode(fixture); assert(seed.ok());
+        assert((*seed.value)->items()[0].accessState == "access_revoked");
+        assert(uploadAccessBlocks((*seed.value)->items()[0]));
+        assert(std::string_view((*seed.value)->lastAuthenticatedContext()->sessionFingerprint) == std::string(64, 'a'));
+        ProtectedUploadQueueValue copy(**seed.value);
+        const auto roundtrip = copy.serialize(cancel); assert(roundtrip.ok() && text(*roundtrip.value) == fixture);
+        const auto reject = [&](std::string invalid) {
+            const auto before = invalid;
+            const auto result = decode(invalid);
+            assert(!result.ok() && result.error == CustodyFileError::invalidContent && invalid == before);
+        };
+        for (const auto value : {"null", "\"owner\"", "\"unknown\"", "\"stale_device_identity\"", "\"future_nonowner-1\""}) {
+            const auto result = decode(replace(fixture, "\"access_revoked\"", value)); assert(result.ok());
+            const auto& row = (*result.value)->items()[0];
+            assert(uploadAccessBlocks(row) == (std::string_view(value) != "null" && std::string_view(value) != "\"owner\""));
+            const auto bytes = (*result.value)->serialize(cancel); assert(bytes.ok());
+            assert(text(*bytes.value) == replace(fixture, "\"access_revoked\"", value));
+        }
+        for (const auto value : {"\"\"", "\"OWNER\"", "\"access.revoked\"", "true", "{}", "[]", "0"})
+            reject(replace(fixture, "\"access_revoked\"", value));
+        const auto longest = decode(replace(fixture, "\"access_revoked\"", "\"" + std::string(64, 'a') + "\""));
+        assert(longest.ok());
+        reject(replace(fixture, "\"access_revoked\"", "\"" + std::string(65, 'a') + "\""));
+        reject(replace(fixture, "\"access_state\":\"access_revoked\"", "\"access_state\":null,\"access_state\":\"owner\""));
+        reject(replace(fixture, "\"access_state\":\"access_revoked\"", R"("access_state":null,"access_\u0073tate":"owner")"));
+        reject(replace(fixture, ",\"access_state\":\"access_revoked\"", ""));
+        reject(replace(fixture, "\"items\":[{", "\"items\":[{\"unknown_key\":null,"));
+        reject(replace(fixture, ",\"media_revision_id\":\"generated-revision\"", ""));
+        reject(replace(fixture, "\"status\":4", "\"status\":04"));
+        reject(replace(fixture, "\"updated_at_ms\":1000,\"deletion_operations\"", "\"updated_at_ms\":01000,\"deletion_operations\""));
+        reject(replace(fixture, "\"items\":[{", "\"items\":[,{"));
+        reject(replace(fixture, "\"attempts\":3", "\"attempts\":3,\"attempts\":3"));
+        reject(replace(fixture, "\"server_status\":\"ready\"", "\"server_status\":\"" + std::string("\xc0\xaf", 2) + "\""));
+        reject("\xef\xbb\xbf" + fixture); reject(fixture + " trailing");
+        const auto contextStart = fixture.find(",\"last_authenticated_context\":"); assert(contextStart != std::string::npos);
+        reject(fixture.substr(0, contextStart) + "}");
+        reject(replace(fixture, "\"last_authenticated_context\":{", "\"last_authenticated_context\":{\"extra\":null,"));
+        reject(replace(fixture, std::string(64, 'a'), std::string(64, 'A')));
+        reject(replace(fixture, std::string(64, 'a'), std::string(63, 'a')));
+        reject(replace(fixture, "\"actor_user_id\":\"11111111-1111-4111-8111-111111111111\"", "\"actor_user_id\":null"));
+        reject(replace(fixture, "\"server_origin\":\"https://example.test\"", "\"server_origin\":\"https://example.test/private\""));
+        reject(replace(fixture, "\"last_authenticated_context\":{", "\"extra\":null,\"last_authenticated_context\":{"));
+        reject(replace(fixture, "\"session_fingerprint\":", R"("session_fingerprint":"a","session_\u0066ingerprint":)"));
+        const std::string operation = R"({"operation_id":"33333333-3333-4333-8333-333333333333","target":"own_origin","target_id":"generated-directory","actor_user_id":"11111111-1111-4111-8111-111111111111","workspace_id":"22222222-2222-4222-8222-222222222222","server_origin":"https://example.test","phase":0,"requested_at_ms":900,"updated_at_ms":1000,"attempts":0,"next_attempt_at_ms":0,"receipt_request_id":"","safe_reason":""})";
+        const std::string acknowledgement = R"({"task_id":"44444444-4444-4444-8444-444444444444","meeting_id":"55555555-5555-4555-8555-555555555555","acknowledged_at_ms":1000})";
+        auto records = replace(fixture, "\"deletion_operations\":[]", "\"deletion_operations\":[" + operation + "]");
+        records = replace(records, "\"purge_acknowledgements\":[]", "\"purge_acknowledgements\":[" + acknowledgement + "]");
+        const auto recordsValue = decode(records); assert(recordsValue.ok());
+        assert(text(*(*recordsValue.value)->serialize(cancel).value) == records);
+        reject(replace(records, "\"deletion_operations\":[{", "\"deletion_operations\":[{\"extra\":0,"));
+        reject(replace(records, "\"purge_acknowledgements\":[{", "\"purge_acknowledgements\":[{\"extra\":0,"));
+        reject(replace(records, "\"receipt_request_id\":\"\",", ""));
+        reject(replace(records, "\"acknowledged_at_ms\":1000", "\"acknowledged_at_ms\":1000,\"acknowledged_at_ms\":1000"));
+        reject(replace(records, "\"deletion_operations\":[", "\"deletion_operations\":[,"));
+        reject(replace(records, "\"purge_acknowledgements\":[", "\"purge_acknowledgements\":[,"));
+        // V2/v3 are inputs to the real current codec, never an emulated old reader.
+        auto v3 = replace(fixture, "desktop-upload-queue.v4", "desktop-upload-queue.v3");
+        v3 = replace(v3, ",\"access_state\":\"access_revoked\"", "");
+        v3.erase(v3.find(",\"last_authenticated_context\":")); v3 += "}";
+        const auto v3Before = v3;
+        const auto old = decode(v3); assert(old.ok() && v3 == v3Before && !(*old.value)->legacy());
+        assert(!(*old.value)->items()[0].accessState && !(*old.value)->lastAuthenticatedContext());
+        auto v2 = v3.substr(0, v3.find("],\"updated_at_ms\":") + 1) + "}";
+        v2 = replace(v2, "desktop-upload-queue.v3", "desktop-upload-queue.v2");
+        const auto v2Before = v2;
+        const auto legacy = decode(v2); assert(legacy.ok() && (*legacy.value)->legacy() && v2 == v2Before);
+        assert(!(*legacy.value)->items()[0].accessState && !(*legacy.value)->lastAuthenticatedContext());
+        const auto upgraded = (*legacy.value)->serialize(cancel); assert(upgraded.ok());
+        assert(text(*upgraded.value).find("desktop-upload-queue.v4") != std::string::npos);
+        // Same row except access must fail before an old upload result can mutate it.
+        auto expected = copy.items()[0]; expected.accessState = "owner";
+        BasicDesktopTransportResult<CustodyString> answer; answer.status = DesktopTransportStatus::uploaded;
+        answer.serverTruth.emplace(); answer.serverTruth->finalized = true;
+        assert(!sameUploadIdentity(expected, copy.items()[0]));
+        assert(!copy.applyUploadResult(expected, answer, 2000, cancel.get()));
+        assert(text(*copy.serialize(cancel).value) == fixture);
+        auto pending = copy; auto pendingRow = pending.items()[0]; pendingRow.status = UploadQueueStatus::retry;
+        ProtectedUploadQueueValueTestPeer::replaceFirst(pending, pendingRow);
+        assert(pending.prepareUploads(false, 5, 2000, cancel.get()).empty());
+        const auto user = std::string_view(copy.items()[0].ownerUserId), workspace = std::string_view(copy.items()[0].ownerWorkspaceId);
+        assert(!copy.canManualSend(0, user, workspace, false) && !copy.canLocalRemoval(0, user, workspace));
+        CustodyVector<CustodyString> origins; origins.emplace_back(copy.items()[0].directoryId);
+        BasicLifecycleEntries<CustodyString> entries;
+        entries.emplace_back(); entries.back().target = DeletionTarget::ownOrigin;
+        entries.back().targetId = origins.front(); entries.back().meetingId = copy.items()[0].meetingId;
+        entries.back().state = LifecycleState::allowed;
+        bool changed = false;
+        assert(copy.applyLifecycleEntries(origins, entries, user, workspace, "https://example.test", 2000, changed, cancel.get()) && changed);
+        assert(copy.items()[0].accessState == "owner" && !uploadAccessBlocks(copy.items()[0]));
+        auto allowedPending = copy; auto allowedRow = allowedPending.items()[0]; allowedRow.status = UploadQueueStatus::retry;
+        ProtectedUploadQueueValueTestPeer::replaceFirst(allowedPending, allowedRow);
+        assert(allowedPending.canManualSend(0, user, workspace, false));
+        assert(allowedPending.prepareUploads(false, 5, 2000, cancel.get()).size() == 1);
+        assert(copy.canLocalRemoval(0, user, workspace));
+        auto acceptedBytes = replace(records, "\"phase\":0", "\"phase\":" + std::to_string(static_cast<unsigned>(DeletionOperationPhase::accepted)));
+        acceptedBytes = replace(acceptedBytes, "\"receipt_request_id\":\"\"", "\"receipt_request_id\":\"66666666-6666-4666-8666-666666666666\"");
+        const auto acceptedValue = decode(acceptedBytes); assert(acceptedValue.ok());
+        auto accepted = **acceptedValue.value;
+        assert(accepted.applyLifecycleEntries(origins, entries, user, workspace, "https://example.test", 2000, changed, cancel.get()));
+        assert(accepted.deletionBlocks(accepted.items()[0]));
+        assert(accepted.deletionOperations()[0].phase == DeletionOperationPhase::accepted &&
+            accepted.deletionOperations()[0].receiptRequestId == "66666666-6666-4666-8666-666666666666");
+        entries.back().state = LifecycleState::unavailable;
+        assert(copy.applyLifecycleEntries(origins, entries, user, workspace, "https://example.test", 3000, changed, cancel.get()) && changed);
+        assert(copy.items()[0].accessState == "unknown" && copy.deletionOperations().empty());
+        assert(copy.items()[0].acceptedBytes == expected.acceptedBytes && copy.items()[0].meetingId == expected.meetingId);
+        auto unbound = **old.value; auto row = unbound.items()[0]; row.meetingId.clear();
+        ProtectedUploadQueueValueTestPeer::replaceFirst(unbound, row);
+        entries.back().meetingId.clear();
+        entries.back().state = LifecycleState::allowed;
+        assert(unbound.applyLifecycleEntries(origins, entries, user, workspace, "https://example.test", 3000, changed, cancel.get()) && changed);
+        assert(unbound.items()[0].accessState == "owner" && unbound.items()[0].meetingId.empty());
+        entries.back().state = LifecycleState::unavailable;
+        for (const auto access : {"", "owner", "access_revoked", "stale_device_identity"}) {
+            auto unchanged = **old.value; auto unchangedRow = unchanged.items()[0]; unchangedRow.meetingId.clear();
+            unchangedRow.accessState.reset();
+            if (*access) unchangedRow.accessState.emplace(access);
+            ProtectedUploadQueueValueTestPeer::replaceFirst(unchanged, unchangedRow);
+            const auto beforeUnavailable = unchanged.serialize(cancel); assert(beforeUnavailable.ok());
+            assert(unchanged.applyLifecycleEntries(origins, entries, user, workspace, "https://example.test", 3000, changed, cancel.get()) && !changed);
+            assert(unchanged.items()[0].accessState == unchangedRow.accessState && unchanged.items()[0].meetingId.empty());
+            const auto afterUnavailable = unchanged.serialize(cancel); assert(afterUnavailable.ok() && afterUnavailable.value == beforeUnavailable.value);
+        }
+        // Allowed access keeps an owned prepared reservation recoverable; row shape is not package authority.
+        auto prepared = **old.value;
+        ProtectedUploadQueueValue::Item preparedRow;
+        preparedRow.localRecordingId = preparedRow.sessionId = preparedRow.directoryId = origins.front();
+        preparedRow.packageDirectory = copy.items()[0].packageDirectory;
+        preparedRow.ownerUserId = copy.items()[0].ownerUserId; preparedRow.ownerWorkspaceId = copy.items()[0].ownerWorkspaceId;
+        preparedRow.status = UploadQueueStatus::quarantined; preparedRow.safeReason = "capture_prepared";
+        assert(isPreparedOwnedRecording(preparedRow));
+        ProtectedUploadQueueValueTestPeer::replaceFirst(prepared, preparedRow);
+        entries.back().state = LifecycleState::allowed;
+        assert(prepared.applyLifecycleEntries(origins, entries, user, workspace, "https://example.test", 3000, changed, cancel.get()) && changed);
+        assert(prepared.items()[0].accessState == "owner" && isPreparedOwnedRecording(prepared.items()[0]));
+        for (const auto access : {"unknown", "access_revoked", "stale_device_identity"}) {
+            auto refused = prepared.items()[0]; refused.accessState.emplace(access);
+            assert(!isPreparedOwnedRecording(refused));
+        }
+        entries.back().targetId = "foreign-directory";
+        assert(!copy.applyLifecycleEntries(origins, entries, user, workspace, "https://example.test", 4000, changed, cancel.get()));
+        // Context staging is local data only, validated before mutation.
+        auto context = *copy.lastAuthenticatedContext(); context.sessionFingerprint = std::string(64, 'b');
+        assert(copy.setLastAuthenticatedContext(context, 4000, cancel.get()));
+        const auto beforeInvalid = copy.serialize(cancel); assert(beforeInvalid.ok());
+        context.sessionFingerprint = "not-a-digest";
+        assert(!copy.setLastAuthenticatedContext(context, 5000, cancel.get()));
+        assert(*copy.serialize(cancel).value == *beforeInvalid.value);
+        cancel->store(true); bool stopped = false;
+        try { (void)copy.setLastAuthenticatedContext(std::nullopt, 5000, cancel.get()); }
+        catch (const json_detail::ParseCancelled&) { stopped = true; }
+        assert(stopped); cancel->store(false);
+        assert(*copy.serialize(cancel).value == *beforeInvalid.value);
+        const auto cold = decode(text(*beforeInvalid.value)); assert(cold.ok());
+        assert((*cold.value)->items()[0].accessState == "unknown" && std::string_view((*cold.value)->lastAuthenticatedContext()->sessionFingerprint) == std::string(64, 'b'));
+        // Both plain adapters and copy/persist publish retain the same fields.
+        const auto directory = root / "v4-domain"; std::filesystem::create_directories(directory);
+        const auto path = directory / "queue.json";
+        auto local = replace(records, "\"package_directory\":\"/generated/package\"", "\"package_directory\":\"generated-package\"");
+        // A portable generated path is supplied through the existing path serializer.
+        auto initial = decode(local); assert(initial.ok());
+        auto localValue = **initial.value; auto localRow = localValue.items()[0];
+        localRow.packageDirectory = (directory / "generated-package").u8string();
+        ProtectedUploadQueueValueTestPeer::replaceFirst(localValue, localRow);
+        const auto encoded = localValue.serialize(cancel); assert(encoded.ok());
+        { std::ofstream output(path, std::ios::binary); const auto bytes = text(*encoded.value); output.write(bytes.data(), bytes.size()); assert(output.good()); }
+        unsigned writes = 0;
+        DesktopUploadQueueService queue(path, directory, [&](const auto& store, const auto& file, auto bytes) {
+            ++writes; return AtomicFileStore::writeWithinRoot(store, file, bytes).ok();
+        });
+        queue.setClock([] { return 6000; });
+        assert(queue.load() && writes == 0 && queue.lastAuthenticatedContext());
+        UploadServerTruth truth; truth.localRecordingId = "generated-recording"; truth.acceptedBytes = {11, 22, 33};
+        truth.accessState = "stale_device_identity";
+        assert(queue.reconcile(truth) && queue.items()[0].accessState == "stale_device_identity");
+        truth.accessState.reset(); assert(queue.reconcile(truth));
+        assert(queue.items()[0].accessState == "stale_device_identity" && (queue.items()[0].acceptedBytes == std::array<std::uint64_t, 3>{11, 22, 33}));
+        truth.accessState = "Invalid"; const auto writesBefore = writes;
+        assert(!queue.reconcile(truth) && writes == writesBefore);
+        truth.accessState = "owner"; assert(queue.reconcile(truth));
+        assert(queue.items()[0].accessState == "owner" && queue.lastAuthenticatedContext()->sessionFingerprint == std::string(64, 'a'));
+        DesktopUploadQueueService restarted(path, directory);
+        assert(restarted.load() && restarted.items()[0].accessState == "owner");
+        assert(restarted.lastAuthenticatedContext()->sessionFingerprint == std::string(64, 'a'));
+        // Exercise the existing private-copy publication adapter with a
+        // generated pre-existing operation; no new delete intent or HTTP call.
+        DesktopUploadQueueService::DeletionRequestPlan request;
+        request.operationId = "33333333-3333-4333-8333-333333333333";
+        request.target = DeletionTarget::ownOrigin; request.targetId = "generated-directory";
+        DesktopUploadQueueService::DeletionWireResult noNetwork; noNetwork.transportFailed = true;
+        const DesktopAccountIdentity owner{"11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"};
+        assert(queue.applyDeletionAnswer(request, owner, "https://example.test", noNetwork));
+        assert(queue.lastAuthenticatedContext()->sessionFingerprint == std::string(64, 'a') && queue.items()[0].accessState == "owner");
+        assert(queue.deletionOperations()[0].phase == DeletionOperationPhase::resolving);
+        CustodyAllocator<std::uint8_t> allocator;
+        const auto pressureBytes = CustodyOwnedMemory::limit - CustodyOwnedMemory::usedBytes();
+        auto* pressure = allocator.allocate(pressureBytes);
+        const auto refused = decode(fixture); assert(!refused.ok() && refused.error == CustodyFileError::allocationFailed);
+        allocator.deallocate(pressure, pressureBytes);
+        assert(decode(fixture).ok());
     }
     assert(CustodyOwnedMemory::usedBytes() == baseline);
 }
@@ -587,7 +824,37 @@ void testProtectedQueueValue(std::string_view source) {
         assert(decoded.ok() && !(*decoded.value)->legacy());
         const auto& published = **decoded.value;
         auto bytes = published.serialize(cancel);
-        assert(bytes.ok() && std::string_view(reinterpret_cast<const char*>(bytes.value->data()), bytes.value->size()) == source);
+        assert(bytes.ok());
+        const auto upgraded = ProtectedUploadQueueValueTestPeer::decode(
+            {reinterpret_cast<const char*>(bytes.value->data()), bytes.value->size()}, cancel.get());
+        assert(upgraded.ok());
+        const auto& current = **upgraded.value;
+        assert(current.updatedAtMs() == published.updatedAtMs() && current.items().size() == published.items().size());
+        assert(!current.lastAuthenticatedContext() && !published.lastAuthenticatedContext());
+        for (std::size_t i = 0; i != current.items().size(); ++i) {
+            const auto& a = current.items()[i]; const auto& b = published.items()[i];
+            assert(sameUploadIdentity(a, b) && a.acceptedBytes == b.acceptedBytes && a.safeReason == b.safeReason &&
+                a.meetingId == b.meetingId && a.updatedAtMs == b.updatedAtMs && a.mediaRevisionId == b.mediaRevisionId &&
+                a.uploadSessionId == b.uploadSessionId && a.serverStatus == b.serverStatus &&
+                a.processingStatus == b.processingStatus && a.mediaRevisionStatus == b.mediaRevisionStatus && !a.accessState);
+        }
+        assert(current.deletionOperations().size() == published.deletionOperations().size());
+        for (std::size_t i = 0; i != current.deletionOperations().size(); ++i) {
+            const auto& a = current.deletionOperations()[i]; const auto& b = published.deletionOperations()[i];
+            assert(a.operationId == b.operationId && a.target == b.target && a.targetId == b.targetId &&
+                a.actorUserId == b.actorUserId && a.workspaceId == b.workspaceId && a.serverOrigin == b.serverOrigin &&
+                a.phase == b.phase && a.requestedAtMs == b.requestedAtMs && a.updatedAtMs == b.updatedAtMs &&
+                a.attemptCount == b.attemptCount && a.nextAttemptAtMs == b.nextAttemptAtMs &&
+                a.receiptRequestId == b.receiptRequestId && a.safeReason == b.safeReason);
+        }
+        assert(current.purgeAcknowledgements().size() == published.purgeAcknowledgements().size());
+        for (std::size_t i = 0; i != current.purgeAcknowledgements().size(); ++i) {
+            const auto& a = current.purgeAcknowledgements()[i]; const auto& b = published.purgeAcknowledgements()[i];
+            assert(a.taskId == b.taskId && a.meetingId == b.meetingId && a.acknowledgedAtMs == b.acknowledgedAtMs);
+        }
+        assert(*current.serialize(cancel).value == *bytes.value);
+        assert(std::string_view(reinterpret_cast<const char*>(bytes.value->data()), bytes.value->size()).find(
+            "desktop-upload-queue.v4") != std::string_view::npos);
         {
             ProtectedUploadQueueValue inserted(published);
             ProtectedUploadQueueValue::Item row;
@@ -657,7 +924,7 @@ void testProtectedQueueValue(std::string_view source) {
         assert(v2.ok() && (*v2.value)->legacy() && (*v2.value)->deletionOperations().empty());
         auto v3 = (*v2.value)->serialize(cancel);
         assert(v3.ok() && std::string_view(reinterpret_cast<const char*>(v3.value->data()), v3.value->size()).find(
-            "desktop-upload-queue.v3") != std::string_view::npos);
+            "desktop-upload-queue.v4") != std::string_view::npos);
         ProtectedUploadQueueValueTestPeer::escapedPath(copy);
         auto escaped = copy.serialize(cancel);
         assert(escaped.ok());
@@ -688,6 +955,21 @@ void testProtectedQueueValue(std::string_view source) {
     assert(CustodyOwnedMemory::usedBytes() == baseline);
 }
 
+// Retain the pre-v4 decode fixtures used by the existing legacy tests. This
+// constructs test bytes only; it is not an old reader or a production option.
+std::string v3DecodeFixture(std::string bytes) {
+    const std::string_view current = "desktop-upload-queue.v4";
+    const auto schema = bytes.find(current); assert(schema != std::string::npos);
+    bytes.replace(schema, current.size(), "desktop-upload-queue.v3");
+    const std::string_view access = ",\"access_state\":null";
+    for (auto at = bytes.find(access); at != std::string::npos; at = bytes.find(access)) bytes.erase(at, access.size());
+    assert(bytes.find("\"access_state\":") == std::string::npos);
+    const std::string_view context = ",\"last_authenticated_context\":null";
+    const auto at = bytes.find(context); assert(at != std::string::npos);
+    bytes.erase(at, context.size());
+    return bytes;
+}
+
 void testOwners(const std::filesystem::path& root) {
     using namespace graf::windows;
     const DesktopAccountIdentity owner{
@@ -700,7 +982,7 @@ void testOwners(const std::filesystem::path& root) {
         std::ifstream file(path, std::ios::binary);
         return std::string(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
     };
-    auto legacy = read();
+    auto legacy = v3DecodeFixture(read());
     const std::string emptyOwners = R"(,"owner_user_id":"","owner_workspace_id":"")";
     const auto at = legacy.find(emptyOwners);
     assert(at != std::string::npos);
@@ -870,7 +1152,7 @@ void testLoadCandidate(const std::filesystem::path& root) {
         UploadQueueStatus::uploaded, {11, 22, 33}, 3, "", owner.userId, owner.workspaceId}));
     std::string operation;
     assert(queue.requestDeletion(DeletionTarget::meeting, meetingId, owner, "https://example.test", operation));
-    const auto withoutAck = read(path);
+    const auto withoutAck = v3DecodeFixture(read(path));
     auto withAck = withoutAck;
     const std::string marker = "\"purge_acknowledgements\":[";
     const auto ackStart = withAck.find(marker);
@@ -1133,9 +1415,9 @@ void testLoadCandidate(const std::filesystem::path& root) {
 
     // v2 still upgrades through the same writer; failure cannot publish half an upgrade.
     auto v2 = withoutAck.substr(0, withoutAck.find("],\"updated_at_ms\":") + 1) + "}";
-    const auto schema = v2.find(std::string(kQueueSchemaVersion));
+    const auto schema = v2.find(std::string(kQueueSchemaVersionV3));
     assert(schema != std::string::npos);
-    v2.replace(schema, std::string(kQueueSchemaVersion).size(), std::string(kQueueSchemaVersionV2));
+    v2.replace(schema, std::string(kQueueSchemaVersionV3).size(), std::string(kQueueSchemaVersionV2));
     failure = 1;
     write(v2);
     assert(!queue.load());
@@ -1175,7 +1457,7 @@ void testLoadCandidate(const std::filesystem::path& root) {
 
     // Even a known empty ledger with a zero stamp cannot silently disappear.
     const auto emptyPath = root / "empty.json";
-    const auto empty = "{\"schema_version\":\"" + std::string(kQueueSchemaVersion) +
+    const auto empty = "{\"schema_version\":\"" + std::string(kQueueSchemaVersionV3) +
         "\",\"items\":[],\"updated_at_ms\":0,\"deletion_operations\":[],\"purge_acknowledgements\":[]}";
     assert(AtomicFileStore::writeWithinRoot(root, emptyPath, empty).ok());
     DesktopUploadQueueService knownEmpty(emptyPath, root);
@@ -1221,6 +1503,8 @@ int main() {
     std::filesystem::remove_all(root);
     std::filesystem::remove_all(outside);
     std::filesystem::create_directories(package);
+    testV4CodecRed();
+    testV4CodecAndDomain(root);
     testOwners(root);
     testUploadProgressPercent();
     testRetryGuards(root / "retry-guards");

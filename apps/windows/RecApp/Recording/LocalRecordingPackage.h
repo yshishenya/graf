@@ -126,6 +126,9 @@ public:
         std::shared_ptr<const ProtectedPackedCustodyTree>, std::uint64_t durationMs,
         std::shared_ptr<const std::atomic<bool>> cancellation);
 private:
+    friend class ProtectedCustodyMigration;
+    [[nodiscard]] static CustodyFileResult<bool> classifyMigrationContent(
+        CustodyPackageValue&, const CustodyBytes&, const CustodyBytes&, std::string_view);
     friend class V5LocalRecordingWriter;
     friend class ProtectedCustodyStoreOwner;
     // Bounded routing value only. Slot coordinates belong to manifest metadata,

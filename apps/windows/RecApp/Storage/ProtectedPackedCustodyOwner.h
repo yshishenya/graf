@@ -37,6 +37,7 @@ public:
     void revokeWrites() noexcept;
     void blockWrites() noexcept;
 private:
+    friend class ProtectedCustodyMigration;
     friend class ProtectedPackedCustodyTree;
     friend class ProtectedCustodyRecordingPackage;
     friend class ProtectedCustodyStoreOwner; // Existing-only cold recovery under its continuously held root.
@@ -49,7 +50,8 @@ private:
         const std::filesystem::path&, std::string_view, const PackedCustodyContext&, CustodyFileAccess,
         std::unique_ptr<ProtectedCustodyFiles>* prepared,
         std::shared_ptr<ProtectedPackedCustodyOwner>* retainedFailure = nullptr,
-        CustodyId* discoveredContainer = nullptr);
+        CustodyId* discoveredContainer = nullptr,
+        const ProtectedCustodyFiles* migrationRoot = nullptr); // Exact native migration parent; never path-based admission.
     struct State;
     // Stack-only private operation: one job + owner + the SAME physical mutex
     // across the entire tree/DPAPI/failure classification. No nested public IO.

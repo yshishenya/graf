@@ -4,6 +4,7 @@
 #include "ProtectedPackedCustodyTree.h"
 #include "ProtectedCustodyReader.h"
 #include "Sha256.h"
+#include "AtomicFileStore.h"
 #include "../Upload/DesktopUploadQueueService.h"
 #include "../Recording/LocalRecordingPackage.h"
 #include <algorithm>
@@ -562,6 +563,103 @@ CustodyFileResult<std::shared_ptr<const ProtectedCustodyMigrationPair>> Protecte
     CustodyMigrationSubject subject, std::string_view name, std::shared_ptr<const std::atomic<bool>> cancellation) {
     return readImpl(root, own, transaction, subject, name, std::move(cancellation), {});
 }
+CustodyFileResult<bool> ProtectedCustodyMigrationPair::readValues(ProtectedCustodyFiles& lease,
+    const CustodyContext& own, std::optional<CustodyId> transaction, CustodyMigrationSubject subject,
+    std::string_view name, const std::shared_ptr<const std::atomic<bool>>& cancellation,
+    const ProtectedCustodyBootstrapPair* bootstrap, bool preparing, CustodyMetadataIndices& indices,
+    std::array<CustodyMigrationValue,2>& values) {
+#ifndef _WIN32
+    (void)lease; (void)own; (void)transaction; (void)subject; (void)name;
+    (void)cancellation; (void)bootstrap; (void)preparing; (void)indices; (void)values;
+    return {std::nullopt, CustodyFileError::unsupportedPlatform, 0};
+#else
+    const auto cancelled = [&] { return cancellation->load(); };
+    const auto reject = [](CustodyFileError error, std::uint32_t native = 0) -> CustodyFileResult<bool> {
+        return {std::nullopt, error, native};
+    };
+    auto pair = lease.readValidatedMetadataPair();
+    if (!pair.ok()) return reject(pair.error, pair.nativeError);
+    struct WipeValues {
+        std::array<CustodyMigrationValue, 2>& values;
+        ~WipeValues() { SecureZeroMemory(values.data(), sizeof(values)); }
+    };
+    for (unsigned slot = 0; slot < 2; ++slot) {
+        if (cancelled()) return reject(CustodyFileError::ioFailed, ERROR_OPERATION_ABORTED);
+        const auto& index = pair.value->indices[slot];
+        if (!index.logicalLength || index.logicalLength > packageLimit || index.entries.size() != 1 || index.entries[0].flags != 0)
+            return reject(CustodyFileError::invalidContent);
+        const auto& entry = index.entries[0];
+        auto cipher = lease.readBlock(0, entry.version, static_cast<std::uint32_t>(index.logicalLength), entry.envelopeBytes);
+        if (!cipher.ok()) return reject(cipher.error, cipher.nativeError);
+        if (cancelled()) return reject(CustodyFileError::ioFailed, ERROR_OPERATION_ABORTED);
+        auto plain = ProtectedCustodyCodec::openBlock(own, 0, entry.version, static_cast<std::uint32_t>(index.logicalLength), *cipher.value);
+        if (!plain.ok()) return reject(codecFileError(plain.error), plain.nativeError);
+        if (cancelled()) return reject(CustodyFileError::ioFailed, ERROR_OPERATION_ABORTED);
+        const std::string_view json{reinterpret_cast<const char*>(plain.value->data()), plain.value->size()};
+        auto expectedTransaction = transaction;
+        if (preparing && !expectedTransaction && index.generation == 1) {
+            // Pre-fence restart has no bootstrap tuple yet. Authenticate the
+            // fixed native Birth independently before deriving strict expectations.
+            auto birthPlain = ProtectedCustodyCodec::openMigrationBirthBlock(own, entry.version, *cipher.value);
+            if (!birthPlain.ok()) return reject(codecFileError(birthPlain.error), birthPlain.nativeError);
+            std::array<CustodyMigrationValue,2> provisional{}; WipeValues wipeProvisional{provisional};
+            if (!PackageJson({reinterpret_cast<const char*>(birthPlain.value->data()), birthPlain.value->size()}).read(provisional[0]))
+                return reject(CustodyFileError::invalidContent);
+            expectedTransaction = provisional[0].transactionId;
+        }
+        if (!expectedTransaction) {
+            std::array<CustodyMigrationValue, 2> provisional{};
+            WipeValues wipeProvisional{provisional};
+            // Locator only: no semantic expectation or path is taken from this
+            // current JSON. Fixed role/position and native context stay on lease.
+            if (!PackageJson(json).read(provisional[0]) || !provisional[0].barrier)
+                return reject(CustodyFileError::invalidContent);
+            const auto& ref = *provisional[0].barrier;
+            if (ref.objectId != own.objectId || ref.generation != 1 || !ref.blockVersion ||
+                ref.envelopeBytes <= 16 || ref.envelopeBytes > ProtectedCustodyCodec::blockEnvelopeLimit(packageLimit))
+                return reject(CustodyFileError::invalidContent);
+            auto envelope = lease.readMigrationBirthEnvelope(ref.blockVersion, static_cast<std::uint32_t>(ref.envelopeBytes));
+            if (!envelope.ok()) return reject(envelope.error, envelope.nativeError);
+            if (cancelled()) return reject(CustodyFileError::ioFailed, ERROR_OPERATION_ABORTED);
+            if (envelope.value->size() != ref.envelopeBytes) return reject(CustodyFileError::invalidContent);
+            const auto hash = custody_detail::digest(envelope.value->data(), envelope.value->size());
+            if (!hash) return reject(codecFileError(CustodyCodecError::hashFailed));
+            if (*hash != ref.sha256) return reject(CustodyFileError::invalidContent);
+            if (cancelled()) return reject(CustodyFileError::ioFailed, ERROR_OPERATION_ABORTED);
+            auto birthPlain = ProtectedCustodyCodec::openMigrationBirthBlock(own, ref.blockVersion, *envelope.value);
+            if (!birthPlain.ok()) return reject(codecFileError(birthPlain.error), birthPlain.nativeError);
+            if (cancelled()) return reject(CustodyFileError::ioFailed, ERROR_OPERATION_ABORTED);
+            if (!PackageJson({reinterpret_cast<const char*>(birthPlain.value->data()), birthPlain.value->size()}).read(provisional[1]))
+                return reject(CustodyFileError::invalidContent);
+            expectedTransaction = provisional[1].transactionId;
+        }
+        auto parsed = readCustodyMigration(json, own, index.generation, *expectedTransaction, subject, name);
+        if (!parsed.ok()) return reject(codecFileError(parsed.error), parsed.nativeError);
+        values[slot] = *parsed.value;
+        SecureZeroMemory(&*parsed.value, sizeof(CustodyMigrationValue));
+        if (cancelled()) return reject(CustodyFileError::ioFailed, ERROR_OPERATION_ABORTED);
+        if (bootstrap && (subject == CustodyMigrationSubject::queue
+            ? values[slot].sources[0].destinationObjectId != bootstrap->current().queueObjectId
+            : !values[slot].anchor.objectId || *values[slot].anchor.objectId != bootstrap->current().queueObjectId))
+            return reject(CustodyFileError::invalidContent);
+        if (values[slot].barrier) {
+            const auto& ref = *values[slot].barrier;
+            auto envelope = lease.readMigrationBirthEnvelope(ref.blockVersion, static_cast<std::uint32_t>(ref.envelopeBytes));
+            if (!envelope.ok()) return reject(envelope.error, envelope.nativeError);
+            if (cancelled()) return reject(CustodyFileError::ioFailed, ERROR_OPERATION_ABORTED);
+            auto birth = readCustodyMigrationBirth(*envelope.value, own, values[slot], values[slot].transactionId, subject, name);
+            if (!birth.ok()) return reject(codecFileError(birth.error), birth.nativeError);
+            SecureZeroMemory(&*birth.value, sizeof(CustodyMigrationValue));
+        }
+    }
+    const auto selected = pair.value->selectedSlot;
+    if (!migrationProgress(values[1U - selected], values[selected])) return reject(CustodyFileError::conflict);
+    if (cancelled()) return reject(CustodyFileError::ioFailed, ERROR_OPERATION_ABORTED);
+    indices = std::move(*pair.value);
+    return {true, CustodyFileError::none, 0};
+#endif
+}
+
 CustodyFileResult<std::shared_ptr<const ProtectedCustodyMigrationPair>> ProtectedCustodyMigrationPair::readImpl(
     const std::filesystem::path& root, CustodyContext own, std::optional<CustodyId> transaction,
     CustodyMigrationSubject subject, std::string_view name, std::shared_ptr<const std::atomic<bool>> cancellation,
@@ -600,79 +698,18 @@ CustodyFileResult<std::shared_ptr<const ProtectedCustodyMigrationPair>> Protecte
         own = lease->context();
         if (own.storeId != held->current().context.storeId) return reject(CustodyFileError::identityMismatch);
     }
-    auto pair = lease->readValidatedMetadataPair();
-    if (!pair.ok()) return reject(pair.error, pair.nativeError);
+    CustodyMetadataIndices indices;
     std::array<CustodyMigrationValue, 2> values{};
     struct WipeValues {
         std::array<CustodyMigrationValue, 2>& values;
         ~WipeValues() { SecureZeroMemory(values.data(), sizeof(values)); }
     } wipe{values};
-    for (unsigned slot = 0; slot < 2; ++slot) {
-        if (cancelled()) return reject(CustodyFileError::ioFailed, ERROR_OPERATION_ABORTED);
-        const auto& index = pair.value->indices[slot];
-        if (!index.logicalLength || index.logicalLength > packageLimit || index.entries.size() != 1 || index.entries[0].flags != 0)
-            return reject(CustodyFileError::invalidContent);
-        const auto& entry = index.entries[0];
-        auto cipher = lease->readBlock(0, entry.version, static_cast<std::uint32_t>(index.logicalLength), entry.envelopeBytes);
-        if (!cipher.ok()) return reject(cipher.error, cipher.nativeError);
-        if (cancelled()) return reject(CustodyFileError::ioFailed, ERROR_OPERATION_ABORTED);
-        auto plain = ProtectedCustodyCodec::openBlock(own, 0, entry.version, static_cast<std::uint32_t>(index.logicalLength), *cipher.value);
-        if (!plain.ok()) return reject(codecFileError(plain.error), plain.nativeError);
-        if (cancelled()) return reject(CustodyFileError::ioFailed, ERROR_OPERATION_ABORTED);
-        const std::string_view json{reinterpret_cast<const char*>(plain.value->data()), plain.value->size()};
-        auto expectedTransaction = transaction;
-        if (!expectedTransaction) {
-            std::array<CustodyMigrationValue, 2> provisional{};
-            WipeValues wipeProvisional{provisional};
-            // Locator only: no semantic expectation or path is taken from this
-            // current JSON. Fixed role/position and native context stay on lease.
-            if (!PackageJson(json).read(provisional[0]) || !provisional[0].barrier)
-                return reject(CustodyFileError::invalidContent);
-            const auto& ref = *provisional[0].barrier;
-            if (ref.objectId != own.objectId || ref.generation != 1 || !ref.blockVersion ||
-                ref.envelopeBytes <= 16 || ref.envelopeBytes > ProtectedCustodyCodec::blockEnvelopeLimit(packageLimit))
-                return reject(CustodyFileError::invalidContent);
-            auto envelope = lease->readMigrationBirthEnvelope(ref.blockVersion, static_cast<std::uint32_t>(ref.envelopeBytes));
-            if (!envelope.ok()) return reject(envelope.error, envelope.nativeError);
-            if (cancelled()) return reject(CustodyFileError::ioFailed, ERROR_OPERATION_ABORTED);
-            if (envelope.value->size() != ref.envelopeBytes) return reject(CustodyFileError::invalidContent);
-            const auto hash = custody_detail::digest(envelope.value->data(), envelope.value->size());
-            if (!hash) return reject(codecFileError(CustodyCodecError::hashFailed));
-            if (*hash != ref.sha256) return reject(CustodyFileError::invalidContent);
-            if (cancelled()) return reject(CustodyFileError::ioFailed, ERROR_OPERATION_ABORTED);
-            auto birthPlain = ProtectedCustodyCodec::openMigrationBirthBlock(own, ref.blockVersion, *envelope.value);
-            if (!birthPlain.ok()) return reject(codecFileError(birthPlain.error), birthPlain.nativeError);
-            if (cancelled()) return reject(CustodyFileError::ioFailed, ERROR_OPERATION_ABORTED);
-            if (!PackageJson({reinterpret_cast<const char*>(birthPlain.value->data()), birthPlain.value->size()}).read(provisional[1]))
-                return reject(CustodyFileError::invalidContent);
-            expectedTransaction = provisional[1].transactionId;
-        }
-        auto parsed = readCustodyMigration(json, own, index.generation, *expectedTransaction, subject, name);
-        if (!parsed.ok()) return reject(codecFileError(parsed.error), parsed.nativeError);
-        values[slot] = *parsed.value;
-        SecureZeroMemory(&*parsed.value, sizeof(CustodyMigrationValue));
-        if (cancelled()) return reject(CustodyFileError::ioFailed, ERROR_OPERATION_ABORTED);
-        if (held && (subject == CustodyMigrationSubject::queue
-            ? values[slot].sources[0].destinationObjectId != held->current().queueObjectId
-            : !values[slot].anchor.objectId || *values[slot].anchor.objectId != held->current().queueObjectId))
-            return reject(CustodyFileError::invalidContent);
-        if (values[slot].barrier) {
-            const auto& ref = *values[slot].barrier;
-            auto envelope = lease->readMigrationBirthEnvelope(ref.blockVersion, static_cast<std::uint32_t>(ref.envelopeBytes));
-            if (!envelope.ok()) return reject(envelope.error, envelope.nativeError);
-            if (cancelled()) return reject(CustodyFileError::ioFailed, ERROR_OPERATION_ABORTED);
-            auto birth = readCustodyMigrationBirth(*envelope.value, own, values[slot], values[slot].transactionId, subject, name);
-            if (!birth.ok()) return reject(codecFileError(birth.error), birth.nativeError);
-            SecureZeroMemory(&*birth.value, sizeof(CustodyMigrationValue));
-        }
-    }
-    const auto selected = pair.value->selectedSlot;
-    if (!migrationProgress(values[1U - selected], values[selected])) return reject(CustodyFileError::conflict);
-    if (cancelled()) return reject(CustodyFileError::ioFailed, ERROR_OPERATION_ABORTED);
+    auto checked = readValues(*lease, own, transaction, subject, name, cancellation, held.get(), false, indices, values);
+    if (!checked.ok()) return reject(checked.error, checked.nativeError);
     lease->blockWrites();
     CustodyAllocator<ProtectedCustodyMigrationPair> allocator;
     auto* raw = allocator.allocate(1);
-    try { new (raw) ProtectedCustodyMigrationPair(std::move(pin), std::move(held), std::move(lease), std::move(*pair.value), values); }
+    try { new (raw) ProtectedCustodyMigrationPair(std::move(pin), std::move(held), std::move(lease), std::move(indices), values); }
     catch (...) { allocator.deallocate(raw, 1); throw; }
     Proof proof{raw, [](const ProtectedCustodyMigrationPair* p) {
         p->~ProtectedCustodyMigrationPair();
@@ -1554,6 +1591,25 @@ CustodyFileResult<std::shared_ptr<const ProtectedCustodyPackagePair>> ProtectedC
 
 CustodyFileResult<bool> ProtectedCustodyStoreOwner::revalidatePackage(
     std::shared_ptr<const ProtectedCustodyPackagePair> held, std::shared_ptr<const std::atomic<bool>> cancellation) try {
+    if (!held || !root_ || !cancellation || !held->retainedLease_ || held->cancellation_.get()!=cancellation.get() ||
+        held->origin_!=ProtectedCustodyPackagePair::LeaseOrigin::isolatedReadOnly)
+        return {std::nullopt,CustodyFileError::invalidInput,0};
+    if (failed_) return {std::nullopt,CustodyFileError::recoveryRequired,0};
+#ifndef _WIN32
+    return {std::nullopt,CustodyFileError::unsupportedPlatform,0};
+#else
+    {
+        CustodyNativeJob job; if (!job) return {std::nullopt,CustodyFileError::allocationFailed,ERROR_NOT_ENOUGH_QUOTA};
+        auto checked=validate(cancellation); if (!checked.ok()) return checked;
+    }
+    auto checked=revalidatePackageState(held,cancellation); if (!checked.ok()) return checked;
+    return validateMigrationPackageHistory(std::move(held),std::move(cancellation));
+#endif
+} catch (const std::bad_alloc&) { return {std::nullopt,CustodyFileError::allocationFailed,0}; }
+  catch (const std::system_error& error) { return {std::nullopt,CustodyFileError::ioFailed,static_cast<std::uint32_t>(error.code().value())}; }
+
+CustodyFileResult<bool> ProtectedCustodyStoreOwner::revalidatePackageState(
+    std::shared_ptr<const ProtectedCustodyPackagePair> held, std::shared_ptr<const std::atomic<bool>> cancellation) try {
     if (!held || !held->retainedLease_ || !cancellation || held->cancellation_.get() != cancellation.get() ||
         held->origin_ != ProtectedCustodyPackagePair::LeaseOrigin::isolatedReadOnly)
         return {std::nullopt, CustodyFileError::invalidInput, 0};
@@ -1566,12 +1622,6 @@ CustodyFileResult<bool> ProtectedCustodyStoreOwner::revalidatePackage(
     const auto& own = held->current().context;
     if (!files || files->trustedRoot() != root_->trustedRoot() || own.storeId != queueContext_.storeId)
         return {std::nullopt, CustodyFileError::identityMismatch, 0};
-    {
-        CustodyNativeJob job; // Cover current store/queue validation, not the nested pair's own admission.
-        if (!job) return {std::nullopt, CustodyFileError::allocationFailed, ERROR_NOT_ENOUGH_QUOTA};
-        auto checked = validate(cancellation);
-        if (!checked.ok()) return checked;
-    }
     const auto name = directory(held->current());
     // Re-read BOTH indices, referenced blocks and semantic payloads through the
     // SAME native lease. Never release/reopen identity or adopt a newer state.
@@ -1611,67 +1661,263 @@ CustodyFileResult<bool> ProtectedCustodyStoreOwner::revalidatePackage(
         if (*expected.value != *observed.value) return {std::nullopt, CustodyFileError::conflict, 0};
     }
     if (cancellation->load()) return {std::nullopt, CustodyFileError::ioFailed, ERROR_OPERATION_ABORTED};
-    return validateMigrationPackageHistory(std::move(held), std::move(cancellation));
+    return {true,CustodyFileError::none,0};
 #endif
 } catch (const std::bad_alloc&) { return {std::nullopt, CustodyFileError::allocationFailed, 0}; }
   catch (const std::system_error& error) { return {std::nullopt, CustodyFileError::ioFailed, static_cast<std::uint32_t>(error.code().value())}; }
 
+CustodyFileResult<bool> ProtectedCustodyStoreOwner::cleanupMigrationOriginals(std::string_view name,
+    const CustodyId& transaction,std::string_view user,std::string_view workspace,
+    std::uint64_t expectedGeneration,std::shared_ptr<const std::atomic<bool>> cancellation) try {
+    const auto reject=[](CustodyFileError error,std::uint32_t native=0)->CustodyFileResult<bool> { return {std::nullopt,error,native}; };
+    if (!root_ || !cancellation || (!name.empty() && !identity(name)) ||
+        !DesktopApiClient::accountId(user) || !DesktopApiClient::accountId(workspace) || !expectedGeneration ||
+        !std::any_of(transaction.begin(),transaction.end(),[](auto b) { return b!=0; })) return reject(CustodyFileError::invalidInput);
+#ifndef _WIN32
+    return reject(CustodyFileError::unsupportedPlatform);
+#else
+    if (failed_ || shortDiscard_ || cancellation->load()) return reject(CustodyFileError::recoveryRequired);
+    std::shared_ptr<const ProtectedUploadQueueValue> current;
+    {
+        CustodyNativeJob job; if (!job) return reject(CustodyFileError::allocationFailed,ERROR_NOT_ENOUGH_QUOTA);
+        if (!name.empty()) {
+            // Refuse a busy target before cold validation; release this temporary
+            // lease before the unchanged full closure/authority checks below.
+            auto available=ProtectedCustodyFiles::openPackageState(root_,name,cancellation);
+            if (!available.ok()) return reject(available.error,available.nativeError);
+        }
+        auto checked=validate(cancellation,&current,true); if (!checked.ok()) return checked;
+    } // Full cold closure refuses any active incompatible consumer before authorization.
+    if (!current || queueGeneration_!=expectedGeneration) return reject(CustodyFileError::conflict);
+    const auto allowed=[&](const ProtectedUploadQueueValue& value,bool historical)->bool {
+        bool found=name.empty();
+        for (const auto& row:value.items()) {
+            if (!name.empty() && std::string_view(row.directoryId)!=name) continue;
+            found=true;
+            // Current login never claims an unknown historical/current owner.
+            if (std::string_view(row.ownerUserId)!=user || std::string_view(row.ownerWorkspaceId)!=workspace)
+                return false;
+            if (!historical && (row.status==UploadQueueStatus::uploading || value.deletionBlocks(row) ||
+                row.safeReason=="capture_prepared" || row.safeReason=="local_delete_pending")) return false;
+            const auto path=std::filesystem::u8path(row.packageDirectory.begin(),row.packageDirectory.end());
+            const auto expected=root_->trustedRoot()/std::filesystem::u8path(row.directoryId.begin(),row.directoryId.end());
+            if (path!=expected || !AtomicFileStore::isWithinRoot(root_->trustedRoot(),path)) return false;
+        }
+        return found;
+    };
+    if (!allowed(*current,false)) return reject(CustodyFileError::conflict);
+    std::shared_ptr<const ProtectedCustodyPackagePair> package;
+    std::optional<CustodyPackageReaders> readers;
+    if (!name.empty()) {
+        auto opened=readPackage(name,cancellation); if (!opened.ok()) return reject(opened.error,opened.nativeError);
+        package=std::move(*opened.value);
+        auto openedReaders=openProtectedCustodyReaders(root_->trustedRoot(),package,cancellation);
+        if (!openedReaders.ok()) return reject(openedReaders.error,openedReaders.nativeError);
+        readers.emplace(std::move(*openedReaders.value));
+    } // These exact readonly state/member leases survive every cleanup effect.
+    const auto subject=name.empty() ? CustodyMigrationSubject::queue : CustodyMigrationSubject::package;
+    auto opened=ProtectedCustodyFiles::openStoreObject(root_,CustodyRole::migrationIntent,false,name,true);
+    if (!opened.ok()) return reject(opened.error,opened.nativeError);
+    auto intent=std::move(*opened.value); const auto own=intent->context();
+    CustodyMetadataIndices indices; std::array<CustodyMigrationValue,2> values{};
+    struct Wipe { std::array<CustodyMigrationValue,2>& value; ~Wipe() { SecureZeroMemory(value.data(),sizeof(value)); } } wipe{values};
+    const auto readIntent=[&]()->CustodyFileResult<bool> {
+        CustodyNativeJob job; if (!job) return reject(CustodyFileError::allocationFailed,ERROR_NOT_ENOUGH_QUOTA);
+        return ProtectedCustodyMigrationPair::readValues(*intent,own,transaction,subject,name,cancellation,nullptr,false,indices,values);
+    };
+    auto checked=readIntent(); if (!checked.ok()) return checked;
+    for (const auto& value:values) if (value.stage<CustodyMigrationStage::switched || !value.barrier)
+        return reject(CustodyFileError::recoveryRequired);
+    std::array<char,32> operation{};
+    for (std::size_t i=0;i<transaction.size();++i) {
+        operation[i*2]="0123456789abcdef"[transaction[i]>>4]; operation[i*2+1]="0123456789abcdef"[transaction[i]&15];
+    }
+    const auto matches=[&](const CustodyCleanupAuthorization& a) {
+        return a.kind==CustodyCleanupKind::ownerConfirmation && text(a.operationId)==std::string_view(operation.data(),operation.size()) &&
+            text(a.actorUserId)==user && text(a.workspaceId)==workspace && a.queueObjectId==queueContext_.objectId &&
+            a.queueGeneration<=expectedGeneration;
+    };
+    const auto& selected=values[indices.selectedSlot];
+    if (selected.authorization && !matches(*selected.authorization)) return reject(CustodyFileError::conflict);
+    for (const auto& value:values) if (value.authorization && !matches(*value.authorization)) return reject(CustodyFileError::conflict);
+    CustodyBytes legacy;
+    checked=intent->validateMigrationFiles(selected,values[1U-indices.selectedSlot],cancellation,false,name.empty() ? &legacy : nullptr);
+    if (!checked.ok()) return checked;
+    if (name.empty()) {
+        if (legacy.empty()) {
+            if (!selected.authorization || selected.stage<CustodyMigrationStage::cleanupPending) return reject(CustodyFileError::recoveryRequired);
+        } else {
+            auto old=decodeMigrationQueue({reinterpret_cast<const char*>(legacy.data()),legacy.size()},cancellation.get());
+            if (!old.ok()) return reject(old.error,old.nativeError);
+            if (!allowed(**old.value,true)) return reject(CustodyFileError::conflict); // ALL original ledger rows.
+            // An old row absent from current authority is not guessed to belong to
+            // this login. It needs the separately confirmed deletion/purge path.
+            for (const auto& row:(*old.value)->items()) if (std::none_of(current->items().begin(),current->items().end(),[&](const auto& now) {
+                return row.localRecordingId==now.localRecordingId && row.directoryId==now.directoryId && row.sessionId==now.sessionId &&
+                    row.ownerUserId==now.ownerUserId && row.ownerWorkspaceId==now.ownerWorkspaceId;
+            })) return reject(CustodyFileError::conflict);
+        }
+    }
+    std::optional<std::array<std::uint8_t,32>> queueHash;
+    const auto fresh=[&]()->CustodyFileResult<bool> {
+        if (cancellation->load()) return reject(CustodyFileError::ioFailed,ERROR_OPERATION_ABORTED);
+        {
+            CustodyNativeJob job; if (!job) return reject(CustodyFileError::allocationFailed,ERROR_NOT_ENOUGH_QUOTA);
+            auto bootstrap=bootstrap_->readValidatedMetadataPair(); if (!bootstrap.ok()) return reject(bootstrap.error,bootstrap.nativeError);
+            for (const auto& index:bootstrap.value->indices) {
+                auto bytes=readMetadataValue(*bootstrap_,bootstrap_->context(),index,cancellation); if (!bytes.ok()) return reject(bytes.error,bytes.nativeError);
+                auto value=readCustodyBootstrap({reinterpret_cast<const char*>(bytes.value->data()),bytes.value->size()},bootstrap_->context(),index.generation,queueContext_.objectId);
+                if (!value.ok()) return reject(codecFileError(value.error),value.nativeError);
+                const bool normal=value.value->mode==CustodyBootstrapMode::protectedStore;
+                SecureZeroMemory(&*value.value,sizeof(CustodyBootstrapValue));
+                if (!normal) return reject(CustodyFileError::recoveryRequired);
+            }
+            auto pair=queue_->readValidatedMetadataPair(); if (!pair.ok()) return reject(pair.error,pair.nativeError);
+            if (pair.value->indices[pair.value->selectedSlot].generation!=expectedGeneration) return reject(CustodyFileError::conflict);
+            for (unsigned slot=0;slot<2;++slot) {
+                const auto& index=pair.value->indices[slot];
+                auto bytes=readMetadataValue(*queue_,queueContext_,index,cancellation); if (!bytes.ok()) return reject(bytes.error,bytes.nativeError);
+                auto decoded=decodeMigrationQueue({reinterpret_cast<const char*>(bytes.value->data()),bytes.value->size()},cancellation.get());
+                if (!decoded.ok()) return reject(decoded.error,decoded.nativeError);
+                if (slot!=pair.value->selectedSlot) continue;
+                if (!allowed(**decoded.value,false)) return reject(CustodyFileError::conflict);
+                const auto hash=custody_detail::digest(bytes.value->data(),bytes.value->size());
+                if (!hash) return reject(CustodyFileError::hashFailed);
+                if (queueHash && *queueHash!=*hash) return reject(CustodyFileError::conflict);
+                queueHash=*hash;
+            }
+        }
+        if (package) {
+            auto state=revalidatePackageState(package,cancellation); if (!state.ok()) return state;
+            for (const auto& slots:*readers) for (const auto& reader:slots) if (reader.stream) {
+                STATSTG stat{}; const auto status=reader.stream->Stat(&stat,STATFLAG_NONAME);
+                if (FAILED(status)) return reject(CustodyFileError::invalidContent,static_cast<std::uint32_t>(status));
+            }
+        }
+        return {true,CustodyFileError::none,0};
+    };
+    checked=fresh(); if (!checked.ok()) return checked;
+    const auto save=[&](CustodyMigrationValue value)->CustodyFileResult<bool> {
+        auto valid=fresh(); if (!valid.ok()) return valid;
+        const auto generation=values[indices.selectedSlot].generation;
+        if (generation==(std::numeric_limits<std::uint64_t>::max)()) return reject(CustodyFileError::invalidContent);
+        value.generation=generation+1;
+        auto bytes=writeCustodyMigration(value,own,value.generation,transaction,subject,name);
+        SecureZeroMemory(&value,sizeof(value));
+        if (!bytes.ok()) return reject(codecFileError(bytes.error),bytes.nativeError);
+        {
+            auto committed=CustodyMetadataCommit::commitImpl(root_->trustedRoot(),name,own,generation,*bytes.value,cancellation,intent.get());
+            if (committed.state!=CustodyCommitState::committed) {
+                failed_=true;
+                return reject(committed.state==CustodyCommitState::ambiguous ? CustodyFileError::recoveryRequired : committed.error,committed.nativeError);
+            }
+        }
+        valid=readIntent(); if (!valid.ok()) { failed_=true; return valid; }
+        return fresh();
+    };
+    if (values[indices.selectedSlot].stage==CustodyMigrationStage::switched) {
+        auto next=values[indices.selectedSlot]; next.stage=CustodyMigrationStage::cleanupPending;
+        next.authorization.emplace(); auto& authorization=*next.authorization;
+        std::copy(operation.begin(),operation.end(),authorization.operationId.begin());
+        std::copy(user.begin(),user.end(),authorization.actorUserId.begin());
+        std::copy(workspace.begin(),workspace.end(),authorization.workspaceId.begin());
+        authorization.queueObjectId=queueContext_.objectId; authorization.queueGeneration=expectedGeneration;
+        checked=save(next); SecureZeroMemory(&next,sizeof(next)); if (!checked.ok()) return checked;
+    }
+    if (values[indices.selectedSlot].stage==CustodyMigrationStage::cleanupPending) {
+        // Both physical records carry the SAME durable confirmation before any unlink.
+        if (values[1U-indices.selectedSlot].stage!=CustodyMigrationStage::cleanupPending) {
+            checked=save(values[indices.selectedSlot]); if (!checked.ok()) return checked;
+        }
+        checked=fresh(); if (!checked.ok()) return checked;
+        checked=intent->validateMigrationFiles(values[indices.selectedSlot],values[1U-indices.selectedSlot],cancellation,true);
+        if (!checked.ok()) { failed_=true; return checked; }
+        checked=fresh(); if (!checked.ok()) { failed_=true; return checked; }
+        auto next=values[indices.selectedSlot]; next.stage=CustodyMigrationStage::complete;
+        checked=save(next); SecureZeroMemory(&next,sizeof(next)); if (!checked.ok()) return checked;
+    }
+    if (values[indices.selectedSlot].stage!=CustodyMigrationStage::complete) return reject(CustodyFileError::recoveryRequired);
+    if (values[1U-indices.selectedSlot].stage!=CustodyMigrationStage::complete) {
+        checked=save(values[indices.selectedSlot]); if (!checked.ok()) return checked;
+    }
+    checked=intent->validateMigrationFiles(values[indices.selectedSlot],values[1U-indices.selectedSlot],cancellation);
+    if (!checked.ok()) { failed_=true; return checked; }
+    return fresh(); // Current ledger/projection unchanged; root gate/sentinel remain.
+#endif
+} catch (const std::bad_alloc&) { return {std::nullopt,CustodyFileError::allocationFailed,0}; }
+  catch (const std::filesystem::filesystem_error&) { return {std::nullopt,CustodyFileError::unsafePath,0}; }
+  catch (const std::system_error& error) { return {std::nullopt,CustodyFileError::ioFailed,static_cast<std::uint32_t>(error.code().value())}; }
+
 CustodyFileResult<bool> ProtectedCustodyStoreOwner::validateMigrationPackageHistory(
+    std::shared_ptr<const ProtectedCustodyPackagePair> held, std::shared_ptr<const std::atomic<bool>> cancellation,
+    std::shared_ptr<const ProtectedCustodyMigrationPair> history) {
+    if (!bootstrap_) return {std::nullopt, CustodyFileError::invalidInput, 0};
+    return validateMigrationPackageHistoryImpl(root_, queueContext_, bootstrap_->context(), queueGeneration_,
+        std::move(held), std::move(cancellation), std::move(history));
+}
+
+CustodyFileResult<bool> ProtectedCustodyStoreOwner::validateMigrationPackageHistoryImpl(
+    const std::shared_ptr<ProtectedCustodyFiles>& root, const CustodyContext& queueContext,
+    const CustodyContext& bootstrapContext, std::uint64_t queueGeneration,
     std::shared_ptr<const ProtectedCustodyPackagePair> held, std::shared_ptr<const std::atomic<bool>> cancellation,
     std::shared_ptr<const ProtectedCustodyMigrationPair> history) try {
     const auto reject = [](CustodyFileError error, std::uint32_t native = 0) -> CustodyFileResult<bool> {
         return {std::nullopt, error, native};
     };
-    if (!held || !root_ || !cancellation || !held->retainedLease_ || held->cancellation_.get() != cancellation.get() ||
+    if (!held || !root || !cancellation || !held->retainedLease_ || held->cancellation_.get() != cancellation.get() ||
         held->origin_ != ProtectedCustodyPackagePair::LeaseOrigin::isolatedReadOnly)
         return reject(CustodyFileError::invalidInput);
 #ifndef _WIN32
-    (void)history; return reject(CustodyFileError::unsupportedPlatform);
+    (void)history; (void)queueContext; (void)bootstrapContext; (void)queueGeneration;
+    return reject(CustodyFileError::unsupportedPlatform);
 #else
     if (cancellation->load()) return reject(CustodyFileError::ioFailed, ERROR_OPERATION_ABORTED);
     const auto name = directory(held->current());
     const auto& identity = held->current().context;
-    if (held->retainedLease_->trustedRoot() != root_->trustedRoot() || identity.storeId != queueContext_.storeId ||
-        held->retainedLease_->packagePath().parent_path() != root_->trustedRoot() / std::filesystem::u8path(name.begin(), name.end()))
+    if (held->retainedLease_->trustedRoot() != root->trustedRoot() || identity.storeId != queueContext.storeId ||
+        held->retainedLease_->packagePath().parent_path() != root->trustedRoot() / std::filesystem::u8path(name.begin(), name.end()))
         return reject(CustodyFileError::identityMismatch);
     if (!history) {
         // Structural absence of ALL fixed history surfaces preserves ordinary v5
         // behavior. A filename alone never admits a completed migration.
         std::optional<CustodyVector<CustodyString>> scopes;
-        auto inventory = root_->validateStoreInventory(false, cancellation, false, &scopes);
+        auto inventory = root->validateStoreInventory(false, cancellation, false, &scopes);
         if (!inventory.ok()) return reject(inventory.error, inventory.nativeError);
         if (!scopes || std::none_of(scopes->begin(), scopes->end(), [&](const auto& scope) { return std::string_view(scope) == name; }))
             return {true, CustodyFileError::none, 0};
-        auto opened = ProtectedCustodyFiles::openStoreObject(root_, CustodyRole::migrationIntent, false, name);
+        auto opened = ProtectedCustodyFiles::openStoreObject(root, CustodyRole::migrationIntent, false, name);
         if (!opened.ok()) return reject(opened.error, opened.nativeError);
         const auto context = (*opened.value)->context();
-        if (context.storeId != queueContext_.storeId || context.objectId == context.storeId ||
-            context.objectId == queueContext_.objectId || context.objectId == bootstrap_->context().objectId || context.objectId == identity.objectId)
+        if (context.storeId != queueContext.storeId || context.objectId == context.storeId ||
+            context.objectId == queueContext.objectId || context.objectId == bootstrapContext.objectId || context.objectId == identity.objectId)
             return reject(CustodyFileError::identityMismatch);
-        auto checked = ProtectedCustodyMigrationPair::readImpl(root_->trustedRoot(), context, std::nullopt,
+        auto checked = ProtectedCustodyMigrationPair::readImpl(root->trustedRoot(), context, std::nullopt,
             CustodyMigrationSubject::package, name, cancellation, {}, std::move(*opened.value));
         if (!checked.ok()) return reject(checked.error, checked.nativeError);
         history = std::move(*checked.value);
     }
     const auto& current = history->current();
     if (current.subject != CustodyMigrationSubject::package || !current.directory || text(*current.directory) != name ||
-        current.context.storeId != identity.storeId || !history->lease_ || history->lease_->trustedRoot() != root_->trustedRoot())
+        current.context.storeId != identity.storeId || !history->lease_ || history->lease_->trustedRoot() != root->trustedRoot())
         return reject(CustodyFileError::identityMismatch);
     for (const auto& record : history->slots()) {
-        if (record.stage != CustodyMigrationStage::switched || record.authorization || !record.barrier)
+        if (record.stage < CustodyMigrationStage::switched || !record.barrier ||
+            (record.stage==CustodyMigrationStage::switched ? record.authorization.has_value() : !record.authorization))
             return reject(CustodyFileError::recoveryRequired);
-        if (!record.anchor.objectId || *record.anchor.objectId != queueContext_.objectId || !record.anchor.generation)
+        if (!record.anchor.objectId || *record.anchor.objectId != queueContext.objectId || !record.anchor.generation)
             return reject(CustodyFileError::identityMismatch);
-        // Cold validate has not adopted queueGeneration_ yet. The caller checked
+        // Cold validate has not adopted queueGeneration yet. The caller checked
         // the actual current pair before handing over this same history proof.
-        if (queueGeneration_ && *record.anchor.generation > queueGeneration_) return reject(CustodyFileError::conflict);
+        if (queueGeneration && *record.anchor.generation > queueGeneration) return reject(CustodyFileError::conflict);
+        if (record.authorization && (record.authorization->queueObjectId!=queueContext.objectId ||
+            (queueGeneration && record.authorization->queueGeneration>queueGeneration))) return reject(CustodyFileError::conflict);
     }
     const auto& receipt = history->current();
     constexpr std::array<CustodyRole, 6> roles{CustodyRole::queue, CustodyRole::manifest,
         CustodyRole::canonical, CustodyRole::media, CustodyRole::playback, CustodyRole::recovery};
     for (const auto& value : held->slots()) {
-        if ((value.phase != CustodyPackagePhase::sealedNormal && value.phase != CustodyPackagePhase::sealedDegraded) ||
-            value.refCount != receipt.sourceCount) return reject(CustodyFileError::recoveryRequired);
+        if ((value.phase != CustodyPackagePhase::sealedNormal && value.phase != CustodyPackagePhase::sealedDegraded &&
+             value.phase != CustodyPackagePhase::discardPending) || value.refCount != receipt.sourceCount) return reject(CustodyFileError::recoveryRequired);
         for (std::size_t i = 0; i < receipt.sourceCount; ++i) {
             const auto& source = receipt.sources[i];
             const auto role = roles[static_cast<unsigned>(source.kind)];
@@ -1688,7 +1934,7 @@ CustodyFileResult<bool> ProtectedCustodyStoreOwner::validateMigrationPackageHist
     // actual inspection/playback group is alive. Cold admission retains the
     // existing whole-group closure below; consumers and recycle keep their
     // existing member/retained-root guards before any effect.
-    auto files = history->lease_->validateMigrationFiles(current, cancellation);
+    auto files = history->lease_->validateMigrationFiles(current, history->slots()[1U-history->selectedSlot()], cancellation);
     if (!files.ok()) return reject(files.error, files.nativeError);
     if (cancellation->load()) return reject(CustodyFileError::ioFailed, ERROR_OPERATION_ABORTED);
     return {true, CustodyFileError::none, 0};
@@ -2262,6 +2508,851 @@ CustodyMetadataCommit ProtectedCustodyRecordingPackage::commitImpl(const Custody
 #endif
 }
 
+ProtectedCustodyQueueMigration::~ProtectedCustodyQueueMigration() {
+#ifdef _WIN32
+    SecureZeroMemory(values_.data(), sizeof(values_));
+#endif
+}
+
+CustodyFileResult<std::shared_ptr<const ProtectedUploadQueueValue>> ProtectedCustodyStoreOwner::decodeMigrationQueue(
+    std::string_view bytes, const std::atomic<bool>* cancellation) {
+    return ProtectedUploadQueueValue::decode(bytes,cancellation);
+}
+
+CustodyFileResult<std::shared_ptr<ProtectedCustodyQueueMigration>> ProtectedCustodyQueueMigration::prepare(
+    const std::filesystem::path& path, std::shared_ptr<const std::atomic<bool>> cancellation) {
+    return openImpl(path,std::move(cancellation),false);
+}
+CustodyFileResult<std::shared_ptr<ProtectedCustodyQueueMigration>> ProtectedCustodyQueueMigration::openImpl(
+    const std::filesystem::path& path, std::shared_ptr<const std::atomic<bool>> cancellation, bool copyAndSwitch) try {
+    using Owner = std::shared_ptr<ProtectedCustodyQueueMigration>;
+    const auto reject = [](CustodyFileError error, std::uint32_t native = 0) -> CustodyFileResult<Owner> {
+        return {std::nullopt, error, native};
+    };
+    if (!cancellation) return reject(CustodyFileError::invalidInput);
+#ifndef _WIN32
+    (void)path; (void)copyAndSwitch; return reject(CustodyFileError::unsupportedPlatform);
+#else
+    if (cancellation->load()) return reject(CustodyFileError::ioFailed, ERROR_OPERATION_ABORTED);
+    CustodyNativeJob job;
+    if (!job) return reject(CustodyFileError::allocationFailed, ERROR_NOT_ENOUGH_QUOTA);
+    CustodyPin pin;
+    if (!pin) return reject(CustodyFileError::allocationFailed, ERROR_NOT_ENOUGH_QUOTA);
+    CustodyAllocator<ProtectedCustodyQueueMigration> allocator;
+    auto* raw = allocator.allocate(1);
+    try { new (raw) ProtectedCustodyQueueMigration(); }
+    catch (...) { allocator.deallocate(raw,1); throw; }
+    Owner owner(raw, [](ProtectedCustodyQueueMigration* p) {
+        p->~ProtectedCustodyQueueMigration(); CustodyAllocator<ProtectedCustodyQueueMigration>{}.deallocate(p,1);
+    }, allocator);
+    owner->pin_.emplace(std::move(pin)); owner->cancellation_ = cancellation;
+    unsigned roles = 0; bool envelopes = false;
+    auto locked = ProtectedCustodyFiles::lockQueueMigrationRoot(path, cancellation, owner->source_, roles, envelopes);
+    if (!locked.ok()) return reject(locked.error, locked.nativeError);
+    owner->root_ = std::shared_ptr<ProtectedCustodyFiles>(locked.value->release(),
+        [](ProtectedCustodyFiles* p) { delete p; }, CustodyAllocator<ProtectedCustodyFiles>{});
+    const auto openRole = [&](CustodyRole role, unsigned bit) {
+        return ProtectedCustodyFiles::openStoreObject(owner->root_, role, !(roles & bit), {}, true);
+    };
+    auto queue = openRole(CustodyRole::queue,1); if (!queue.ok()) return reject(queue.error,queue.nativeError);
+    owner->queue_ = std::move(*queue.value);
+    auto intent = openRole(CustodyRole::migrationIntent,2); if (!intent.ok()) return reject(intent.error,intent.nativeError);
+    owner->intent_ = std::move(*intent.value);
+    const auto own = owner->intent_->context(), queueContext = owner->queue_->context();
+    if (own.storeId != queueContext.storeId || own.objectId == own.storeId || own.objectId == queueContext.objectId ||
+        queueContext.objectId == queueContext.storeId) return reject(CustodyFileError::identityMismatch);
+    // Existing identities are checked before the first intent publication.
+    if (roles & 4) {
+        auto bootstrap = openRole(CustodyRole::bootstrap,4);
+        if (!bootstrap.ok()) return reject(bootstrap.error,bootstrap.nativeError);
+        owner->bootstrap_ = std::move(*bootstrap.value);
+        const auto context = owner->bootstrap_->context();
+        if (context.storeId != own.storeId || context.objectId == context.storeId ||
+            context.objectId == own.objectId || context.objectId == queueContext.objectId)
+            return reject(CustodyFileError::identityMismatch);
+    }
+    const auto sourceHash = custody_detail::digest(owner->source_.data(), owner->source_.size());
+    if (!sourceHash) return reject(CustodyFileError::hashFailed);
+    const auto revalidateSource = [&]() -> CustodyFileResult<bool> {
+        auto bytes = owner->root_->readMigrationQueue();
+        if (!bytes.ok()) return {std::nullopt,bytes.error,bytes.nativeError};
+        if (*bytes.value != owner->source_) return {std::nullopt,CustodyFileError::conflict,0};
+        return {true,CustodyFileError::none,0};
+    };
+    const auto readIntent = [&](std::optional<CustodyId> transaction) {
+        return ProtectedCustodyMigrationPair::readValues(*owner->intent_, own, transaction,
+            CustodyMigrationSubject::queue, {}, cancellation, nullptr, true, owner->indices_, owner->values_);
+    };
+    const auto saveIntent = [&](const CustodyMigrationValue& value) -> CustodyFileResult<bool> {
+        auto checked = revalidateSource(); if (!checked.ok()) return checked;
+        auto bytes = writeCustodyMigration(value, own, value.generation, value.transactionId, CustodyMigrationSubject::queue, {});
+        if (!bytes.ok()) return {std::nullopt,codecFileError(bytes.error),bytes.nativeError};
+        auto committed = CustodyMetadataCommit::commitImpl(path, {}, own, value.generation - 1, *bytes.value, cancellation, owner->intent_.get());
+        if (committed.state != CustodyCommitState::committed) return {std::nullopt,
+            committed.state == CustodyCommitState::ambiguous ? CustodyFileError::recoveryRequired : committed.error,committed.nativeError};
+        return readIntent(value.transactionId); // BOTH semantic ACK on the same writable owner.
+    };
+    const auto unused = owner->intent_->unusedPackageRole();
+    if (unused.ok()) {
+        if (envelopes) return reject(CustodyFileError::recoveryRequired); // No intent birth over a bootstrap/partial envelope.
+        CustodyMigrationValue value; value.context = own; value.generation = 1;
+        value.subject = CustodyMigrationSubject::queue; value.stage = CustodyMigrationStage::prepared;
+        const auto rng = BCryptGenRandom(nullptr,value.transactionId.data(),16,BCRYPT_USE_SYSTEM_PREFERRED_RNG);
+        if (rng < 0) return reject(CustodyFileError::ioFailed,static_cast<std::uint32_t>(rng));
+        value.anchor.length = owner->source_.size(); value.anchor.sha256 = *sourceHash;
+        value.sourceCount = 1; value.sources[0].kind = CustodyMigrationSourceKind::ledger;
+        value.sources[0].length = value.anchor.length; value.sources[0].sha256 = *sourceHash;
+        value.sources[0].destinationObjectId = queueContext.objectId;
+        auto saved = saveIntent(value); SecureZeroMemory(&value,sizeof(value));
+        if (!saved.ok()) return reject(saved.error,saved.nativeError);
+    } else {
+        auto read = readIntent(std::nullopt); if (!read.ok()) return reject(read.error,read.nativeError);
+    }
+    for (const auto& value : owner->values_) {
+        if ((!copyAndSwitch && value.stage != CustodyMigrationStage::prepared) || value.stage > CustodyMigrationStage::switched ||
+            value.authorization || value.anchor.objectId || value.anchor.generation ||
+            value.anchor.length != owner->source_.size() || value.anchor.sha256 != *sourceHash ||
+            value.sourceCount != 1 || value.sources[0].destinationObjectId != queueContext.objectId ||
+            value.sources[0].length != owner->source_.size() || value.sources[0].sha256 != *sourceHash)
+            return reject(CustodyFileError::conflict);
+    }
+    if (owner->current().stage>CustodyMigrationStage::prepared && !owner->bootstrap_) return reject(CustodyFileError::recoveryRequired);
+    bool packageFence=false;
+    std::optional<CustodyBootstrapValue> pendingPackage;
+    const auto validateFence = [&]() -> CustodyFileResult<bool> {
+        if (!owner->bootstrap_ || !owner->current().barrier) return {std::nullopt,CustodyFileError::recoveryRequired,0};
+        const auto context = owner->bootstrap_->context();
+    auto pair = owner->bootstrap_->readValidatedMetadataPair(); if (!pair.ok()) return {std::nullopt,pair.error,pair.nativeError};
+    std::array<CustodyBootstrapMode,2> modes{};
+    for (unsigned slot = 0; slot < 2; ++slot) {
+        const auto& index = pair.value->indices[slot];
+        auto bytes = readMetadataValue(*owner->bootstrap_,context,index,cancellation);
+        if (!bytes.ok()) return {std::nullopt,bytes.error,bytes.nativeError};
+        auto value = readCustodyBootstrap({reinterpret_cast<const char*>(bytes.value->data()),bytes.value->size()},context,index.generation,queueContext.objectId);
+        if (!value.ok()) return {std::nullopt,codecFileError(value.error),value.nativeError};
+        bool deferred=false;
+        if (copyAndSwitch && owner->current().stage==CustodyMigrationStage::switched &&
+            owner->values_[1U-owner->indices_.selectedSlot].stage==CustodyMigrationStage::switched &&
+            value.value->mode==CustodyBootstrapMode::migrating && value.value->subject==CustodyMigrationSubject::package && value.value->directory) {
+            if (pendingPackage && (pendingPackage->directory!=value.value->directory || pendingPackage->transactionId!=value.value->transactionId))
+                return {std::nullopt,CustodyFileError::conflict,0};
+            pendingPackage=*value.value; packageFence=true; deferred=true;
+        }
+        const bool matches = deferred || (value.value->mode == CustodyBootstrapMode::migrating &&
+            value.value->transactionId == owner->current().transactionId && value.value->subject == CustodyMigrationSubject::queue && !value.value->directory) ||
+            (copyAndSwitch && owner->current().stage >= CustodyMigrationStage::copiedVerified &&
+             value.value->mode == CustodyBootstrapMode::protectedStore);
+        modes[slot] = value.value->mode;
+        SecureZeroMemory(&*value.value,sizeof(CustodyBootstrapValue));
+        if (!matches) return {std::nullopt,CustodyFileError::conflict,0};
+    }
+    if (!packageFence && modes[pair.value->selectedSlot] == CustodyBootstrapMode::migrating &&
+        modes[1U - pair.value->selectedSlot] != CustodyBootstrapMode::migrating)
+        return {std::nullopt,CustodyFileError::conflict,0};
+        return {true,CustodyFileError::none,0};
+    };
+    // A singleton/invalid bootstrap is never followed by a repair/prepared write.
+    if (owner->bootstrap_ && !owner->bootstrap_->unusedPackageRole().ok()) {
+        auto valid = validateFence(); if (!valid.ok()) return reject(valid.error,valid.nativeError);
+    }
+    // Even a known native intent does not authorize an arbitrary existing quarantine.
+    auto gatePresent = owner->root_->migrationQueueGatePresent();
+    if (!gatePresent.ok()) return reject(gatePresent.error,gatePresent.nativeError);
+    if (*gatePresent.value && !owner->current().barrier) return reject(CustodyFileError::recoveryRequired);
+    if (owner->current().barrier) {
+        const auto& ref = *owner->current().barrier;
+        auto birth = owner->intent_->readMigrationBirthEnvelope(ref.blockVersion,static_cast<std::uint32_t>(ref.envelopeBytes));
+        if (!birth.ok()) return reject(birth.error,birth.nativeError);
+        auto copies = owner->root_->installQueueMigrationBarriers(owner->current(),*birth.value,cancellation,false);
+        if (!copies.ok()) return reject(copies.error,copies.nativeError);
+    }
+    if (!owner->current().barrier) {
+        const auto& index = owner->indices_.indices[owner->indices_.selectedSlot];
+        if (index.generation != 1) return reject(CustodyFileError::recoveryRequired);
+        const auto& entry = index.entries[0];
+        auto envelope = owner->intent_->readMigrationBirthEnvelope(entry.version,entry.envelopeBytes);
+        if (!envelope.ok()) return reject(envelope.error,envelope.nativeError);
+        const auto cipherHash = custody_detail::digest(envelope.value->data(),envelope.value->size());
+        if (!cipherHash) return reject(CustodyFileError::hashFailed);
+        auto next = owner->current(); ++next.generation;
+        next.barrier = CustodyMigrationBarrier{own.objectId,1,entry.version,envelope.value->size(),*cipherHash};
+        auto saved = saveIntent(next); SecureZeroMemory(&next,sizeof(next));
+        if (!saved.ok()) return reject(saved.error,saved.nativeError);
+    }
+    auto checked = revalidateSource(); if (!checked.ok()) return reject(checked.error,checked.nativeError);
+    // Initial closing fence follows the durable prepared/Birth reference and
+    // reserved queue identity. No queue indices or destination content exist.
+    if (!owner->bootstrap_) {
+        auto bootstrap = openRole(CustodyRole::bootstrap,4);
+        if (!bootstrap.ok()) return reject(bootstrap.error,bootstrap.nativeError);
+        owner->bootstrap_ = std::move(*bootstrap.value);
+    }
+    const auto context = owner->bootstrap_->context();
+    if (context.storeId != own.storeId || context.objectId == context.storeId || context.objectId == own.objectId ||
+        context.objectId == queueContext.objectId) return reject(CustodyFileError::identityMismatch);
+    if (owner->bootstrap_->unusedPackageRole().ok()) {
+        CustodyBootstrapValue fence; fence.context = context; fence.generation = 1;
+        fence.queueObjectId = queueContext.objectId; fence.mode = CustodyBootstrapMode::migrating;
+        fence.transactionId = owner->current().transactionId; fence.subject = CustodyMigrationSubject::queue;
+        auto bytes = writeCustodyBootstrap(fence,context,1,queueContext.objectId); SecureZeroMemory(&fence,sizeof(fence));
+        if (!bytes.ok()) return reject(codecFileError(bytes.error),bytes.nativeError);
+        auto committed = CustodyMetadataCommit::commitImpl(path,{},context,0,*bytes.value,cancellation,owner->bootstrap_.get());
+        if (committed.state != CustodyCommitState::committed) return reject(
+            committed.state == CustodyCommitState::ambiguous ? CustodyFileError::recoveryRequired : committed.error,committed.nativeError);
+    }
+    checked = validateFence(); if (!checked.ok()) return reject(checked.error,checked.nativeError);
+    checked = revalidateSource(); if (!checked.ok()) return reject(checked.error,checked.nativeError);
+    if (!copyAndSwitch) return {std::move(owner),CustodyFileError::none,0};
+    const auto& ref = *owner->current().barrier;
+    auto birth = owner->intent_->readMigrationBirthEnvelope(ref.blockVersion,static_cast<std::uint32_t>(ref.envelopeBytes));
+    if (!birth.ok()) return reject(birth.error,birth.nativeError);
+    // Existing fixed copies are authenticated before any destination/intent write.
+    checked = owner->root_->installQueueMigrationBarriers(owner->current(),*birth.value,cancellation,false);
+    if (!checked.ok()) return reject(checked.error,checked.nativeError);
+    // An interrupted metadata birth with one slot is retained, never completed.
+    if (owner->queue_->unusedPackageRole().ok()) {
+        if (owner->current().stage != CustodyMigrationStage::prepared) return reject(CustodyFileError::recoveryRequired);
+        checked = revalidateSource(); if (!checked.ok()) return reject(checked.error,checked.nativeError);
+        auto copied = CustodyMetadataCommit::commitImpl(path,{},queueContext,0,owner->source_,cancellation,owner->queue_.get());
+        if (copied.state != CustodyCommitState::committed) return reject(
+            copied.state == CustodyCommitState::ambiguous ? CustodyFileError::recoveryRequired : copied.error,copied.nativeError);
+    }
+    auto destination = owner->queue_->readValidatedMetadataPair();
+    if (!destination.ok()) return reject(destination.error,destination.nativeError);
+    const auto copiedGeneration = destination.value->indices[destination.value->selectedSlot].generation;
+    for (const auto& index : destination.value->indices) {
+        auto bytes = readMetadataValue(*owner->queue_,queueContext,index,cancellation);
+        if (!bytes.ok()) return reject(bytes.error,bytes.nativeError);
+        if (owner->current().stage < CustodyMigrationStage::switched) {
+            if (index.generation != 1 || *bytes.value != owner->source_) return reject(CustodyFileError::conflict);
+        } else {
+            // Posthandoff queue legitimately evolves; only the original receipt is immutable.
+            auto decoded = ProtectedCustodyStoreOwner::decodeMigrationQueue({reinterpret_cast<const char*>(bytes.value->data()),bytes.value->size()},cancellation.get());
+            if (!decoded.ok()) return reject(decoded.error,decoded.nativeError);
+        }
+    }
+    if (owner->current().stage == CustodyMigrationStage::prepared) {
+        auto next = owner->current(); ++next.generation; next.stage = CustodyMigrationStage::copiedVerified;
+        auto& source = next.sources[0]; source.destinationGeneration = copiedGeneration;
+        source.destinationLength = source.length; source.destinationSha256 = source.sha256;
+        auto saved = saveIntent(next); SecureZeroMemory(&next,sizeof(next));
+        if (!saved.ok()) return reject(saved.error,saved.nativeError);
+    }
+    if (owner->current().sources[0].destinationGeneration != 1 ||
+        owner->current().sources[0].destinationLength != owner->source_.size() ||
+        owner->current().sources[0].destinationSha256 != sourceHash) return reject(CustodyFileError::conflict);
+    checked = revalidateSource(); if (!checked.ok()) return reject(checked.error,checked.nativeError);
+    checked = owner->root_->installQueueMigrationBarriers(owner->current(),*birth.value,cancellation,true);
+    if (!checked.ok()) return reject(checked.error,checked.nativeError);
+    if (packageFence) {
+        // Structural closed worker only. The exact package intent/closure is still owed before admission.
+        checked=revalidateSource(); if (!checked.ok()) return reject(checked.error,checked.nativeError);
+        return {std::move(owner),CustodyFileError::none,0};
+    }
+    const auto protectBootstrap = [&]() -> CustodyFileResult<bool> {
+        auto pair = owner->bootstrap_->readValidatedMetadataPair(); if (!pair.ok()) return {std::nullopt,pair.error,pair.nativeError};
+        const auto selected = pair.value->selectedSlot;
+        auto bytes = readMetadataValue(*owner->bootstrap_,context,pair.value->indices[selected],cancellation);
+        if (!bytes.ok()) return {std::nullopt,bytes.error,bytes.nativeError};
+        auto current = readCustodyBootstrap({reinterpret_cast<const char*>(bytes.value->data()),bytes.value->size()},context,
+            pair.value->indices[selected].generation,queueContext.objectId);
+        if (!current.ok()) return {std::nullopt,codecFileError(current.error),current.nativeError};
+        const bool already = current.value->mode == CustodyBootstrapMode::protectedStore;
+        SecureZeroMemory(&*current.value,sizeof(CustodyBootstrapValue));
+        if (already) return {true,CustodyFileError::none,0};
+        auto fresh = revalidateSource(); if (!fresh.ok()) return fresh;
+        CustodyBootstrapValue next; next.context = context; next.generation = pair.value->indices[selected].generation + 1;
+        next.queueObjectId = queueContext.objectId; next.mode = CustodyBootstrapMode::protectedStore;
+        auto encoded = writeCustodyBootstrap(next,context,next.generation,queueContext.objectId);
+        SecureZeroMemory(&next,sizeof(next));
+        if (!encoded.ok()) return {std::nullopt,codecFileError(encoded.error),encoded.nativeError};
+        auto committed = CustodyMetadataCommit::commitImpl(path,{},context,pair.value->indices[selected].generation,*encoded.value,cancellation,owner->bootstrap_.get());
+        if (committed.state != CustodyCommitState::committed) return {std::nullopt,
+            committed.state == CustodyCommitState::ambiguous ? CustodyFileError::recoveryRequired : committed.error,committed.nativeError};
+        return {true,CustodyFileError::none,0};
+    };
+    checked = protectBootstrap(); if (!checked.ok()) return reject(checked.error,checked.nativeError);
+    if (owner->current().stage == CustodyMigrationStage::copiedVerified) {
+        auto next = owner->current(); ++next.generation; next.stage = CustodyMigrationStage::switched;
+        auto saved = saveIntent(next); SecureZeroMemory(&next,sizeof(next));
+        if (!saved.ok()) return reject(saved.error,saved.nativeError);
+    }
+    // Retire a possible migrating peer via a real subsequent protected commit.
+    auto protectedPair = owner->bootstrap_->readValidatedMetadataPair();
+    if (!protectedPair.ok()) return reject(protectedPair.error,protectedPair.nativeError);
+    bool bothProtected = true;
+    for (const auto& index : protectedPair.value->indices) {
+        auto bytes = readMetadataValue(*owner->bootstrap_,context,index,cancellation);
+        if (!bytes.ok()) return reject(bytes.error,bytes.nativeError);
+        auto value = readCustodyBootstrap({reinterpret_cast<const char*>(bytes.value->data()),bytes.value->size()},context,index.generation,queueContext.objectId);
+        if (!value.ok()) return reject(codecFileError(value.error),value.nativeError);
+        bothProtected = bothProtected && value.value->mode == CustodyBootstrapMode::protectedStore;
+        SecureZeroMemory(&*value.value,sizeof(CustodyBootstrapValue));
+    }
+    if (!bothProtected) {
+        checked = revalidateSource(); if (!checked.ok()) return reject(checked.error,checked.nativeError);
+        CustodyBootstrapValue next; next.context = context;
+        next.generation = protectedPair.value->indices[protectedPair.value->selectedSlot].generation + 1;
+        next.queueObjectId = queueContext.objectId; next.mode = CustodyBootstrapMode::protectedStore;
+        auto bytes = writeCustodyBootstrap(next,context,next.generation,queueContext.objectId); SecureZeroMemory(&next,sizeof(next));
+        if (!bytes.ok()) return reject(codecFileError(bytes.error),bytes.nativeError);
+        auto committed = CustodyMetadataCommit::commitImpl(path,{},context,
+            protectedPair.value->indices[protectedPair.value->selectedSlot].generation,*bytes.value,cancellation,owner->bootstrap_.get());
+        if (committed.state != CustodyCommitState::committed) return reject(
+            committed.state == CustodyCommitState::ambiguous ? CustodyFileError::recoveryRequired : committed.error,committed.nativeError);
+    }
+    // Both intent slots must carry switched receipts before regular cold admission.
+    if (owner->values_[1U - owner->indices_.selectedSlot].stage != CustodyMigrationStage::switched) {
+        auto next = owner->current(); ++next.generation;
+        auto saved = saveIntent(next); SecureZeroMemory(&next,sizeof(next));
+        if (!saved.ok()) return reject(saved.error,saved.nativeError);
+    }
+    checked = validateFence(); if (!checked.ok()) return reject(checked.error,checked.nativeError);
+    checked = revalidateSource(); if (!checked.ok()) return reject(checked.error,checked.nativeError);
+    return {std::move(owner),CustodyFileError::none,0};
+#endif
+} catch (const std::bad_alloc&) { return {std::nullopt,CustodyFileError::allocationFailed,0}; }
+  catch (const std::system_error& error) { return {std::nullopt,CustodyFileError::ioFailed,static_cast<std::uint32_t>(error.code().value())}; }
+
+CustodyFileResult<std::shared_ptr<ProtectedCustodyQueueMigration>> ProtectedCustodyQueueMigration::openProtected(
+    const std::filesystem::path& path, std::shared_ptr<const std::atomic<bool>> cancellation) try {
+    using Owner=std::shared_ptr<ProtectedCustodyQueueMigration>;
+    const auto reject=[](CustodyFileError error,std::uint32_t native=0)->CustodyFileResult<Owner> { return {std::nullopt,error,native}; };
+    if (!cancellation) return reject(CustodyFileError::invalidInput);
+#ifndef _WIN32
+    (void)path; return reject(CustodyFileError::unsupportedPlatform);
+#else
+    if (cancellation->load()) return reject(CustodyFileError::ioFailed,ERROR_OPERATION_ABORTED);
+    CustodyNativeJob job; if (!job) return reject(CustodyFileError::allocationFailed,ERROR_NOT_ENOUGH_QUOTA);
+    CustodyPin pin; if (!pin) return reject(CustodyFileError::allocationFailed,ERROR_NOT_ENOUGH_QUOTA);
+    bool birth=false;
+    auto root=ProtectedCustodyFiles::lockStoreRoot(path,cancellation,birth,true);
+    if (!root.ok()) return reject(root.error,root.nativeError);
+    if (birth) return reject(CustodyFileError::conflict);
+    CustodyAllocator<ProtectedCustodyQueueMigration> allocator; auto* raw=allocator.allocate(1);
+    try { new(raw) ProtectedCustodyQueueMigration(); }
+    catch (...) { allocator.deallocate(raw,1); throw; }
+    Owner owner(raw,[](ProtectedCustodyQueueMigration* p) {
+        p->~ProtectedCustodyQueueMigration(); CustodyAllocator<ProtectedCustodyQueueMigration>{}.deallocate(p,1);
+    },allocator);
+    owner->pin_.emplace(std::move(pin)); owner->cancellation_=cancellation;
+    owner->root_=std::shared_ptr<ProtectedCustodyFiles>(root.value->release(),
+        [](ProtectedCustodyFiles* p) { delete p; },CustodyAllocator<ProtectedCustodyFiles>{});
+    auto queue=ProtectedCustodyFiles::openStoreObject(owner->root_,CustodyRole::queue,false);
+    if (!queue.ok()) return reject(queue.error,queue.nativeError);
+    owner->queue_=std::move(*queue.value);
+    auto bootstrap=ProtectedCustodyFiles::openStoreObject(owner->root_,CustodyRole::bootstrap,false);
+    if (!bootstrap.ok()) return reject(bootstrap.error,bootstrap.nativeError);
+    owner->bootstrap_=std::move(*bootstrap.value);
+    const auto q=owner->queue_->context(), b=owner->bootstrap_->context();
+    if (q.storeId!=b.storeId || q.objectId==q.storeId || b.objectId==b.storeId || q.objectId==b.objectId)
+        return reject(CustodyFileError::identityMismatch);
+    if (owner->bootstrap_->unusedPackageRole().ok()) return reject(CustodyFileError::recoveryRequired);
+    auto pair=owner->bootstrap_->readValidatedMetadataPair(); if (!pair.ok()) return reject(pair.error,pair.nativeError);
+    std::optional<CustodyBootstrapValue> pending;
+    struct Wipe { std::optional<CustodyBootstrapValue>& value; ~Wipe() { if (value) SecureZeroMemory(&*value,sizeof(*value)); } } wipe{pending};
+    for (const auto& index:pair.value->indices) {
+        auto bytes=readMetadataValue(*owner->bootstrap_,b,index,cancellation); if (!bytes.ok()) return reject(bytes.error,bytes.nativeError);
+        auto value=readCustodyBootstrap({reinterpret_cast<const char*>(bytes.value->data()),bytes.value->size()},b,index.generation,q.objectId);
+        if (!value.ok()) return reject(codecFileError(value.error),value.nativeError);
+        if (value.value->mode==CustodyBootstrapMode::migrating) {
+            if (value.value->subject==CustodyMigrationSubject::queue && !value.value->directory)
+                return reject(CustodyFileError::recoveryRequired); // Exact root source/copy reconciliation owns this fence.
+            if (value.value->subject!=CustodyMigrationSubject::package || !value.value->directory)
+                return reject(CustodyFileError::conflict);
+            if (pending && (pending->directory!=value.value->directory || pending->transactionId!=value.value->transactionId))
+                return reject(CustodyFileError::conflict);
+            pending=*value.value;
+        }
+        SecureZeroMemory(&*value.value,sizeof(CustodyBootstrapValue));
+    }
+    // Structural inventory is never admission: every root history surface must
+    // independently authenticate Birth/progression, BOTH current queue values and
+    // ALL fixed barrier/original/absence proofs before any package preparation.
+    auto queuePair=owner->queue_->readValidatedMetadataPair(); if (!queuePair.ok()) return reject(queuePair.error,queuePair.nativeError);
+    const auto queueGeneration=queuePair.value->indices[queuePair.value->selectedSlot].generation;
+    for (const auto& index:queuePair.value->indices) {
+        auto bytes=readMetadataValue(*owner->queue_,q,index,cancellation); if (!bytes.ok()) return reject(bytes.error,bytes.nativeError);
+        auto decoded=ProtectedCustodyStoreOwner::decodeMigrationQueue({reinterpret_cast<const char*>(bytes.value->data()),bytes.value->size()},cancellation.get());
+        if (!decoded.ok()) return reject(decoded.error,decoded.nativeError);
+    }
+    std::optional<CustodyVector<CustodyString>> scopes;
+    auto inventory=owner->root_->validateStoreInventory(false,cancellation,false,&scopes,true);
+    if (!inventory.ok()) return reject(inventory.error,inventory.nativeError);
+    if (scopes && std::any_of(scopes->begin(),scopes->end(),[](const auto& name) { return name.empty(); })) {
+        auto intent=ProtectedCustodyFiles::openStoreObject(owner->root_,CustodyRole::migrationIntent,false);
+        if (!intent.ok()) return reject(intent.error,intent.nativeError);
+        owner->intent_=std::move(*intent.value); const auto own=owner->intent_->context();
+        if (own.objectId==q.objectId || own.objectId==b.objectId || own.objectId==own.storeId) return reject(CustodyFileError::identityMismatch);
+        auto read=ProtectedCustodyMigrationPair::readValues(*owner->intent_,own,std::nullopt,CustodyMigrationSubject::queue,{},
+            cancellation,nullptr,false,owner->indices_,owner->values_);
+        if (!read.ok()) return reject(read.error,read.nativeError);
+        for (const auto& value:owner->values_) {
+            if (value.stage<CustodyMigrationStage::switched) return reject(CustodyFileError::recoveryRequired);
+            if (!value.barrier || value.sourceCount!=1 || value.sources[0].destinationObjectId!=q.objectId ||
+                !value.sources[0].destinationGeneration || *value.sources[0].destinationGeneration>queueGeneration ||
+                (value.authorization && (value.authorization->queueObjectId!=q.objectId || value.authorization->queueGeneration>queueGeneration)))
+                return reject(CustodyFileError::invalidContent);
+        }
+        auto files=owner->intent_->validateMigrationFiles(owner->current(),owner->values_[1U-owner->indices_.selectedSlot],cancellation);
+        if (!files.ok()) return reject(files.error,files.nativeError);
+    }
+    if (cancellation->load()) return reject(CustodyFileError::ioFailed,ERROR_OPERATION_ABORTED);
+    return {std::move(owner),CustodyFileError::none,0};
+#endif
+} catch (const std::bad_alloc&) { return {std::nullopt,CustodyFileError::allocationFailed,0}; }
+  catch (const std::system_error& error) { return {std::nullopt,CustodyFileError::ioFailed,static_cast<std::uint32_t>(error.code().value())}; }
+
+CustodyFileResult<std::shared_ptr<ProtectedCustodyStoreOwner>> ProtectedCustodyMigration::open(
+    const std::filesystem::path& path,std::shared_ptr<const std::atomic<bool>> cancellation) try {
+    using Owner=std::shared_ptr<ProtectedCustodyStoreOwner>;
+    const auto reject=[](CustodyFileError error,std::uint32_t native=0)->CustodyFileResult<Owner> { return {std::nullopt,error,native}; };
+    if (!cancellation) return reject(CustodyFileError::invalidInput);
+#ifndef _WIN32
+    (void)path; return reject(CustodyFileError::unsupportedPlatform);
+#else
+    // Existing normal/virgin admission stays first and keeps all of its guards.
+    auto ordinary=ProtectedCustodyStoreOwner::open(path,cancellation);
+    if (ordinary.ok()) return ordinary;
+    if (cancellation->load()) return reject(CustodyFileError::ioFailed,ERROR_OPERATION_ABORTED);
+    if (ordinary.error==CustodyFileError::allocationFailed || ordinary.error==CustodyFileError::unsafePath ||
+        ordinary.error==CustodyFileError::unsafeFile || ordinary.error==CustodyFileError::protectionFailed ||
+        ordinary.error==CustodyFileError::unsupportedPlatform) return ordinary;
+    // A protected queue may need only package migration. This private structural
+    // acquisition grants no ordinary owner. Completed root history is freshly
+    // proved; an active root queue fence uses the exact legacy migration path.
+    auto migration=ProtectedCustodyQueueMigration::openProtected(path,cancellation);
+    if (!migration.ok() && migration.error==CustodyFileError::recoveryRequired)
+        migration=ProtectedCustodyQueueMigration::openImpl(path,cancellation,true);
+    if (!migration.ok()) return reject(migration.error,migration.nativeError);
+    auto worker=std::move(*migration.value);
+    CustodyBytes ledger; std::uint64_t generation=0;
+    std::shared_ptr<const ProtectedUploadQueueValue> queue;
+    CustodyVector<CustodyString> packages;
+    {
+        CustodyNativeJob job; if (!job) return reject(CustodyFileError::allocationFailed,ERROR_NOT_ENOUGH_QUOTA);
+        const auto context=worker->queue_->context();
+        auto pair=worker->queue_->readValidatedMetadataPair(); if (!pair.ok()) return reject(pair.error,pair.nativeError);
+        for (unsigned slot=0;slot<2;++slot) {
+            const auto& index=pair.value->indices[slot];
+            auto bytes=readMetadataValue(*worker->queue_,context,index,cancellation); if (!bytes.ok()) return reject(bytes.error,bytes.nativeError);
+            auto decoded=ProtectedCustodyStoreOwner::decodeMigrationQueue({reinterpret_cast<const char*>(bytes.value->data()),bytes.value->size()},cancellation.get());
+            if (!decoded.ok()) return reject(decoded.error,decoded.nativeError);
+            if (slot==pair.value->selectedSlot) { generation=index.generation; ledger=std::move(*bytes.value); queue=std::move(*decoded.value); }
+        }
+        auto inventory=worker->root_->migrationPackages(); if (!inventory.ok()) return reject(inventory.error,inventory.nativeError);
+        packages=std::move(*inventory.value);
+        auto bootstrap=worker->bootstrap_->readValidatedMetadataPair(); if (!bootstrap.ok()) return reject(bootstrap.error,bootstrap.nativeError);
+        for (const auto& index:bootstrap.value->indices) {
+            auto bytes=readMetadataValue(*worker->bootstrap_,worker->bootstrap_->context(),index,cancellation); if (!bytes.ok()) return reject(bytes.error,bytes.nativeError);
+            auto value=readCustodyBootstrap({reinterpret_cast<const char*>(bytes.value->data()),bytes.value->size()},worker->bootstrap_->context(),index.generation,context.objectId);
+            if (!value.ok()) return reject(codecFileError(value.error),value.nativeError);
+            if (value.value->mode==CustodyBootstrapMode::migrating) {
+                if (value.value->subject!=CustodyMigrationSubject::package || !value.value->directory) return reject(CustodyFileError::conflict);
+                const auto pending=text(*value.value->directory);
+                const auto found=std::find_if(packages.begin(),packages.end(),[&](const CustodyString& id) { return std::string_view(id)==pending; });
+                if (found==packages.end()) return reject(CustodyFileError::recoveryRequired);
+                std::rotate(packages.begin(),found,found+1); // Retire the sole active selected/peer transaction before any other package.
+            }
+            SecureZeroMemory(&*value.value,sizeof(CustodyBootstrapValue));
+        }
+    }
+    for (const auto& name:packages) {
+        if (cancellation->load()) return reject(CustodyFileError::ioFailed,ERROR_OPERATION_ABORTED);
+        std::string_view session;
+        for (const auto& item:queue->items()) if (std::string_view(item.directoryId)==std::string_view(name)) {
+            if (!session.empty() && session!=std::string_view(item.sessionId)) return reject(CustodyFileError::conflict);
+            session=item.sessionId;
+        }
+        if (session.empty()) return reject(CustodyFileError::recoveryRequired); // Unknown source is retained; no guessed session/owner.
+        auto migrated=migratePackage(*worker,name,session,ledger,generation);
+        if (!migrated.ok()) return reject(migrated.error,migrated.nativeError);
+    }
+    // No legacy reader or migration writer survives admission. The same root,
+    // queue and bootstrap identities transfer to the ordinary owner; cold history,
+    // BOTH closures/retained roots and every barrier/original are freshly proved.
+    worker->root_->retireMigrationQueueSource();
+    worker->intent_.reset();
+    CustodyPin pin; if (!pin) return reject(CustodyFileError::allocationFailed,ERROR_NOT_ENOUGH_QUOTA);
+    CustodyAllocator<ProtectedCustodyStoreOwner> allocator; auto* raw=allocator.allocate(1);
+    try { new(raw) ProtectedCustodyStoreOwner(std::move(pin)); }
+    catch (...) { allocator.deallocate(raw,1); throw; }
+    Owner owner(raw,[](ProtectedCustodyStoreOwner* p) {
+        p->~ProtectedCustodyStoreOwner(); CustodyAllocator<ProtectedCustodyStoreOwner>{}.deallocate(p,1);
+    },allocator);
+    owner->root_=std::move(worker->root_); owner->queue_=std::move(worker->queue_); owner->bootstrap_=std::move(worker->bootstrap_);
+    owner->queueContext_=owner->queue_->context();
+    {
+        CustodyNativeJob job; if (!job) return reject(CustodyFileError::allocationFailed,ERROR_NOT_ENOUGH_QUOTA);
+        auto admitted=owner->validate(cancellation,nullptr,true); if (!admitted.ok()) return reject(admitted.error,admitted.nativeError);
+    }
+    if (cancellation->load()) return reject(CustodyFileError::ioFailed,ERROR_OPERATION_ABORTED);
+    return {std::move(owner),CustodyFileError::none,0};
+#endif
+} catch (const std::bad_alloc&) { return {std::nullopt,CustodyFileError::allocationFailed,0}; }
+  catch (const std::system_error& error) { return {std::nullopt,CustodyFileError::ioFailed,static_cast<std::uint32_t>(error.code().value())}; }
+
+CustodyFileResult<bool> ProtectedCustodyMigration::migratePackage(
+    ProtectedCustodyQueueMigration& worker,std::string_view name,std::string_view session,
+    const CustodyBytes& ledger,std::uint64_t queueGeneration) try {
+    const auto reject=[](CustodyFileError error,std::uint32_t native=0)->CustodyFileResult<bool> { return {std::nullopt,error,native}; };
+#ifndef _WIN32
+    (void)worker; (void)name; (void)session; (void)ledger; (void)queueGeneration; return reject(CustodyFileError::unsupportedPlatform);
+#else
+    const auto cancellation=worker.cancellation_;
+    if (!identity(name) || !identity(session) || !queueGeneration || !cancellation) return reject(CustodyFileError::invalidInput);
+    CustodyNativeJob job; if (!job) return reject(CustodyFileError::allocationFailed,ERROR_NOT_ENOUGH_QUOTA);
+    CustodyPin pin; if (!pin) return reject(CustodyFileError::allocationFailed,ERROR_NOT_ENOUGH_QUOTA);
+    const auto root=worker.root_; const auto queueContext=worker.queue_->context(), bootstrapContext=worker.bootstrap_->context();
+    const auto path=root->trustedRoot();
+    std::unique_ptr<ProtectedCustodyFiles> intent;
+    CustodyContext own{}; CustodyMetadataIndices indices; std::array<CustodyMigrationValue,2> values{};
+    struct Wipe { std::array<CustodyMigrationValue,2>& values; ~Wipe() { SecureZeroMemory(values.data(),sizeof(values)); } } wipe{values};
+    const auto readIntent=[&](std::optional<CustodyId> transaction) {
+        return ProtectedCustodyMigrationPair::readValues(*intent,own,transaction,CustodyMigrationSubject::package,name,
+            cancellation,nullptr,true,indices,values);
+    };
+    auto existing=ProtectedCustodyFiles::openStoreObject(root,CustodyRole::migrationIntent,false,name,true);
+    bool hasHistory=false;
+    if (existing.ok()) {
+        intent=std::move(*existing.value); own=intent->context();
+        if (!intent->unusedPackageRole().ok()) {
+            auto read=readIntent(std::nullopt); if (!read.ok()) return read;
+            hasHistory=true;
+        }
+    } else if (existing.nativeError!=ERROR_FILE_NOT_FOUND && existing.nativeError!=ERROR_PATH_NOT_FOUND) return reject(existing.error,existing.nativeError);
+    // Read BOTH bootstrap values and qualify only this exact transaction/directory.
+    const auto readBootstrap=[&](std::array<CustodyBootstrapValue,2>& parsed,CustodyMetadataIndices& pair)->CustodyFileResult<bool> {
+        auto nativePair=worker.bootstrap_->readValidatedMetadataPair(); if (!nativePair.ok()) return reject(nativePair.error,nativePair.nativeError);
+        for (unsigned slot=0;slot<2;++slot) {
+            const auto& index=nativePair.value->indices[slot];
+            auto bytes=readMetadataValue(*worker.bootstrap_,bootstrapContext,index,cancellation); if (!bytes.ok()) return reject(bytes.error,bytes.nativeError);
+            auto value=readCustodyBootstrap({reinterpret_cast<const char*>(bytes.value->data()),bytes.value->size()},bootstrapContext,index.generation,queueContext.objectId);
+            if (!value.ok()) return reject(codecFileError(value.error),value.nativeError);
+            parsed[slot]=*value.value; SecureZeroMemory(&*value.value,sizeof(CustodyBootstrapValue));
+            if (parsed[slot].mode==CustodyBootstrapMode::migrating &&
+                (parsed[slot].transactionId!=values[indices.selectedSlot].transactionId || parsed[slot].subject!=CustodyMigrationSubject::package ||
+                 parsed[slot].directory!=values[indices.selectedSlot].directory)) return reject(CustodyFileError::conflict);
+        }
+        pair=std::move(*nativePair.value); return {true,CustodyFileError::none,0};
+    };
+    std::array<CustodyBootstrapValue,2> beforeBootstrap{}; CustodyMetadataIndices beforeBootstrapPair;
+    auto preflight=readBootstrap(beforeBootstrap,beforeBootstrapPair); if (!preflight.ok()) return preflight;
+    for (const auto& record:beforeBootstrap) if (record.mode==CustodyBootstrapMode::migrating && !hasHistory)
+        return reject(CustodyFileError::recoveryRequired); // Required intent must preexist its fence; never invent a replacement transaction.
+    if (hasHistory && std::all_of(values.begin(),values.end(),[](const auto& value) {
+            return value.stage>=CustodyMigrationStage::switched;
+        }) && std::all_of(beforeBootstrap.begin(),beforeBootstrap.end(),[](const auto& value) {
+            return value.mode==CustodyBootstrapMode::protectedStore;
+        })) {
+        // Completed A is an independently authenticated readonly history, never
+        // B's active selector or a reason to reopen/rewrite A's legacy originals.
+        auto history=ProtectedCustodyMigrationPair::readImpl(path,own,std::nullopt,CustodyMigrationSubject::package,
+            name,cancellation,{},std::move(intent));
+        if (!history.ok()) return reject(history.error,history.nativeError);
+        auto state=ProtectedCustodyFiles::openPackageState(root,name,cancellation);
+        if (!state.ok()) return reject(state.error,state.nativeError);
+        const auto stateContext=(*state.value)->context();
+        if (stateContext.storeId!=queueContext.storeId || stateContext.objectId==stateContext.storeId ||
+            stateContext.objectId==queueContext.objectId || stateContext.objectId==bootstrapContext.objectId || stateContext.objectId==own.objectId)
+            return reject(CustodyFileError::identityMismatch);
+        auto retained=std::shared_ptr<ProtectedCustodyFiles>(state.value->release(),
+            [](ProtectedCustodyFiles* files) { delete files; },CustodyAllocator<ProtectedCustodyFiles>{});
+        auto pair=ProtectedCustodyPackagePair::readImpl(path,name,stateContext,cancellation,std::move(retained),
+            ProtectedCustodyPackagePair::LeaseOrigin::isolatedReadOnly);
+        if (!pair.ok()) return reject(pair.error,pair.nativeError);
+        auto readers=openProtectedCustodyReaders(path,*pair.value,cancellation);
+        if (!readers.ok()) return reject(readers.error,readers.nativeError);
+        return ProtectedCustodyStoreOwner::validateMigrationPackageHistoryImpl(root,queueContext,bootstrapContext,
+            queueGeneration,*pair.value,cancellation,*history.value);
+    }
+    CustodyMigrationValue captured; captured.schema=2; captured.subject=CustodyMigrationSubject::package;
+    captured.directory.emplace(); std::copy(name.begin(),name.end(),captured.directory->begin());
+    unsigned roles=0;
+    auto native=ProtectedCustodyFiles::lockMigrationPackageRoot(root,name,cancellation,captured,roles,
+        hasHistory ? &values[indices.selectedSlot] : nullptr);
+    if (!native.ok()) return reject(native.error,native.nativeError);
+    auto packageRoot=std::move(*native.value);
+    CustodyBytes manifest,recovery;
+    for (std::size_t source=0;source<captured.sourceCount;++source) {
+        const auto& item=captured.sources[source];
+        if (item.kind!=CustodyMigrationSourceKind::manifest && item.kind!=CustodyMigrationSourceKind::recovery) continue;
+        auto bytes=packageRoot->readMigrationPackageSource(static_cast<unsigned>(item.kind),0,static_cast<std::uint32_t>(item.length));
+        if (!bytes.ok()) return reject(bytes.error,bytes.nativeError);
+        (item.kind==CustodyMigrationSourceKind::manifest ? manifest : recovery)=std::move(*bytes.value);
+    }
+    CustodyPackageValue stateValue; stateValue.schema=2; stateValue.generation=1;
+    std::copy(name.begin(),name.end(),stateValue.directory.begin());
+    auto classified=LocalRecordingPackage::classifyMigrationContent(stateValue,manifest,recovery,session);
+    if (!classified.ok()) return classified;
+    if (hasHistory) {
+        const auto& current=values[indices.selectedSlot];
+        if (current.stage>CustodyMigrationStage::switched || current.authorization || current.schema!=2 ||
+            current.sourceCount!=captured.sourceCount || current.anchor.objectId!=queueContext.objectId) return reject(CustodyFileError::recoveryRequired);
+        for (std::size_t i=0;i<captured.sourceCount;++i) {
+            const auto& a=captured.sources[i]; const auto& b=current.sources[i];
+            if (a.kind!=b.kind || a.length!=b.length || a.sha256!=b.sha256) return reject(CustodyFileError::conflict);
+        }
+    }
+    if (hasHistory) {
+        if (!(roles&1)) return reject(CustodyFileError::recoveryRequired);
+        for (std::size_t i=0;i<captured.sourceCount;++i)
+            if (!(roles&(1U<<(static_cast<unsigned>(captured.sources[i].kind)+1)))) return reject(CustodyFileError::recoveryRequired);
+    }
+    auto checked=packageRoot->createMigrationPackageCustody(); if (!checked.ok()) return checked;
+    std::unique_ptr<ProtectedCustodyFiles> state;
+    auto openedState=ProtectedCustodyFiles::openPackageRole(packageRoot,CustodyRole::packageState,&state,
+        roles&1 ? CustodyFileAccess::writeExisting : CustodyFileAccess::createNew);
+    if (!openedState.ok()) return reject(openedState.error,openedState.nativeError);
+    state=std::move(*openedState.value); stateValue.context=state->context();
+    std::array<std::unique_ptr<ProtectedCustodyFiles>,5> files;
+    std::array<CustodyContext,5> contexts{};
+    std::array<CustodyId,3> containers{};
+    constexpr std::array<CustodyRole,6> mapping{CustodyRole::queue,CustodyRole::manifest,CustodyRole::canonical,CustodyRole::media,CustodyRole::playback,CustodyRole::recovery};
+    for (std::size_t i=0;i<captured.sourceCount;++i) {
+        auto& source=captured.sources[i]; const auto kind=static_cast<unsigned>(source.kind);
+        const auto role=mapping[kind]; const auto index=static_cast<unsigned>(role)-1;
+        auto member=ProtectedCustodyFiles::openPackageRole(packageRoot,role,&files[index],
+            roles&(1U<<(kind+1)) ? CustodyFileAccess::writeExisting : CustodyFileAccess::createNew);
+        if (!member.ok()) return reject(member.error,member.nativeError);
+        files[index]=std::move(*member.value); contexts[index]=files[index]->context(); source.destinationObjectId=contexts[index].objectId;
+        if (hasHistory && source.destinationObjectId!=values[indices.selectedSlot].sources[i].destinationObjectId) return reject(CustodyFileError::identityMismatch);
+        if (index<containers.size()) {
+            source.destinationPacked=true;
+            if (hasHistory) {
+                if (!values[indices.selectedSlot].sources[i].destinationContainerId) return reject(CustodyFileError::invalidContent);
+                containers[index]=*values[indices.selectedSlot].sources[i].destinationContainerId;
+            } else {
+                if (!files[index]->unusedPackageRole().ok()) return reject(CustodyFileError::recoveryRequired);
+                const auto status=BCryptGenRandom(nullptr,containers[index].data(),16,BCRYPT_USE_SYSTEM_PREFERRED_RNG);
+                if (status<0) return reject(CustodyFileError::ioFailed,static_cast<std::uint32_t>(status));
+            }
+            source.destinationContainerId=containers[index];
+        }
+    }
+    if (!intent) {
+        auto created=ProtectedCustodyFiles::openStoreObject(root,CustodyRole::migrationIntent,true,name,true);
+        if (!created.ok()) return reject(created.error,created.nativeError);
+        intent=std::move(*created.value); own=intent->context();
+    }
+    std::array<CustodyId,9> ids{}; std::size_t used=0;
+    for (const auto id:{queueContext.objectId,bootstrapContext.objectId,own.objectId,stateValue.context.objectId}) ids[used++]=id;
+    for (const auto& member:files) if (member) ids[used++]=member->context().objectId;
+    for (std::size_t i=0;i<used;++i) {
+        if (ids[i]==CustodyId{} || ids[i]==own.storeId) return reject(CustodyFileError::identityMismatch);
+        for (std::size_t j=0;j<i;++j) if (ids[i]==ids[j]) return reject(CustodyFileError::identityMismatch);
+    }
+    const auto ledgerHash=custody_detail::digest(ledger.data(),ledger.size()); if (!ledgerHash) return reject(CustodyFileError::hashFailed);
+    const auto queueStamp=[&](const CustodyMigrationValue& value)->CustodyFileResult<bool> {
+        auto pair=worker.queue_->readValidatedMetadataPair(); if (!pair.ok()) return reject(pair.error,pair.nativeError);
+        const auto& selected=pair.value->indices[pair.value->selectedSlot];
+        auto bytes=readMetadataValue(*worker.queue_,queueContext,selected,cancellation); if (!bytes.ok()) return reject(bytes.error,bytes.nativeError);
+        const auto hash=custody_detail::digest(bytes.value->data(),bytes.value->size()); if (!hash) return reject(CustodyFileError::hashFailed);
+        return value.anchor.objectId==queueContext.objectId && value.anchor.generation==selected.generation &&
+            value.anchor.length==bytes.value->size() && value.anchor.sha256==*hash ? CustodyFileResult<bool>{true,CustodyFileError::none,0} : reject(CustodyFileError::conflict);
+    };
+    const auto saveIntent=[&](const CustodyMigrationValue& value)->CustodyFileResult<bool> {
+        auto sources=packageRoot->verifyMigrationPackageSources(value); if (!sources.ok()) return sources;
+        auto stamp=queueStamp(value); if (!stamp.ok()) return stamp;
+        auto bytes=writeCustodyMigration(value,own,value.generation,value.transactionId,CustodyMigrationSubject::package,name);
+        if (!bytes.ok()) return reject(codecFileError(bytes.error),bytes.nativeError);
+        auto result=CustodyMetadataCommit::commitImpl(path,name,own,value.generation-1,*bytes.value,cancellation,intent.get());
+        if (result.state!=CustodyCommitState::committed) return reject(result.state==CustodyCommitState::ambiguous ? CustodyFileError::recoveryRequired : result.error,result.nativeError);
+        return readIntent(value.transactionId);
+    };
+    if (!hasHistory) {
+        if (!intent->unusedPackageRole().ok() || !state->unusedPackageRole().ok() || (roles&0x80000000U)) return reject(CustodyFileError::recoveryRequired);
+        captured.context=own; captured.generation=1; captured.stage=CustodyMigrationStage::prepared;
+        captured.anchor={queueContext.objectId,queueGeneration,ledger.size(),*ledgerHash};
+        const auto status=BCryptGenRandom(nullptr,captured.transactionId.data(),16,BCRYPT_USE_SYSTEM_PREFERRED_RNG);
+        if (status<0) return reject(CustodyFileError::ioFailed,static_cast<std::uint32_t>(status));
+        auto saved=saveIntent(captured); if (!saved.ok()) return saved;
+    }
+    auto& current=values[indices.selectedSlot];
+    // No new write can turn an unexplained old-name barrier/original into a valid history.
+    if (!current.barrier && (roles&0x80000000U)) return reject(CustodyFileError::recoveryRequired);
+    if (!current.barrier) {
+        const auto& selected=indices.indices[indices.selectedSlot];
+        if (selected.generation!=1) return reject(CustodyFileError::recoveryRequired);
+        const auto& entry=selected.entries[0];
+        auto birth=intent->readMigrationBirthEnvelope(entry.version,entry.envelopeBytes); if (!birth.ok()) return reject(birth.error,birth.nativeError);
+        const auto hash=custody_detail::digest(birth.value->data(),birth.value->size()); if (!hash) return reject(CustodyFileError::hashFailed);
+        auto next=current; ++next.generation; next.barrier=CustodyMigrationBarrier{own.objectId,1,entry.version,birth.value->size(),*hash};
+        auto saved=saveIntent(next); SecureZeroMemory(&next,sizeof(next)); if (!saved.ok()) return saved;
+    }
+    const auto& barrier=*values[indices.selectedSlot].barrier;
+    auto birth=intent->readMigrationBirthEnvelope(barrier.blockVersion,static_cast<std::uint32_t>(barrier.envelopeBytes));
+    if (!birth.ok()) return reject(birth.error,birth.nativeError);
+    checked=packageRoot->installPackageMigrationBarriers(values[indices.selectedSlot],*birth.value,false); if (!checked.ok()) return checked;
+    const auto publishBootstrap=[&](bool migrating)->CustodyFileResult<bool> {
+        std::array<CustodyBootstrapValue,2> parsed{}; CustodyMetadataIndices pair;
+        auto read=readBootstrap(parsed,pair); if (!read.ok()) return read;
+        auto stamp=queueStamp(values[indices.selectedSlot]); if (!stamp.ok()) return stamp;
+        auto sources=packageRoot->verifyMigrationPackageSources(values[indices.selectedSlot]); if (!sources.ok()) return sources;
+        CustodyBootstrapValue next; next.context=bootstrapContext; next.generation=pair.indices[pair.selectedSlot].generation+1;
+        next.queueObjectId=queueContext.objectId; next.mode=migrating ? CustodyBootstrapMode::migrating : CustodyBootstrapMode::protectedStore;
+        if (migrating) { next.transactionId=values[indices.selectedSlot].transactionId; next.subject=CustodyMigrationSubject::package; next.directory=values[indices.selectedSlot].directory; }
+        auto bytes=writeCustodyBootstrap(next,bootstrapContext,next.generation,queueContext.objectId); SecureZeroMemory(&next,sizeof(next));
+        if (!bytes.ok()) return reject(codecFileError(bytes.error),bytes.nativeError);
+        auto result=CustodyMetadataCommit::commitImpl(path,{},bootstrapContext,pair.indices[pair.selectedSlot].generation,*bytes.value,cancellation,worker.bootstrap_.get());
+        if (result.state!=CustodyCommitState::committed) return reject(result.state==CustodyCommitState::ambiguous ? CustodyFileError::recoveryRequired : result.error,result.nativeError);
+        return readBootstrap(parsed,pair);
+    };
+    std::array<CustodyBootstrapValue,2> bootstrap{}; CustodyMetadataIndices bootstrapPair;
+    checked=readBootstrap(bootstrap,bootstrapPair); if (!checked.ok()) return checked;
+    const auto selectedMode=bootstrap[bootstrapPair.selectedSlot].mode;
+    if (selectedMode==CustodyBootstrapMode::protectedStore && values[indices.selectedSlot].stage==CustodyMigrationStage::prepared) {
+        if (bootstrap[1U-bootstrapPair.selectedSlot].mode!=CustodyBootstrapMode::protectedStore) return reject(CustodyFileError::conflict);
+        checked=publishBootstrap(true); if (!checked.ok()) return checked;
+    } else if (selectedMode==CustodyBootstrapMode::protectedStore && values[indices.selectedSlot].stage==CustodyMigrationStage::copiedVerified)
+        return reject(CustodyFileError::conflict);
+    if (values[indices.selectedSlot].stage<CustodyMigrationStage::switched || selectedMode==CustodyBootstrapMode::migrating) {
+        checked=queueStamp(values[indices.selectedSlot]); if (!checked.ok()) return checked;
+    }
+    std::array<std::shared_ptr<ProtectedPackedCustodyOwner>,3> packed;
+    std::array<std::shared_ptr<const ProtectedPackedCustodyTree>,3> trees;
+    auto copied=values[indices.selectedSlot];
+    for (std::size_t i=0;i<copied.sourceCount;++i) {
+        auto& source=copied.sources[i]; const auto kind=static_cast<unsigned>(source.kind);
+        const auto role=mapping[kind]; const auto index=static_cast<unsigned>(role)-1;
+        checked=packageRoot->verifyMigrationPackageSources(values[indices.selectedSlot]); if (!checked.ok()) return checked;
+        std::uint64_t generation=0; std::optional<std::uint64_t> extent; std::optional<ProtectedPackedCustodyFormat::Reference> rootRef;
+        if (source.destinationPacked) {
+            const bool unused=files[index]->unusedPackageRole().ok();
+            if (unused && values[indices.selectedSlot].stage!=CustodyMigrationStage::prepared) return reject(CustodyFileError::recoveryRequired);
+            auto owner=ProtectedPackedCustodyOwner::openImpl(path,name,{contexts[index],containers[index]},
+                unused ? CustodyFileAccess::createNew : CustodyFileAccess::writeExisting,&files[index],&packed[index],nullptr,packageRoot.get());
+            if (!owner.ok()) return reject(owner.error,owner.nativeError);
+            packed[index]=std::move(*owner.value);
+            auto tree=ProtectedPackedCustodyTree::verify(packed[index]); if (!tree.ok()) return reject(tree.error,tree.nativeError);
+            trees[index]=std::move(*tree.value); // BOTH current HEAD closures remain independently required.
+            if (values[indices.selectedSlot].stage!=CustodyMigrationStage::prepared) {
+                if (!source.destinationGeneration || !source.destinationLength || !source.destinationCommittedExtent || !source.destinationRootRef ||
+                    source.destinationLength!=source.length || source.destinationSha256!=source.sha256)
+                    return reject(CustodyFileError::invalidContent);
+                const auto rootReference=ProtectedPackedCustodyFormat::decodeReference(source.destinationRootRef->data(),source.destinationRootRef->size(),
+                    {source.length ? PackedRecordKind::nodeL2 : PackedRecordKind::empty,0,
+                        *source.destinationGeneration,*source.destinationCommittedExtent,*source.destinationCommittedExtent});
+                if (!rootReference) return reject(CustodyFileError::invalidContent);
+                const PackedRootDescriptor stamp{*source.destinationGeneration,source.length,*source.destinationCommittedExtent,
+                    static_cast<std::uint32_t>((source.length+ProtectedCustodyCodec::blockBytes-1)/ProtectedCustodyCodec::blockBytes),*rootReference};
+                auto historical=ProtectedPackedCustodyTree::verifyRetained(packed[index],{contexts[index],containers[index]},stamp);
+                if (!historical.ok()) return reject(historical.error,historical.nativeError);
+                trees[index]=std::move(*historical.value); // Receipt root may be absent from BOTH current HEADs.
+            }
+            if (trees[index]->logicalBytes()>source.length) return reject(CustodyFileError::conflict);
+            for (std::uint64_t position=0,at=0;at<trees[index]->logicalBytes();++position) {
+                auto block=trees[index]->readBlock(position); if (!block.ok()) return reject(block.error,block.nativeError);
+                auto original=packageRoot->readMigrationPackageSource(kind,at,static_cast<std::uint32_t>(block.value->bytes.size()));
+                if (!original.ok()) return reject(original.error,original.nativeError);
+                if (*original.value!=block.value->bytes) return reject(CustodyFileError::conflict);
+                at+=block.value->bytes.size();
+            }
+            if (trees[index]->logicalBytes()!=source.length && trees[index]->logicalBytes()%ProtectedCustodyCodec::blockBytes)
+                return reject(CustodyFileError::conflict);
+            if (values[indices.selectedSlot].stage!=CustodyMigrationStage::prepared && trees[index]->logicalBytes()!=source.length)
+                return reject(CustodyFileError::conflict);
+            while (trees[index]->logicalBytes()<source.length) {
+                const auto at=trees[index]->logicalBytes();
+                auto original=packageRoot->readMigrationPackageSource(kind,at,static_cast<std::uint32_t>((std::min)(std::uint64_t{ProtectedCustodyCodec::blockBytes},source.length-at)));
+                if (!original.ok()) return reject(original.error,original.nativeError);
+                auto result=trees[index]->appendBlock(*original.value);
+                if (result.state!=CustodyCommitState::committed) return reject(result.state==CustodyCommitState::ambiguous ? CustodyFileError::recoveryRequired : result.error,result.nativeError);
+                trees[index]=std::move(result.snapshot);
+            }
+            const auto& descriptor=trees[index]->descriptor(); generation=descriptor.generation; extent=descriptor.committedExtent;
+            rootRef=ProtectedPackedCustodyFormat::encodeReference(descriptor.root); if (!rootRef) return reject(CustodyFileError::invalidContent);
+            auto reader=openProtectedCustodyReader(trees[index],cancellation); if (!reader.ok()) return reject(reader.error,reader.nativeError);
+            auto hash=sha256ProtectedStream(reader.value->stream.Get(),source.length,cancellation);
+            if (!hash.ok()) return reject(hash.error,hash.nativeError);
+            if (*hash.value!=source.sha256) return reject(CustodyFileError::conflict);
+        } else {
+            if (files[index]->unusedPackageRole().ok()) {
+                if (values[indices.selectedSlot].stage!=CustodyMigrationStage::prepared) return reject(CustodyFileError::recoveryRequired);
+                const auto& bytes=kind==1 ? manifest : recovery;
+                auto result=CustodyMetadataCommit::commitImpl(path,name,contexts[index],0,bytes,cancellation,files[index].get());
+                if (result.state!=CustodyCommitState::committed) return reject(result.state==CustodyCommitState::ambiguous ? CustodyFileError::recoveryRequired : result.error,result.nativeError);
+            }
+            auto pair=files[index]->readValidatedMetadataPair(); if (!pair.ok()) return reject(pair.error,pair.nativeError);
+            generation=pair.value->indices[pair.value->selectedSlot].generation;
+            for (const auto& head:pair.value->indices) {
+                auto bytes=readMetadataValue(*files[index],contexts[index],head,cancellation); if (!bytes.ok()) return reject(bytes.error,bytes.nativeError);
+                const auto hash=custody_detail::digest(bytes.value->data(),bytes.value->size());
+                if (!hash) return reject(CustodyFileError::hashFailed);
+                if (head.generation!=1 || bytes.value->size()!=source.length || *hash!=source.sha256) return reject(CustodyFileError::conflict);
+            }
+        }
+        if (values[indices.selectedSlot].stage!=CustodyMigrationStage::prepared && source.destinationGeneration!=generation)
+            return reject(CustodyFileError::conflict);
+        source.destinationGeneration=generation; source.destinationLength=source.length; source.destinationSha256=source.sha256;
+        source.destinationCommittedExtent=extent; source.destinationRootRef=rootRef;
+        auto& reference=stateValue.refs[stateValue.refCount++]; reference.role=role; reference.objectId=source.destinationObjectId; reference.sealed=true;
+        reference.packed=source.destinationPacked; reference.generation=generation; reference.length=source.length; reference.sha256=source.sha256;
+        reference.containerId=source.destinationContainerId; reference.committedExtent=extent; reference.rootRef=rootRef;
+    }
+    {
+        std::array<CustodyReader,3> readers; std::array<IStream*,3> streams{};
+        for (unsigned i=0;i<trees.size();++i) if (trees[i]) {
+            auto reader=openProtectedCustodyReader(trees[i],cancellation); if (!reader.ok()) return reject(reader.error,reader.nativeError);
+            readers[i]=std::move(*reader.value); streams[i]=readers[i].stream.Get();
+        }
+        auto evidence=LocalRecordingPackage::validateProtectedContent(stateValue,streams,manifest,recovery,session,cancellation);
+        if (!evidence.ok()) return reject(evidence.error,evidence.nativeError);
+    }
+    if (values[indices.selectedSlot].stage==CustodyMigrationStage::prepared) {
+        copied.stage=CustodyMigrationStage::copiedVerified; ++copied.generation;
+        auto saved=saveIntent(copied); if (!saved.ok()) return saved;
+    }
+    checked=packageRoot->installPackageMigrationBarriers(values[indices.selectedSlot],*birth.value,true); if (!checked.ok()) return checked;
+    const auto verifyState=[&]()->CustodyFileResult<bool> {
+        auto pair=state->readValidatedMetadataPair(); if (!pair.ok()) return reject(pair.error,pair.nativeError);
+        for (const auto& head:pair.value->indices) {
+            auto bytes=readMetadataValue(*state,stateValue.context,head,cancellation); if (!bytes.ok()) return reject(bytes.error,bytes.nativeError);
+            auto value=readCustodyPackage({reinterpret_cast<const char*>(bytes.value->data()),bytes.value->size()},stateValue.context,head.generation,name);
+            if (!value.ok()) return reject(codecFileError(value.error),value.nativeError);
+            auto expected=stateValue; expected.generation=head.generation;
+            auto encoding=writeCustodyPackage(expected,expected.context,head.generation,name);
+            auto actual=writeCustodyPackage(*value.value,stateValue.context,head.generation,name);
+            SecureZeroMemory(&*value.value,sizeof(CustodyPackageValue));
+            if (!encoding.ok() || !actual.ok()) return reject(CustodyFileError::invalidContent);
+            if (*encoding.value!=*actual.value) return reject(CustodyFileError::conflict);
+        }
+        return {true,CustodyFileError::none,0};
+    };
+    if (state->unusedPackageRole().ok()) {
+        if (values[indices.selectedSlot].stage!=CustodyMigrationStage::copiedVerified) return reject(CustodyFileError::recoveryRequired);
+        checked=packageRoot->verifyMigrationPackageSources(values[indices.selectedSlot]); if (!checked.ok()) return checked;
+        checked=queueStamp(values[indices.selectedSlot]); if (!checked.ok()) return checked;
+        auto bytes=writeCustodyPackage(stateValue,stateValue.context,1,name); if (!bytes.ok()) return reject(codecFileError(bytes.error),bytes.nativeError);
+        auto result=CustodyMetadataCommit::commitImpl(path,name,stateValue.context,0,*bytes.value,cancellation,state.get());
+        if (result.state!=CustodyCommitState::committed) return reject(result.state==CustodyCommitState::ambiguous ? CustodyFileError::recoveryRequired : result.error,result.nativeError);
+    }
+    checked=verifyState(); if (!checked.ok()) return checked;
+    if (values[indices.selectedSlot].stage==CustodyMigrationStage::copiedVerified) {
+        auto next=values[indices.selectedSlot]; ++next.generation; next.stage=CustodyMigrationStage::switched;
+        auto saved=saveIntent(next); SecureZeroMemory(&next,sizeof(next)); if (!saved.ok()) return saved;
+    }
+    checked=readBootstrap(bootstrap,bootstrapPair); if (!checked.ok()) return checked;
+    if (bootstrap[bootstrapPair.selectedSlot].mode==CustodyBootstrapMode::migrating) {
+        checked=publishBootstrap(false); if (!checked.ok()) return checked;
+        checked=readBootstrap(bootstrap,bootstrapPair); if (!checked.ok()) return checked;
+    }
+    if (bootstrap[1U-bootstrapPair.selectedSlot].mode==CustodyBootstrapMode::migrating) {
+        checked=publishBootstrap(false); if (!checked.ok()) return checked;
+    }
+    if (values[1U-indices.selectedSlot].stage!=CustodyMigrationStage::switched) {
+        auto next=values[indices.selectedSlot]; ++next.generation;
+        auto saved=saveIntent(next); SecureZeroMemory(&next,sizeof(next)); if (!saved.ok()) return saved;
+    }
+    checked=verifyState(); if (!checked.ok()) return checked;
+    checked=packageRoot->verifyMigrationPackageSources(values[indices.selectedSlot]); if (!checked.ok()) return checked;
+    // Readers/writers are retired before the later full ordinary cold-admission proof.
+    packageRoot->retireMigrationPackageSources();
+    return {true,CustodyFileError::none,0};
+#endif
+} catch (const std::bad_alloc&) { return {std::nullopt,CustodyFileError::allocationFailed,0}; }
+  catch (const std::system_error& error) { return {std::nullopt,CustodyFileError::ioFailed,static_cast<std::uint32_t>(error.code().value())}; }
+
 ProtectedCustodyStoreOwner::ProtectedCustodyStoreOwner(CustodyPin&& pin) {
     pin_.emplace(std::move(pin));
 }
@@ -2344,7 +3435,8 @@ CustodyFileResult<bool> ProtectedCustodyStoreOwner::validate(
             subject, name, cancellation, {}, std::move(*opened.value));
         if (!history.ok()) return reject(history.error, history.nativeError);
         for (const auto& record : (*history.value)->slots()) {
-            if (record.stage != CustodyMigrationStage::switched || record.authorization || !record.barrier)
+            if (record.stage < CustodyMigrationStage::switched || !record.barrier ||
+            (record.stage==CustodyMigrationStage::switched ? record.authorization.has_value() : !record.authorization))
                 return reject(CustodyFileError::recoveryRequired);
             if (subject == CustodyMigrationSubject::queue) {
                 const auto& source = record.sources[0];
@@ -2356,6 +3448,8 @@ CustodyFileResult<bool> ProtectedCustodyStoreOwner::validate(
             } else if (!record.anchor.objectId || *record.anchor.objectId != queueContext_.objectId ||
                 !record.anchor.generation || *record.anchor.generation > generation)
                 return reject(CustodyFileError::invalidContent);
+            if (record.authorization && (record.authorization->queueObjectId!=queueContext_.objectId ||
+                record.authorization->queueGeneration>generation)) return reject(CustodyFileError::conflict);
         }
         if (coldAdmission && subject == CustodyMigrationSubject::package) {
             auto state = ProtectedCustodyFiles::openPackageState(root_, name, cancellation);
@@ -2378,7 +3472,7 @@ CustodyFileResult<bool> ProtectedCustodyStoreOwner::validate(
             if (!complete.ok()) return reject(complete.error, complete.nativeError);
         }
         if (subject == CustodyMigrationSubject::queue) {
-            auto files = (*history.value)->lease_->validateMigrationFiles((*history.value)->current(), cancellation);
+            auto files = (*history.value)->lease_->validateMigrationFiles((*history.value)->current(), (*history.value)->slots()[1U-(*history.value)->selectedSlot()], cancellation);
             if (!files.ok()) return reject(files.error, files.nativeError);
         } // Cold package checks above retained readers through fixed-file validation.
     }

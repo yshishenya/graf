@@ -27,7 +27,7 @@ int main() {
 
     assert(kManifestSchemaVersion == "local-recording-manifest.v5");
     assert(kCanonicalMixProfile == "canonical-mix.v1");
-    assert(kQueueSchemaVersion == "desktop-upload-queue.v3");
+    assert(kQueueSchemaVersion == "desktop-upload-queue.v4");
     assert(kQueueSchemaVersionV2 == "desktop-upload-queue.v2");
     assert(kQueueLedgerFileName == "desktop-upload-queue.v2");
     assert(kBridgeProtocol == "graf.desktop.bridge");

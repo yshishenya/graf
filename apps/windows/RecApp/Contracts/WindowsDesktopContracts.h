@@ -10,7 +10,8 @@ inline constexpr std::string_view kManifestSchemaVersion = "local-recording-mani
 inline constexpr std::string_view kCanonicalMixProfile = "canonical-mix.v1";
 inline constexpr std::string_view kV5SourceKind = "initial_mixed_recording";
 inline constexpr std::string_view kV5MediaScribeSourceMode = "single_wav_v1";
-inline constexpr std::string_view kQueueSchemaVersion = "desktop-upload-queue.v3";
+inline constexpr std::string_view kQueueSchemaVersion = "desktop-upload-queue.v4";
+inline constexpr std::string_view kQueueSchemaVersionV3 = "desktop-upload-queue.v3";
 // Version 2 has no timestamps and no deletion requests. It is still readable:
 // refusing it would drop a pending upload that exists only on this computer.
 inline constexpr std::string_view kQueueSchemaVersionV2 = "desktop-upload-queue.v2";

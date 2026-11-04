@@ -621,14 +621,45 @@ template<class String> String normalizedStatus(String value) {
 
 template<class String>
 std::optional<BasicDesktopRemoteUploadState<String>> decodeSyncStateUsing(
-    std::string_view json, std::string_view localRecordingId) {
-    const auto meetingId = nestedStringField<String>(json, "meeting", "meeting_id");
+    std::string_view json, std::string_view localRecordingId, const std::atomic<bool>* cancellation = nullptr) {
+    // Retain both readers: strict decoded-key views belong to their reader.
+    UploadJsonReader<String> rootReader(json, 32, true, cancellation);
+    const auto root = rootReader.read();
+    if (!root) return std::nullopt;
+    const auto object = root->find("meeting");
+    if (object == root->end()) return std::nullopt;
+    UploadJsonReader<String> meetingReader(object->second, 32, true, cancellation);
+    const auto meeting = meetingReader.read();
+    if (!meeting) return std::nullopt;
+    const auto meetingString = [&](std::string_view key) -> std::optional<String> {
+        const auto field = meeting->find(key);
+        if (field == meeting->end()) return std::nullopt;
+        String value;
+        if (!json_detail::decodeString(field->second, kMaxJsonResponseBytes, false, [&](char byte) {
+            if ((value.size() & 4095) == 0) json_detail::checkCancellation(cancellation);
+            value += byte;
+        })) return std::nullopt;
+        return value;
+    };
+    const auto meetingId = meetingString("meeting_id");
     if (!meetingId || !isSafeIdentifier(*meetingId)) return std::nullopt;
     BasicDesktopRemoteUploadState<String> result;
     result.meetingId = *meetingId;
     result.truth.localRecordingId.assign(localRecordingId.data(), localRecordingId.size());
     result.truth.meetingExists = true;
     result.truth.meetingId = *meetingId;
+    const auto accessField = meeting->find("access_state");
+    if (accessField != meeting->end() && accessField->second != "null") {
+        String access;
+        bool bounded = true;
+        // Each of 64 safe ASCII bytes may be represented by a six-byte JSON escape.
+        if (!json_detail::decodeString(accessField->second, 64 * 6 + 2, false, [&](char byte) {
+            json_detail::checkCancellation(cancellation);
+            if (access.size() < 64) access += byte;
+            else bounded = false;
+        }) || !bounded || !DesktopUploadQueueService::validAccessState(access)) return std::nullopt;
+        result.truth.accessState = std::move(access);
+    }
     if (const auto session = jsonObjectField<String>(json, "upload_session")) {
         if (const auto id = jsonStringField<String>(*session, "session_id")) {
             if (!isSafeIdentifier(*id)) return std::nullopt;
@@ -650,8 +681,8 @@ std::optional<BasicDesktopRemoteUploadState<String>> decodeSyncStateUsing(
             result.truth.mediaRevisionStatus = normalizedStatus(*status);
     }
     if (result.truth.uploadSessionExists) result.truth.uploadSessionId = result.sessionId;
-    if (const auto meetingStatus = nestedStringField<String>(json, "meeting", "status"))
-        result.truth.serverStatus = normalizedStatus(*meetingStatus);
+    const auto meetingStatus = meetingString("status");
+    if (meetingStatus) result.truth.serverStatus = normalizedStatus(*meetingStatus);
     if (const auto processing = jsonObjectField<String>(json, "processing")) {
         if (const auto status = jsonStringField<String>(*processing, "status"))
             result.truth.processingStatus = normalizedStatus(*status);
@@ -671,7 +702,6 @@ std::optional<BasicDesktopRemoteUploadState<String>> decodeSyncStateUsing(
     // an immutable revision, gets media_revision_immutable and burns its retry
     // budget instead of moving the item to uploaded. The accepted statuses are
     // the same ones the macOS client treats as finalized.
-    const auto meetingStatus = nestedStringField<String>(json, "meeting", "status");
     const bool meetingFinalized = meetingStatus.has_value() &&
         (normalizedStatus(*meetingStatus) == "ingested_pending_processing" ||
          normalizedStatus(*meetingStatus) == "degraded");
@@ -916,8 +946,11 @@ std::optional<std::string> DesktopHttpTransport::decodeActiveWorkspace(std::stri
     return decodeActiveWorkspaceUsing<json_detail::JsonReader<>>(json);
 }
 
+namespace {
+DesktopHttpTransport::IdentityResponse requestIdentity(const DesktopHttpConfig&, std::string_view);
+}
 DesktopHttpTransport::IdentityResult DesktopHttpTransport::accountIdentity(const IdentityGet& get) const {
-    return resolveAccountIdentity(config_, get);
+    return resolveAccountIdentity(config_, get ? get : IdentityGet{requestIdentity});
 }
 
 DesktopHttpTransport::IdentityResult DesktopHttpTransport::resolveAccountIdentity(
@@ -1335,6 +1368,7 @@ void uploadPrepared(const Config& config_, const Item& item,
             result.safeReason = "local_owner_unclaimed";
             return;
         }
+        if (uploadAccessBlocks(item)) return withTruth(DesktopTransportStatus::serverRejected);
         if (config_.sessionToken.empty()) return withTruth(DesktopTransportStatus::authRequired);
         if (!send) return withTruth(DesktopTransportStatus::unsupportedPlatform);
         std::uint32_t durationSeconds = 0;
@@ -1373,7 +1407,7 @@ void uploadPrepared(const Config& config_, const Item& item,
         } else {
             const auto syncStatus = mapResponse(response);
             if (syncStatus != DesktopTransportStatus::uploaded) return withTruth(syncStatus, &response);
-            remote = decodeSyncStateUsing<String>(response.body, item.localRecordingId);
+            remote = decodeSyncStateUsing<String>(response.body, item.localRecordingId, config_.cancellation.get());
             if (!remote) return withTruth(DesktopTransportStatus::serverRejected);
             truth = remote->truth;
             if (remote->blockedByConflict) {
@@ -1384,6 +1418,9 @@ void uploadPrepared(const Config& config_, const Item& item,
                 result.retryClass = remote->retryClass;
                 return;
             }
+            // Keep the strictly decoded raw truth for queue adoption, but do
+            // not ask for ranges/create a session/send parts after a refusal.
+            if (uploadAccessBlocks(truth)) return withTruth(DesktopTransportStatus::serverRejected);
             if (truth.finalized) {
                 return withTruth(DesktopTransportStatus::uploaded);
             }

@@ -11,6 +11,7 @@
 #include <chrono>
 #include <fstream>
 #include <limits>
+#include <initializer_list>
 #include <stdexcept>
 #include <system_error>
 #include <utility>
@@ -52,6 +53,20 @@ std::optional<String> stringField(const Fields& fields, std::string_view key, co
     return result;
 }
 
+template<class Fields>
+bool exactKeys(const Fields& fields, std::initializer_list<std::string_view> keys) {
+    return fields.size() == keys.size() && std::all_of(keys.begin(), keys.end(),
+        [&](std::string_view key) { return fields.find(key) != fields.end(); });
+}
+
+template<class String>
+bool validAuthenticatedContext(const BasicUploadAuthenticatedContext<String>& context) {
+    return DesktopUploadQueueService::validServerOrigin(context.serverOrigin) &&
+        DesktopApiClient::accountId(context.actorUserId) && DesktopApiClient::accountId(context.workspaceId) &&
+        context.sessionFingerprint.size() == 64 && std::all_of(context.sessionFingerprint.begin(),
+            context.sessionFingerprint.end(), [](char c) { return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'); });
+}
+
 std::optional<std::uint64_t> unsignedToken(std::string_view token) {
     std::uint64_t value = 0;
     const auto parsed = std::from_chars(token.data(), token.data() + token.size(), value);
@@ -89,7 +104,7 @@ constexpr std::array<std::uint64_t, 4> kDeletionRetryDelayMs = {5000, 15000, 300
 
 template<class Item>
 bool retryableStatus(const Item& item) noexcept {
-    return !DesktopUploadQueueService::isPermanentUploadReason(item.safeReason) &&
+    return !uploadAccessBlocks(item) && !DesktopUploadQueueService::isPermanentUploadReason(item.safeReason) &&
         (item.status == UploadQueueStatus::pending || item.status == UploadQueueStatus::retry ||
          item.status == UploadQueueStatus::needsAuth || item.status == UploadQueueStatus::blocked);
 }
@@ -187,6 +202,7 @@ bool enqueueValue(Items& items, Item item, std::uint64_t now, const std::atomic<
         !DesktopUploadQueueService::validIdentity(item.directoryId) ||
         !DesktopUploadQueueService::validIdentity(item.sessionId) ||
         !validReason(item.safeReason) ||
+        (item.accessState && !DesktopUploadQueueService::validAccessState(*item.accessState)) ||
         static_cast<unsigned>(item.status) > static_cast<unsigned>(UploadQueueStatus::blocked) ||
         item.ownerUserId.empty() != item.ownerWorkspaceId.empty() ||
         (!item.ownerUserId.empty() && (!DesktopApiClient::accountId(item.ownerUserId) ||
@@ -344,6 +360,8 @@ void applyServerTruthValue(Item& item, const Truth& truth, bool (*validSafeReaso
     adopt(item.serverStatus, truth.serverStatus, validSafeReason);
     adopt(item.processingStatus, truth.processingStatus, validSafeReason);
     adopt(item.mediaRevisionStatus, truth.mediaRevisionStatus, validSafeReason);
+    // Missing/null sync-state is no update, never erasure of a cached refusal.
+    if (truth.accessState) item.accessState = truth.accessState;
     if (truth.finalized) item.status = UploadQueueStatus::uploaded;
     else if (truth.uploadSessionExists) item.status = UploadQueueStatus::uploading;
 }
@@ -356,6 +374,8 @@ bool deletionTargetsRow(const Operation& operation, const Item& row) noexcept {
 
 template<class Item, class Result>
 bool applyUploadResultValue(Item& item, const Result& result, bool (*validSafeReason)(std::string_view)) {
+    if (result.serverTruth && result.serverTruth->accessState &&
+        !DesktopUploadQueueService::validAccessState(*result.serverTruth->accessState)) return false;
     if (static_cast<unsigned>(result.status) > static_cast<unsigned>(DesktopTransportStatus::unsupportedPlatform) ||
         (result.status == DesktopTransportStatus::authRequired &&
          !validSafeReason(result.safeReason))) return false;
@@ -410,9 +430,10 @@ struct QueueSerializationLimit {};
 // One field/order/escaping implementation for the existing filesystem-path
 // ledger and charged UTF-8 values. Protected output never converts a native path
 // or creates an uncharged string/numeric scratch allocation.
-template<class Output, class Items, class Operations, class Acknowledgements>
+template<class Output, class Items, class Operations, class Acknowledgements, class Context>
 void serializeQueueLedger(Output& json, const Items& items, const Operations& operations,
     const Acknowledgements& acknowledgements, std::uint64_t updatedAtMs,
+    const Context& context,
     const std::atomic<bool>* cancellation, std::size_t limit) {
     const auto append = [&](std::string_view bytes) {
         if (bytes.size() > limit - json.size()) throw QueueSerializationLimit{};
@@ -458,9 +479,10 @@ void serializeQueueLedger(Output& json, const Items& items, const Operations& op
     };
     const auto textField = [&](std::string_view key, std::string_view value) { append(key); quote(value); };
     const auto numberField = [&](std::string_view key, std::uint64_t value) { append(key); number(value); };
-    static_assert(kQueueSchemaVersion == "desktop-upload-queue.v3");
+    static_assert(kQueueSchemaVersion == "desktop-upload-queue.v4");
     json_detail::checkCancellation(cancellation);
-    append(R"({"schema_version":"desktop-upload-queue.v3","items":[)");
+    if (context && !validAuthenticatedContext(*context)) throw QueueSerializationLimit{};
+    append(R"({"schema_version":"desktop-upload-queue.v4","items":[)");
     for (std::size_t index = 0; index < items.size(); ++index) {
         json_detail::checkCancellation(cancellation);
         const auto& row = items[index];
@@ -485,7 +507,13 @@ void serializeQueueLedger(Output& json, const Items& items, const Operations& op
         textField(",\"server_status\":", row.serverStatus);
         textField(",\"processing_status\":", row.processingStatus);
         textField(",\"media_revision_status\":", row.mediaRevisionStatus);
-        numberField(",\"updated_at_ms\":", row.updatedAtMs); append("}");
+        numberField(",\"updated_at_ms\":", row.updatedAtMs);
+        append(",\"access_state\":");
+        if (row.accessState) {
+            if (!DesktopUploadQueueService::validAccessState(*row.accessState)) throw QueueSerializationLimit{};
+            quote(*row.accessState);
+        } else append("null");
+        append("}");
     }
     append("],\"updated_at_ms\":"); number(updatedAtMs); append(",\"deletion_operations\":[");
     for (std::size_t index = 0; index < operations.size(); ++index) {
@@ -515,7 +543,14 @@ void serializeQueueLedger(Output& json, const Items& items, const Operations& op
         textField(",\"meeting_id\":", row.meetingId);
         numberField(",\"acknowledged_at_ms\":", row.acknowledgedAtMs); append("}");
     }
-    append("]}");
+    append("],\"last_authenticated_context\":");
+    if (context) {
+        textField("{\"server_origin\":", context->serverOrigin);
+        textField(",\"actor_user_id\":", context->actorUserId);
+        textField(",\"workspace_id\":", context->workspaceId);
+        textField(",\"session_fingerprint\":", context->sessionFingerprint); append("}");
+    } else append("null");
+    append("}");
     json_detail::checkCancellation(cancellation);
 }
 
@@ -558,7 +593,7 @@ bool DesktopUploadQueueService::load() {
                 std::error_code error;
                 const bool exists = std::filesystem::exists(ledgerPath_, error);
                 if (exists || error || ledgerKnown_ || quarantined_ || !items_.empty() ||
-                    !deletionOperations_.empty() || !purgeAcknowledgements_.empty()) return failure();
+                    !deletionOperations_.empty() || !purgeAcknowledgements_.empty() || context_) return failure();
                 auto quarantinePath = ledgerPath_;
                 quarantinePath += ".quarantine";
                 const bool isolated = std::filesystem::exists(quarantinePath, error);
@@ -608,6 +643,7 @@ bool DesktopUploadQueueService::load() {
         items_.swap(candidate.items_);
         deletionOperations_.swap(candidate.deletionOperations_);
         purgeAcknowledgements_.swap(candidate.purgeAcknowledgements_);
+        context_.swap(candidate.context_);
         updatedAtMs_ = candidate.updatedAtMs_;
         ledgerKnown_ = true;
         quarantined_ = false;
@@ -620,9 +656,9 @@ bool DesktopUploadQueueService::load() {
 }
 
 namespace {
-template<template<class> class Allocator, class String, class Items, class Operations, class Acknowledgements>
+template<template<class> class Allocator, class String, class Items, class Operations, class Acknowledgements, class Context>
 bool decodeQueueLedger(std::string_view json, Items& items_, Operations& deletionOperations_,
-    Acknowledgements& purgeAcknowledgements_, std::uint64_t& updatedAtMs_, bool& legacy,
+    Acknowledgements& purgeAcknowledgements_, std::uint64_t& updatedAtMs_, bool& legacy, Context& context,
     bool (*validSafeReason)(std::string_view) noexcept, const std::atomic<bool>* cancellation = nullptr) {
     using Item = typename Items::value_type;
     using Operation = typename Operations::value_type;
@@ -636,17 +672,22 @@ bool decodeQueueLedger(std::string_view json, Items& items_, Operations& deletio
         return false;
     };
     json_detail::checkCancellation(cancellation);
-    constexpr std::string_view prefix = R"({"schema_version":"desktop-upload-queue.v3","items":[)";
-    static_assert(kQueueSchemaVersion == "desktop-upload-queue.v3");
+    constexpr std::string_view prefix = R"({"schema_version":"desktop-upload-queue.v4","items":[)";
+    static_assert(kQueueSchemaVersion == "desktop-upload-queue.v4");
+    constexpr std::string_view v3Prefix = R"({"schema_version":"desktop-upload-queue.v3","items":[)";
+    static_assert(kQueueSchemaVersionV3 == "desktop-upload-queue.v3");
     constexpr std::string_view legacyPrefix = R"({"schema_version":"desktop-upload-queue.v2","items":[)";
     static_assert(kQueueSchemaVersionV2 == "desktop-upload-queue.v2");
     if (json.size() > 4 * 1024 * 1024 ||
-        (json.rfind(prefix, 0) != 0 && json.rfind(legacyPrefix, 0) != 0)) return false;
+        (json.rfind(prefix, 0) != 0 && json.rfind(v3Prefix, 0) != 0 && json.rfind(legacyPrefix, 0) != 0)) return false;
+    const bool v4 = json.rfind(prefix, 0) == 0;
     legacy = json.rfind(legacyPrefix, 0) == 0;
-    std::size_t cursor = legacy ? legacyPrefix.size() : prefix.size();
+    context.reset();
+    std::size_t cursor = legacy ? legacyPrefix.size() : (v4 ? prefix.size() : v3Prefix.size());
     while (cursor < json.size()) {
         json_detail::checkCancellation(cancellation);
         if (json[cursor] == ']') { ++cursor; break; }
+        if (v4 && (items_.empty() ? json[cursor] == ',' : json[cursor] != ',')) return false;
         if (json[cursor] == ',') {
             ++cursor;
             if (cursor >= json.size() || json[cursor] == ']' || json[cursor] != '{') return false;
@@ -655,13 +696,24 @@ bool decodeQueueLedger(std::string_view json, Items& items_, Operations& deletio
         const auto end = objectEnd(json, cursor, cancellation);
         if (end == std::string_view::npos) return false;
         const auto object = std::string_view(json).substr(cursor, end - cursor + 1);
-        json_detail::JsonReader<Allocator, String> reader(object, 32, false, cancellation);
+        json_detail::JsonReader<Allocator, String> reader(object, 32, v4, cancellation);
         const auto fields = reader.read();
         if (!fields) return false;
+        if (v4 && !exactKeys(*fields, {"local_recording_id", "directory_id", "session_id", "package_directory",
+            "status", "accepted_bytes", "attempts", "safe_reason", "owner_user_id", "owner_workspace_id", "meeting_id",
+            "media_revision_id", "upload_session_id", "server_status", "processing_status", "media_revision_status",
+            "updated_at_ms", "access_state"})) return false;
         const auto user = fields->find("owner_user_id");
         const auto workspace = fields->find("owner_workspace_id");
         String ownerUser, ownerWorkspace;
-        if (user != fields->end() || workspace != fields->end()) {
+        if (v4) {
+            auto decodedUser = stringField<String>(*fields, "owner_user_id", cancellation);
+            auto decodedWorkspace = stringField<String>(*fields, "owner_workspace_id", cancellation);
+            if (!decodedUser || !decodedWorkspace || decodedUser->empty() != decodedWorkspace->empty() ||
+                (!decodedUser->empty() && (!DesktopApiClient::accountId(*decodedUser) ||
+                    !DesktopApiClient::accountId(*decodedWorkspace)))) return false;
+            ownerUser = std::move(*decodedUser); ownerWorkspace = std::move(*decodedWorkspace);
+        } else if (user != fields->end() || workspace != fields->end()) {
             if (user == fields->end() || workspace == fields->end()) return false;
             const auto ownerField = [](std::string_view value, String& output) {
                 if (value.size() < 2 || value.front() != '"' || value.back() != '"') return false;
@@ -732,9 +784,15 @@ bool decodeQueueLedger(std::string_view json, Items& items_, Operations& deletio
             item.mediaRevisionStatus = *revisionStatus;
         }
         if (updatedAt) item.updatedAtMs = *updatedAt;
+        if (v4 && fields->at("access_state") != "null") {
+            auto access = stringField<String>(*fields, "access_state", cancellation);
+            if (!access || !DesktopUploadQueueService::validAccessState(*access)) return false;
+            item.accessState = std::move(*access);
+        }
         items_.push_back(std::move(item)); cursor = end + 1;
     }
-    while (cursor < json.size() && std::isspace(static_cast<unsigned char>(json[cursor]))) {
+    while (cursor < json.size() && (v4 ? std::string_view(" \r\n\t").find(json[cursor]) != std::string_view::npos :
+            std::isspace(static_cast<unsigned char>(json[cursor])))) {
         if ((cursor & 4095) == 0) json_detail::checkCancellation(cancellation);
         ++cursor;
     }
@@ -753,7 +811,8 @@ bool decodeQueueLedger(std::string_view json, Items& items_, Operations& deletio
             if ((stampEnd & 4095) == 0) json_detail::checkCancellation(cancellation);
             ++stampEnd;
         }
-        if (stampEnd == cursor || stampEnd == json.size() || stampEnd - cursor > 18) return false;
+        if (stampEnd == cursor || stampEnd == json.size() || stampEnd - cursor > 18 ||
+            (v4 && stampEnd - cursor > 1 && json[cursor] == '0')) return false;
         const auto stamp = unsignedToken(json.substr(cursor, stampEnd - cursor));
         if (!stamp) return false;
         updatedAtMs_ = *stamp;
@@ -764,6 +823,7 @@ bool decodeQueueLedger(std::string_view json, Items& items_, Operations& deletio
         while (cursor < json.size()) {
             json_detail::checkCancellation(cancellation);
             if (json[cursor] == ']') { ++cursor; break; }
+            if (v4 && (deletionOperations_.empty() ? json[cursor] == ',' : json[cursor] != ',')) return false;
             if (json[cursor] == ',') {
                 ++cursor;
                 if (cursor >= json.size() || json[cursor] != '{') return false;
@@ -772,9 +832,12 @@ bool decodeQueueLedger(std::string_view json, Items& items_, Operations& deletio
             const auto end = objectEnd(json, cursor, cancellation);
             if (end == std::string_view::npos) return false;
             const auto object = std::string_view(json).substr(cursor, end - cursor + 1);
-            json_detail::JsonReader<Allocator, String> reader(object, 32, false, cancellation);
+            json_detail::JsonReader<Allocator, String> reader(object, 32, v4, cancellation);
             const auto fields = reader.read();
             if (!fields) return false;
+            if (v4 && !exactKeys(*fields, {"operation_id", "target", "target_id", "actor_user_id", "workspace_id",
+                "server_origin", "phase", "requested_at_ms", "updated_at_ms", "attempts", "next_attempt_at_ms",
+                "receipt_request_id", "safe_reason"})) return false;
             const auto operationId = stringField<String>(*fields, "operation_id", cancellation);
             const auto targetName = stringField<String>(*fields, "target", cancellation);
             const auto targetId = stringField<String>(*fields, "target_id", cancellation);
@@ -826,11 +889,13 @@ bool decodeQueueLedger(std::string_view json, Items& items_, Operations& deletio
         // The acknowledged purge tasks are the last field of a current ledger and
         // absent from the one this writer produced before them.
         constexpr std::string_view purgeKey = ",\"purge_acknowledgements\":[";
+        if (v4 && json.compare(cursor, purgeKey.size(), purgeKey) != 0) return false;
         if (json.compare(cursor, purgeKey.size(), purgeKey) == 0) {
             cursor += purgeKey.size();
             while (cursor < json.size()) {
                 json_detail::checkCancellation(cancellation);
                 if (json[cursor] == ']') { ++cursor; break; }
+                if (v4 && (purgeAcknowledgements_.empty() ? json[cursor] == ',' : json[cursor] != ',')) return false;
                 if (json[cursor] == ',') {
                     ++cursor;
                     if (cursor >= json.size() || json[cursor] != '{') return false;
@@ -839,9 +904,10 @@ bool decodeQueueLedger(std::string_view json, Items& items_, Operations& deletio
                 const auto end = objectEnd(json, cursor, cancellation);
                 if (end == std::string_view::npos) return false;
                 const auto object = std::string_view(json).substr(cursor, end - cursor + 1);
-                json_detail::JsonReader<Allocator, String> reader(object, 32, false, cancellation);
+                json_detail::JsonReader<Allocator, String> reader(object, 32, v4, cancellation);
                 const auto fields = reader.read();
                 if (!fields) return false;
+                if (v4 && !exactKeys(*fields, {"task_id", "meeting_id", "acknowledged_at_ms"})) return false;
                 const auto taskId = stringField<String>(*fields, "task_id", cancellation);
                 const auto meetingId = stringField<String>(*fields, "meeting_id", cancellation);
                 const auto acknowledgedAt = numberField(*fields, "acknowledged_at_ms");
@@ -857,7 +923,29 @@ bool decodeQueueLedger(std::string_view json, Items& items_, Operations& deletio
                 cursor = end + 1;
             }
         }
-        while (cursor < json.size() && std::isspace(static_cast<unsigned char>(json[cursor]))) {
+        if (v4) {
+            constexpr std::string_view contextKey = ",\"last_authenticated_context\":";
+            if (json.compare(cursor, contextKey.size(), contextKey) != 0) return false;
+            cursor += contextKey.size();
+            if (json.compare(cursor, 4, "null") == 0) cursor += 4;
+            else {
+                const auto end = objectEnd(json, cursor, cancellation);
+                if (end == std::string_view::npos) return false;
+                json_detail::JsonReader<Allocator, String> reader(json.substr(cursor, end - cursor + 1), 32, true, cancellation);
+                const auto fields = reader.read();
+                if (!fields || !exactKeys(*fields, {"server_origin", "actor_user_id", "workspace_id", "session_fingerprint"})) return false;
+                auto origin = stringField<String>(*fields, "server_origin", cancellation);
+                auto actor = stringField<String>(*fields, "actor_user_id", cancellation);
+                auto workspace = stringField<String>(*fields, "workspace_id", cancellation);
+                auto fingerprint = stringField<String>(*fields, "session_fingerprint", cancellation);
+                if (!origin || !actor || !workspace || !fingerprint) return false;
+                typename Context::value_type decoded{std::move(*origin), std::move(*actor), std::move(*workspace), std::move(*fingerprint)};
+                if (!validAuthenticatedContext(decoded)) return false;
+                context = std::move(decoded); cursor = end + 1;
+            }
+        }
+        while (cursor < json.size() && (v4 ? std::string_view(" \r\n\t").find(json[cursor]) != std::string_view::npos :
+            std::isspace(static_cast<unsigned char>(json[cursor])))) {
             if ((cursor & 4095) == 0) json_detail::checkCancellation(cancellation);
             ++cursor;
         }
@@ -889,7 +977,7 @@ CustodyFileResult<std::shared_ptr<const ProtectedUploadQueueValue>> ProtectedUpl
         CustodyAllocator<ProtectedUploadQueueValue>{}.deallocate(const_cast<ProtectedUploadQueueValue*>(p), 1);
     }, allocator};
     if (!decodeQueueLedger<CustodyAllocator, CustodyString>(json, raw->items_, raw->operations_, raw->acknowledgements_,
-        raw->updatedAtMs_, raw->legacy_, DesktopUploadQueueService::validSafeReason, cancellation))
+        raw->updatedAtMs_, raw->legacy_, raw->context_, DesktopUploadQueueService::validSafeReason, cancellation))
         return {std::nullopt, CustodyFileError::invalidContent, 0};
     json_detail::checkCancellation(cancellation);
     return {std::move(value), CustodyFileError::none, 0};
@@ -897,6 +985,16 @@ CustodyFileResult<std::shared_ptr<const ProtectedUploadQueueValue>> ProtectedUpl
     return {std::nullopt, CustodyFileError::ioFailed, 995}; // ERROR_OPERATION_ABORTED, also portable.
 } catch (const std::bad_alloc&) {
     return {std::nullopt, CustodyFileError::allocationFailed, 0};
+}
+
+bool ProtectedUploadQueueValue::setLastAuthenticatedContext(std::optional<AuthenticatedContext> context,
+    std::uint64_t nowMs, const std::atomic<bool>* cancellation) {
+    if (!cancellation) return false;
+    json_detail::checkCancellation(cancellation);
+    if (nowMs < updatedAtMs_ || (context && !validAuthenticatedContext(*context))) return false;
+    context_ = std::move(context); updatedAtMs_ = nowMs;
+    json_detail::checkCancellation(cancellation);
+    return true;
 }
 
 bool ProtectedUploadQueueValue::requeueNeedsAuth(std::uint64_t nowMs, const std::atomic<bool>* cancellation) {
@@ -910,7 +1008,7 @@ bool ProtectedUploadQueueValue::enqueue(Item item, std::uint64_t now, const std:
     if (!cancellation || item.packageDirectory.empty() || item.packageDirectory.size() > 4096 ||
         item.packageDirectory.find_first_of("\r\n\t") != CustodyString::npos ||
         !item.meetingId.empty() || !item.mediaRevisionId.empty() || !item.uploadSessionId.empty() ||
-        !item.serverStatus.empty() || !item.processingStatus.empty() || !item.mediaRevisionStatus.empty() ||
+        !item.serverStatus.empty() || !item.processingStatus.empty() || !item.mediaRevisionStatus.empty() || item.accessState ||
         item.attempts || item.acceptedBytes != std::array<std::uint64_t, 3>{}) return false;
     if (!enqueueValue(items_, std::move(item), now, cancellation, DesktopUploadQueueService::validSafeReason)) return false;
     updatedAtMs_ = now;
@@ -947,7 +1045,7 @@ bool ProtectedUploadQueueValue::canLocalRemoval(std::size_t index, std::string_v
     const auto& row = items_[index];
     if (std::string_view(row.ownerUserId) != user || std::string_view(row.ownerWorkspaceId) != workspace ||
         !DesktopUploadQueueService::validIdentity(row.localRecordingId) ||
-        !DesktopUploadQueueService::validIdentity(row.directoryId) || row.status == UploadQueueStatus::uploading) return false;
+        !DesktopUploadQueueService::validIdentity(row.directoryId) || row.status == UploadQueueStatus::uploading || uploadAccessBlocks(row)) return false;
     return resumeIntent ? row.status == UploadQueueStatus::quarantined && row.safeReason == "local_delete_pending" :
         row.safeReason != "local_delete_pending";
 }
@@ -973,7 +1071,7 @@ bool ProtectedUploadQueueValue::canManualSend(std::size_t index, std::string_vie
     std::string_view workspace, bool confirmUnowned) const noexcept {
     if (index >= items_.size() || !DesktopApiClient::accountId(user) || !DesktopApiClient::accountId(workspace)) return false;
     const auto& row = items_[index];
-    if (deletionBlocks(row)) return false;
+    if (deletionBlocks(row) || uploadAccessBlocks(row)) return false;
     const bool unowned = row.ownerUserId.empty() && row.ownerWorkspaceId.empty();
     return unowned ? (confirmUnowned && isPreparedUnownedRecording(row)) :
         (retryableStatus(row) && std::string_view(row.ownerUserId) == user && std::string_view(row.ownerWorkspaceId) == workspace);
@@ -1071,8 +1169,18 @@ bool ProtectedUploadQueueValue::applyLifecycleEntries(const CustodyVector<Custod
         json_detail::checkCancellation(cancellation);
         if (entry.state == LifecycleState::allowed || entry.state == LifecycleState::unavailable) {
             if (entry.receipt) return false;
-            // These states never erase an accepted receipt or grant purge. This
-            // ledger has no accessState field; existing server-bound access stays closed.
+            // Access never erases an accepted receipt and never grants purge.
+            for (auto& row : items_) {
+                json_detail::checkCancellation(cancellation);
+                if (row.directoryId != entry.targetId || std::string_view(row.ownerUserId) != user ||
+                    std::string_view(row.ownerWorkspaceId) != workspace) continue;
+                if (entry.state == LifecycleState::unavailable && row.meetingId.empty()) continue;
+                if (!entry.meetingId.empty() && entry.meetingId != row.meetingId) return false;
+                const std::string_view access = entry.state == LifecycleState::allowed ? "owner" : "unknown";
+                if (!row.accessState || std::string_view(*row.accessState) != access) {
+                    row.accessState.emplace(access); row.updatedAtMs = now; changed = true;
+                }
+            }
             continue;
         }
         if (entry.state != LifecycleState::deletionAccepted && entry.state != LifecycleState::canceledBeforeCreation)
@@ -1154,7 +1262,7 @@ bool ProtectedUploadQueueValue::applyUploadResult(const Item& expected,
     for (auto& row : items_) {
         json_detail::checkCancellation(cancellation);
         if (row.localRecordingId != expected.localRecordingId) continue;
-        if (!sameUploadIdentity(row, expected)) return false;
+        if (!sameUploadIdentity(row, expected) || uploadAccessBlocks(row)) return false;
         if (!applyUploadResultValue(row, result, DesktopUploadQueueService::validSafeReason)) return false;
         row.updatedAtMs = updatedAtMs_ = now;
         json_detail::checkCancellation(cancellation); // Caller discards a cancelled private candidate.
@@ -1171,7 +1279,7 @@ CustodyVector<std::size_t> ProtectedUploadQueueValue::prepareUploads(bool authRe
     for (std::size_t index = 0; index < items_.size(); ++index) {
         json_detail::checkCancellation(cancellation);
         auto& row = items_[index];
-        if (deletionBlocks(row)) continue;
+        if (deletionBlocks(row) || uploadAccessBlocks(row)) continue;
         if (row.status != UploadQueueStatus::pending && row.status != UploadQueueStatus::retry &&
             row.status != UploadQueueStatus::uploading) continue;
         if (row.attempts >= maxAttempts) {
@@ -1194,7 +1302,7 @@ CustodyFileResult<CustodyBytes> ProtectedUploadQueueValue::serialize(
     if (!cancellation) return {std::nullopt, CustodyFileError::invalidInput, 0};
     json_detail::checkCancellation(cancellation.get());
     CustodyBytes bytes;
-    serializeQueueLedger(bytes, items_, operations_, acknowledgements_, updatedAtMs_, cancellation.get(), 4 * 1024 * 1024);
+    serializeQueueLedger(bytes, items_, operations_, acknowledgements_, updatedAtMs_, context_, cancellation.get(), 4 * 1024 * 1024);
     CustodyFileResult<CustodyBytes> result{std::move(bytes), CustodyFileError::none, 0};
     json_detail::checkCancellation(cancellation.get());
     return result;
@@ -1208,7 +1316,7 @@ CustodyFileResult<CustodyBytes> ProtectedUploadQueueValue::serialize(
 
 bool DesktopUploadQueueService::decodeLedger(std::string_view json, bool& legacy) {
     return decodeQueueLedger<std::allocator, std::string>(json, items_, deletionOperations_,
-        purgeAcknowledgements_, updatedAtMs_, legacy, validSafeReason);
+        purgeAcknowledgements_, updatedAtMs_, legacy, context_, validSafeReason);
 }
 
 bool DesktopUploadQueueService::enqueue(UploadCustodyItem item) {
@@ -1219,6 +1327,7 @@ bool DesktopUploadQueueService::enqueue(UploadCustodyItem item) {
 }
 
 bool DesktopUploadQueueService::reconcile(const UploadServerTruth& truth) {
+    if (truth.accessState && !validAccessState(*truth.accessState)) return false;
     auto* item = find(truth.localRecordingId);
     if (item == nullptr) return false;
     applyServerTruth(*item, truth);
@@ -1228,7 +1337,7 @@ bool DesktopUploadQueueService::reconcile(const UploadServerTruth& truth) {
 
 bool DesktopUploadQueueService::applyUploadResult(std::string_view id, const BasicDesktopTransportResult<std::string>& result) {
     auto* item = find(id);
-    if (quarantined_ || !item || !applyUploadResultValue(*item, result, validSafeReason)) return false;
+    if (quarantined_ || !item || uploadAccessBlocks(*item) || !applyUploadResultValue(*item, result, validSafeReason)) return false;
     stamp(*item);
     return persist();
 }
@@ -1315,7 +1424,7 @@ bool DesktopUploadQueueService::markQuarantined(std::string_view id, std::string
 bool DesktopUploadQueueService::markBlocked(std::string_view id, std::string reason, const UploadServerTruth* truth) {
     auto* item = find(id);
     if (quarantined_ || !item || reason.empty() || !validSafeReason(reason) ||
-        (truth && truth->localRecordingId != id)) return false;
+        (truth && (truth->localRecordingId != id || (truth->accessState && !validAccessState(*truth->accessState))))) return false;
     if (truth) applyServerTruth(*item, *truth);
     item->status = UploadQueueStatus::blocked; item->safeReason = std::move(reason);
     stamp(*item);
@@ -1485,7 +1594,7 @@ std::size_t DesktopUploadQueueService::sweepDiscardedShortRecordings() {
 std::optional<UploadCustodyItem> DesktopUploadQueueService::nextPending() const {
     if (quarantined_) return std::nullopt;
     for (const auto& item : items_) {
-        if (item.status == UploadQueueStatus::pending || item.status == UploadQueueStatus::retry) return item;
+        if (!uploadAccessBlocks(item) && (item.status == UploadQueueStatus::pending || item.status == UploadQueueStatus::retry)) return item;
     }
     return std::nullopt;
 }
@@ -1495,7 +1604,7 @@ std::vector<UploadCustodyItem> DesktopUploadQueueService::pendingItems(std::size
     if (quarantined_) return result;
     result.reserve(std::min(limit, items_.size()));
     for (const auto& item : items_) {
-        if (item.status != UploadQueueStatus::pending && item.status != UploadQueueStatus::retry) continue;
+        if (uploadAccessBlocks(item) || (item.status != UploadQueueStatus::pending && item.status != UploadQueueStatus::retry)) continue;
         result.push_back(item);
         if (result.size() >= limit) break;
     }
@@ -1746,13 +1855,14 @@ bool DesktopUploadQueueService::applyDeletionAnswer(const DeletionRequestPlan& r
 bool DesktopUploadQueueService::publishCandidate(DesktopUploadQueueService& candidate, std::uint64_t now) {
     bool publicationStarted = false;
     try {
-        const auto json = serialize(candidate.items_, candidate.deletionOperations_, candidate.purgeAcknowledgements_, now);
+        const auto json = serialize(candidate.items_, candidate.deletionOperations_, candidate.purgeAcknowledgements_, now, candidate.context_);
         publicationStarted = true;
         const auto saved = ledgerWriter_ ? ledgerWriter_(custodyRoot_, ledgerPath_, json) :
             AtomicFileStore::writeWithinRoot(custodyRoot_, ledgerPath_, json, 4 * 1024 * 1024).ok();
         if (!saved) { quarantined_ = true; return false; }
         items_.swap(candidate.items_); deletionOperations_.swap(candidate.deletionOperations_);
         purgeAcknowledgements_.swap(candidate.purgeAcknowledgements_);
+        context_.swap(candidate.context_);
         updatedAtMs_ = now; ledgerKnown_ = true;
         return true;
     } catch (...) {
@@ -1877,7 +1987,7 @@ bool DesktopUploadQueueService::persist() {
     // The document stamp is the moment of the last change to the ledger as a
     // whole, so it is taken here rather than by each caller.
     updatedAtMs_ = nowMs();
-    const auto json = serialize(items_, deletionOperations_, purgeAcknowledgements_, updatedAtMs_);
+    const auto json = serialize(items_, deletionOperations_, purgeAcknowledgements_, updatedAtMs_, context_);
     const bool saved = ledgerWriter_ ? ledgerWriter_(custodyRoot_, ledgerPath_, json) :
         AtomicFileStore::writeWithinRoot(custodyRoot_, ledgerPath_, json, 4 * 1024 * 1024).ok();
     if (saved) { ledgerKnown_ = true; return true; }
@@ -1888,9 +1998,10 @@ bool DesktopUploadQueueService::persist() {
 std::string DesktopUploadQueueService::serialize(const std::vector<UploadCustodyItem>& items,
                                                  const std::vector<DeletionOperationRecord>& operations,
                                                  const std::vector<LocalPurgeAcknowledgement>& purgeAcknowledgements,
-                                                 std::uint64_t updatedAtMs) {
+                                                 std::uint64_t updatedAtMs,
+                                                 const std::optional<BasicUploadAuthenticatedContext<std::string>>& context) {
     std::string json(std::size_t{0}, char{});
-    serializeQueueLedger(json, items, operations, purgeAcknowledgements, updatedAtMs, nullptr, json.max_size());
+    serializeQueueLedger(json, items, operations, purgeAcknowledgements, updatedAtMs, context, nullptr, json.max_size());
     return json;
 }
 
@@ -1919,6 +2030,12 @@ bool DesktopUploadQueueService::validServerOrigin(std::string_view value) noexce
 DeletionOperationRecord* DesktopUploadQueueService::findOperation(std::string_view operationId) noexcept {
     for (auto& record : deletionOperations_) if (record.operationId == operationId) return &record;
     return nullptr;
+}
+
+bool DesktopUploadQueueService::validAccessState(std::string_view value) noexcept {
+    return !value.empty() && value.size() <= 64 && std::all_of(value.begin(), value.end(), [](char c) {
+        return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_' || c == '-';
+    });
 }
 
 bool DesktopUploadQueueService::validIdentity(std::string_view value) noexcept {

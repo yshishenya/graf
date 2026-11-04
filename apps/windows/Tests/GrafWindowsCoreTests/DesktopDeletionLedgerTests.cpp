@@ -277,7 +277,7 @@ void testLedgerRoundTripAndLegacyUpgrade() {
     // The document stamp is written with the file and survives the restart.
     std::ifstream file(root / "queue.json", std::ios::binary);
     const std::string text((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-    assert(text.find("desktop-upload-queue.v3") != std::string::npos);
+    assert(text.find("desktop-upload-queue.v4") != std::string::npos);
     assert(text.find("\"deletion_operations\":[") != std::string::npos);
     assert(text.find("\"updated_at_ms\"") != std::string::npos);
 
@@ -301,7 +301,7 @@ void testLedgerRoundTripAndLegacyUpgrade() {
     assert(upgraded.items()[0].updatedAtMs == nowMs);
     std::ifstream rewritten(legacyPath, std::ios::binary);
     const std::string rewrittenText((std::istreambuf_iterator<char>(rewritten)), std::istreambuf_iterator<char>());
-    assert(rewrittenText.find("desktop-upload-queue.v3") != std::string::npos);
+    assert(rewrittenText.find("desktop-upload-queue.v4") != std::string::npos);
 
     // An accepted operation without the receipt that proved it is not believed:
     // a hand-edited ledger cannot turn a rejection into a deletion.

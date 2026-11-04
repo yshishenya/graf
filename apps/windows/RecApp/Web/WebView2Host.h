@@ -25,6 +25,15 @@
 
 namespace graf::windows {
 
+// Shared queue-content gate. Package proof and document/native-session fences
+// remain with the caller; this predicate grants no network identity.
+inline bool protectedLocalContentAllowed(const ProtectedUploadQueueValue& value,
+    const ProtectedUploadQueueValue::Item& row, std::string_view user, std::string_view workspace) noexcept {
+    return !user.empty() && !workspace.empty() && std::string_view(row.ownerUserId) == user &&
+        std::string_view(row.ownerWorkspaceId) == workspace && !uploadAccessBlocks(row) &&
+        row.safeReason != "local_delete_pending" && !value.deletionBlocks(row);
+}
+
 enum class WebRuntimeState {
     unavailable,
     initializing,
@@ -330,6 +339,7 @@ private:
     };
     UserTimeRead userTimeAccount_;
     UserTimeRead localAccount_;
+    UserTimeRead localDocumentAccount_;
     std::shared_ptr<const ProtectedUploadQueueValue> protectedLocalValue_;
     CustodyString protectedLocalActiveSession_;
     std::shared_ptr<const ProtectedLocalRecordingTimings> protectedLocalTimings_;
@@ -347,6 +357,8 @@ private:
     void invalidateUserTime() noexcept;
     void refreshUserTime();
     [[nodiscard]] bool userTimeDocumentCurrent() const;
+    [[nodiscard]] bool localContentDocumentCurrent() const;
+    [[nodiscard]] bool localNetworkAccountCurrent() const noexcept;
     [[nodiscard]] bool userTimeReadCurrent(const UserTimeRead&) const;
     void reconcileUserTimeCookie(std::uint64_t generation, std::string_view nonce,
                                  std::string_view url, std::string token);

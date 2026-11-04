@@ -500,7 +500,10 @@ void WebView2Host::bindUserTimeAccount(std::string origin, std::string user, std
         const bool interruptedHistory = historyBusy() && runtimeState_ == WebRuntimeState::initializing;
         clearHistorySession();
         // History proofs stay revoked until a future actual GET is accepted in this session.
+        const bool retainLocal = localDocumentIdentity_ && localContentDocumentCurrent() &&
+            localAccount_.authGeneration == authGeneration && user.empty() && workspace.empty();
         invalidateUserTime();
+        localDocumentIdentity_ = retainLocal;
         userTimeAccount_ = {std::move(origin), std::move(user), std::move(workspace), std::move(sessionToken),
                             {}, {}, authGeneration, 0, 0};
         if (interruptedHistory) fail("history-session-changed", 0);
@@ -524,17 +527,43 @@ bool WebView2Host::userTimeDocumentCurrent() const {
         route.kind == RouteKind::settings || route.kind == RouteKind::nativeSettings || route.kind == RouteKind::billing;
 }
 
+bool WebView2Host::localContentDocumentCurrent() const {
+    if (!protectedLocalMode_ || !alive_ || !alive_->load() || runtimeState_ != WebRuntimeState::ready ||
+        documentNonce_.empty() || currentUrl_ != committedDocumentUrl_ || localAccount_.origin != policy_.trustedOrigin() ||
+        !DesktopApiClient::accountId(localAccount_.user) || !DesktopApiClient::accountId(localAccount_.workspace) ||
+        (userTimeAccount_.authGeneration && userTimeAccount_.authGeneration != localAccount_.authGeneration) ||
+        localAccount_.token.empty() || localAccount_.token != userTimeCookieToken_ ||
+        userTimeCookieGeneration_ != documentGeneration_) return false;
+    const auto route = policy_.evaluate(currentUrl_);
+    if (route.decision != RouteDecision::allow || !policy_.sharesOrigin(currentUrl_) || !policy_.allowsNativeBridge(currentUrl_) ||
+        (route.kind == RouteKind::billing && policy_.safeRecoveryUrl(currentUrl_).empty())) return false;
+    return route.kind == RouteKind::meetings || route.kind == RouteKind::meetingDetail || route.kind == RouteKind::share ||
+        route.kind == RouteKind::deletionReport || route.kind == RouteKind::settings ||
+        route.kind == RouteKind::nativeSettings || route.kind == RouteKind::billing;
+}
+
+bool WebView2Host::localNetworkAccountCurrent() const noexcept try {
+    return userTimeDocumentCurrent() && localAccount_.origin == userTimeAccount_.origin &&
+        localAccount_.user == userTimeAccount_.user && localAccount_.workspace == userTimeAccount_.workspace &&
+        localAccount_.token == userTimeAccount_.token && localAccount_.authGeneration == userTimeAccount_.authGeneration;
+} catch (...) { return false; }
+
 bool WebView2Host::userTimeReadCurrent(const UserTimeRead& read) const {
-    return userTimeDocumentCurrent() && read.documentGeneration == documentGeneration_ &&
-        read.revision == userTimeRevision_ && read.nonce == documentNonce_ && read.url == currentUrl_ &&
-        read.origin == userTimeAccount_.origin && read.user == userTimeAccount_.user &&
-        read.workspace == userTimeAccount_.workspace && read.token == userTimeAccount_.token &&
-        read.authGeneration == userTimeAccount_.authGeneration;
+    const auto matches = [&](const auto& account) {
+        return read.origin == account.origin && read.user == account.user && read.workspace == account.workspace &&
+            read.token == account.token && read.authGeneration == account.authGeneration;
+    };
+    return read.documentGeneration == documentGeneration_ && read.revision == userTimeRevision_ &&
+        read.nonce == documentNonce_ && read.url == currentUrl_ &&
+        ((userTimeDocumentCurrent() && matches(userTimeAccount_)) ||
+         (localContentDocumentCurrent() && matches(localAccount_)));
 }
 
 void WebView2Host::refreshUserTime() {
-    if (!nativeReadUserTime_ || userTimeAttemptedRevision_ == userTimeRevision_ || !userTimeDocumentCurrent()) return;
-    auto read = userTimeAccount_;
+    const bool network = userTimeDocumentCurrent();
+    if (!nativeReadUserTime_ || userTimeAttemptedRevision_ == userTimeRevision_ ||
+        (!network && !localContentDocumentCurrent())) return;
+    auto read = network ? userTimeAccount_ : localAccount_;
     read.documentGeneration = documentGeneration_; read.revision = userTimeRevision_;
     read.nonce = documentNonce_; read.url = currentUrl_;
     userTimeAttemptedRevision_ = userTimeRevision_;
@@ -562,9 +591,13 @@ void WebView2Host::completeUserTimeRead(const UserTimeRead& read, std::string_vi
     const auto metadata = DesktopApiClient::decodeUserTimeMetadata(raw);
     const bool identityAccepted = metadata && metadata->userId == read.user && metadata->workspaceId == read.workspace &&
         metadata->documentUrl == read.url;
-    const bool accepted = identityAccepted && MeetingReminderPresenter::upcomingTime(0, metadata->timeZone).has_value();
+    const bool network = userTimeDocumentCurrent() && read.origin == userTimeAccount_.origin &&
+        read.user == userTimeAccount_.user && read.workspace == userTimeAccount_.workspace &&
+        read.token == userTimeAccount_.token && read.authGeneration == userTimeAccount_.authGeneration;
+    const bool accepted = network && identityAccepted && MeetingReminderPresenter::upcomingTime(0, metadata->timeZone).has_value();
     invalidateUserTime();
     localDocumentIdentity_ = identityAccepted;
+    localDocumentAccount_ = identityAccepted ? read : UserTimeRead{};
     if (accepted) { userTimeZone_ = metadata->timeZone; userTimeSession_ = metadata->sessionId; }
     // One read per confirmed context, including invalid/empty metadata. Same-page
     // saves are staged until the next confirmed document, just as on macOS.
@@ -1347,11 +1380,16 @@ void WebView2Host::setProtectedLocalRecordings(std::shared_ptr<const ProtectedUp
     std::shared_ptr<const ProtectedLocalRecordingTimings> timings, std::string_view activeSession) {
     if (activeSession.size() > 300) throw std::runtime_error("local_active_session");
     if (timings && (!value || timings->snapshot != value || timings->rows.size() != value->items().size())) timings.reset();
+    // Only a successfully observed native cookie supplies this token. The
+    // network tuple is also supplied by native account proof (ordinary callers).
+    const auto token = historyCookieObserved_ ? historyCookieToken_ : userTimeAccount_.token;
+    const bool bindingChanged = localAccount_.origin != origin || localAccount_.user != user ||
+        localAccount_.workspace != workspace || localAccount_.token != token || localAccount_.authGeneration != authGeneration;
     const bool unchanged = protectedLocalMode_ && protectedLocalValue_ == value && protectedLocalComplete_ == complete &&
         std::string_view(protectedLocalActiveSession_) == activeSession &&
         protectedLocalTimings_ == timings &&
         localAccount_.origin == origin && localAccount_.user == user && localAccount_.workspace == workspace &&
-        localAccount_.authGeneration == authGeneration;
+        localAccount_.authGeneration == authGeneration && localAccount_.token == token;
     if (unchanged && (!protectedLocalPublicationPending_ || std::chrono::steady_clock::now() < protectedLocalRetryAt_)) return;
     clearVisibleRecordings();
     protectedLocalMode_ = true;
@@ -1359,7 +1397,9 @@ void WebView2Host::setProtectedLocalRecordings(std::shared_ptr<const ProtectedUp
     protectedLocalValue_ = std::move(value);
     protectedLocalTimings_ = std::move(timings);
     protectedLocalComplete_ = complete;
-    localAccount_ = {std::move(origin), std::move(user), std::move(workspace), {}, {}, {}, authGeneration, 0, 0};
+    if (bindingChanged && !userTimeDocumentCurrent()) invalidateUserTime();
+    localAccount_ = {std::move(origin), std::move(user), std::move(workspace), token, {}, {}, authGeneration, 0, 0};
+    refreshUserTime();
     protectedLocalPublicationPending_ = true;
     std::vector<WebViewLocalRecordingRow>().swap(localRecordings_);
     std::vector<CabinetDeletionOperation>().swap(localDeletionOperations_);
@@ -1454,10 +1494,10 @@ CustodyString WebView2Host::protectedLocalRecordingsMessage() const {
             if (sessionSeconds) number(",\"sessionDurationSeconds\":", *sessionSeconds);
         }
         append(",\"canOpen\":"); append(current && protectedLocalOpenAllowed(item) ? "true" : "false");
-        append(",\"canSend\":"); append(protectedLocalComplete_ &&
+        append(",\"canSend\":"); append(localNetworkAccountCurrent() && protectedLocalComplete_ &&
             value->canManualSend(index, localAccount_.user, localAccount_.workspace, claimable) ? "true" : "false");
         append(",\"canDelete\":"); append(protectedLocalComplete_ &&
-            value->canLocalRemoval(index, localAccount_.user, localAccount_.workspace) ? "true" : "false");
+            localNetworkAccountCurrent() && value->canLocalRemoval(index, localAccount_.user, localAccount_.workspace) ? "true" : "false");
         append(",\"showsPartialDuration\":false,\"uploadComplete\":");
         append(item.status == UploadQueueStatus::uploaded ? "true" : "false");
         append(",\"localDeletionPending\":"); append(item.safeReason == "local_delete_pending" ? "true" : "false");
@@ -1559,18 +1599,17 @@ void WebView2Host::handleVisibleRecordingsMessage(const WebViewBridgeEnvelope& m
 
 bool WebView2Host::localPlaybackDocumentCurrent(std::uint64_t generation, std::string_view nonce) const noexcept try {
     return protectedLocalMode_ && generation != 0 && generation == documentGeneration_ &&
-        !nonce.empty() && nonce == documentNonce_ && localDocumentIdentity_ && userTimeDocumentCurrent() &&
-        localAccount_.origin == userTimeAccount_.origin && localAccount_.user == userTimeAccount_.user &&
-        localAccount_.workspace == userTimeAccount_.workspace &&
-        localAccount_.authGeneration == userTimeAccount_.authGeneration;
+        !nonce.empty() && nonce == documentNonce_ && localDocumentIdentity_ && localContentDocumentCurrent() &&
+        localAccount_.origin == localDocumentAccount_.origin && localAccount_.user == localDocumentAccount_.user &&
+        localAccount_.workspace == localDocumentAccount_.workspace && localAccount_.token == localDocumentAccount_.token &&
+        localAccount_.authGeneration == localDocumentAccount_.authGeneration;
 } catch (...) { return false; }
 
 bool WebView2Host::protectedLocalOpenAllowed(const ProtectedUploadQueueValue::Item& item) const noexcept {
     if (!protectedLocalActiveSession_.empty() && item.sessionId == protectedLocalActiveSession_) return false;
     if (!protectedLocalComplete_ || !protectedLocalValue_ || item.localRecordingId.empty() ||
-        item.localRecordingId.size() > 300 || item.ownerUserId.empty() || item.ownerWorkspaceId.empty() ||
-        std::string_view(item.ownerUserId) != localAccount_.user || std::string_view(item.ownerWorkspaceId) != localAccount_.workspace ||
-        !item.meetingId.empty() || item.safeReason == "local_delete_pending") return false;
+        item.localRecordingId.size() > 300 || !protectedLocalContentAllowed(*protectedLocalValue_, item,
+            localAccount_.user, localAccount_.workspace)) return false;
     if (item.status == UploadQueueStatus::quarantined) {
         const auto& rows = protectedLocalValue_->items();
         const auto row = std::find_if(rows.begin(), rows.end(), [&](const auto& value) { return &value == &item; });
@@ -1595,9 +1634,10 @@ bool WebView2Host::localRecordingActionAllowed(std::string_view action, std::str
         const auto row = std::find_if(rows.begin(), rows.end(), [id](const auto& item) { return std::string_view(item.localRecordingId) == id; });
         if (row != rows.end() && !protectedLocalActiveSession_.empty() && row->sessionId == protectedLocalActiveSession_) return false;
         return row != rows.end() && ((action == "open" && protectedLocalOpenAllowed(*row)) ||
-            (action == "delete" && protectedLocalComplete_ && protectedLocalValue_->canLocalRemoval(
+            (action == "delete" && localNetworkAccountCurrent() && protectedLocalComplete_ &&
+                protectedLocalValue_->canLocalRemoval(
                 static_cast<std::size_t>(row - rows.begin()), localAccount_.user, localAccount_.workspace)) ||
-            (action == "send" && protectedLocalComplete_ && protectedLocalValue_->canManualSend(
+            (action == "send" && localNetworkAccountCurrent() && protectedLocalComplete_ && protectedLocalValue_->canManualSend(
                 static_cast<std::size_t>(row - rows.begin()), localAccount_.user, localAccount_.workspace,
                 protectedLocalClaimAllowed(static_cast<std::size_t>(row - rows.begin())))));
     }

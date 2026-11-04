@@ -9,6 +9,7 @@
 
 namespace graf::windows {
 class ProtectedCustodyStoreOwner;
+class ProtectedCustodyQueueMigration;
 class ProtectedCustodyRecordingPackage;
 struct CustodyMetadataCommit;
 struct CustodyMigrationValue;
@@ -135,17 +136,42 @@ private:
     [[nodiscard]] CustodyFileResult<bool> completedPackageRole(const CustodyMetadataIndices* metadata = nullptr) const;
     [[nodiscard]] std::unique_lock<std::mutex> lockWriteGroup();
     [[nodiscard]] unsigned storagePressurePercent() const noexcept;
+    friend class ProtectedCustodyMigration;
+    friend class ProtectedCustodyQueueMigration;
+    friend struct ProtectedCustodyMigrationTestPeer;
+    [[nodiscard]] static CustodyFileResult<std::shared_ptr<ProtectedCustodyFiles>> lockMigrationPackageRoot(
+        std::shared_ptr<const ProtectedCustodyFiles>, std::string_view, std::shared_ptr<const std::atomic<bool>>,
+        CustodyMigrationValue&, unsigned& roles, const CustodyMigrationValue* history);
+    [[nodiscard]] CustodyFileResult<CustodyBytes> readMigrationPackageSource(unsigned, std::uint64_t, std::uint32_t) const;
+    [[nodiscard]] CustodyFileResult<bool> createMigrationPackageCustody();
+    void retireMigrationPackageSources() noexcept;
+    [[nodiscard]] CustodyFileResult<CustodyVector<CustodyString>> migrationPackages() const;
+    [[nodiscard]] CustodyFileResult<bool> verifyMigrationPackageSources(const CustodyMigrationValue&) const;
+    [[nodiscard]] CustodyFileResult<bool> installPackageMigrationBarriers(const CustodyMigrationValue&, const CustodyBytes&, bool publish);
+    // Generated/real legacy source is opened only by the migration worker,
+    // retained deny-write/delete; pure v2/v3 decode precedes the first write.
+    [[nodiscard]] static CustodyFileResult<std::unique_ptr<ProtectedCustodyFiles>> lockQueueMigrationRoot(
+        const std::filesystem::path&, std::shared_ptr<const std::atomic<bool>>, CustodyBytes&,
+        unsigned& roles, bool& envelopes);
+    [[nodiscard]] CustodyFileResult<CustodyBytes> readMigrationQueue() const;
+    [[nodiscard]] CustodyFileResult<bool> installQueueMigrationBarriers(
+        const CustodyMigrationValue&, const CustodyBytes&, std::shared_ptr<const std::atomic<bool>>, bool publish);
+    void retireMigrationQueueSource() noexcept;
+    [[nodiscard]] CustodyFileResult<bool> migrationQueueGatePresent() const;
     [[nodiscard]] static CustodyFileResult<std::unique_ptr<ProtectedCustodyFiles>> lockStoreRoot(
-        const std::filesystem::path&, std::shared_ptr<const std::atomic<bool>>, bool& birth);
+        const std::filesystem::path&, std::shared_ptr<const std::atomic<bool>>, bool& birth,
+        bool migrationDiscovery = false);
     [[nodiscard]] static CustodyFileResult<std::unique_ptr<ProtectedCustodyFiles>> openStoreObject(
-        std::shared_ptr<const ProtectedCustodyFiles> root, CustodyRole, bool birth, std::string_view package = {});
+        std::shared_ptr<const ProtectedCustodyFiles> root, CustodyRole, bool birth, std::string_view package = {}, bool migrationBirth = false);
     [[nodiscard]] CustodyFileResult<bool> validateStoreInventory(
         bool virgin, std::shared_ptr<const std::atomic<bool>>, bool completeBirth = false,
-        std::optional<CustodyVector<CustodyString>>* migrationScopes = nullptr) const;
+        std::optional<CustodyVector<CustodyString>>* migrationScopes = nullptr,
+        bool migrationDiscovery = false) const;
     // Strictly authenticated switched history only; hashes fixed originals and
     // ALL fixed barrier copies while retaining native handles. Never effects.
     [[nodiscard]] CustodyFileResult<bool> validateMigrationFiles(
-        const CustodyMigrationValue&, std::shared_ptr<const std::atomic<bool>>) const;
+        const CustodyMigrationValue&, const CustodyMigrationValue& authenticatedPeer,
+        std::shared_ptr<const std::atomic<bool>>, bool retireOriginals = false, CustodyBytes* legacyLedger = nullptr) const;
     friend class ProtectedCustodyBootstrapPair;
     friend class ProtectedCustodyMigrationPair;
     // Only retained metadata factories discover existing fixed identities.

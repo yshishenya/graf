@@ -36,6 +36,7 @@
 #include <chrono>
 #include <system_error>
 #include <cstdlib>
+#include <exception>
 #include <clocale>
 #include <type_traits>
 #ifdef _MSC_VER
@@ -203,6 +204,32 @@ NTSTATUS WINAPI fileTestHashCreate(BCRYPT_ALG_HANDLE algorithm, BCRYPT_HASH_HAND
 #undef GetDiskSpaceInformationW
 #endif
 
+#ifdef _WIN32
+namespace graf::windows {
+struct ProtectedUploadQueueValueTestPeer {
+    static auto decode(std::string_view json, const std::atomic<bool>* cancellation) {
+        return ProtectedUploadQueueValue::decode(json, cancellation);
+    }
+};
+struct ProtectedCustodyMigrationTestPeer {
+    static bool failed(const ProtectedCustodyStoreOwner& owner) noexcept { return owner.failed_; }
+    static CustodyMigrationValue history(ProtectedCustodyStoreOwner& owner,std::string_view directory,
+        std::shared_ptr<const std::atomic<bool>> cancellation) {
+        auto opened=ProtectedCustodyFiles::openStoreObject(owner.root_,CustodyRole::migrationIntent,false,directory);
+        assert(opened.ok()); const auto context=(*opened.value)->context();
+        auto history=ProtectedCustodyMigrationPair::readImpl(owner.root_->trustedRoot(),context,std::nullopt,
+            directory.empty() ? CustodyMigrationSubject::queue : CustodyMigrationSubject::package,directory,
+            std::move(cancellation),{},std::move(*opened.value));
+        assert(history.ok()); return (*history.value)->current();
+    }
+    static CustodyFileResult<bool> cleanup(ProtectedCustodyStoreOwner& owner,std::string_view directory,
+        const CustodyId& transaction,std::string_view user,std::string_view workspace,
+        std::uint64_t generation,std::shared_ptr<const std::atomic<bool>> cancellation) {
+        return owner.cleanupMigrationOriginals(directory,transaction,user,workspace,generation,std::move(cancellation));
+    }
+};
+}
+#endif
 using namespace graf::windows;
 namespace {
 #ifdef _WIN32
@@ -1452,12 +1479,327 @@ void metadataMoveBudget() {
     assert(CustodyOwnedMemory::usedBytes() == before);
 }
 void junction(const std::filesystem::path&, const std::filesystem::path&, SECURITY_ATTRIBUTES&);
+void migrationQueueVersionBoundary() {
+    // v4 is a protected queue format, never a plaintext migration source.
+    const std::string json=R"({"schema_version":"desktop-upload-queue.v4","items":[],"updated_at_ms":0,"deletion_operations":[],"purge_acknowledgements":[],"last_authenticated_context":null})";
+    const CustodyBytes bytes(json.begin(),json.end());
+    for (const bool protectedQueue:{true,false}) {
+        const auto baseline=CustodyOwnedMemory::usedBytes();
+        {
+            Fixture f; std::error_code error;
+            std::filesystem::remove_all(f.root/L".custody-v1",error); assert(!error);
+            auto cancellation=std::make_shared<std::atomic<bool>>(false);
+            if (protectedQueue) {
+                {
+                    auto owner=ProtectedCustodyStoreOwner::open(f.root,cancellation); assert(owner.ok());
+                    const auto result=commitProtectedCustodyMetadata(*owner.value,(*owner.value)->queueContext(),
+                        (*owner.value)->queueGeneration(),bytes,cancellation);
+                    assert(result.state==CustodyCommitState::committed);
+                }
+                inject(FileFault::none);
+                auto owner=ProtectedCustodyMigration::open(f.root,cancellation); assert(owner.ok());
+                auto value=(*owner.value)->readQueueValue(cancellation); assert(value.ok());
+                assert(!(*value.value)->legacy() && (*value.value)->items().empty());
+                assert(!writes && !flushes && !renames && !creates);
+            } else {
+                f.write(f.root/L"desktop-upload-queue.v2",bytes);
+                const auto hash=sha256File(f.root/L"desktop-upload-queue.v2"); assert(hash.size()==64);
+                inject(FileFault::none);
+                auto refused=ProtectedCustodyQueueMigration::prepare(f.root,cancellation);
+                assert(!refused.ok() && refused.error==CustodyFileError::invalidContent);
+                assert(!writes && !flushes && !renames && !creates);
+                assert(!std::filesystem::exists(f.root/L".custody-v1") &&
+                    !std::filesystem::exists(f.root/L"desktop-upload-queue.v2.quarantine") &&
+                    sha256File(f.root/L"desktop-upload-queue.v2")==hash);
+            }
+        }
+        assert(CustodyOwnedMemory::usedBytes()==baseline);
+        { std::array<CustodyNativeJob,4> jobs; for (const auto& job:jobs) assert(job); }
+        { std::array<CustodyPin,32> pins; for (const auto& pin:pins) assert(pin); }
+    }
+    inject(FileFault::none);
+}
+
+void migrationCoordinatorRoute(bool packedRestart = false) {
+    // A real generated legacy ledger/package; setup uses no migration/normal-history admission.
+    // Cancellation is qualified AFTER actual old-ledger native rename. This is
+    // release/reopen restart evidence, not a genuine process-death claim.
+    for (unsigned scenario=packedRestart ? 7U : 0U; scenario < (packedRestart ? 8U : 7U); ++scenario) {
+        const auto baseline=CustodyOwnedMemory::usedBytes();
+        {
+            Fixture f; std::error_code error;
+            std::filesystem::remove_all(f.root/L".custody-v1",error); assert(!error);
+            const auto quote=[](const std::string& input) { std::string value; for (const char c:input) { if (c=='\\' || c=='"') value+='\\'; value+=c; } return value; };
+            const std::string user="11111111-1111-4111-8111-111111111111", workspace="22222222-2222-4222-8222-222222222222";
+            const std::string json=R"({"schema_version":"desktop-upload-queue.v2","items":[{"local_recording_id":"recording-a","directory_id":"package-a","session_id":"session-a","package_directory":")"+
+                quote((f.root/L"package-a").u8string())+R"(","status":3,"accepted_bytes":[4,6,8],"attempts":7,"safe_reason":"upload_interrupted","owner_user_id":")"+user+
+                R"(","owner_workspace_id":")"+workspace+R"(","updated_at_ms":123}]})";
+            auto cancellation=std::make_shared<std::atomic<bool>>(false);
+            if (scenario==5) {
+                // Real virgin admission/queue commit BEFORE adding a legacy package.
+                // Setup never needs normal admission through the migration history.
+                auto owner=ProtectedCustodyStoreOwner::open(f.root,cancellation); assert(owner.ok());
+                auto committed=commitProtectedCustodyMetadata(*owner.value,(*owner.value)->queueContext(),
+                    (*owner.value)->queueGeneration(),CustodyBytes(json.begin(),json.end()),cancellation);
+                assert(committed.state==CustodyCommitState::committed);
+            } else f.write(f.root/L"desktop-upload-queue.v2",CustodyBytes(json.begin(),json.end()));
+            assert(CreateDirectoryW((f.root/L"package-a").c_str(),&f.security));
+            const auto legacy=testing::makeGeneratedLegacyPackage(f.root/L"package-a",100,
+                scenario==4 ? ReasonCode::clockDiscontinuity : ReasonCode::none,
+                scenario==3 ? RecordingStopReason::userRequested : RecordingStopReason::interruption);
+            const auto queueHash=scenario==5 ? std::string{} : sha256File(f.root/L"desktop-upload-queue.v2");
+            assert(scenario==5 || queueHash.size()==64);
+            const auto manifestHash=sha256File(legacy.manifestPath); assert(manifestHash.size()==64);
+            if (scenario==2) f.write(f.root/L"desktop-upload-queue.v2.quarantine",CustodyBytes{1,2,3});
+            inject(FileFault::none); bool renameObserved=false;
+            if (scenario==1) afterRename=[&] {
+                if (!renameObserved && std::filesystem::exists(f.root/L".custody-v1"/L"legacy.originals"/L"ledger") &&
+                    !std::filesystem::exists(f.root/L"desktop-upload-queue.v2")) { renameObserved=true; cancellation->store(true); }
+            };
+            bool packedBirthRead=false;
+            if (scenario==7) afterRead=[&] {
+                if (packedBirthRead) return;
+                wchar_t path[1024]{};
+                const auto count=GetFinalPathNameByHandleW(afterReadFile,path,1024,FILE_NAME_NORMALIZED);
+                assert(count && count<1024);
+                auto actual=std::filesystem::path(path);
+                if (actual.native().rfind(L"\\\\?\\",0)==0) actual=actual.native().substr(4);
+                if (actual!=f.root/L"package-a"/L".custody-v1"/L"media"/L"content.packed-v2") return;
+                // Birth has written/flushed BOTH HEADs; fail its next independent
+                // readback, retaining the failed-create owner until job unwind.
+                packedBirthRead=true; fileFault=FileFault::readFailed; flushOrdinal=reads+1;
+            };
+            std::printf("MIGRATION_COORDINATOR_SETUP_OK scenario=%u\n",scenario); std::fflush(stdout);
+            auto opened=ProtectedCustodyMigration::open(f.root,cancellation);
+            afterRename={}; afterRead={}; cancellation->store(false);
+            if (scenario==7) {
+                std::printf("MIGRATION_PACKED_BIRTH_DIAGNOSTIC hit=%u ok=%u error=%u native=%lu reads=%u writes=%u flushes=%u\n",packedBirthRead ? 1U : 0U,opened.ok() ? 1U : 0U,static_cast<unsigned>(opened.error),static_cast<unsigned long>(opened.nativeError),reads,writes,flushes); std::fflush(stdout);
+                assert(packedBirthRead && !opened.ok() && opened.error==CustodyFileError::ioFailed &&
+                    opened.nativeError==ERROR_READ_FAULT);
+                const auto packed=f.root/L"package-a"/L".custody-v1"/L"media"/L"content.packed-v2";
+                assert(std::filesystem::file_size(packed)==ProtectedPackedCustodyFormat::appendOffset);
+                inject(FileFault::none);
+                opened=ProtectedCustodyMigration::open(f.root,cancellation);
+            }
+            if (scenario==2) {
+                assert(!opened.ok() && !writes && !flushes && !renames && !creates);
+                assert(!std::filesystem::exists(f.root/L".custody-v1"));
+                assert(sha256File(f.root/L"desktop-upload-queue.v2")==queueHash);
+                assert(std::filesystem::file_size(f.root/L"desktop-upload-queue.v2.quarantine")==3);
+            } else {
+                if (scenario==1) {
+                    assert(renameObserved && !opened.ok());
+                    assert(std::filesystem::exists(f.root/L"desktop-upload-queue.v2.quarantine"));
+                    assert(!std::filesystem::exists(f.root/L"desktop-upload-queue.v2"));
+                    assert(sha256File(f.root/L".custody-v1"/L"legacy.originals"/L"ledger")==queueHash);
+                    inject(FileFault::none);
+                    opened=ProtectedCustodyMigration::open(f.root,cancellation);
+                }
+                if (!opened.ok()) { std::printf("MIGRATION_COORDINATOR_FAILED scenario=%u error=%u native=%lu\n",scenario,
+                    static_cast<unsigned>(opened.error),static_cast<unsigned long>(opened.nativeError)); std::fflush(stdout); }
+                assert(opened.ok()); // First full-engine executable RED against the no-effect coordinator stub.
+                auto owner=std::move(*opened.value); opened.value.reset();
+                auto value=owner->readQueueValue(cancellation); assert(value.ok());
+                assert((*value.value)->legacy() && (*value.value)->items().size()==1);
+                const auto& row=(*value.value)->items()[0];
+                assert(row.status==UploadQueueStatus::retry && row.attempts==7 && row.acceptedBytes==(std::array<std::uint64_t,3>{4,6,8}));
+                assert(std::string_view(row.ownerUserId)==std::string_view(user) && std::string_view(row.ownerWorkspaceId)==std::string_view(workspace) && row.sessionId=="session-a");
+                if (scenario!=5) assert(sha256File(f.root/L".custody-v1"/L"legacy.originals"/L"ledger")==queueHash);
+                else assert(!std::filesystem::exists(f.root/L"desktop-upload-queue.v2") &&
+                    !std::filesystem::exists(f.root/L"desktop-upload-queue.v2.quarantine") &&
+                    !std::filesystem::exists(f.root/L".custody-v1"/L"migration-intent") &&
+                    !std::filesystem::exists(f.root/L".custody-v1"/L"legacy.originals"));
+                assert(sha256File(f.root/L"package-a"/L".custody-v1"/L"legacy.originals"/L"manifest")==manifestHash);
+                if (scenario!=5) assert(sha256File(f.root/L"desktop-upload-queue.v2")==sha256File(f.root/L"desktop-upload-queue.v2.quarantine"));
+                assert(!std::filesystem::exists(legacy.wavPath) && !std::filesystem::exists(legacy.playbackPath));
+                {
+                    auto pair=owner->readPackage("package-a",cancellation); assert(pair.ok());
+                    auto inspection=LocalRecordingPackage::inspectProtected(f.root,*pair.value,"session-a",cancellation); assert(inspection.ok());
+                    const auto integrity=scenario==3 ? PackageIntegrity::discardPending : scenario==4 ? PackageIntegrity::degraded : PackageIntegrity::valid;
+                    assert((*inspection.value)->evidence().integrity==integrity && (*inspection.value)->evidence().durationMs==1000);
+                } // Drain the real member group before mutation/reopen.
+                if (!scenario) for (std::uint64_t now:{1000ULL,2000ULL}) {
+                    auto current=owner->readQueueValue(cancellation); assert(current.ok());
+                    ProtectedUploadQueueValue candidate(**current.value);
+                    assert(candidate.prepareManualSend(0,user,workspace,false,now,cancellation.get()));
+                    auto bytes=candidate.serialize(cancellation); assert(bytes.ok());
+                    auto committed=commitProtectedCustodyMetadata(owner,owner->queueContext(),owner->queueGeneration(),*bytes.value,cancellation);
+                    assert(committed.state==CustodyCommitState::committed);
+                }
+                if (scenario==6) {
+                    const auto snapshot=[&] {
+                        std::vector<std::pair<std::filesystem::path,std::string>> files;
+                        for (const auto& entry:std::filesystem::recursive_directory_iterator(f.root)) if (!entry.is_directory()) {
+                            const auto hash=sha256File(entry.path()); assert(hash.size()==64); files.emplace_back(entry.path(),hash);
+                        }
+                        std::sort(files.begin(),files.end()); return files;
+                    };
+                    for (const std::string_view directory:{std::string_view{},std::string_view{"package-a"}}) {
+                        auto history=ProtectedCustodyMigrationTestPeer::history(*owner,directory,cancellation);
+                        const auto transaction=history.transactionId;
+                        const auto before=snapshot();
+                        auto wrong=transaction; wrong[0]^=1;
+                        inject(FileFault::none);
+                        assert(!ProtectedCustodyMigrationTestPeer::cleanup(*owner,directory,wrong,user,workspace,owner->queueGeneration(),cancellation).ok());
+                        assert(!writes && !renames && !creates && snapshot()==before);
+                        assert(!ProtectedCustodyMigrationTestPeer::cleanup(*owner,directory,transaction,
+                            "33333333-3333-4333-8333-333333333333",workspace,owner->queueGeneration(),cancellation).ok());
+                        assert(!writes && !renames && !creates && snapshot()==before);
+                        if (!directory.empty()) {
+                            auto busy=owner->readPackage(directory,cancellation); assert(busy.ok());
+                            assert(!ProtectedCustodyMigrationTestPeer::failed(*owner));
+                            assert(!ProtectedCustodyMigrationTestPeer::cleanup(*owner,directory,transaction,user,workspace,owner->queueGeneration(),cancellation).ok());
+                            assert(!ProtectedCustodyMigrationTestPeer::failed(*owner));
+                            assert(!writes && !renames && !creates && snapshot()==before);
+                        }
+                        std::printf("MIGRATION_CLEANUP_BEGIN subject=%u stage=%u auth=%u sources=%zu owner_failed=%u reads=%u writes=%u flushes=%u renames=%u creates=%u\n",static_cast<unsigned>(history.subject),static_cast<unsigned>(history.stage),history.authorization ? 1U : 0U,static_cast<std::size_t>(history.sourceCount),ProtectedCustodyMigrationTestPeer::failed(*owner) ? 1U : 0U,reads,writes,flushes,renames,creates); std::fflush(stdout);
+                        auto cleaned=ProtectedCustodyMigrationTestPeer::cleanup(*owner,directory,transaction,user,workspace,owner->queueGeneration(),cancellation);
+                        if (!cleaned.ok()) { std::printf("MIGRATION_CLEANUP_FAILED subject=%u stage_before=%u auth_before=%u sources=%zu owner_failed=%u error=%u native=%lu reads=%u writes=%u flushes=%u renames=%u creates=%u\n",static_cast<unsigned>(history.subject),static_cast<unsigned>(history.stage),history.authorization ? 1U : 0U,static_cast<std::size_t>(history.sourceCount),ProtectedCustodyMigrationTestPeer::failed(*owner) ? 1U : 0U,static_cast<unsigned>(cleaned.error),static_cast<unsigned long>(cleaned.nativeError),reads,writes,flushes,renames,creates); std::fflush(stdout); }
+                        assert(cleaned.ok());
+                        const auto originals=directory.empty() ? f.root/L".custody-v1"/L"legacy.originals" :
+                            f.root/L"package-a"/L".custody-v1"/L"legacy.originals";
+                        assert(std::filesystem::is_empty(originals));
+                        history=ProtectedCustodyMigrationTestPeer::history(*owner,directory,cancellation);
+                        assert(history.stage==CustodyMigrationStage::complete && history.authorization &&
+                            history.authorization->queueGeneration==owner->queueGeneration());
+                    }
+                    assert(sha256File(f.root/L"desktop-upload-queue.v2")==sha256File(f.root/L"desktop-upload-queue.v2.quarantine"));
+                    auto queue=owner->readQueueValue(cancellation); assert(queue.ok());
+                    assert((*queue.value)->items()[0].acceptedBytes==(std::array<std::uint64_t,3>{4,6,8}) &&
+                        (*queue.value)->items()[0].attempts==7 && (*queue.value)->items()[0].updatedAtMs==123);
+                }
+                value.value.reset(); owner.reset(); inject(FileFault::none);
+                const auto snapshot=[&] {
+                    std::vector<std::pair<std::filesystem::path,std::string>> files;
+                    for (const auto& entry:std::filesystem::recursive_directory_iterator(f.root)) {
+                        const auto hash=entry.is_directory() ? std::string{} : sha256File(entry.path());
+                        assert(entry.is_directory() || hash.size()==64); files.emplace_back(entry.path(),hash);
+                    }
+                    std::sort(files.begin(),files.end()); return files;
+                };
+                const auto before=snapshot();
+                {
+                    auto cold=ProtectedCustodyMigration::open(f.root,cancellation); assert(cold.ok());
+                    auto current=(*cold.value)->readQueueValue(cancellation); assert(current.ok());
+                    assert((*cold.value)->queueGeneration()==(scenario==5 ? 2U : scenario ? 1U : 3U));
+                    assert((*current.value)->items()[0].updatedAtMs==(scenario ? 123U : 2000U));
+                }
+                assert(!writes && !flushes && !renames && !creates && snapshot()==before);
+            }
+        }
+        assert(CustodyOwnedMemory::usedBytes()==baseline);
+        { std::array<CustodyNativeJob,4> jobs; for (const auto& job:jobs) assert(job); }
+        { std::array<CustodyPin,32> pins; for (const auto& pin:pins) assert(pin); }
+    }
+    inject(FileFault::none);
+}
+
+void queueMigrationPreparation() {
+    // Existing pure decoder, actual generated native source/IDs/DPAPI commits.
+    // Fault cuts release all native handles before fresh acquisition; not process-death claims.
+    for (const bool legacy : {false,true}) for (const unsigned cut : {0U,1U,2U,3U,4U,5U}) {
+        const auto baseline = CustodyOwnedMemory::usedBytes();
+        {
+            Fixture f; std::error_code error;
+            std::filesystem::remove_all(f.root / L".custody-v1",error); assert(!error);
+            assert(CreateDirectoryW((f.root / L"package-a").c_str(),&f.security));
+            const auto quote = [](const std::string& value) {
+                std::string out; for (const char c : value) { if (c == '\\' || c == '"') out += '\\'; out += c; } return out;
+            };
+            const auto path = quote((f.root / L"package-a").u8string());
+            const std::string row = R"({"local_recording_id":"recording-a","directory_id":"package-a","session_id":"session-a","package_directory":")" + path +
+                R"(","status":1,"accepted_bytes":[18446744073709551615,4,6],"attempts":4294967295,"safe_reason":"upload_interrupted","owner_user_id":"11111111-1111-4111-8111-111111111111","owner_workspace_id":"22222222-2222-4222-8222-222222222222","meeting_id":"meeting-a","media_revision_id":"revision-a","upload_session_id":"upload-a","server_status":"uploaded","processing_status":"processing","media_revision_status":"accepted","updated_at_ms":123})";
+            const std::string operation = R"({"operation_id":"33333333-3333-4333-8333-333333333333","target":"meeting","target_id":"44444444-4444-4444-8444-444444444444","actor_user_id":"11111111-1111-4111-8111-111111111111","workspace_id":"22222222-2222-4222-8222-222222222222","server_origin":"https:\/\/example.test","phase":3,"requested_at_ms":100,"updated_at_ms":200,"attempts":3,"next_attempt_at_ms":300,"receipt_request_id":"55555555-5555-4555-8555-555555555555","safe_reason":"accepted"})";
+            const std::string ack = R"({"task_id":"66666666-6666-4666-8666-666666666666","meeting_id":"44444444-4444-4444-8444-444444444444","acknowledged_at_ms":900})";
+            const std::string json = std::string(legacy ? R"({"schema_version":"desktop-upload-queue.v2","items":[)" : R"({"schema_version":"desktop-upload-queue.v3","items":[)") + row +
+                (legacy ? "]}" : R"(],"updated_at_ms":321,"deletion_operations":[)" + operation + R"(],"purge_acknowledgements":[)" + ack + "]}");
+            const CustodyBytes bytes(json.begin(),json.end());
+            f.write(f.root / L"desktop-upload-queue.v2",bytes);
+            const auto hash = custody_detail::digest(bytes.data(),bytes.size()); assert(hash);
+            auto cancellation = std::make_shared<std::atomic<bool>>(false);
+            {
+                auto value = ProtectedUploadQueueValueTestPeer::decode(json,cancellation.get()); assert(value.ok());
+                assert((*value.value)->legacy() == legacy && (*value.value)->items().size() == 1);
+                assert((*value.value)->items()[0].acceptedBytes[0] == UINT64_MAX);
+                assert((*value.value)->items()[0].attempts == UINT32_MAX);
+                assert((*value.value)->items()[0].status == UploadQueueStatus::uploading);
+                assert((*value.value)->deletionOperations().size() == (legacy ? 0U : 1U));
+                assert((*value.value)->purgeAcknowledgements().size() == (legacy ? 0U : 1U));
+            }
+            inject(FileFault::none); unsigned published = 0;
+            afterRename = [&] { if (++published == cut) {
+                if (cut == 1 || cut == 4) fileFault = FileFault::rename; // Fail the NEXT rename, retaining one actual birth slot.
+                else cancellation->store(true);
+            } };
+            auto prepared = ProtectedCustodyQueueMigration::prepare(f.root,cancellation);
+            afterRename = {}; cancellation->store(false); inject(FileFault::none);
+            if (cut) {
+                assert(!prepared.ok());
+                auto restart = ProtectedCustodyQueueMigration::prepare(f.root,cancellation);
+                if (cut == 1 || cut == 4) {
+                    const auto role = f.root / L".custody-v1" / (cut == 1 ? L"migration-intent" : L"bootstrap");
+                    assert(std::filesystem::exists(role / L"index.0") && !std::filesystem::exists(role / L"index.1"));
+                    assert(!restart.ok() && !writes && !flushes && !renames && !creates);
+                } else prepared = std::move(restart);
+            }
+            if (cut != 1 && cut != 4) {
+                if (!prepared.ok()) { std::printf("QUEUE_PREPARE_FAILED legacy=%u cut=%u error=%u native=%lu\n",
+                    legacy ? 1U : 0U,cut,static_cast<unsigned>(prepared.error),static_cast<unsigned long>(prepared.nativeError)); std::fflush(stdout); }
+                assert(prepared.ok()); // First executable RED with the interface-only stub.
+                const auto& current = (*prepared.value)->current();
+                const auto queue = (*prepared.value)->queueContext();
+                assert(current.stage == CustodyMigrationStage::prepared && current.barrier && !current.authorization);
+                assert(current.anchor.length == bytes.size() && current.anchor.sha256 == *hash && !current.anchor.objectId);
+                assert(current.sources[0].destinationObjectId == queue.objectId && !current.sources[0].destinationGeneration);
+                assert(!std::filesystem::exists(f.root / L".custody-v1" / L"queue" / L"index.0"));
+                assert(!std::filesystem::exists(f.root / L".custody-v1" / L"queue" / L"index.1"));
+                assert(!std::filesystem::exists(f.root / L"desktop-upload-queue.v2.quarantine"));
+                const auto transaction = current.transactionId; const auto reserved = queue.objectId;
+                const auto source = CreateFileW((f.root / L"desktop-upload-queue.v2").c_str(),GENERIC_WRITE,
+                    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,nullptr,OPEN_EXISTING,0,nullptr);
+                assert(source == INVALID_HANDLE_VALUE && GetLastError() == ERROR_SHARING_VIOLATION);
+                prepared.value.reset(); inject(FileFault::none);
+                auto restart = ProtectedCustodyQueueMigration::prepare(f.root,cancellation); assert(restart.ok());
+                assert((*restart.value)->current().transactionId == transaction && (*restart.value)->queueContext().objectId == reserved);
+                assert(!writes && !flushes && !renames && !creates);
+                restart.value.reset();
+                assert(!ProtectedCustodyStoreOwner::open(f.root,cancellation).ok()); // Fence is not regular admission.
+            }
+            assert(sha256File(f.root / L"desktop-upload-queue.v2") == [&] {
+                static const char digits[] = "0123456789abcdef"; std::string value;
+                for (const auto byte : *hash) { value += digits[byte >> 4]; value += digits[byte & 15]; } return value;
+            }());
+        }
+        assert(CustodyOwnedMemory::usedBytes() == baseline);
+        { std::array<CustodyNativeJob,4> jobs; for (const auto& job : jobs) assert(job); }
+        { std::array<CustodyPin,32> pins; for (const auto& pin : pins) assert(pin); }
+    }
+    for (const unsigned bad : {0U,1U,2U}) {
+        Fixture f; std::error_code error; std::filesystem::remove_all(f.root / L".custody-v1",error); assert(!error);
+        auto cancel = std::make_shared<std::atomic<bool>>(false);
+        const std::string valid = R"({"schema_version":"desktop-upload-queue.v2","items":[]})";
+        CustodyBytes bytes(valid.begin(),valid.end());
+        if (!bad) bytes.insert(bytes.begin(),{0xef,0xbb,0xbf});
+        if (bad == 1) bytes.push_back('x');
+        f.write(f.root / L"desktop-upload-queue.v2",bytes);
+        if (bad == 2) f.write(f.root / L"desktop-upload-queue.v2.quarantine",CustodyBytes{1,2,3});
+        const auto hash = sha256File(f.root / L"desktop-upload-queue.v2"); inject(FileFault::none);
+        auto refused = ProtectedCustodyQueueMigration::prepare(f.root,cancel);
+        assert(!refused.ok() && !writes && !flushes && !renames && !creates);
+        assert(!std::filesystem::exists(f.root / L".custody-v1") && sha256File(f.root / L"desktop-upload-queue.v2") == hash);
+        if (bad == 2) assert(std::filesystem::file_size(f.root / L"desktop-upload-queue.v2.quarantine") == 3);
+    }
+    inject(FileFault::none);
+}
+
 // Full ordinary-owner admission, not metadata-pair discovery or migration execution.
-void completedHistoryNormalAdmission() {
+void completedHistoryNormalAdmission(bool corrections = false) {
     const auto baseline = CustodyOwnedMemory::usedBytes();
     // 0: healthy/evolved queue; 1: conflicting extra barrier; 2: bad historical-only root.
-    for (unsigned scenario = 0; scenario < 3; ++scenario) {
+    for (unsigned scenario = corrections ? 3U : 0U; scenario < (corrections ? 8U : 3U); ++scenario) {
         {
+            // 3/6/7: completed A then legacy B; 4/5: mixed authorization, root/package.
+            const bool nextPackage = corrections && (scenario == 3 || scenario >= 6);
             inject(FileFault::none);
             testing::GeneratedProtectedRecording capture("package-a");
             capture.append(100);
@@ -1481,6 +1823,13 @@ void completedHistoryNormalAdmission() {
                 const auto path = (root / L"package-a").u8string(); row.packageDirectory.assign(path.begin(), path.end());
                 row.ownerUserId = user; row.ownerWorkspaceId = workspace;
                 assert(candidate.enqueue(std::move(row), 10, cancel.get()));
+                if (nextPackage) {
+                    ProtectedUploadQueueValue::Item next;
+                    next.localRecordingId = "package-b"; next.directoryId = "package-b"; next.sessionId = "session-b";
+                    const auto nextPath = (root / L"package-b").u8string(); next.packageDirectory.assign(nextPath.begin(), nextPath.end());
+                    next.ownerUserId = user; next.ownerWorkspaceId = workspace;
+                    assert(candidate.enqueue(std::move(next), 10, cancel.get()));
+                }
                 auto bytes = candidate.serialize(cancel); assert(bytes.ok()); copiedQueue = *bytes.value;
                 auto saved = commitProtectedCustodyMetadata(capture.store, queueContext,
                     capture.store->queueGeneration(), copiedQueue, cancel);
@@ -1726,6 +2075,117 @@ void completedHistoryNormalAdmission() {
                 }
                 std::sort(files.begin(), files.end()); return files;
             };
+            if (corrections) {
+                // Generated fixture mutations only: native current records/Birth stay genuine.
+                const auto advance = [&](unsigned subjectIndex, CustodyMigrationStage stage, unsigned commits) {
+                    const auto& birth = histories[subjectIndex];
+                    const std::string_view name = subjectIndex ? "package-a" : "";
+                    CustodyMigrationValue value;
+                    { auto pair = ProtectedCustodyMigrationPair::read(root, birth.context, birth.transactionId,
+                          birth.subject, name, cancel); assert(pair.ok()); value = (*pair.value)->current(); }
+                    value.stage = stage;
+                    if (!value.authorization) {
+                        value.authorization.emplace(); auto& authorization = *value.authorization;
+                        for (std::size_t i = 0; i < birth.transactionId.size(); ++i) {
+                            authorization.operationId[i*2] = "0123456789abcdef"[birth.transactionId[i] >> 4];
+                            authorization.operationId[i*2+1] = "0123456789abcdef"[birth.transactionId[i] & 15];
+                        }
+                        std::copy(user.begin(), user.end(), authorization.actorUserId.begin());
+                        std::copy(workspace.begin(), workspace.end(), authorization.workspaceId.begin());
+                        authorization.queueObjectId = queueContext.objectId; authorization.queueGeneration = evolvedGeneration;
+                    }
+                    for (unsigned step = 0; step < commits; ++step) {
+                        ++value.generation;
+                        auto bytes = writeCustodyMigration(value, value.context, value.generation,
+                            value.transactionId, value.subject, name); assert(bytes.ok());
+                        assert(commitProtectedCustodyMetadata(root, name, value.context, value.generation - 1,
+                            *bytes.value, cancel).state == CustodyCommitState::committed);
+                    }
+                };
+                const auto cold = [&](bool accepted) {
+                    const auto before = snapshot(); inject(FileFault::none);
+                    {
+                        auto opened = ProtectedCustodyStoreOwner::open(root, cancel);
+                        if (accepted) {
+                            assert(opened.ok() && (*opened.value)->queueGeneration() == evolvedGeneration);
+                            auto queue = (*opened.value)->readQueueValue(cancel); assert(queue.ok());
+                            auto bytes = (*queue.value)->serialize(cancel); assert(bytes.ok() && *bytes.value == evolvedQueue);
+                            auto pair = (*opened.value)->readPackage("package-a", cancel); assert(pair.ok());
+                            auto inspected = LocalRecordingPackage::inspectProtected(root, *pair.value, "package-a", cancel);
+                            assert(inspected.ok() && (*inspected.value)->evidence().integrity == PackageIntegrity::valid);
+                            assert((*opened.value)->revalidatePackage(*pair.value, cancel).ok());
+                        } else assert(!opened.ok() && !opened.value);
+                        assert(!writes && !flushes && !renames && !creates && snapshot() == before);
+                    }
+                };
+                if (!nextPackage) {
+                    const unsigned subjectIndex = scenario == 4 ? 0U : 1U;
+                    const auto originalsPath = (subjectIndex ? root / L"package-a" : root) / L".custody-v1" / L"legacy.originals";
+                    advance(subjectIndex, CustodyMigrationStage::cleanupPending, 1);
+                    std::printf("MIGRATION_BOTH_AUTH_SETUP_OK subject=%u\n", subjectIndex); std::fflush(stdout);
+                    cold(true); // Interrupted switched/null -> pending/auth is legal while ALL originals remain.
+                    assert(std::filesystem::remove(originalsPath / sourceName(histories[subjectIndex].sources[0].kind)));
+                    cold(false); // First RED on r2: selected authorization cannot authorize peer-null absence.
+                    advance(subjectIndex, CustodyMigrationStage::cleanupPending, 1);
+                    cold(true); // Same durable authorization in BOTH slots admits actual partial absence, not completion.
+                    auto pair = ProtectedCustodyMigrationPair::read(root, histories[subjectIndex].context,
+                        histories[subjectIndex].transactionId, histories[subjectIndex].subject,
+                        subjectIndex ? "package-a" : "", cancel); assert(pair.ok());
+                    for (const auto& record : (*pair.value)->slots())
+                        assert(record.stage == CustodyMigrationStage::cleanupPending && record.authorization && record.generation <= 8);
+                } else {
+                    if (scenario >= 6) {
+                        advance(1, CustodyMigrationStage::cleanupPending, 2);
+                        const auto originalsPath = root / L"package-a" / L".custody-v1" / L"legacy.originals";
+                        if (scenario == 6) assert(std::filesystem::remove(originalsPath / sourceName(histories[1].sources[0].kind)));
+                        else {
+                            for (std::size_t i = 0; i < histories[1].sourceCount; ++i)
+                                assert(std::filesystem::remove(originalsPath / sourceName(histories[1].sources[i].kind)));
+                            advance(1, CustodyMigrationStage::complete, 2);
+                        }
+                    }
+                    assert(CreateDirectoryW((root / L"package-b").c_str(), &security));
+                    const auto legacy = testing::makeGeneratedLegacyPackage(root / L"package-b", 100);
+                    const auto legacyHash = sha256File(legacy.manifestPath); assert(legacyHash.size() == 64);
+                    const auto onlyA = [&](auto files) {
+                        files.erase(std::remove_if(files.begin(), files.end(), [&](const auto& entry) {
+                            const auto relative = entry.first.lexically_relative(root / L"package-a");
+                            return relative.empty() || *relative.begin() == L"..";
+                        }), files.end()); return files;
+                    };
+                    const auto onlyRootHistory = [&](auto files) {
+                        const auto scope = root / L".custody-v1" / L"migration-intent";
+                        files.erase(std::remove_if(files.begin(), files.end(), [&](const auto& entry) {
+                            const auto relative = entry.first.lexically_relative(scope);
+                            return relative.empty() || *relative.begin() == L"..";
+                        }), files.end()); return files;
+                    };
+                    const auto before = snapshot();
+                    const auto oldLedgerHash = sha256File(root / L".custody-v1" / L"legacy.originals" / L"ledger");
+                    assert(oldLedgerHash.size() == 64);
+                    std::printf("MIGRATION_HISTORY_A_TO_B_SETUP_OK stage=%u\n", scenario); std::fflush(stdout);
+                    {
+                        auto opened = ProtectedCustodyMigration::open(root, cancel);
+                        if (!opened.ok()) { std::printf("MIGRATION_HISTORY_A_TO_B_FAILED stage=%u error=%u native=%lu\n", scenario,
+                            static_cast<unsigned>(opened.error), static_cast<unsigned long>(opened.nativeError)); std::fflush(stdout); }
+                        assert(opened.ok() && (*opened.value)->queueGeneration() == evolvedGeneration);
+                        auto queue = (*opened.value)->readQueueValue(cancel); assert(queue.ok() && (*queue.value)->items().size() == 2);
+                        auto bytes = (*queue.value)->serialize(cancel); assert(bytes.ok() && *bytes.value == evolvedQueue);
+                        for (const std::string_view name : {std::string_view{"package-a"}, std::string_view{"package-b"}}) {
+                            auto pair = (*opened.value)->readPackage(name, cancel); assert(pair.ok());
+                            auto inspected = LocalRecordingPackage::inspectProtected(root, *pair.value,
+                                name == "package-a" ? "package-a" : "session-b", cancel);
+                            assert(inspected.ok() && (*inspected.value)->evidence().integrity == PackageIntegrity::valid &&
+                                (*inspected.value)->evidence().durationMs == 1000);
+                        }
+                        assert(sha256File(root / L"package-b" / L".custody-v1" / L"legacy.originals" / L"manifest") == legacyHash);
+                    }
+                    const auto after = snapshot();
+                    assert(onlyA(after) == onlyA(before) && onlyRootHistory(after) == onlyRootHistory(before));
+                    assert(sha256File(root / L".custody-v1" / L"legacy.originals" / L"ledger") == oldLedgerHash);
+                    cold(true); // Fresh ordinary cold open, BOTH closures including A's noncurrent root; no repair/effect.
+                }
+            } else {
             const auto beforeOpen = snapshot(); const auto idle = CustodyOwnedMemory::usedBytes();
             std::printf("COMPLETED_HISTORY_SETUP_OK case=%u copy_g=%llu current_g=%llu\n", scenario,
                 static_cast<unsigned long long>(copiedGeneration), static_cast<unsigned long long>(evolvedGeneration)); std::fflush(stdout);
@@ -1771,6 +2231,7 @@ void completedHistoryNormalAdmission() {
                     assert((*current.value)->items().at(0).updatedAtMs == 50);
                     assert(!writes && !flushes && !renames && !creates && snapshot() == committed); }
             }
+            } // Preserve the original three normal-admission cases unchanged.
         }
         assert(CustodyOwnedMemory::usedBytes() == baseline);
         { std::array<CustodyNativeJob, 4> jobs; for (const auto& job : jobs) assert(job); }
@@ -1779,7 +2240,15 @@ void completedHistoryNormalAdmission() {
     inject(FileFault::none);
 }
 void linkedMigrationPairs() {
+    migrationQueueVersionBoundary(); // r4 dependency: real v4 codec must be connected.
+    migrationCoordinatorRoute(true); // Failed packed birth -> same-source writeExisting restart.
+    completedHistoryNormalAdmission(true); // Focused r3 RED before the existing long matrix; same CLI/deadline.
+    std::fprintf(stderr, "MIGRATION_PAIR stage=completed_history_corrections_end\n"); std::fflush(stderr);
+    migrationCoordinatorRoute();
+    queueMigrationPreparation();
     completedHistoryNormalAdmission();
+    std::fprintf(stderr, "MIGRATION_PAIR stage=completed_history_end\n"); std::fflush(stderr);
+    std::fprintf(stderr, "MIGRATION_PAIR stage=linked_initial_begin\n"); std::fflush(stderr);
     const auto before = CustodyOwnedMemory::usedBytes();
     {
         inject(FileFault::none);
@@ -1809,8 +2278,10 @@ void linkedMigrationPairs() {
         assert(!std::filesystem::exists(f.root/L".custody-v1"/L"queue"/L"index.0"));
         assert(!std::filesystem::exists(f.root/L".custody-v1"/L"queue"/L"index.1"));
         inject(FileFault::none);
+        std::fprintf(stderr, "MIGRATION_PAIR stage=linked_initial_bootstrap_read\n"); std::fflush(stderr);
         const auto parent = ProtectedCustodyBootstrapPair::read(f.root, cancelled);
         assert(parent.ok() && parent.value && *parent.value);
+        std::fprintf(stderr, "MIGRATION_PAIR stage=linked_initial_pair_read\n"); std::fflush(stderr);
         const auto result = ProtectedCustodyMigrationPair::read(*parent.value, cancelled);
         // Phase 1 runtime RED: the declared Windows unsupported stub must refuse here.
         assert(result.ok() && result.value && *result.value);
@@ -1820,6 +2291,7 @@ void linkedMigrationPairs() {
         assert(!writes && !flushes && !renames && !searches && !diskChecks);
     }
     assert(CustodyOwnedMemory::usedBytes() == before);
+    std::fprintf(stderr, "MIGRATION_PAIR stage=linked_initial_end\n"); std::fflush(stderr);
     using Pair = ProtectedCustodyMigrationPair;
     auto cancelled = std::make_shared<std::atomic<bool>>(false);
     CustodyId queueId{}; queueId[0] = 31;
@@ -1849,6 +2321,8 @@ void linkedMigrationPairs() {
         return v;
     };
     const auto encode = [&](const CustodyMigrationValue& v) {
+        std::fprintf(stderr, "MIGRATION_PAIR stage=linked_fixture_encode schema=%u subject=%u generation=%llu\n",
+            v.schema, static_cast<unsigned>(v.subject), static_cast<unsigned long long>(v.generation)); std::fflush(stderr);
         auto bytes = writeCustodyMigration(v, v.context, v.generation, v.transactionId, v.subject, name(v.subject));
         assert(bytes.ok()); return std::move(*bytes.value);
     };
@@ -1964,6 +2438,8 @@ void linkedMigrationPairs() {
         }
     };
     const auto check = [&](Fixture& f, const CustodyMigrationValue& birth, CustodyFileError error) {
+        std::fprintf(stderr, "MIGRATION_PAIR stage=linked_check schema=%u subject=%u expected_error=%u\n",
+            birth.schema, static_cast<unsigned>(birth.subject), static_cast<unsigned>(error)); std::fflush(stderr);
         const auto owned = CustodyOwnedMemory::usedBytes(); const auto artifacts = writerArtifacts(f); inject(FileFault::none);
         { const auto result = link(f);
             if (error == CustodyFileError::none) assert(result.ok() && result.value && *result.value);
@@ -1973,6 +2449,7 @@ void linkedMigrationPairs() {
     };
     // Completed ROOT QUEUE metadata provenance only: no copied ledger, other
     // barrier copies, retained media roots, StoreOwner admission or GC proof.
+    std::fprintf(stderr, "MIGRATION_PAIR stage=linked_completed_metadata_begin\n"); std::fflush(stderr);
     for (const bool mismatchedTransaction : {false, true}) {
         Fixture f(CustodyRole::bootstrap, L"bootstrap");
         const auto birth = makeBirth(f, 2, CustodyMigrationSubject::queue);
@@ -2033,6 +2510,7 @@ void linkedMigrationPairs() {
         assert(!std::filesystem::exists(f.root/L".custody-v1"/L"queue"/L"index.0"));
         assert(!std::filesystem::exists(f.root/L".custody-v1"/L"queue"/L"index.1"));
     }
+    std::fprintf(stderr, "MIGRATION_PAIR stage=linked_completed_metadata_end\n"); std::fflush(stderr);
     // Gate transition table is deliberately NOT startup/queue admission.
     for (unsigned variant = 0; variant < 6; ++variant) {
         Fixture f(CustodyRole::bootstrap, L"bootstrap"); auto birth = makeBirth(f, 1, CustodyMigrationSubject::queue);
@@ -2054,6 +2532,8 @@ void linkedMigrationPairs() {
             variant == 1 ? CustodyFileError::invalidInput : CustodyFileError::conflict);
     }
     for (unsigned schema : {1U, 2U}) for (const auto subject : {CustodyMigrationSubject::queue, CustodyMigrationSubject::package}) {
+        std::fprintf(stderr, "MIGRATION_PAIR stage=linked_matrix_begin schema=%u subject=%u\n",
+            schema, static_cast<unsigned>(subject)); std::fflush(stderr);
         for (unsigned step = 1; step <= 6; ++step) {
             Fixture f(CustodyRole::bootstrap, L"bootstrap"); const auto birth = makeBirth(f, schema, subject);
             const auto cipher = sealBirth(birth); const auto ref = barrier(birth, cipher);
@@ -2229,6 +2709,8 @@ void linkedMigrationPairs() {
             { const auto result = link(f); assert(!result.ok() && !result.value && result.error == error && result.nativeError == native); noEffects(); }
             assert(CustodyOwnedMemory::usedBytes() == owned); locks(identities(f, subject), false);
         }
+        std::fprintf(stderr, "MIGRATION_PAIR stage=linked_factory_begin schema=%u subject=%u\n",
+            schema, static_cast<unsigned>(subject)); std::fflush(stderr);
         // Count the real linked factory AFTER genuine bootstrap discovery; no caller-root reopening is involved.
         {
             Fixture f(CustodyRole::bootstrap, L"bootstrap"); const auto birth = makeBirth(f, schema, subject);
@@ -2260,6 +2742,8 @@ void linkedMigrationPairs() {
                 if (direct) { assert(birthReads < directOrdinals.size()); directOrdinals[birthReads++] = reads; }
             };
             const auto invoke = [&](std::size_t failAt, std::size_t cancelAt, FileFault fault = FileFault::none, unsigned ordinal = 1) {
+                std::fprintf(stderr, "MIGRATION_PAIR stage=linked_factory_invoke schema=%u subject=%u fail_at=%zu cancel_at=%zu fault=%u ordinal=%u\n",
+                    schema, static_cast<unsigned>(subject), failAt, cancelAt, static_cast<unsigned>(fault), ordinal); std::fflush(stderr);
                 afterRead = {}; inject(FileFault::none);
                 auto parent = ProtectedCustodyBootstrapPair::read(f.root, cancelled); assert(parent.ok());
                 indexReads = birthReads = 0; directOrdinals = {}; beforeIndex = 0;
@@ -2331,6 +2815,8 @@ void linkedMigrationPairs() {
             }
             released(); retry();
             for (const auto spare : {std::size_t{0}, std::size_t{512}}) {
+                std::fprintf(stderr, "MIGRATION_PAIR stage=linked_factory_quota schema=%u subject=%u spare=%zu\n",
+                    schema, static_cast<unsigned>(subject), spare); std::fflush(stderr);
                 inject(FileFault::none); auto input = ProtectedCustodyBootstrapPair::read(f.root, cancelled); assert(input.ok());
                 CustodyAllocator<std::uint8_t> allocator;
                 const auto bytes = CustodyOwnedMemory::limit - CustodyOwnedMemory::usedBytes() - spare;
@@ -2343,8 +2829,10 @@ void linkedMigrationPairs() {
             std::printf("CUSTODY_BOOTSTRAP_INTENT_CUTS schema=%u subject=%u allocations=%zu reads=%u hashes=%u direct_birth_reads=2 final_allocation_cancel=checked\n",
                 schema, static_cast<unsigned>(subject), allocations, totalReads, totalHashes);
             queueAllocation = {}; afterRead = {}; inject(FileFault::none); released();
+            std::fprintf(stderr, "MIGRATION_PAIR stage=linked_factory_end\n"); std::fflush(stderr);
         }
     }
+    std::fprintf(stderr, "MIGRATION_PAIR stage=linked_matrix_end\n"); std::fflush(stderr);
     {
         Fixture f(CustodyRole::bootstrap, L"bootstrap"); const auto birth = makeBirth(f, 1, CustodyMigrationSubject::queue);
         const auto cipher = sealBirth(birth); prepare(f, birth, cipher, {birth, birth});
@@ -2354,6 +2842,7 @@ void linkedMigrationPairs() {
         assert(!denied.ok() && !denied.value && denied.error == CustodyFileError::invalidInput && !opens);
         assert(CustodyOwnedMemory::usedBytes() == owned); locks(identities(f, birth.subject), false); noEffects();
     }
+    std::fprintf(stderr, "MIGRATION_PAIR stage=linked_native_identity_begin\n"); std::fflush(stderr);
     for (const auto subject : {CustodyMigrationSubject::queue, CustodyMigrationSubject::package}) {
         // These native identities are discovered independently of the authenticated JSON; no private getters.
         for (unsigned fault = 0; fault < 8; ++fault) {
@@ -5490,7 +5979,27 @@ int main(int argc, char** argv) {
     if (argc == 2 && std::string(argv[1]) == "--readonly-owner-cancellation") { readOnlyOwnerCancellation(); return 0; }
     if (argc == 2 && std::string(argv[1]) == "--logical-queue") { protectedQueueCandidate(); return 0; }
     if (argc == 2 && std::string(argv[1]) == "--migration-history") { migrationHistory(); return 0; }
-    if (argc == 2 && std::string(argv[1]) == "--migration-pair") { linkedMigrationPairs(); protectedMigrationPairs(); return 0; }
+    if (argc == 2 && std::string(argv[1]) == "--migration-pair") {
+        const auto previousTerminate = std::set_terminate([] {
+            const char* kind = "other";
+            int code = 0;
+            try { if (auto error = std::current_exception()) std::rethrow_exception(error); }
+            catch (const std::bad_alloc&) { kind = "bad_alloc"; }
+            catch (const std::system_error& error) { kind = "system_error"; code = error.code().value(); }
+            catch (...) {}
+            std::fprintf(stderr, "MIGRATION_PAIR_TERMINATE exception=%s code=%d owned_bytes=%zu\n",
+                kind, code, CustodyOwnedMemory::usedBytes());
+            std::fflush(stderr); std::abort();
+        });
+        std::fprintf(stderr, "MIGRATION_PAIR stage=linked_begin\n"); std::fflush(stderr);
+        linkedMigrationPairs();
+        std::fprintf(stderr, "MIGRATION_PAIR stage=linked_end\n"); std::fflush(stderr);
+        std::fprintf(stderr, "MIGRATION_PAIR stage=protected_begin\n"); std::fflush(stderr);
+        protectedMigrationPairs();
+        std::fprintf(stderr, "MIGRATION_PAIR stage=protected_end\n"); std::fflush(stderr);
+        std::set_terminate(previousTerminate);
+        return 0;
+    }
     // Explicit manual RED control, not a production option or a default CTest.
     attributeOnlyLocks = argc == 2 && std::string(argv[1]) == "--attribute-only-negative-control";
     if (!attributeOnlyLocks) { readOnlyFilesAdmission(); readOnlyOwnerCancellation(); linkedMigrationPairs(); protectedMigrationPairs(); protectedQueueCandidate(); protectedQueueInput(); protectedBootstrapDiscovery(); protectedBootstrapPairs(); migrationHistory(); coldCacheClose(); writerOpenBudget(); metadataMoveBudget(); protectedReader(); protectedMetadata(); protectedMediaWriter(); protectedPackagePairs(); sealedFlatMembers(); livePackageGroup(); sealedPackageGroup(); protectedPlayback(); protectedRecordingSemantics(); }

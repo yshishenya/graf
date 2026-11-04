@@ -218,7 +218,11 @@ void testWorkspaceBootstrap() {
     calls = 0;
     assert(!DesktopHttpTransport(config).accountIdentity(get).identity && calls == 0);
     config.workspaceId.clear();
-    assert(!DesktopHttpTransport(config).accountIdentity(DesktopHttpTransport::IdentityGet{}).identity);
+    // Empty callback now selects the ordinary native adapter. Keep this failure
+    // test explicitly synthetic so Windows never contacts the real service.
+    const auto unavailable = DesktopHttpTransport(config).accountIdentity(
+        [](const auto&, auto) -> IdentityResponse { return {0, {}, true}; });
+    assert(!unavailable.identity && unavailable.status == DesktopTransportStatus::retryableFailure);
     config.sessionToken.clear();
     calls = 0;
     assert(!DesktopHttpTransport(config).accountIdentity(get).identity && calls == 0);
@@ -262,6 +266,97 @@ std::string syncState(std::string_view status, std::string_view conflict,
     return std::string(R"({"meeting":{"meeting_id":"meeting-id"},"upload_session":{"session_id":"session-id","status":")") +
         std::string(status) + R"(","accepted_bytes_by_track":{"manifest":10,"media":20,"playback":30}},"conflict":{"state":")" +
         std::string(conflict) + R"(","next_action":")" + std::string(action) + R"("}})";
+}
+
+void testSyncAccessDecoder() {
+    using namespace graf::windows;
+    const auto body = [](std::string_view value) {
+        return std::string(R"({"meeting":{"meeting_id":"meeting-id","access_state":)") +
+            std::string(value) + R"(},"upload_session":null,"conflict":{"state":"none"}})";
+    };
+    const auto allowed = DesktopHttpTransport::decodeSyncState(body(R"("owner")"), "local-id");
+    assert(allowed && allowed->truth.accessState == "owner"); // Focused RED: existing decoder drops access.
+    for (const auto value : {"unknown", "access_revoked", "stale_device_identity", "future-safe_code-7"}) {
+        const auto decoded = DesktopHttpTransport::decodeSyncState(body("\"" + std::string(value) + "\""), "local-id");
+        assert(decoded && decoded->truth.accessState == value);
+        assert(uploadAccessBlocks(decoded->truth));
+    }
+    const auto escaped = DesktopHttpTransport::decodeSyncState(body(R"("\u006fwner")"), "local-id");
+    assert(escaped && escaped->truth.accessState == "owner");
+    const auto limit = DesktopHttpTransport::decodeSyncState(body("\"" + std::string(64, 'a') + "\""), "local-id");
+    assert(limit && limit->truth.accessState == std::string(64, 'a'));
+    std::string escapedLimit = "\"";
+    for (unsigned n = 0; n != 64; ++n) escapedLimit += R"(\u0061)";
+    escapedLimit += "\"";
+    const auto decodedLimit = DesktopHttpTransport::decodeSyncState(body(escapedLimit), "local-id");
+    assert(decodedLimit && decodedLimit->truth.accessState == std::string(64, 'a'));
+    for (const auto& json : {
+        body("null"),
+        std::string(R"({"meeting":{"meeting_id":"meeting-id"},"conflict":{"state":"none"}})"),
+        std::string(R"({"access_state":"owner","meeting":{"meeting_id":"meeting-id","metadata":{"access_state":"owner"}},"conflict":{"state":"none"}})")}) {
+        const auto decoded = DesktopHttpTransport::decodeSyncState(json, "local-id");
+        assert(decoded && !decoded->truth.accessState); // Root/nested fields cannot supply meeting access.
+    }
+    const auto canonical = body(R"("owner")");
+    const auto replace = [&](std::string_view before, std::string_view after) {
+        auto json = canonical; const auto at = json.find(before); assert(at != std::string::npos);
+        json.replace(at, before.size(), after); return json;
+    };
+    for (const auto value : {"true", "false", "7", "[]", "{}", R"("")", R"("OWNER")", R"(" owner")",
+                             R"("owner ")", R"("a.b")", R"("\u0000")", R"("\n")", R"("\u0430")",
+                             R"("\uD800")", R"("bad\q")"}) {
+        assert(!DesktopHttpTransport::decodeSyncState(body(value), "local-id"));
+    }
+    assert(!DesktopHttpTransport::decodeSyncState(body("\"" + std::string(65, 'a') + "\""), "local-id"));
+    assert(!DesktopHttpTransport::decodeSyncState(body("\"" + std::string(1, static_cast<char>(0x80)) + "\""), "local-id"));
+    for (const auto& invalid : {
+        canonical + " trailing", canonical.substr(0, canonical.size() - 1),
+        replace(R"("access_state":"owner")", R"("access_state":null,"access_state":"owner")"),
+        replace(R"("access_state":"owner")", R"("access_state":"owner","access_\u0073tate":"access_revoked")"),
+        replace(R"("meeting":)", R"("meeting":{},"mee\u0074ing":)"),
+        replace(R"("meeting_id":"meeting-id")", R"("meeting_id":"meeting-id","meeting_id":"other")"),
+        replace(R"("meeting_id":"meeting-id")", R"("metadata":{"meeting_id":"meeting-id"})"),
+        replace(R"("meeting_id":"meeting-id",)", R"("meeting_id":"meeting-id",,)"),
+        replace(R"("access_state":"owner"})", R"("access_state":"owner",})"),
+        std::string(R"({"metadata":{"meeting":{"meeting_id":"meeting-id","access_state":"owner"}},"conflict":{"state":"none"}})"),
+        std::string(R"({"meeting":null,"conflict":{"state":"none"}})"),
+        std::string(R"({"meeting":[],"conflict":{"state":"none"}})"),
+        std::string(R"({"meeting":"owner","conflict":{"state":"none"}})")}) {
+        assert(!DesktopHttpTransport::decodeSyncState(invalid, "local-id"));
+    }
+    auto deep = canonical; deep.insert(1, "\"metadata\":" + std::string(40, '[') + "null" + std::string(40, ']') + ",");
+    assert(!DesktopHttpTransport::decodeSyncState(deep, "local-id"));
+    assert(!DesktopHttpTransport::decodeSyncState(std::string(2 * 1024 * 1024 + 1, ' ') + canonical, "local-id"));
+}
+
+void testSyncAccessNoErase(const std::filesystem::path& root) {
+    using namespace graf::windows;
+    std::filesystem::create_directories(root);
+    const auto ledger = root / "queue.json";
+    DesktopUploadQueueService queue(ledger, root); assert(queue.load());
+    UploadCustodyItem row; row.localRecordingId = "local-id"; row.directoryId = "directory"; row.sessionId = "session";
+    row.packageDirectory = root / "package"; row.ownerUserId = owner.userId; row.ownerWorkspaceId = owner.workspaceId;
+    assert(queue.enqueue(row));
+    for (const auto access : {"access_revoked", "stale_device_identity"}) {
+        const auto refused = DesktopHttpTransport::decodeSyncState(
+            std::string(R"({"meeting":{"meeting_id":"meeting-id","access_state":")") + access +
+            R"("},"conflict":{"state":"none"}})", "local-id");
+        assert(refused && queue.reconcile(refused->truth));
+        for (const auto json : {
+            R"({"meeting":{"meeting_id":"meeting-id"},"conflict":{"state":"none"}})",
+            R"({"meeting":{"meeting_id":"meeting-id","access_state":null},"conflict":{"state":"none"}})"}) {
+            const auto absent = DesktopHttpTransport::decodeSyncState(json, "local-id");
+            assert(absent && !absent->truth.accessState && queue.reconcile(absent->truth));
+            assert(queue.items()[0].accessState == access);
+            DesktopUploadQueueService cold(ledger, root); assert(cold.load());
+            assert(cold.items()[0].accessState == access && uploadAccessBlocks(cold.items()[0]));
+        }
+    }
+    const auto allowed = DesktopHttpTransport::decodeSyncState(
+        R"({"meeting":{"meeting_id":"meeting-id","access_state":"owner"},"conflict":{"state":"none"}})", "local-id");
+    assert(allowed && queue.reconcile(allowed->truth));
+    DesktopUploadQueueService cold(ledger, root); assert(cold.load());
+    assert(cold.items()[0].accessState == "owner" && !uploadAccessBlocks(cold.items()[0]));
 }
 
 void testSyncDecoder() {
@@ -666,7 +761,7 @@ void testUploadProblemResponses(const std::filesystem::path& root) {
             assert(calls == beforeBlockedSend);
             std::ifstream ledger(directory / "queue.json");
             const std::string stored((std::istreambuf_iterator<char>(ledger)), {});
-            assert(stored.find("desktop-upload-queue.v3") != std::string::npos);
+            assert(stored.find("desktop-upload-queue.v4") != std::string::npos);
             assert(stored.find("private-problem-detail") == std::string::npos);
             ledger.close();
             assert(restarted.removeLocalCopy("recording", LocalPurgeProof::userConfirmedLocalCopy,
@@ -720,6 +815,53 @@ void testUploadProblemResponses(const std::filesystem::path& root) {
         run("create", {400, body}, DesktopTransportStatus::serverRejected, "");
     }
     run("create", {409, R"({"code":"unsupported_recording_source_kind"})"}, DesktopTransportStatus::serverRejected, "");
+}
+
+
+void testSyncNonownerStopsContinuation(const std::filesystem::path& root) {
+    using namespace graf::windows;
+    for (const auto access : {"unknown", "access_revoked", "stale_device_identity", "future-safe_code-7"}) {
+        const auto directory = root / access;
+        const auto package = directory / "package";
+        std::filesystem::create_directories(package);
+        testing::makeGeneratedLegacyPackage(package, 100);
+        DesktopUploadQueueService queue(directory / "queue.json", directory); assert(queue.load());
+        assert(queue.enqueue({"recording", "directory", "session", package,
+            UploadQueueStatus::pending, {}, 0, "", owner.userId, owner.workspaceId}));
+        DesktopHttpConfig config; config.sessionToken = "synthetic-session";
+        config.workspaceId = owner.workspaceId; config.confirmedIdentity = owner;
+        unsigned calls = 0;
+        const DesktopHttpTransport::UploadSend wire = [&](const auto&, const auto& request) {
+            ++calls;
+            if (request.method == "GET" && request.path.find("/sync-state?") != std::string::npos)
+                return DesktopHttpTransport::UploadResponse{200,
+                    std::string(R"({"meeting":{"meeting_id":"meeting-id","status":"uploading","access_state":")") + access +
+                    R"("},"upload_session":{"session_id":"upload-id","status":"uploading","accepted_bytes_by_track":{"manifest":1,"media":2,"playback":3}},"conflict":{"state":"none"}})"};
+            return DesktopHttpTransport::UploadResponse{503, "{}"};
+        };
+#ifndef _WIN32
+        // Existing generated AAC validation is Windows-native. Portable coverage
+        // proves the pre-network refusal; it does not qualify this Windows RED.
+        assert(DesktopHttpTransport(config).upload(queue.items()[0], wire).status == DesktopTransportStatus::invalidPackage);
+        assert(calls == 0);
+#else
+        DesktopTransportResult answer;
+        DesktopUploadRecoveryScheduler scheduler(queue);
+        assert(runWorker(scheduler, RecoveryTrigger::launch, [&](const auto& item, auto cancel) {
+            auto scoped = config; scoped.cancellation = std::move(cancel);
+            answer = DesktopHttpTransport(scoped).upload(item, wire); return answer;
+        }) == 1);
+        assert(calls == 1 && "nonowner_sync_must_stop_before_session_ranges_parts_and_finalize");
+        assert(answer.status == DesktopTransportStatus::serverRejected && answer.serverTruth && answer.serverTruth->accessState == access);
+        assert((answer.serverTruth->acceptedBytes == std::array<std::uint64_t, 3>{1,2,3}));
+        DesktopUploadQueueService reopened(directory / "queue.json", directory); assert(reopened.load());
+        assert(reopened.items().front().accessState == access && reopened.items().front().meetingId == "meeting-id");
+        assert((reopened.items().front().acceptedBytes == std::array<std::uint64_t, 3>{1,2,3}));
+        assert(reopened.pendingItems(32).empty());
+        assert(DesktopHttpTransport(config).upload(reopened.items().front(), wire).status == DesktopTransportStatus::serverRejected);
+        assert(calls == 1); // Cached refusal cannot start another GET or part.
+#endif
+    }
 }
 
 void testSyncNotRetryableRecovery(const std::filesystem::path& root) {
@@ -1286,6 +1428,7 @@ int main(int argc, char** argv) {
         std::filesystem::remove_all(root);
         return 0;
     }
+    testSyncAccessDecoder();
     testSyncDecoder();
     testAccountIdentity();
     testWorkspaceBootstrap();
@@ -1296,10 +1439,12 @@ int main(int argc, char** argv) {
     const auto path = root / "desktop-upload-queue.json";
     const auto package = root / "recording";
     std::filesystem::create_directories(package);
+    testSyncAccessNoErase(root / "sync-access");
     testAtomicUploadResult(root / "atomic-result");
     testManualRetry(root / "manual");
     testPermanentRejectionDurability(root / "permanent-durability");
     testUploadProblemResponses(root / "problem-responses");
+    testSyncNonownerStopsContinuation(root / "sync-nonowner");
     testSyncNotRetryableRecovery(root / "sync-not-retryable");
     testRetryClassClassification(root / "retry-class");
     testRateLimitPause(root / "rate-limit");

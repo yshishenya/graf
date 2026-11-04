@@ -3,6 +3,7 @@
 #include "ProtectedCustodyPrimitives.h"
 #include "ProtectedCustodyMetadata.h"
 #include "../Upload/DesktopUploadQueueService.h"
+#include "AtomicFileStore.h"
 #include <algorithm>
 #include <limits>
 #include <new>
@@ -111,6 +112,7 @@ struct ProtectedCustodyFiles::State {
     bool writable = false;
     bool failed = false;
     bool storeBirth = false;
+    bool migrationCounting = false; // Occupancy counting only; never source/admission authority.
     std::shared_ptr<const ProtectedCustodyFiles> rootLease;
     std::shared_ptr<const std::atomic<bool>> cancellation;
     mutable std::mutex writeGroup;
@@ -132,11 +134,60 @@ struct ProtectedCustodyFiles::State {
     std::filesystem::path trustedRoot;
     Handle storeId;
     Handle objectId;
+    struct MigrationSource {
+        Handle file;
+        std::filesystem::path path{std::wstring_view{}};
+        FILE_ID_INFO identity{};
+        FILE_BASIC_INFO times{};
+        std::uint64_t length=0;
+    };
+    std::array<MigrationSource,6> migrationPackageSources;
+    Handle migrationSource;
+    std::array<Handle,2> migrationBarriers; // Exact fixed gate/sentinel handles retained through switch ACK.
+    std::filesystem::path migrationSourcePath{std::wstring_view{}};
+    FILE_ID_INFO migrationSourceId{};
+    FILE_BASIC_INFO migrationSourceTimes{};
+    std::uint64_t migrationSourceBytes = 0;
+
 
     explicit State(const std::filesystem::path& root)
         : directory(root), tokenUser(std::size_t{0}), directories(std::size_t{0}), trustedRoot(root) {}
 
     const State& storeState() const noexcept { return rootLease ? rootLease->state_->storeState() : *this; }
+
+    bool legacyOccupancyOnly(const std::filesystem::path& file) const {
+        const auto parent=file.parent_path(), name=file.filename();
+        if (parent.filename()==L"legacy.originals" && parent.parent_path().filename()==L".custody-v1") {
+            const auto scope=parent.parent_path().parent_path();
+            if (scope==trustedRoot) return name==L"ledger";
+            return scope.parent_path()==trustedRoot && (name==L"manifest" || name==L"canonical" || name==L"media" || name==L"playback" || name==L"recovery");
+        }
+        if (!storeState().migrationCounting) return false;
+        if (parent==trustedRoot) return name==L"desktop-upload-queue.v2";
+        return parent.parent_path()==trustedRoot && parent.filename()!=L".custody-v1" &&
+            (name==L"manifest.json" || name==L".canonical-mix.f32.tmp" || name==L"meeting-transcription.wav" ||
+             name==L"meeting-review.m4a" || name==L"capture-recovery.json");
+    }
+    // A distinct attributes-only open bridges the same directory identity while
+    // the rename handle is retired. DuplicateHandle would retain its FILE_OBJECT's
+    // original write-sharing state. Source handles remain deny-write/delete.
+    CustodyFileResult<bool> retainMigratedDirectory(Handle& target,const std::filesystem::path& path) {
+        FILE_ID_INFO before{},after{};
+        if (!inspect(target.value,path,true,true) || !GetFileInformationByHandleEx(target.value,FileIdInfo,&before,sizeof(before)))
+            return failure<bool>(CustodyFileError::unsafePath,GetLastError());
+        Handle bridge(CreateFileW(win32Path(path).c_str(),FILE_READ_ATTRIBUTES | READ_CONTROL,FILE_SHARE_READ | FILE_SHARE_WRITE,
+            nullptr,OPEN_EXISTING,FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,nullptr));
+        if (!bridge.valid()) return failure<bool>(CustodyFileError::ioFailed,GetLastError());
+        if (!inspect(bridge.value,path,true,true) || !GetFileInformationByHandleEx(bridge.value,FileIdInfo,&after,sizeof(after)) ||
+            before.VolumeSerialNumber!=after.VolumeSerialNumber || std::memcmp(before.FileId.Identifier,after.FileId.Identifier,sizeof(before.FileId.Identifier)))
+            return failure<bool>(CustodyFileError::identityMismatch);
+        target.close();
+        auto held=lockDirectory(path,true,false); if (!held.ok()) return held;
+        if (!GetFileInformationByHandleEx(directories.back().handle.value,FileIdInfo,&after,sizeof(after)))
+            return failure<bool>(CustodyFileError::ioFailed,GetLastError());
+        return before.VolumeSerialNumber==after.VolumeSerialNumber &&
+            !std::memcmp(before.FileId.Identifier,after.FileId.Identifier,sizeof(before.FileId.Identifier)) ? success(true) : failure<bool>(CustodyFileError::identityMismatch);
+    }
 
     CustodyFileResult<std::uint64_t> physicalBytes(const std::filesystem::path& parent,
         const std::shared_ptr<const std::atomic<bool>>& cancel, unsigned depth = 0) const {
@@ -156,7 +207,15 @@ struct ProtectedCustodyFiles::State {
                 if (!nested.ok()) return failure<bool>(nested.error, nested.nativeError);
                 bytes = *nested.value;
             } else {
-                auto file = openFile(child, FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE);
+                CustodyFileResult<Handle> file;
+                if (legacyOccupancyOnly(child)) {
+                    // Count allocation, never read payload or grant a source capability.
+                    Handle attributes(CreateFileW(win32Path(child).c_str(),FILE_READ_ATTRIBUTES | READ_CONTROL,
+                        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,nullptr,OPEN_EXISTING,FILE_FLAG_OPEN_REPARSE_POINT,nullptr));
+                    if (!attributes.valid()) return failure<bool>(CustodyFileError::ioFailed,GetLastError());
+                    if (!inspect(attributes.value,child,false,false)) return failure<bool>(CustodyFileError::unsafeFile);
+                    file=success(std::move(attributes));
+                } else file=openFile(child, FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE);
                 if (!file.ok()) return failure<bool>(file.error, file.nativeError);
                 FILE_STANDARD_INFO info{};
                 if (!GetFileInformationByHandleEx(file.value->value, FileStandardInfo, &info, sizeof(info)))
@@ -458,14 +517,707 @@ CustodyFileResult<std::unique_ptr<ProtectedCustodyFiles>> ProtectedCustodyFiles:
     return failure<std::unique_ptr<ProtectedCustodyFiles>>(CustodyFileError::unsafePath);
 }
 
+CustodyFileResult<CustodyBytes> ProtectedCustodyFiles::readMigrationQueue() const try {
+#ifndef _WIN32
+    return failure<CustodyBytes>(CustodyFileError::unsupportedPlatform);
+#else
+    if (!state_->migrationSource.valid() || !state_->cancellation) return failure<CustodyBytes>(CustodyFileError::invalidInput);
+    const auto& path = state_->migrationSourcePath;
+    const auto check = [&]() -> CustodyFileResult<bool> {
+        if (state_->cancellation->load()) return failure<bool>(CustodyFileError::ioFailed, ERROR_OPERATION_ABORTED);
+        for (const auto& directory : state_->directories)
+            if (!state_->inspect(directory.handle.value, directory.path, true, directory.privateDirectory))
+                return failure<bool>(CustodyFileError::unsafePath);
+        if (state_->storeId.valid() && !state_->inspect(state_->storeId.value,
+            state_->trustedRoot / L".custody-v1" / L"store.id", false, true)) return failure<bool>(CustodyFileError::unsafeFile);
+        if (!state_->inspect(state_->migrationSource.value, path, false, false)) return failure<bool>(CustodyFileError::unsafeFile);
+        FILE_ID_INFO identity{}; FILE_BASIC_INFO times{}; LARGE_INTEGER size{};
+        if (!GetFileInformationByHandleEx(state_->migrationSource.value, FileIdInfo, &identity, sizeof(identity)) ||
+            !GetFileInformationByHandleEx(state_->migrationSource.value, FileBasicInfo, &times, sizeof(times)) ||
+            !GetFileSizeEx(state_->migrationSource.value, &size)) return failure<bool>(CustodyFileError::ioFailed, GetLastError());
+        if (identity.VolumeSerialNumber != state_->migrationSourceId.VolumeSerialNumber ||
+            std::memcmp(identity.FileId.Identifier, state_->migrationSourceId.FileId.Identifier, sizeof(identity.FileId.Identifier)) ||
+            times.LastWriteTime.QuadPart != state_->migrationSourceTimes.LastWriteTime.QuadPart ||
+            times.ChangeTime.QuadPart != state_->migrationSourceTimes.ChangeTime.QuadPart || size.QuadPart < 0 ||
+            static_cast<std::uint64_t>(size.QuadPart) != state_->migrationSourceBytes)
+            return failure<bool>(CustodyFileError::identityMismatch);
+        return success(true);
+    };
+    auto checked = check(); if (!checked.ok()) return failure<CustodyBytes>(checked.error, checked.nativeError);
+    if (!state_->migrationSourceBytes || state_->migrationSourceBytes > 4 * 1024 * 1024)
+        return failure<CustodyBytes>(CustodyFileError::invalidContent);
+    CustodyBytes bytes(static_cast<std::size_t>(state_->migrationSourceBytes));
+    LARGE_INTEGER zero{};
+    if (!SetFilePointerEx(state_->migrationSource.value, zero, nullptr, FILE_BEGIN)) return failure<CustodyBytes>(CustodyFileError::ioFailed, GetLastError());
+    for (std::size_t done = 0; done < bytes.size();) {
+        checked = check(); if (!checked.ok()) return failure<CustodyBytes>(checked.error, checked.nativeError);
+        DWORD got = 0; const auto wanted = static_cast<DWORD>((std::min)(std::size_t{256 * 1024}, bytes.size() - done));
+        if (!ReadFile(state_->migrationSource.value, bytes.data() + done, wanted, &got, nullptr))
+            return failure<CustodyBytes>(CustodyFileError::ioFailed, GetLastError());
+        checked = check(); if (!checked.ok()) return failure<CustodyBytes>(checked.error, checked.nativeError);
+        if (!got || got > wanted) return failure<CustodyBytes>(CustodyFileError::invalidContent);
+        done += got;
+    }
+    std::uint8_t extra = 0; DWORD got = 0;
+    if (!ReadFile(state_->migrationSource.value, &extra, 1, &got, nullptr)) return failure<CustodyBytes>(CustodyFileError::ioFailed, GetLastError());
+    if (got) return failure<CustodyBytes>(CustodyFileError::invalidContent);
+    checked = check(); if (!checked.ok()) return failure<CustodyBytes>(checked.error, checked.nativeError);
+    return success(std::move(bytes));
+#endif
+} catch (const std::bad_alloc&) { return failure<CustodyBytes>(CustodyFileError::allocationFailed); }
+
+void ProtectedCustodyFiles::retireMigrationQueueSource() noexcept {
+#ifdef _WIN32
+    state_->migrationSource.close();
+    state_->migrationCounting=false;
+    for (auto& barrier:state_->migrationBarriers) barrier.close();
+#endif
+}
+CustodyFileResult<bool> ProtectedCustodyFiles::migrationQueueGatePresent() const {
+#ifndef _WIN32
+    return failure<bool>(CustodyFileError::unsupportedPlatform);
+#else
+    if (!state_->cancellation || state_->cancellation->load()) return failure<bool>(CustodyFileError::ioFailed,ERROR_OPERATION_ABORTED);
+    const auto path = win32Path(state_->trustedRoot / L"desktop-upload-queue.v2.quarantine");
+    const auto attributes = GetFileAttributesW(path.c_str());
+    if (attributes != INVALID_FILE_ATTRIBUTES) return success(true);
+    const auto native = GetLastError();
+    return native == ERROR_FILE_NOT_FOUND ? success(false) : failure<bool>(CustodyFileError::ioFailed,native);
+#endif
+}
+CustodyFileResult<bool> ProtectedCustodyFiles::installQueueMigrationBarriers(
+    const CustodyMigrationValue& value, const CustodyBytes& birth,
+    std::shared_ptr<const std::atomic<bool>> cancellation, bool publish) try {
+#ifndef _WIN32
+    (void)value; (void)birth; (void)cancellation; (void)publish; return failure<bool>(CustodyFileError::unsupportedPlatform);
+#else
+    if (!cancellation || cancellation.get() != state_->cancellation.get() || value.subject != CustodyMigrationSubject::queue ||
+        value.context.storeId != state_->context.storeId || (publish && value.stage < CustodyMigrationStage::copiedVerified) || !value.barrier ||
+        value.authorization || !state_->migrationSource.valid()) return failure<bool>(CustodyFileError::invalidInput);
+    auto validBirth = readCustodyMigrationBirth(birth,value.context,value,value.transactionId,CustodyMigrationSubject::queue,{});
+    if (!validBirth.ok()) return failure<bool>(codecFileError(validBirth.error),validBirth.nativeError);
+    SecureZeroMemory(&*validBirth.value,sizeof(CustodyMigrationValue));
+    const auto source = [&]() -> CustodyFileResult<bool> {
+        auto bytes = readMigrationQueue(); if (!bytes.ok()) return failure<bool>(bytes.error,bytes.nativeError);
+        const auto hash = custody_detail::digest(bytes.value->data(),bytes.value->size());
+        if (!hash) return failure<bool>(CustodyFileError::hashFailed);
+        return bytes.value->size() == value.anchor.length && *hash == value.anchor.sha256
+            ? success(true) : failure<bool>(CustodyFileError::conflict);
+    };
+    const auto verifyCopy = [&](Handle& file,const std::filesystem::path& path) -> CustodyFileResult<bool> {
+        if (cancellation->load()) return failure<bool>(CustodyFileError::ioFailed,ERROR_OPERATION_ABORTED);
+        if (!state_->inspect(file.value,path,false,true)) return failure<bool>(CustodyFileError::unsafeFile);
+        LARGE_INTEGER size{},zero{};
+        if (!GetFileSizeEx(file.value,&size) || !SetFilePointerEx(file.value,zero,nullptr,FILE_BEGIN))
+            return failure<bool>(CustodyFileError::ioFailed,GetLastError());
+        if (size.QuadPart < 0 || static_cast<std::uint64_t>(size.QuadPart) != birth.size()) return failure<bool>(CustodyFileError::recoveryRequired);
+        CustodyBytes observed(birth.size());
+        for (std::size_t at = 0; at < observed.size();) {
+            if (cancellation->load()) return failure<bool>(CustodyFileError::ioFailed,ERROR_OPERATION_ABORTED);
+            DWORD got = 0; const auto wanted = static_cast<DWORD>((std::min)(std::size_t{65536},observed.size() - at));
+            if (!ReadFile(file.value,observed.data() + at,wanted,&got,nullptr)) return failure<bool>(CustodyFileError::ioFailed,GetLastError());
+            if (!got || got > wanted) return failure<bool>(CustodyFileError::recoveryRequired);
+            at += got;
+            if (!state_->inspect(file.value,path,false,true)) return failure<bool>(CustodyFileError::unsafeFile);
+        }
+        if (observed != birth) return failure<bool>(CustodyFileError::recoveryRequired); // Never overwrite an unknown quarantine.
+        auto proof = readCustodyMigrationBirth(observed,value.context,value,value.transactionId,CustodyMigrationSubject::queue,{});
+        if (!proof.ok()) return failure<bool>(codecFileError(proof.error),proof.nativeError);
+        SecureZeroMemory(&*proof.value,sizeof(CustodyMigrationValue));
+        return success(true);
+    };
+    const auto fixedCopy = [&](const std::filesystem::path& path) -> CustodyFileResult<Handle> {
+        if (cancellation->load()) return failure<Handle>(CustodyFileError::ioFailed,ERROR_OPERATION_ABORTED);
+        const auto attributes = GetFileAttributesW(win32Path(path).c_str());
+        if (attributes != INVALID_FILE_ATTRIBUTES) return state_->openFile(path,GENERIC_READ,FILE_SHARE_READ);
+        const auto native = GetLastError();
+        if (native != ERROR_FILE_NOT_FOUND) return failure<Handle>(CustodyFileError::ioFailed,native);
+        return state_->create(path,birth.data(),static_cast<std::uint32_t>(birth.size())); // CREATE_NEW only.
+    };
+    auto checked = source(); if (!checked.ok()) return checked;
+    const auto old = state_->trustedRoot / L"desktop-upload-queue.v2";
+    const auto gatePath = state_->trustedRoot / L"desktop-upload-queue.v2.quarantine";
+    if (value.stage==CustodyMigrationStage::switched) {
+        if (state_->migrationSourcePath!=state_->trustedRoot/L".custody-v1"/L"legacy.originals"/L"ledger" ||
+            GetFileAttributesW(win32Path(gatePath).c_str())==INVALID_FILE_ATTRIBUTES ||
+            GetFileAttributesW(win32Path(old).c_str())==INVALID_FILE_ATTRIBUTES) return failure<bool>(CustodyFileError::recoveryRequired);
+        publish=false;
+    }
+    if (!publish) {
+        for (const auto& path : {gatePath,old}) {
+            if (path == state_->migrationSourcePath) continue; // Real original, never parse as a tombstone.
+            const auto attributes = GetFileAttributesW(win32Path(path).c_str());
+            if (attributes == INVALID_FILE_ATTRIBUTES) {
+                const auto native = GetLastError();
+                if (native != ERROR_FILE_NOT_FOUND) return failure<bool>(CustodyFileError::ioFailed,native);
+                if (path == gatePath && state_->migrationSourcePath != old) return failure<bool>(CustodyFileError::recoveryRequired);
+                continue;
+            }
+            auto held = state_->openFile(path,GENERIC_READ,FILE_SHARE_READ);
+            if (!held.ok()) return failure<bool>(held.error,held.nativeError);
+            checked = verifyCopy(*held.value,path); if (!checked.ok()) return checked;
+            state_->migrationBarriers[path == gatePath ? 0 : 1] = std::move(*held.value);
+        }
+        return source();
+    }
+    auto gate = fixedCopy(gatePath); if (!gate.ok()) return failure<bool>(gate.error,gate.nativeError);
+    checked = verifyCopy(*gate.value,gatePath); if (!checked.ok()) return checked;
+    // Gate is durable/authenticated BEFORE any old-name rename.
+    const auto originals = state_->trustedRoot / L".custody-v1" / L"legacy.originals";
+    const auto original = originals / L"ledger";
+    if (state_->migrationSourcePath == old) {
+        const auto api = win32Path(originals);
+        if (!CreateDirectoryW(api.c_str(),&state_->security) && GetLastError() != ERROR_ALREADY_EXISTS)
+            return failure<bool>(CustodyFileError::ioFailed,GetLastError());
+        Handle target(CreateFileW(api.c_str(),FILE_LIST_DIRECTORY | FILE_ADD_FILE | FILE_TRAVERSE | READ_CONTROL | FILE_READ_ATTRIBUTES,
+            FILE_SHARE_READ | FILE_SHARE_WRITE,nullptr,OPEN_EXISTING,FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,nullptr));
+        if (!target.valid()) return failure<bool>(CustodyFileError::ioFailed,GetLastError());
+        if (!state_->inspect(target.value,originals,true,true)) return failure<bool>(CustodyFileError::unsafePath);
+        auto empty = state_->eachChild(originals,cancellation,[](std::wstring_view,bool) { return failure<bool>(CustodyFileError::recoveryRequired); });
+        if (!empty.ok()) return empty;
+        checked = source(); if (!checked.ok()) return checked;
+        const auto procedure = GetProcAddress(GetModuleHandleW(L"ntdll.dll"),"NtSetInformationFile");
+        if (!procedure) return failure<bool>(CustodyFileError::ioFailed,ERROR_PROC_NOT_FOUND);
+        RenameFile rename = nullptr; static_assert(sizeof(rename) == sizeof(procedure)); std::memcpy(&rename,&procedure,sizeof(rename));
+        constexpr std::wstring_view name = L"ledger";
+        const auto bytes = sizeof(RenameInfo) + name.size()*sizeof(wchar_t);
+        CustodyVector<std::uint64_t> buffer((bytes + 7)/8);
+        auto* info = reinterpret_cast<RenameInfo*>(buffer.data());
+        info->replace = FALSE; info->root = target.value; info->nameBytes = static_cast<ULONG>(name.size()*sizeof(wchar_t));
+        std::copy(name.begin(),name.end(),info->name);
+        IO_STATUS_BLOCK io{};
+        const auto status = rename(state_->migrationSource.value,&io,info,static_cast<ULONG>(bytes),nativeRenameInformation);
+        if (status != 0 || io.Status != 0) return failure<bool>(CustodyFileError::recoveryRequired,static_cast<std::uint32_t>(status != 0 ? status : io.Status));
+        state_->migrationSourcePath = original; // Same actual handle/identity, never release/reopen.
+        if (!FlushFileBuffers(state_->migrationSource.value)) return failure<bool>(CustodyFileError::recoveryRequired,GetLastError());
+        if (!GetFileInformationByHandleEx(state_->migrationSource.value,FileBasicInfo,&state_->migrationSourceTimes,sizeof(state_->migrationSourceTimes)))
+            return failure<bool>(CustodyFileError::recoveryRequired,GetLastError());
+        if (!state_->inspect(target.value,originals,true,true)) return failure<bool>(CustodyFileError::unsafePath);
+        checked = source(); if (!checked.ok()) return checked;
+        // Transfer the exact already-open directory lease, without a reopen gap.
+        checked=state_->retainMigratedDirectory(target,originals); if (!checked.ok()) return checked;
+        checked=source(); if (!checked.ok()) return checked;
+
+    } else if (state_->migrationSourcePath != original) return failure<bool>(CustodyFileError::identityMismatch);
+    auto sentinel = fixedCopy(old); if (!sentinel.ok()) return failure<bool>(sentinel.error,sentinel.nativeError);
+    checked = verifyCopy(*sentinel.value,old); if (!checked.ok()) return checked;
+    checked = verifyCopy(*gate.value,gatePath); if (!checked.ok()) return checked;
+    state_->migrationBarriers[0] = std::move(*gate.value);
+    state_->migrationBarriers[1] = std::move(*sentinel.value);
+    return source();
+#endif
+} catch (const std::bad_alloc&) { return failure<bool>(CustodyFileError::allocationFailed); }
+  catch (const std::filesystem::filesystem_error&) { return failure<bool>(CustodyFileError::unsafePath); }
+
+CustodyFileResult<std::unique_ptr<ProtectedCustodyFiles>> ProtectedCustodyFiles::lockQueueMigrationRoot(
+    const std::filesystem::path& root, std::shared_ptr<const std::atomic<bool>> cancellation,
+    CustodyBytes& source, unsigned& roles, bool& envelopes) try {
+    using Result = std::unique_ptr<ProtectedCustodyFiles>;
+    roles = 0; envelopes = false;
+    if (!cancellation) return failure<Result>(CustodyFileError::invalidInput);
+#ifndef _WIN32
+    (void)root; (void)source; return failure<Result>(CustodyFileError::unsupportedPlatform);
+#else
+    if (cancellation->load()) return failure<Result>(CustodyFileError::ioFailed, ERROR_OPERATION_ABORTED);
+    if (!localPath(root)) return failure<Result>(CustodyFileError::unsafePath);
+    auto state = std::make_unique<State>(root); state->cancellation = cancellation;
+    if (!state->initializeSecurity()) return failure<Result>(CustodyFileError::ioFailed, GetLastError());
+    auto checked = state->lockRoot(false); if (!checked.ok()) return failure<Result>(checked.error, checked.nativeError);
+    bool ledger = false, custody = false, quarantine = false;
+    auto inventory = state->eachChild(root, cancellation, [&](std::wstring_view name, bool directory) {
+        if (!directory) {
+            if (name == L"desktop-upload-queue.v2.quarantine") { quarantine = true; return success(true); }
+            if (name != L"desktop-upload-queue.v2" || ledger) return failure<bool>(CustodyFileError::recoveryRequired);
+            ledger = true; return success(true); // Cipher copies are authenticated after strict intent read, never overwritten.
+        }
+        const auto path = root / std::filesystem::path(name);
+        if (name == L".custody-v1") { custody = true; return success(true); }
+        if (name.empty() || name.size() > 300 || !std::all_of(name.begin(), name.end(), [](wchar_t c) {
+            return (c >= L'a' && c <= L'z') || (c >= L'A' && c <= L'Z') || (c >= L'0' && c <= L'9') || c == L'_' || c == L'-';
+        })) return failure<bool>(CustodyFileError::recoveryRequired);
+        auto locked = state->lockDirectory(path, false, false); if (!locked.ok()) return locked;
+        return state->eachChild(path, cancellation, [&](std::wstring_view file, bool dir) {
+            if (dir && file == L".custody-v1") return success(true); // Discovery only; package reconciliation owns validation.
+            if (dir || (file != L"manifest.json" && file != L"meeting-transcription.wav" && file != L"meeting-review.m4a" &&
+                file != L".canonical-mix.f32.tmp" && file != L"capture-recovery.json"))
+                return failure<bool>(CustodyFileError::recoveryRequired);
+            return success(true);
+        });
+    });
+    if (!inventory.ok()) return failure<Result>(inventory.error, inventory.nativeError);
+    if ((!custody && quarantine) || (!ledger && !custody)) return failure<Result>(CustodyFileError::recoveryRequired);
+    const auto originals = root / L".custody-v1" / L"legacy.originals";
+    const auto original = originals / L"ledger";
+    const auto originalAttributes = GetFileAttributesW(win32Path(original).c_str());
+    if (originalAttributes != INVALID_FILE_ATTRIBUTES) {
+        if (!quarantine || (originalAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)))
+            return failure<Result>(CustodyFileError::recoveryRequired);
+        auto locked = state->lockDirectory(originals,true,false);
+        if (!locked.ok()) return failure<Result>(locked.error,locked.nativeError);
+        state->migrationSourcePath = original;
+    } else {
+        const auto native = GetLastError();
+        if ((native != ERROR_FILE_NOT_FOUND && native != ERROR_PATH_NOT_FOUND) || !ledger)
+            return failure<Result>(CustodyFileError::recoveryRequired,native);
+        state->migrationSourcePath = root / L"desktop-upload-queue.v2";
+    }
+    const auto ledgerPath = win32Path(state->migrationSourcePath);
+    state->migrationSource = Handle(CreateFileW(ledgerPath.c_str(), GENERIC_READ | GENERIC_WRITE | DELETE | READ_CONTROL, FILE_SHARE_READ,
+        nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
+    if (!state->migrationSource.valid()) return failure<Result>(CustodyFileError::ioFailed, GetLastError());
+    LARGE_INTEGER size{};
+    if (!GetFileInformationByHandleEx(state->migrationSource.value, FileIdInfo, &state->migrationSourceId, sizeof(state->migrationSourceId)) ||
+        !GetFileInformationByHandleEx(state->migrationSource.value, FileBasicInfo, &state->migrationSourceTimes, sizeof(state->migrationSourceTimes)) ||
+        !GetFileSizeEx(state->migrationSource.value, &size)) return failure<Result>(CustodyFileError::ioFailed, GetLastError());
+    if (size.QuadPart <= 0 || size.QuadPart > 4 * 1024 * 1024) return failure<Result>(CustodyFileError::invalidContent);
+    state->migrationSourceBytes = static_cast<std::uint64_t>(size.QuadPart);
+    Result held(new ProtectedCustodyFiles(std::move(state)));
+    auto bytes = held->readMigrationQueue(); if (!bytes.ok()) return failure<Result>(bytes.error, bytes.nativeError);
+    const std::string_view plaintext{reinterpret_cast<const char*>(bytes.value->data()), bytes.value->size()};
+    // Only the historical plaintext inputs are migration authority. The shared
+    // decoder also reads protected v4 queues and must not inherit this limit.
+    if (plaintext.rfind(R"({"schema_version":"desktop-upload-queue.v2","items":[)",0)!=0 &&
+        plaintext.rfind(R"({"schema_version":"desktop-upload-queue.v3","items":[)",0)!=0)
+        return failure<Result>(CustodyFileError::invalidContent);
+    auto decoded = ProtectedCustodyStoreOwner::decodeMigrationQueue(plaintext, cancellation.get());
+    if (!decoded.ok()) return failure<Result>(decoded.error, decoded.nativeError);
+    for (const auto& row : (*decoded.value)->items()) {
+        if (cancellation->load()) return failure<Result>(CustodyFileError::ioFailed, ERROR_OPERATION_ABORTED);
+        const auto path = std::filesystem::u8path(row.packageDirectory.begin(), row.packageDirectory.end());
+        const auto expected = root / std::filesystem::u8path(row.directoryId.begin(), row.directoryId.end());
+        if (path != expected || !AtomicFileStore::isWithinRoot(root, path)) return failure<Result>(CustodyFileError::unsafePath);
+        auto locked = held->state_->lockDirectory(expected, false, false);
+        if (!locked.ok()) return failure<Result>(locked.error, locked.nativeError);
+    }
+    const auto service = root / L".custody-v1";
+    if (custody) {
+        auto locked = held->state_->lockDirectory(service, true, false); if (!locked.ok()) return failure<Result>(locked.error, locked.nativeError);
+        bool store = false;
+        auto scanned = held->state_->eachChild(service, cancellation, [&](std::wstring_view name, bool directory) {
+            if (name == L"store.id" && !directory) { store = true; return success(true); }
+            if (name == L"legacy.originals" && directory) {
+                const bool renamed = held->state_->migrationSourcePath == original;
+                if (renamed) {
+                    auto lock = held->state_->lockDirectory(service / L"legacy.originals",true,false); if (!lock.ok()) return lock;
+                }
+                return held->state_->eachChild(service / L"legacy.originals",cancellation,[&](std::wstring_view file,bool dir) {
+                    return renamed && !dir && file == L"ledger" ? success(true) : failure<bool>(CustodyFileError::recoveryRequired);
+                }); // Empty pre-rename directory is checked again under the actual native rename target handle.
+            }
+            unsigned bit = 0;
+            if (name == L"queue" && directory) bit = 1;
+            if (name == L"migration-intent" && directory) bit = 2;
+            if (name == L"bootstrap" && directory) bit = 4;
+            if (!bit || (roles & bit)) return failure<bool>(CustodyFileError::recoveryRequired);
+            roles |= bit;
+            const auto role = service / std::filesystem::path(name);
+            auto lock = held->state_->lockDirectory(role, true, false); if (!lock.ok()) return lock;
+            bool id = false;
+            auto members = held->state_->eachChild(role, cancellation, [&](std::wstring_view file, bool dir) {
+                if (dir) return failure<bool>(CustodyFileError::recoveryRequired);
+                if (file == L"id.bin") { id = true; return success(true); }
+                const auto dot = file.find(L'.',6);
+                const bool block = file.substr(0,6) == L"block." && dot != std::wstring_view::npos && dot > 6 && dot + 1 < file.size() &&
+                    file[dot + 1] >= L'1' && file[dot + 1] <= L'9' &&
+                    std::all_of(file.begin() + 6,file.begin() + dot,[](wchar_t c) { return c >= L'0' && c <= L'9'; }) &&
+                    std::all_of(file.begin() + dot + 1,file.end(),[](wchar_t c) { return c >= L'0' && c <= L'9'; });
+                if (file != L"index.0" && file != L"index.1" && !block) return failure<bool>(CustodyFileError::recoveryRequired);
+                envelopes = true; return success(true);
+            });
+            return !members.ok() ? members : id ? success(true) : failure<bool>(CustodyFileError::recoveryRequired);
+        });
+        if (!scanned.ok()) return failure<Result>(scanned.error, scanned.nativeError);
+        if (!store || (quarantine && !envelopes) || (envelopes && (roles & 3) != 3)) return failure<Result>(CustodyFileError::recoveryRequired);
+        auto identity = held->state_->identity(held->state_->storeId, service / L"store.id", nullptr,
+            held->state_->context.storeId, false, true);
+        if (!identity.ok()) return failure<Result>(identity.error, identity.nativeError);
+    } else {
+        // Decode and confinement above precede the first persistent byte.
+        if (cancellation->load()) return failure<Result>(CustodyFileError::ioFailed, ERROR_OPERATION_ABORTED);
+        if (!CreateDirectoryW(win32Path(service).c_str(), &held->state_->security)) return failure<Result>(CustodyFileError::ioFailed, GetLastError());
+        auto locked = held->state_->lockDirectory(service, true, false); if (!locked.ok()) return failure<Result>(locked.error, locked.nativeError);
+        const auto rng = BCryptGenRandom(nullptr, held->state_->context.storeId.data(), 16, BCRYPT_USE_SYSTEM_PREFERRED_RNG);
+        if (rng < 0) return failure<Result>(CustodyFileError::ioFailed, static_cast<std::uint32_t>(rng));
+        auto id = held->state_->create(service / L"store.id", held->state_->context.storeId.data(), 16);
+        if (!id.ok()) return failure<Result>(id.error, id.nativeError);
+        held->state_->storeId = std::move(*id.value);
+    }
+    held->state_->migrationCounting=true;
+    source = std::move(*bytes.value);
+    return success(std::move(held));
+#endif
+} catch (const std::bad_alloc&) { return failure<std::unique_ptr<ProtectedCustodyFiles>>(CustodyFileError::allocationFailed); }
+  catch (const std::filesystem::filesystem_error&) { return failure<std::unique_ptr<ProtectedCustodyFiles>>(CustodyFileError::unsafePath); }
+
+CustodyFileResult<std::shared_ptr<ProtectedCustodyFiles>> ProtectedCustodyFiles::lockMigrationPackageRoot(
+    std::shared_ptr<const ProtectedCustodyFiles> root, std::string_view name,
+    std::shared_ptr<const std::atomic<bool>> cancellation, CustodyMigrationValue& captured, unsigned& roles, const CustodyMigrationValue* history) try {
+    using Result = std::shared_ptr<ProtectedCustodyFiles>;
+    if (!root || !cancellation || root->state_->cancellation.get() != cancellation.get() || name.empty() || name.size() > 300 ||
+        !std::all_of(name.begin(),name.end(),[](char c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+            (c >= '0' && c <= '9') || c == '_' || c == '-'; })) return failure<Result>(CustodyFileError::invalidInput);
+#ifndef _WIN32
+    (void)captured; (void)roles; (void)history; return failure<Result>(CustodyFileError::unsupportedPlatform);
+#else
+    if (cancellation->load()) return failure<Result>(CustodyFileError::ioFailed,ERROR_OPERATION_ABORTED);
+    auto state = std::make_unique<State>(root->state_->trustedRoot);
+    state->rootLease = std::move(root); state->cancellation = cancellation; state->writable = true;
+    state->context.storeId = state->rootLease->context().storeId;
+    if (!state->initializeSecurity()) return failure<Result>(CustodyFileError::ioFailed,GetLastError());
+    const auto package = state->trustedRoot / std::filesystem::path(std::wstring(name.begin(),name.end()));
+    auto checked = state->lockDirectory(package,true,false); if (!checked.ok()) return failure<Result>(checked.error,checked.nativeError);
+    state->directory = package / L".custody-v1";
+    roles = 0; bool custody = false;
+    constexpr std::array<const wchar_t*,6> oldNames{L"",L"manifest.json",L".canonical-mix.f32.tmp",L"meeting-transcription.wav",L"meeting-review.m4a",L"capture-recovery.json"};
+    constexpr std::array<const wchar_t*,6> originalNames{L"ledger",L"manifest",L"canonical",L"media",L"playback",L"recovery"};
+    constexpr std::array<CustodyRole,6> sourceRoles{CustodyRole::queue,CustodyRole::manifest,CustodyRole::canonical,CustodyRole::media,CustodyRole::playback,CustodyRole::recovery};
+    checked = state->eachChild(package,cancellation,[&](std::wstring_view entry,bool dir) {
+        if (dir) { if (entry != L".custody-v1") return failure<bool>(CustodyFileError::recoveryRequired); custody = true; return success(true); }
+        return std::any_of(oldNames.begin()+1,oldNames.end(),[&](const wchar_t* known) { return entry == known; })
+            ? success(true) : failure<bool>(CustodyFileError::recoveryRequired);
+    });
+    if (!checked.ok()) return failure<Result>(checked.error,checked.nativeError);
+    if (custody) {
+        checked = state->lockDirectory(state->directory,true,false); if (!checked.ok()) return failure<Result>(checked.error,checked.nativeError);
+        checked = state->eachChild(state->directory,cancellation,[&](std::wstring_view entry,bool dir) {
+            if (!dir) return failure<bool>(CustodyFileError::recoveryRequired);
+            if (entry == L"legacy.originals") return success(true); // Contents checked against every fixed source below.
+            unsigned bit = 0;
+            if (entry == L"package-state") bit = 1;
+            if (entry == L"migration-intent") bit = 2;
+            for (unsigned source = 1; source < oldNames.size(); ++source)
+                if (entry == originalNames[source]) bit = 1U << (source+1);
+            if (!bit || (roles & bit)) return failure<bool>(CustodyFileError::recoveryRequired);
+            roles |= bit; return success(true); // openRole performs exact identity/native inventory validation.
+        });
+        if (!checked.ok()) return failure<Result>(checked.error,checked.nativeError);
+    }
+    const auto originals = state->directory / L"legacy.originals";
+    const auto originalAttributes = GetFileAttributesW(win32Path(originals).c_str());
+    bool hasOriginals = originalAttributes != INVALID_FILE_ATTRIBUTES;
+    if (!hasOriginals) { const auto native = GetLastError(); if (native != ERROR_PATH_NOT_FOUND && native != ERROR_FILE_NOT_FOUND)
+        return failure<Result>(CustodyFileError::ioFailed,native); }
+    if (hasOriginals) {
+        roles|=0x80000000U;
+        if (!custody || !(roles & 2) || (originalAttributes & FILE_ATTRIBUTE_REPARSE_POINT) || !(originalAttributes & FILE_ATTRIBUTE_DIRECTORY))
+            return failure<Result>(CustodyFileError::recoveryRequired);
+        checked = state->eachChild(originals,cancellation,[&](std::wstring_view entry,bool dir) {
+            return !dir && std::any_of(originalNames.begin()+1,originalNames.end(),[&](const wchar_t* known) { return entry == known; })
+                ? success(true) : failure<bool>(CustodyFileError::recoveryRequired);
+        });
+        if (!checked.ok()) return failure<Result>(checked.error,checked.nativeError);
+    }
+    for (unsigned kind = 1; kind < oldNames.size(); ++kind) {
+        const auto old = package / oldNames[kind], original = originals / originalNames[kind];
+        const auto present = [&](const std::filesystem::path& path) -> CustodyFileResult<bool> {
+            const auto attributes = GetFileAttributesW(win32Path(path).c_str());
+            if (attributes != INVALID_FILE_ATTRIBUTES) return success(true);
+            const auto native = GetLastError(); return native == ERROR_FILE_NOT_FOUND || native == ERROR_PATH_NOT_FOUND
+                ? success(false) : failure<bool>(CustodyFileError::ioFailed,native);
+        };
+        auto prior = present(original), current = present(old);
+        if (!prior.ok() || !current.ok()) return failure<Result>(!prior.ok()?prior.error:current.error,!prior.ok()?prior.nativeError:current.nativeError);
+        bool expected=!history;
+        if (history) for (std::size_t index=0;index<history->sourceCount;++index)
+            expected=expected || static_cast<unsigned>(history->sources[index].kind)==kind;
+        if (!expected) {
+            if (*prior.value || (*current.value && kind!=1)) return failure<Result>(CustodyFileError::conflict);
+            continue; // A manifest sentinel with no manifest source is authenticated against the retained intent before writes.
+        }
+        if (!*prior.value && !*current.value) {
+            if (history) return failure<Result>(CustodyFileError::recoveryRequired);
+            continue;
+        }
+        if (*prior.value && *current.value && kind != 1) return failure<Result>(CustodyFileError::recoveryRequired);
+        auto& source = state->migrationPackageSources[kind]; source.path = *prior.value ? original : old;
+        source.file = Handle(CreateFileW(win32Path(source.path).c_str(),GENERIC_READ | GENERIC_WRITE | DELETE | READ_CONTROL,
+            FILE_SHARE_READ,nullptr,OPEN_EXISTING,FILE_FLAG_OPEN_REPARSE_POINT,nullptr));
+        if (!source.file.valid()) return failure<Result>(CustodyFileError::ioFailed,GetLastError());
+        if (!state->inspect(source.file.value,source.path,false,false)) return failure<Result>(CustodyFileError::unsafeFile);
+        LARGE_INTEGER length{};
+        if (!GetFileInformationByHandleEx(source.file.value,FileIdInfo,&source.identity,sizeof(source.identity)) ||
+            !GetFileInformationByHandleEx(source.file.value,FileBasicInfo,&source.times,sizeof(source.times)) ||
+            !GetFileSizeEx(source.file.value,&length)) return failure<Result>(CustodyFileError::ioFailed,GetLastError());
+        const auto limit = kind == 1 || kind == 5 ? std::uint64_t{65536} : ProtectedCustodyCodec::logicalLimit(sourceRoles[kind]);
+        if (length.QuadPart <= 0 || static_cast<std::uint64_t>(length.QuadPart) > limit) return failure<Result>(CustodyFileError::invalidContent);
+        source.length = static_cast<std::uint64_t>(length.QuadPart);
+    }
+    Result held(new ProtectedCustodyFiles(std::move(state)),[](ProtectedCustodyFiles* file) { delete file; },CustodyAllocator<ProtectedCustodyFiles>{});
+    captured.sourceCount = 0;
+    for (unsigned kind = 1; kind < oldNames.size(); ++kind) {
+        const auto length = held->state_->migrationPackageSources[kind].length; if (!length) continue;
+        auto& value = captured.sources[captured.sourceCount++]; value.kind = static_cast<CustodyMigrationSourceKind>(kind); value.length = length;
+        struct Hash { BCRYPT_HASH_HANDLE value=nullptr; ~Hash() { if (value) BCryptDestroyHash(value); } } hash;
+        auto status = BCryptCreateHash(BCRYPT_SHA256_ALG_HANDLE,&hash.value,nullptr,0,nullptr,0,0);
+        if (status < 0) return failure<Result>(CustodyFileError::hashFailed,static_cast<std::uint32_t>(status));
+        for (std::uint64_t at = 0; at < length;) {
+            const auto count = static_cast<std::uint32_t>((std::min)(std::uint64_t{256*1024},length-at));
+            auto bytes = held->readMigrationPackageSource(kind,at,count); if (!bytes.ok()) return failure<Result>(bytes.error,bytes.nativeError);
+            status = BCryptHashData(hash.value,bytes.value->data(),count,0);
+            if (status < 0) return failure<Result>(CustodyFileError::hashFailed,static_cast<std::uint32_t>(status));
+            at += count;
+        }
+        status = BCryptFinishHash(hash.value,value.sha256.data(),static_cast<ULONG>(value.sha256.size()),0);
+        if (status < 0) return failure<Result>(CustodyFileError::hashFailed,static_cast<std::uint32_t>(status));
+        auto eof = held->readMigrationPackageSource(kind,length,0); if (!eof.ok()) return failure<Result>(eof.error,eof.nativeError);
+    }
+    if (!captured.sourceCount) return failure<Result>(CustodyFileError::invalidContent);
+    return success(std::move(held));
+#endif
+} catch (const std::bad_alloc&) { return failure<std::shared_ptr<ProtectedCustodyFiles>>(CustodyFileError::allocationFailed); }
+  catch (const std::filesystem::filesystem_error&) { return failure<std::shared_ptr<ProtectedCustodyFiles>>(CustodyFileError::unsafePath); }
+
+CustodyFileResult<CustodyBytes> ProtectedCustodyFiles::readMigrationPackageSource(unsigned kind,std::uint64_t offset,std::uint32_t count) const try {
+#ifndef _WIN32
+    (void)kind; (void)offset; (void)count; return failure<CustodyBytes>(CustodyFileError::unsupportedPlatform);
+#else
+    if (!kind || kind >= state_->migrationPackageSources.size() || count > 256*1024) return failure<CustodyBytes>(CustodyFileError::invalidInput);
+    auto& source = state_->migrationPackageSources[kind];
+    if (!source.file.valid() || offset > source.length || count > source.length-offset || (!count && offset != source.length))
+        return failure<CustodyBytes>(CustodyFileError::invalidInput);
+    const auto check = [&]() -> CustodyFileResult<bool> {
+        if (!state_->cancellation || state_->cancellation->load()) return failure<bool>(CustodyFileError::ioFailed,ERROR_OPERATION_ABORTED);
+        for (auto* held=state_.get();held;held=held->rootLease ? held->rootLease->state_.get() : nullptr) {
+            for (const auto& directory:held->directories)
+                if (!held->inspect(directory.handle.value,directory.path,true,directory.privateDirectory)) return failure<bool>(CustodyFileError::unsafePath);
+            if (held->storeId.valid() && !held->inspect(held->storeId.value,held->trustedRoot/L".custody-v1"/L"store.id",false,true))
+                return failure<bool>(CustodyFileError::unsafeFile);
+        }
+        for (const auto& item:state_->migrationPackageSources) if (item.file.valid()) {
+            if (!state_->inspect(item.file.value,item.path,false,false)) return failure<bool>(CustodyFileError::unsafeFile);
+            FILE_ID_INFO identity{}; FILE_BASIC_INFO times{}; LARGE_INTEGER size{};
+            if (!GetFileInformationByHandleEx(item.file.value,FileIdInfo,&identity,sizeof(identity)) ||
+                !GetFileInformationByHandleEx(item.file.value,FileBasicInfo,&times,sizeof(times)) || !GetFileSizeEx(item.file.value,&size))
+                return failure<bool>(CustodyFileError::ioFailed,GetLastError());
+            if (identity.VolumeSerialNumber != item.identity.VolumeSerialNumber ||
+                std::memcmp(identity.FileId.Identifier,item.identity.FileId.Identifier,sizeof(identity.FileId.Identifier)) ||
+                times.LastWriteTime.QuadPart != item.times.LastWriteTime.QuadPart || times.ChangeTime.QuadPart != item.times.ChangeTime.QuadPart ||
+                size.QuadPart < 0 || static_cast<std::uint64_t>(size.QuadPart) != item.length) return failure<bool>(CustodyFileError::identityMismatch);
+        }
+        return success(true);
+    };
+    auto checked=check(); if (!checked.ok()) return failure<CustodyBytes>(checked.error,checked.nativeError);
+    LARGE_INTEGER at{}; at.QuadPart=static_cast<LONGLONG>(offset);
+    if (!SetFilePointerEx(source.file.value,at,nullptr,FILE_BEGIN)) return failure<CustodyBytes>(CustodyFileError::ioFailed,GetLastError());
+    CustodyBytes bytes(count);
+    for (std::uint32_t done=0;done<count;) {
+        DWORD got=0; if (!ReadFile(source.file.value,bytes.data()+done,count-done,&got,nullptr)) return failure<CustodyBytes>(CustodyFileError::ioFailed,GetLastError());
+        checked=check(); if (!checked.ok()) return failure<CustodyBytes>(checked.error,checked.nativeError);
+        if (!got || got>count-done) return failure<CustodyBytes>(CustodyFileError::invalidContent);
+        done+=got;
+    }
+    if (offset+count==source.length) {
+        std::uint8_t extra=0; DWORD got=0;
+        if (!ReadFile(source.file.value,&extra,1,&got,nullptr)) return failure<CustodyBytes>(CustodyFileError::ioFailed,GetLastError());
+        if (got) return failure<CustodyBytes>(CustodyFileError::invalidContent);
+    }
+    checked=check(); if (!checked.ok()) return failure<CustodyBytes>(checked.error,checked.nativeError);
+    return success(std::move(bytes));
+#endif
+} catch (const std::bad_alloc&) { return failure<CustodyBytes>(CustodyFileError::allocationFailed); }
+
+CustodyFileResult<bool> ProtectedCustodyFiles::createMigrationPackageCustody() {
+#ifndef _WIN32
+    return failure<bool>(CustodyFileError::unsupportedPlatform);
+#else
+    bool any=false;
+    for (unsigned kind=1;kind<state_->migrationPackageSources.size();++kind) if (state_->migrationPackageSources[kind].file.valid()) {
+        auto checked=readMigrationPackageSource(kind,state_->migrationPackageSources[kind].length,0);
+        if (!checked.ok()) return failure<bool>(checked.error,checked.nativeError);
+        any=true;
+    }
+    if (!any) return failure<bool>(CustodyFileError::invalidInput);
+    const auto attributes=GetFileAttributesW(win32Path(state_->directory).c_str());
+    if (attributes==INVALID_FILE_ATTRIBUTES) {
+        const auto native=GetLastError(); if (native!=ERROR_FILE_NOT_FOUND) return failure<bool>(CustodyFileError::ioFailed,native);
+        if (!CreateDirectoryW(win32Path(state_->directory).c_str(),&state_->security)) return failure<bool>(CustodyFileError::ioFailed,GetLastError());
+    }
+    return state_->lockDirectory(state_->directory,true,false);
+#endif
+}
+
+void ProtectedCustodyFiles::retireMigrationPackageSources() noexcept {
+#ifdef _WIN32
+    for (auto& source:state_->migrationPackageSources) source.file.close();
+    for (auto& barrier:state_->migrationBarriers) barrier.close();
+#endif
+}
+
+CustodyFileResult<bool> ProtectedCustodyFiles::verifyMigrationPackageSources(const CustodyMigrationValue& value) const try {
+#ifndef _WIN32
+    (void)value; return failure<bool>(CustodyFileError::unsupportedPlatform);
+#else
+    if (value.subject!=CustodyMigrationSubject::package || !value.sourceCount || value.sourceCount>5) return failure<bool>(CustodyFileError::invalidInput);
+    std::array<bool,6> seen{};
+    for (std::size_t i=0;i<value.sourceCount;++i) {
+        const auto& source=value.sources[i]; const auto kind=static_cast<unsigned>(source.kind);
+        if (!kind || kind>=seen.size() || seen[kind] || source.length!=state_->migrationPackageSources[kind].length)
+            return failure<bool>(CustodyFileError::conflict);
+        seen[kind]=true;
+        struct Hash { BCRYPT_HASH_HANDLE value=nullptr; ~Hash() { if (value) BCryptDestroyHash(value); } } hash;
+        auto status=BCryptCreateHash(BCRYPT_SHA256_ALG_HANDLE,&hash.value,nullptr,0,nullptr,0,0);
+        if (status<0) return failure<bool>(CustodyFileError::hashFailed,static_cast<std::uint32_t>(status));
+        for (std::uint64_t at=0;at<source.length;) {
+            const auto count=static_cast<std::uint32_t>((std::min)(std::uint64_t{256*1024},source.length-at));
+            auto bytes=readMigrationPackageSource(kind,at,count); if (!bytes.ok()) return failure<bool>(bytes.error,bytes.nativeError);
+            status=BCryptHashData(hash.value,bytes.value->data(),count,0);
+            if (status<0) return failure<bool>(CustodyFileError::hashFailed,static_cast<std::uint32_t>(status));
+            at+=count;
+        }
+        std::array<std::uint8_t,32> actual{};
+        status=BCryptFinishHash(hash.value,actual.data(),static_cast<ULONG>(actual.size()),0);
+        if (status<0) return failure<bool>(CustodyFileError::hashFailed,static_cast<std::uint32_t>(status));
+        if (actual!=source.sha256) return failure<bool>(CustodyFileError::conflict);
+        auto eof=readMigrationPackageSource(kind,source.length,0); if (!eof.ok()) return failure<bool>(eof.error,eof.nativeError);
+    }
+    for (unsigned kind=1;kind<seen.size();++kind)
+        if (state_->migrationPackageSources[kind].file.valid()!=seen[kind]) return failure<bool>(CustodyFileError::conflict);
+    return success(true);
+#endif
+} catch (const std::bad_alloc&) { return failure<bool>(CustodyFileError::allocationFailed); }
+
+CustodyFileResult<bool> ProtectedCustodyFiles::installPackageMigrationBarriers(
+    const CustodyMigrationValue& value,const CustodyBytes& birth,bool publish) try {
+#ifndef _WIN32
+    (void)value; (void)birth; (void)publish; return failure<bool>(CustodyFileError::unsupportedPlatform);
+#else
+    const auto scope=state_->directory.parent_path();
+    const auto name=scope.filename().string(); // Fixed already-validated ASCII directory.
+    if (value.subject!=CustodyMigrationSubject::package || value.context.storeId!=state_->context.storeId ||
+        !value.directory || std::string_view(value.directory->data(),name.size())!=name || value.authorization || !value.barrier ||
+        (publish && value.stage<CustodyMigrationStage::copiedVerified)) return failure<bool>(CustodyFileError::invalidInput);
+    auto proof=readCustodyMigrationBirth(birth,value.context,value,value.transactionId,CustodyMigrationSubject::package,name);
+    if (!proof.ok()) return failure<bool>(codecFileError(proof.error),proof.nativeError);
+    SecureZeroMemory(&*proof.value,sizeof(CustodyMigrationValue));
+    auto checked=verifyMigrationPackageSources(value); if (!checked.ok()) return checked;
+    const auto old=scope/L"manifest.json";
+    const auto verifyCopy=[&](Handle& file)->CustodyFileResult<bool> {
+        if (state_->cancellation->load()) return failure<bool>(CustodyFileError::ioFailed,ERROR_OPERATION_ABORTED);
+        if (!state_->inspect(file.value,old,false,true)) return failure<bool>(CustodyFileError::unsafeFile);
+        LARGE_INTEGER size{},zero{};
+        if (!GetFileSizeEx(file.value,&size) || !SetFilePointerEx(file.value,zero,nullptr,FILE_BEGIN)) return failure<bool>(CustodyFileError::ioFailed,GetLastError());
+        if (size.QuadPart<0 || static_cast<std::uint64_t>(size.QuadPart)!=birth.size()) return failure<bool>(CustodyFileError::recoveryRequired);
+        CustodyBytes bytes(birth.size());
+        for (std::size_t at=0;at<bytes.size();) {
+            if (state_->cancellation->load()) return failure<bool>(CustodyFileError::ioFailed,ERROR_OPERATION_ABORTED);
+            DWORD got=0; const auto wanted=static_cast<DWORD>((std::min)(std::size_t{65536},bytes.size()-at));
+            if (!ReadFile(file.value,bytes.data()+at,wanted,&got,nullptr)) return failure<bool>(CustodyFileError::ioFailed,GetLastError());
+            if (!got || got>wanted) return failure<bool>(CustodyFileError::recoveryRequired);
+            at+=got;
+            if (!state_->inspect(file.value,old,false,true)) return failure<bool>(CustodyFileError::unsafeFile);
+        }
+        return bytes==birth ? success(true) : failure<bool>(CustodyFileError::recoveryRequired);
+    };
+    Handle sentinel;
+    const auto originalManifest=state_->migrationPackageSources[1].file.valid() && state_->migrationPackageSources[1].path==old;
+    const auto attributes=GetFileAttributesW(win32Path(old).c_str());
+    if (!originalManifest && attributes!=INVALID_FILE_ATTRIBUTES) {
+        auto opened=state_->openFile(old,GENERIC_READ,FILE_SHARE_READ); if (!opened.ok()) return failure<bool>(opened.error,opened.nativeError);
+        sentinel=std::move(*opened.value);
+        checked=verifyCopy(sentinel); if (!checked.ok()) return checked;
+        state_->migrationBarriers[1]=std::move(sentinel);
+    } else if (attributes==INVALID_FILE_ATTRIBUTES) {
+        const auto native=GetLastError(); if (native!=ERROR_FILE_NOT_FOUND) return failure<bool>(CustodyFileError::ioFailed,native);
+    }
+    const auto originals=state_->directory/L"legacy.originals";
+    if (value.stage==CustodyMigrationStage::switched) {
+        constexpr std::array<const wchar_t*,6> fixed{L"ledger",L"manifest",L"canonical",L"media",L"playback",L"recovery"};
+        if (!state_->migrationBarriers[1].valid()) return failure<bool>(CustodyFileError::recoveryRequired);
+        for (unsigned kind=1;kind<fixed.size();++kind) if (state_->migrationPackageSources[kind].file.valid() &&
+            state_->migrationPackageSources[kind].path!=originals/fixed[kind]) return failure<bool>(CustodyFileError::recoveryRequired);
+        publish=false;
+    }
+    if (!publish) return verifyMigrationPackageSources(value);
+    constexpr std::array<const wchar_t*,6> names{L"ledger",L"manifest",L"canonical",L"media",L"playback",L"recovery"};
+    bool renameNeeded=false;
+    for (unsigned kind=1;kind<names.size();++kind) if (state_->migrationPackageSources[kind].file.valid())
+        renameNeeded=renameNeeded || state_->migrationPackageSources[kind].path!=originals/names[kind];
+    if (renameNeeded) {
+        if (!CreateDirectoryW(win32Path(originals).c_str(),&state_->security) && GetLastError()!=ERROR_ALREADY_EXISTS)
+            return failure<bool>(CustodyFileError::ioFailed,GetLastError());
+        Handle target(CreateFileW(win32Path(originals).c_str(),FILE_LIST_DIRECTORY | FILE_ADD_FILE | FILE_TRAVERSE | READ_CONTROL | FILE_READ_ATTRIBUTES,
+            FILE_SHARE_READ | FILE_SHARE_WRITE,nullptr,OPEN_EXISTING,FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,nullptr));
+        if (!target.valid()) return failure<bool>(CustodyFileError::ioFailed,GetLastError());
+        if (!state_->inspect(target.value,originals,true,true)) return failure<bool>(CustodyFileError::unsafePath);
+        checked=state_->eachChild(originals,state_->cancellation,[&](std::wstring_view child,bool dir) {
+            if (dir) return failure<bool>(CustodyFileError::recoveryRequired);
+            for (unsigned kind=1;kind<names.size();++kind) if (child==names[kind] && state_->migrationPackageSources[kind].file.valid() &&
+                state_->migrationPackageSources[kind].path==originals/names[kind]) return success(true);
+            return failure<bool>(CustodyFileError::recoveryRequired);
+        });
+        if (!checked.ok()) return checked;
+        const auto procedure=GetProcAddress(GetModuleHandleW(L"ntdll.dll"),"NtSetInformationFile");
+        if (!procedure) return failure<bool>(CustodyFileError::ioFailed,ERROR_PROC_NOT_FOUND);
+        RenameFile rename=nullptr; static_assert(sizeof(rename)==sizeof(procedure)); std::memcpy(&rename,&procedure,sizeof(rename));
+        for (unsigned kind=1;kind<names.size();++kind) {
+            auto& source=state_->migrationPackageSources[kind]; const auto original=originals/names[kind];
+            if (!source.file.valid() || source.path==original) continue;
+            auto fresh=readMigrationPackageSource(kind,source.length,0); if (!fresh.ok()) return failure<bool>(fresh.error,fresh.nativeError);
+            const std::wstring_view fixedName=names[kind];
+            const auto bytes=sizeof(RenameInfo)+fixedName.size()*sizeof(wchar_t);
+            CustodyVector<std::uint64_t> buffer((bytes+7)/8); auto* info=reinterpret_cast<RenameInfo*>(buffer.data());
+            info->replace=FALSE; info->root=target.value; info->nameBytes=static_cast<ULONG>(fixedName.size()*sizeof(wchar_t));
+            std::copy(fixedName.begin(),fixedName.end(),info->name);
+            IO_STATUS_BLOCK io{}; const auto status=rename(source.file.value,&io,info,static_cast<ULONG>(bytes),nativeRenameInformation);
+            if (status!=0 || io.Status!=0) return failure<bool>(CustodyFileError::recoveryRequired,static_cast<std::uint32_t>(status!=0 ? status : io.Status));
+            source.path=original;
+            if (!FlushFileBuffers(source.file.value) || !GetFileInformationByHandleEx(source.file.value,FileBasicInfo,&source.times,sizeof(source.times)))
+                return failure<bool>(CustodyFileError::recoveryRequired,GetLastError());
+            fresh=readMigrationPackageSource(kind,source.length,0); if (!fresh.ok()) return failure<bool>(fresh.error,fresh.nativeError);
+        }
+        checked=state_->retainMigratedDirectory(target,originals); if (!checked.ok()) return checked;
+        checked=verifyMigrationPackageSources(value); if (!checked.ok()) return checked;
+    } else {
+        checked=state_->lockDirectory(originals,true,false); if (!checked.ok()) return checked;
+    }
+    if (!state_->migrationBarriers[1].valid()) {
+        auto created=state_->create(old,birth.data(),static_cast<std::uint32_t>(birth.size()));
+        if (!created.ok()) return failure<bool>(created.error,created.nativeError);
+        checked=verifyCopy(*created.value); if (!checked.ok()) return checked;
+        state_->migrationBarriers[1]=std::move(*created.value);
+    }
+    checked=verifyCopy(state_->migrationBarriers[1]); if (!checked.ok()) return checked;
+    return verifyMigrationPackageSources(value);
+#endif
+} catch (const std::bad_alloc&) { return failure<bool>(CustodyFileError::allocationFailed); }
+  catch (const std::filesystem::filesystem_error&) { return failure<bool>(CustodyFileError::unsafePath); }
+
+CustodyFileResult<CustodyVector<CustodyString>> ProtectedCustodyFiles::migrationPackages() const try {
+#ifndef _WIN32
+    return failure<CustodyVector<CustodyString>>(CustodyFileError::unsupportedPlatform);
+#else
+    CustodyVector<CustodyString> result;
+    auto scanned=state_->eachChild(state_->trustedRoot,state_->cancellation,[&](std::wstring_view name,bool dir) {
+        if (!dir || name==L".custody-v1") return success(true); // Fixed root files were strictly checked by the retained root acquisition.
+        if (name.empty() || name.size()>300 || !std::all_of(name.begin(),name.end(),[](wchar_t c) {
+            return (c>=L'a' && c<=L'z') || (c>=L'A' && c<=L'Z') || (c>=L'0' && c<=L'9') || c==L'_' || c==L'-'; }))
+            return failure<bool>(CustodyFileError::recoveryRequired);
+        const auto package=state_->trustedRoot/std::filesystem::path(name);
+        bool legacy=false;
+        auto children=state_->eachChild(package,state_->cancellation,[&](std::wstring_view child,bool directoryEntry) {
+            if (child!=L".custody-v1") { legacy=true; return success(true); }
+            if (!directoryEntry) return failure<bool>(CustodyFileError::recoveryRequired);
+            return state_->eachChild(package/L".custody-v1",state_->cancellation,[&](std::wstring_view role,bool roleDirectory) {
+                if (!roleDirectory) return failure<bool>(CustodyFileError::recoveryRequired);
+                legacy=legacy || role==L"migration-intent" || role==L"legacy.originals"; return success(true);
+            });
+        });
+        if (!children.ok()) return children;
+        if (legacy) { CustodyString id; id.reserve(name.size()); for (const auto c:name) id.push_back(static_cast<char>(c)); result.push_back(std::move(id)); }
+        return success(true);
+    });
+    return scanned.ok() ? success(std::move(result)) : failure<CustodyVector<CustodyString>>(scanned.error,scanned.nativeError);
+#endif
+} catch (const std::bad_alloc&) { return failure<CustodyVector<CustodyString>>(CustodyFileError::allocationFailed); }
+
 CustodyFileResult<std::unique_ptr<ProtectedCustodyFiles>> ProtectedCustodyFiles::lockStoreRoot(
     const std::filesystem::path& root, std::shared_ptr<const std::atomic<bool>> cancellation,
-    bool& birth) try {
+    bool& birth, bool migrationDiscovery) try {
     using Result = std::unique_ptr<ProtectedCustodyFiles>;
     birth = false;
     if (!cancellation) return failure<Result>(CustodyFileError::invalidInput);
 #ifndef _WIN32
-    (void)root;
+    (void)root; (void)migrationDiscovery;
     return failure<Result>(CustodyFileError::unsupportedPlatform);
 #else
     if (cancellation->load()) return failure<Result>(CustodyFileError::ioFailed, ERROR_OPERATION_ABORTED);
@@ -473,7 +1225,7 @@ CustodyFileResult<std::unique_ptr<ProtectedCustodyFiles>> ProtectedCustodyFiles:
     auto state = std::make_unique<State>(root);
     state->cancellation = cancellation;
     if (!state->initializeSecurity()) return failure<Result>(CustodyFileError::ioFailed, GetLastError());
-    auto locked = state->lockRoot(true);
+    auto locked = state->lockRoot(!migrationDiscovery);
     if (!locked.ok()) return failure<Result>(locked.error, locked.nativeError);
     Result held(new ProtectedCustodyFiles(std::move(state)));
     auto custody = root;
@@ -484,6 +1236,8 @@ CustodyFileResult<std::unique_ptr<ProtectedCustodyFiles>> ProtectedCustodyFiles:
         const auto error = GetLastError();
         if (error != ERROR_FILE_NOT_FOUND && error != ERROR_PATH_NOT_FOUND)
             return failure<Result>(CustodyFileError::ioFailed, error);
+        // Discovery never creates store identities or an empty protected queue.
+        if (migrationDiscovery) return failure<Result>(CustodyFileError::recoveryRequired);
         auto empty = held->validateStoreInventory(true, cancellation);
         if (!empty.ok()) return failure<Result>(empty.error, empty.nativeError);
         if (cancellation->load()) return failure<Result>(CustodyFileError::ioFailed, ERROR_OPERATION_ABORTED);
@@ -511,9 +1265,10 @@ CustodyFileResult<std::unique_ptr<ProtectedCustodyFiles>> ProtectedCustodyFiles:
         auto id = held->state_->identity(held->state_->storeId, idPath, nullptr,
             held->state_->context.storeId, false, true);
         if (!id.ok()) return failure<Result>(id.error, id.nativeError);
-        auto inventory = held->validateStoreInventory(false, cancellation);
+        auto inventory = held->validateStoreInventory(false, cancellation, false, nullptr, migrationDiscovery);
         if (!inventory.ok()) return failure<Result>(inventory.error, inventory.nativeError);
     }
+    held->state_->migrationCounting = migrationDiscovery;
     if (cancellation->load()) return failure<Result>(CustodyFileError::ioFailed, ERROR_OPERATION_ABORTED);
     return success(std::move(held));
 #endif
@@ -759,15 +1514,15 @@ CustodyFileResult<bool> ProtectedCustodyFiles::completedPackageRole(const Custod
   catch (const std::filesystem::filesystem_error&) { return failure<bool>(CustodyFileError::unsafePath); }
 
 CustodyFileResult<std::unique_ptr<ProtectedCustodyFiles>> ProtectedCustodyFiles::openStoreObject(
-    std::shared_ptr<const ProtectedCustodyFiles> root, CustodyRole role, bool birth, std::string_view package) try {
+    std::shared_ptr<const ProtectedCustodyFiles> root, CustodyRole role, bool birth, std::string_view package, bool migrationBirth) try {
     using Result = std::unique_ptr<ProtectedCustodyFiles>;
     if (!root || (role != CustodyRole::bootstrap && role != CustodyRole::queue && role != CustodyRole::migrationIntent) ||
-        (role == CustodyRole::migrationIntent && birth) || (!package.empty() && (role != CustodyRole::migrationIntent ||
+        (role == CustodyRole::migrationIntent && birth && !migrationBirth) || (!package.empty() && (role != CustodyRole::migrationIntent ||
         package.size() > 300 || !std::all_of(package.begin(), package.end(), [](unsigned char c) {
             return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-';
         })))) return failure<Result>(CustodyFileError::invalidInput);
 #ifndef _WIN32
-    (void)root; (void)birth; (void)package;
+    (void)root; (void)birth; (void)package; (void)migrationBirth;
     return failure<Result>(CustodyFileError::unsupportedPlatform);
 #else
     // Borrow the continuously held root/store identity; never reopen store.id.
@@ -797,7 +1552,7 @@ CustodyFileResult<std::unique_ptr<ProtectedCustodyFiles>> ProtectedCustodyFiles:
     auto opened = state->openRole(birth ? CustodyFileAccess::createNew : CustodyFileAccess::writeExisting, !birth);
     if (!opened.ok()) return failure<Result>(opened.error, opened.nativeError);
     if (state->cancellation->load()) return failure<Result>(CustodyFileError::ioFailed, ERROR_OPERATION_ABORTED);
-    if (role == CustodyRole::migrationIntent) state->writable = false;
+    if (role == CustodyRole::migrationIntent && !migrationBirth) state->writable = false;
     return success(Result(new ProtectedCustodyFiles(std::move(state))));
 #endif
 } catch (const std::bad_alloc&) { return failure<std::unique_ptr<ProtectedCustodyFiles>>(CustodyFileError::allocationFailed); }
@@ -805,10 +1560,10 @@ CustodyFileResult<std::unique_ptr<ProtectedCustodyFiles>> ProtectedCustodyFiles:
 
 CustodyFileResult<bool> ProtectedCustodyFiles::validateStoreInventory(
     bool virgin, std::shared_ptr<const std::atomic<bool>> cancellation, bool completeBirth,
-    std::optional<CustodyVector<CustodyString>>* migrationScopes) const try {
+    std::optional<CustodyVector<CustodyString>>* migrationScopes, bool migrationDiscovery) const try {
     if (!cancellation) return failure<bool>(CustodyFileError::invalidInput);
 #ifndef _WIN32
-    (void)virgin; (void)completeBirth; (void)migrationScopes;
+    (void)virgin; (void)completeBirth; (void)migrationScopes; (void)migrationDiscovery;
     return failure<bool>(CustodyFileError::unsupportedPlatform);
 #else
     const auto inspectDirectory = [&](const std::filesystem::path& path) {
@@ -868,7 +1623,11 @@ CustodyFileResult<bool> ProtectedCustodyFiles::validateStoreInventory(
         // before returning an ordinary owner; inventory is not admission.
         bool custodySeen = false, packageHistory = false;
         auto package = state_->eachChild(child, cancellation, [&](std::wstring_view entry, bool directoryEntry) {
-            if (entry == L"manifest.json" && !directoryEntry) { packageHistory = true; return success(true); }
+            if (!directoryEntry && (entry == L"manifest.json" || (migrationDiscovery &&
+                (entry == L".canonical-mix.f32.tmp" || entry == L"meeting-transcription.wav" ||
+                 entry == L"meeting-review.m4a" || entry == L"capture-recovery.json")))) {
+                packageHistory = true; return success(true);
+            }
             if (entry != L".custody-v1" || !directoryEntry || custodySeen) return failure<bool>(CustodyFileError::recoveryRequired);
             custodySeen = true;
             auto path = child;
@@ -888,7 +1647,7 @@ CustodyFileResult<bool> ProtectedCustodyFiles::validateStoreInventory(
                 return inspectDirectory(rolePath);
             });
             if (!roles.ok()) return roles;
-            return packageState ? success(true) : failure<bool>(CustodyFileError::recoveryRequired);
+            return packageState || migrationDiscovery ? success(true) : failure<bool>(CustodyFileError::recoveryRequired);
         });
         if (!package.ok()) return package;
         if (packageHistory && migrationScopes) {
@@ -897,7 +1656,8 @@ CustodyFileResult<bool> ProtectedCustodyFiles::validateStoreInventory(
             if (!*migrationScopes) migrationScopes->emplace();
             (*migrationScopes)->push_back(std::move(scope));
         }
-        return custodySeen ? success(true) : failure<bool>(CustodyFileError::recoveryRequired);
+        return custodySeen || (migrationDiscovery && packageHistory)
+            ? success(true) : failure<bool>(CustodyFileError::recoveryRequired);
     });
     if (!scanned.ok()) return scanned;
     if (!virgin && !fixedSeen) return failure<bool>(CustodyFileError::recoveryRequired);
@@ -1071,18 +1831,35 @@ CustodyFileResult<std::uint64_t> ProtectedCustodyFiles::checkWriteReserve(std::u
 }
 
 CustodyFileResult<bool> ProtectedCustodyFiles::validateMigrationFiles(
-    const CustodyMigrationValue& value, std::shared_ptr<const std::atomic<bool>> cancellation) const try {
+    const CustodyMigrationValue& value, const CustodyMigrationValue& peer,
+    std::shared_ptr<const std::atomic<bool>> cancellation, bool retireOriginals, CustodyBytes* legacyLedger) const try {
     if (!cancellation || state_->context.role != CustodyRole::migrationIntent ||
         value.context.storeId != state_->context.storeId || value.context.objectId != state_->context.objectId ||
         value.context.role != state_->context.role || !value.barrier || !value.sourceCount || value.sourceCount > value.sources.size())
         return failure<bool>(CustodyFileError::invalidInput);
 #ifndef _WIN32
+    (void)peer; (void)retireOriginals; (void)legacyLedger;
     return failure<bool>(CustodyFileError::unsupportedPlatform);
 #else
-    // This admission slice never treats authorization alone as proof of cleanup.
-    // Missing originals and cleanup_pending/complete remain migration recovery.
-    if (value.stage != CustodyMigrationStage::switched || value.authorization)
+    // A typed receipt alone never substitutes for native barrier/source/absence
+    // proof. Only the separately authorized worker asks this private method to
+    // retire originals, after committing BOTH cleanup_pending intent slots.
+    const bool cleanup=value.stage==CustodyMigrationStage::cleanupPending || value.stage==CustodyMigrationStage::complete;
+    if ((value.stage!=CustodyMigrationStage::switched && !cleanup) ||
+        (cleanup ? !value.authorization : value.authorization.has_value()) ||
+        (retireOriginals && value.stage!=CustodyMigrationStage::cleanupPending) ||
+        (legacyLedger && value.subject!=CustodyMigrationSubject::queue))
         return failure<bool>(CustodyFileError::recoveryRequired);
+    // BOTH strict native records from this continuously retained intent lease.
+    // A mixed switched/null -> pending/auth pair remains readable with all
+    // originals present, but cannot authorize absence or a new unlink.
+    const bool bothAuthorized=cleanup && peer.stage>=CustodyMigrationStage::cleanupPending && peer.authorization &&
+        peer.context.storeId==value.context.storeId && peer.context.objectId==value.context.objectId && peer.context.role==value.context.role &&
+        peer.transactionId==value.transactionId && peer.subject==value.subject && peer.directory==value.directory &&
+        peer.authorization->kind==value.authorization->kind && peer.authorization->operationId==value.authorization->operationId &&
+        peer.authorization->actorUserId==value.authorization->actorUserId && peer.authorization->workspaceId==value.authorization->workspaceId &&
+        peer.authorization->queueObjectId==value.authorization->queueObjectId && peer.authorization->queueGeneration==value.authorization->queueGeneration;
+    if (retireOriginals && !bothAuthorized) return failure<bool>(CustodyFileError::recoveryRequired);
     CustodyNativeJob job;
     if (!job) return failure<bool>(CustodyFileError::allocationFailed, ERROR_NOT_ENOUGH_QUOTA);
     const auto check = [&]() -> CustodyFileResult<bool> {
@@ -1151,13 +1928,18 @@ CustodyFileResult<bool> ProtectedCustodyFiles::validateMigrationFiles(
         return failure<bool>(CustodyFileError::recoveryRequired);
     });
     if (!inventory.ok()) return inventory;
-    CustodyBytes buffer(64 * 1024); // Wiping allocator, bounded even for a large original.
+    CustodyBytes buffer(64 * 1024), captured; // Wiping allocator, bounded original reads.
+    const auto barrierHandles=retained;
     for (std::size_t source = 0; source < value.sourceCount; ++source) {
-        if (!seen[source]) return failure<bool>(CustodyFileError::recoveryRequired);
+        if (!seen[source]) {
+            if (!bothAuthorized) return failure<bool>(CustodyFileError::recoveryRequired);
+            continue; // BOTH exact authorization AND native absence; no cause/completion or new unlink right.
+        }
+        if (value.stage==CustodyMigrationStage::complete) return failure<bool>(CustodyFileError::recoveryRequired);
         const auto& expected = value.sources[source];
         const auto path = originals / names[static_cast<unsigned>(expected.kind)];
         const auto apiPath = win32Path(path);
-        Handle original(CreateFileW(apiPath.c_str(), GENERIC_READ | READ_CONTROL, FILE_SHARE_READ, nullptr,
+        Handle original(CreateFileW(apiPath.c_str(), GENERIC_READ | READ_CONTROL | (retireOriginals ? DELETE : 0), FILE_SHARE_READ, nullptr,
             OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
         if (!original.valid()) return failure<bool>(CustodyFileError::ioFailed, GetLastError());
         // An untouched legacy original may have its old ACL; it grants no regular reader authority.
@@ -1167,6 +1949,9 @@ CustodyFileResult<bool> ProtectedCustodyFiles::validateMigrationFiles(
         LARGE_INTEGER size{};
         if (!GetFileSizeEx(file.value, &size)) return failure<bool>(CustodyFileError::ioFailed, GetLastError());
         if (size.QuadPart < 0 || static_cast<std::uint64_t>(size.QuadPart) != expected.length)
+            return failure<bool>(CustodyFileError::invalidContent);
+        if (legacyLedger && (expected.kind!=CustodyMigrationSourceKind::ledger ||
+            expected.length>ProtectedCustodyCodec::logicalLimit(CustodyRole::queue)))
             return failure<bool>(CustodyFileError::invalidContent);
         struct Hash { BCRYPT_HASH_HANDLE value = nullptr; ~Hash() { if (value) BCryptDestroyHash(value); } } hash;
         auto status = BCryptCreateHash(BCRYPT_SHA256_ALG_HANDLE, &hash.value, nullptr, 0, nullptr, 0, 0);
@@ -1179,6 +1964,7 @@ CustodyFileResult<bool> ProtectedCustodyFiles::validateMigrationFiles(
             checked = check(); if (!checked.ok()) return checked;
             if (done == expected.length) { if (got) return failure<bool>(CustodyFileError::invalidContent); break; }
             if (!got || got > wanted) return failure<bool>(CustodyFileError::invalidContent);
+            if (legacyLedger) captured.insert(captured.end(),buffer.begin(),buffer.begin()+got);
             status = BCryptHashData(hash.value, buffer.data(), got, 0);
             if (status < 0) return failure<bool>(CustodyFileError::hashFailed, static_cast<std::uint32_t>(status));
             done += got;
@@ -1191,7 +1977,32 @@ CustodyFileResult<bool> ProtectedCustodyFiles::validateMigrationFiles(
     for (std::size_t file = 0; file < retained; ++file)
         if (!state_->inspect(handles[file].value, paths[file], false, file < (queue ? 2U : 1U)))
             return failure<bool>(CustodyFileError::unsafeFile);
-    return check();
+    checked=check(); if (!checked.ok()) return checked;
+    if (retireOriginals) {
+        // All remaining sources were hashed under deny-write/delete native
+        // handles BEFORE the first effect. Never touch metadata or tombstones.
+        for (std::size_t file=barrierHandles;file<retained;++file) {
+            checked=check(); if (!checked.ok()) return checked;
+            if (!state_->inspect(handles[file].value,paths[file],false,false))
+                return failure<bool>(CustodyFileError::unsafeFile);
+            FILE_DISPOSITION_INFO disposition{TRUE};
+            if (!SetFileInformationByHandle(handles[file].value,FileDispositionInfo,&disposition,sizeof(disposition)))
+                return failure<bool>(CustodyFileError::recoveryRequired,GetLastError());
+            handles[file]=Handle{}; // Actual last close, not a path-only deletion request.
+            checked=check(); if (!checked.ok()) return checked;
+            const auto attributes=GetFileAttributesW(win32Path(paths[file]).c_str());
+            const auto native=attributes==INVALID_FILE_ATTRIBUTES ? GetLastError() : ERROR_SUCCESS;
+            if (attributes!=INVALID_FILE_ATTRIBUTES || native!=ERROR_FILE_NOT_FOUND)
+                return failure<bool>(CustodyFileError::recoveryRequired,native);
+        }
+        checked=state_->eachChild(originals,cancellation,[](std::wstring_view,bool) {
+            return failure<bool>(CustodyFileError::recoveryRequired);
+        });
+        if (!checked.ok()) return checked;
+    }
+    checked=check(); if (!checked.ok()) return checked;
+    if (legacyLedger) *legacyLedger=std::move(captured);
+    return success(true);
 #endif
 } catch (const std::bad_alloc&) { return failure<bool>(CustodyFileError::allocationFailed); }
   catch (const std::filesystem::filesystem_error&) { return failure<bool>(CustodyFileError::unsafePath); }
@@ -1624,14 +2435,19 @@ CustodyFileResult<std::shared_ptr<ProtectedPackedCustodyOwner>> ProtectedPackedC
 CustodyFileResult<std::shared_ptr<ProtectedPackedCustodyOwner>> ProtectedPackedCustodyOwner::openImpl(
     const std::filesystem::path& root, std::string_view package, const PackedCustodyContext& context, CustodyFileAccess access,
     std::unique_ptr<ProtectedCustodyFiles>* prepared, std::shared_ptr<ProtectedPackedCustodyOwner>* retainedFailure,
-    CustodyId* discoveredContainer) try {
+    CustodyId* discoveredContainer, const ProtectedCustodyFiles* migrationRoot) try {
     using Owner = std::shared_ptr<ProtectedPackedCustodyOwner>;
 #ifndef _WIN32
-    (void)root; (void)package; (void)context; (void)access; (void)prepared; (void)retainedFailure; (void)discoveredContainer;
+    (void)root; (void)package; (void)context; (void)access; (void)prepared; (void)retainedFailure; (void)discoveredContainer; (void)migrationRoot;
     return failure<Owner>(CustodyFileError::unsupportedPlatform);
 #else
     if (!ProtectedPackedCustodyFormat::encodePrefix(context) ||
         (access != CustodyFileAccess::readExisting && access != CustodyFileAccess::writeExisting && access != CustodyFileAccess::createNew))
+        return failure<Owner>(CustodyFileError::invalidInput);
+    const bool migrationPrepared=migrationRoot!=nullptr;
+    if (migrationPrepared && (!prepared || !retainedFailure || *retainedFailure || discoveredContainer ||
+        (access!=CustodyFileAccess::createNew && access!=CustodyFileAccess::writeExisting) ||
+        context.containerId==CustodyId{} || context.object.role<CustodyRole::canonical || context.object.role>CustodyRole::playback))
         return failure<Owner>(CustodyFileError::invalidInput);
     const bool reusePlayback=prepared && discoveredContainer && access==CustodyFileAccess::writeExisting &&
         context.object.role==CustodyRole::playback;
@@ -1654,18 +2470,28 @@ CustodyFileResult<std::shared_ptr<ProtectedPackedCustodyOwner>> ProtectedPackedC
         if (!*prepared || (access == CustodyFileAccess::createNew && !retainedFailure))
             return failure<Owner>(CustodyFileError::invalidInput);
         const auto& actual = (*prepared)->context();
-        if ((access != CustodyFileAccess::createNew && access != CustodyFileAccess::readExisting && !reusePlayback) ||
+        if (migrationPrepared && ((*prepared)->state_->rootLease.get()!=migrationRoot ||
+            migrationRoot->trustedRoot()!=root || migrationRoot->state_->directory!=root / std::wstring(package.begin(),package.end()) / L".custody-v1" ||
+            !migrationRoot->state_->rootLease || !migrationRoot->state_->writable || migrationRoot->state_->failed ||
+            !migrationRoot->state_->cancellation || (*prepared)->state_->cancellation!=migrationRoot->state_->cancellation ||
+            migrationRoot->context().storeId!=context.object.storeId ||
+            !std::any_of(migrationRoot->state_->migrationPackageSources.begin()+1,migrationRoot->state_->migrationPackageSources.end(),
+                [](const auto& source) { return source.file.valid(); })))
+            return failure<Owner>(CustodyFileError::identityMismatch);
+        if (migrationPrepared && migrationRoot->state_->cancellation->load())
+            return failure<Owner>(CustodyFileError::ioFailed,ERROR_OPERATION_ABORTED);
+        if ((access != CustodyFileAccess::createNew && access != CustodyFileAccess::readExisting && !reusePlayback && !migrationPrepared) ||
             !(*prepared)->state_->rootLease ||
             actual.storeId != context.object.storeId || actual.objectId != context.object.objectId || actual.role != context.object.role)
             return failure<Owner>(CustodyFileError::identityMismatch);
-        if ((access == CustodyFileAccess::readExisting || reusePlayback) &&
-            ((*prepared)->state_->writable != reusePlayback || (*prepared)->state_->failed || (*prepared)->trustedRoot() != root ||
+        if ((access == CustodyFileAccess::readExisting || reusePlayback || migrationPrepared) &&
+            ((*prepared)->state_->writable != (reusePlayback || migrationPrepared) || (*prepared)->state_->failed || (*prepared)->trustedRoot() != root ||
                 (*prepared)->packagePath() != root / std::wstring(package.begin(), package.end()) / L".custody-v1"))
             return failure<Owner>(CustodyFileError::identityMismatch);
         // Allocate all ownership/control blocks before transferring any lease.
         // A partial native content birth stays held by the genuine package,
         // even though this factory returns no usable owner/proof on failure.
-        if (access == CustodyFileAccess::createNew) {
+        if (access == CustodyFileAccess::createNew || migrationPrepared) {
             CustodyAllocator<ProtectedPackedCustodyOwner> allocator;
             auto* raw = allocator.allocate(1);
             new (raw) ProtectedPackedCustodyOwner(state);

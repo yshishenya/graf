@@ -766,6 +766,28 @@ CustodyFileResult<std::shared_ptr<const LocalRecordingPackage::ProtectedInspecti
     return inspected; // Only actual durable sealed state can yield a proof.
 } catch (const std::bad_alloc&) { return {std::nullopt,CustodyFileError::allocationFailed,ERROR_NOT_ENOUGH_MEMORY}; }
 
+CustodyFileResult<bool> LocalRecordingPackage::classifyMigrationContent(
+    CustodyPackageValue& candidate,const CustodyBytes& manifestBytes,const CustodyBytes& recoveryBytes,std::string_view session) {
+    // Value-only routing for the existing strict validator below. No publication/authority.
+    if (session.empty() || manifestBytes.size()>manifestLimit || recoveryBytes.size()>manifestLimit)
+        return {std::nullopt,CustodyFileError::invalidInput,0};
+    ProtectedManifest manifest;
+    if (!manifestBytes.empty()) {
+        if (!RecordingJson({reinterpret_cast<const char*>(manifestBytes.data()),manifestBytes.size()},session).manifest(manifest))
+            return {std::nullopt,CustodyFileError::invalidContent,0};
+        candidate.phase=manifest.shortDiscarded ? CustodyPackagePhase::discardPending :
+            manifest.degraded ? CustodyPackagePhase::sealedDegraded : CustodyPackagePhase::sealedNormal;
+        candidate.reason=manifest.reason; candidate.shortRecordingDiscarded=manifest.shortDiscarded;
+    } else {
+        PrefixRecovery recovery;
+        if (!RecordingJson({reinterpret_cast<const char*>(recoveryBytes.data()),recoveryBytes.size()},session).recovery(recovery))
+            return {std::nullopt,CustodyFileError::invalidContent,0};
+        candidate.phase=CustodyPackagePhase::sealedDegraded; candidate.reason=recovery.reason;
+        candidate.shortRecordingDiscarded=false;
+    }
+    return {true,CustodyFileError::none,0};
+}
+
 CustodyFileResult<LocalRecordingPackage::ProtectedEvidence> LocalRecordingPackage::validateProtectedContent(
     const CustodyPackageValue& package, const std::array<IStream*,3>& audio,
     const CustodyBytes& manifestBytes, const CustodyBytes& recoveryBytes,

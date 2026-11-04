@@ -1253,3 +1253,745 @@ C4100 в закреплённой зависимости AEC3. Новых оши
 не установка и не проверка поведения нового EXE на пользовательских данных.
 T088, T117 и T118 остаются открыты; текущий промежуточный срез не разрешает
 слияние или публикацию с просроченным исключением старого reader.
+
+## 2026-11-04 — промежуточный коммит и свежий master
+
+Проверенный lifecycle-срез сохранён коммитом
+`a832dda2dc3a27f95175642a2cdb2c17858833e1`. Master
+`20393b9b3a8c65434aa5c1a71b30f522e8ff8a71` включён без конфликтов;
+итог `8c17bea5e4eba38b4e4f10a842987fcaae243fd6` отправлен в существующую
+ветку PR7331. Все225 Windows source pins квалифицированного Release сохранены
+побайтно. Spec Kit governance после совмещения PASS. Это не слияние PR;
+проверки нового head/base фиксируются отдельно, прежние GitHub PASS не
+переиспользуются как доказательство нового SHA.
+
+## 2026-11-04 — T088: test-only RED нового логического формата
+
+В существующем portable target `DesktopUploadQueueV2Tests` добавлен один
+непустой generated v4 literal с access/context. Build0; CTest8 с точным
+`testV4CodecRed:589 assert(decoded.ok())`: нынешний v2/v3 decoder ожидаемо
+отказывает в новом формате. Result SHA256
+`1cf2c5db93487afca364b3e5dff44f9b8ad864c67dbcd27d7a9ef00391b5ebfc`.
+Raw build/CTest pins сверены независимо. Тестовый base восстановлен побайтно;
+этот результат ещё не доказывает новый writer, mixed BOTH или native restore.
+
+## 2026-11-04 — T117: целевой RED координатора после настоящей подготовки
+
+Новый `--migration-pair` строит настоящую generated legacy очередь и пакет
+через существующий generated AAC/v5 helper. Первые две попытки не дошли до
+целевого отказа: C2248 на private Files::context в interface и затем на private
+QueueValue::decode в тесте. Обе ошибки компиляции сохранены, не названы RED:
+terminal `4604e7bf038d082a962252a5bbd225dd979ec65e8366f53d332d3700a0844a22`
+и `f19ae32d7e5f6076ec5ee866494bafab0a43d8a7721d938efc50e07a3db8b21c`.
+После каждой сверены все22 EXE и конфигурация110 без изменений. Независимый
+reviewer признал пропуски компилируемости; прежний SOURCE GO не выдаётся за
+результат компилятора.
+
+Минимальные поправки только в outside test/interface: friend существующего
+production-кандидата для QueueMigration и вызов decode через уже разрешённый
+pure-data TestPeer. В `t117-coordinator-engine-red-r3` host0/build0/case3:
+сначала `MIGRATION_COORDINATOR_SETUP_OK scenario=0`, затем stub recoveryRequired
+и ровно `assert(opened.ok())` FilesTests1535. Terminal SHA256
+`60b4a9c725effde2b6363bb0a805a689b1feab9b022a728f7cfd82b0c4b61dfb`.
+Конфигурация110, source225, прочие21 EXE, установленный GRAF и его EXE сохранены;
+проверяемый FilesTests EXE неизменен после запуска, own0, forced cleanup нет,
+Unicode TEMP/TMP подтверждён. Это целевой test-first отказ отсутствующего
+координатора после успешной подготовки, не успешная миграция и не работа с
+пользовательскими originals. Production-кандидат T117 ещё не принят.
+
+## 2026-11-04 — установленное окно после входа
+
+После сообщения пользователя о завершении входа read-only query подтвердил:
+GRAF0.1.0.15, package Ok, процесс запущен/Responding. Прямой просмотр текущего
+экрана VM подтвердил загруженный авторизованный кабинет и нативную ошибку
+«Защищённое локальное хранилище недоступно. Записи не изменены»; Start отключён.
+Это не исправление записи и не приёмка T097. Снимок использован только для
+осмотра, не включён в evidence/repo и удалён из временного каталога; содержимое
+кабинета не переписано в журнал. Пользовательские записи/ключи не менялись.
+
+## 2026-11-04 — T088: v4 codec/domain, целевая регрессия и portable GREEN
+
+Первый v4 candidate не менял access для положительного lifecycle-ответа о
+записи без meetingId. Исправленный test-only срез воспроизвёл это отдельно:
+build0/CTest8, `testV4CodecAndDomain:724`,
+`unbound.applyLifecycleEntries(...) && changed`. Проверен и связанный допуск
+восстановления prepared owned записи: nullable/exact owner сами по себе его
+не блокируют; прочие допустимые access codes блокируют. Неопределённый ответ
+о записи без meetingId сохраняет прежнее значение access. Прежний unowned
+helper и receipt branch не менялись.
+
+Final r2 source pins для семи code/test файлов сверены с применёнными байтами.
+Portable Debug build0, CTest0: ContractFixtures, DesktopUploadQueueV2Tests,
+DesktopDeletionLedgerTests и DesktopUploadRecoveryTests — 4/4 PASS,8.60с.
+Result SHA256 `32b65d4d26472fc0db5f662a2cb078748f873e252d4c9e01d526d589fd178ae9`;
+build log `1a690c70a212761a879349336a667dda74525d14cfa5f8933712f869eee8465d`;
+CTest log `796747dc0a0438515193725209522c10923058ed96fc142b07339052a9043998`.
+Независимый reviewer сверил raw logs, pins и текущие семь файлов: C0/H0 в этом
+объёме. Новых зависимостей и тестовых targets нет; изменены три прежних
+ожидания версии writer, исторические v2/v3 входы сохранены.
+
+Это проверка strict logical codec, сохранения nullable access/context и
+доменных правил. Native fingerprint/restore, wire access, потребители,
+cancel/drain/adoption, mixed protected BOTH и отказ настоящего old reader ещё
+не приняты. Windows native, установленный пакет, T088/T117/T118 и выпуск
+остаются открыты.
+
+## 2026-11-04 — обязательные GitHub checks промежуточного SHA
+
+Для `8c17bea5e4eba38b4e4f10a842987fcaae243fd6` macos-pr run41770288058
+SUCCESS. Governance-fast run41770288026 FAILURE:2091 passed,2 skipped,1 failed;
+`test_stopped_same_active_sigkill_and_exact_retry[after-permit]` остановился
+на ненулевом результате повторного worker. Сохранённый GitHub output обрезает
+середину stderr, поэтому точная причина ещё не установлена. Этот результат
+не переименован в случайный сбой или PASS; начата отдельная диагностика.
+Прежние успешные checks другого SHA его не заменяют. Описание PR7331 пока не
+синхронизировано как принятое; просроченное исключение old reader не продлено.
+
+Узкое локальное воспроизведение того же `after-permit` с полным traceback:
+1 passed,35.61с. Log SHA256
+`4cf3c19928fe1133409a7f51d0a6cd5e38439ed5151c7a7999812ee1cfb3dc6f`.
+Сбой не воспроизведён; это не заменяет GitHub check и не доказывает причину
+прежнего отказа. Production harness и fixture по предположению не менялись.
+
+## 2026-11-04 — T117: независимое SOURCE review уточнения r4
+
+В outside candidate устранены два блокера полного review r3: private packed
+factory принимает точного удерживаемого migration parent и retained failure
+owner до переноса lease; plaintext source до первой persistent записи принимает
+только v2/v3, общий protected decoder продолжает читать v4. Existing ordinary
+factory guards сохранены. Production delta31/−9, три файла; patch SHA256
+`fde6de82e0f9f07bc209d4bdf49009fec3d1ec34af14c75f2252b3406c77d86c`.
+Focused tests заморожены до production delta: protected v4 без записей,
+отказ plaintext v4 без изменений и packed birth readback failure с последующим
+release/reopen через writeExisting; SHA256
+`11afd5d31765573c42116b90bb74ec2fee538e9d3cf869fa9c5b56b08732c92b`.
+
+Независимый reviewer проверил delta, фабрики, базу r3, восемь файлов и три v4
+зависимости: C0/H0, SOURCE GO. Это не compile/runtime GREEN; candidate ещё
+не применён в repository. Cleanup caller, delete_purge, retirement executable
+legacy и recovery неизвестного quarantine остаются открыты. Никаких операций
+над пользовательскими originals или установленным GRAF этот review не выполнял.
+
+## 2026-11-04 — T088: первый native v4 прогон и поправка ожидания
+
+В `t088-v4-native-green` фактический результат — FAIL: build0/CTest8/host1,
+QueueV2 и Ledger PASS, NativeProtectedDeletionApplication FAILED на прежнем
+ожидании `valid == (edge == 0 || edge >= 5) && !changed`, строка1624.
+Result SHA256 `cb2503eb1de92180be8d940c36a54e8692cabce954aa068ebab9eb61e0c65068`;
+CTest log `83f1bac816b4186e894f24709a6df8c4f23926ee690b3423f4d45ecdc5e66e0b`.
+Независимо сверены source225, configuration110,22 PE после сборки и запуска;
+прочие19 PE и установленный EXE сохранены, own0/build0, forced cleanup нет.
+Финальный runtime UTF16 receipt отсутствует: host завершился раньше этой
+проверки, поэтому encoding PASS этому запуску не присваивается.
+
+В fixture допустимые ответы остались ровно edge0/5/6. Для edge5 (`allowed`
+без meetingId) исправлено устаревшее ожидание: теперь required changed/owner,
+сохранённая accepted receipt и действующий deletionBlocks. Для всех остальных,
+включая отвергнутые1..4 и unavailable без meetingId, требуется точное равенство
+сериализации. Исходный snapshot проверяется неизменным после каждой итерации.
+Production по этому отказу не менялся. Поправка fixture ещё требует отдельного
+фактического native прогона; первый FAIL сохранён и не переименован в PASS.
+
+## 2026-11-04 — T088: sync-state access, portable RED → GREEN
+
+Подключено поле непосредственного `meeting.access_state` из server sync-state
+к existing ServerTruth. Строгий existing reader проверяет root/meeting, decoded
+duplicate keys, UTF-8 и bounds; значения1–64 safe ASCII сохраняются без
+нормализации. Missing/null не стирают cached nonowner. Прежние charged allocator
+и cancellation используются и приватным защищённым вызовом. Новых parser,
+публичного API или зависимостей нет; Mac/server не изменялись.
+
+Test-only RED: build0/CTest8, точный assert owner в testSyncAccessDecoder:274,
+а не ошибка подготовки. Result SHA256
+`b7d9725bdce029e7a585fc7139148b55d5f5be21a6bbb91088a0291215da50b4`.
+После отдельно проверенного production patch: Debug build0/CTest0,
+ContractFixtures/QueueV2/Ledger/Recovery — 4/4 PASS,10.75с. Result SHA256
+`dbe57e304b76f0758ad015bfbde6be8cc4f8e7526954e387c706fbe2c2234176`;
+CTest log `51c1a91817f09bd3848582e8db4079bc2694c91d4ce9be8c129cc55dffe6a299`.
+Тесты включают decode → reconcile → cold reload с двумя raw отказами,
+missing/null и последующим явным owner. Reviewer независимо сверил точные
+candidate pins, старые test bodies, сырые журналы и receipts: C0/H0.
+
+Это portable AppleClang/Debug на dirty candidate поверх8c17…, а не MSVC или
+установленный пакет. Защищённый Windows template call и runtime отмены/квоты
+ещё требуют проверки. Native context/consumers/cancel-drain, T088 и T117
+не закрыты; сохранение поля само по себе не выдаёт доступ к содержимому.
+
+## 2026-11-04 — T088: native r2 остаётся FAIL, начата диагностика завершения
+
+После единственной поправки Native fixture (source225 manifest
+`9fa56b59eed336bada8554d5c70abb03495b7bcb03e41a178d130b17f4a47412`)
+сборка прошла, QueueV2/Ledger PASS; NativeProtectedDeletionApplication FAILED
+42.87с без assertion/output. CTest8/host1, полный набор не принят. Source225,
+configuration110,22 PE после запуска и установленный EXE сохранены; own0,
+active-build0, forced cleanup нет. CTest LastTest.log также не содержит причины
+или дочернего exit code. Отсутствие сообщения не доказывает конкретное исключение.
+
+Следующая ограниченная диагностика запускает только прежний Native CLI без
+сборки и копирования исходников, чтобы получить настоящий signed/hex exit code.
+Даже host0 этой диагностики не объявляется product PASS; original r2 FAIL
+сохранён. Ни production, ни пользовательские записи по гипотезе не менялись.
+
+Диагностика завершилась: тот же неизменённый EXE напрямую выполнил весь CLI
+`--protected-deletion-application`, включая lifecycle211 и18 режимов удаления,
+с signed exit0/hex0/host0. Source225/configuration110/22 PE/installed сохранены,
+own0/build0/noforce, Unicode TEMP/TMP подтверждён. Terminal SHA256
+`843957c30caf40d9273813c2fa3dbcf9055218791c53f3b16f595fdf397347a8`.
+Этот результат не объясняет предыдущий CTest FAIL и не заменяет его успешным
+набором. Ошибка остаётся открытой; production по догадке не менялся. Проверку
+T117 можно вести отдельно от неё по точным текущим source/PE/config pins:
+сам T117 сначала проверяет protected-v4 dependency перед plaintext-границей.
+
+## 2026-11-04 — T117: остановка копирования до сборки, не тестовый RED
+
+`t117-coordinator-r4-red-live-baseline` завершился host1 до сборки и CLI:
+Copy-Item отказал на ProtectedCustodyFiles.h с ReadOnly. Три предшествующих
+исходника успели скопироваться; отдельный readback проверил все225: только
+LocalRecordingPackage.cpp/.h и ProtectedCustodyFiles.cpp имеют ожидаемые
+новые хеши, остальные222 — прежние. Все22 PE и установленный EXE сохранены,
+own0/build0, принудительного завершения нет. Поле exes_unchanged=false здесь
+не означает изменение PE: postbuild-карта не была создана, прямое сравнение
+с предыдущей картой подтверждает равенство. Нужный assertion не достигнут,
+поэтому результат не считается test-first RED и не заменяет прежние FAIL.
+
+Следующий ограниченный повтор продолжит с фактических225 исходников и
+скопирует только оставшиеся пять заданных целей. Для них сохраняются и
+восстанавливаются точные атрибуты; временно снимается только ReadOnly. ACL,
+права пользователя, установленное приложение и рабочие записи не меняются.
+
+В существующий Native protected-deletion test добавлены22 строки наблюдения
+за std::terminate: фиксированные phase/case, accounted bytes и ограниченный
+вид исключения без его текста. Assertions, сроки и production не менялись;
+handler заканчивает процесс с ошибкой. Независимый SOURCE review C0/H0,
+candidate SHA256 `a6f660897fbf2aa262c3dbad3a1da97d0a2bd95f1ea16bf50814de36d978b7a1`.
+Это средство выяснить прежний необъяснённый CTest FAIL; его компиляция и
+исполнение пока не подтверждены, отсутствие terminate marker не исключает
+системный crash. T088/T117 и приёмка установленного пакета остаются открыты.
+
+## 2026-11-04 — T117 r4: подтверждённый native test-first RED
+
+Повтор с сохранением атрибутов (`t117-coordinator-r4-red-live-baseline-r2`)
+прошёл подготовку и Debug build0. Первый protected-v4 positive завершился;
+затем CLI вернул3 на точном assertion строки1507:
+`!refused.ok() && refused.error==CustodyFileError::invalidContent`.
+Это нужный RED границы plaintext v4, а не compile/setup failure. Packed birth
+case ещё не запускался; общего GREEN нет. Host0 означает успешное наблюдение
+ожидаемого отказа, а не работоспособность продукта.
+
+Source225 manifest `45219a6dc7cc3833c5b0b277e63fc7f4ec28611e39066e8b477f4de193d70584`;
+configuration110 неизменна,22 PE после теста сохранены; из них21, кроме
+FilesTests, также совпадает с предыдущей сборкой. Атрибуты всех восьми целей
+восстановлены, installed EXE прежний, own0/build0/noforce; runtime UTF16 PASS.
+Result SHA256 `25b6292e4462a38db712a5e71b35e5f7a8a84a66ff53471e32d9b5bc7d5ef659`,
+terminal SHA256 `df82e2ca0489c2a396f05edd900c720763a86e357f249b299c9a5018f3d9ec51`.
+Предыдущие FAIL сохранены. Следующий шаг — отдельно применить три production
+изменения r4 к этому стенду и выполнить прежний полный migration-pair CLI.
+
+## 2026-11-04 — T117 r4: full migration-pair остаётся FAIL
+
+После трёх production-изменений r4 outside stage `t117-coordinator-r4-green`
+скомпилирован успешно, но full migration-pair вернул3/host1: scenario7
+дошёл до setup marker и assertion строки1575 о packed birth readback fault.
+Числа hit/ok/error/native первоначальный тест не вывел, причина ещё не
+установлена. Это не GREEN и не повод менять ожидаемый тип ошибки по догадке.
+Предшествующие protected-v4 и plaintext-v4 проверки пройдены до этой точки.
+
+Source225 SHA256 `c960df2d67cd6eeea9a786be5578d0b594b1cc28c4b84e37084894c861c20f9e`,
+config110 unchanged,22 PE после сборки/теста сохранены;21 посторонний PE
+совпадает с RED baseline. Атрибуты восстановлены, installed unchanged,
+own0/build0/noforce. Terminal SHA256
+`528ac8d2a4beee0b915037ea3ad306bbbe32f6ff7dcf7816eca4303370ea605c`.
+Эти production-изменения пока не применены в репозиторий или приложение.
+
+Следующая диагностика добавляет только одну строку числового вывода перед
+прежним assert: hit/ok/error/native/read/write/flush. FilesTests candidate
+`e24067a6c577549ccf76848bf8e456116785b57b2176a18c7d13b3c26ab995c3`.
+Test expectation, native hook, generated fixture и сроки неизменны.
+
+Независимое SOURCE review также допустило отдельный test-only same-cookie
+A→B сценарий в существующем NativeProtectedAccountProblems: свежие fake GET
+через spaces/auth/me/notification-context, coalesced lookup и настоящий drain,
+без присвоения identity через TestPeer. Он применён в repository поверх
+наблюдения terminate; Native test SHA256
+`1d239f552ee011c4fceac5c154d34bbd73cd8fcebe574bfd0aafc3955498839d`.
+Фактический native RED этого сценария пока не получен; production auth не менялся.
+
+## 2026-11-04 — T117: packed fault не достигнут, проверяется sharing violation
+
+В `t117-coordinator-r4-packed-observed` сборка завершилась0, full migration-pair
+вернул3/host1 на прежнем assertion (теперь строка1576). Наблюдение перед ним:
+`hit=0 ok=0 error=13 native=3221225539 reads=104 writes=18 flushes=26`.
+Это recoveryRequired и NTSTATUS0xC0000043 (sharing violation); намеренный
+packed-read fault ещё не достигнут. Ожидаемый assertion сохранён.
+Source225 SHA256 `dd22d701f13941a54276de2f32430c43d1cbdfd4e2074fa7bb3f6560424a53f3`;
+configuration110,22 PE после исполнения,21 посторонний PE, точные атрибуты
+и installed EXE сохранены; own0/build0/noforce. Terminal SHA256
+`adf6d3bb4bdbf66a14387a73c6b97cac25d0a609b8d93091572a140e43a11064`.
+Это фактический FAIL, не успешная диагностика продукта.
+
+Подготовлен отдельный кандидат ровно двух строк: временные target-directory
+handles queue/package rename допускают FILE_SHARE_WRITE, сохраняя запрет
+FILE_SHARE_DELETE; source handles и последующий строгий directory lock
+не изменены. SOURCE review C0/H0, candidate Files.cpp SHA256
+`957a15abd9ea4c4d184bba0ece0ac269718aaab8deaa7d47b5541a69694b2d54`.
+Причина конкретного native отказа и эффективность изменения пока не доказаны
+исполнением. В repository и installed app этот кандидат ещё не применён.
+
+После сообщения пользователя «вошел» read-only проверка установленного
+0.1.0.15 подтверждает Responding=True и прежний EXE SHA256
+`e6094e4de8b919ba94db652eae4f11ef9762c89d4d0b16f23e19f9342bfa02c5`.
+При визуальном осмотре кабинет загружен, запись закрыта сообщением о
+недоступном защищённом хранилище. Содержимое встреч не сохранялось;
+временный снимок удалён после осмотра. Вход не принимается за приёмку
+хранилища, записи или нового кандидата; рабочие записи/ключи не менялись.
+
+## 2026-11-04 — T088: фактический same-cookie native RED
+
+`t088-native-auth-red`: MSVC Debug build0, затем существующий
+NativeProtectedAccountProblems вернул CTest8 за10.42с на точном
+`same_cookie_requires_fresh_native_workspace_proof`, строка3091.
+Это нужный test-first RED через fake spaces/auth-me/context, без устройств
+и настоящей сети. Host0 означает успешное наблюдение ожидаемого отказа,
+не product PASS. Текущая Windows-компиляция strict wire также успешна,
+но весь wire/runtime набор этим не принят.
+
+Source225 SHA256 `39e3bd830437e7b7aa362b54320487f58ca7d0c8aeba14dfabaa3fad6048b168`;
+configuration110 и её commands/properties неизменны; все22 PE сохранены
+после сборки/теста,21 посторонний PE совпал с предыдущим. Атрибуты
+восстановлены, installed EXE прежний, own0/build0/noforce, UTF16 PASS.
+Native PE SHA256 `04fe094a9b1c679d209e31fc62b9538b9714a3a4ab91f83ee4ce2b81a0048b55`;
+Main terminal evidence SHA256
+`c51607a4424308d2a626b64f5563c2509281a88f18a320fbf54a2c5cd6e97da3`.
+T117 sharing FAIL и прежний необъяснённый T088 deletion CTest FAIL сохранены.
+Production native account/context пока не применён; следующий этап —
+отдельная проверка кандидата и прежних регрессий. Ни task, ни issue не закрыты.
+
+## 2026-11-04 — T117: sharing-кандидат прошёл packed-границу, cleanup FAIL
+
+В `t117-coordinator-r4-target-sharing-runtime` MSVC build0, но полный
+`--migration-pair` завершился3/host1. После двухстрочного изменения
+намеренный packed fault достигнут: `hit=1 error=6 native=30`; прежний assert
+пройден, как и последующие history/BOTH-auth проверки. Сценарии0–5
+координатора завершились до scenario6, где `cleaned.ok()` (строка1653)
+отказал с `error=13 native=0`. Queue/package subject первоначальный вывод
+не различал; причина cleanup пока не доказана. Успешный хвост и общий
+migration PASS не заявляются; исходный FAIL сохранён.
+
+Source225 SHA256 `3e1dd707cff7df58617d69de1cadf73ae21770851a4488fae055d8adf132eaa5`,
+config110 unchanged,22 post-build/post-test PE совпали,21 посторонний PE
+сохранён относительно predecessor; attrs restored/installed unchanged,
+own0/build0/noforce. Main terminal SHA256
+`a66e2b34a1082b0c805c340e49254a02640c85bb88193948aad1610098da8d6c`;
+независимая проверка raw hashes/результата подтвердила FAIL. Runtime UTF16
+receipt не создан при host1, его PASS этому запуску не приписывается.
+
+## 2026-11-04 — T088: Native context кандидат применён, первая сборка FAIL
+
+После фактического same-cookie RED и независимого SOURCE review C0/H0
+применены точные5 production и3 test файла из handoff: native account/context,
+offline local content/document binding, строгий отказ upload continuation
+после nonowner. Полный restrictive cancel/drain остаётся отдельной открытой
+частью того же принятого плана; T088 не завершена.
+
+`t088-native-context-green`: исходники225 скопированы, MSVC build1/C2039
+в NativeCapture.h:3437 — BasicUploadResponse содержит raw `retryAfter`,
+а не `retryAfterSeconds`. Тесты не запускались. Это настоящий compile FAIL,
+не test RED/GREEN. Минимальное исправление одной expression переиспользует
+`DesktopHttpTransport::rateLimitPauseSeconds(answer.status, std::string_view(answer.retryAfter))`;
+независимый SOURCE review C0/H0. Native SHA256 после исправления
+`ccb5f34a300e9f581bf1ee5bd82866358c8289fc1b5d58368292f9edd84650f7`.
+
+Неуспешный build source225 SHA256
+`f5d32d780ecfa35be0db279fd348539501141ab0dba02f9e8e5b5951af72043e`.
+Все22 фактических postflight PE совпадают с прежними; exes_unchanged=false
+означает несозданную post-build map, а не изменённые EXE. Отдельный актуальный
+configuration readback подтвердил110 case с теми же commands/properties.
+Атрибуты восстановлены, installed unchanged, own0/build0/noforce.
+Main terminal SHA256 `ec602c692166b17d373b5f8bc1886970faff1218611cb234ab97fc896222b2a0`.
+Следующий неизменный набор из5 существующих CTest проверяет исправленную
+компиляцию; AppMain отдельно требует полной сборки приложения.
+
+## 2026-11-04 — T088: сборка исправлена, фактический набор2/5, три отказа
+
+`t088-native-context-green-r2`: MSVC Debug build0 всех трёх целей. До тестов
+runner остановился на `CONFIGURATION_COMMAND DesktopUploadRecoveryTests`:
+впервые собранный executable разрешил прежде отсутствовавший command.
+Сверка110 имён/параметров и остальных commands не обнаружила изменения
+конфигурации продукта.22 прежних PE сохранены; фактический23-й Recovery PE
+`3d6a430dde0fad0e42fefb33a9243668b2a8b198e968299cedc7077d50d3b251`.
+Main evidence SHA256 `496ee2f681a36e5ff441df373c9f95d65c223e181751683bd1723c871be81fe7`.
+Это build PASS, но runner FAIL без запущенных сценариев, не product PASS.
+
+Первый CTest-only запуск `t088-native-context-ctest` завершился host255 до
+выполнения guest script: `PrlJob_GetResult: Invalid argument`. Сохранён
+отдельно; следующая база взята с фактического успешного build, не с255.
+В `t088-native-context-ctest-r2` применён EncodedCommand launcher; product
+source/PE/config не менялись и повторной сборки не было.
+
+Фактический CTest8/host1 за598.74с: Recovery PASS295.77с; AccountProblems
+PASS0.82с; Calendar FAIL280.49с на localPlaybackDocumentCurrent(document,
+nonce-1), строка316; DeletionApplication FAIL15.58с на retained, строка1691;
+PlaybackConsumer FAIL6.05с на enqueue, строка7620. В собственном Calendar
+процессе наблюдалось CRT-окно abort; после точной проверки PID/контролов
+отправлена команда штатной кнопки Abort. Assertions не игнорировались,
+принудительного завершения процесса не было; время Calendar включает диалог.
+
+Source225 SHA256 `7711c37ea3225112ce5bf0529c2d9531257a90f95ad366e2e4bb57c4588519dd`;
+все23 PE до/после совпали,110 commands/properties неизменны, installed EXE
+прежний, own0/build0/noforce. Runtime encoding receipt при host1 отсутствует,
+UTF16 PASS этому запуску не приписывается. Main terminal SHA256
+`c0c26f8e6e4aff8b9e047d64c73c66230691f33cdcbc6fd2b85fa23c17cdbf65`.
+Результат2/5 не закрывает T088; старые ошибки T117/Deletion сохранены.
+
+Проверка исходников выявила ошибку новой Playback fixture: enqueue запрещает
+серверные meeting/access fields при добавлении локальной записи. То же
+ограничение затрагивает пока не применённый restrictive-drain RED donor.
+Кандидат RED до исправления подготовки не квалифицируется. Независимый
+SOURCE review restrictive-drain production также нашёл блокировку повторной
+физической сверки после отказа readback: запрет новых upload должен стоять
+после existing reconciliation signal. Этот кандидат пока не применён;
+исправления и повторная проверка требуются до GREEN/приёмки.
+
+## 2026-11-04 — T117: busy package подтверждён наблюдением
+
+`t117-coordinator-r4-cleanup-observed`: MSVC build0, полный прежний CLI
+`--migration-pair` завершился3/host1 на cleaned.ok(), строка1655. Test-only
+наблюдение сохранило все прежние assertions и production. Queue cleanup
+начинается subject0/stage2/auth0/sources1/owner_failed0; package cleanup после
+существующей отрицательной проверки удерживаемого Pair — subject1/stage2/
+auth0/sources3/owner_failed1, затем recoveryRequired13/native0. Следовательно,
+в данном сценарии healthy owner блокируется до положительного cleanup уже
+после busy-negative; queue-ветка не является местом отказа.
+
+Source225 SHA256 `eb52be1d19ead0add7aaa3bc755610745a5aec7d1637a6491e8b90982ba838ad`;
+FilesTests PE `a057f0e3e4bddfe291be543b4537661d4a16023c9ff04ef6a09092c648c9e074`;
+config110 неизменна,23 PE после сборки/теста совпали,22 посторонних PE
+не изменились. Атрибуты восстановлены, installed прежний, own0/build0/noforce.
+Main terminal SHA256 `972c31038d78d105443cd7412965a2322ed5541d6c0f0cc1089cbedb3a83c9dc`.
+Runtime encoding receipt при host1 отсутствует; результат остаётся FAIL.
+
+Подготовлен внешний кандидат+6 строк: cleanup получает существующую
+исключительную lease целевого package-state до полного cold validate;
+отказ возвращается локально без порчи owner, успешная временная lease
+освобождается до прежней полной проверки. Global validate/sticky failure,
+authority/BOTH/history и cleanup effects не меняются. Ещё не применён,
+требует независимого SOURCE и фактической проверки. T117 остаётся открытой.
+
+Calendar test-only корректировка теперь охватывает четыре места с локальной
+привязкой до account: первоначальные отрицательные проверки сохранены,
+повторная привязка воспроизводит порядок AppMain. Все259 прежних assertions
+побайтно и по порядку сохранены; независимый SOURCE C0/H0 для
+`bd640ef52565ae00988754cba76cc1c955ef2960c518c4cf49a4e4db683c083f`.
+Исправленный runtime проверяется отдельно; прежний Calendar FAIL не стёрт.
+
+## 2026-11-04 — Calendar принят тестом; T117 busy-owner RED подтверждён
+
+`T088_calendar_fixture_correction`: MSVC build0, CTest0, настоящий
+CalendarJoinHostTests PASS за1.44с. Запускатель завершился host1 только на
+`EXACT_ONE_CASE_PASS_REQUIRED`: CMake вывел иной текст успешной сводки.
+Отказ запускателя сохранён отдельно от успешного сценария; повтор ради
+переписывания сводки не выполнялся. Main terminal SHA256
+`24b2c47f6abb4ca47794fcfb9109431cc526f2fc95d6c49e5be300b41d73df0c`.
+
+Offline playback fixture исправлена без изменения защиты продукта: enqueue
+получает локальную строку без серверного meetingId; matching typed result
+устанавливает серверные сведения через applyUploadResult. Независимый review
+подтвердил сохранение1847 прежних assertions и добавление одного.
+Следующий test-only restrictive-drain RED применён после независимого review
+SOURCE GO/C0H0: Native test SHA256
+`309e7f39626531dab1db420ebe0d6e3a62defe3140ce4c50d737a45c2cd61168`.
+Настоящий upload и lifecycle HTTP должны быть одновременно удержаны до
+целевой проверки1627. Выполнение этого нового сценария ещё не подтверждено.
+
+`t117-coordinator-r4-cleanup-busy-red`: build0, полный прежний migration-pair
+CLI3, host0 как ожидаемый отрицательный результат. Точный assert1651
+`!ProtectedCustodyMigrationTestPeer::failed(*owner)` воспроизводит порчу
+healthy owner после отказа занятого package; это не ошибка подготовки.
+Source225/PE23/config110 сохранены, атрибуты восстановлены, installed EXE
+прежний, own0/build0/noforce, runtime UTF16 PASS. Main terminal SHA256
+`1442066034699a5d0e2bce39340558ea406032b45f06b533cea0168138ece4a0`.
+После review запущен отдельный полный migration-pair с шестистрочным
+preflight-исправлением; его результат пока не объявлен успешным.
+
+Режим остаётся high-risk-product в существующих T088/T117. Записи и ключи
+пользователя не изменялись; ошибку installed protected store эти проверки
+сами по себе не закрывают. Новых задач/закрытия issues, коммита, push или
+выпуска в этом проходе пока нет.
+
+## 2026-11-04 — busy cleanup исправлен, полный переход ещё отказывает
+
+`t117-coordinator-r4-cleanup-busy-green`: MSVC build0. Полный прежний CLI
+migration-pair завершился3/host1 после completed-history case2, без stderr.
+Queue и package cleanup прошли место прежнего отказа с owner_failed0;
+это не полный GREEN. Main terminal SHA256
+`02eab0f7b783b1474c439eca215f566e081dc670d5a651cd5555ede3b170c508`.
+Source225/PE23/config110, атрибуты, installed и фактический drain проверены.
+Runtime encoding receipt отсутствует при host1. Для следующего отказа нужна
+служебная диагностика точного этапа/типа исключения; причина не выдумывается.
+
+`t088-native-lifecycle-first-red-r3`: MSVC build0; существующий
+NativeProtectedDeletionApplication CTest8, точный именованный assert1627,
+25.54с. Настоящие held upload/lifecycle предпосылки пройдены. Это целевой
+RED отсутствующей отмены до изменения очереди. Отдельный прежний
+NativeProtectedPlaybackConsumer CTest8/18.31с дошёл дальше исправленного
+enqueue и отказал7840: offline_display_must_not_starve_behind_network_recovery.
+Его FAIL не считается PASS запускателя. Main terminal SHA256
+`fa6bf18733fd031c58af38b0b641e4d0fa7503b80271a71d81254ea0c0f668c8`.
+Host0 подтверждает ожидаемый RED и сохранённый отдельный FAIL; source225,
+PE23/config110, attrs/installedsame/own0/noforce/UTF16 проверены. T088 открыт.
+
+Проверка процесса Spec Kit: check_spec_kit_governance.py PASS,
+speckit-bootstrap --doctor --frozen PASS с закреплённым CLI1.0.7. Это не
+проверки нового commit SHA, не установочная и не полная продуктовая приёмка.
+
+## 2026-11-04 — уточнение отказа миграции и подготовка нативных исправлений
+
+`t117-silent-failure-runtime`: MSVC build0, полный прежний migration-pair
+CLI3/host1. После `completed_history_end` перехватчик завершения записал
+`exception=bad_alloc code=0 owned_bytes=2174`. Это уточняет границу отказа,
+но не доказывает его причину и не принимает T117. Main сверил source225
+(изменён только диагностический FilesTests), PE23 (изменён только FilesTests),
+config110, восстановление атрибутов, прежний установленный EXE, own0/build0
+и отсутствие принудительной очистки. Main terminal SHA256:
+`e69a5bab57f4a80778705c3c7a37e3a21f2e3b5d465875f3c31caf47ffcf92ac`.
+При host1 отдельный runtime encoding receipt не создан; успех не заявляется.
+
+В исходники Main после отдельных независимых SOURCE GO/C0H0 внесены
+удержание restrictive lifecycle answer до настоящего upload drain и
+перестановка отмены display после upload admission guards. Второе исправляет
+подтверждённое голодание локального display при недоступной сети. NativeCapture
+SHA256: `23c3dd0b80e6ba8f708861599d57f783a7330ddd6dc30cebee1130f32b4ac2d5`.
+Полное расширение существующего теста с исправленным порядком смены A→B
+прошло независимый повторный просмотр mode7; SHA256:
+`eed0f66cb3d7849dc79d8ce9ddc63ff306f33b64f88c0c379a80f50bc5835834`.
+Прежние assertions, quota, deadlines и маршруты CTest сохранены.
+Это разрешение по исходникам; Windows GREEN этих изменений ещё не получен.
+Установленный GRAF, пользовательские записи и ключи не изменены.
+
+## 2026-11-04 — offline playback GREEN, reconciliation остаётся открытым
+
+`t088-lifecycle-drain-green-r5`: MSVC build0; отдельно запущенный существующий
+`NativeProtectedPlaybackConsumer` CTest0/PASS, 19.33с. Прежний FAIL7840
+offline display воспроизведён до исправления и устранён текущим порядком
+upload admission. Это фактический Windows runtime результат, не установка.
+
+`NativeProtectedDeletionApplication` CTest8/137.66с: сценарии0–7 прошли
+свои проверки до сценария8, который отказал1789 при ожидании lifecycle ticket
+после physical readback retry. Предшествующий именованный assert физического
+retry пройден; полный Deletion GREEN не получен, причина следующего отказа
+ещё не установлена. Общий host1 сохраняет этот FAIL, несмотря на Playback PASS.
+Оба результата записаны отдельно; deadlines не менялись.
+
+Main сверил source225 с ровно двумя Native заменами, PE23 (изменился только
+Native test), прежнюю config110, атрибуты, installed EXE и завершение всех
+своих процессов без принудительной остановки. Main terminal SHA256:
+`e67d1ffffba050d87077e09a47fc143ae940772d0dd90152a8934edeaafcd655`.
+Ни T088, ни T117/T118, ни полная установленная/аппаратная приёмка не закрыты.
+
+## 2026-11-04 — точный allocation cut миграции и исправление mode8 fixture
+
+`t117-silent-failure-runtime-r2`: build0, полный прежний migration-pair CLI3,
+host1. Последняя отметка перед `bad_alloc`:
+`linked_factory_invoke schema=1 subject=0 fail_at=8 cancel_at=0 fault=0 ordinal=1`.
+Начальные fixtures и history прошли дальше прежней отметки. Причина исключения
+внутри этой factory ещё требует анализа; marker сам по себе её не доказывает.
+Диагностика +21 строк не меняет assertions, allocation ordinals, квоты, IO cuts
+или сроки. Main подтвердил source225/PE23/config110, прежний installed EXE,
+восстановление атрибутов и own0/build0/noforce. Main terminal SHA256:
+`9c0491bcde2eaa4c60020d9a07786d680206f5f4d2c38f05e1847b149687daed`.
+
+Независимый анализ mode8 показал несовпадение fake ответа из двух записей с
+новой приоритетной пачкой из одного playback origin после same-account
+revalidation. Production strict decoder корректно отвергает лишнюю цель.
+В Main применён test-only r6 +10/−1 после SOURCE GO/C0H0: публичный visible hint
+перед новым запросом, проверка фактических двух origins и сохранение прежнего
+cursor для этой приоритетной пачки. Фоновые cursor-проверки других modes
+сохранены; остальные старые assertions и пределы не менялись.
+Native test SHA256:
+`f40866c1fe0a324964f86f4904968ba4a6bf5fd687f5cdfdab57eb70ead60441`.
+Начат новый отдельный runtime прогон; успех заранее не заявляется.
+
+## 2026-11-04 — режимы отзыва доступа пройдены; фаза quota проверяется отдельно
+
+`t088-lifecycle-drain-green-r6`: MSVC build0, существующий
+`NativeProtectedPlaybackConsumer` CTest0/PASS20.62с. Все девять новых
+сценариев restrictive drain дошли до прежнего отдельного negative quota
+fixture. Полный `NativeProtectedDeletionApplication` CTest8/154.25с,
+retained assert2067; общий host1. Это FAIL полного набора.
+
+Наблюдение quota: до poll answer0/waiting0/used67108864, после
+answer1/waiting2/used67103776; posts1/operations0/generation2. Поток был
+завершён, но его future ещё удерживал память. Обычный poll забрал реальный
+ответ и освободил часть памяти перед обработкой. Это объясняет ошибочную
+фазу заполнения квоты в fixture, а не подтверждает превышение product limit.
+Main terminal SHA256:
+`0238dbb97ca9cde10b241f6a93361d5eddb72b38112f98ddf6ba0023486b195a`.
+Source225/PE23/config110, attrs/installed EXE unchanged, own0/build0/noforce.
+
+После независимого SOURCE GO/C0H0 применён test-only r7 +11/−1. TestPeer
+сначала забирает настоящий ответ фактически завершённого потока через
+join/get/reset; затем прежняя 64MiB квота заполняется и существующий
+pollLifecycle проверяет удержание. Старые assertions, включая retained,
+posts1 и отсутствие операций, сохранены; добавлены четыре проверки.
+Production не изменён. Тест SHA256:
+`dda37c86facc8d2179f1bc51830eb70c40ceb390573fe919d47ba6f291103cef`.
+Runtime r7 ещё не выполнен.
+
+В параллельных материалах T117 сохранены первичные заголовки установленного
+MSVC14.44.35207: пустой filesystem::path использует noexcept basic_string
+constructor с Debug proxy allocation. Это согласуется с cut8 в новой
+MigrationSource::path; требуется точечное исправление и подтверждение прежним
+полным allocation-cut CLI. Ничего в квотах/отказах/ordinals не ослаблено.
+Полная Release x64 solution-сборка текущей VM source225 запущена отдельно;
+результат ещё ожидается. Установка и пользовательские данные не менялись.
+
+## 2026-11-04 — текущие локальные проверки процесса
+
+После test-only r7 выполнены `git diff --check`,
+`python3 scripts/check_spec_kit_governance.py` и
+`speckit-bootstrap . --doctor --frozen`: PASS. Использован прежний
+проверенный pinned CLI1.0.7/bootstrap0.11.0, без обновления lock/dependencies.
+Повторное чтение checklist state:198 файлов,477 checked,0 unchecked; Main
+их не изменял. Lane остаётся high-risk-product, tasks не закрыты.
+
+Контекст после сжатия восстановлен из оригиналов: guidance index,
+document-reading, development-process, product-gates; применимые constitution
+I/II/IV/VI/ProductAndPlatform/Workflow/Governance, PRD4.x/4.y;
+plan3748–3820, data-model269–310, quickstart1520–1557,
+local-custody7.1 и8 (применимая начальная restart-safe часть), taskT117.
+Хеши обязательных источников совпали с прежним собственным чтением в том же
+диалоге. Полная память о старом чтении не принята вместо нынешних разделов.
+Это запись восстановления контекста и локальные diagnostics, не exact-SHA
+CI/merge/release разрешение. Main source HEAD остаётся
+`8c17bea5e4eba38b4e4f10a842987fcaae243fd6` с незакоммиченным diff.
+
+## 2026-11-04 — полная Release x64 solution прошла
+
+`t088-current-fullsolution-rebuild-draft`: фактические MSBuild0/host0,
+Rebuild Release x64. Свежие AppMain.obj, WebView2Host.obj и x64 EXE;
+production compile commands не содержат forced include/test definitions,
+тестовые payload markers отсутствуют. AEC provenance сохранён.
+EXE SHA256:
+`1ed664d9ef249003b50900873bde75f5ea10fee398b65951ea2101e10789f1c3`.
+AppMain.obj SHA256:
+`ade22908a4a0161a7c961dbb54005d9c1d9f28ec9164e894ff29305448d889f0`.
+WebView2Host.obj SHA256:
+`57015d47d2983cbfe36494dc8960850bb2169936a02fd8f84132db0984ba9860`.
+
+Main подтвердил source225 без копирования, PE23 unchanged, полное равенство
+before/after CTest configuration JSON110, installed EXE unchanged, own0 и
+active-build0, noforce. В прежней configuration31 случаев не имеют command
+из-за ещё не собранных соответствующих CMake targets; они не исполнялись
+и не считаются PASS. Обе выбранные Native commands присутствуют.
+Solution compile не принимает весь CTest110 или установленный пакет.
+
+Main terminal SHA256:
+`2c9fe0cc23f09477c1ad5024bf2eddcbac9836b01c1f7bc4c013bb0066569aed`.
+Это сборка фактической VM source225 с семью ранее подготовленными T117
+файлами, ещё не применёнными в Main repo; Native test остаётся r6.
+Результат не переносится на незакоммиченный Main r7 или будущую T117 правку.
+Установка/запуск/записи/сертификаты/сеть/микрофон не менялись.
+
+## 2026-11-04 — Native restrictive lifecycle и offline playback GREEN
+
+`t088-lifecycle-drain-green-r7`: build0/host0. Существующие два случая
+выполнены раздельно и завершились штатно: NativeProtectedDeletionApplication
+CTest0/PASS178.98с, NativeProtectedPlaybackConsumer CTest0/PASS19.75с.
+Полный Deletion case теперь прошёл прежний negative quota assert2067,
+а также все новые restrictive/reconciliation/account-switch modes. Квоты,
+сроки и assertions не ослаблены. Предыдущий r6 FAIL остаётся историческим
+результатом, новый GREEN относится только к текущему r7 source/test.
+
+Main сверил source225 с единственной заменой Native test f408→dda37,
+PE23 (изменён только Native test), полное before/after configuration JSON110,
+атрибуты33 до/после, installed EXE unchanged, own0/build0/noforce.
+Дополнительный UTF16 runtime receipt подтверждает реальные TEMP/TMP с
+кириллицей и пробелом и точный runner.
+Main terminal SHA256:
+`fb0c3446ce0a422d1a2dadd9f301b611f5a4da2ae74e67ae2c384dbd49ef8dfc`.
+Native test EXE SHA256:
+`1a66e8ab2371f304281dc64f95916a2ecc3342bed19b92592101e43b0a218df9`.
+
+Это focused Windows runtime GREEN для T088. T088 целиком, T117/T118,
+установленный MSIX, аппаратная x64/AEC/60min, доступность и реальный
+auth/upload E2E не приняты по этим двум случаям. Задачи не закрывались.
+Следующая проверка — существующий полный migration-pair CLI с точечной
+двухстрочной production правкой; FilesTests2f192 не меняется.
+
+## 2026-11-04 — T117: полный migration-pair GREEN после исправления empty path
+
+В отдельном кандидате Files.cpp изменены ровно два инициализатора пустого
+filesystem::path: MigrationSource::path (все6 элементов) и migrationSourcePath
+создаются через пустой wstring_view. Пустое значение и последующие реальные
+присваивания не меняются; существующий обработчик bad_alloc получает отказ
+вместо terminate в MSVC Debug proxy allocation. Правка получила независимый
+SOURCE GO/C0H0 и проверена на точном кандидате SHA256:
+`c15e6b84cc453ab62b455020ddb07c46bf0e208264bd63299c3ce6809873651b`.
+FilesTests2f192, assertions, ordinals, limits и deadlines не менялись.
+
+`t117-migration-source-empty-path-runtime`: build0, полный существующий
+`ProtectedCustodyFilesTests --migration-pair` CLI0, выбранный host-retry0.
+Последовательность fail8→control→fail9 подтверждает allocationFailed,
+released() и successful retry; linked_end и protected_end пройдены,
+terminate отсутствует. Полный CLI продолжен до штатного выхода0.
+Это наблюдение нового кандидата, не снятый стек прежнего cut8.
+
+Первый launcher завершился255 (`PrlJob_GetResult: Invalid argument`) без
+начала runner. Сохранён отдельно; Main readonly проверил own0/build0,
+исходный Files957a/attributes32 и отсутствие result/build logs перед повтором.
+Короткий ASCII launcher выполнил тот же неизменный Run8b8d; его receipt
+`host-retry-exit.json` не перезаписывает исходный отказ. Отдельный UTF16
+runtime receipt в коротком launcher отсутствует и не заявляется.
+
+Main квалифицировал source225/ровно1 Files delta957a→c15e, PE23/ровно1
+FilesTests изменение, before/after config110 exact, attributes32 restored,
+installed EXE unchanged, own0/build0/noforce. Main terminal SHA256:
+`ebf0192d46c0c9fbf3a473e8afa9a8651d925455ff9ed2b54f7aa89470a48b09`.
+FilesTests EXE SHA256:
+`be882cb4171ef2e52356d500cc97e813495b489116275ce0c2dfe00dfeb90a35`.
+
+T117 не закрыта: подключение coordinator к обычному initial NativeCapture
+startup, полный generated legacy→adopt→cold restart и retirement ещё
+требуются. Unknown quarantine не обходится и не удаляется. Main repo пока
+не получил семь T117 production файлов/FilesTests; VM proof не объявляется
+сборкой текущего Main HEAD. Установленный пакет и реальные записи не менялись.
+
+## 2026-11-04 — проверенный T117 coordinator перенесён в Main repo
+
+После SOURCE reviews и полного migration CLI GREEN Main применил ровно
+семь production файлов T117 и существующий FilesTests2f192. Каждая исходная
+версия совпала с HEAD (не было чужого dirty diff в этих8 файлах), каждый
+кандидат — с actual source225 manifest. Сохранены target-sharing исправление,
+cleanup busy preflight и empty-path обработка отказа; v4 codec не заменялся.
+После применения все225 tracked source inputs Main побайтно совпали с
+испытанным VM snapshot. Native initial hook пока НЕ изменён.
+Main application receipt SHA256:
+`111317a35d9a211830ad5a3066db352b03ef379f4668c7482438fc4aac4a5047`.
+`git diff --check`: PASS. Это незакоммиченный набор исходников, не exact-SHA CI.
+
+Следующий bounded срез в existing NativeProtectedReadModel прошёл отдельный
+requirements/analyze review C0H0: настоящий legacy→worker ready→adoption→
+обычная recovery mutation→cold restart; unknown quarantine exact preservation
+на двух cold launches; один native-qualified ambiguous bootstrap switch и
+повтор после полного release. Сохраняются virgin/protected проверки. Новые
+CLI/CMake/tasks/quotas/deadlines не требуются, assertions не ослабляются.
+Только initial startup будет использовать Migration::open; reconciliation
+reopen останется StoreOwner::open. Допуск к design не является SOURCE/runtime
+PASS будущих изменений. Исходники/test donor готовятся отдельно до RED.
+
+## 2026-11-04 — сходимость промежуточного T088 + T117 checkpoint
+
+Независимая повторная сверка: C0/H0, новых обязательных задач не выявлено.
+225/225 repo inputs и8/8 T117 donors совпадают с последним tested manifest;
+18/18 T117 terminal artifact pins проверены. Прежние scoped SOURCE reviews
+применимы к совпавшим r4/target-sharing/busy-preflight/empty-path/test pins.
+Принятый промежуточный состав — T088 access/context/drain и T117 coordinator,
+без ещё не написанного Native startup hook. Задачи и reviewer checklists не
+закрыты. Release compile относится к своему более раннему manifest, не
+переобозначается сборкой нового current source225.
+
+После применения прошли YAML parse F200, `git diff --check` и governance.
+Ранее подтверждённое пользователем сохранение промежуточного этапа используется
+для implementation checkpoint; push/merge/release этой записью не выполняются.
+Открыты native initial migration→adopt→mutation→cold restart, cleanup caller/
+delete-purge/retirement, installed/auth/upload/accessibility/hardware acceptance.

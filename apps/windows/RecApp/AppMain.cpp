@@ -1226,17 +1226,9 @@ private:
         host.setAppUpdateAvailable(appUpdate_.available());
         host.setAuthSessionHandler([this](std::string token, bool currentCookieRead) {
             if (!capture_) return;
-            const auto previousGeneration = capture_->authGeneration();
-            capture_->setAuthSessionToken(std::move(token), currentCookieRead);
-            if (capture_->authGeneration() != previousGeneration) {
-                cancelLocalPlayback();
-                if (cabinet_) cabinet_->webView().bindUserTimeAccount({}, {}, {}, {}, 0);
-                cancelCalendarJoin();
-                if (reminderCancellation_) reminderCancellation_->store(true);
-                reminderRequestIdentity_ = {};
-                if (reminders_) reminders_->invalidate();
-                pendingReminderAction_.reset(); reminderFlightAction_.reset(); lastReminderRequest_ = 0;
-            }
+            if (currentCookieRead || !token.empty()) capture_->setAuthSessionToken(std::move(token), currentCookieRead);
+            else capture_->recover(graf::windows::RecoveryTrigger::activation); // Unknown read is not logout.
+            synchronizeAuthGeneration();
         });
         host.setCalendarJoinHandlers(
             [this](auto request) { beginDocumentCalendarJoin(std::move(request)); },
@@ -1278,11 +1270,28 @@ private:
         }
     }
 
+    void synchronizeAuthGeneration() {
+        if (!capture_) return;
+        const auto generation = capture_->authGeneration();
+        const bool changed = !observedAuthGeneration_ || *observedAuthGeneration_ != generation;
+        const bool network = capture_->currentAccount().has_value();
+        const bool lostNetwork = observedNetworkAccount_ && !network;
+        observedAuthGeneration_ = generation; observedNetworkAccount_ = network;
+        if (!changed && !lostNetwork) return;
+        if (changed) cancelLocalPlayback();
+        if (cabinet_) cabinet_->webView().bindUserTimeAccount({}, {}, {}, {}, generation);
+        cancelCalendarJoin();
+        if (reminderCancellation_) reminderCancellation_->store(true);
+        reminderRequestIdentity_ = {};
+        if (reminders_) reminders_->invalidate();
+        pendingReminderAction_.reset(); reminderFlightAction_.reset(); lastReminderRequest_ = 0;
+    }
+
     void updateLocalRecordings() {
         if (!cabinet_ || !capture_) return;
         bindNotificationContext();
         const auto observation = capture_->localObservation();
-        const auto context = capture_->localProblemContext();
+        const auto& context = observation.contentContext;
         cabinet_->webView().setProtectedLocalRecordings(observation.value, observation.complete,
             context.origin, context.owner, context.workspace, capture_->authGeneration(), observation.timings,
             capture_->activeRecordingSession());
@@ -3447,6 +3456,7 @@ private:
             startLocalPurgePass();
         }
         capture_->pollUploads();
+        synchronizeAuthGeneration();
         pollLocalRecordingSend();
         pollLocalRecordingRemoval();
         pollDeletionSelection();
@@ -3651,6 +3661,8 @@ private:
     std::vector<ProblemTarget> pendingProblems_; // at most 256, current context only
     graf::windows::NotificationPreferenceStore problemStore_ = graf::windows::NotificationPreferenceStore::native();
     std::uint64_t problemContextEpoch_ = 0, problemAuthGeneration_ = 0;
+    std::optional<std::uint64_t> observedAuthGeneration_;
+    bool observedNetworkAccount_ = false;
     std::string selectedRecordingDisplayKey_;
     std::string selectedLocalRecordingId_;
     Window settingsWindow_{nullptr};

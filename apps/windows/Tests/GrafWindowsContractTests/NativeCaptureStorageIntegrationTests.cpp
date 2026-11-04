@@ -5,6 +5,8 @@
 #include <cstdio>
 namespace {
 std::atomic<unsigned> recoveryReadyObservations{0};
+std::atomic<const char*> lifecyclePhase{"entry"};
+std::atomic<unsigned> lifecycleCase{0};
 void observeUploadStage(unsigned, unsigned, unsigned) noexcept;
 void observeStartBeforeFactory() noexcept;
 }
@@ -855,6 +857,15 @@ struct NativeCaptureStorageTestPeer {
     }
     static auto projection(const NativeCapture& capture) { return capture.protectedQueueValue_; }
     static bool recoveryIntentPending(const NativeCapture& capture) { return capture.pendingRecovery_.has_value(); }
+    static auto activeUpload(const NativeCapture& capture) {
+        std::lock_guard<std::mutex> lock(capture.storageStartup_->mutex);
+        return capture.storageStartup_->upload; // Value/atomic observations, no native lease grant.
+    }
+    static std::uint64_t commandCount(const NativeCapture& capture) {
+        std::lock_guard<std::mutex> lock(capture.storageStartup_->mutex);
+        return capture.storageStartup_->nextTicket;
+    }
+    static void pollLifecycle(NativeCapture& capture) { capture.pollRecordingLifecycle(); }
     static bool lifecycleActive(const NativeCapture& capture) {
         return capture.lifecycleFlight_ || capture.lifecycleThread_.joinable();
     }
@@ -864,8 +875,39 @@ struct NativeCaptureStorageTestPeer {
     static bool lifecycleNativeExit(NativeCapture& capture) {
         return capture.lifecycleThread_.joinable() && WaitForSingleObject(capture.lifecycleThread_.native_handle(), 0) == WAIT_OBJECT_0;
     }
+    static void takeFinishedLifecycleAnswer(NativeCapture& capture) {
+        assert(lifecycleNativeExit(capture));
+        assert(capture.lifecycleFlight_ && !capture.lifecycleFlight_->answer && !capture.lifecycleFlight_->waiting.id);
+        capture.lifecycleThread_.join();
+        auto answer = capture.lifecycleFuture_.get(); capture.lifecycleFuture_ = {};
+        capture.lifecycleFlight_->answer = std::move(answer);
+    }
     static bool lifecycleAnswerRetained(const NativeCapture& capture) {
         return capture.lifecycleFlight_ && capture.lifecycleFlight_->answer && !capture.lifecycleFlight_->waiting.id;
+    }
+    struct LifecycleQuotaObservation {
+        std::uint64_t waiting = 0, generation = 0;
+        std::size_t used = 0, operations = 0;
+        unsigned posts = 0;
+        bool answer = false, upload = false;
+        bool resultReady = false, resultAdopted = false;
+    };
+    static LifecycleQuotaObservation lifecycleQuotaObservation(
+        const NativeCapture& capture, unsigned posts) {
+        LifecycleQuotaObservation observed{};
+        std::lock_guard<std::mutex> lock(capture.storageStartup_->mutex);
+        if (capture.lifecycleFlight_) {
+            observed.answer = static_cast<bool>(capture.lifecycleFlight_->answer);
+            observed.waiting = capture.lifecycleFlight_->waiting.id;
+        }
+        observed.posts = posts;
+        observed.operations = capture.protectedQueueValue_->deletionOperations().size();
+        observed.generation = capture.storageStartup_->generation;
+        observed.upload = static_cast<bool>(capture.storageStartup_->upload);
+        observed.resultReady = capture.storageStartup_->resultReady;
+        observed.resultAdopted = capture.storageStartup_->resultAdopted;
+        observed.used = CustodyOwnedMemory::usedBytes();
+        return observed;
     }
     static bool lifecycleWaiting(const NativeCapture& capture) {
         return capture.lifecycleFlight_ && capture.lifecycleFlight_->waiting.id;
@@ -1486,7 +1528,333 @@ std::string lifecycleAnswer(const CustodyString& body, unsigned mode = 0) {
     }
     answer += ']'; return answer;
 }
+
+// The server answers lifecycle while a genuine upload owns its package proof.
+// Its fake sync GET remains held after cancellation so an atomic flag cannot
+// stand in for executor completion, native release or queue adoption.
+// Modes are concrete answers at the same existing HTTP boundary: unavailable,
+// accepted external receipt, malformed JSON, foreign target, partial batch,
+// late domain conflict, positive-only answer, stale account-A answer, and an
+// actual cancelled-upload readback failure requiring physical reconciliation.
+void protectedLifecycleUploadDrain(unsigned mode = 0) {
+    const auto baseline = CustodyOwnedMemory::usedBytes();
+    testing::GeneratedRecordingRoot paths;
+    constexpr auto playing = "generated-drain-playing";
+    constexpr auto uploading = "generated-drain-uploading";
+    constexpr auto switched = "generated-drain-workspace-b";
+    const bool restrictive = mode < 2 || mode == 8;
+    const std::string expectedAccess = mode == 0 || mode == 8 ? "unknown" : "owner";
+    const std::vector<std::string> sessions = mode == 7 ? std::vector<std::string>{playing, uploading, switched} :
+        std::vector<std::string>{playing, uploading};
+    std::async(std::launch::async, [&] {
+        auto cancel = std::make_shared<std::atomic<bool>>(false);
+        auto opened = ProtectedCustodyStoreOwner::open(paths.root, cancel); assert(opened.ok());
+        auto owner = std::move(*opened.value);
+        for (const auto& session : sessions) {
+            auto writer = V5LocalRecordingWriter::open(owner, session, cancel); assert(writer.ok());
+            CanonicalAudioFrame frame; frame.mixed.fill(0.25F);
+            for (unsigned n = 0; n != 500; ++n) { frame.ptsFrames = n * 480; assert((*writer.value)->append(frame)); }
+            assert((*writer.value)->finalize().normalPackage()); writer.value.reset();
+        }
+        auto read = owner->readQueueValue(cancel); assert(read.ok());
+        auto value = std::allocate_shared<ProtectedUploadQueueValue>(CustodyAllocator<ProtectedUploadQueueValue>{}, **read.value);
+        for (const auto& session : sessions) {
+            ProtectedUploadQueueValue::Item row;
+            row.localRecordingId = row.directoryId = row.sessionId = session;
+            const auto path = (paths.root / session).u8string(); row.packageDirectory.assign(path.begin(), path.end());
+            row.ownerUserId = "11111111-1111-4111-8111-111111111111";
+            row.ownerWorkspaceId = session == switched ? "55555555-5555-4555-8555-555555555555" :
+                "22222222-2222-4222-8222-222222222222";
+            row.status = std::string_view(session) == playing ? UploadQueueStatus::uploaded : UploadQueueStatus::pending;
+            assert(value->enqueue(std::move(row), 1000, cancel.get()));
+        }
+        // New enqueue cannot manufacture server truth. Apply a generated typed
+        // sync result, then the existing manual-send domain transition for work.
+        for (std::size_t index = 0; index != value->items().size(); ++index) {
+            const auto expected = value->items()[index];
+            ProtectedDesktopTransportResult synced;
+            synced.status = std::string_view(expected.localRecordingId) == playing ?
+                DesktopTransportStatus::uploaded : DesktopTransportStatus::retryableFailure;
+            synced.serverTruth.emplace(); synced.serverTruth->localRecordingId = expected.localRecordingId;
+            if (std::string_view(expected.localRecordingId) == uploading)
+                synced.serverTruth->meetingId = "66666666-6666-4666-8666-666666666666";
+            if (std::string_view(expected.localRecordingId) == switched)
+                synced.serverTruth->meetingId = "88888888-8888-4888-8888-888888888888";
+            synced.serverTruth->accessState = mode == 6 && std::string_view(expected.localRecordingId) == playing ? "unknown" : "owner";
+            assert(value->applyUploadResult(expected, synced, 1500, cancel.get()));
+        }
+        for (std::size_t index = 0; index != value->items().size(); ++index) {
+            const auto expected = value->items()[index];
+            if (std::string_view(expected.localRecordingId) != playing)
+                assert(value->prepareManualSend(index, expected.ownerUserId, expected.ownerWorkspaceId, false, 2000, cancel.get()));
+        }
+        auto bytes = value->serialize(cancel); assert(bytes.ok());
+        assert(commitProtectedCustodyMetadata(owner, owner->queueContext(), owner->queueGeneration(), *bytes.value, cancel).state == CustodyCommitState::committed);
+    }).get();
+    const auto originalPlaying = snapshot(paths.root / playing), originalUploading = snapshot(paths.root / uploading);
+    const auto originalSwitched = mode == 7 ? snapshot(paths.root / switched) : originalPlaying;
+    std::atomic<bool> uploadEntered{false}, releaseUpload{false}, lifecycleEntered{false}, releaseLifecycle{false};
+    std::atomic<unsigned> uploadCalls{0}, lifecycleCalls{0};
+    std::atomic<bool> switchAccount{false}, switchedUploadEntered{false}, releaseSwitchedUpload{false};
+    const DesktopHttpTransport::UploadSend account = [&](const auto&, const auto& request) -> DesktopHttpTransport::UploadResponse {
+        assert(request.method == "GET");
+        if (request.path == "/desktop/settings/spaces") return {200, switchAccount.load() ?
+            R"({"spaces":[{"id":"55555555-5555-4555-8555-555555555555","active":true}]})" :
+            R"({"spaces":[{"id":"22222222-2222-4222-8222-222222222222","active":true}]})"};
+        assert(request.path == "/api/v1/auth/me");
+        return {200, switchAccount.load() ?
+            R"({"user_id":"11111111-1111-4111-8111-111111111111","workspace_id":"55555555-5555-4555-8555-555555555555","active_session_id":"33333333-3333-4333-8333-333333333333"})" :
+            R"({"user_id":"11111111-1111-4111-8111-111111111111","workspace_id":"22222222-2222-4222-8222-222222222222","active_session_id":"33333333-3333-4333-8333-333333333333"})"};
+    };
+    const DesktopHttpTransport::ProtectedUploadSend wire = [&](const auto& config, const auto& request) {
+        DesktopHttpTransport::ProtectedUploadResponse response; response.status = 200;
+        if (request.path == DesktopApiClient::notificationContextPath) {
+            assert(request.method == "GET");
+            response.body = switchAccount.load() ?
+                R"({"user_id":"11111111-1111-4111-8111-111111111111","workspace_id":"55555555-5555-4555-8555-555555555555","recording_deletion_protocol_version":1})" :
+                R"({"user_id":"11111111-1111-4111-8111-111111111111","workspace_id":"22222222-2222-4222-8222-222222222222","recording_deletion_protocol_version":1})";
+        } else if (request.path == DesktopApiClient::lifecyclePath) {
+            assert(request.method == "POST" && config.scopedAccount); ++lifecycleCalls;
+            if (mode == 8) {
+                const auto fields = DesktopApiClient::jsonObjectFields(request.body); assert(fields);
+                const auto origins = DesktopApiClient::jsonArrayValues(fields->at("origins")); assert(origins && origins->size() == 2);
+                assert(std::count(origins->begin(), origins->end(), "\"generated-drain-playing\"") == 1 &&
+                    std::count(origins->begin(), origins->end(), "\"generated-drain-uploading\"") == 1);
+            }
+            lifecycleEntered.store(true); while (!releaseLifecycle.load()) Sleep(1);
+            const std::string allowed = R"({"target_type":"own_origin","target_id":"generated-drain-playing","state":"allowed"})";
+            const std::string unavailable = R"({"target_type":"own_origin","target_id":"generated-drain-uploading","state":"unavailable","meeting_id":"66666666-6666-4666-8666-666666666666"})";
+            std::string body = "[" + allowed + "," + unavailable + "]";
+            if (mode == 1) body = R"([{"target_type":"own_origin","target_id":"generated-drain-playing","state":"canceled_before_creation","receipt":{"receipt_type":"origin_cancellation","request_id":"77777777-7777-4777-8777-777777777777","phase":"accepted","local_recording_id":"generated-drain-playing"}},{"target_type":"own_origin","target_id":"generated-drain-uploading","state":"allowed"}])";
+            if (mode == 2) body.pop_back();
+            if (mode == 3) body.replace(body.find("generated-drain-playing"), std::strlen("generated-drain-playing"), "foreign-drain-origin");
+            if (mode == 4) body = "[" + unavailable + "]";
+            // Strict wire decode succeeds. The domain copy first changes upload
+            // access, then refuses the other row's foreign meeting binding.
+            if (mode == 5) body = "[" + unavailable + R"(,{"target_type":"own_origin","target_id":"generated-drain-playing","state":"allowed","meeting_id":"99999999-9999-4999-8999-999999999999"}])";
+            if (mode == 6) body = "[" + allowed + R"(,{"target_type":"own_origin","target_id":"generated-drain-uploading","state":"allowed"}])";
+            response.body.assign(body.begin(), body.end());
+        } else {
+            assert(request.method == "GET" && request.path.find("/sync-state?") != CustodyString::npos);
+            ++uploadCalls;
+            if (config.workspaceId == "55555555-5555-4555-8555-555555555555") {
+                switchedUploadEntered.store(true); while (!releaseSwitchedUpload.load()) Sleep(1);
+            } else { uploadEntered.store(true); while (!releaseUpload.load()) Sleep(1); }
+            response.status = 503; response.body = "{}"; // A cancelled result still reaches the real ACK exchange.
+        }
+        return response;
+    };
+    bool cancelBeforeMutation = false, drainBeforeSubmit = false, noUploadResultMutation = false, adopted = false;
+    std::uint64_t finalGeneration = 0;
+    {
+        NativeCapture capture(paths.root, {std::make_shared<GeneratedAec>(), false}, account, wire);
+        startAndAdopt(capture, 2); capture.startRecordingLifecycle();
+        capture.setAuthSessionToken("generated-drain-session", true);
+        const bool bothHeld = waitFor([&] { capture.pollUploads(); return uploadEntered.load() && lifecycleEntered.load(); });
+        // Always release either fake request if a genuine prerequisite failed.
+        if (!bothHeld) { releaseUpload.store(true); releaseLifecycle.store(true); capture.shutdown();
+            assert(waitFor([&] { capture.pollUploads(); return capture.shutdownWorkDrained(); })); }
+        assert(bothHeld && "drain_fixture_requires_real_upload_and_lifecycle_http");
+        auto flight = NativeCaptureStorageTestPeer::activeUpload(capture); assert(flight && capture.uploadsBusy());
+        const auto before = NativeCaptureStorageTestPeer::projection(capture);
+        const auto generation = NativeCaptureStorageTestPeer::generation(capture);
+        const auto cursor = NativeCaptureStorageTestPeer::lifecycleCursor(capture);
+        const auto commands = NativeCaptureStorageTestPeer::commandCount(capture);
+        assert(before->items().back().status == UploadQueueStatus::retry && before->items().back().accessState == "owner");
+        if (mode == 7) assert(before->items()[1].status == UploadQueueStatus::retry && before->items()[1].accessState == "owner");
+        if (mode == 6) assert(!capture.openLocalPlayback(playing, 91, true));
+        else {
+            assert(capture.openLocalPlayback(playing, 91, true));
+            assert(waitFor([&] { return capture.localPlaybackObservation().media.ready; }));
+            assert(capture.authorizeLocalPlayback(91)); assert(capture.pauseLocalPlayback(true));
+        }
+        if (mode == 7) {
+            // Fresh account GET cancels/drains A. The held A lifecycle thread
+            // keeps B's authenticated context pending, so manual B must refuse.
+            switchAccount.store(true); capture.setAuthSessionToken("generated-drain-session", true);
+            releaseUpload.store(true);
+            assert(waitFor([&] { NativeCaptureStorageTestPeer::pollAccount(capture);
+                NativeCaptureStorageTestPeer::pollStorage(capture);
+                return capture.currentAccount() && capture.currentAccount()->workspaceId == "55555555-5555-4555-8555-555555555555" &&
+                    flight->done.load() && flight->leaseReleased.load(); }));
+            capture.pollUploads(); // Retire A; the held lifecycle thread prevents a B context command.
+            const auto current = NativeCaptureStorageTestPeer::projection(capture);
+            assert(!capture.requestProtectedManualSend(current, switched, capture.authGeneration(), false));
+            assert(uploadCalls == 1 && lifecycleCalls == 1 && !switchedUploadEntered.load() && !capture.uploadsBusy());
+            const auto fresh = NativeCaptureStorageTestPeer::projection(capture);
+            const auto freshGeneration = NativeCaptureStorageTestPeer::generation(capture);
+            const auto freshCommands = NativeCaptureStorageTestPeer::commandCount(capture);
+            const auto freshCursor = NativeCaptureStorageTestPeer::lifecycleCursor(capture);
+            releaseLifecycle.store(true);
+            assert(waitFor([&] { return NativeCaptureStorageTestPeer::lifecycleNativeExit(capture); }));
+            NativeCaptureStorageTestPeer::pollLifecycle(capture); // Discard stale A before publishing any B context.
+            assert(NativeCaptureStorageTestPeer::projection(capture) == fresh &&
+                NativeCaptureStorageTestPeer::generation(capture) == freshGeneration &&
+                NativeCaptureStorageTestPeer::commandCount(capture) == freshCommands &&
+                NativeCaptureStorageTestPeer::lifecycleCursor(capture) == freshCursor);
+            assert(!NativeCaptureStorageTestPeer::lifecycleActive(capture) &&
+                uploadCalls == 1 && lifecycleCalls == 1 && !switchedUploadEntered.load());
+            assert(fresh->lastAuthenticatedContext() &&
+                fresh->lastAuthenticatedContext()->workspaceId == "22222222-2222-4222-8222-222222222222");
+            // Use ordinary lifecycle/storage polling: unrestricted pollUploads
+            // could dispatch pending recovery B before the manual API is tested.
+            assert(waitFor([&] { NativeCaptureStorageTestPeer::pollLifecycle(capture);
+                return NativeCaptureStorageTestPeer::lifecycleResultReady(capture); }));
+            assert(NativeCaptureStorageTestPeer::projection(capture) == fresh &&
+                NativeCaptureStorageTestPeer::generation(capture) == freshGeneration &&
+                NativeCaptureStorageTestPeer::commandCount(capture) == freshCommands + 1 &&
+                !switchedUploadEntered.load()); // Physical context commit is not adoption.
+            assert(!capture.requestProtectedManualSend(fresh, switched, capture.authGeneration(), false));
+            assert(waitFor([&] { NativeCaptureStorageTestPeer::pollStorage(capture);
+                const auto observation = capture.localObservation();
+                return observation.complete && observation.value && observation.value->lastAuthenticatedContext() &&
+                    observation.value->lastAuthenticatedContext()->workspaceId == "55555555-5555-4555-8555-555555555555"; }));
+            assert(NativeCaptureStorageTestPeer::generation(capture) == freshGeneration + 1 && uploadCalls == 1);
+            NativeCaptureStorageTestPeer::pollLifecycle(capture); // Complete the adopted context ticket; clear pending B.
+            std::optional<NativeCapture::QueueMutationTicket> manual;
+            assert(waitFor([&] { NativeCaptureStorageTestPeer::pollStorage(capture);
+                const auto adopted = NativeCaptureStorageTestPeer::projection(capture);
+                manual = capture.requestProtectedManualSend(adopted, switched, capture.authGeneration(), false);
+                return manual.has_value(); })); // A transient display-slot refusal may need actual drain.
+            assert(manual);
+            assert(waitFor([&] { NativeCaptureStorageTestPeer::pollStorage(capture); return switchedUploadEntered.load(); }));
+            flight = NativeCaptureStorageTestPeer::activeUpload(capture);
+            assert(flight && !flight->cancelled->load() && capture.uploadsBusy());
+            assert(!flight->cancelled->load() && !flight->done.load() && !flight->leaseReleased.load());
+            assert(uploadCalls == 2); // Stale A left no restriction blocking a genuine B upload.
+            releaseSwitchedUpload.store(true); capture.shutdown();
+            assert(waitFor([&] { capture.pollUploads(); return capture.shutdownWorkDrained(); }));
+        } else if (mode == 6) {
+            releaseLifecycle.store(true);
+            assert(waitFor([&] { return NativeCaptureStorageTestPeer::lifecycleNativeExit(capture); }));
+            NativeCaptureStorageTestPeer::pollLifecycle(capture);
+            assert(!flight->cancelled->load() && !capture.openLocalPlayback(playing, 91, true));
+            assert(NativeCaptureStorageTestPeer::projection(capture) == before &&
+                NativeCaptureStorageTestPeer::commandCount(capture) == commands &&
+                NativeCaptureStorageTestPeer::lifecycleCursor(capture) == cursor);
+            releaseUpload.store(true); // Normal result, not cancellation, must commit and finish first.
+            assert(waitFor([&] { NativeCaptureStorageTestPeer::pollStorage(capture);
+                return flight->done.load() && flight->leaseReleased.load(); }));
+            assert(!flight->cancelled->load() && NativeCaptureStorageTestPeer::generation(capture) == generation + 1);
+            assert(NativeCaptureStorageTestPeer::projection(capture)->items().front().accessState == "unknown");
+            assert(waitFor([&] { capture.pollUploads(); return NativeCaptureStorageTestPeer::lifecycleWaiting(capture); }));
+            assert(waitFor([&] { return NativeCaptureStorageTestPeer::lifecycleResultReady(capture); }));
+            assert(NativeCaptureStorageTestPeer::projection(capture)->items().front().accessState == "unknown" &&
+                !capture.openLocalPlayback(playing, 91, true) && NativeCaptureStorageTestPeer::lifecycleCursor(capture) == cursor);
+            NativeCaptureStorageTestPeer::pollStorage(capture);
+            assert(NativeCaptureStorageTestPeer::generation(capture) == generation + 2 &&
+                NativeCaptureStorageTestPeer::projection(capture)->items().front().accessState == "owner");
+            assert(NativeCaptureStorageTestPeer::lifecycleCursor(capture) == cursor);
+            NativeCaptureStorageTestPeer::pollLifecycle(capture);
+            assert(NativeCaptureStorageTestPeer::lifecycleCursor(capture) == uploading);
+            assert(waitFor([&] { return capture.openLocalPlayback(playing, 91, true); }));
+            capture.shutdown(); assert(waitFor([&] { capture.pollUploads(); return capture.shutdownWorkDrained(); }));
+        } else if (!restrictive) {
+            releaseLifecycle.store(true);
+            assert(waitFor([&] { return NativeCaptureStorageTestPeer::lifecycleNativeExit(capture); }));
+            NativeCaptureStorageTestPeer::pollLifecycle(capture);
+            assert(!flight->cancelled->load() && !flight->done.load() && !flight->leaseReleased.load() && capture.uploadsBusy());
+            assert(NativeCaptureStorageTestPeer::projection(capture) == before &&
+                NativeCaptureStorageTestPeer::generation(capture) == generation &&
+                NativeCaptureStorageTestPeer::commandCount(capture) == commands &&
+                NativeCaptureStorageTestPeer::lifecycleCursor(capture) == cursor && !NativeCaptureStorageTestPeer::lifecycleWaiting(capture));
+            assert(capture.seekLocalPlayback(1)); // A late private prefix cannot revoke a consumer.
+            capture.shutdown(); releaseUpload.store(true);
+            assert(waitFor([&] { capture.pollUploads(); return capture.shutdownWorkDrained(); }));
+        } else {
+            releaseLifecycle.store(true);
+            const bool cancelled = waitFor([&] { NativeCaptureStorageTestPeer::pollLifecycle(capture); return flight->cancelled->load(); });
+            cancelBeforeMutation = cancelled && !flight->done.load() && !flight->leaseReleased.load() && capture.uploadsBusy() &&
+                NativeCaptureStorageTestPeer::generation(capture) == generation && NativeCaptureStorageTestPeer::projection(capture) == before &&
+                NativeCaptureStorageTestPeer::lifecycleCursor(capture) == cursor && !NativeCaptureStorageTestPeer::lifecycleWaiting(capture) &&
+                !capture.seekLocalPlayback(1);
+            const auto readFailuresBefore = shortReadFailures.load();
+            if (mode == 8 && cancelBeforeMutation) denyDeletionReadback.store(true);
+            releaseUpload.store(true);
+            if (cancelBeforeMutation) {
+                if (mode == 8) {
+                    const bool failedReadback = waitFor([&] { return NativeCaptureStorageTestPeer::reconciliationPending(capture); });
+                    denyDeletionReadback.store(false); // Release the real IO cut before any assertion/teardown.
+                    assert(failedReadback && shortReadFailures.load() > readFailuresBefore &&
+                        flight->done.load() && !flight->leaseReleased.load() && capture.uploadsBusy());
+                    assert(NativeCaptureStorageTestPeer::generation(capture) == generation &&
+                        NativeCaptureStorageTestPeer::commandCount(capture) == commands && uploadCalls == 1 &&
+                        NativeCaptureStorageTestPeer::lifecycleCursor(capture) == cursor && !capture.openLocalPlayback(playing, 92, true));
+                    capture.recover(RecoveryTrigger::networkRecovered);
+                    NativeCaptureStorageTestPeer::pollAccount(capture);
+                    assert(waitFor([&] { return NativeCaptureStorageTestPeer::accountResultReady(capture); }));
+                    NativeCaptureStorageTestPeer::pollAccount(capture);
+                    assert(capture.currentAccount()); // Actual fresh GET also leaves its context command pending.
+                    capture.setVisibleRecordingItemIDs({playing, uploading}, capture.authGeneration());
+                    capture.pollUploads(); // Actual recovery signal must reach physical retry, never a new HTTP flight.
+                    const bool retried = waitFor([&] { NativeCaptureStorageTestPeer::pollStorage(capture);
+                        return flight->done.load() && flight->leaseReleased.load(); });
+                    if (!retried) { capture.shutdown(); assert(waitFor([&] { capture.pollUploads(); return capture.shutdownWorkDrained(); })); }
+                    assert(retried && "cancelled_upload_physical_retry_must_pass_restrictive_gate");
+                    assert(uploadCalls == 1 && !capture.openLocalPlayback(playing, 92, true));
+                } else assert(waitFor([&] { NativeCaptureStorageTestPeer::pollStorage(capture);
+                    return flight->done.load() && flight->leaseReleased.load(); }));
+                const auto unchanged = NativeCaptureStorageTestPeer::projection(capture);
+                noUploadResultMutation = NativeCaptureStorageTestPeer::generation(capture) == generation &&
+                    unchanged->items().back().status == UploadQueueStatus::retry && unchanged->items().back().attempts == 0 &&
+                    unchanged->items().back().accessState == "owner" && capture.localQueueComplete() &&
+                    NativeCaptureStorageTestPeer::commandCount(capture) == commands; // No uploadResult command/apply/commit.
+                assert(capture.uploadsBusy() && !NativeCaptureStorageTestPeer::lifecycleWaiting(capture)); // No retire-by-timeout.
+                assert(waitFor([&] { capture.pollUploads(); return NativeCaptureStorageTestPeer::lifecycleWaiting(capture); }));
+                // Actual done+leaseReleased lets the ordinary scheduler retire.
+                drainBeforeSubmit = !capture.uploadsBusy() && !NativeCaptureStorageTestPeer::activeUpload(capture) &&
+                    NativeCaptureStorageTestPeer::lifecycleWaiting(capture) &&
+                    NativeCaptureStorageTestPeer::commandCount(capture) == commands + 1;
+                assert(waitFor([&] { return NativeCaptureStorageTestPeer::lifecycleResultReady(capture); }));
+                assert(NativeCaptureStorageTestPeer::generation(capture) == generation &&
+                    NativeCaptureStorageTestPeer::projection(capture)->items().back().accessState == "owner" &&
+                    NativeCaptureStorageTestPeer::lifecycleCursor(capture) == cursor); // Physical commit is not positive adoption.
+                NativeCaptureStorageTestPeer::pollStorage(capture);
+                const auto result = NativeCaptureStorageTestPeer::projection(capture);
+                adopted = NativeCaptureStorageTestPeer::generation(capture) == generation + 1 &&
+                    std::string_view(*result->items().back().accessState) == expectedAccess && result->items().back().attempts == 0 &&
+                    result->items().back().status == UploadQueueStatus::retry;
+                assert(result->deletionOperations().size() == (mode == 1 ? 1U : 0U));
+                if (mode == 1) {
+                    assert(deletionPhaseIsAccepted(result->deletionOperations().front().phase));
+                    assert(result->deletionBlocks(result->items().front()));
+                }
+                assert(NativeCaptureStorageTestPeer::lifecycleCursor(capture) == cursor);
+                NativeCaptureStorageTestPeer::pollLifecycle(capture);
+                // Mode8's fresh visible-priority batch does not advance the background cursor.
+                if (mode == 8) assert(NativeCaptureStorageTestPeer::lifecycleCursor(capture) == cursor);
+                else assert(NativeCaptureStorageTestPeer::lifecycleCursor(capture) == uploading);
+                finalGeneration = NativeCaptureStorageTestPeer::generation(capture);
+            }
+            capture.shutdown(); assert(waitFor([&] { capture.pollUploads(); return capture.shutdownWorkDrained(); }));
+        }
+    }
+    assert(snapshot(paths.root / playing) == originalPlaying && snapshot(paths.root / uploading) == originalUploading);
+    if (mode == 7) assert(snapshot(paths.root / switched) == originalSwitched);
+    if (restrictive) {
+        assert(cancelBeforeMutation && "lifecycle_restrictive_answer_must_cancel_active_upload_before_queue_change");
+        if (mode == 8) assert(noUploadResultMutation && drainBeforeSubmit && adopted && uploadCalls == 1 && lifecycleCalls == 2);
+        else assert(noUploadResultMutation && drainBeforeSubmit && adopted && uploadCalls == 1 && lifecycleCalls == 1);
+        std::async(std::launch::async, [&] {
+            auto cancel = std::make_shared<std::atomic<bool>>(false);
+            auto opened = ProtectedCustodyStoreOwner::open(paths.root, cancel); assert(opened.ok());
+            auto read = (*opened.value)->readQueueValue(cancel); assert(read.ok());
+            if (mode == 1) {
+                assert((*opened.value)->queueGeneration() == finalGeneration &&
+                    std::string_view(*(*read.value)->items().back().accessState) == expectedAccess);
+                assert((*read.value)->items().back().attempts == 0 && (*read.value)->deletionOperations().size() == 1);
+            } else {
+                assert((*opened.value)->queueGeneration() == finalGeneration && (*read.value)->items().back().accessState == "unknown");
+                assert((*read.value)->items().back().attempts == 0 && (*read.value)->deletionOperations().empty());
+            }
+        }).get();
+    }
+    assert(waitFor([&] { return CustodyOwnedMemory::usedBytes() == baseline; }));
+}
+
 void protectedLifecycleApplication() {
+    for (unsigned mode = 0; mode != 9; ++mode) protectedLifecycleUploadDrain(mode);
+    lifecyclePhase.store("hot_211");
     const auto baseline = CustodyOwnedMemory::usedBytes();
     const DesktopHttpTransport::UploadSend account = [](const auto&, const auto& request) -> DesktopHttpTransport::UploadResponse {
         assert(request.method == "GET");
@@ -1588,6 +1956,7 @@ void protectedLifecycleApplication() {
             assert(pages[3].front() == lifecycleOrigin(201) && pages[3].back() == lifecycleOrigin(210));
             assert(pages[4] == pages[1]);
         }
+        lifecyclePhase.store("cold_211");
         // FIRST fresh regular owner, after Native and every thread/value/pin
         // have gone. No candidate bytes are injected into its readback.
         std::async(std::launch::async, [&] {
@@ -1611,6 +1980,7 @@ void protectedLifecycleApplication() {
             const auto body = CustodyString("{\"origins\":[\"generated-life-000\"]}");
             const auto entries = DesktopApiClient::decodeLifecycleEntries<CustodyString>(lifecycleAnswer(body)); assert(entries);
             for (unsigned edge = 0; edge != 7; ++edge) {
+                lifecyclePhase.store("cold_edge"); lifecycleCase.store(edge);
                 auto copy = std::allocate_shared<ProtectedUploadQueueValue>(CustodyAllocator<ProtectedUploadQueueValue>{}, *snapshot);
                 auto answer = *entries; auto targets = origins;
                 if (edge == 1) answer[0].receipt->requestId = "88888888-8888-4888-8888-888888888888";
@@ -1621,8 +1991,18 @@ void protectedLifecycleApplication() {
                 bool changed = false;
                 const bool valid = copy->applyLifecycleEntries(targets, answer, receipt.actorUserId, receipt.workspaceId,
                     receipt.serverOrigin, receipt.updatedAtMs + 1, changed, cancel.get());
-                assert(valid == (edge == 0 || edge >= 5) && !changed);
-                if (valid) { const auto after = copy->serialize(cancel); assert(after.ok() && after.value == before.value); }
+                assert(valid == (edge == 0 || edge >= 5) && changed == (edge == 5));
+                const auto after = copy->serialize(cancel); assert(after.ok());
+                if (edge == 5) {
+                    const auto& row = copy->items().front();
+                    assert(row.accessState && *row.accessState == "owner" && row.meetingId.empty());
+                    assert(copy->deletionOperations().size() == 1 && copy->deletionBlocks(row));
+                    const auto& retained = copy->deletionOperations().front();
+                    assert(retained.phase == receipt.phase && retained.receiptRequestId == receipt.receiptRequestId &&
+                        retained.targetId == receipt.targetId && retained.attemptCount == receipt.attemptCount);
+                    assert(after.value != before.value);
+                } else assert(after.value == before.value);
+                const auto unchanged = snapshot->serialize(cancel); assert(unchanged.ok() && unchanged.value == before.value);
             }
         }).get();
     }
@@ -1630,6 +2010,7 @@ void protectedLifecycleApplication() {
     // Refuse complete malformed/stale replies before any durable effect. The
     // existing IO wrappers also prove not-committed vs ambiguous adoption.
     for (unsigned mode = 1; mode != 10; ++mode) {
+        lifecyclePhase.store("negative_mode"); lifecycleCase.store(mode);
         Fixture fixture; const auto generation = seedLifecycleQueue(fixture.root, 3, false, mode == 9);
         const auto before = snapshot(fixture.root);
         std::atomic<unsigned> posts{0}; std::atomic<bool> release{false}, held{false};
@@ -1662,13 +2043,37 @@ void protectedLifecycleApplication() {
                 if (mode >= 6) {
                     assert(waitFor([&] { return NativeCaptureStorageTestPeer::lifecycleNativeExit(capture); }));
                     if (mode == 8) {
+                        NativeCaptureStorageTestPeer::takeFinishedLifecycleAnswer(capture);
+                        assert(NativeCaptureStorageTestPeer::lifecycleAnswerRetained(capture));
                         CustodyAllocator<char> allocator;
                         const auto count = CustodyOwnedMemory::limit - CustodyOwnedMemory::usedBytes();
                         auto* pressure = allocator.allocate(count);
-                        capture.pollUploads();
+                        assert(CustodyOwnedMemory::usedBytes() == CustodyOwnedMemory::limit);
+                        lifecyclePhase.store("quota_held");
+                        const auto beforePoll = NativeCaptureStorageTestPeer::lifecycleQuotaObservation(capture, posts.load());
+                        NativeCaptureStorageTestPeer::pollLifecycle(capture);
+                        const auto afterPoll = NativeCaptureStorageTestPeer::lifecycleQuotaObservation(capture, posts.load());
+                        lifecyclePhase.store("quota_polled");
                         const bool retained = NativeCaptureStorageTestPeer::lifecycleAnswerRetained(capture) && posts == 1 &&
                             NativeCaptureStorageTestPeer::projection(capture)->deletionOperations().empty();
                         allocator.deallocate(pressure, count);
+                        lifecyclePhase.store("quota_released");
+                        const auto report = [](const char* phase,
+                            const NativeCaptureStorageTestPeer::LifecycleQuotaObservation& observed) {
+                            std::fprintf(stderr,
+                                "LIFECYCLE_QUOTA phase=%s answer=%u waiting=%llu posts=%u operations=%zu "
+                                "used=%zu generation=%llu upload=%u result_ready=%u result_adopted=%u\n",
+                                phase, static_cast<unsigned>(observed.answer),
+                                static_cast<unsigned long long>(observed.waiting), observed.posts,
+                                observed.operations, observed.used,
+                                static_cast<unsigned long long>(observed.generation),
+                                static_cast<unsigned>(observed.upload),
+                                static_cast<unsigned>(observed.resultReady),
+                                static_cast<unsigned>(observed.resultAdopted));
+                        };
+                        report("before_poll", beforePoll);
+                        report("after_poll", afterPoll);
+                        std::fflush(stderr);
                         assert(retained);
                     }
                     ioCut.store(mode == 6 ? IoCut::flush : mode == 7 ? IoCut::ambiguousRename : IoCut::none);
@@ -1721,6 +2126,7 @@ void protectedDeletionApplication() {
         return {200, R"({"user_id":"11111111-1111-4111-8111-111111111111","workspace_id":"22222222-2222-4222-8222-222222222222","active_session_id":"33333333-3333-4333-8333-333333333333"})"};
     };
     for (unsigned mode = 0; mode != 18; ++mode) {
+    lifecyclePhase.store("deletion_mode"); lifecycleCase.store(mode);
     Fixture fixture; seedQueue(fixture.root, mode == 11);
     std::atomic<unsigned> gets{0}, posts{0};
     std::atomic<bool> exitHeld{false}, exitReleased{false};
@@ -3018,7 +3424,62 @@ void protectedDeletionAnswer() {
             static_cast<unsigned>(cut), durable ? 1U : 0U);
     }
 }
+void protectedSameCookieProof() {
+    const auto baseline = CustodyOwnedMemory::usedBytes();
+    Fixture fixture; seedQueue(fixture.root);
+    constexpr auto user = "11111111-1111-4111-8111-111111111111";
+    constexpr auto a = "22222222-2222-4222-8222-222222222222";
+    constexpr auto b = "55555555-5555-4555-8555-555555555555";
+    std::atomic<bool> switched{false}, entered{false}, released{false};
+    std::atomic<unsigned> active{0}, peak{0};
+    const DesktopHttpTransport::UploadSend wire = [&](const auto& config, const auto& request) -> DesktopHttpTransport::UploadResponse {
+        assert(request.method == "GET" && config.sessionToken == "generated-same-cookie");
+        const bool changed = switched.load(); const std::string workspace = changed ? b : a;
+        if (request.path == "/desktop/settings/spaces") {
+            assert(config.workspaceId.empty() && !config.confirmedIdentity);
+            const auto concurrent = ++active; peak.store((std::max)(peak.load(), concurrent));
+            if (changed) { entered.store(true); assert(waitFor([&] { return released.load(); })); }
+            --active;
+            return {200, "{\"spaces\":[{\"id\":\"" + workspace + "\",\"active\":true}]}"};
+        }
+        if (request.path == "/api/v1/auth/me")
+            return {200, "{\"user_id\":\"" + std::string(user) + "\",\"workspace_id\":\"" + workspace +
+                "\",\"active_session_id\":\"33333333-3333-4333-8333-333333333333\"}"};
+        assert(request.path == DesktopApiClient::notificationContextPath);
+        return {200, "{\"user_id\":\"" + std::string(user) + "\",\"workspace_id\":\"" + workspace + "\",\"recording_deletion_protocol_version\":1}"};
+    };
+    bool started = false, adopted = false, epochChanged = false;
+    {
+        NativeCapture capture(fixture.root, {std::make_shared<GeneratedAec>(), false}, wire);
+        startAndAdopt(capture, 2);
+        capture.setAuthSessionToken("generated-same-cookie", true);
+        assert(waitFor([&] { NativeCaptureStorageTestPeer::pollAccount(capture); return capture.currentAccount().has_value(); }));
+        assert(capture.currentAccount()->workspaceId == a);
+        const auto epoch = capture.authGeneration();
+        switched.store(true);
+        capture.setAuthSessionToken("generated-same-cookie", true);
+        capture.recover(RecoveryTrigger::activation);
+        started = waitFor([&] { NativeCaptureStorageTestPeer::pollAccount(capture); return entered.load(); });
+        if (started) {
+            capture.recover(RecoveryTrigger::wake); capture.recover(RecoveryTrigger::scheduled);
+            NativeCaptureStorageTestPeer::pollAccount(capture);
+            assert(!capture.currentAccount()); // Pending lookup cannot lend the previous network scope.
+        }
+        released.store(true);
+        adopted = started && waitFor([&] {
+            NativeCaptureStorageTestPeer::pollAccount(capture);
+            return capture.currentAccount() && capture.currentAccount()->workspaceId == b;
+        });
+        epochChanged = capture.authGeneration() > epoch;
+        capture.shutdown();
+        assert(waitFor([&] { capture.pollUploads(); return capture.shutdownWorkDrained(); }));
+    }
+    assert(started && adopted && epochChanged && peak.load() == 1 && "same_cookie_requires_fresh_native_workspace_proof");
+    assert(waitFor([&] { return CustodyOwnedMemory::usedBytes() == baseline; }));
+}
+
 void protectedAccountProblems() {
+    protectedSameCookieProof();
     Fixture fixture; seedQueue(fixture.root);
     const auto disk = snapshot(fixture.root);
     std::atomic<unsigned> accountCalls{0};
@@ -7516,7 +7977,159 @@ void protectedPackageRevalidation() {
         outcomes[3].semanticError == CustodyFileError::conflict && outcomes[3].cachedUnchanged &&
         "protected_package_revalidation_must_compare_actual_semantic_tuple");
 }
+
+// A genuine V5 package, a native account/protocol proof, then a released root
+// and a fresh offline owner. The cached tuple never becomes network identity.
+void protectedOfflineContentContext() {
+    const auto cold = CustodyOwnedMemory::usedBytes();
+    testing::GeneratedRecordingRoot paths;
+    constexpr auto session = "generated-offline-content";
+    std::async(std::launch::async, [&] {
+        auto cancel = std::make_shared<std::atomic<bool>>(false);
+        auto opened = ProtectedCustodyStoreOwner::open(paths.root, cancel); assert(opened.ok());
+        auto store = std::move(*opened.value);
+        auto created = V5LocalRecordingWriter::open(store, session, cancel); assert(created.ok());
+        auto writer = std::move(*created.value);
+        CanonicalAudioFrame frame; frame.mixed.fill(0.25F);
+        for (unsigned n = 0; n != 500; ++n) { frame.ptsFrames = n * 480; assert(writer->append(frame)); }
+        const auto sealed = writer->finalize(ReasonCode::none, RecordingStopReason::interruption);
+        assert(sealed.normalPackage() && sealed.semanticVerified); writer.reset();
+        auto read = store->readQueueValue(cancel); assert(read.ok());
+        auto value = std::allocate_shared<ProtectedUploadQueueValue>(CustodyAllocator<ProtectedUploadQueueValue>{}, **read.value);
+        ProtectedUploadQueueValue::Item row;
+        row.localRecordingId = row.directoryId = row.sessionId = session;
+        const auto path = (paths.root / session).u8string(); row.packageDirectory.assign(path.begin(), path.end());
+        row.ownerUserId = "11111111-1111-4111-8111-111111111111";
+        row.ownerWorkspaceId = "22222222-2222-4222-8222-222222222222";
+        row.status = UploadQueueStatus::uploaded;
+        assert(value->enqueue(std::move(row), 1000, cancel.get()));
+        const auto expected = value->items().back();
+        ProtectedDesktopTransportResult synced; synced.status = DesktopTransportStatus::uploaded;
+        synced.serverTruth.emplace(); synced.serverTruth->localRecordingId = expected.localRecordingId;
+        synced.serverTruth->meetingId = "66666666-6666-4666-8666-666666666666";
+        assert(value->applyUploadResult(expected, synced, 1001, cancel.get()));
+        auto bytes = value->serialize(cancel); assert(bytes.ok());
+        assert(commitProtectedCustodyMetadata(store, store->queueContext(), store->queueGeneration(), *bytes.value, cancel).state == CustodyCommitState::committed);
+    }).get();
+    const auto original = snapshot(paths.root / session);
+    const auto idle = CustodyOwnedMemory::usedBytes(); assert(idle == idleOwnedBytes);
+    const auto gate = R"({"user_id":"11111111-1111-4111-8111-111111111111","workspace_id":"22222222-2222-4222-8222-222222222222","recording_deletion_protocol_version":1})";
+    const DesktopHttpTransport::UploadSend online = [](const auto&, const auto& request) -> DesktopHttpTransport::UploadResponse {
+        assert(request.method == "GET");
+        if (request.path == "/desktop/settings/spaces") return {200, R"({"spaces":[{"id":"22222222-2222-4222-8222-222222222222","active":true}]})"};
+        assert(request.path == "/api/v1/auth/me");
+        return {200, R"({"user_id":"11111111-1111-4111-8111-111111111111","workspace_id":"22222222-2222-4222-8222-222222222222","active_session_id":"33333333-3333-4333-8333-333333333333"})"};
+    };
+    const DesktopHttpTransport::ProtectedUploadSend protocol = [&](const auto& config, const auto& request) {
+        assert(config.scopedAccount && config.confirmedIdentity);
+        DesktopHttpTransport::ProtectedUploadResponse response; response.status = 200;
+        if (request.method == "GET") { assert(request.path == DesktopApiClient::notificationContextPath); response.body = gate; }
+        else { assert(request.method == "POST" && request.path == DesktopApiClient::lifecyclePath); response.body = lifecycleAnswer(request.body); }
+        return response; // No DELETE, purge ACK, devices or real network.
+    };
+    {
+        NativeCapture hot(paths.root, {std::make_shared<GeneratedAec>(), false}, online, protocol);
+        startAndAdopt(hot, 2); hot.startRecordingLifecycle();
+        hot.setAuthSessionToken("generated-session-1", true);
+        const bool committed = waitFor([&] {
+            hot.pollUploads(); const auto view = hot.localObservation();
+            return view.complete && view.value && view.value->lastAuthenticatedContext() &&
+                view.value->items().front().accessState == "owner";
+        });
+        hot.shutdown(); assert(waitFor([&] { hot.pollUploads(); return hot.shutdownWorkDrained(); }));
+        assert(committed && "native_proof_requires_context_commit_and_lifecycle_access_adoption");
+    }
+    std::uint64_t generation = 0;
+    std::async(std::launch::async, [&] {
+        auto cancel = std::make_shared<std::atomic<bool>>(false);
+        auto opened = ProtectedCustodyStoreOwner::open(paths.root, cancel); assert(opened.ok());
+        auto store = std::move(*opened.value); auto read = store->readQueueValue(cancel); assert(read.ok());
+        const auto& context = (*read.value)->lastAuthenticatedContext(); assert(context);
+        assert(context->serverOrigin == "https://rec.2brain.pro" && context->actorUserId == "11111111-1111-4111-8111-111111111111" &&
+            context->workspaceId == "22222222-2222-4222-8222-222222222222");
+        // SHA256 of the exact no-BOM/no-newline canonical native request binding.
+        assert(context->sessionFingerprint == "946fff3f96fd1088ce97880e40db203396081400100706da863ae07d8abcd0c7");
+        generation = store->queueGeneration();
+    }).get();
+    const auto committedRoot = snapshot(paths.root);
+    for (const auto status : {503U, 401U}) {
+        const DesktopHttpTransport::UploadSend offline = [=](const auto&, const auto& request) -> DesktopHttpTransport::UploadResponse {
+            assert(request.method == "GET" && request.path == "/desktop/settings/spaces"); return {status, "{}"};
+        };
+        const DesktopHttpTransport::ProtectedUploadSend noProtocol = [](const auto&, const auto&) {
+            assert(false && "no_scoped_request_without_fresh_network_identity"); return DesktopHttpTransport::ProtectedUploadResponse{};
+        };
+        {
+            NativeCapture coldOwner(paths.root, {std::make_shared<GeneratedAec>(), false}, offline, noProtocol);
+            startAndAdopt(coldOwner, generation); coldOwner.startRecordingLifecycle();
+            coldOwner.setAuthSessionToken("generated-session-1");
+            assert(!coldOwner.openLocalPlayback(session, 71, true)); // Failed/unread cookie is not observation.
+            coldOwner.setAuthSessionToken("generated-session-1", true);
+            NativeCaptureStorageTestPeer::pollAccount(coldOwner);
+            assert(waitFor([&] { return NativeCaptureStorageTestPeer::accountResultReady(coldOwner); }));
+            NativeCaptureStorageTestPeer::pollAccount(coldOwner);
+            assert(!coldOwner.currentAccount());
+            if (status == 503) {
+            assert(waitFor([&] {
+                coldOwner.pollUploads(); const auto view = coldOwner.localObservation();
+                return view.complete && view.timings && view.timings->rows.size() == 1 &&
+                    view.timings->rows.front() && view.timings->rows.front()->durationMs == 5000;
+            }) && "offline_display_must_not_starve_behind_network_recovery");
+            }
+            const bool opened = coldOwner.openLocalPlayback(session, 71, true);
+            assert(opened == (status == 503)); // authRequired is never offline success.
+            if (opened) {
+                assert(waitFor([&] { const auto s = coldOwner.localPlaybackObservation(); return s.media.ready && !s.preparing; }));
+                assert(!coldOwner.authorizeLocalPlayback(70));
+                assert(coldOwner.authorizeLocalPlayback(71));
+                assert(coldOwner.pauseLocalPlayback(true));
+                assert(waitFor([&] { return coldOwner.localPlaybackObservation().media.paused; }));
+                assert(coldOwner.seekLocalPlayback(2));
+                assert(waitFor([&] { const auto s = coldOwner.localPlaybackObservation(); return !s.media.seeking && s.media.positionSeconds >= 1.9; }));
+                coldOwner.setAuthSessionToken("different-generated-session", true);
+                assert(!coldOwner.seekLocalPlayback(1) && !coldOwner.authorizeLocalPlayback(71));
+            }
+            coldOwner.shutdown(); assert(waitFor([&] { coldOwner.pollUploads(); return coldOwner.shutdownWorkDrained(); }));
+        }
+        assert(snapshot(paths.root) == committedRoot);
+    }
+    assert(snapshot(paths.root / session) == original);
+    assert(waitFor([&] { return CustodyOwnedMemory::usedBytes() == idle; }));
+    (void)cold;
+}
+
+void protectedEmptyContextCommit() {
+    for (const bool escaped : {false, true}) {
+        Fixture fixture;
+        const DesktopHttpTransport::UploadSend account = [](const auto&, const auto& request) -> DesktopHttpTransport::UploadResponse {
+            assert(request.method == "GET");
+            if (request.path == "/desktop/settings/spaces") return {200, R"({"spaces":[{"id":"22222222-2222-4222-8222-222222222222","active":true}]})"};
+            assert(request.path == "/api/v1/auth/me");
+            return {200, R"({"user_id":"11111111-1111-4111-8111-111111111111","workspace_id":"22222222-2222-4222-8222-222222222222","active_session_id":"33333333-3333-4333-8333-333333333333"})"};
+        };
+        const DesktopHttpTransport::ProtectedUploadSend protocol = [](const auto&, const auto& request) {
+            assert(request.method == "GET" && request.path == DesktopApiClient::notificationContextPath);
+            DesktopHttpTransport::ProtectedUploadResponse result; result.status = 200;
+            result.body = R"({"user_id":"11111111-1111-4111-8111-111111111111","workspace_id":"22222222-2222-4222-8222-222222222222","recording_deletion_protocol_version":1})";
+            return result;
+        };
+        {
+            NativeCapture capture(fixture.root, {std::make_shared<GeneratedAec>(), false}, account, protocol);
+            startAndAdopt(capture, 1); capture.startRecordingLifecycle();
+            const std::string token = escaped ? "generated-\"\\\n\t\x01\xc3\xa9" : "generated-session-1";
+            capture.setAuthSessionToken(token, true);
+            const bool accepted = waitFor([&] { capture.pollUploads(); const auto v = capture.localObservation();
+                return v.complete && v.value && v.value->items().empty() && v.value->lastAuthenticatedContext().has_value() &&
+                    v.value->lastAuthenticatedContext()->sessionFingerprint == (escaped ? "86abe19ce4b024187192bed073235adf4a205ac2d0ea7649013a128cbf43e3b6" : "946fff3f96fd1088ce97880e40db203396081400100706da863ae07d8abcd0c7"); });
+            capture.shutdown(); assert(waitFor([&] { capture.pollUploads(); return capture.shutdownWorkDrained(); }));
+            assert(accepted && "context_commit_does_not_require_origins");
+        }
+    }
+}
+
 void protectedPlaybackConsumer() {
+    protectedOfflineContentContext();
+    protectedEmptyContextCommit();
     const auto cold = CustodyOwnedMemory::usedBytes();
     testing::GeneratedRecordingRoot paths;
     constexpr auto session = "generated-playback-consumer";
@@ -8729,8 +9342,20 @@ int main(int argc, char** argv) {
         return 0;
     }
     if (argc == 2 && std::string_view(argv[1]) == "--protected-deletion-application") {
+        const auto previousTerminate = std::set_terminate([] {
+            std::fprintf(stderr, "NATIVE_LIFECYCLE_TERMINATE phase=%s case=%u owned_bytes=%zu\n",
+                lifecyclePhase.load(), lifecycleCase.load(), CustodyOwnedMemory::usedBytes());
+            std::fflush(stderr);
+            const char* kind = "none";
+            try { if (auto error = std::current_exception()) std::rethrow_exception(error); }
+            catch (const std::bad_alloc&) { kind = "bad_alloc"; }
+            catch (...) { kind = "other"; }
+            std::fprintf(stderr, "NATIVE_LIFECYCLE_TERMINATE exception=%s\n", kind);
+            std::fflush(stderr); std::abort();
+        });
         protectedDeletionApplication();
         assert(waitFor([&] { return CustodyOwnedMemory::usedBytes() == baseline; }));
+        std::set_terminate(previousTerminate);
         return 0;
     }
     if (argc == 2 && std::string_view(argv[1]) == "--protected-local-purge") {

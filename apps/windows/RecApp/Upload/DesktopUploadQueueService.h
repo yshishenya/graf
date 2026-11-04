@@ -43,6 +43,14 @@ template<class String> bool validLocalBufferPurgeTask(const BasicLocalPurgeTask<
         DesktopApiClient::accountId(task.meetingId);
 }
 
+// Persisted local matching data only: never current network identity or permission.
+template<class String> struct BasicUploadAuthenticatedContext {
+    String serverOrigin;
+    String actorUserId;
+    String workspaceId;
+    String sessionFingerprint;
+};
+
 template<class String, class Path>
 struct BasicUploadCustodyItem {
     String localRecordingId;
@@ -73,6 +81,7 @@ struct BasicUploadCustodyItem {
     String serverStatus = {};
     String processingStatus = {};
     String mediaRevisionStatus = {};
+    std::optional<String> accessState = std::nullopt;
 };
 
 template<class Item> [[nodiscard]] bool hasUploadServerIdentity(const Item& item) noexcept {
@@ -87,7 +96,13 @@ using UploadCustodyItem = BasicUploadCustodyItem<std::string, std::filesystem::p
 template<class Item> bool sameUploadIdentity(const Item& a, const Item& b) noexcept {
     return a.localRecordingId == b.localRecordingId && a.directoryId == b.directoryId && a.sessionId == b.sessionId &&
         a.packageDirectory == b.packageDirectory && a.ownerUserId == b.ownerUserId &&
-        a.ownerWorkspaceId == b.ownerWorkspaceId && a.status == b.status && a.attempts == b.attempts;
+        a.ownerWorkspaceId == b.ownerWorkspaceId && a.status == b.status && a.attempts == b.attempts &&
+        a.accessState == b.accessState;
+}
+
+// This is only one refusal predicate; null/owner never supplies scope or proof.
+template<class Item> bool uploadAccessBlocks(const Item& item) noexcept {
+    return item.accessState && *item.accessState != "owner";
 }
 
 // Row shape only: not current account, package, playback or upload authority.
@@ -95,7 +110,7 @@ template<class Item> bool isPreparedOwnedRecording(const Item& row) noexcept {
     return row.status == UploadQueueStatus::quarantined && row.safeReason == "capture_prepared" &&
         row.directoryId == row.sessionId && row.localRecordingId == row.sessionId &&
         DesktopApiClient::accountId(row.ownerUserId) && DesktopApiClient::accountId(row.ownerWorkspaceId) &&
-        !hasUploadServerIdentity(row);
+        !uploadAccessBlocks(row) && !hasUploadServerIdentity(row);
 }
 
 // Proven signed-out Start shape, not legacy/missing ownership or package authority.
@@ -195,12 +210,18 @@ public:
     using Item = BasicUploadCustodyItem<CustodyString, CustodyString>;
     using Operation = BasicDeletionOperationRecord<CustodyString>;
     using PurgeAcknowledgement = BasicLocalPurgeAcknowledgement<CustodyString>;
+    using AuthenticatedContext = BasicUploadAuthenticatedContext<CustodyString>;
     ProtectedUploadQueueValue(const ProtectedUploadQueueValue&) = default;
     [[nodiscard]] const CustodyVector<Item>& items() const noexcept { return items_; }
     [[nodiscard]] const CustodyVector<Operation>& deletionOperations() const noexcept { return operations_; }
     [[nodiscard]] const CustodyVector<PurgeAcknowledgement>& purgeAcknowledgements() const noexcept { return acknowledgements_; }
     [[nodiscard]] std::uint64_t updatedAtMs() const noexcept { return updatedAtMs_; }
     [[nodiscard]] bool legacy() const noexcept { return legacy_; }
+    [[nodiscard]] const std::optional<AuthenticatedContext>& lastAuthenticatedContext() const noexcept { return context_; }
+    // Private value staging only. The native caller must supply fresh proof and
+    // commit/readback/adopt before using this as cached local matching data.
+    [[nodiscard]] bool setLastAuthenticatedContext(std::optional<AuthenticatedContext>,
+        std::uint64_t nowMs, const std::atomic<bool>* cancellation);
     // Throws ParseCancelled/bad_alloc; a partially mutated private copy is discarded.
     [[nodiscard]] bool requeueNeedsAuth(std::uint64_t nowMs, const std::atomic<bool>* cancellation = nullptr);
     // Private domain insertion only; the native owner still has to persist the
@@ -258,6 +279,7 @@ private:
     CustodyVector<PurgeAcknowledgement> acknowledgements_;
     std::uint64_t updatedAtMs_ = 0;
     bool legacy_ = false;
+    std::optional<AuthenticatedContext> context_;
 };
 
 #ifdef _WIN32
@@ -327,6 +349,7 @@ template<class String> struct BasicUploadServerTruth {
     String serverStatus = {};
     String processingStatus = {};
     String mediaRevisionStatus = {};
+    std::optional<String> accessState = std::nullopt;
 };
 using UploadServerTruth = BasicUploadServerTruth<std::string>;
 
@@ -408,6 +431,8 @@ public:
         const std::filesystem::path& packageDirectory);
     [[nodiscard]] std::size_t sweepDiscardedShortRecordings();
     [[nodiscard]] const std::vector<UploadCustodyItem>& items() const noexcept { return items_; }
+    [[nodiscard]] const std::optional<BasicUploadAuthenticatedContext<std::string>>& lastAuthenticatedContext() const noexcept { return context_; }
+    [[nodiscard]] static bool validAccessState(std::string_view) noexcept;
     [[nodiscard]] bool quarantined() const noexcept { return quarantined_; }
     [[nodiscard]] const std::filesystem::path& ledgerPath() const noexcept { return ledgerPath_; }
 
@@ -575,11 +600,12 @@ private:
     // Validation only on a fresh private candidate, without I/O or publication.
     [[nodiscard]] bool decodeLedger(std::string_view json, bool& legacy);
     // One canonical empty birth value, shared with the existing serializer.
-    static constexpr std::string_view emptyLedgerJson = R"({"schema_version":"desktop-upload-queue.v3","items":[],"updated_at_ms":0,"deletion_operations":[],"purge_acknowledgements":[]})";
+    static constexpr std::string_view emptyLedgerJson = R"({"schema_version":"desktop-upload-queue.v4","items":[],"updated_at_ms":0,"deletion_operations":[],"purge_acknowledgements":[],"last_authenticated_context":null})";
     [[nodiscard]] static std::string serialize(const std::vector<UploadCustodyItem>& items,
                                                const std::vector<DeletionOperationRecord>& operations,
                                                const std::vector<LocalPurgeAcknowledgement>& purgeAcknowledgements,
-                                               std::uint64_t updatedAtMs);
+                                               std::uint64_t updatedAtMs,
+                                               const std::optional<BasicUploadAuthenticatedContext<std::string>>& context);
     [[nodiscard]] static bool validSafeReason(std::string_view value) noexcept;
     [[nodiscard]] UploadCustodyItem* find(std::string_view localRecordingId) noexcept;
     [[nodiscard]] DeletionOperationRecord* findOperation(std::string_view operationId) noexcept;
@@ -590,6 +616,7 @@ private:
     std::vector<UploadCustodyItem> items_;
     std::vector<DeletionOperationRecord> deletionOperations_;
     std::vector<LocalPurgeAcknowledgement> purgeAcknowledgements_;
+    std::optional<BasicUploadAuthenticatedContext<std::string>> context_;
     std::uint64_t updatedAtMs_ = 0;
     std::function<std::uint64_t()> clock_;
     bool quarantined_ = false;
