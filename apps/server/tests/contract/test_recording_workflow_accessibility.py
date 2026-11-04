@@ -81,7 +81,7 @@ def test_meeting_review_continuity_exposes_named_segments_resize_separator_and_s
     assert "scroll-margin-top" in styles
 
 
-def test_modal_dialogs_are_named_trap_focus_and_return_it_to_the_opener() -> None:
+def test_sharing_panel_and_modal_dialogs_are_named_and_restore_focus() -> None:
     share = _source(SHARE_DIALOG)
     governance = _source(GOVERNANCE_DIALOG)
     policy = _source(POLICY_RENDERING)
@@ -89,7 +89,7 @@ def test_modal_dialogs_are_named_trap_focus_and_return_it_to_the_opener() -> Non
     script = _source(JAVASCRIPT)
 
     assert 'aria-labelledby="share-dialog-title"' in share
-    assert 'aria-modal="true"' in share
+    assert 'aria-modal="false"' in share
     assert 'data-share-recipient-input' in share
     assert 'data-share-recipient-results' in share
     assert 'aria-label="Получатели"' in share
@@ -101,7 +101,7 @@ def test_modal_dialogs_are_named_trap_focus_and_return_it_to_the_opener() -> Non
     assert "options[0].focus()" in summary_script
     assert "option.setAttribute('role','option')" in summary_script
     assert "opener?.focus({preventScroll:true})" in summary_script
-    assert "dialog.showModal()" in summary_script
+    assert "dialog.show()" in summary_script
     assert 'aria-labelledby="meeting-details-title"' in governance
     assert 'aria-modal="true"' in governance
     assert 'aria-haspopup="menu"' in rendering

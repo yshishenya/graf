@@ -37,6 +37,7 @@ def test_playback_read_contract_is_durable_and_has_no_repair_mutation(client) ->
     assert set(playback_paths) == {
         "/api/v1/cabinet/meetings/{meeting_id}/playback",
         "/api/v1/cabinet/shared-meetings/{meeting_id}/playback",
+        "/api/v1/cabinet/public-shares/{share_token}/playback",
     }
     assert all(set(operations) == {"get"} for operations in playback_paths.values())
     operation = playback_paths["/api/v1/cabinet/meetings/{meeting_id}/playback"]["get"]

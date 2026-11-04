@@ -97,6 +97,7 @@ RLS_OPERATOR_TABLES = {
     "prompt_optimization_call_ledger",
     "billing_registry_imports",
     "billing_registry_gaps",
+    "billing_reconciliation_observations",
 }
 
 RLS_BILLING_TABLES = {

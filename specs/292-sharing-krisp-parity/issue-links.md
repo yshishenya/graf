@@ -29,3 +29,5 @@
 - T025 (Issue #7927): https://github.com/yshishenya/graf/issues/7927
 - T026 (Issue #7928): https://github.com/yshishenya/graf/issues/7928
 - T027 (Issue #7899): https://github.com/yshishenya/graf/issues/7899
+
+- T028 (Issue #7930): https://github.com/yshishenya/graf/issues/7930

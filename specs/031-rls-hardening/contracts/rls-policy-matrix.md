@@ -192,6 +192,15 @@ to import receipts and deletion from either table; gap updates preserve their
 immutable fields and require an accepted receipt to resolve a gap. Downgrade is
 blocked while registry history exists.
 
+`billing_reconciliation_observations` is a separate global maintenance-only
+append-only table from `0109_reconciliation_observations`, with RLS enabled
+and forced. Its policy requires `session_user = current_user =
+twobrain_rec_maintenance`, `row_security = on`, maintenance context,
+`rec_maintenance_allowed()`, operation `billing_reconciliation` and feature area
+`billing`. Ordinary request and worker contexts have no access. The maintenance
+role receives only SELECT/INSERT; UPDATE/DELETE are not granted and the history
+trigger rejects both operations. Downgrade is blocked while observations exist.
+
 `workspace_invitations` and `admin_audit_events` use the direct workspace policy
 for normal request and worker contexts, and additionally allow `auth_bootstrap` only when
 `workspace_id = current_workspace_id()` and the bootstrap workspace belongs to
