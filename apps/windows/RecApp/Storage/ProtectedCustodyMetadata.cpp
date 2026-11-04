@@ -1450,7 +1450,7 @@ CustodyFileResult<bool> ProtectedCustodyStoreOwner::purgeLocalPackage(std::strin
     if (failed_ || (shortDiscard_ && shortDiscard_->attempted))
         return {std::nullopt, CustodyFileError::recoveryRequired, 0};
 #ifndef _WIN32
-    (void)expectedGeneration; (void)candidate; (void)now;
+    (void)expectedGeneration; (void)candidate; (void)now; (void)origin;
     return {std::nullopt, CustodyFileError::unsupportedPlatform, 0};
 #else
     if (cancellation->load()) return {std::nullopt, CustodyFileError::ioFailed, ERROR_OPERATION_ABORTED};
@@ -1708,6 +1708,7 @@ CustodyFileResult<bool> ProtectedCustodyStoreOwner::cleanupMigrationOriginals(st
         !DesktopApiClient::accountId(user) || !DesktopApiClient::accountId(workspace) || !expectedGeneration ||
         !std::any_of(transaction.begin(),transaction.end(),[](auto b) { return b!=0; })) return reject(CustodyFileError::invalidInput);
 #ifndef _WIN32
+    (void)serverTask; (void)origin;
     return reject(CustodyFileError::unsupportedPlatform);
 #else
     if (failed_ || shortDiscard_ || cancellation->load()) return reject(CustodyFileError::recoveryRequired);
