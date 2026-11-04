@@ -55,3 +55,8 @@ quickstart.md содержит точные группы pytest/node/Swift и ж
 ## Уточнение реализации FR-026
 
 Общая функция рендера существующего проигрывателя принимает только состояния воспроизведения/дорожек и готовые разрешённые дополнительные элементы. Владелец передаёт свои действия, публичный reader — только узкую проекцию без owner DTO. Существующие JS/CSS проигрывателя используются обеими страницами; публичный JS сохраняет только tabs/search/continuation и связь таймкода. Не создавать второй механизм дорожек/выбора спикеров. Контроль доступа к каждому запросу аудио сохраняется.
+
+
+## Приёмочный R6 / T023
+
+Согласовать fingerprint почтовой identity в существующем `auth/workspace_onboarding.py` с `auth_email_flow.py` и `provider_links.py`. Применить нормализацию только для email при проверке исходной identity и выпуске replacement fingerprint; OAuth subject, проверки membership/срока/device, блокировка/замена и RLS неизменны. Email требует verified identity; OAuth не получает нового требования verified. Новый тест в существующей workspace onboarding группе до исправления (hashed subject/email туда и обратно, wrong fingerprint/inactive identity/unverified email/inactive membership, OAuth roundtrip), затем PostgreSQL focused, canonical auth regressions и отдельный Dev grant/role/revoke. Никаких новых зависимостей/API/миграций. Полный high-risk-product lane сохраняется.

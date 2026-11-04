@@ -85,3 +85,8 @@ T015 после T012/T013; подготовка подписанного macOS-�
 ## Phase 14: Convergence
 
 - [ ] T022 Сохранять запрошенную позицию до загрузки metadata аудио в `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/public-sharing.js`: общий сборщик контекста входа и приложения использует pendingSeek до фактического применения, затем актуальное время проигрывателя. В `apps/server/tests/browser/public-sharing.test.cjs` проверить pending15/0 и готовую запись без запуска внешнего протокола, затем повторить обе browser-группы и установленный переход. [FR-010/021/025; US3/AC2–3; partial, HIGH]
+
+
+## Phase 15: Convergence
+
+- [ ] T023 Устранить R6 при проверке адресного sharing в другом своём пространстве: `apps/server/src/twobrain_rec_server/auth/workspace_onboarding.py` проверяет и переносит fingerprint почтовой сессии по нормализованному email подтверждённой identity, как существующий email login/provider linking, сохраняя прежний subject для OAuth. В `apps/server/tests/unit/test_workspace_onboarding.py` воспроизвести hashed provider_subject≠email, проверить переход туда/обратно с неизменным сроком и заменой старых sessions, отказ при чужом fingerprint, inactive identity, неподтверждённой почте и отсутствии действующего членства; OAuth roundtrip без изменения subject. Повторить настоящие Dev owner grant/role/revoke в отдельном учебном пространстве; не менять личное пространство и не ослаблять auth/RLS. [FR-005/010/021; US3/AC2, US4/AC3; partial, HIGH]

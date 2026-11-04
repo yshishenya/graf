@@ -325,10 +325,12 @@ async def activate_workspace_session(
                 item
                 for item in identities
                 if current_session.claims_fingerprint is not None
+                and (item.provider != "email" or item.is_verified)
                 and hmac.compare_digest(
                     current_session.claims_fingerprint,
                     fingerprint_identity(
-                        item.provider_subject,
+                        (item.email or item.provider_subject).strip().lower()
+                        if item.provider == "email" else item.provider_subject,
                         item.provider,
                         current_workspace_id,
                     ),
@@ -343,7 +345,8 @@ async def activate_workspace_session(
                 title="Auth session is invalid",
             )
         replacement_fingerprint = fingerprint_identity(
-            identity.provider_subject,
+            (identity.email or identity.provider_subject).strip().lower()
+            if identity.provider == "email" else identity.provider_subject,
             identity.provider,
             target.id,
         )
