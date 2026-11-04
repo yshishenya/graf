@@ -12,6 +12,19 @@ wav.writeUInt32LE(16,16);wav.writeUInt16LE(1,20);wav.writeUInt16LE(1,22);
 wav.writeUInt32LE(8000,24);wav.writeUInt32LE(8000,28);wav.writeUInt16LE(1,32);wav.writeUInt16LE(8,34);
 wav.write('data',36);wav.writeUInt32LE(240000,40);
 const {chromium,webkit} = require(require.resolve('playwright',{paths:[process.env.GRAF_NODE_MODULES || process.cwd()]}));
+async function checkContext(page, tab, position) {
+ for (const selector of ['[data-public-auth]', '[data-public-native]']) {
+  const link=page.locator(selector).first();
+  // Inspect the real click handler's URI without leaving the page or launching an app.
+  await link.evaluate(el=>el.addEventListener('click',event=>event.preventDefault(),{once:true}));
+  await link.dispatchEvent('click');
+  const url=new URL(await link.getAttribute('href'),'https://graf.test');
+  assert.equal(url.searchParams.get('tab'),tab);
+  assert.equal(url.searchParams.get('position_ms'),position);
+  assert.equal(url.searchParams.get('media_version'),'a'.repeat(24));
+  assert.equal(url.protocol,selector==='[data-public-native]'?'grafrec-dev:':'https:');
+ }
+}
 (async()=>{
  const browser=await (process.env.GRAF_BROWSER==='webkit'?webkit:chromium).launch({headless:true});
  try {
@@ -57,6 +70,7 @@ const {chromium,webkit} = require(require.resolve('playwright',{paths:[process.e
    await page.locator('[data-listen-speaker="speaker-2"]').check();
    await page.waitForFunction(()=>document.querySelector('audio').currentTime>=18&&!document.querySelector('audio').paused);
    await page.getByRole('button',{name:'Приостановить',exact:true}).click();
+   await checkContext(page,'recording',String(await audio.evaluate(a=>Math.round(a.currentTime*1000))));
    assert.deepEqual(privateRequests,[]);
    const overflow=await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth);
    assert.equal(overflow,false,`overflow ${width}/${colorScheme}`);
@@ -64,10 +78,27 @@ const {chromium,webkit} = require(require.resolve('playwright',{paths:[process.e
    assert.deepEqual(errors,[]);
    await context.close();
   }
+  for(const [position,changed] of [[15000,false],[0,false],[15000,true]]) {
+   const context=await browser.newContext();const page=await context.newPage();
+   await page.route('**/*',route=>{
+    const url=new URL(route.request().url()),name=path.basename(url.pathname);
+    if(url.pathname==='/reader')return route.fulfill({contentType:'text/html',body:fs.readFileSync(process.argv[2],'utf8').replace('data-source-changed="false"',`data-source-changed="${changed}"`)});
+    if(/\.(js|css)$/.test(name)&&fs.existsSync(path.join(assets,name)))return route.fulfill({contentType:name.endsWith('.js')?'text/javascript':'text/css',body:fs.readFileSync(path.join(assets,name),'utf8')});
+    return route.fulfill({status:204});
+   });
+   await page.goto(`https://graf.test/reader#recording?position_ms=${position}`);
+   await page.getByRole('button',{name:'Посмотреть встречу',exact:true}).click();
+   assert.equal(await page.locator('audio').evaluate(a=>a.readyState),0);
+   await checkContext(page,'recording',changed?null:String(position));
+   await page.getByRole('link',{name:'Итоги',exact:true}).click();
+   await page.locator('#outcomes').waitFor({state:'visible'});
+   await checkContext(page,'outcomes',null);
+   await context.close();
+  }
   const context=await browser.newContext({javaScriptEnabled:false});const page=await context.newPage();
   await page.route('**/*',r=>r.fulfill({contentType:'text/html',body:fs.readFileSync(process.argv[2],'utf8')}));await page.goto('https://graf.test/reader');
   assert.equal(await page.locator('#outcomes').isVisible(),true);assert.equal(await page.locator('#recording').isVisible(),true);
   await context.close();
-  console.log('public reader: fragments, tabs, welcome, search, timestamp, 320/390/1440 light/dark, no-JS PASS');
+  console.log('public reader: fragments, tabs, welcome, search, timestamp, pending/loaded/changed continuation, 320/390/1440 light/dark, no-JS PASS');
  } finally {await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});

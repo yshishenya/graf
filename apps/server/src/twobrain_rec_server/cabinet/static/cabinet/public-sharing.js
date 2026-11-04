@@ -59,7 +59,7 @@
       const url = new URL(href, location.origin);
       url.searchParams.set('tab', current.tab);
       if(root.dataset.mediaVersion) url.searchParams.set('media_version', root.dataset.mediaVersion);
-      const position = audio && !changed ? Math.round(audio.currentTime * 1000) : current.position;
+      const position = audio && !changed ? (pendingSeek ?? Math.round(audio.currentTime * 1000)) : current.position;
       url.searchParams.delete('position_ms');
       if (current.tab === 'recording' && !changed && position !== null) url.searchParams.set('position_ms', String(position));
       return native ? url.href : url.pathname + url.search;

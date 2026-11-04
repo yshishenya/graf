@@ -119,3 +119,12 @@ Source `cfa6fd4b1fa690141bebff438f53651544af188f`, проверенная баз
 Установленный повтор на `2b15d3573f69cfa87ed0d43bd32667ecfe5141c7` (clean build/promote/status/smoke14 PASS) показал, что native helper недостаточен: после TXT Save focus оказался на «Ещё», Escape оставил sharing открытым. Источник уточнён: успешный initContentExport закрывал скрытый standalone dialog после переноса формы в sharing и вызывал прежний fallback фокуса. T021 дополнена существующим cabinet.js и browser-регрессией. Общий обработчик теперь учитывает фактический dialog формы: standalone закрывается с прежним возвратом, sharing остаётся открытым и получает фокус на кнопке, в том числе при ошибке.
 
 Предметная browser-регрессия дала поведенческий RED на sharing focus до JS-исправления (standalone PASS). После исправления Chromium3/WebKit3 PASS: standalone success, sharing success и sharing failure. Новых зависимостей нет. Source и установленный повтор после JS-исправления фиксируются отдельно; R4 пока не объявляется принятым.
+
+
+## Приёмка a8e094 и R5/T022, 2026-11-04
+
+В единственном установленном GRAF Dev exact a8e094 проверены TXT Save и Cancel системного SavePanel. После каждого без дополнительного клика на страницу Escape закрыл sharing; AX подтвердил отсутствие панели и focus на «Поделиться». Сохранённый синтетический TXT:458bytes, SHA256 dd9ba0d3addc8ea5b03400fa57491f75207fe74daccf42af1da9c3206d0d7562. T021 принята. Пользователь подтвердил, что при ручном browser→app переходе сразу было00:15; приложение открыло общую встречу и recording. Warm-переход принят для этой ветки.
+
+Штатный validator подтвердил exact a8e094/base e00ffe326d9648732212a065177e6c660b366852: governance41786907077/1, macos41786907072/1, metadata41787738208/1. Эти gates не относятся к будущим commit.
+
+Отдельная R5: до metadata контекст перехода брал начальный audio.currentTime0 вместо pendingSeek15000. T022/issue7924 создана и независимое requirements review PASS до кода. Новая browser-регрессия дала RED actual0/expected15000. Однострочное исправление общего contextURL использует pendingSeek до применения, затем actual currentTime. Chromium/WebKit PASS: оба контекста auth/native без запуска внешнего протокола, pending15000/явный0, готовая запись, source_changed без старой позиции, outcomes без position_ms; прежние шесть сочетаний размеров/тем и no-JS сохранены. Установленный повтор на новом exact source и cold/session матрица ещё открыты. Новых API/прав/зависимостей нет.
