@@ -13160,13 +13160,79 @@ paths:
           title: Range
       responses:
         '200':
-          description: Successful Response
+          description: Complete canonical review M4A.
+          content:
+            audio/mp4:
+              schema:
+                type: string
+                format: binary
+          headers:
+            Accept-Ranges:
+              description: Supported byte range unit. Always `bytes`.
+              schema:
+                type: string
+            Content-Disposition:
+              description: Safe inline playback filename.
+              schema:
+                type: string
+            Content-Length:
+              description: Number of bytes in this response body.
+              schema:
+                type: integer
         '422':
           description: Validation Error
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+        '206':
+          description: Requested byte range from the canonical review M4A.
+          content:
+            audio/mp4:
+              schema:
+                type: string
+                format: binary
+          headers:
+            Accept-Ranges:
+              description: Supported byte range unit. Always `bytes`.
+              schema:
+                type: string
+            Content-Disposition:
+              description: Safe inline playback filename.
+              schema:
+                type: string
+            Content-Length:
+              description: Number of bytes in this response body.
+              schema:
+                type: integer
+            Content-Range:
+              description: Returned byte interval and complete object length.
+              schema:
+                type: string
+        '404':
+          description: Meeting not found.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: Playback is not available.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '416':
+          description: Requested byte range is malformed or unsatisfiable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503':
+          description: Canonical storage is temporarily unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
   /api/v1/cabinet/public-shares/{share_token}/continue:
     get:
       tags:
