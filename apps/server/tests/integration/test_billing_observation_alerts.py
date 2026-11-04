@@ -329,7 +329,7 @@ def test_full_journal_replays_within_the_tick_budget(journal_state, limit):
     try:
         with AlertJournal(path) as journal:
             assert len(journal.incidents) == generations and journal.sequence == target_count and journal.head == head
-            assert all(incident["breached"] for incident in journal.incidents.values())
+            assert [incident["breached"] for incident in journal.incidents.values()] == [False] * (generations - 1) + [True]
             with pytest.raises(ObservationError):
                 journal.append("tick", {"completed_at": (NOW + timedelta(hours=1)).isoformat(), "source_check": "unavailable",
                                         "binding_version": binding})

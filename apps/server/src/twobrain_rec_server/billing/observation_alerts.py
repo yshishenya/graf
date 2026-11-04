@@ -83,6 +83,11 @@ def stamp(value):
     return value.astimezone(UTC).isoformat()
 
 
+def update_breach(incident, now):
+    observed = now if incident["closure"] is None else timestamp(incident["closure"]["at"])
+    incident["breached"] = incident["breached"] or observed > timestamp(incident["initial_deadline"])
+
+
 def decode(raw):
     require(len(raw) <= MAX_RECORD)
 
@@ -267,7 +272,7 @@ class AlertJournal:
             # Samples are monotonic, so only the latest can add a missed deadline.
             if last_sample is not None:
                 for incident in self.incidents.values():
-                    incident["breached"] = last_sample > timestamp(incident["initial_deadline"])
+                    update_breach(incident, last_sample)
             self.check_deadline()
             require(self.activation is not None)
             return self
@@ -355,7 +360,7 @@ class AlertJournal:
             self.last_now = data["at"]
             if not self.replaying:
                 for incident in self.incidents.values():
-                    incident["breached"] = incident["breached"] or now > timestamp(incident["initial_deadline"])
+                    update_breach(incident, now)
         elif kind == "incident":
             closed(data, {"incident_id", "kind", "incident_generation", "basis_revision", "basis",
                           "basis_hash", "detected_at", "initial_deadline"})
@@ -661,6 +666,7 @@ class AlertJournal:
             require(incident["investigating_at"] is not None)
             incident["closure"] = {"action": data["action"], "at": data["transferred_at"],
                                    "evidence_class": data["evidence_class"], "evidence_ref": data["evidence_ref"]}
+            update_breach(incident, timestamp(data["transferred_at"]))
         self.consumed.update({data["manifest_digest"], data["message_ref"]})
         self.last_now = data["transferred_at"]
 

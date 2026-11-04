@@ -871,3 +871,84 @@ def test_cli_transfer_checks_the_protected_decision_file_before_any_write(tmp_pa
         else:
             assert (path.read_bytes(), journal.sequence, journal.head, journal.consumed) == before
     assert len(posts) == 1
+
+
+@pytest.mark.parametrize("action", ["resolved", "accepted_risk"])
+@pytest.mark.parametrize("closed_at", [20, 299.999999, 300, 300.000001, 301])
+def test_closed_incident_keeps_its_deadline_result_after_later_samples_and_replay(tmp_path, action, closed_at):
+    from twobrain_rec_server.billing.observation_alerts import digest, stamp
+
+    cls, path, profile, generation, _binding = setup_journal(tmp_path)
+    expected = closed_at > 300
+    with cls(path) as journal:
+        journal.detect("reconciliation_failure", {"count": 1}, NOW)
+        incident = journal.current("reconciliation_failure")
+        manifest = {"source_profile": profile, "source_generation": generation,
+            "incident_id": incident["incident_id"], "incident_generation": 1,
+            "expected_basis_revision": 1, "basis_hash": incident["basis_hash"], "action": "investigating",
+            "evidence_class": "operational_review", "evidence_ref": "synthetic:verified",
+            "message_ref": "synthetic:deadline:investigating", "message_at": stamp(NOW),
+            "decision_digest": digest("synthetic decision")}
+        journal.transfer(manifest, now=NOW + timedelta(seconds=10))
+        journal.transfer({**manifest, "action": action, "message_ref": "synthetic:deadline:closure"},
+                         now=NOW + timedelta(seconds=closed_at))
+        assert incident["breached"] is expected
+        backup = path.with_name("backup.jsonl")
+        journal.backup(backup)
+    for target in (path, backup):
+        with cls(target) as journal:
+            assert journal.current("reconciliation_failure")["breached"] is expected
+            journal.append("sample", {"at": stamp(NOW + timedelta(seconds=600)), "source": None, "peer": None})
+            assert journal.current("reconciliation_failure")["breached"] is expected
+        before = target.read_bytes()
+        with cls(target, read_only=True) as journal:
+            assert journal.current("reconciliation_failure")["breached"] is expected
+            assert journal.current("reconciliation_failure")["initial_deadline"] == stamp(NOW + timedelta(seconds=300))
+        assert target.read_bytes() == before
+
+
+@pytest.mark.parametrize("sample_at", [300, 301])
+def test_investigating_incident_remains_open_for_deadline_checks(tmp_path, sample_at):
+    from twobrain_rec_server.billing.observation_alerts import digest, stamp
+
+    cls, path, profile, generation, _binding = setup_journal(tmp_path)
+    with cls(path) as journal:
+        journal.detect("reconciliation_failure", {"count": 1}, NOW)
+        incident = journal.current("reconciliation_failure")
+        journal.transfer({"source_profile": profile, "source_generation": generation,
+            "incident_id": incident["incident_id"], "incident_generation": 1,
+            "expected_basis_revision": 1, "basis_hash": incident["basis_hash"], "action": "investigating",
+            "evidence_class": "operational_review", "evidence_ref": "synthetic:review",
+            "message_ref": "synthetic:deadline:open", "message_at": stamp(NOW),
+            "decision_digest": digest("synthetic decision")}, now=NOW + timedelta(seconds=10))
+        journal.append("sample", {"at": stamp(NOW + timedelta(seconds=sample_at)), "source": None, "peer": None})
+        assert incident["closure"] is None and incident["breached"] is (sample_at > 300)
+    with cls(path, read_only=True) as journal:
+        assert journal.current("reconciliation_failure")["breached"] is (sample_at > 300)
+
+
+def test_new_timely_closed_generation_does_not_erase_an_older_missed_deadline(tmp_path):
+    from twobrain_rec_server.billing.observation_alerts import digest, stamp
+
+    cls, path, profile, generation, _binding = setup_journal(tmp_path)
+    with cls(path) as journal:
+        for count, detected, closing in ((1, 0, 301), (2, 400, 420)):
+            journal.detect("reconciliation_failure", {"count": count}, NOW + timedelta(seconds=detected))
+            incident = journal.current("reconciliation_failure")
+            manifest = {"source_profile": profile, "source_generation": generation,
+                "incident_id": incident["incident_id"], "incident_generation": count,
+                "expected_basis_revision": 1, "basis_hash": incident["basis_hash"], "action": "investigating",
+                "evidence_class": "operational_review", "evidence_ref": "synthetic:verified",
+                "message_ref": f"synthetic:deadline:{count}:investigating", "message_at": stamp(NOW),
+                "decision_digest": digest("synthetic decision")}
+            journal.transfer(manifest, now=NOW + timedelta(seconds=detected + 10))
+            if count == 1:
+                journal.append("sample", {"at": stamp(NOW + timedelta(seconds=closing)), "source": None, "peer": None})
+                assert incident["breached"]
+            journal.transfer({**manifest, "action": "resolved", "message_ref": f"synthetic:deadline:{count}:closure"},
+                             now=NOW + timedelta(seconds=closing))
+        journal.append("sample", {"at": stamp(NOW + timedelta(seconds=900)), "source": None, "peer": None})
+        assert [i["breached"] for i in journal.incidents.values()] == [True, False]
+    with cls(path, read_only=True) as journal:
+        assert [i["breached"] for i in journal.incidents.values()] == [True, False]
+        assert [i["incident_generation"] for i in journal.incidents.values()] == [1, 2]
