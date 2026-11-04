@@ -177,6 +177,25 @@ struct WebView2CalendarJoinFixture {
             stale == 2 ? "old-document-nonce" : host.documentNonce_,
             stale == 3 ? "https://rec.2brain.pro/desktop/settings" : host.currentUrl_, std::move(token), reconciled);
     }
+    std::string publicDocument(std::string suffix = "#recording?position_ms=42") {
+        const auto request = std::string("https://rec.2brain.pro/api/v1/cabinet/public-shares/") +
+            std::string(32, 'a') + "?workspace_id=22222222-2222-4222-8222-222222222222";
+        const auto url = request + suffix;
+        const auto route = host.beginDocumentNavigation(url, 1, false, 0, "GET");
+        assert(route.decision == RouteDecision::allow && route.kind == RouteKind::publicReader);
+        const auto tag = host.documentRequestTag(request);
+        assert(!tag.empty());
+        assert(host.observeDocumentResponseHeaders(request, tag, "document", "GET", {200, true, "text/html"}));
+        assert(host.observeDocumentCompletion(url, 1, 200, true, false, 1));
+        assert(host.tryFinishDocumentNavigation(2) == WebResponseDecision::cabinet);
+        assert(host.runtimeState() == WebRuntimeState::unprivileged);
+        return url;
+    }
+    bool publicCapabilitiesRevoked() const {
+        return host.documentNonce_.empty() && host.nativeSettingsNonce_.empty() && !host.nativeRunScript_ &&
+            !host.nativePublishLocalRecordings_ && !host.nativeReadUserTime_ && !host.nativeReplyCalendarJoin_;
+    }
+    bool publicFragment(std::string_view url) { return host.updatePublicDocumentFragment(url); }
     void timeSource(std::size_t n, std::string_view source) {
         host.completeUserTimeRead(timeReads.at(n), timeMetadata(), source);
     }
@@ -757,6 +776,83 @@ void testProtectedInventoryTimings() {
     assert(CustodyOwnedMemory::usedBytes() == before);
 }
 
+void testPublicDocumentOwnSessionReconciliation() {
+    using F = WebView2CalendarJoinFixture;
+    {
+        F f;
+        unsigned scripts = 0, inventory = 0;
+        f.presentation([&](std::string_view script) {
+            assert(script == "window.__grafSetCalendarJoinAvailable?.(false)"); ++scripts;
+        });
+        f.inventoryPublisher(inventory);
+        f.timeReader();
+        const auto oldMessage = f.message(1);
+        std::vector<std::pair<std::string, bool>> observed;
+        f.host.setAuthSessionHandler([&](std::string token, bool currentCookieRead) {
+            observed.emplace_back(std::move(token), currentCookieRead);
+            if (currentCookieRead) f.timeAccount(observed.back().first);
+        });
+        const auto url = f.publicDocument();
+        assert(f.publicCapabilitiesRevoked());
+        const auto retirementScripts = scripts;
+        f.receive(oldMessage, url);
+        assert(f.accepted.empty() && f.replies.empty());
+        assert(f.authObservation("synthetic-session", true) && observed.size() == 1);
+        assert(observed.back().first == "synthetic-session" && observed.back().second);
+        assert(f.authObservation("synthetic-session", true) && observed.size() == 2); // Same-cookie native observation still reaches owner.
+        assert(!f.authObservation("partial-cookie", false) && observed.size() == 3);
+        assert(observed.back().first.empty() && !observed.back().second); // Unknown read is not logout.
+        for (unsigned stale = 1; stale != 4; ++stale)
+            for (bool success : {false, true}) assert(!f.authObservation("stale-cookie", success, stale));
+        assert(observed.size() == 3);
+        assert(f.authObservation({}, true) && observed.size() == 4);
+        assert(observed.back().first.empty() && observed.back().second); // Successful absence retains signed-out meaning.
+        f.host.setAppUpdateAvailable(true);
+        f.host.refreshNativeSettings();
+        assert(scripts == retirementScripts && inventory == 0 && f.timeReads.empty());
+        assert(f.publicCapabilitiesRevoked() && f.host.preferredUserTimeZone().empty());
+        f.host.close();
+        assert(!f.authObservation("late-cookie", true) && observed.size() == 4);
+    }
+    {
+        F f;
+        unsigned observed = 0;
+        f.host.setAuthSessionHandler([&](std::string, bool) { ++observed; });
+        const auto original = f.publicDocument();
+        const auto generation = f.host.documentGeneration();
+        const auto base = original.substr(0, original.find('#'));
+        assert(f.publicFragment(base + "#outcomes"));
+        assert(f.host.documentGeneration() == generation && f.publicCapabilitiesRevoked());
+        assert(f.host.currentUrl() == base + "#outcomes");
+        assert(f.authObservation("same-document-cookie", true) && observed == 1);
+        for (const auto& invalid : {base + "#unknown", base + "&extra=1#outcomes",
+                std::string("https://foreign.test/reader#outcomes"), std::string("https://rec.2brain.pro/desktop/meetings")})
+            assert(!f.publicFragment(invalid));
+        assert(f.host.currentUrl() == base + "#outcomes" && f.host.documentGeneration() == generation);
+        // A real replacement revokes the accepted response even before completion.
+        (void)f.host.beginDocumentNavigation(original, 2, false, 3, "GET");
+        assert(!f.authObservation("pending-document-cookie", true) && observed == 1);
+    }
+    for (unsigned boundary = 0; boundary != 3; ++boundary) {
+        F f;
+        f.publicDocument();
+        unsigned observed = 0;
+        f.host.setAuthSessionHandler([&](std::string, bool currentCookieRead) {
+            assert(currentCookieRead); ++observed;
+            if (boundary == 0) f.publicDocument("#outcomes");
+            if (boundary == 1) f.host.close();
+            if (boundary == 2) {
+                f.newTimeDocument(); f.timeAccount(); f.timeCookie(); f.finishTime(0, f.timeMetadata());
+                throw std::runtime_error("old public cookie handler after new privileged context");
+            }
+        });
+        assert(!f.authObservation("synthetic-session", true) && observed == 1);
+        if (boundary == 0) assert(f.publicCapabilitiesRevoked() && f.host.runtimeState() == WebRuntimeState::unprivileged);
+        if (boundary == 1) assert(f.host.runtimeState() == WebRuntimeState::closed);
+        if (boundary == 2) assert(f.host.preferredUserTimeZone() == "UTC");
+    }
+}
+
 void testUserTimeIsBoundToNativeAccountAndDocument() {
     using F = WebView2CalendarJoinFixture;
     {
@@ -934,6 +1030,7 @@ int main() {
     testProtectedInventoryPresentation();
     testProtectedInventoryTimings();
     testUserTimeIsBoundToNativeAccountAndDocument();
+    testPublicDocumentOwnSessionReconciliation();
     using F = WebView2CalendarJoinFixture;
     {
         F f; std::vector<std::string> scripts;

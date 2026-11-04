@@ -129,28 +129,63 @@ std::int64_t attributionNow() {
 // AppLifecycle can deliver a second launch before XAML exists or from another
 // thread. Keep only the last validated handoff; the UI thread owns persistence.
 struct PendingActivation {
-    bool bringForward = false;
+    bool bringForward = false, closed = false;
     std::optional<graf::windows::ProductAttributionHandoff> handoff;
+    std::optional<std::string> sharedRoute; // Canonical local path only; never the activation URI.
+    std::uint64_t sharedRevision = 0;
 };
 std::mutex activationMutex;
 PendingActivation pendingActivation;
 
+void cancelPendingSharedActivation(bool closing = false) {
+    std::lock_guard<std::mutex> lock(activationMutex);
+    pendingActivation.sharedRoute.reset();
+    ++pendingActivation.sharedRevision;
+    if (closing) pendingActivation.closed = true;
+}
+
+bool receiveProtocolActivation(std::string_view uri) noexcept {
+    try {
+        if (uri.size() > graf::windows::ProductAttributionHandoff::maximumLinkBytes) return false;
+        auto shared = graf::windows::WebViewRoutePolicy::sharedMeetingRoute(uri);
+        auto handoff = shared ? std::optional<graf::windows::ProductAttributionHandoff>{}
+            : graf::windows::ProductAttributionHandoff::parse(uri, attributionNow());
+        if (!shared && !handoff) return false;
+        // Parsing/allocation precedes the lock. A rejected URI cannot clear a
+        // valid pending route; delivery never reads a profile or touches UI.
+        std::lock_guard<std::mutex> lock(activationMutex);
+        if (pendingActivation.closed) return false;
+        pendingActivation.bringForward = true;
+        if (shared) {
+            pendingActivation.sharedRoute = std::move(shared);
+            ++pendingActivation.sharedRevision;
+        }
+        if (handoff) pendingActivation.handoff = std::move(handoff);
+        return true;
+    } catch (...) { return false; }
+}
+
+bool receiveProtocolActivation(std::wstring_view uri) noexcept {
+    // Bound the raw UTF-16 before conversion, then the UTF-8 bytes/parser too.
+    if (uri.size() > graf::windows::ProductAttributionHandoff::maximumLinkBytes) return false;
+    try { return receiveProtocolActivation(winrt::to_string(uri)); }
+    catch (...) { return false; }
+}
+
 void receiveActivation(const winrt::Microsoft::Windows::AppLifecycle::AppActivationArguments& args) noexcept {
     try {
         using winrt::Microsoft::Windows::AppLifecycle::ExtendedActivationKind;
-        std::optional<graf::windows::ProductAttributionHandoff> handoff;
         if (args.Kind() == ExtendedActivationKind::Protocol) {
             const auto protocol = args.Data().try_as<winrt::Windows::ApplicationModel::Activation::IProtocolActivatedEventArgs>();
             if (!protocol) return;
             const auto uri = protocol.Uri().RawUri();
-            if (uri.size() > graf::windows::ProductAttributionHandoff::maximumLinkBytes) return;
-            handoff = graf::windows::ProductAttributionHandoff::parse(winrt::to_string(uri), attributionNow());
-            if (!handoff) return;
-        } else if (args.Kind() != ExtendedActivationKind::Launch) return;
+            (void)receiveProtocolActivation(std::wstring_view(uri.c_str(), uri.size()));
+            return;
+        }
+        if (args.Kind() != ExtendedActivationKind::Launch) return;
         std::lock_guard<std::mutex> lock(activationMutex);
-        pendingActivation.bringForward = true;
-        if (handoff) pendingActivation.handoff = std::move(handoff);
-    } catch (...) {} // Invalid/optional analytics never blocks ordinary launch.
+        if (!pendingActivation.closed) pendingActivation.bringForward = true;
+    } catch (...) {} // Invalid/optional activation never blocks ordinary launch.
 }
 
 void redirectActivation(const winrt::Microsoft::Windows::AppLifecycle::AppInstance& instance,
@@ -578,6 +613,7 @@ public:
             else refreshTrayAvailability();
         });
         window_.Closed([this](auto const&, auto const&) {
+            cancelPendingSharedActivation(true);
             cancelLocalPlayback();
             cancelCalendarJoin();
             // Teardown is not drain. A resolver owns only copied config/result,
@@ -667,12 +703,17 @@ public:
 
 private:
     void applyPendingActivation(bool showWindow = true) {
-        if (capture_ && capture_->updateAdmissionBlocked()) return;
+        if (shuttingDown_ || exitRequested_ || (capture_ && capture_->updateAdmissionBlocked())) return;
         const CustodyMutationScope mutation(shellMutations_);
+        synchronizeAuthGeneration(); // Cancel a confirmed same-cookie owner switch before dispatch.
         PendingActivation activation;
         {
             std::lock_guard<std::mutex> lock(activationMutex);
-            activation = std::exchange(pendingActivation, {});
+            if (pendingActivation.closed) return;
+            activation.bringForward = std::exchange(pendingActivation.bringForward, false);
+            activation.handoff = std::exchange(pendingActivation.handoff, {});
+            activation.sharedRoute = pendingActivation.sharedRoute;
+            activation.sharedRevision = pendingActivation.sharedRevision;
         }
         if (activation.handoff) {
             attributionSignInRequested_ = true;
@@ -680,11 +721,34 @@ private:
                 try { (void)attribution_->save(*activation.handoff); } catch (...) {}
             }
         }
-        if (attributionSignInRequested_ && cabinet_) {
+        if (activation.sharedRoute && cabinet_ &&
+            cabinet_->webView().runtimeState() != graf::windows::WebRuntimeState::closed) {
+            const auto url = cabinet_->webView().routePolicy().trustedOrigin() + *activation.sharedRoute;
+            cancelCalendarJoin(); // A previous resolver cannot replace this reader with its login.
+            // open() rejects busy history. Do not hold the activation lock:
+            // navigation can synchronously deliver a newer activation.
+            const auto accepted = cabinet_->open(url);
+            if (accepted.decision == graf::windows::RouteDecision::allow && !shuttingDown_ && !exitRequested_ &&
+                cabinet_->webView().runtimeState() != graf::windows::WebRuntimeState::closed &&
+                (!capture_ || !capture_->updateAdmissionBlocked())) {
+                std::lock_guard<std::mutex> lock(activationMutex);
+                if (!pendingActivation.closed && pendingActivation.sharedRevision == activation.sharedRevision)
+                    pendingActivation.sharedRoute.reset();
+                // Persisted attribution still decorates future addressed login,
+                // but its older login request must not replace this reader.
+                attributionSignInRequested_ = false;
+            }
+        }
+        bool sharedPending = false;
+        {
+            std::lock_guard<std::mutex> lock(activationMutex);
+            sharedPending = pendingActivation.sharedRoute.has_value();
+        }
+        if (!activation.sharedRoute && !sharedPending && attributionSignInRequested_ && cabinet_) {
             attributionSignInRequested_ = false;
             (void)cabinet_->open(cabinet_->webView().signInUrl());
         }
-        if (activation.bringForward && showWindow && window_ && !shuttingDown_) {
+        if (activation.bringForward && showWindow && window_ && !shuttingDown_ && !exitRequested_) {
             window_.AppWindow().Show();
             if (mainWindowHandle_) {
                 ShowWindow(mainWindowHandle_, SW_RESTORE);
@@ -692,6 +756,17 @@ private:
             }
             window_.Activate();
         }
+    }
+
+    void receiveAuthSession(std::string token, bool currentCookieRead) {
+        if (!capture_) return;
+        if (currentCookieRead && capture_->authSessionToken() != token) {
+            cancelPendingSharedActivation();
+            sharedActivationAccount_.reset(); // The next confirmed tuple is a first observation of this session.
+        }
+        if (currentCookieRead || !token.empty()) capture_->setAuthSessionToken(std::move(token), currentCookieRead);
+        else capture_->recover(graf::windows::RecoveryTrigger::activation); // Unknown read is not logout.
+        synchronizeAuthGeneration();
     }
 
     void openMainWindow() {
@@ -706,6 +781,7 @@ private:
 
     void openAccountSettings() {
         if (shuttingDown_ || exitRequested_) return;
+        cancelPendingSharedActivation();
         openMainWindow();
         initializeWebView();
         if (cabinet_) {
@@ -847,15 +923,25 @@ private:
         navigation.Spacing(4);
         navigation.Margin(Thickness{8, 4, 8, 4});
         backButton_ = iconButton(Symbol::Back, L"Назад в кабинете");
-        backButton_.Click([this](auto const&, auto const&) { if (cabinet_) cabinet_->webView().back(); });
+        backButton_.Click([this](auto const&, auto const&) {
+            cancelPendingSharedActivation();
+            if (cabinet_) cabinet_->webView().back();
+        });
         forwardButton_ = iconButton(Symbol::Forward, L"Вперёд в кабинете");
-        forwardButton_.Click([this](auto const&, auto const&) { if (cabinet_) cabinet_->webView().forward(); });
+        forwardButton_.Click([this](auto const&, auto const&) {
+            cancelPendingSharedActivation();
+            if (cabinet_) cabinet_->webView().forward();
+        });
         auto reload = iconButton(Symbol::Refresh, L"Обновить кабинет");
         reload.Click([this](auto const&, auto const&) {
+            cancelPendingSharedActivation();
             if (cabinet_) cabinet_->webView().reload();
         });
         auto meetings = styledButton(L"Встречи");
-        meetings.Click([this](auto const&, auto const&) { if (cabinet_) (void)cabinet_->openCabinet(); });
+        meetings.Click([this](auto const&, auto const&) {
+            cancelPendingSharedActivation();
+            if (cabinet_) (void)cabinet_->openCabinet();
+        });
         navigation.Children().Append(backButton_);
         navigation.Children().Append(forwardButton_);
         navigation.Children().Append(reload);
@@ -892,6 +978,7 @@ private:
         fallback.Children().Append(card(statusCard));
         fallbackCabinetAction_ = styledButton(L"Повторить загрузку");
         fallbackCabinetAction_.Click([this](auto const&, auto const&) {
+            cancelPendingSharedActivation();
             if (cabinet_) {
                 auto& host = cabinet_->webView();
                 if (host.pendingAuthRecovery() != graf::windows::WebResponseDecision::ignore) {
@@ -1076,7 +1163,10 @@ private:
         styleText(autoRecordDetail_, 12);
         captureCard.Children().Append(autoRecordDetail_);
         auto automaticSettings = styledButton(L"Настроить автозапись");
-        automaticSettings.Click([this](auto const&, auto const&) { openNativeSettings(); });
+        automaticSettings.Click([this](auto const&, auto const&) {
+            cancelPendingSharedActivation();
+            openNativeSettings();
+        });
         captureCard.Children().Append(automaticSettings);
         body.Children().Append(card(captureCard, 12));
         auto custody = StackPanel();
@@ -1163,6 +1253,18 @@ private:
         updateInspectorVisibility();
     }
 
+    void handleCabinetNavigation(graf::windows::RouteEvaluation evaluation) {
+        if (evaluation.decision == graf::windows::RouteDecision::allow && evaluation.userInitiated)
+            cancelPendingSharedActivation();
+        if (evaluation.decision == graf::windows::RouteDecision::allow &&
+            evaluation.kind == graf::windows::RouteKind::nativeSettings) {
+            openNativeSettings();
+            return;
+        }
+        if (evaluation.decision == graf::windows::RouteDecision::allow && localFallback_)
+            hideCabinetFallback();
+    }
+
     void configureCabinet() {
         cabinet_ = std::make_unique<graf::windows::CabinetWindow>();
         auto& host = cabinet_->webView();
@@ -1174,14 +1276,7 @@ private:
         // Тема уже решена до создания среды: страница обязана увидеть ту же.
         host.setPreferredColorScheme(shellIsDark_);
         host.setNavigationHandler([this](graf::windows::RouteEvaluation evaluation) {
-            if (evaluation.decision == graf::windows::RouteDecision::allow &&
-                evaluation.kind == graf::windows::RouteKind::nativeSettings) {
-                openNativeSettings();
-                return;
-            }
-            if (evaluation.decision == graf::windows::RouteDecision::allow && localFallback_) {
-                hideCabinetFallback();
-            }
+            handleCabinetNavigation(std::move(evaluation));
         });
         host.setRuntimeHandler([this](graf::windows::WebRuntimeState state) {
             if (state != graf::windows::WebRuntimeState::ready && capture_ && pendingManualSend_)
@@ -1225,10 +1320,7 @@ private:
         host.setUpdateHandler([this] { openUpdateWindow(); });
         host.setAppUpdateAvailable(appUpdate_.available());
         host.setAuthSessionHandler([this](std::string token, bool currentCookieRead) {
-            if (!capture_) return;
-            if (currentCookieRead || !token.empty()) capture_->setAuthSessionToken(std::move(token), currentCookieRead);
-            else capture_->recover(graf::windows::RecoveryTrigger::activation); // Unknown read is not logout.
-            synchronizeAuthGeneration();
+            receiveAuthSession(std::move(token), currentCookieRead);
         });
         host.setCalendarJoinHandlers(
             [this](auto request) { beginDocumentCalendarJoin(std::move(request)); },
@@ -1262,16 +1354,20 @@ private:
             meetingsSurface_.Children().InsertAt(index, webView_);
             cabinet_->attach(webView_);
         });
-        // A cold protocol launch must choose login before the first WebView
-        // navigation; a server 303 from meetings would otherwise omit handoff.
-        if (attributionSignInRequested_) {
-            attributionSignInRequested_ = false;
-            (void)cabinet_->open(host.signInUrl());
-        }
+        // Choose the pending reader (or the unchanged attribution login) before
+        // attach() makes the first request. Warm delivery uses this same path.
+        applyPendingActivation(false);
     }
 
     void synchronizeAuthGeneration() {
         if (!capture_) return;
+        // Only native-confirmed tuples count. Unknown reads retain the last
+        // known tuple; first-known is not a replacement and grants nothing here.
+        if (const auto& account = capture_->currentAccount(); account) {
+            if (sharedActivationAccount_ && (sharedActivationAccount_->userId != account->userId ||
+                sharedActivationAccount_->workspaceId != account->workspaceId)) cancelPendingSharedActivation();
+            sharedActivationAccount_ = account;
+        }
         const auto generation = capture_->authGeneration();
         const bool changed = !observedAuthGeneration_ || *observedAuthGeneration_ != generation;
         const bool network = capture_->currentAccount().has_value();
@@ -1524,6 +1620,7 @@ private:
             if (!playbackDocumentCurrent(request, epoch) || pendingManualSend_ ||
                 !cabinet_->webView().localRecordingActionAllowed(action, id)) return;
             if (capture_->authSessionToken().empty()) {
+                cancelPendingSharedActivation();
                 (void)cabinet_->open(cabinet_->webView().signInUrl());
                 localActionNotice_ = L"Войдите в GRAF — запись остаётся на этом компьютере.";
             } else if (!capture_->currentAccount()) {
@@ -1885,6 +1982,7 @@ private:
         body.Children().Append(sound);
         auto account = styledButton(L"Настройки аккаунта в кабинете");
         account.Click([this](auto const&, auto const&) {
+            cancelPendingSharedActivation();
             if (cabinet_) (void)cabinet_->open("https://rec.2brain.pro/desktop/account/profile");
             if (settingsWindow_) settingsWindow_.Close();
             window_.Activate();
@@ -2536,6 +2634,7 @@ private:
     }
     void beginExit() {
         exitRequested_ = true;
+        cancelPendingSharedActivation(true);
         cancelLocalPlayback();
         cancelCalendarJoin();
         automaticPolicy_.cancel();
@@ -2970,6 +3069,10 @@ private:
 
     bool calendarSourceCurrent() {
         if (!calendarFlight_) return false;
+        {
+            std::lock_guard<std::mutex> lock(activationMutex);
+            if (pendingActivation.sharedRoute) return false;
+        }
         const auto& flight = *calendarFlight_;
         const auto& context = flight.context;
         bool source = calendarAuthCurrent(context, flight.interactionEpoch);
@@ -3663,6 +3766,7 @@ private:
     std::uint64_t problemContextEpoch_ = 0, problemAuthGeneration_ = 0;
     std::optional<std::uint64_t> observedAuthGeneration_;
     bool observedNetworkAccount_ = false;
+    std::optional<graf::windows::DesktopAccountIdentity> sharedActivationAccount_;
     std::string selectedRecordingDisplayKey_;
     std::string selectedLocalRecordingId_;
     Window settingsWindow_{nullptr};

@@ -264,6 +264,269 @@ static void billingActionParityContract() {
     }
 }
 
+static void sharedMeetingReadOnlyContract() {
+    using namespace graf::windows;
+    const WebViewRoutePolicy policy;
+    const auto origin = policy.trustedOrigin();
+    const std::string token(43, 'a');
+    const std::string version = "0123456789abcdef01234567";
+    const auto reader = origin + "/api/v1/cabinet/public-shares/" + token;
+    const std::string query = "?workspace_id=ABCDEFAB-CDEF-4ABC-8DEF-ABCDEFABCDEF";
+    const auto first = policy.evaluate(reader + query);
+    assert(first.decision == RouteDecision::allow && "T121_public_reader_route_must_be_allowed");
+
+    const auto own = origin + "/desktop/meetings";
+    const auto download = origin + "/api/v1/cabinet/meetings/meeting-1/downloads/audio";
+    const auto blob = "blob:" + origin + "/11111111-1111-4111-8111-111111111111";
+    const auto media = reader + "/playback" + query + "&media_version=" + version;
+    const auto continuation = reader + "/continue" + query;
+    const auto readOnly = [&](const std::string& url, bool mediaResource = false) {
+        const auto route = policy.evaluate(url);
+        assert(route.decision == RouteDecision::allow);
+        assert(!policy.allowsNativeBridge(url));
+        assert(route.kind != RouteKind::settings && route.kind != RouteKind::nativeSettings &&
+            route.kind != RouteKind::authProvider && route.kind != RouteKind::paymentProvider);
+        if (!mediaResource) assert(route.kind != RouteKind::artifactDownload);
+        assert(!policy.isAllowedDownload(download, url));
+        assert(!policy.isAllowedDownload(blob, url));
+        assert(!policy.isAllowedDownload(media, url));
+    };
+    // Public reading is not a Save capability, even from an ordinary cabinet.
+    assert(policy.allowsNativeBridge(own));
+    assert(policy.isAllowedDownload(download, own));
+    assert(!policy.isAllowedDownload(media, own));
+    for (const auto suffix : {"", "#outcomes", "#recording", "#recording?position_ms=0",
+                             "#recording?position_ms=86400000"}) {
+        readOnly(reader + query + suffix);
+        readOnly(reader + query + "&media_version=" + version + suffix);
+    }
+    readOnly(reader + "?media_version=" + version + "&workspace_id=00000000-0000-0000-0000-000000000000#outcomes");
+    for (const auto length : {32, 128})
+        readOnly(origin + "/api/v1/cabinet/public-shares/" + std::string(length, 'a') + query);
+    readOnly(media, true);
+    readOnly(origin + "/shared-meeting/continue");
+    for (const auto action : {"", "&action=sign-in", "&action=sign-up"}) {
+        for (const auto tab : {"", "&tab=outcomes", "&tab=recording"}) {
+            readOnly(continuation + action + tab);
+            readOnly(continuation + action + tab + "&media_version=" + version);
+        }
+        readOnly(continuation + action + "&tab=recording&position_ms=0");
+        readOnly(continuation + action + "&tab=recording&position_ms=86400000&media_version=" + version);
+    }
+    const auto denied = [&](const std::string& url) {
+        assert(policy.evaluate(url).decision == RouteDecision::deny);
+        assert(!policy.allowsNativeBridge(url));
+        assert(!policy.isAllowedDownload(url, own));
+    };
+    denied(reader);
+    for (const auto suffix : {"&extra=1", "&tab=recording", "&workspace_id=00000000-0000-0000-0000-000000000000",
+                             "&%77orkspace_id=00000000-0000-0000-0000-000000000000", "#unknown",
+                             "#outcomes?position_ms=1", "#recording?position_ms=-1",
+                             "#recording?position_ms=86400001", "#recording?position_ms=000000000"})
+        denied(reader + query + suffix);
+    for (const auto bad : {"", "0123456789ABCDEF01234567", "0123456789abcdef0123456",
+                           "0123456789abcdef012345678"})
+        denied(reader + query + "&media_version=" + bad);
+    denied(reader + query + "&media_version=" + version + "&media_version=" + version);
+    for (const auto length : {31, 129})
+        denied(origin + "/api/v1/cabinet/public-shares/" + std::string(length, 'a') + query);
+    for (const auto path : {"/extra", "/", "/../other", "/%2fextra"}) denied(reader + path + query);
+    denied(reader + "/playback" + query);
+    for (const auto suffix : {"#recording", "&tab=recording", "&action=sign-in", "&extra=1"}) denied(media + suffix);
+    for (const auto suffix : {"#recording", "&action=other", "&action=", "&tab=other", "&tab=",
+                             "&position_ms=1", "&tab=outcomes&position_ms=1",
+                             "&tab=recording&position_ms=-1", "&tab=recording&position_ms=86400001",
+                             "&tab=recording&position_ms=000000000", "&action=sign-in&action=sign-up",
+                             "&next=/desktop/meetings", "&tab=recording&tab=outcomes"})
+        denied(continuation + suffix);
+    for (const auto suffix : {"?", "#", "?workspace_id=00000000-0000-0000-0000-000000000000", "#recording", "/extra"})
+        denied(origin + "/shared-meeting/continue" + suffix);
+    const auto pathAndQuery = reader.substr(origin.size()) + query;
+    for (const auto foreign : {"https://evil.test", "https://rec.2brain.pro.evil.test", "https://rec.2brain.pro:444"}) {
+        const auto url = std::string(foreign) + pathAndQuery;
+        assert(policy.evaluate(url).decision != RouteDecision::allow);
+        assert(!policy.allowsNativeBridge(url));
+        assert(!policy.isAllowedDownload(url, own));
+    }
+    denied("https://user@rec.2brain.pro" + pathAndQuery);
+    denied("http://rec.2brain.pro" + pathAndQuery);
+    for (const auto& path : std::vector<std::string>{
+        "/api/v1/cabinet/public-shares%2F" + token + "/playback",
+        "/%61pi/v1/cabinet/public-shares/" + token + "/playback",
+        "/api/v1/cabinet/%70ublic-shares/" + token + "/playback",
+        "/api%2fv1%2fcabinet%2fpublic-shares%2f" + token + "/playback",
+        "/api/v1/cabinet/public-shares%5C" + token + "/playback",
+        "/ordinary/../api/v1/cabinet/public-shares/" + token,
+        "/ordinary/%2e%2e/api/v1/cabinet/public-shares/" + token,
+        "/api//v1/cabinet/./public-shares/" + token,
+        "/api/v1/cabinet/%70ublic-shares/../other",
+        "/shared%2dmeetings/00000000-0000-0000-0000-000000000000",
+        "/api/v1/cabinet/shared%2Dmeetings/00000000-0000-0000-0000-000000000000/playback",
+        "/shared-meeting/%63ontinue"}) {
+        const auto alias = origin + path + query + "&media_version=" + version + "&extra=1";
+        assert(policy.evaluate(alias, false).decision == RouteDecision::deny && "T121_noncanonical_shared_frame_must_be_denied");
+        assert(policy.evaluate(alias, false, AuthContinuation::none, true).decision == RouteDecision::deny);
+        assert(policy.evaluate(alias).decision == RouteDecision::deny);
+        assert(!policy.allowsNativeBridge(alias) && !policy.isAllowedDownload(alias, own));
+    }
+    assert(policy.evaluate(origin + "/ordinary%2Fframe", false).kind == RouteKind::frame);
+    assert(policy.evaluate(origin + "/ordinary/../frame", false).kind == RouteKind::frame);
+    assert(policy.evaluate(origin + "/api/v1/cabinet/public-shares-other%2Fframe", false).kind == RouteKind::frame);
+    assert(policy.evaluate("https://bank.test/frame", false, AuthContinuation::none, true).kind == RouteKind::frame);
+}
+
+static void sharedMeetingProtocolContract() {
+    using namespace graf::windows;
+    const WebViewRoutePolicy policy("https://graf.example.test");
+    const std::string upper = "ABCDEFAB-CDEF-4ABC-8DEF-ABCDEFABCDEF";
+    const std::string lower = "abcdefab-cdef-4abc-8def-abcdefabcdef";
+    const std::string nil = "00000000-0000-0000-0000-000000000000";
+    const std::string token(43, 'a');
+    const std::string version = "0123456789abcdef01234567";
+    const std::string prefix = "grafrec://shared-meeting?";
+    const auto required = "v=1&workspace_id=" + upper;
+    const auto publicIntent = prefix + required + "&share_token=" + token + "&tab=outcomes";
+    const auto publicRoute = "/api/v1/cabinet/public-shares/" + token + "?workspace_id=" + lower;
+    const auto addressed = prefix + required + "&meeting_id=" + upper + "&tab=recording";
+    const auto addressedRoute = "/shared-meetings/" + lower + "?workspace_id=" + lower;
+    const auto check = [&](const std::string& uri, const std::string& expected, bool publicReader) {
+        const auto route = WebViewRoutePolicy::sharedMeetingRoute(uri);
+        assert(route && *route == expected);
+        assert(route->front() == '/' && route->find("://") == std::string::npos);
+        const auto full = policy.trustedOrigin() + *route;
+        assert(policy.evaluate(full).decision == RouteDecision::allow);
+        if (publicReader) {
+            assert(!policy.allowsNativeBridge(full));
+            assert(!policy.isAllowedDownload("blob:" + policy.trustedOrigin() + "/" + nil, full));
+        }
+    };
+    check(publicIntent, publicRoute + "#outcomes", true);
+    check("grafrec://%73hared-meeting?" + publicIntent.substr(prefix.size()), publicRoute + "#outcomes", true);
+    check(publicIntent + "&media_version=" + version, publicRoute + "&media_version=" + version + "#outcomes", true);
+    check(addressed, addressedRoute + "#recording", false);
+    check(addressed + "&media_version=" + version + "&position_ms=00014000",
+        addressedRoute + "&media_version=" + version + "#recording?position_ms=14000", false);
+    for (const auto& position : {std::string("0"), std::string("86400000"), std::string("00000000")})
+        check(addressed + "&position_ms=" + position,
+            addressedRoute + "#recording?position_ms=" + (position == "00000000" ? "0" : position), false);
+    check(prefix + "tab=outcomes&share_token=" + token + "&workspace_id=" + nil + "&v=1",
+        "/api/v1/cabinet/public-shares/" + token + "?workspace_id=" + nil + "#outcomes", true);
+    check(prefix + "v=1&workspace_id=" + nil + "&meeting_id=" + nil + "&tab=outcomes",
+        "/shared-meetings/" + nil + "?workspace_id=" + nil + "#outcomes", false);
+    for (const auto length : {32, 128}) {
+        const std::string boundToken = "_-A0" + std::string(static_cast<std::size_t>(length - 4), 'z');
+        check(prefix + required + "&share_token=" + boundToken + "&tab=recording&position_ms=0",
+            "/api/v1/cabinet/public-shares/" + boundToken + "?workspace_id=" + lower + "#recording?position_ms=0", true);
+    }
+    check(prefix + "v=%31&%77orkspace_id=ABCDEFAB%2DCDEF-4ABC-8DEF-ABCDEFABCDEF&share_token=" + token + "&tab=%6futcomes",
+        publicRoute + "#outcomes", true);
+    const auto rejected = [&](const std::string& uri) { assert(!WebViewRoutePolicy::sharedMeetingRoute(uri)); };
+    for (const auto suffix : {"&tab=recording", "&%74ab=recording", "&share_token=other", "&meeting_id=", "&position_ms=0",
+                             "&next=/desktop/meetings", "&origin=https://evil.test", "&cookie=secret", "&utm_source=x",
+                             "&", "&&", "&=1", "#", "#recording", "&%2574ab=recording"}) rejected(publicIntent + suffix);
+    rejected(publicIntent + "&meeting_id=" + lower);
+    rejected(prefix + "workspace_id=" + lower + "&share_token=" + token + "&tab=outcomes");
+    rejected(prefix + "v=1&share_token=" + token + "&tab=outcomes");
+    rejected(prefix + "v=1&workspace_id=" + lower + "&share_token=" + token);
+    rejected(prefix + required + "&share_token=&tab=outcomes");
+    for (const auto bad : {"00000000-0000-0000-0000-00000000000", "Z0000000-0000-0000-0000-000000000000", "{00000000-0000-0000-0000-000000000000}"}) {
+        rejected(prefix + "v=1&workspace_id=" + bad + "&share_token=" + token + "&tab=outcomes");
+        rejected(prefix + required + "&meeting_id=" + bad + "&tab=recording");
+    }
+    for (const auto key : {"v", "workspace_id", "meeting_id", "tab", "position_ms", "media_version"})
+        rejected(addressed + "&position_ms=1&media_version=" + version + "&" + key + "=1");
+    for (const auto query : {"", "?", "v=1", "v=1&workspace_id=", "v=1&tab=outcomes", "v=1&workspace_id=x&tab=outcomes",
+                            "v=1&workspace_id=00000000-0000-0000-0000-000000000000&tab=outcomes"}) rejected(prefix + query);
+    for (const auto authority : {"GRAFREC://shared-meeting?", "grafrec://SHARED-MEETING?", "grafrec://%2573hared-meeting?",
+                                "grafrec-dev://shared-meeting?", "https://shared-meeting?", "grafrec:shared-meeting?",
+                                "grafrec://other?", "grafrec://user@shared-meeting?", "grafrec://u:p@shared-meeting?",
+                                "grafrec://shared-meeting:443?", "grafrec://shared-meeting/?", "grafrec://shared-meeting/extra?",
+                                "grafrec://shared-meeting%2F?"}) rejected(std::string(authority) + publicIntent.substr(prefix.size()));
+    for (const auto bad : {"", "2", "01", "%", "%0", "%GG", "%C0%AF", "%ED%A0%80", "%F4%90%80%80", "%00", "%0A", "%7F"})
+        rejected(prefix + "v=" + bad + "&workspace_id=" + lower + "&share_token=" + token + "&tab=outcomes");
+    for (const auto bad : {"", "other", "Outcomes", "outcomes+", "%256futcomes"})
+        rejected(prefix + required + "&share_token=" + token + "&tab=" + bad);
+    for (const auto bad : {"-1", "86400001", "99999999", "000000000", "18446744073709551616", "+1", "1.0", "1e2", ""})
+        rejected(addressed + "&position_ms=" + bad);
+    for (const auto bad : {"", "0123456789ABCDEF01234567", "0123456789abcdef0123456", "0123456789abcdef012345678", "%2561"})
+        rejected(publicIntent + "&media_version=" + bad);
+    for (const auto length : {31, 129})
+        rejected(prefix + required + "&share_token=" + std::string(static_cast<std::size_t>(length), 'a') + "&tab=outcomes");
+    for (const auto bad : {"+", "/", "%2F", "%252F", "%00", "%GG", "#", " "})
+        rejected(prefix + required + "&share_token=" + std::string(32, 'a') + bad + "&tab=outcomes");
+    rejected(prefix + "v=1&workspace_id=" + lower + "0&share_token=" + token + "&tab=outcomes");
+    rejected(prefix + required + "&share_token=" + token + "&tab=outcomes&extra=" + std::string(16384, 'a'));
+    rejected(std::string(16385, 'a'));
+    rejected(publicIntent + std::string(1, '\0'));
+    rejected(publicIntent + std::string(1, static_cast<char>(0xff)));
+    check(publicIntent, publicRoute + "#outcomes", true); // Invalid calls retain no state.
+}
+
+static void sharedMeetingRecoveryContract() {
+    using namespace graf::windows;
+    const WebViewRoutePolicy policy("https://graf.example.test");
+    const auto origin = policy.trustedOrigin();
+    const std::string id = "abcdefab-cdef-4abc-8def-abcdefabcdef";
+    const std::string version = "0123456789abcdef01234567";
+    const auto publicPath = "/api/v1/cabinet/public-shares/" + std::string(43, 'a');
+    const auto query = "?workspace_id=" + id;
+    const auto publicReader = origin + publicPath + query + "&media_version=" + version + "#recording?position_ms=14000";
+    assert(policy.safeRecoveryUrl(publicReader, "GET") == publicReader && "T121_shared_GET_reader_must_preserve_recovery_context");
+    const std::vector<std::pair<std::string, std::string>> fragments = {
+        {"", "outcomes"}, {"#outcomes", "outcomes"}, {"#recording", "recording"},
+        {"#recording?position_ms=0", "recording&position_ms=0"},
+        {"#recording?position_ms=86400000", "recording&position_ms=86400000"}};
+    for (const auto& mediaVersion : {std::string{}, "&media_version=" + version}) {
+        for (const auto& fragment : fragments) {
+            const auto reader = origin + publicPath + query + mediaVersion + fragment.first;
+            const auto continuation = origin + publicPath + "/continue" + query + mediaVersion + "&action=sign-in&tab=" + fragment.second;
+            assert(policy.safeRecoveryUrl(reader) == reader);
+            for (const auto reason : {WebResponseDecision::expiredSession, WebResponseDecision::workspaceReselection}) {
+                assert(policy.recoveryUrl(reason, reader) == continuation);
+                assert(policy.evaluate(continuation).decision == RouteDecision::allow);
+                assert(policy.evaluate(continuation).kind == RouteKind::publicReader);
+                assert(!policy.allowsNativeBridge(continuation));
+                assert(continuation.find("/login?next=") == std::string::npos);
+            }
+            for (const auto reason : {WebResponseDecision::unavailable, WebResponseDecision::timeout})
+                assert(policy.recoveryUrl(reason, reader) == reader);
+            for (const auto reason : {WebResponseDecision::accessDenied, WebResponseDecision::notFound})
+                assert(policy.recoveryUrl(reason, reader) == origin + "/desktop/meetings");
+            assert(policy.safeRecoveryUrl(reader, "POST").empty());
+            assert(policy.safeRecoveryUrl(reader, "HEAD").empty());
+        }
+    }
+    const auto addressed = origin + "/shared-meetings/" + id + query + "&media_version=" + version + "#recording?position_ms=14000";
+    const auto addressedLogin = origin + "/login?next=%2Fshared-meetings%2F" + id + "%3Fworkspace_id%3D" + id +
+        "%26media_version%3D" + version + "%23recording%3Fposition_ms%3D14000";
+    assert(policy.safeRecoveryUrl(addressed) == addressed);
+    for (const auto reason : {WebResponseDecision::expiredSession, WebResponseDecision::workspaceReselection})
+        assert(policy.recoveryUrl(reason, addressed) == addressedLogin);
+    assert(policy.recoveryUrl(WebResponseDecision::timeout, addressed) == addressed);
+    assert(policy.recoveryUrl(WebResponseDecision::notFound, addressed) == origin + "/desktop/meetings");
+    assert(policy.safeRecoveryUrl(addressed, "POST").empty());
+    const auto encodedAddressed = origin + "/shared-meetings/" + id + "?%77orkspace_id=" + id + "#outcomes";
+    assert(policy.safeRecoveryUrl(encodedAddressed) == encodedAddressed);
+    assert(policy.recoveryUrl(WebResponseDecision::expiredSession, encodedAddressed) ==
+        origin + "/login?next=%2Fshared-meetings%2F" + id + "%3F%2577orkspace_id%3D" + id + "%23outcomes");
+    for (const auto& invalid : std::vector<std::string>{
+        origin + publicPath, publicReader + "&extra=1", origin + publicPath + query + "&next=/desktop/meetings",
+        origin + publicPath + query + "&%6eext=/desktop/meetings", origin + publicPath + query + "#unknown",
+        origin + publicPath + query + "&workspace_id=" + id,
+        origin + publicPath + "/playback" + query + "&media_version=" + version,
+        origin + publicPath + "/continue" + query + "&action=sign-in&tab=recording&position_ms=1",
+        origin + "/shared-meeting/continue", origin + "/api/v1/cabinet/shared-meetings/" + id + "/playback" + query,
+        origin + "/shared-meetings/" + id, origin + "/shared-meetings/" + id + query + "&extra=1",
+        "https://evil.test" + publicPath + query,
+        "https://graf.example.test:444" + publicPath + query}) {
+        assert(policy.safeRecoveryUrl(invalid).empty());
+        assert(policy.recoveryUrl(WebResponseDecision::unavailable, invalid) == origin + "/desktop/meetings");
+        assert(policy.recoveryUrl(WebResponseDecision::expiredSession, invalid) == origin + "/login?next=%2Fdesktop%2Fmeetings");
+    }
+    assert(!policy.allowsNativeBridge(publicReader));
+    assert(!policy.isAllowedDownload(origin + "/api/v1/cabinet/meetings/item/downloads/audio", publicReader));
+}
+
 int main() {
     safeHistoryContract();
     billingActionParityContract();
@@ -379,5 +642,8 @@ int main() {
     assert(!policy.isAllowedDownload("blob:https://evil.example/11111111-1111-4111-8111-111111111111", source));
     assert(!policy.isAllowedDownload("file:///tmp/private", source));
     assert(!policy.isAllowedDownload("https://rec.2brain.pro/desktop/settings/account", source));
+    sharedMeetingReadOnlyContract();
+    sharedMeetingProtocolContract();
+    sharedMeetingRecoveryContract();
     return 0;
 }

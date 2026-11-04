@@ -605,12 +605,44 @@ void WebView2Host::completeUserTimeRead(const UserTimeRead& read, std::string_vi
     if (protectedLocalMode_ && nativePublishLocalRecordings_) nativePublishLocalRecordings_();
 }
 
+bool WebView2Host::publicDocumentResponse(std::string_view url, const WebDocumentResponse& response) const {
+    if (navigationMethod_ != "GET" || !response.transportSucceeded || response.status < 200 || response.status >= 300 ||
+        policy_.evaluate(url).kind != RouteKind::publicReader ||
+        policy_.response(url, response).decision != WebResponseDecision::cabinet) return false;
+    auto mime = std::string_view(response.contentType).substr(0, response.contentType.find(';'));
+    const auto first = mime.find_first_not_of(" \t"), last = mime.find_last_not_of(" \t");
+    if (first == mime.npos) return false;
+    mime = mime.substr(first, last - first + 1);
+    constexpr std::string_view html = "text/html";
+    return mime.size() == html.size() && std::equal(mime.begin(), mime.end(), html.begin(), [](unsigned char a, char b) {
+        return (a >= 'A' && a <= 'Z' ? a + ('a' - 'A') : a) == b;
+    });
+}
+
+bool WebView2Host::authSessionDocumentCurrent(std::uint64_t generation, std::string_view nonce,
+    std::string_view url) const {
+    if (!alive_ || !alive_->load() || generation != documentGeneration_ || navigationId_ != 0 || historyBusy() ||
+        url != currentUrl_ || url != committedDocumentUrl_ || nonce != documentNonce_) return false;
+    if (runtimeState_ == WebRuntimeState::ready) return policy_.allowsNativeBridge(url);
+    return runtimeState_ == WebRuntimeState::unprivileged && nonce.empty() && documentResponse_ &&
+        publicDocumentResponse(url, *documentResponse_);
+}
+
+bool WebView2Host::updatePublicDocumentFragment(std::string_view source) {
+    if (runtimeState_ != WebRuntimeState::unprivileged || !documentResponse_ ||
+        source.substr(0, source.find('#')) != std::string_view(committedDocumentUrl_).substr(0, committedDocumentUrl_.find('#')) ||
+        !publicDocumentResponse(source, *documentResponse_)) return false;
+    // Same document/base only. A fragment neither replaces the response proof
+    // nor grants a new generation, bridge or history GET allowance.
+    currentUrl_ = committedDocumentUrl_ = std::string(source);
+    safeRecoveryUrl_ = policy_.safeRecoveryUrl(source, navigationMethod_);
+    return true;
+}
+
 bool WebView2Host::reconcileAuthSessionForDocument(std::uint64_t generation, std::string nonce,
     std::string url, std::string token, bool reconciled) {
     const auto alive = alive_;
-    if (!alive || !alive->load() || generation != documentGeneration_ || nonce != documentNonce_ ||
-        runtimeState_ != WebRuntimeState::ready || url != currentUrl_ || url != committedDocumentUrl_ ||
-        !policy_.allowsNativeBridge(url)) return false;
+    if (!authSessionDocumentCurrent(generation, nonce, url)) return false;
     if (reconciled && historyCookieObserved_ && historyCookieToken_ != token) {
         // Cookie changes are an actual session boundary even if the account
         // owner has not yet finished its asynchronous account confirmation.
@@ -621,13 +653,11 @@ bool WebView2Host::reconcileAuthSessionForDocument(std::uint64_t generation, std
     const auto handler = authSessionHandler_;
     try { if (handler) handler(reconciled ? token : std::string{}, reconciled); }
     catch (...) {
-        if (alive->load() && generation == documentGeneration_ && nonce == documentNonce_ &&
-            runtimeState_ == WebRuntimeState::ready && url == currentUrl_ && url == committedDocumentUrl_ &&
+        if (alive->load() && authSessionDocumentCurrent(generation, nonce, url) &&
             revision == userTimeRevision_) bindUserTimeAccount({}, {}, {}, {}, 0);
         return false;
     }
-    return alive->load() && reconciled && generation == documentGeneration_ && nonce == documentNonce_ &&
-        runtimeState_ == WebRuntimeState::ready && url == currentUrl_ && url == committedDocumentUrl_;
+    return alive->load() && reconciled && authSessionDocumentCurrent(generation, nonce, url);
 }
 
 void WebView2Host::setRuntimeState(WebRuntimeState state) noexcept {
@@ -705,6 +735,8 @@ std::string WebView2Host::recoveryUrl() const {
 
 std::string WebView2Host::signInUrl() const {
     const auto plain = policy_.recoveryUrl(WebResponseDecision::expiredSession, safeRecoveryUrl_, billingContext_);
+    const auto recovery = policy_.evaluate(plain);
+    if (recovery.decision == RouteDecision::allow && recovery.kind == RouteKind::publicReader) return plain;
     if (!signInUrlBuilder_) return plain;
     try {
         const auto decorated = signInUrlBuilder_(plain);
@@ -803,7 +835,7 @@ bool WebView2Host::observeDocumentResponse(std::string_view url, std::uint64_t g
         withoutFragment(url) != withoutFragment(navigationUrl_) || !policy_.sharesOrigin(url)) return false;
     navigationMethod_ = std::string(method);
     documentResponse_ = response;
-    if (const auto safe = policy_.safeRecoveryUrl(url, method); !safe.empty()) safeRecoveryUrl_ = safe;
+    if (const auto safe = policy_.safeRecoveryUrl(navigationUrl_, method); !safe.empty()) safeRecoveryUrl_ = safe;
     return true;
 }
 
@@ -994,6 +1026,14 @@ WebResponseDecision WebView2Host::completeDocumentNavigation(std::string_view ur
         committedDocumentUrl_ = std::string(url);
         const auto kind = policy_.evaluate(url).kind;
         setRuntimeState(kind == RouteKind::authRecovery ? WebRuntimeState::authRequired : WebRuntimeState::unprivileged);
+    } else if (result == D::cabinet && documentResponse_ && publicDocumentResponse(url, response)) {
+        committedDocumentUrl_ = std::string(url);
+        authContinuation_ = AuthContinuation::none;
+        const auto alive = alive_;
+        const auto generation = documentGeneration_;
+        setRuntimeState(WebRuntimeState::unprivileged);
+        if ((alive && !alive->load()) || generation != documentGeneration_ ||
+            runtimeState_ != WebRuntimeState::unprivileged || currentUrl_ != url || committedDocumentUrl_ != url) return D::ignore;
     } else if (result == D::cabinet && policy_.allowsNativeBridge(url)) {
         committedDocumentUrl_ = std::string(url);
         authContinuation_ = AuthContinuation::none;
@@ -2140,8 +2180,10 @@ void WebView2Host::attach(winrt::Microsoft::UI::Xaml::Controls::WebView2 control
             // A download never becomes the privileged document or a retry URL.
             if (runtimeState_ == WebRuntimeState::ready && source == currentUrl_ &&
                 policy_.isAllowedDownload(url, source)) return;
-            const auto evaluation = beginDocumentNavigation(url, args.NavigationId(), args.IsRedirected(),
+            auto evaluation = beginDocumentNavigation(url, args.NavigationId(), args.IsRedirected(),
                 monotonicMilliseconds(), ""); // Browser method is not exposed by NavigationStarting.
+            if (evaluation.decision == RouteDecision::allow && evaluation.kind != RouteKind::artifactDownload)
+                evaluation.userInitiated = args.IsUserInitiated() && !args.IsRedirected();
             if (evaluation.decision == RouteDecision::openExternal) {
                 if (historyStage_ == HistoryStage::permitted) cancelHistoryIntent();
                 args.Cancel(true);
@@ -2317,6 +2359,9 @@ void WebView2Host::attach(winrt::Microsoft::UI::Xaml::Controls::WebView2 control
                         return;
                     }
                     currentUrl_ = source;
+                    if (!args.IsNewDocument() && runtimeState_ == WebRuntimeState::unprivileged &&
+                        policy_.evaluate(committedDocumentUrl_).kind == RouteKind::publicReader &&
+                        !updatePublicDocumentFragment(source)) { fail("source-authority", E_ACCESSDENIED); return; }
                     // replaceState/hash changes do not replace the document.
                     // Keep its generation, nonce and replay counter intact.
                     if (!args.IsNewDocument() && runtimeState_ == WebRuntimeState::ready) {
@@ -2706,18 +2751,59 @@ void WebView2Host::attach(winrt::Microsoft::UI::Xaml::Controls::WebView2 control
                     // Native acceptance must prove request/response correlation
                     // on WebView2. Never ignore a possible recovery header and
                     // install a bridge merely because NavigationCompleted says 200.
-                    if (!documentResponse_ || !policy_.allowsNativeBridge(source)) {
+                    const bool publicDocument = runtimeState_ == WebRuntimeState::unprivileged && documentResponse_ &&
+                        publicDocumentResponse(source, *documentResponse_);
+                    if (!documentResponse_ || (!publicDocument && !policy_.allowsNativeBridge(source))) {
                         fail("response-metadata", E_ACCESSDENIED);
                         return;
                     }
                     const auto generation = documentGeneration_;
-                    const auto nonce = newNonce();
-                    if (nonce.empty()) { fail("nonce", E_FAIL); return; }
-                    setRuntimeState(WebRuntimeState::ready);
-                    if (!alive->load() || generation != documentGeneration_ || runtimeState_ != WebRuntimeState::ready) return;
-                    revokeCalendarDocument();
-                    bridge_.rotateNonce(nonce);
-                    documentNonce_ = nonce;
+                    std::string nonce;
+                    if (!publicDocument) {
+                        nonce = newNonce();
+                        if (nonce.empty()) { fail("nonce", E_FAIL); return; }
+                        setRuntimeState(WebRuntimeState::ready);
+                        if (!alive->load() || generation != documentGeneration_ || runtimeState_ != WebRuntimeState::ready) return;
+                        revokeCalendarDocument();
+                        bridge_.rotateNonce(nonce);
+                        documentNonce_ = nonce;
+                    }
+                    // Completion delegates have no UI-apartment guarantee. Marshal
+                    // every WinUI/WebView access, including GetResults, to its owner.
+                    try {
+                        core.CookieManager().GetCookiesAsync(winrt::to_hstring(policy_.trustedOrigin())).Completed(
+                            [this, alive, dispatcher, core, generation, nonce](auto const& operation, auto const&) {
+                                dispatcher.TryEnqueue([this, alive, core, generation, nonce, operation] {
+                                    if (!alive->load() || generation != documentGeneration_) return;
+                                    std::string token;
+                                    bool reconciled = false;
+                                    try {
+                                        if (!authSessionDocumentCurrent(generation, nonce, utf8(core.Source()))) return;
+                                        for (const auto& cookie : operation.GetResults()) {
+                                            const auto name = utf8(cookie.Name());
+                                            if (name == "__Host-twobrain_rec_owner_session") {
+                                                token = utf8(cookie.Value());
+                                                break;
+                                            }
+                                        }
+                                        reconciled = true;
+                                    } catch (...) { token.clear(); }
+                                    const auto revision = userTimeRevision_;
+                                    try {
+                                        if (!reconcileAuthSessionForDocument(generation, nonce, utf8(core.Source()), token, reconciled)) return;
+                                        // Read actual native Source again after the
+                                        // handler; a requested navigation is not proof.
+                                        if (!nonce.empty()) reconcileUserTimeCookie(generation, nonce, utf8(core.Source()), std::move(token));
+                                    } catch (...) {
+                                        if (alive->load() && generation == documentGeneration_ && nonce == documentNonce_ &&
+                                            runtimeState_ == WebRuntimeState::ready && revision == userTimeRevision_) invalidateUserTime();
+                                    }
+                                });
+                            });
+                    } catch (...) {
+                        (void)reconcileAuthSessionForDocument(generation, nonce, source, {}, false);
+                    }
+                    if (publicDocument) return; // Own-session observation grants no document capabilities.
                     nativeReplyCalendarJoin_ = [this, alive, core, generation](const CalendarJoinRequest& request, CalendarJoinResult result) {
                         if (!alive->load() || generation != documentGeneration_ || !calendarDocumentCurrent(request) ||
                             utf8(core.Source()) != currentUrl_) return;
@@ -2742,38 +2828,6 @@ void WebView2Host::attach(winrt::Microsoft::UI::Xaml::Controls::WebView2 control
                         if (result.reason != CalendarJoinReason::none) reply.Insert(L"reason", JsonValue::CreateStringValue(reason));
                         core.PostWebMessageAsJson(reply.Stringify());
                     };
-                    // Completion delegates have no UI-apartment guarantee. Marshal
-                    // every WinUI/WebView access, including GetResults, to its owner.
-                    core.CookieManager().GetCookiesAsync(winrt::to_hstring(policy_.trustedOrigin())).Completed(
-                        [this, alive, dispatcher, core, generation, nonce](auto const& operation, auto const&) {
-                            dispatcher.TryEnqueue([this, alive, core, generation, nonce, operation] {
-                                if (!alive->load() || generation != documentGeneration_ || runtimeState_ != WebRuntimeState::ready) return;
-                                std::string token;
-                                bool reconciled = false;
-                                try {
-                                    if (nonce != documentNonce_ || utf8(core.Source()) != currentUrl_ ||
-                                        !policy_.allowsNativeBridge(currentUrl_)) return;
-                                    for (const auto& cookie : operation.GetResults()) {
-                                        const auto name = utf8(cookie.Name());
-                                        if (name == "__Host-twobrain_rec_owner_session") {
-                                            token = utf8(cookie.Value());
-                                            break;
-                                        }
-                                    }
-                                    reconciled = true;
-                                } catch (...) { token.clear(); }
-                                const auto revision = userTimeRevision_;
-                                try {
-                                    if (!reconcileAuthSessionForDocument(generation, nonce, utf8(core.Source()), token, reconciled)) return;
-                                    // Read actual native Source again after the
-                                    // handler; a requested navigation is not proof.
-                                    reconcileUserTimeCookie(generation, nonce, utf8(core.Source()), std::move(token));
-                                } catch (...) {
-                                    if (alive->load() && generation == documentGeneration_ && nonce == documentNonce_ &&
-                                        runtimeState_ == WebRuntimeState::ready && revision == userTimeRevision_) invalidateUserTime();
-                                }
-                            });
-                        });
                     nativePublishLocalRecordings_ = [this, core, nonce, generation] {
                         if (generation != documentGeneration_ || runtimeState_ != WebRuntimeState::ready) return;
                         if (protectedLocalMode_) {

@@ -39,7 +39,7 @@ enum class WebRuntimeState {
     initializing,
     ready,
     authRequired,
-    unprivileged, // Visible payment/email form, never a native bridge or auth recovery signal.
+    unprivileged, // Visible form/public reader, never a native bridge or page-supplied auth signal.
     closed,
 };
 
@@ -362,6 +362,9 @@ private:
     [[nodiscard]] bool userTimeReadCurrent(const UserTimeRead&) const;
     void reconcileUserTimeCookie(std::uint64_t generation, std::string_view nonce,
                                  std::string_view url, std::string token);
+    [[nodiscard]] bool publicDocumentResponse(std::string_view url, const WebDocumentResponse& response) const;
+    [[nodiscard]] bool authSessionDocumentCurrent(std::uint64_t generation, std::string_view nonce, std::string_view url) const;
+    [[nodiscard]] bool updatePublicDocumentFragment(std::string_view source);
     [[nodiscard]] bool reconcileAuthSessionForDocument(std::uint64_t generation, std::string nonce,
                                         std::string url, std::string token, bool reconciled);
     void completeUserTimeRead(const UserTimeRead&, std::string_view raw, std::string_view source);

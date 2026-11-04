@@ -24,6 +24,8 @@ enum class RouteKind {
     billing,
     external,
     denied,
+    publicReader,
+    sharedMedia,
 };
 
 enum class RouteDecision {
@@ -36,6 +38,7 @@ struct RouteEvaluation {
     RouteDecision decision = RouteDecision::deny;
     RouteKind kind = RouteKind::denied;
     std::string normalizedUrl;
+    bool userInitiated = false;
 };
 
 enum class AuthContinuation { none, yandex, vk };
@@ -59,6 +62,10 @@ struct WebResponseEvaluation {
 class WebViewRoutePolicy final {
 public:
     explicit WebViewRoutePolicy(std::string trustedOrigin = "https://rec.2brain.pro");
+
+    // Strict registered-protocol input -> canonical LOCAL reader route only.
+    // Caller supplies the configured origin; this grants no account/bridge authority.
+    [[nodiscard]] static std::optional<std::string> sharedMeetingRoute(std::string_view activation);
 
     // Host grants a short-lived, provider-specific continuation only after an
     // approved same-origin start route. It never grants bridge permissions.

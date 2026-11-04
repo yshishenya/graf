@@ -214,6 +214,161 @@ void testDocumentResponseLatch() {
     }
 }
 
+void testPublicDocumentLifecycleWithoutNativeAuthority() {
+    using namespace graf::windows;
+    const auto root = std::string(kTrusted) + "/api/v1/cabinet/public-shares/" + std::string(32, 'a');
+    const std::string scope = "workspace_id=11111111-1111-4111-8111-111111111111";
+    const auto reader = root + "?" + scope + "#recording?position_ms=42";
+    const auto media = root + "/playback?" + scope + "&media_version=0123456789abcdef01234567";
+    const auto continuation = root + "/continue?" + scope + "&action=sign-in&tab=recording&position_ms=42";
+    const auto returnFromLogin = std::string(kTrusted) + "/shared-meeting/continue";
+
+    // Network request URLs omit the fragment retained by document completion.
+    // A media resource cannot become a public document even if a server labels
+    // it HTML. A reader needs actual HTML and a correlated GET, not just 200.
+    for (const auto& target : {reader, media}) {
+        for (const auto mime : {"", "application/json", "audio/mp4", "text/plain", "text/html"}) {
+            if (target == reader && std::string_view(mime) == "text/html") continue;
+            WebView2Host host;
+            (void)host.beginDocumentNavigation(target, 1, false, 0, "GET");
+            const auto request = target.substr(0, target.find('#'));
+            const auto tag = host.documentRequestTag(request);
+            assert(!tag.empty());
+            assert(host.observeDocumentResponseHeaders(request, tag, "document", "GET", {200, true, mime}));
+            assert(host.observeDocumentCompletion(target, 1, 200, true, false, 1));
+            (void)host.tryFinishDocumentNavigation(2);
+            assert(host.runtimeState() != WebRuntimeState::unprivileged);
+            assert(host.runtimeState() != WebRuntimeState::ready);
+            assert(!host.routePolicy().allowsNativeBridge(target));
+        }
+    }
+    {
+        WebView2Host host;
+        (void)host.beginDocumentNavigation(reader, 1, false, 0, "POST");
+        const auto request = reader.substr(0, reader.find('#'));
+        const auto tag = host.documentRequestTag(request);
+        assert(host.observeDocumentResponseHeaders(request, tag, "document", "POST", {200, true, "text/html"}));
+        assert(host.observeDocumentCompletion(reader, 1, 200, true, false, 1));
+        (void)host.tryFinishDocumentNavigation(2);
+        assert(host.runtimeState() != WebRuntimeState::unprivileged);
+        assert(host.runtimeState() != WebRuntimeState::ready);
+    }
+
+    for (const auto& target : {reader, continuation, returnFromLogin}) {
+        const auto request = target.substr(0, target.find('#'));
+        for (const bool responseFirst : {false, true}) {
+            WebView2Host host;
+            // Known local IDs and row flags must not grant a public document
+            // actions. No private state, nonce or browser events are fabricated.
+            WebViewLocalRecordingRow row;
+            row.id = "generated-local-recording";
+            row.canOpen = row.canSend = row.canDelete = true;
+            host.setLocalRecordings({row});
+            const auto first = host.beginDocumentNavigation(target, 1, false, 0, "GET");
+            assert(first.decision == RouteDecision::allow && first.kind == RouteKind::publicReader);
+            const auto oldTag = host.documentRequestTag(request);
+            (void)host.beginDocumentNavigation(target, 2, false, 1, "GET");
+            const auto tag = host.documentRequestTag(request);
+            assert(!oldTag.empty() && !tag.empty() && oldTag != tag);
+            assert(host.runtimeState() == WebRuntimeState::initializing);
+            assert(!host.observeDocumentCompletion(target, 1, 200, true, false, 2));
+            const WebDocumentResponse html{200, true, "text/html; charset=utf-8"};
+            assert(!host.observeDocumentResponseHeaders(request, oldTag, "document", "GET", html));
+            assert(!host.observeDocumentResponseHeaders(request, tag, "iframe", "GET", html));
+            assert(!host.observeDocumentResponseHeaders(request, tag, "video", "GET", html));
+            assert(!host.observeDocumentResponseHeaders(media, tag, "document", "GET", html));
+            assert(!host.observeDocumentResponseHeaders(request, tag + "x", "document", "GET", html));
+            const auto response = [&] {
+                assert(host.observeDocumentResponseHeaders(request, tag, "document", "GET", html));
+            };
+            if (responseFirst) response();
+            assert(host.tryFinishDocumentNavigation(3) == WebResponseDecision::ignore);
+            assert(host.observeDocumentCompletion(target, 2, 200, true, false, 4));
+            if (!responseFirst) {
+                assert(host.tryFinishDocumentNavigation(5) == WebResponseDecision::ignore);
+                assert(host.runtimeState() == WebRuntimeState::initializing);
+                response();
+            }
+            assert(host.tryFinishDocumentNavigation(6) == WebResponseDecision::cabinet);
+            assert(host.runtimeState() == WebRuntimeState::unprivileged &&
+                "T121_public_HTML_must_display_without_native_authority");
+            assert(host.currentUrl() == target && host.failureDetail().empty());
+            assert(!host.routePolicy().allowsNativeBridge(target));
+            assert(!host.genericHostObjectsAllowed());
+            for (const auto action : {"open", "send", "delete"})
+                assert(!host.localRecordingActionAllowed(action, row.id));
+            assert(!host.localPlaybackDocumentCurrent(host.documentGeneration(), "old-document-nonce"));
+            assert(!host.canGoBack() && !host.canGoForward()); // No new SafeHistory permission.
+            assert(host.tryFinishDocumentNavigation(7) == WebResponseDecision::ignore);
+            assert(!host.observeDocumentResponseHeaders(request, tag, "document", "GET", html));
+            host.close();
+            assert(host.tryFinishDocumentNavigation(8) == WebResponseDecision::ignore);
+        }
+    }
+}
+
+void testPublicDisplayHandlerCannotReactivateReplacedDocument() {
+    using namespace graf::windows;
+    const auto request = std::string(kTrusted) + "/api/v1/cabinet/public-shares/" + std::string(32, 'a') +
+        "?workspace_id=11111111-1111-4111-8111-111111111111";
+    for (const bool closing : {false, true}) {
+        WebView2Host host;
+        host.setRuntimeHandler([&](WebRuntimeState state) {
+            if (state != WebRuntimeState::unprivileged) return;
+            if (closing) host.close();
+            else (void)host.beginDocumentNavigation(request + "#outcomes", 2, false, 3, "GET");
+        });
+        (void)host.beginDocumentNavigation(request, 1, false, 0, "GET");
+        const auto tag = host.documentRequestTag(request);
+        assert(host.observeDocumentResponseHeaders(request, tag, "document", "GET", {200, true, "text/html"}));
+        assert(host.observeDocumentCompletion(request, 1, 200, true, false, 1));
+        assert(host.tryFinishDocumentNavigation(2) == WebResponseDecision::ignore);
+        assert(host.runtimeState() == (closing ? WebRuntimeState::closed : WebRuntimeState::initializing));
+        assert(!host.observeDocumentResponseHeaders(request, tag, "document", "GET", {200, true, "text/html"}));
+    }
+}
+
+void testSharedReaderRecoveryKeepsContextWithoutPublicAttribution() {
+    using namespace graf::windows;
+    const auto root = std::string(kTrusted) + "/api/v1/cabinet/public-shares/" + std::string(32, 'a');
+    const std::string query = "workspace_id=11111111-1111-4111-8111-111111111111&media_version=0123456789abcdef01234567";
+    const auto reader = root + "?" + query + "#recording?position_ms=42";
+    WebView2Host host;
+    unsigned decorators = 0, unknownReads = 0;
+    host.setSignInUrlBuilder([&](std::string_view plain) { ++decorators; return std::string(plain) + "&source=synthetic"; });
+    host.setAuthSessionHandler([&](std::string token, bool currentCookieRead) {
+        assert(token.empty() && !currentCookieRead); ++unknownReads;
+    });
+    assert(host.navigate(reader).decision == RouteDecision::allow);
+    assert(host.safeRecoveryUrl() == reader && "T121_policy_shared_recovery_must_preserve_query_and_fragment");
+    assert(host.recoveryUrl() == reader);
+    (void)host.beginDocumentNavigation(reader, 1, false, 0, "GET");
+    const auto request = reader.substr(0, reader.find('#'));
+    assert(host.observeDocumentResponseHeaders(request, host.documentRequestTag(request), "document", "GET", {401, true, "text/html"}));
+    assert(host.observeDocumentCompletion(reader, 1, 401, false, true, 1));
+    assert(host.tryFinishDocumentNavigation(2) == WebResponseDecision::expiredSession);
+    assert(unknownReads == 1 && host.runtimeState() == WebRuntimeState::authRequired);
+    const auto signIn = host.signInUrl();
+    assert(signIn == host.routePolicy().recoveryUrl(WebResponseDecision::expiredSession, reader));
+    assert(signIn.substr(0, root.size() + 10) == root + "/continue?");
+    assert(signIn.find("workspace_id=11111111-1111-4111-8111-111111111111") != std::string::npos);
+    assert(signIn.find("media_version=0123456789abcdef01234567") != std::string::npos);
+    assert(signIn.find("action=sign-in") != std::string::npos);
+    assert(signIn.find("tab=recording") != std::string::npos && signIn.find("position_ms=42") != std::string::npos);
+    assert(host.recoveryUrl() == signIn && decorators == 0);
+    assert(!host.routePolicy().allowsNativeBridge(signIn));
+
+    const auto addressed = std::string(kTrusted) + "/shared-meetings/22222222-2222-4222-8222-222222222222?" + query + "#recording?position_ms=42";
+    WebView2Host own;
+    unsigned ownDecorators = 0;
+    own.setSignInUrlBuilder([&](std::string_view plain) { ++ownDecorators; return std::string(plain) + "&source=synthetic"; });
+    assert(own.navigate(addressed).decision == RouteDecision::allow);
+    assert(own.safeRecoveryUrl() == addressed && own.recoveryUrl() == addressed);
+    const auto expected = std::string(kTrusted) + "/login?next=%2Fshared-meetings%2F22222222-2222-4222-8222-222222222222"
+        "%3Fworkspace_id%3D11111111-1111-4111-8111-111111111111%26media_version%3D0123456789abcdef01234567%23recording%3Fposition_ms%3D42";
+    assert(own.signInUrl() == expected + "&source=synthetic" && ownDecorators == 1);
+}
+
 void testHttpErrorDocumentGate() {
     using namespace graf::windows;
     const auto login = std::string(kTrusted) + "/login";
@@ -516,6 +671,9 @@ int main() {
     testAuthRecoveryPresentation();
     testProcessFailureRecovery();
     testDocumentResponseLatch();
+    testPublicDocumentLifecycleWithoutNativeAuthority();
+    testPublicDisplayHandlerCannotReactivateReplacedDocument();
+    testSharedReaderRecoveryKeepsContextWithoutPublicAttribution();
     {
         // WebView2's popup event does not carry a reusable request body. Both a
         // provider popup and a same-origin checkout POST must fail explicitly,

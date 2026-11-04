@@ -1,6 +1,7 @@
 #include "WebViewRoutePolicy.h"
 
 #include <algorithm>
+#include <array>
 #include <utility>
 
 namespace graf::windows {
@@ -172,22 +173,177 @@ bool uuid(std::string_view value) noexcept {
     return true;
 }
 
-bool sharedRoute(std::string_view path, std::string_view suffix, RouteKind& kind) noexcept {
+bool sharedPosition(std::string_view value) noexcept {
+    if (value.empty() || value.size() > 8) return false;
+    unsigned number = 0;
+    for (const auto c : value) {
+        if (c < '0' || c > '9') return false;
+        number = number * 10 + static_cast<unsigned>(c - '0');
+    }
+    return number <= 86400000;
+}
+
+// Every allowed query field is ASCII. Decode once, then validate its exact
+// grammar; a decoded '%' or '+' cannot acquire a second interpretation.
+std::optional<std::string> sharedField(std::string_view value) {
+    std::string result;
+    for (std::size_t i = 0; i < value.size(); ++i) {
+        unsigned char c = static_cast<unsigned char>(value[i]);
+        if (c == '%') {
+            const auto hex = [](char digit) {
+                if (digit >= '0' && digit <= '9') return digit - '0';
+                if (digit >= 'a' && digit <= 'f') return digit - 'a' + 10;
+                if (digit >= 'A' && digit <= 'F') return digit - 'A' + 10;
+                return -1;
+            };
+            if (i + 2 >= value.size()) return std::nullopt;
+            const int high = hex(value[i + 1]), low = hex(value[i + 2]);
+            if (high < 0 || low < 0) return std::nullopt;
+            c = static_cast<unsigned char>(high * 16 + low);
+            i += 2;
+        }
+        if (c <= 0x20 || c >= 0x7f) return std::nullopt;
+        result += static_cast<char>(c);
+    }
+    return result.empty() ? std::nullopt : std::optional<std::string>(std::move(result));
+}
+
+template<std::size_t Count>
+bool sharedValues(std::string_view query, const std::array<std::string_view, Count>& keys,
+    std::array<std::string, Count>& values) {
+    for (std::size_t start = 0; start <= query.size();) {
+        const auto end = query.find('&', start);
+        const auto item = query.substr(start, end == query.npos ? query.npos : end - start);
+        const auto equal = item.find('=');
+        if (equal == item.npos) return false;
+        const auto key = sharedField(item.substr(0, equal));
+        const auto value = sharedField(item.substr(equal + 1));
+        if (!key || !value) return false;
+        const auto found = std::find(keys.begin(), keys.end(), *key);
+        if (found == keys.end()) return false;
+        const auto index = static_cast<std::size_t>(found - keys.begin());
+        if (!values[index].empty()) return false;
+        values[index] = *value;
+        if (end == query.npos) break;
+        start = end + 1;
+    }
+    return true;
+}
+
+bool sharedToken(std::string_view token) noexcept {
+    return token.size() >= 32 && token.size() <= 128 && std::all_of(token.begin(), token.end(), [](char c) {
+        return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+            (c >= '0' && c <= '9') || c == '-' || c == '_';
+    });
+}
+
+bool sharedVersion(std::string_view value) noexcept {
+    return value.size() == 24 && std::all_of(value.begin(), value.end(), [](char c) {
+        return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
+    });
+}
+
+enum class SharedUse { reader, media, continuation, download };
+
+bool sharedQuery(std::string_view suffix, SharedUse use, bool versionRequired) {
+    if (suffix.empty() || suffix.front() != '?') return false;
+    const auto hash = suffix.find('#');
+    const auto query = suffix.substr(1, hash == suffix.npos ? suffix.npos : hash - 1);
+    if (hash != suffix.npos) {
+        if (use != SharedUse::reader) return false;
+        const auto fragment = suffix.substr(hash + 1);
+        constexpr std::string_view position = "recording?position_ms=";
+        if (fragment != "outcomes" && fragment != "recording" &&
+            !(startsWith(fragment, position) && sharedPosition(fragment.substr(position.size())))) return false;
+    }
+    constexpr std::array<std::string_view, 5> keys = {"workspace_id", "media_version", "action", "tab", "position_ms"};
+    std::array<std::string, 5> values;
+    if (!sharedValues(query, keys, values) ||
+        (use != SharedUse::continuation && (!values[2].empty() || !values[3].empty() || !values[4].empty())) ||
+        (use == SharedUse::download && !values[1].empty())) return false;
+    if (!uuid(values[0])) return false;
+    const auto& version = values[1];
+    if ((!version.empty() && !sharedVersion(version)) || (versionRequired && version.empty())) return false;
+    return (values[2].empty() || values[2] == "sign-in" || values[2] == "sign-up") &&
+        (values[3].empty() || values[3] == "outcomes" || values[3] == "recording") &&
+        (values[4].empty() || (values[3] == "recording" && sharedPosition(values[4])));
+}
+
+bool sharedMeetingPath(std::string_view path) noexcept {
+    return exactOrChild(path, "/shared-meetings") || exactOrChild(path, "/api/v1/cabinet/shared-meetings") ||
+        exactOrChild(path, "/api/v1/cabinet/public-shares") || exactOrChild(path, "/shared-meeting/continue");
+}
+
+// Decode/normalize only to recognize aliases of reserved shared paths. Never
+// navigate to this result: noncanonical input is denied before the frame rule.
+bool noncanonicalSharedPath(std::string_view path) {
+    if (path.find('%') == path.npos && path.find("/.") == path.npos && path.find("//") == path.npos) return false;
+    std::string decoded;
+    for (std::size_t i = 0; i < path.size(); ++i) {
+        if (path[i] == '%' && i + 2 < path.size()) {
+            if (const auto byte = sharedField(path.substr(i, 3))) {
+                decoded += byte->front() == '\\' ? '/' : byte->front();
+                i += 2;
+                continue;
+            }
+        }
+        decoded += path[i];
+    }
+    std::string canonical;
+    for (std::size_t start = 0; start <= decoded.size();) {
+        const auto end = decoded.find('/', start);
+        const auto part = std::string_view(decoded).substr(start, end == decoded.npos ? decoded.npos : end - start);
+        if (part == "..") {
+            if (!canonical.empty()) canonical.resize(canonical.rfind('/'));
+        } else if (!part.empty() && part != ".") {
+            canonical += '/';
+            canonical += part;
+        }
+        if (end == decoded.npos) break;
+        start = end + 1;
+    }
+    return (path != decoded || path != canonical) &&
+        (sharedMeetingPath(decoded) || sharedMeetingPath(canonical));
+}
+
+bool sharedRoute(std::string_view path, std::string_view suffix, RouteKind& kind) {
     constexpr std::string_view detail = "/shared-meetings/";
-    constexpr std::string_view download = "/api/v1/cabinet/shared-meetings/";
-    constexpr std::string_view audio = "/downloads/audio";
+    constexpr std::string_view addressed = "/api/v1/cabinet/shared-meetings/";
+    constexpr std::string_view publicShare = "/api/v1/cabinet/public-shares/";
+    if (path == "/shared-meeting/continue") {
+        kind = RouteKind::publicReader;
+        return suffix.empty();
+    }
+    SharedUse use = SharedUse::reader;
+    bool versionRequired = false;
     if (startsWith(path, detail)) {
         if (!uuid(path.substr(detail.size()))) return false;
         kind = RouteKind::meetingDetail;
-    } else if (startsWith(path, download) &&
-               path.size() == download.size() + 36 + audio.size() && path.substr(download.size() + 36) == audio) {
-        if (!uuid(path.substr(download.size(), 36))) return false;
-        kind = RouteKind::artifactDownload;
+    } else if (startsWith(path, addressed)) {
+        const auto tail = path.substr(addressed.size());
+        if (tail.size() < 36 || !uuid(tail.substr(0, 36))) return false;
+        if (tail.substr(36) == "/downloads/audio") {
+            kind = RouteKind::artifactDownload;
+            use = SharedUse::download;
+        } else if (tail.substr(36) == "/playback") {
+            kind = RouteKind::sharedMedia;
+            use = SharedUse::media;
+        } else return false;
+    } else if (startsWith(path, publicShare)) {
+        const auto tail = path.substr(publicShare.size());
+        const auto slash = tail.find('/');
+        const auto token = tail.substr(0, slash);
+        if (!sharedToken(token)) return false;
+        kind = RouteKind::publicReader;
+        if (slash != tail.npos) {
+            if (tail.substr(slash) == "/playback") {
+                kind = RouteKind::sharedMedia; use = SharedUse::media; versionRequired = true;
+            }
+            else if (tail.substr(slash) == "/continue") use = SharedUse::continuation;
+            else return false;
+        }
     } else return false;
-    constexpr std::string_view query = "?workspace_id=";
-    if (!startsWith(suffix, query) || !uuid(suffix.substr(query.size(), 36))) return false;
-    const auto tail = suffix.substr(query.size() + 36);
-    return tail.empty() || (kind == RouteKind::meetingDetail && (tail == "#outcomes" || tail == "#recording"));
+    return sharedQuery(suffix, use, versionRequired);
 }
 
 bool meetingAction(std::string_view path, std::string_view action) noexcept {
@@ -220,6 +376,40 @@ WebViewRoutePolicy::WebViewRoutePolicy(std::string trustedOrigin)
     if (const auto parsed = parseHttps(trustedOrigin_)) trustedOrigin_ = parsed->origin;
 }
 
+std::optional<std::string> WebViewRoutePolicy::sharedMeetingRoute(std::string_view activation) {
+    constexpr std::string_view prefix = "grafrec://";
+    if (activation.size() > 16384 || !startsWith(activation, prefix) || !safeUrl(activation) ||
+        activation.find('#') != activation.npos) return std::nullopt;
+    const auto query = activation.find('?', prefix.size());
+    if (query == activation.npos) return std::nullopt;
+    // URLComponents.host decodes once; compare the entire authority so that
+    // userinfo, port and any nonempty path cannot be hidden by percent encoding.
+    const auto host = sharedField(activation.substr(prefix.size(), query - prefix.size()));
+    if (!host || *host != "shared-meeting") return std::nullopt;
+    constexpr std::array<std::string_view, 7> keys = {
+        "v", "workspace_id", "meeting_id", "share_token", "tab", "position_ms", "media_version"};
+    std::array<std::string, 7> values;
+    if (!sharedValues(activation.substr(query + 1), keys, values) || values[0] != "1" || !uuid(values[1]) ||
+        (values[2].empty() == values[3].empty()) || (!values[2].empty() && !uuid(values[2])) ||
+        (!values[3].empty() && !sharedToken(values[3])) || (values[4] != "outcomes" && values[4] != "recording") ||
+        (!values[5].empty() && (values[4] != "recording" || !sharedPosition(values[5]))) ||
+        (!values[6].empty() && !sharedVersion(values[6]))) return std::nullopt;
+    for (const auto index : {1, 2}) {
+        std::transform(values[index].begin(), values[index].end(), values[index].begin(), [](char c) {
+            return c >= 'A' && c <= 'F' ? static_cast<char>(c + 32) : c;
+        });
+    }
+    auto route = values[3].empty() ? "/shared-meetings/" + values[2] : "/api/v1/cabinet/public-shares/" + values[3];
+    route += "?workspace_id=" + values[1];
+    if (!values[6].empty()) route += "&media_version=" + values[6];
+    route += '#' + values[4];
+    if (!values[5].empty()) {
+        const auto first = values[5].find_first_not_of('0');
+        route += "?position_ms=" + (first == values[5].npos ? std::string("0") : values[5].substr(first));
+    }
+    return route;
+}
+
 AuthContinuation WebViewRoutePolicy::authContinuationForStart(std::string_view url) const noexcept {
     if (!safeUrl(url) || !startsWith(url, trustedOrigin_) || url.size() <= trustedOrigin_.size() ||
         url[trustedOrigin_.size()] != '/') return AuthContinuation::none;
@@ -234,7 +424,8 @@ AuthContinuation WebViewRoutePolicy::authContinuationForStart(std::string_view u
 bool WebViewRoutePolicy::isAllowedDownload(std::string_view url, std::string_view sourceUrl) const {
     const auto source = evaluate(sourceUrl);
     if (source.decision != RouteDecision::allow || source.kind == RouteKind::authRecovery ||
-        source.kind == RouteKind::nativeSettings || source.kind == RouteKind::artifactDownload) return false;
+        source.kind == RouteKind::nativeSettings || source.kind == RouteKind::artifactDownload ||
+        source.kind == RouteKind::publicReader || source.kind == RouteKind::sharedMedia) return false;
     const auto target = evaluate(url);
     if (target.decision == RouteDecision::allow && target.kind == RouteKind::artifactDownload) return true;
     const auto prefix = "blob:" + trustedOrigin_ + "/";
@@ -257,7 +448,9 @@ RouteEvaluation WebViewRoutePolicy::evaluate(std::string_view url, bool topLevel
         result.kind = RouteKind::denied;
         return result;
     }
-    if (!topLevel) {
+    if (parsed->origin == trustedOrigin_ && noncanonicalSharedPath(parsed->path)) return result;
+    // Shared reader/media paths retain their strict grammar in frames too.
+    if (!topLevel && (parsed->origin != trustedOrigin_ || !sharedMeetingPath(parsed->path))) {
         if (parsed->origin == trustedOrigin_ || payment) {
             result.decision = RouteDecision::allow;
             result.kind = RouteKind::frame;
@@ -287,6 +480,7 @@ RouteEvaluation WebViewRoutePolicy::evaluate(std::string_view url, bool topLevel
         return result;
     }
     const auto path = parsed->path;
+    if (sharedMeetingPath(path) && url.size() > 16384) return result;
     if (path.find("//") != std::string_view::npos || path.find("..") != std::string_view::npos ||
         path.find('%') != std::string_view::npos) {
         result.kind = RouteKind::denied;
@@ -352,7 +546,8 @@ bool WebViewRoutePolicy::allowsNativeBridge(std::string_view url) const {
     const auto parsed = parseHttps(url);
     return route.decision == RouteDecision::allow && parsed && !emailLinkForm(parsed->path) &&
         route.kind != RouteKind::authRecovery && route.kind != RouteKind::authProvider &&
-        route.kind != RouteKind::artifactDownload && route.kind != RouteKind::nativeSettings;
+        route.kind != RouteKind::artifactDownload && route.kind != RouteKind::nativeSettings &&
+        route.kind != RouteKind::publicReader && route.kind != RouteKind::sharedMedia;
 }
 
 WebResponseEvaluation WebViewRoutePolicy::response(std::string_view url, const WebDocumentResponse& value,
@@ -386,9 +581,16 @@ WebResponseEvaluation WebViewRoutePolicy::response(std::string_view url, const W
 }
 
 std::string WebViewRoutePolicy::safeRecoveryUrl(std::string_view url, std::string_view method) const {
-    if (method != "GET" || !allowsNativeBridge(url)) return {};
+    if (method != "GET") return {};
     const auto parsed = parseHttps(url);
+    if (!parsed) return {};
     const auto path = parsed->path;
+    constexpr std::string_view publicShare = "/api/v1/cabinet/public-shares/";
+    const bool sharedReader = startsWith(path, "/shared-meetings/") ||
+        (startsWith(path, publicShare) && path.find('/', publicShare.size()) == path.npos);
+    if (parsed->origin == trustedOrigin_ && sharedReader && evaluate(url).decision == RouteDecision::allow)
+        return trustedOrigin_ + std::string(path) + std::string(parsed->suffix);
+    if (!allowsNativeBridge(url)) return {};
     // This is a GET-document allowlist, not the wider navigation/action table.
     bool safe = false;
     for (const auto exact : {"/desktop/meetings", "/desktop/shared-with-me", "/desktop/notifications", "/notifications",
@@ -410,8 +612,24 @@ std::string WebViewRoutePolicy::safeRecoveryUrl(std::string_view url, std::strin
 std::string WebViewRoutePolicy::recoveryUrl(WebResponseDecision reason, std::string_view safeDocument, bool billingContext) const {
     auto safe = safeRecoveryUrl(safeDocument);
     if (safe.empty()) safe = trustedOrigin_ + (billingContext ? "/billing" : "/desktop/meetings");
-    if (reason == WebResponseDecision::expiredSession || reason == WebResponseDecision::workspaceReselection)
-        return trustedOrigin_ + "/login?next=" + encodePath(parseHttps(safe)->path);
+    if (reason == WebResponseDecision::expiredSession || reason == WebResponseDecision::workspaceReselection) {
+        const auto parsed = parseHttps(safe);
+        if (evaluate(safe).kind == RouteKind::publicReader) {
+            // Only validated reader GETs reach here; media/continuations cannot
+            // replace the reader. The server owns sealing the public return.
+            const auto hash = parsed->suffix.find('#');
+            const auto query = parsed->suffix.substr(0, hash);
+            const auto fragment = hash == parsed->suffix.npos ? std::string_view{} : parsed->suffix.substr(hash + 1);
+            auto continuation = trustedOrigin_ + std::string(parsed->path) + "/continue" + std::string(query) + "&action=sign-in&tab=";
+            continuation += startsWith(fragment, "recording") ? "recording" : "outcomes";
+            constexpr std::string_view position = "recording?position_ms=";
+            if (startsWith(fragment, position)) continuation += "&position_ms=" + std::string(fragment.substr(position.size()));
+            const auto route = evaluate(continuation);
+            return route.decision == RouteDecision::allow && route.kind == RouteKind::publicReader
+                ? continuation : trustedOrigin_ + "/desktop/meetings";
+        }
+        return trustedOrigin_ + "/login?next=" + encodePath(std::string(parsed->path) + std::string(parsed->suffix));
+    }
     if (reason == WebResponseDecision::accessDenied || reason == WebResponseDecision::notFound)
         return trustedOrigin_ + "/desktop/meetings";
     return safe;

@@ -2474,3 +2474,229 @@ billing reconciliation unit tests. Новые зависимости/серве�
 рабочий backend и пользовательские данные не использовались. Внешний result
 SHA256 `ee5934d6142fbeb17f47f7a200417d8ae3898d6e84245e5f8317ea61c982ccfe`.
 Это направленная проверка совмещения, не release-full или live UI/audio.
+
+
+## 2026-11-04 — T121: строгие маршруты общей встречи и изоляция публичной страницы
+
+На Main0bf9 применён проверенный route-policy r2, только существующие
+WebViewRoutePolicy.cpp/.h и WebViewRoutePolicyTests.cpp. Разделены публичный
+reader и media resource, проверяются точные paths/query/fragment, UUID,
+token/version/position и граница16KiB. Public reader/continuation/media не
+получают native bridge, local inventory/actions или native/blob download.
+Обычные auth/payment/frame правила сохранены.
+
+Независимое SOURCE/Ponytail review выявило в r1 M1: encoded alias shared-family
+в frame мог пройти общий same-origin allow. r2 распознаёт такой alias до общего
+правила и только отказывает: decoded/normalized path не становится URL для
+навигации. Реальный тест на r1 build0/CTest8, точная assertion
+T121_noncanonical_shared_frame_must_be_denied; тот же тест r2 build0/CTest0.
+Старые assertions, включая предыдущие89 строк T121, сохранены. Lorentz повторно
+проверил исходники, оба полных патча и43 terminal artifacts: C0/H0/M0, SOURCE GO.
+Полный production patch SHA256:
+`11a07be40c57c44a810ca06ed4f28584d34e4861c2a4c5da2dc4e20e45a82c00`.
+
+Main независимо сверил43/43 pins и затем собрал текущие файлы: build0,
+WebViewRoutePolicyTests, WebViewBridgeEnvelopeTests, WebView2HostLifecycleTests,
+CalendarJoinHostTests и ProductAttributionHandoffTests:5/5 PASS2,59s.
+Все tracked Windows bytes до/после совпали. Исходники проверены как dirty diff
+на0bf9, без выдачи результата за будущий commit/installed build. Result SHA256:
+`2fc03be45f1a03a273f081b73491a301ae38d9219162d4c0f4604260063f1787`.
+
+Отдельный test-only Host lifecycle кандидат получил квалифицированный RED
+T121_public_HTML_must_display_without_native_authority на прежнем Host и
+закреплённой policy r1. Independent C0/H0/M0; прежние346 asserts сохранены,
+добавлены35. Main сверил35/35 pins. Это доказательство следующего пробела,
+не уже применённое исправление Host. Policy r2 сама не закрывает protocol
+activation, public HTML/cookie lifecycle, recovery или T121/#7933.
+477 требований checklist/0 open и current analyze C0/H0 сохранены;
+полная F200121/93/28, installed/SDK/hardware/release acceptance не меняются.
+
+## 2026-11-04 — T117: уточнение формата существующего quarantine без изменения данных
+
+После входа пользователя отдельная read-only проверка16bytes обнаружила
+UTF-8 BOM, не custody envelope. Следующий bounded strict UTF-8/JSON разбор
+после снятия BOM показал известное имя schema desktop-upload-queue.v2 и массив
+из1 непустого item; оба owner-поля отсутствуют, deletion operations0,
+purge acknowledgements0. Основной schema v3 ledger:12 items,9 с обоими
+owner-полями,3 без обоих, operations0/acks0. Это структурный разбор, не принятие
+строгого queue codec, происхождения, целостности или прав на строки.
+
+Первоначальная диагностика по первому байту была недостаточной. Промежуточные
+PowerShell counts для отсутствующих arrays были исправлены: @($null).Count
+не равен числу операций. Приняты только исправленные non-null counts.
+Содержимое/IDs/пути записей не выведены; keys/media не читались, расшифровки0,
+изменения данных/ACL/install0. Header probe подтвердил неизменность length,
+attributes и last-write. Установленный0.1.0.15 StatusOk, процесс1.
+Новый .custody-v1/store.id/legacy.originals отсутствует. Известное имя schema
+не разрешает удалять quarantine, назначать владельца или создавать вместо
+него новую пустую authority; нынешний recoveryRequired остаётся действующим.
+Нужен отдельный безопасный recovery в пределах T117, без обхода контракта§7.
+Сводка и pins диагностических скриптов SHA256:
+`278b6620c8c69cfbb58bdf742e4f4fbb470505e2c090b501a6d81ad797774810`.
+
+
+### T117 — установленный кабинет и точное происхождение старого тестового файла (2026-11-04)
+
+После сообщения пользователя о входе видимый кабинет установленного GRAF
+загрузился. Кнопка начала записи оставалась недоступна с ошибкой защищённого
+хранилища, автоматическая запись приостановлена. Это наблюдение не принимает
+T097, запись или отправку. Приватный снимок просмотрен и удалён; содержимое
+встреч в доказательства не переносилось.
+
+Повторная проверка истории DSH, которую пользователь ранее попросил изучить,
+нашла создание искусственного однострочного v2 ledger в записи12664 исходной
+сессии. Историческая команда не запускалась: из неё строго извлечены только
+литералы package/row/doc, разрешена единственная подстановка LOCALAPPDATA,
+ожидаемые JSON bytes с UTF-8 BOM рассчитаны в памяти. Текущий карантин имеет
+ровно382bytes и SHA-256 `8a5be90dd7baef65c06b85453232aaa67221149eb38d5dc2d69b29ff0b3323df`;
+ожидаемый тестовый файл имеет те же длину и SHA-256. Его last-write UTC —
+2026-09-17T20:15:23.7750782Z. Исторический журнал
+`validation-2026-09-17.md` описывает этот BOM-файл как артефакт первой версии
+скрипта и восстановление исходного реестра после проверки.
+
+Metadata-only receipt `historical-bom-fixture-match-20261104.json` находится
+в закрытых материалах текущей проверки. SHA исходной записи истории —
+`8f11c4d1a19a28f130d1d6a65f681a748672a430967d08d7cf459479f7a1828d`.
+На данном этапе очистка не выполнялась. Для неё отдельно нужны независимая
+проверка происхождения, завершённый GRAF и удержание точной native file identity.
+Рабочий реестр, пакеты, владельцы, ключи и ACL не менялись. Общее правило
+отказа для неизвестного карантина остаётся обязательным; это не разрешение
+автоматически удалять карантин клиентов или назначать владельца старым строкам.
+
+
+### T121 — совместный parser/recovery/Host checkpoint (2026-11-04)
+
+После отдельного независимого SOURCE review C0/H0/M0 в текущую рабочую копию
+включены строгий protocol parser, сохранение shared query/fragment при recovery,
+показ подтверждённого публичного HTML без native bridge и fenced native чтение
+собственной session cookie. Sealed server continuation cookie клиент не читает.
+CookieManager/SourceChanged ветки ещё требуют настоящей Windows SDK проверки.
+
+Совместный Host r1+recovery тест сначала обнаружил потерю fragment в correlated
+response: HTTP request URL его не содержит. Однострочная поправка использует
+уже связанный `navigationUrl_`; проверка correlation, метода и origin сохранена.
+Тесты между FAIL и GREEN не менялись. Независимый review поправки — SOURCE GO.
+
+Добавлен `RouteEvaluation::userInitiated=false`: только принятый native Starting,
+который сам WebView2 отметил как user-initiated и не redirect, выставляет true.
+Поле сообщает об явной замене страницы и не расширяет допуск маршрута. Этот
+native event path прошёл SOURCE review, но portable запуск его не исполняет.
+
+На actual Main заново собраны пять существующих targets: RoutePolicy,
+BridgeEnvelope, HostLifecycle, CalendarJoinHost, ProductAttributionHandoff.
+Build0, CTest0, **5/5 PASS**, 2.67s. Все225 tracked Windows inputs до/после
+побайтно совпали. Материалы `t121-main-combined-20261104`, result SHA-256
+`9a88f4b222ae78c5c10fdbb149b436562850b2f34a43e6cd73819c053f09dcc2`. Это текущие локальные исходники с diff, не evidence коммита или MSIX.
+
+AppMain cold/warm activation и существующая ShellClose SDK фикстура находятся
+на отдельном SOURCE review; в этот совместный PASS они ещё не входят.
+T121/T097/T063 и внешняя приёмка остаются открытыми. Текущий master повторно
+сверен с GitHub: `2ca0465aa1721be293cd9b479d8f9d75b8854bfa`, уже в ветке.
+GRAF завершён обычной командой трея: один процесс до, ноль после, forced=false.
+
+
+### T121 — AppMain, полная Windows SDK сборка и настоящая оболочка (2026-11-04)
+
+Lane: high-risk-product, существующая T121/#7933. После независимого SOURCE
+review всей связанной цепочки C0/H0/M0 включены общий обработчик protocol
+activation, один latest-valid pending local route и подтверждение принятия
+по revision. Парсинг идёт до mutex, навигация вне mutex; невалидная ссылка
+не стирает допустимую, более новая ссылка во время open не теряется. Cold
+configure и warm dispatch используют один путь. Подтверждённая смена session
+cookie/owner tuple, принятый пользовательский переход, нативные кнопки и выход
+отменяют pending. Unknown/same-cookie read не считаются logout. Старый
+calendar resolver отзывается до перехода и не может заменить reader своим login.
+Сохранены прежние attribution, capture/update, account и document gates.
+
+AppMain SHA-256:
+`b35c41239f1ec8acae9ff9b3bff3570c30c3e5350486681955d67e8b5fcc3630`.
+Существующий AppMainShellCloseUiLaunch.inc дополнен ограниченной prephase;
+прежние девять фаз, шесть закрытий, два повторных открытия и 8000ms deadline
+не переписаны. Production fixture helper подтвердил 17 неизменных методов.
+
+Фактический full solution Rebuild Release x64 прошёл build0, terminal=true,
+225 source inputs. Production EXE SHA-256:
+`863bb8e17172a1c49d5d13d8ddafb8011ae6eddb3afbc379d28ea3407e3f7b44`;
+AppMain.obj `8ef87db55572c0f38d90d17c01e453aa7a9b47a4b8420e8804e226a6e5fc22ca`.
+Fixture markers отсутствуют. Receipt result.json SHA-256:
+`cf554dbe6f9daf2e1be053883e3609f278fe3d63df36a99aa6ca0c0407d69d5b`.
+Это текущий diff над HEAD0bf9bd4c57212731243d36b13be883746fd34678, не
+доказательство нового коммита либо установленного MSIX.
+
+Два предварительных запуска runner остановились до компиляции: сначала
+show-only multiconfig CTest был вызван без -C Debug, затем копирование одного
+из owned source отказало из-за ReadOnly. В r3 зафиксированы Debug и сохранение
+исходного ReadOnly вокруг точного копирования. Конфигурация не менялась;
+предварительные отказы сохранены отдельно, не названы ошибками продукта.
+
+Отдельная SDK derivative собрана build0; заменены ровно AppMain и test-only
+vcxproj. EXE `f09d6dfb9eae7a8aa61afa1b25d96418e93e6175d0adefafca01ae8aa9b6885d`.
+Реальный WinUI запуск завершился штатно exit73, terminal=true, forced=false.
+Ровно по одному подтверждению prephase PASS, закрытия pending/rejection после
+exit и исходного SHELL_CLOSE terminal: phases9/closes6/reopens2/quit1,
+drained1/lease_released1/no_files1. Проверены cold-before-cabinet, latest-valid,
+невалидные/слишком длинные UTF-16/UTF-8, A→B во время open, update pause/resume,
+closed host/reconfigure, known session change/logout, unknown read и выход.
+Native WebView/profile/root/account worker prephase — 0. Звук/устройства,
+настоящая сеть и сертификаты не использованы. Receipt fixture-run-result.json:
+`5c9fd786b5c35d0c3e60d863321eecabf8b98fc40ae37070674857e167a7933e`.
+
+До/после сборок и запуска сохранены 225 inputs, прежняя CTest конфигурация110,
+24 посторонних Debug EXE и установленный0.1.0.15. Это проверки неизменности,
+не повторное исполнение110 тестов. После test derivative назначено отдельное
+восстановление production inputs и полный Rebuild; его результат записывается
+отдельно. Без него test EXE не упаковывается и не устанавливается.
+
+Actual CookieManager/SourceChanged/public response, реальный single-instance
+protocol dispatch, same-cookie owner switch, history-busy и установленный
+MSIX cold/warm ещё не приняты этим device-free запуском. T121/T097/T063 и
+остальные открытые задачи, физический x64, release/signing gates не закрыты.
+
+### T117 — ограниченная очистка: SelfTest PASS, рабочая проверка отказала (2026-11-04)
+
+Для удаления только ранее доказанного искусственного382-byte quarantine
+подготовлена отдельная одноразовая операция, не код продукта. Независимое
+ревью r1 обнаружило отсутствие фактического GrafWindowsApp в process guard
+и чувствительное к регистру сравнение protected-root имени; оба исправлены
+двумя локальными строками в r3. Итоговое SOURCE GO C0/H0/M0. Скрипт r3 SHA-256:
+`881dcffcc48fc7a303a5d15f2b9f01c1e70d17c24ee07d2c426f1778c8687de6`.
+
+Windows SelfTest: несовпадающий файл сохранён, точный искусственный файл удалён,
+собственные временные объекты штатно очищены; SELFTEST_TWO_CASES_PASS, process0.
+Следующий отдельный Inspect рабочего root остановился UNKNOWN_ROOT_FILE,
+stage inventory, ReadOnly=true, DeleteRequested=false. Отдельная metadata-only
+проверка показала кроме ledger7647bytes и quarantine382bytes ещё один корневой
+файл5709bytes с именем из семейства queue. Его содержимое не читалось;
+audio/keys не читались. Apply не назначался и никакие рабочие файлы не удалены.
+Причина и допустимый способ сохранения этого дополнительного объекта требуют
+отдельной проверки; расширение допуска неизвестных файлов не выполнено.
+
+
+### T121 — возврат к production и текущая проверка полноты (2026-11-04)
+
+После штатного завершения SDK-сценария восстановлены ровно AppMain.cpp и
+vcxproj из проверенных production donors. Атрибуты сохранены, все225 source
+inputs вновь совпали. Полный solution Rebuild Release x64: build0,
+terminal=true, own_processes0; свежие AppMain.obj и production PE0x8664.
+ForcedInclude и test payload markers отсутствуют. Новый production EXE:
+`9509d32c6091087bc43bdfc0fff07897efe1204f581ed0057f37717a419b7a29`;
+AppMain.obj `7de3549f3d15d200d652e7f0a87f899a8d9978e47b4debe9cbe54161a74f6bab`.
+Receipt restore-production-result.json SHA-256:
+`4f750493e74e826cb469338ca2d414937673c6d44a9ac7c87dc293f4fb449e94`.
+Конфигурация110, все24 Debug PE и установленный0.1.0.15 неизменны.
+Установка/запуск production EXE, устройства, звук, сеть и trust — 0.
+
+Независимая оценка converge по текущим code/spec/plan/tasks не обнаружила
+новых пробелов без существующего владельца в проверенной области.22FR/10SC,
+121task/93checked/28open; T121 остаётся открытой до настоящих WebView2 и
+MSIX сценариев. Остальные незавершённые требования принадлежат существующим
+T063/T071/T083/T087/T088/T094–T097/T101–T113/T116–T120. Новых дублирующих задач
+не добавлено; tasks.md побайтно сохранён. Это partial assessment, не
+объявление F200 converged. Reviewer-owned checklist counters31files/477checked/
+0unchecked проверены без изменения отметок; они не означают готовность продукта.
+
+Governance, YAML и diff whitespace — PASS. Doctor с глобальным CLI1.2.6
+правильно отказал из-за несовпадения с project lock1.0.7; с уже имеющимся
+закреплённым CLI1.0.7 --doctor --frozen PASS. Lock/skills/расширения не менялись,
+новые зависимости не устанавливались. GitHub head/base проверки после нового
+коммита обязательны; expired old-reader exception сохраняет merge/release HOLD.
