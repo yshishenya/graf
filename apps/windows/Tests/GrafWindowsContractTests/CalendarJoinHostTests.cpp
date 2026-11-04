@@ -90,6 +90,13 @@ struct ProtectedUploadQueueValueTestPeer {
         if (edge == 15) { row.status = UploadQueueStatus::pending; row.safeReason.clear(); }
         return value;
     }
+    static std::shared_ptr<const ProtectedUploadQueueValue> visibleInventory() {
+        auto value = std::const_pointer_cast<ProtectedUploadQueueValue>(inventory(110));
+        value->items_[0].meetingId = "66666666-6666-4666-8666-666666666666";
+        value->items_[1].meetingId = "77777777-7777-4777-8777-777777777777";
+        value->items_[2].sessionId = "generated-active";
+        return value;
+    }
     static std::shared_ptr<const ProtectedUploadQueueValue> inventory(unsigned count = 67,
         const char* workspace = "22222222-2222-4222-8222-222222222222") {
         auto value = std::shared_ptr<ProtectedUploadQueueValue>(new ProtectedUploadQueueValue);
@@ -210,6 +217,13 @@ struct WebView2CalendarJoinFixture {
     }
     void send(unsigned n, bool cancel = false) {
         host.handleCalendarJoinMessage(message(n, cancel), host.currentUrl_);
+    }
+    WebViewBridgeEnvelope visibleMessage(std::string payload) {
+        return {std::string(kBridgeProtocol), kBridgeProtocolVersion, ++messageId, host.documentNonce_,
+            "https://rec.2brain.pro", BridgeDirection::webToNative, "visible_recordings", std::move(payload), 1};
+    }
+    void receiveVisible(const WebViewBridgeEnvelope& message, std::string_view source = "https://rec.2brain.pro/desktop/meetings") {
+        host.handleVisibleRecordingsMessage(message, source);
     }
     void receive(const WebViewBridgeEnvelope& message, std::string_view source) {
         host.handleCalendarJoinMessage(message, source);
@@ -346,6 +360,139 @@ void testProtectedPlaybackPermission() {
         assert(first->at("canOpen") == (allowed ? "true" : "false"));
     }
     assert(CustodyOwnedMemory::usedBytes() == before);
+}
+
+
+void testVisibleRecordingsAreAccountBoundPriorityOnly() {
+    const auto baseline = CustodyOwnedMemory::usedBytes();
+    {
+        WebView2CalendarJoinFixture f;
+        std::vector<WebView2Host::VisibleRecordingsRequest> hints;
+        unsigned publications = 0, localEffects = 0, deletionEffects = 0, quitEffects = 0;
+        f.host.setVisibleRecordingsHandler([&](const auto& request) { hints.push_back(request); });
+        f.host.setLocalRecordingHandler([&](auto) { ++localEffects; });
+        f.host.setDeletionSelectionHandler([&](auto) { ++deletionEffects; });
+        f.host.setQuitHandler([&] { ++quitEffects; });
+        f.inventoryPublisher(publications); // Existing simulated COM publication boundary.
+        const auto value = ProtectedUploadQueueValueTestPeer::visibleInventory();
+        const auto cancellation = std::make_shared<std::atomic<bool>>(false);
+        const auto bytes = value->serialize(cancellation); assert(bytes.ok());
+        const auto update = [&](bool complete = true, std::uint64_t generation = 1) {
+            f.host.setProtectedLocalRecordings(value, complete, "https://rec.2brain.pro",
+                "11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222",
+                generation, {}, "generated-active");
+        };
+        const std::string one = R"({"action":"visibleRecordings","version":1,"ids":["synthetic-row-0"]})";
+        const auto send = [&](std::string body) { f.receiveVisible(f.visibleMessage(std::move(body))); };
+        update(); send(one); assert(hints.empty());
+        f.timeReader(); f.timeAccount(); f.timeCookie();
+        send(one); assert(hints.empty()); // Cookie without current HTML identity is insufficient.
+        f.finishTime(0, f.timeMetadata());
+        assert(publications && f.inventoryMessage().find("synthetic-row-0") != CustodyString::npos);
+        const auto first = f.visibleMessage(one); f.receiveVisible(first);
+        assert(hints.size() == 1 && hints.back().ids == std::vector<std::string>{"synthetic-row-0"});
+        assert(hints.back().documentGeneration == f.host.documentGeneration() && hints.back().authGeneration == 1);
+        assert(hints.back().nonce == first.nonce);
+        f.receiveVisible(first); assert(hints.size() == 1); // replay
+        auto stale = f.visibleMessage(one); stale.nonce = "old-document";
+        f.receiveVisible(stale); assert(hints.size() == 1);
+        auto foreign = f.visibleMessage(one); foreign.origin = "https://foreign.invalid";
+        f.receiveVisible(foreign); assert(hints.size() == 1);
+        f.receiveVisible(f.visibleMessage(one), "https://rec.2brain.pro/desktop/settings");
+        assert(hints.size() == 1); // Stale source cannot change prior priority.
+        for (const auto body : {
+            R"({"action":"visibleRecordings","version":1,"ids":["unknown-local"]})",
+            R"({"action":"visibleRecordings","version":1,"ids":["synthetic-row-65"]})", // other user
+            R"({"action":"visibleRecordings","version":1,"ids":["synthetic-row-66"]})", // unassigned
+            R"({"action":"visibleRecordings","version":1,"ids":["synthetic-row-2"]})", // active, unpublished
+            R"({"action":"visibleRecordings","version":1,"ids":["synthetic-row-0","unknown-local"]})",
+            R"({"action":"visibleRecordings","version":1,"ids":["synthetic-row-0","synthetic-row-0"]})",
+            R"({"action":"visibleRecordings","version":1,"ids":["synthetic-row-0","synthetic-row-\u0030"]})",
+            R"({"action":"visibleRecordings","version":1,"ids":[],"extra":true})",
+            R"({"action":"visibleRecordings","version":1,"ids":[],"ids":["synthetic-row-0"]})",
+            R"({"action":"visibleRecordings","version":1,"ids":[],"\u0069ds":["synthetic-row-0"]})",
+            R"({"action":"visibleRecordings","version":1.5,"ids":[]})",
+            R"({"action":"visibleRecordings","version":2,"ids":[]})",
+            R"({"action":"visibleRecordings","version":"1","ids":[]})",
+            R"({"action":"visibleRecordings","version":1,"ids":[7]})",
+            R"({"action":"visibleRecordings","version":1,"ids":"synthetic-row-0"})",
+            R"({"action":"open","version":1,"ids":["synthetic-row-0"]})"
+        }) { send(body); assert(hints.size() == 1 && hints.back().ids.front() == "synthetic-row-0"); }
+        send("{\"action\":\"visibleRecordings\",\"version\":1,\"ids\":[\"" + std::string(301, 'x') + "\"]}");
+        assert(hints.size() == 1);
+        std::string hundred = R"({"action":"visibleRecordings","version":1,"ids":[)";
+        unsigned count = 0;
+        for (unsigned n = 0; count != 100; ++n) {
+            if (n == 2 || n == 65 || n == 66) continue;
+            if (count++) hundred += ',';
+            hundred += "\"synthetic-row-" + std::to_string(n) + "\"";
+        }
+        hundred += "]}"; send(hundred);
+        assert(hints.size() == 2 && hints.back().ids.size() == 100);
+        auto oversized = hundred; oversized.insert(oversized.size() - 2, ",\"synthetic-row-109\"");
+        send(oversized); assert(hints.size() == 2 && hints.back().ids.size() == 100);
+        send(R"({"action":"visibleRecordings","version":1,"ids":[]})");
+        assert(hints.size() == 3 && hints.back().ids.empty());
+        send(one); assert(hints.size() == 4);
+        f.failInventoryPublication(); assert(hints.size() == 5 && hints.back().ids.empty());
+        send(one); assert(hints.size() == 5); // No accepted hint against an unconfirmed publication.
+        update(false); send(one); assert(hints.size() == 5);
+        update(); send(one); assert(hints.size() == 6);
+        f.timeCookie("different-session");
+        assert(hints.size() == 7 && hints.back().ids.empty());
+        send(one); assert(hints.size() == 7);
+        f.timeCookie(); // Restore native cookie observation, not page-supplied authority.
+        send(one); assert(hints.size() == 8);
+        f.timeAccount("synthetic-session", 2);
+        assert(hints.size() == 9 && hints.back().ids.empty());
+        send(one); assert(hints.size() == 9); // Old projection authGeneration is no longer current.
+        update(true, 2); f.finishTime(f.timeReads.size() - 1, f.timeMetadata());
+        send(one); assert(hints.size() == 10 && hints.back().authGeneration == 2);
+        const auto beforeNavigation = f.visibleMessage(one);
+        f.host.setRuntimeState(WebRuntimeState::initializing);
+        assert(hints.size() == 11 && hints.back().ids.empty());
+        f.document("detail-nonce"); f.route("/desktop/meetings/66666666-6666-4666-8666-666666666666");
+        f.timeReader(); f.inventoryPublisher(publications);
+        f.timeCookie(); f.finishTime(f.timeReads.size() - 1,
+            f.timeMetadata("UTC", "11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222",
+                "https://rec.2brain.pro/desktop/meetings/66666666-6666-4666-8666-666666666666"));
+        const std::string detail = "https://rec.2brain.pro/desktop/meetings/66666666-6666-4666-8666-666666666666";
+        f.receiveVisible(beforeNavigation, detail); assert(hints.size() == 11);
+        f.receiveVisible(f.visibleMessage(one), detail); assert(hints.size() == 12);
+        f.receiveVisible(f.visibleMessage(R"({"action":"visibleRecordings","version":1,"ids":["synthetic-row-1"]})"), detail);
+        assert(hints.size() == 12 && hints.back().ids.front() == "synthetic-row-0");
+        f.host.setRuntimeState(WebRuntimeState::initializing);
+        assert(hints.size() == 13 && hints.back().ids.empty());
+        f.document("settings-nonce"); f.route("/desktop/settings/recording");
+        f.timeReader(); f.inventoryPublisher(publications);
+        f.timeCookie(); f.finishTime(f.timeReads.size() - 1,
+            f.timeMetadata("UTC", "11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222",
+                "https://rec.2brain.pro/desktop/settings/recording"));
+        f.receiveVisible(f.visibleMessage(one), "https://rec.2brain.pro/desktop/settings/recording");
+        assert(hints.size() == 13); // A current settings page is still not a hint route.
+        assert(!localEffects && !deletionEffects && !quitEffects && f.accepted.empty() && f.cancelled.empty());
+        const auto after = value->serialize(cancellation); assert(after.ok() && after.value == bytes.value);
+        f.host.close(); // Revoke before the callback's captured locals leave scope.
+    }
+    for (unsigned boundary = 0; boundary != 3; ++boundary) {
+        WebView2CalendarJoinFixture f;
+        std::vector<WebView2Host::VisibleRecordingsRequest> hints;
+        unsigned publications = 0;
+        f.host.setVisibleRecordingsHandler([&](const auto& request) { hints.push_back(request); });
+        f.inventoryPublisher(publications);
+        f.host.setProtectedLocalRecordings(ProtectedUploadQueueValueTestPeer::visibleInventory(), true,
+            "https://rec.2brain.pro", "11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222", 1);
+        f.timeReader(); f.timeAccount(); f.timeCookie(); f.finishTime(0, f.timeMetadata());
+        const auto message = f.visibleMessage(R"({"action":"visibleRecordings","version":1,"ids":["synthetic-row-0"]})");
+        f.receiveVisible(message); assert(hints.size() == 1 && !hints.back().ids.empty());
+        if (boundary == 0) f.timeAccount("synthetic-session", 2, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+        if (boundary == 1) f.timeAccount("synthetic-session", 2, "11111111-1111-4111-8111-111111111111", "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb");
+        if (boundary == 2) f.timeAccount(""); // Verified native sign-out, not a web payload.
+        assert(hints.size() == 2 && hints.back().ids.empty());
+        f.receiveVisible(message); assert(hints.size() == 2);
+        f.host.close();
+    }
+    assert(CustodyOwnedMemory::usedBytes() == baseline);
 }
 
 void testProtectedInventoryPresentation() {
@@ -723,6 +870,7 @@ int main() {
     testProtectedPlaybackPermission();
     testProtectedDegradedPlaybackPermission();
     testProtectedUnassignedSendPermission();
+    testVisibleRecordingsAreAccountBoundPriorityOnly();
     testProtectedInventoryPresentation();
     testProtectedInventoryTimings();
     testUserTimeIsBoundToNativeAccountAndDocument();

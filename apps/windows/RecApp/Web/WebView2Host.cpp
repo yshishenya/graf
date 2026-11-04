@@ -5,6 +5,8 @@
 #include "../Shell/MeetingReminderPresenter.h"
 #include <cstdio>
 #include <algorithm>
+#include <cctype>
+#include "../Contracts/JsonReader.h"
 #include <random>
 #include <charconv>
 #include <stdexcept>
@@ -32,6 +34,30 @@
 #endif
 
 namespace graf::windows {
+
+namespace {
+// Concrete Mac publisher payload; reuse the existing strict JSON primitives.
+std::optional<std::vector<std::string>> visibleRecordingIds(std::string_view raw) {
+    if (raw.size() > kBridgeMaxSerializedBytes) return std::nullopt;
+    const auto fields = DesktopApiClient::jsonObjectFields(raw);
+    if (!fields || fields->size() != 3) return std::nullopt;
+    const auto field = [&](std::string_view key) {
+        const auto found = fields->find(key); return found == fields->end() ? std::string_view{} : found->second;
+    };
+    if (field("action") != "\"visibleRecordings\"" || field("version") != "1") return std::nullopt;
+    const auto encoded = DesktopApiClient::jsonArrayValues(field("ids"));
+    if (!encoded || encoded->size() > 100) return std::nullopt;
+    std::vector<std::string> ids;
+    std::set<std::string> seen;
+    for (const auto text : *encoded) {
+        std::string id;
+        if (!json_detail::decodeString(text, 6 * 300 + 2, false, [&](char byte) { id += byte; }) ||
+            id.empty() || id.size() > 300 || !seen.insert(id).second) return std::nullopt;
+        ids.push_back(std::move(id));
+    }
+    return ids;
+}
+} // namespace
 
 #if defined(_WIN32) && defined(GRAF_WINDOWS_APP_SDK)
 namespace {
@@ -189,6 +215,16 @@ std::optional<WebViewBridgeEnvelope> parseEnvelope(std::string_view json, std::s
         // Preserve/validate original calendar JSON BEFORE SDK normalization.
         const auto join = DesktopApiClient::calendarJoinEnvelopePayload(json, "calendar_join");
         const auto cancel = DesktopApiClient::calendarJoinEnvelopePayload(json, "calendar_join_cancel");
+        // Validate the original hint bytes before WinRT can collapse fields/numbers.
+        const auto original = DesktopApiClient::jsonObjectFields(json);
+        std::optional<std::string_view> visiblePayload;
+        if (original) {
+            const auto command = original->find("command"), payload = original->find("payload");
+            if (command != original->end() && command->second == "\"visible_recordings\"") {
+                if (payload == original->end() || !visibleRecordingIds(payload->second)) return std::nullopt;
+                visiblePayload = payload->second;
+            }
+        }
         const auto object = winrt::Windows::Data::Json::JsonObject::Parse(winrt::to_hstring(json));
         const auto version = object.GetNamedNumber(L"version");
         const auto messageId = object.GetNamedNumber(L"message_id");
@@ -213,6 +249,9 @@ std::optional<WebViewBridgeEnvelope> parseEnvelope(std::string_view json, std::s
             const auto& payload = envelope.command == "calendar_join" ? join : cancel;
             if (!payload || utf8(object.GetNamedString(L"origin")) != origin) return std::nullopt;
             envelope.payloadJson = *payload;
+        } else if (envelope.command == "visible_recordings") {
+            if (!visiblePayload || utf8(object.GetNamedString(L"origin")) != origin) return std::nullopt;
+            envelope.payloadJson = std::string(*visiblePayload);
         } else envelope.payloadJson = utf8(object.GetNamedValue(L"payload").Stringify());
         envelope.sentAtMonotonicMs = static_cast<std::uint64_t>(sentAt);
         return envelope;
@@ -343,6 +382,9 @@ constexpr wchar_t kDesktopBridgeScript[] = LR"JS(
   });
   // The deletion bridge in the page hands its selection here instead of posting an
   // envelope itself, so the nonce stays inside this script.
+  window.addEventListener('graf:visible-recordings', (event) => {
+    if (event.detail) send('visible_recordings', event.detail);
+  });
   window.addEventListener('graf:delete-selection', (event) => {
     if (!event.detail) return;
     send('delete_selection', event.detail);
@@ -437,6 +479,8 @@ WebView2Host::~WebView2Host() {
 }
 
 void WebView2Host::invalidateUserTime() noexcept {
+    clearVisibleRecordings();
+    if (protectedLocalMode_) protectedLocalPublicationPending_ = true;
     localDocumentIdentity_ = false;
     userTimeZone_.clear(); userTimeSession_.clear();
     userTimeAttemptedRevision_.reset();
@@ -507,6 +551,7 @@ void WebView2Host::reconcileUserTimeCookie(std::uint64_t generation, std::string
     if (!alive_ || !alive_->load() || generation != documentGeneration_ || nonce != documentNonce_ ||
         runtimeState_ != WebRuntimeState::ready || url != currentUrl_ || url != committedDocumentUrl_ ||
         !policy_.allowsNativeBridge(url)) return;
+    if (userTimeCookieToken_ != token) clearVisibleRecordings();
     userTimeCookieGeneration_ = generation;
     userTimeCookieToken_ = std::move(token);
     refreshUserTime();
@@ -1287,6 +1332,7 @@ void WebView2Host::refreshNativeSettings() {
 
 void WebView2Host::setLocalRecordings(std::vector<WebViewLocalRecordingRow> rows,
                                      std::vector<CabinetDeletionOperation> operations, bool recoveryRequired) {
+    clearVisibleRecordings();
     protectedLocalMode_ = false;
     protectedLocalValue_.reset();
     protectedLocalTimings_.reset();
@@ -1307,6 +1353,7 @@ void WebView2Host::setProtectedLocalRecordings(std::shared_ptr<const ProtectedUp
         localAccount_.origin == origin && localAccount_.user == user && localAccount_.workspace == workspace &&
         localAccount_.authGeneration == authGeneration;
     if (unchanged && (!protectedLocalPublicationPending_ || std::chrono::steady_clock::now() < protectedLocalRetryAt_)) return;
+    clearVisibleRecordings();
     protectedLocalMode_ = true;
     protectedLocalActiveSession_.assign(activeSession.begin(), activeSession.end());
     protectedLocalValue_ = std::move(value);
@@ -1320,6 +1367,7 @@ void WebView2Host::setProtectedLocalRecordings(std::shared_ptr<const ProtectedUp
 }
 
 void WebView2Host::failProtectedLocalPublication() noexcept {
+    clearVisibleRecordings();
     protectedLocalPublicationPending_ = true;
     protectedLocalRetryAt_ = std::chrono::steady_clock::now() + std::chrono::seconds(2);
     try {
@@ -1460,6 +1508,53 @@ void WebView2Host::applyLocalPackageTiming(WebViewLocalRecordingRow& row, std::u
     row.showsPartialDuration = captureInterrupted && row.canOpen &&
         row.durationSeconds.has_value() && row.sessionDurationSeconds.has_value() &&
         *row.durationSeconds < *row.sessionDurationSeconds;
+}
+
+void WebView2Host::clearVisibleRecordings() noexcept {
+    auto previous = std::move(visibleRecordings_);
+    visibleRecordings_.reset();
+    if (!previous || !visibleRecordingsHandler_) return;
+    previous->ids.clear();
+    try { visibleRecordingsHandler_(*previous); } catch (...) { /* Revocation remains local. */ }
+}
+
+void WebView2Host::handleVisibleRecordingsMessage(const WebViewBridgeEnvelope& message, std::string_view source) {
+    if (message.command != "visible_recordings" || source != currentUrl_ || source != committedDocumentUrl_ ||
+        !protectedLocalComplete_ || !protectedLocalValue_ || protectedLocalPublicationPending_ ||
+        !localPlaybackDocumentCurrent(documentGeneration_, documentNonce_)) return;
+    const auto route = policy_.evaluate(source);
+    if (route.decision != RouteDecision::allow ||
+        (route.kind != RouteKind::meetings && route.kind != RouteKind::meetingDetail) ||
+        bridge_.validate(message) != BridgeValidationError::none) return;
+    auto ids = visibleRecordingIds(message.payloadJson);
+    if (!ids) return;
+    std::string detail;
+    if (route.kind == RouteKind::meetingDetail) {
+        detail = meetingIdOnPage(source);
+        constexpr std::string_view shared = "/shared-meetings/";
+        const auto path = source.substr(policy_.trustedOrigin().size());
+        if (detail.empty() && path.substr(0, shared.size()) == shared && path.size() >= shared.size() + 36)
+            detail = path.substr(shared.size(), 36);
+        if (!DesktopApiClient::accountId(detail)) return;
+    }
+    VisibleRecordingsRequest next{{}, documentGeneration_, localAccount_.authGeneration, documentNonce_};
+    for (auto& id : *ids) {
+        const auto& items = protectedLocalValue_->items();
+        const auto row = std::find_if(items.begin(), items.end(), [&](const auto& item) {
+            return std::string_view(item.localRecordingId) == id;
+        });
+        if (row == items.end() || (!protectedLocalActiveSession_.empty() && row->sessionId == protectedLocalActiveSession_)) return;
+        const auto index = static_cast<std::size_t>(row - items.begin());
+        const bool owned = std::string_view(row->ownerUserId) == localAccount_.user &&
+            std::string_view(row->ownerWorkspaceId) == localAccount_.workspace;
+        if (!owned && !protectedLocalClaimAllowed(index)) return;
+        if (!detail.empty() && (row->meetingId.size() != detail.size() ||
+            !std::equal(row->meetingId.begin(), row->meetingId.end(), detail.begin(),
+                [](unsigned char a, unsigned char b) { return std::tolower(a) == std::tolower(b); }))) return;
+        next.ids.push_back(std::move(id));
+    }
+    visibleRecordings_ = std::move(next);
+    if (visibleRecordingsHandler_) visibleRecordingsHandler_(*visibleRecordings_);
 }
 
 bool WebView2Host::localPlaybackDocumentCurrent(std::uint64_t generation, std::string_view nonce) const noexcept try {
@@ -2417,6 +2512,10 @@ void WebView2Host::attach(winrt::Microsoft::UI::Xaml::Controls::WebView2 control
                     }
                     if (message->command == "calendar_join" || message->command == "calendar_join_cancel") {
                         handleCalendarJoinMessage(*message, sourceUrl);
+                        return;
+                    }
+                    if (message->command == "visible_recordings") {
+                        handleVisibleRecordingsMessage(*message, sourceUrl);
                         return;
                     }
                     const auto validation = bridge_.validate(*message);

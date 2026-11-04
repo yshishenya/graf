@@ -6,6 +6,7 @@
 #ifdef _WIN32
 #include "../../RecApp/Storage/ProtectedCustodyReader.h"
 #include "../../RecApp/Storage/ProtectedCustodyWriter.h"
+#include "../../RecApp/Storage/ProtectedPackedCustodyTree.h"
 #include "../../RecApp/Recording/LocalRecordingPackage.h"
 #include <mfapi.h>
 #include <mfidl.h>
@@ -1451,7 +1452,334 @@ void metadataMoveBudget() {
     assert(CustodyOwnedMemory::usedBytes() == before);
 }
 void junction(const std::filesystem::path&, const std::filesystem::path&, SECURITY_ATTRIBUTES&);
+// Full ordinary-owner admission, not metadata-pair discovery or migration execution.
+void completedHistoryNormalAdmission() {
+    const auto baseline = CustodyOwnedMemory::usedBytes();
+    // 0: healthy/evolved queue; 1: conflicting extra barrier; 2: bad historical-only root.
+    for (unsigned scenario = 0; scenario < 3; ++scenario) {
+        {
+            inject(FileFault::none);
+            testing::GeneratedProtectedRecording capture("package-a");
+            capture.append(100);
+            assert(capture.writer->finalize(ReasonCode::none, RecordingStopReason::interruption).normalPackage());
+            auto package = capture.writer->package();
+            capture.writer.reset(); // Drain actual MF inspection/readers before the next mutation.
+            auto sealed = package->current(); ++sealed.generation;
+            assert(package->commit(sealed).state == CustodyCommitState::committed);
+            package.reset(); // BOTH physical package slots now retain the same genuine sealed refs.
+            const auto& root = capture.paths.root;
+            const auto cancel = capture.cancel;
+            const auto queueContext = capture.store->queueContext();
+            const std::string_view user = "11111111-1111-4111-8111-111111111111";
+            const std::string_view workspace = "22222222-2222-4222-8222-222222222222";
+            CustodyBytes copiedQueue;
+            {
+                auto current = capture.store->readQueueValue(cancel); assert(current.ok());
+                ProtectedUploadQueueValue candidate(**current.value);
+                ProtectedUploadQueueValue::Item row;
+                row.localRecordingId = "package-a"; row.directoryId = "package-a"; row.sessionId = "package-a";
+                const auto path = (root / L"package-a").u8string(); row.packageDirectory.assign(path.begin(), path.end());
+                row.ownerUserId = user; row.ownerWorkspaceId = workspace;
+                assert(candidate.enqueue(std::move(row), 10, cancel.get()));
+                auto bytes = candidate.serialize(cancel); assert(bytes.ok()); copiedQueue = *bytes.value;
+                auto saved = commitProtectedCustodyMetadata(capture.store, queueContext,
+                    capture.store->queueGeneration(), copiedQueue, cancel);
+                assert(saved.state == CustodyCommitState::committed && saved.targetGeneration == 2);
+            }
+            const auto copiedGeneration = capture.store->queueGeneration();
+            const auto copiedHash = custody_detail::digest(copiedQueue.data(), copiedQueue.size()); assert(copiedHash);
+            // Real post-handoff evolution BEFORE installing history: no future admission is needed for setup.
+            const auto mutate = [&](std::shared_ptr<ProtectedCustodyStoreOwner> owner, std::uint64_t now) {
+                auto current = owner->readQueueValue(cancel); assert(current.ok());
+                ProtectedUploadQueueValue candidate(**current.value);
+                assert(candidate.prepareManualSend(0, user, workspace, false, now, cancel.get()));
+                auto bytes = candidate.serialize(cancel); assert(bytes.ok());
+                const auto generation = owner->queueGeneration();
+                auto saved = commitProtectedCustodyMetadata(owner, queueContext, generation, *bytes.value, cancel);
+                assert(saved.state == CustodyCommitState::committed && saved.targetGeneration == generation + 1);
+                assert(owner->queueGeneration() == generation + 1);
+                return std::move(*bytes.value);
+            };
+            (void)mutate(capture.store, 20);
+            const auto evolvedQueue = mutate(capture.store, 30);
+            const auto evolvedGeneration = capture.store->queueGeneration();
+            assert(evolvedGeneration == copiedGeneration + 2 && evolvedQueue != copiedQueue);
+            const auto evolvedHash = custody_detail::digest(evolvedQueue.data(), evolvedQueue.size()); assert(evolvedHash);
+            capture.store.reset(); // All subsequent fixture history installation uses existing low-level APIs.
+            CustodyPackageValue packageValue;
+            std::array<CustodyBytes, 5> originals;
+            {
+                auto ordinary = ProtectedCustodyStoreOwner::open(root, cancel); assert(ordinary.ok());
+                assert((*ordinary.value)->queueGeneration() == evolvedGeneration);
+                auto pair = (*ordinary.value)->readPackage("package-a", cancel); assert(pair.ok());
+                packageValue = (*pair.value)->current();
+                for (const auto& value : (*pair.value)->slots()) {
+                    assert(value.phase == CustodyPackagePhase::sealedNormal && value.refCount == packageValue.refCount);
+                    for (std::size_t i = 0; i < value.refCount; ++i) assert(value.refs[i].sealed);
+                }
+                { // Release the inspection's retained member handles before opening another reader group.
+                    auto inspected = LocalRecordingPackage::inspectProtected(root, *pair.value, "package-a", cancel);
+                    assert(inspected.ok() && inspected.value.value()->evidence().integrity == PackageIntegrity::valid);
+                }
+                auto readers = openProtectedCustodyReaders(root, *pair.value, cancel);
+                if (!readers.ok()) {
+                    std::printf("COMPLETED_HISTORY_SETUP_READERS_FAILED case=%u error=%u native=%lu\n", scenario,
+                        static_cast<unsigned>(readers.error), static_cast<unsigned long>(readers.nativeError)); std::fflush(stdout);
+                }
+                assert(readers.ok());
+                constexpr std::uint64_t fixtureLimit = 256 * 1024;
+                std::uint64_t fixtureBytes = 0;
+                for (std::size_t i = 0; i < packageValue.refCount; ++i) {
+                    const auto& ref = packageValue.refs[i]; assert(ref.length && ref.sha256);
+                    assert(*ref.length < fixtureLimit - fixtureBytes); fixtureBytes += *ref.length;
+                    auto& bytes = originals[i]; bytes.resize(static_cast<std::size_t>(*ref.length));
+                    auto* stream = readers.value->at((*pair.value)->selectedSlot()).at(i).stream.Get(); assert(stream);
+                    std::size_t copied = 0;
+                    while (copied < bytes.size()) {
+                        const auto wanted = static_cast<ULONG>((std::min)(std::size_t{64 * 1024}, bytes.size() - copied));
+                        ULONG got = 0;
+                        assert(stream->Read(bytes.data() + copied, wanted, &got) == S_OK && got == wanted);
+                        copied += got;
+                    }
+                    ULONG got = 9; std::uint8_t extra = 0;
+                    assert(stream->Read(&extra, 1, &got) == S_FALSE && !got);
+                    assert(custody_detail::digest(bytes.data(), bytes.size()) == ref.sha256);
+                }
+            } // No StoreOwner/Pair/inspection/Reader survives setup's ordinary-open control.
+            const auto media = std::find_if(packageValue.refs.begin(), packageValue.refs.begin() + packageValue.refCount,
+                [](const auto& ref) { return ref.role == CustodyRole::media; });
+            assert(media != packageValue.refs.begin() + packageValue.refCount && media->packed && media->containerId && media->rootRef);
+            assert(media->generation && media->length && media->committedExtent);
+            const PackedCustodyContext mediaContext{{queueContext.storeId, media->objectId, CustodyRole::media}, *media->containerId};
+            PackedRootDescriptor retainedStamp;
+            {
+                auto opened = ProtectedPackedCustodyOwner::open(root, "package-a", mediaContext, CustodyFileAccess::writeExisting); assert(opened.ok());
+                auto checked = ProtectedPackedCustodyTree::verify(*opened.value); assert(checked.ok());
+                auto tree = std::move(*checked.value); retainedStamp = tree->descriptor();
+                assert(retainedStamp.generation == *media->generation && retainedStamp.logicalBytes == *media->length);
+                assert(retainedStamp.committedExtent == *media->committedExtent && retainedStamp.blockCount == 1);
+                assert(ProtectedPackedCustodyFormat::encodeReference(retainedStamp.root) == media->rootRef);
+                auto plain = tree->readBlock(0); assert(plain.ok());
+                for (unsigned step = 0; step < 2; ++step) {
+                    auto saved = tree->replaceBlock(0, plain.value->bytes);
+                    assert(saved.state == CustodyCommitState::committed && saved.snapshot->generation() == tree->generation() + 1);
+                    tree = std::move(saved.snapshot);
+                    assert(tree->descriptor().root.offset != retainedStamp.root.offset);
+                }
+                auto historical = ProtectedPackedCustodyTree::verifyRetained(*opened.value, mediaContext, retainedStamp);
+                assert(historical.ok());
+            } // Genuine old descriptor is absent from BOTH current HEADs; logical bytes are unchanged.
+            CustodyContext bootstrapContext;
+            std::uint64_t bootstrapGeneration = 0;
+            {
+                auto parent = ProtectedCustodyBootstrapPair::read(root, cancel); assert(parent.ok());
+                bootstrapContext = (*parent.value)->current().context;
+                bootstrapGeneration = (*parent.value)->current().generation;
+            }
+            const auto uniqueId = [] {
+                GUID guid{}; assert(CoCreateGuid(&guid) == S_OK); CustodyId id{};
+                static_assert(sizeof(guid) == sizeof(id)); std::memcpy(id.data(), &guid, sizeof(guid)); return id;
+            };
+            PSECURITY_DESCRIPTOR descriptor = nullptr;
+            {
+                const auto identity = CreateFileW((root / L".custody-v1" / L"store.id").c_str(), READ_CONTROL,
+                    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, 0, nullptr);
+                assert(identity != INVALID_HANDLE_VALUE);
+                assert(GetSecurityInfo(identity, SE_FILE_OBJECT, DACL_SECURITY_INFORMATION,
+                    nullptr, nullptr, nullptr, nullptr, &descriptor) == ERROR_SUCCESS); CloseHandle(identity);
+            }
+            std::unique_ptr<void, decltype(&LocalFree)> acl(descriptor, &LocalFree);
+            SECURITY_ATTRIBUTES security{sizeof(SECURITY_ATTRIBUTES), acl.get(), FALSE};
+            const auto write = [&](const std::filesystem::path& path, const CustodyBytes& bytes) {
+                const auto file = CreateFileW(path.c_str(), GENERIC_WRITE, 0, &security, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
+                assert(file != INVALID_HANDLE_VALUE); DWORD written = 0;
+                assert(WriteFile(file, bytes.data(), static_cast<DWORD>(bytes.size()), &written, nullptr) && written == bytes.size());
+                assert(FlushFileBuffers(file)); assert(CloseHandle(file));
+            };
+            // Fixed role names only, matching contract 8.1. Bytes/hashes are from genuine protected readers.
+            const auto kind = [](CustodyRole role) {
+                switch (role) {
+                case CustodyRole::canonical: return CustodyMigrationSourceKind::canonical;
+                case CustodyRole::media: return CustodyMigrationSourceKind::media;
+                case CustodyRole::playback: return CustodyMigrationSourceKind::playback;
+                case CustodyRole::manifest: return CustodyMigrationSourceKind::manifest;
+                default: assert(role == CustodyRole::recovery); return CustodyMigrationSourceKind::recovery;
+                }
+            };
+            const auto sourceName = [](CustodyMigrationSourceKind source) -> const wchar_t* {
+                switch (source) {
+                case CustodyMigrationSourceKind::ledger: return L"ledger";
+                case CustodyMigrationSourceKind::manifest: return L"manifest";
+                case CustodyMigrationSourceKind::canonical: return L"canonical";
+                case CustodyMigrationSourceKind::media: return L"media";
+                case CustodyMigrationSourceKind::playback: return L"playback";
+                default: assert(source == CustodyMigrationSourceKind::recovery); return L"recovery";
+                }
+            };
+            std::array<CustodyMigrationValue, 2> histories;
+            for (unsigned subjectIndex = 0; subjectIndex < 2; ++subjectIndex) {
+                const bool queue = subjectIndex == 0;
+                auto& birth = histories[subjectIndex]; birth.schema = 2;
+                birth.context = {queueContext.storeId, uniqueId(), CustodyRole::migrationIntent};
+                birth.transactionId = uniqueId(); birth.generation = 1;
+                birth.subject = queue ? CustodyMigrationSubject::queue : CustodyMigrationSubject::package;
+                if (!queue) { birth.directory.emplace(); std::copy(capture.session.begin(), capture.session.end(), birth.directory->begin()); }
+                birth.anchor.length = queue ? copiedQueue.size() : evolvedQueue.size(); birth.anchor.sha256 = queue ? *copiedHash : *evolvedHash;
+                if (!queue) { birth.anchor.objectId = queueContext.objectId; birth.anchor.generation = evolvedGeneration; }
+                birth.sourceCount = queue ? 1 : packageValue.refCount;
+                for (std::size_t i = 0; i < birth.sourceCount; ++i) {
+                    auto& source = birth.sources[i];
+                    if (queue) { source.kind = CustodyMigrationSourceKind::ledger; source.length = copiedQueue.size();
+                        source.sha256 = *copiedHash; source.destinationObjectId = queueContext.objectId; }
+                    else { const auto& ref = packageValue.refs[i]; source.kind = kind(ref.role); source.length = *ref.length;
+                        source.sha256 = *ref.sha256; source.destinationObjectId = ref.objectId;
+                        source.destinationPacked = ref.packed; source.destinationContainerId = ref.containerId; }
+                }
+                const std::string_view directory = queue ? "" : "package-a";
+                const auto scope = queue ? root : root / L"package-a";
+                CustodyBytes birthCipher; CustodyMigrationBarrier barrier;
+                {
+                    auto bytes = writeCustodyMigration(birth, birth.context, 1, birth.transactionId, birth.subject, directory); assert(bytes.ok());
+                    auto saved = commitProtectedCustodyMetadata(root, directory, birth.context, 0, *bytes.value, cancel);
+                    assert(saved.state == CustodyCommitState::committed && saved.snapshot && saved.lease);
+                    const auto& entry = saved.snapshot->index.entries.at(0);
+                    auto envelope = saved.lease->readMigrationBirthEnvelope(entry.version, entry.envelopeBytes); assert(envelope.ok());
+                    birthCipher = std::move(*envelope.value);
+                    const auto hash = custody_detail::digest(birthCipher.data(), birthCipher.size()); assert(hash);
+                    barrier = {birth.context.objectId, 1, entry.version, birthCipher.size(), *hash};
+                }
+                auto value = birth; value.barrier = barrier;
+                for (std::uint64_t generation = 2; generation <= 6; ++generation) {
+                    value.generation = generation;
+                    if (generation >= 3) {
+                        value.stage = generation == 3 ? CustodyMigrationStage::copiedVerified : CustodyMigrationStage::switched;
+                        for (std::size_t i = 0; i < value.sourceCount; ++i) {
+                            auto& source = value.sources[i];
+                            source.destinationGeneration = queue ? copiedGeneration : *packageValue.refs[i].generation;
+                            source.destinationLength = source.length; source.destinationSha256 = source.sha256;
+                            if (!queue) { source.destinationCommittedExtent = packageValue.refs[i].committedExtent;
+                                source.destinationRootRef = packageValue.refs[i].rootRef; }
+                        }
+                    }
+                    auto bytes = writeCustodyMigration(value, value.context, generation, value.transactionId, value.subject, directory); assert(bytes.ok());
+                    assert(commitProtectedCustodyMetadata(root, directory, value.context, generation - 1, *bytes.value, cancel).state == CustodyCommitState::committed);
+                }
+                assert(CreateDirectoryW((scope / L".custody-v1" / L"legacy.originals").c_str(), &security));
+                if (queue) {
+                    write(scope / L".custody-v1" / L"legacy.originals" / L"ledger", copiedQueue);
+                    write(root / L"desktop-upload-queue.v2", birthCipher);
+                    auto extra = birthCipher; if (scenario == 1) extra.back() ^= 1;
+                    write(root / L"desktop-upload-queue.v2.quarantine", extra);
+                } else {
+                    for (std::size_t i = 0; i < birth.sourceCount; ++i)
+                        write(scope / L".custody-v1" / L"legacy.originals" / sourceName(birth.sources[i].kind), originals[i]);
+                    write(scope / L"manifest.json", birthCipher);
+                }
+                // Explicit direct-Birth Pair control. This intentionally grants no normal admission.
+                auto proof = ProtectedCustodyMigrationPair::read(root, birth.context, birth.transactionId, birth.subject, directory, cancel);
+                assert(proof.ok() && (*proof.value)->current().generation == 6);
+                for (unsigned slot = 0; slot < 2; ++slot) {
+                    const auto& record = (*proof.value)->slots()[slot];
+                    assert(record.generation == 5 + slot && record.stage == CustodyMigrationStage::switched && record.barrier && !record.authorization);
+                    assert(record.context.storeId == queueContext.storeId && record.transactionId == birth.transactionId);
+                    for (std::size_t i = 0; i < record.sourceCount; ++i) {
+                        const auto& source = record.sources[i];
+                        assert(source.destinationLength == source.length && source.destinationSha256 == source.sha256);
+                        if (queue) assert(source.destinationObjectId == queueContext.objectId && source.destinationGeneration == copiedGeneration);
+                    }
+                }
+            }
+            // Complete handoff bootstrap: BOTH protected/null, no migrating selector left to recover transaction from.
+            for (unsigned step = 0; step < 2; ++step) {
+                CustodyBootstrapValue value; value.context = bootstrapContext; value.generation = ++bootstrapGeneration;
+                value.queueObjectId = queueContext.objectId; value.mode = CustodyBootstrapMode::protectedStore;
+                auto bytes = writeCustodyBootstrap(value, bootstrapContext, value.generation, queueContext.objectId); assert(bytes.ok());
+                assert(commitProtectedCustodyMetadata(root, "", bootstrapContext, value.generation - 1, *bytes.value, cancel).state == CustodyCommitState::committed);
+            }
+            {
+                auto parent = ProtectedCustodyBootstrapPair::read(root, cancel); assert(parent.ok());
+                for (const auto& value : (*parent.value)->slots())
+                    assert(value.mode == CustodyBootstrapMode::protectedStore && !value.transactionId && !value.subject && !value.directory);
+                auto linked = ProtectedCustodyMigrationPair::read(*parent.value, cancel); assert(linked.ok());
+                assert((*linked.value)->current().sources[0].destinationGeneration == copiedGeneration);
+            }
+            if (scenario == 2) {
+                const auto content = root / L"package-a" / L".custody-v1" / L"media" / L"content.packed-v2";
+                std::fstream file(content, std::ios::binary | std::ios::in | std::ios::out); assert(file);
+                const auto offset = static_cast<std::streamoff>(retainedStamp.root.offset);
+                file.seekg(offset); char byte = 0; file.read(&byte, 1); assert(file);
+                byte ^= 1; file.seekp(offset); file.write(&byte, 1); file.close(); assert(file);
+            }
+            { // Control the negative's actual cut: current HEAD closure remains valid even after corruption.
+                auto opened = ProtectedPackedCustodyOwner::open(root, "package-a", mediaContext, CustodyFileAccess::readExisting); assert(opened.ok());
+                auto current = ProtectedPackedCustodyTree::verify(*opened.value); assert(current.ok());
+                assert((*current.value)->generation() == retainedStamp.generation + 2);
+                auto historical = ProtectedPackedCustodyTree::verifyRetained(*opened.value, mediaContext, retainedStamp);
+                if (scenario == 2) assert(!historical.ok() && !historical.value);
+                else assert(historical.ok());
+            }
+            const auto snapshot = [&] {
+                std::vector<std::pair<std::filesystem::path, std::string>> files;
+                for (const auto& entry : std::filesystem::recursive_directory_iterator(root)) {
+                    const auto hash = entry.is_directory() ? std::string{} : sha256File(entry.path());
+                    assert(entry.is_directory() || hash.size() == 64); files.emplace_back(entry.path(), hash);
+                }
+                std::sort(files.begin(), files.end()); return files;
+            };
+            const auto beforeOpen = snapshot(); const auto idle = CustodyOwnedMemory::usedBytes();
+            std::printf("COMPLETED_HISTORY_SETUP_OK case=%u copy_g=%llu current_g=%llu\n", scenario,
+                static_cast<unsigned long long>(copiedGeneration), static_cast<unsigned long long>(evolvedGeneration)); std::fflush(stdout);
+            inject(FileFault::none);
+            {
+                auto opened = ProtectedCustodyStoreOwner::open(root, cancel);
+                if (scenario) assert(!opened.ok() && !opened.value);
+                else {
+                    // Intended first RED: ordinary cold admission, not Pair::read or an existing owner alias.
+                    assert(opened.ok() && opened.value && *opened.value);
+                    assert((*opened.value)->queueGeneration() == evolvedGeneration);
+                    auto current = (*opened.value)->readQueueValue(cancel); assert(current.ok());
+                    auto bytes = (*current.value)->serialize(cancel); assert(bytes.ok() && *bytes.value == evolvedQueue);
+                    const auto& row = (*current.value)->items().at(0);
+                    assert(row.localRecordingId == "package-a" && std::string_view(row.ownerUserId) == user && std::string_view(row.ownerWorkspaceId) == workspace);
+                    auto pair = (*opened.value)->readPackage("package-a", cancel); assert(pair.ok());
+                    auto inspected = LocalRecordingPackage::inspectProtected(root, *pair.value, "package-a", cancel);
+                    assert(inspected.ok() && inspected.value.value()->evidence().integrity == PackageIntegrity::valid);
+                    // The real consumer Pair AND all inspection readers are still alive.
+                    auto withConsumer = (*opened.value)->readQueueValue(cancel); assert(withConsumer.ok());
+                    auto revalidated = (*opened.value)->revalidatePackage(*pair.value, cancel); assert(revalidated.ok() && *revalidated.value);
+                }
+                assert(!writes && !flushes && !renames && !creates);
+                assert(snapshot() == beforeOpen);
+            }
+            assert(CustodyOwnedMemory::usedBytes() == idle);
+            if (!scenario) {
+                auto opened = ProtectedCustodyStoreOwner::open(root, cancel); assert(opened.ok());
+                (void)mutate(*opened.value, 40); const auto latest = mutate(*opened.value, 50);
+                assert((*opened.value)->queueGeneration() == evolvedGeneration + 2); opened.value.reset();
+                const auto committed = snapshot();
+                const auto immutable = [&](auto files) {
+                    const auto directory = root / L".custody-v1" / L"queue";
+                    files.erase(std::remove_if(files.begin(), files.end(), [&](const auto& entry) {
+                        return entry.first.parent_path() == directory;
+                    }), files.end()); return files;
+                };
+                assert(immutable(committed) == immutable(beforeOpen)); inject(FileFault::none);
+                { auto reopened = ProtectedCustodyStoreOwner::open(root, cancel); assert(reopened.ok());
+                    assert((*reopened.value)->queueGeneration() == evolvedGeneration + 2);
+                    auto current = (*reopened.value)->readQueueValue(cancel); assert(current.ok());
+                    auto bytes = (*current.value)->serialize(cancel); assert(bytes.ok() && *bytes.value == latest && latest != copiedQueue);
+                    assert((*current.value)->items().at(0).updatedAtMs == 50);
+                    assert(!writes && !flushes && !renames && !creates && snapshot() == committed); }
+            }
+        }
+        assert(CustodyOwnedMemory::usedBytes() == baseline);
+        { std::array<CustodyNativeJob, 4> jobs; for (const auto& job : jobs) assert(job); }
+        { std::array<CustodyPin, 32> pins; for (const auto& pin : pins) assert(pin); }
+    }
+    inject(FileFault::none);
+}
 void linkedMigrationPairs() {
+    completedHistoryNormalAdmission();
     const auto before = CustodyOwnedMemory::usedBytes();
     {
         inject(FileFault::none);

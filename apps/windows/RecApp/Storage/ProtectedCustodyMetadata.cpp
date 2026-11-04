@@ -565,17 +565,17 @@ CustodyFileResult<std::shared_ptr<const ProtectedCustodyMigrationPair>> Protecte
 CustodyFileResult<std::shared_ptr<const ProtectedCustodyMigrationPair>> ProtectedCustodyMigrationPair::readImpl(
     const std::filesystem::path& root, CustodyContext own, std::optional<CustodyId> transaction,
     CustodyMigrationSubject subject, std::string_view name, std::shared_ptr<const std::atomic<bool>> cancellation,
-    std::shared_ptr<const ProtectedCustodyBootstrapPair> bootstrap) try {
+    std::shared_ptr<const ProtectedCustodyBootstrapPair> bootstrap, std::unique_ptr<ProtectedCustodyFiles> prepared) try {
     using Proof = std::shared_ptr<const ProtectedCustodyMigrationPair>;
     const auto reject = [](CustodyFileError error, std::uint32_t native = 0) -> CustodyFileResult<Proof> {
         return {std::nullopt, error, native};
     };
     if (own.role != CustodyRole::migrationIntent || !cancellation ||
-        (!transaction && (!bootstrap || subject != CustodyMigrationSubject::queue)) ||
+        (!transaction && !prepared && (!bootstrap || subject != CustodyMigrationSubject::queue)) ||
         (subject == CustodyMigrationSubject::queue ? !name.empty() :
          subject != CustodyMigrationSubject::package || !identity(name))) return reject(CustodyFileError::invalidInput);
 #ifndef _WIN32
-    (void)root; (void)transaction; (void)bootstrap; return reject(CustodyFileError::unsupportedPlatform);
+    (void)root; (void)transaction; (void)bootstrap; (void)prepared; return reject(CustodyFileError::unsupportedPlatform);
 #else
     const auto cancelled = [&] { return cancellation->load(); };
     if (cancelled()) return reject(CustodyFileError::ioFailed, ERROR_OPERATION_ABORTED);
@@ -584,10 +584,17 @@ CustodyFileResult<std::shared_ptr<const ProtectedCustodyMigrationPair>> Protecte
     if (!job) return reject(CustodyFileError::allocationFailed, ERROR_NOT_ENOUGH_QUOTA);
     CustodyPin pin;
     if (!pin) return reject(CustodyFileError::allocationFailed, ERROR_NOT_ENOUGH_QUOTA);
-    auto opened = held ? ProtectedCustodyFiles::discover(root, CustodyRole::migrationIntent, name)
-        : ProtectedCustodyFiles::open(root, name, own, CustodyFileAccess::writeExisting);
-    if (!opened.ok()) return reject(opened.error, opened.nativeError);
-    auto lease = std::move(*opened.value);
+    auto lease = std::move(prepared);
+    if (lease) {
+        const auto native = lease->context();
+        if (lease->trustedRoot() != root || native.storeId != own.storeId || native.objectId != own.objectId || native.role != own.role)
+            return reject(CustodyFileError::identityMismatch);
+    } else {
+        auto opened = held ? ProtectedCustodyFiles::discover(root, CustodyRole::migrationIntent, name)
+            : ProtectedCustodyFiles::open(root, name, own, CustodyFileAccess::writeExisting);
+        if (!opened.ok()) return reject(opened.error, opened.nativeError);
+        lease = std::move(*opened.value);
+    }
     if (cancelled()) return reject(CustodyFileError::ioFailed, ERROR_OPERATION_ABORTED);
     if (held) {
         own = lease->context();
@@ -1359,6 +1366,8 @@ CustodyFileResult<bool> ProtectedCustodyStoreOwner::recyclePackage(
     if (pair->retainedLease_->trustedRoot() != rootPath() || pair->retainedLease_->packagePath().parent_path() != path ||
         !DesktopLocalPurgeService(rootPath()).isSafePackageDirectory(path))
         return {std::nullopt, CustodyFileError::identityMismatch, 0};
+    auto revalidated = revalidatePackage(pair, cancellation);
+    if (!revalidated.ok() || !*revalidated.value) return revalidated;
     {
         auto readers = openProtectedCustodyReaders(rootPath(), pair, cancellation);
         if (!readers.ok()) return {std::nullopt, readers.error, readers.nativeError};
@@ -1533,8 +1542,12 @@ CustodyFileResult<std::shared_ptr<const ProtectedCustodyPackagePair>> ProtectedC
         return reject(CustodyFileError::identityMismatch);
     auto held = std::shared_ptr<ProtectedCustodyFiles>(opened.value->release(),
         [](ProtectedCustodyFiles* p) { delete p; }, CustodyAllocator<ProtectedCustodyFiles>{});
-    return ProtectedCustodyPackagePair::readImpl(root_->trustedRoot(), name, own, std::move(cancellation), std::move(held),
+    auto pair = ProtectedCustodyPackagePair::readImpl(root_->trustedRoot(), name, own, cancellation, std::move(held),
         ProtectedCustodyPackagePair::LeaseOrigin::isolatedReadOnly);
+    if (!pair.ok()) return pair;
+    auto complete = validateMigrationPackageHistory(*pair.value, cancellation);
+    if (!complete.ok()) return reject(complete.error, complete.nativeError);
+    return pair;
 #endif
 } catch (const std::bad_alloc&) { return {std::nullopt, CustodyFileError::allocationFailed, 0}; }
   catch (const std::system_error& error) { return {std::nullopt, CustodyFileError::ioFailed, static_cast<std::uint32_t>(error.code().value())}; }
@@ -1598,6 +1611,86 @@ CustodyFileResult<bool> ProtectedCustodyStoreOwner::revalidatePackage(
         if (*expected.value != *observed.value) return {std::nullopt, CustodyFileError::conflict, 0};
     }
     if (cancellation->load()) return {std::nullopt, CustodyFileError::ioFailed, ERROR_OPERATION_ABORTED};
+    return validateMigrationPackageHistory(std::move(held), std::move(cancellation));
+#endif
+} catch (const std::bad_alloc&) { return {std::nullopt, CustodyFileError::allocationFailed, 0}; }
+  catch (const std::system_error& error) { return {std::nullopt, CustodyFileError::ioFailed, static_cast<std::uint32_t>(error.code().value())}; }
+
+CustodyFileResult<bool> ProtectedCustodyStoreOwner::validateMigrationPackageHistory(
+    std::shared_ptr<const ProtectedCustodyPackagePair> held, std::shared_ptr<const std::atomic<bool>> cancellation,
+    std::shared_ptr<const ProtectedCustodyMigrationPair> history) try {
+    const auto reject = [](CustodyFileError error, std::uint32_t native = 0) -> CustodyFileResult<bool> {
+        return {std::nullopt, error, native};
+    };
+    if (!held || !root_ || !cancellation || !held->retainedLease_ || held->cancellation_.get() != cancellation.get() ||
+        held->origin_ != ProtectedCustodyPackagePair::LeaseOrigin::isolatedReadOnly)
+        return reject(CustodyFileError::invalidInput);
+#ifndef _WIN32
+    (void)history; return reject(CustodyFileError::unsupportedPlatform);
+#else
+    if (cancellation->load()) return reject(CustodyFileError::ioFailed, ERROR_OPERATION_ABORTED);
+    const auto name = directory(held->current());
+    const auto& identity = held->current().context;
+    if (held->retainedLease_->trustedRoot() != root_->trustedRoot() || identity.storeId != queueContext_.storeId ||
+        held->retainedLease_->packagePath().parent_path() != root_->trustedRoot() / std::filesystem::u8path(name.begin(), name.end()))
+        return reject(CustodyFileError::identityMismatch);
+    if (!history) {
+        // Structural absence of ALL fixed history surfaces preserves ordinary v5
+        // behavior. A filename alone never admits a completed migration.
+        std::optional<CustodyVector<CustodyString>> scopes;
+        auto inventory = root_->validateStoreInventory(false, cancellation, false, &scopes);
+        if (!inventory.ok()) return reject(inventory.error, inventory.nativeError);
+        if (!scopes || std::none_of(scopes->begin(), scopes->end(), [&](const auto& scope) { return std::string_view(scope) == name; }))
+            return {true, CustodyFileError::none, 0};
+        auto opened = ProtectedCustodyFiles::openStoreObject(root_, CustodyRole::migrationIntent, false, name);
+        if (!opened.ok()) return reject(opened.error, opened.nativeError);
+        const auto context = (*opened.value)->context();
+        if (context.storeId != queueContext_.storeId || context.objectId == context.storeId ||
+            context.objectId == queueContext_.objectId || context.objectId == bootstrap_->context().objectId || context.objectId == identity.objectId)
+            return reject(CustodyFileError::identityMismatch);
+        auto checked = ProtectedCustodyMigrationPair::readImpl(root_->trustedRoot(), context, std::nullopt,
+            CustodyMigrationSubject::package, name, cancellation, {}, std::move(*opened.value));
+        if (!checked.ok()) return reject(checked.error, checked.nativeError);
+        history = std::move(*checked.value);
+    }
+    const auto& current = history->current();
+    if (current.subject != CustodyMigrationSubject::package || !current.directory || text(*current.directory) != name ||
+        current.context.storeId != identity.storeId || !history->lease_ || history->lease_->trustedRoot() != root_->trustedRoot())
+        return reject(CustodyFileError::identityMismatch);
+    for (const auto& record : history->slots()) {
+        if (record.stage != CustodyMigrationStage::switched || record.authorization || !record.barrier)
+            return reject(CustodyFileError::recoveryRequired);
+        if (!record.anchor.objectId || *record.anchor.objectId != queueContext_.objectId || !record.anchor.generation)
+            return reject(CustodyFileError::identityMismatch);
+        // Cold validate has not adopted queueGeneration_ yet. The caller checked
+        // the actual current pair before handing over this same history proof.
+        if (queueGeneration_ && *record.anchor.generation > queueGeneration_) return reject(CustodyFileError::conflict);
+    }
+    const auto& receipt = history->current();
+    constexpr std::array<CustodyRole, 6> roles{CustodyRole::queue, CustodyRole::manifest,
+        CustodyRole::canonical, CustodyRole::media, CustodyRole::playback, CustodyRole::recovery};
+    for (const auto& value : held->slots()) {
+        if ((value.phase != CustodyPackagePhase::sealedNormal && value.phase != CustodyPackagePhase::sealedDegraded) ||
+            value.refCount != receipt.sourceCount) return reject(CustodyFileError::recoveryRequired);
+        for (std::size_t i = 0; i < receipt.sourceCount; ++i) {
+            const auto& source = receipt.sources[i];
+            const auto role = roles[static_cast<unsigned>(source.kind)];
+            const auto end = value.refs.begin() + value.refCount;
+            const auto ref = std::find_if(value.refs.begin(), end, [&](const auto& item) { return item.role == role; });
+            if (ref == end || !ref->sealed || ref->objectId != source.destinationObjectId ||
+                ref->generation != source.destinationGeneration || ref->length != source.destinationLength ||
+                ref->sha256 != source.destinationSha256 || ref->packed != source.destinationPacked ||
+                ref->containerId != source.destinationContainerId || ref->committedExtent != source.destinationCommittedExtent ||
+                ref->rootRef != source.destinationRootRef) return reject(CustodyFileError::invalidContent);
+        }
+    }
+    // Do not reopen member identities here: revalidation also runs while the
+    // actual inspection/playback group is alive. Cold admission retains the
+    // existing whole-group closure below; consumers and recycle keep their
+    // existing member/retained-root guards before any effect.
+    auto files = history->lease_->validateMigrationFiles(current, cancellation);
+    if (!files.ok()) return reject(files.error, files.nativeError);
+    if (cancellation->load()) return reject(CustodyFileError::ioFailed, ERROR_OPERATION_ABORTED);
     return {true, CustodyFileError::none, 0};
 #endif
 } catch (const std::bad_alloc&) { return {std::nullopt, CustodyFileError::allocationFailed, 0}; }
@@ -2176,7 +2269,7 @@ ProtectedCustodyStoreOwner::~ProtectedCustodyStoreOwner() = default;
 
 CustodyFileResult<bool> ProtectedCustodyStoreOwner::validate(
     std::shared_ptr<const std::atomic<bool>> cancellation,
-    std::shared_ptr<const ProtectedUploadQueueValue>* selectedValue) {
+    std::shared_ptr<const ProtectedUploadQueueValue>* selectedValue, bool coldAdmission) {
     const auto reject = [&](CustodyFileError error, std::uint32_t native = 0) -> CustodyFileResult<bool> {
         // Validation never writes. Refused memory or actual caller cancellation
         // requires a fresh full read, not recovery of otherwise healthy files.
@@ -2187,10 +2280,11 @@ CustodyFileResult<bool> ProtectedCustodyStoreOwner::validate(
     try {
     if (!cancellation || !root_ || !bootstrap_ || !queue_) return reject(CustodyFileError::invalidInput);
 #ifndef _WIN32
-    (void)selectedValue;
+    (void)selectedValue; (void)coldAdmission;
     return reject(CustodyFileError::unsupportedPlatform);
 #else
-    auto inventory = root_->validateStoreInventory(false, cancellation);
+    std::optional<CustodyVector<CustodyString>> migrationScopes;
+    auto inventory = root_->validateStoreInventory(false, cancellation, false, &migrationScopes);
     if (!inventory.ok()) return reject(inventory.error, inventory.nativeError);
     const auto own = bootstrap_->context();
     if (own.storeId != queueContext_.storeId || own.objectId == queueContext_.objectId ||
@@ -2210,8 +2304,8 @@ CustodyFileResult<bool> ProtectedCustodyStoreOwner::validate(
         if (!parsed.ok()) return reject(codecFileError(parsed.error), parsed.nativeError);
         const bool protectedMode = parsed.value->mode == CustodyBootstrapMode::protectedStore;
         SecureZeroMemory(&*parsed.value, sizeof(CustodyBootstrapValue));
-        // This first regular-store owner deliberately does not resolve migration
-        // histories/tombstones. Those roots remain closed for the T117 owner.
+        // BOTH protected/null are required before any completed-history admission.
+        // A migrating peer still belongs exclusively to migration recovery.
         if (!protectedMode) return reject(CustodyFileError::recoveryRequired);
     }
     auto queue = queue_->readValidatedMetadataPair();
@@ -2231,6 +2325,63 @@ CustodyFileResult<bool> ProtectedCustodyStoreOwner::validate(
     }
     const auto generation = queue.value->indices[queue.value->selectedSlot].generation;
     if (queueGeneration_ && queueGeneration_ != generation) return reject(CustodyFileError::conflict);
+    if (migrationScopes) for (const auto& directory : *migrationScopes) {
+        if (cancellation->load()) return reject(CustodyFileError::ioFailed, ERROR_OPERATION_ABORTED);
+        const std::string_view name(directory);
+        // Root queue admission does not reopen an active package-state owner.
+        // Every package consumer/effect checks its actual retained Pair below.
+        if (!coldAdmission && !name.empty()) continue;
+        const auto subject = name.empty() ? CustodyMigrationSubject::queue : CustodyMigrationSubject::package;
+        auto opened = ProtectedCustodyFiles::openStoreObject(root_, CustodyRole::migrationIntent, false, name);
+        if (!opened.ok()) return reject(opened.error, opened.nativeError);
+        const auto context = (*opened.value)->context();
+        if (context.storeId != queueContext_.storeId || context.objectId == context.storeId ||
+            context.objectId == queueContext_.objectId || context.objectId == own.objectId)
+            return reject(CustodyFileError::identityMismatch);
+        // Same root and intent lease from locator through independently authenticated
+        // Birth, strict current BOTH records, progression and every later file proof.
+        auto history = ProtectedCustodyMigrationPair::readImpl(root_->trustedRoot(), context, std::nullopt,
+            subject, name, cancellation, {}, std::move(*opened.value));
+        if (!history.ok()) return reject(history.error, history.nativeError);
+        for (const auto& record : (*history.value)->slots()) {
+            if (record.stage != CustodyMigrationStage::switched || record.authorization || !record.barrier)
+                return reject(CustodyFileError::recoveryRequired);
+            if (subject == CustodyMigrationSubject::queue) {
+                const auto& source = record.sources[0];
+                if (source.destinationObjectId != queueContext_.objectId || !source.destinationGeneration ||
+                    *source.destinationGeneration > generation)
+                    return reject(CustodyFileError::invalidContent);
+                // An authenticated historical copy receipt is not today's mutable
+                // queue snapshot; BOTH current queue payloads were strictly decoded above.
+            } else if (!record.anchor.objectId || *record.anchor.objectId != queueContext_.objectId ||
+                !record.anchor.generation || *record.anchor.generation > generation)
+                return reject(CustodyFileError::invalidContent);
+        }
+        if (coldAdmission && subject == CustodyMigrationSubject::package) {
+            auto state = ProtectedCustodyFiles::openPackageState(root_, name, cancellation);
+            if (!state.ok()) return reject(state.error, state.nativeError);
+            const auto identity = (*state.value)->context();
+            if (identity.storeId != queueContext_.storeId || identity.objectId == identity.storeId ||
+                identity.objectId == queueContext_.objectId || identity.objectId == own.objectId || identity.objectId == context.objectId)
+                return reject(CustodyFileError::identityMismatch);
+            auto retained = std::shared_ptr<ProtectedCustodyFiles>(state.value->release(),
+                [](ProtectedCustodyFiles* files) { delete files; }, CustodyAllocator<ProtectedCustodyFiles>{});
+            auto pair = ProtectedCustodyPackagePair::readImpl(root_->trustedRoot(), name, identity, cancellation,
+                std::move(retained), ProtectedCustodyPackagePair::LeaseOrigin::isolatedReadOnly);
+            if (!pair.ok()) return reject(pair.error, pair.nativeError);
+            // No consumer exists during cold admission. Verify BOTH closures,
+            // including noncurrent retained roots, and hold all member leases
+            // through history/barrier/original verification before exposing Owner.
+            auto readers = openProtectedCustodyReaders(root_->trustedRoot(), *pair.value, cancellation);
+            if (!readers.ok()) return reject(readers.error, readers.nativeError);
+            auto complete = validateMigrationPackageHistory(*pair.value, cancellation, *history.value);
+            if (!complete.ok()) return reject(complete.error, complete.nativeError);
+        }
+        if (subject == CustodyMigrationSubject::queue) {
+            auto files = (*history.value)->lease_->validateMigrationFiles((*history.value)->current(), cancellation);
+            if (!files.ok()) return reject(files.error, files.nativeError);
+        } // Cold package checks above retained readers through fixed-file validation.
+    }
     if (cancellation->load()) return reject(CustodyFileError::ioFailed, ERROR_OPERATION_ABORTED);
     queueGeneration_ = generation;
     if (selectedValue) *selectedValue = std::move(selected);
@@ -2324,7 +2475,7 @@ CustodyFileResult<std::shared_ptr<ProtectedCustodyStoreOwner>> ProtectedCustodyS
             0, *encoded.value, cancellation, owner->bootstrap_.get());
         if (committed.state != CustodyCommitState::committed) return reject(committed.error, committed.nativeError);
     }
-    auto validated = owner->validate(cancellation);
+    auto validated = owner->validate(cancellation, nullptr, true);
     if (!validated.ok()) return reject(validated.error, validated.nativeError);
     auto inventory = owner->root_->validateStoreInventory(false, cancellation, birth);
     if (!inventory.ok()) return reject(inventory.error, inventory.nativeError);

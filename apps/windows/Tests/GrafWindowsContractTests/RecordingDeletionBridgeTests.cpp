@@ -193,6 +193,10 @@ void testDocumentScriptExposesOnlyTheDeletionBridge() {
     // needs the bridge nonce.
     assert(script.find("CustomEvent('graf:delete-selection'") != std::string::npos);
     assert(script.find("nonce") == std::string::npos);
+    // The second exact action shares the installed handler, not deletion authority.
+    assert(script.find("'visibleRecordings'") != std::string::npos);
+    assert(script.find("CustomEvent('graf:visible-recordings'") != std::string::npos);
+
     // A shape this bridge does not own is dropped rather than forwarded.
     assert(script.find("if (!localIds || !meetingIds") != std::string::npos);
     assert(script.find("typeof item === 'string'") != std::string::npos);

@@ -11,6 +11,7 @@ namespace graf::windows {
 class ProtectedCustodyStoreOwner;
 class ProtectedCustodyRecordingPackage;
 struct CustodyMetadataCommit;
+struct CustodyMigrationValue;
 #ifdef _WIN32
 class ProtectedCustodyPackagePair;
 struct CustodyReader;
@@ -137,9 +138,14 @@ private:
     [[nodiscard]] static CustodyFileResult<std::unique_ptr<ProtectedCustodyFiles>> lockStoreRoot(
         const std::filesystem::path&, std::shared_ptr<const std::atomic<bool>>, bool& birth);
     [[nodiscard]] static CustodyFileResult<std::unique_ptr<ProtectedCustodyFiles>> openStoreObject(
-        std::shared_ptr<const ProtectedCustodyFiles> root, CustodyRole, bool birth);
+        std::shared_ptr<const ProtectedCustodyFiles> root, CustodyRole, bool birth, std::string_view package = {});
     [[nodiscard]] CustodyFileResult<bool> validateStoreInventory(
-        bool virgin, std::shared_ptr<const std::atomic<bool>>, bool completeBirth = false) const;
+        bool virgin, std::shared_ptr<const std::atomic<bool>>, bool completeBirth = false,
+        std::optional<CustodyVector<CustodyString>>* migrationScopes = nullptr) const;
+    // Strictly authenticated switched history only; hashes fixed originals and
+    // ALL fixed barrier copies while retaining native handles. Never effects.
+    [[nodiscard]] CustodyFileResult<bool> validateMigrationFiles(
+        const CustodyMigrationValue&, std::shared_ptr<const std::atomic<bool>>) const;
     friend class ProtectedCustodyBootstrapPair;
     friend class ProtectedCustodyMigrationPair;
     // Only retained metadata factories discover existing fixed identities.

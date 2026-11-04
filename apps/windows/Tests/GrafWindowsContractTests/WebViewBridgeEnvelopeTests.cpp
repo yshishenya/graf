@@ -65,6 +65,23 @@ int main() {
     message.messageId = 1;
     message.nonce = "nonce-2";
     assert(bridge.validate(message) == BridgeValidationError::none);
+
+    // T088 priority hints are a distinct typed command, never a local action.
+    WebViewBridge hints("https://rec.2brain.pro"); hints.rotateNonce("hint-current");
+    WebViewBridgeEnvelope hint{std::string(kBridgeProtocol), kBridgeProtocolVersion, 1, "hint-current",
+        "https://rec.2brain.pro", BridgeDirection::webToNative, "visible_recordings",
+        R"({"action":"visibleRecordings","version":1,"ids":["known"]})", 1};
+    assert(hints.validate(hint) == BridgeValidationError::none);
+    assert(hints.validate(hint) == BridgeValidationError::replay);
+    hint.messageId = 2; hint.nonce = "hint-old";
+    assert(hints.validate(hint) == BridgeValidationError::staleNonce);
+    hint.nonce = "hint-current"; hint.origin = "https://foreign.invalid";
+    assert(hints.validate(hint) == BridgeValidationError::wrongOrigin);
+    hint.origin = "https://rec.2brain.pro"; hint.command = "visibleRecordings";
+    assert(hints.validate(hint) == BridgeValidationError::commandDenied);
+    hint.command = "visible_recordings"; hints.invalidate();
+    assert(hints.validate(hint) == BridgeValidationError::staleNonce);
+
     WebView2Host host;
     // Built field by field: a positional aggregate silently changes meaning
     // whenever the row gains a field.

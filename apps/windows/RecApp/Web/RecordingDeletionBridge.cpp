@@ -17,8 +17,8 @@ namespace {
 //
 // The shim is named `webkit` because that is what the cabinet checks
 // (`cabinet.js:1516-1522`). On macOS that object is provided by WebKit; here it is
-// provided by this script, and it carries the one message shape the deletion flow
-// uses. Row actions do not travel through it: on this platform the desktop bridge
+// provided by this script, and it carries exact deletion selections and visible
+// recording hints. Row actions do not travel through it: the desktop bridge
 // script already reports them as their own command.
 constexpr std::string_view kDocumentScript = R"JS(
 (() => {
@@ -36,6 +36,15 @@ constexpr std::string_view kDocumentScript = R"JS(
   window.webkit.messageHandlers.grafLocalRecording = {
     postMessage: (body) => {
       if (!body || typeof body !== 'object') return;
+      if (body.action === 'visibleRecordings') {
+        if (Object.keys(body).length !== 3 || body.version !== 1 || !Array.isArray(body.ids) ||
+            body.ids.length > 100 || body.ids.some(id => typeof id !== 'string') ||
+            new Set(body.ids).size !== body.ids.length) return;
+        window.dispatchEvent(new CustomEvent('graf:visible-recordings', {
+          detail: {action: body.action, version: body.version, ids: body.ids.slice()}
+        }));
+        return;
+      }
       if (body.action !== 'deleteSelection' || body.version !== 1) return;
       const ids = (value) => Array.isArray(value)
         ? value.filter((item) => typeof item === 'string')

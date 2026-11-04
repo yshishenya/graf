@@ -12,6 +12,7 @@ struct CustodyMetadataCommit;
 class ProtectedUploadQueueValue;
 class ProtectedCustodyRecordingPackage;
 class ProtectedCustodyPackagePair;
+class ProtectedCustodyMigrationPair;
 class ProtectedCustodyWriter;
 class ProtectedPackedCustodyOwner;
 struct V5WriterResult;
@@ -78,7 +79,11 @@ private:
         std::string_view claimUser = {}, std::string_view claimWorkspace = {});
     explicit ProtectedCustodyStoreOwner(CustodyPin&&);
     [[nodiscard]] CustodyFileResult<bool> validate(std::shared_ptr<const std::atomic<bool>>,
-        std::shared_ptr<const ProtectedUploadQueueValue>* selectedValue = nullptr);
+        std::shared_ptr<const ProtectedUploadQueueValue>* selectedValue = nullptr, bool coldAdmission = false);
+    // Same genuine package-state lease; no recursive owner validation or cached authority.
+    [[nodiscard]] CustodyFileResult<bool> validateMigrationPackageHistory(
+        std::shared_ptr<const ProtectedCustodyPackagePair>, std::shared_ptr<const std::atomic<bool>>,
+        std::shared_ptr<const ProtectedCustodyMigrationPair> history = {});
     // Defined beside the existing charged queue decoder, not a second parser.
     [[nodiscard]] static CustodyFileResult<bool> validateQueueValue(std::string_view, const std::atomic<bool>*);
 #ifdef _WIN32
@@ -198,10 +203,12 @@ public:
     ~ProtectedCustodyMigrationPair(); // Wipe before exclusive lease/pin release; no IO.
     ProtectedCustodyMigrationPair(const ProtectedCustodyMigrationPair&) = delete;
 private:
+    friend class ProtectedCustodyStoreOwner;
     [[nodiscard]] static CustodyFileResult<std::shared_ptr<const ProtectedCustodyMigrationPair>> readImpl(
         const std::filesystem::path&, CustodyContext, std::optional<CustodyId> transaction,
         CustodyMigrationSubject, std::string_view directory,
-        std::shared_ptr<const std::atomic<bool>>, std::shared_ptr<const ProtectedCustodyBootstrapPair>);
+        std::shared_ptr<const std::atomic<bool>>, std::shared_ptr<const ProtectedCustodyBootstrapPair>,
+        std::unique_ptr<ProtectedCustodyFiles> prepared = {});
     ProtectedCustodyMigrationPair(CustodyPin&&, std::shared_ptr<const ProtectedCustodyBootstrapPair>&&,
         std::unique_ptr<ProtectedCustodyFiles>&&,
         CustodyMetadataIndices&&, const std::array<CustodyMigrationValue, 2>&);

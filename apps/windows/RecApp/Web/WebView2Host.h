@@ -99,6 +99,16 @@ public:
         std::string nonce;
     };
     using LocalRecordingHandler = std::function<void(LocalRecordingRequest)>;
+    // Native-validated RAM priority only; never a deletion or upload intent.
+    struct VisibleRecordingsRequest {
+        std::vector<std::string> ids;
+        std::uint64_t documentGeneration = 0, authGeneration = 0;
+        std::string nonce;
+    };
+    using VisibleRecordingsHandler = std::function<void(VisibleRecordingsRequest)>;
+    void setVisibleRecordingsHandler(VisibleRecordingsHandler handler) {
+        clearVisibleRecordings(); visibleRecordingsHandler_ = std::move(handler);
+    }
     // One of `light`, `dark` or `system`, exactly as macOS accepts it and nothing
     // else: a page that announces something unknown must not decide the appearance
     // of native windows.
@@ -374,6 +384,10 @@ private:
     AuthSessionHandler authSessionHandler_;
     SignInUrlBuilder signInUrlBuilder_;
     LocalRecordingHandler localRecordingHandler_;
+    VisibleRecordingsHandler visibleRecordingsHandler_;
+    std::optional<VisibleRecordingsRequest> visibleRecordings_;
+    void clearVisibleRecordings() noexcept;
+    void handleVisibleRecordingsMessage(const WebViewBridgeEnvelope&, std::string_view source);
     AppearanceHandler appearanceHandler_;
     std::function<void(bool)> preferredColorScheme_;
     bool colorSchemeIsDark_ = true;

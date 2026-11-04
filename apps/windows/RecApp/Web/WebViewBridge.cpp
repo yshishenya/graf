@@ -188,7 +188,8 @@ bool WebViewBridge::isAllowedWebCommand(std::string_view command) noexcept {
     // кабинете удаление не доходит до приложения. Разбор полей у обеих команд
     // строгий и живёт в обработчиках: конверт проверяет только право команды
     // дойти до приложения.
-    return command == "request_app_quit" || command == "local_recording" || command == "app_appearance" ||
+    return command == "visible_recordings" ||
+           command == "request_app_quit" || command == "local_recording" || command == "app_appearance" ||
            command == "native_settings" || command == "delete_selection" || command == "request_app_update" ||
            (calendarJoinEnabled_ && (command == "calendar_join" || command == "calendar_join_cancel"));
 }

@@ -45,6 +45,73 @@ const row = id => `<article><a href="#" data-calendar-join="${id}">Подклю�
         await page.evaluate(() => new Promise(resolve => requestAnimationFrame(resolve)));
       };
 
+      // T088: execute the shared publisher, not a duplicate hint implementation.
+      // Only its lexical inputs (the adopted rows and frame latch) are synthetic.
+      await boot();
+      await mutation('<main><section data-meeting-list><article data-meeting-row data-graf-local-recording-id="visible-local" style="height:40px">generated</article><article data-meeting-row data-graf-local-recording-id="offscreen-local" style="margin-top:3000px;height:40px">generated</article></section><button data-graf-local-recording-action="open" data-graf-local-recording-id="visible-local">Open</button></main>');
+      const cabinetSource = fs.readFileSync(path.resolve(__dirname, '../../../server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js'), 'utf8');
+      const deletionSource = fs.readFileSync(path.resolve(__dirname, '../../RecApp/Web/RecordingDeletionBridge.cpp'), 'utf8');
+      const deletionScript = deletionSource.match(/constexpr std::string_view kDocumentScript = R"JS\(([\s\S]*?)\)JS";/)[1];
+      const publisherBegin = cabinetSource.indexOf('  const publishVisibleRecordings =');
+      const publisherEnd = cabinetSource.indexOf('  const pendingLocalRecordingHandoffs =', publisherBegin);
+      assert(publisherBegin >= 0 && publisherEnd > publisherBegin);
+      const listReaders = cabinetSource.match(/  const currentList = [^\n]+\n  const allRows = [^\n]+/)[0];
+      await page.addScriptTag({content:deletionScript});
+      await page.evaluate(() => {
+        const handler = window.webkit.messageHandlers.grafLocalRecording;
+        const actualPost = handler.postMessage;
+        window.publisherBodies = [];
+        handler.postMessage = body => {
+          window.publisherBodies.push(JSON.parse(JSON.stringify(body)));
+          return actualPost(body); // Observe the actual publisher without replacing the native script.
+        };
+      });
+      await page.addScriptTag({content:`(() => {let visibleRecordingsFrame = null; const localRecordingRows = [{id:'visible-local'},{id:'offscreen-local'}];\n${listReaders}\n${cabinetSource.slice(publisherBegin, publisherEnd)}\n})();`});
+      const hints = async () => page.evaluate(() => window.messages.filter(item => item.command === 'visible_recordings'));
+      const publish = async () => {
+        await page.evaluate(() => document.dispatchEvent(new Event('scroll')));
+        await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      };
+      await publish();
+      assert.equal((await hints()).length, 0, 'publisher has no nonce before native_ready');
+      await handshake(); await publish();
+      assert.deepEqual(errors, [], 'fixture must execute both native scripts and the actual publisher without script errors');
+      assert.deepEqual(await page.evaluate(() => window.publisherBodies), [
+        {action:'visibleRecordings',version:1,ids:['visible-local']},
+        {action:'visibleRecordings',version:1,ids:['visible-local']}
+      ], 'fixture must prove the actual publisher called the actual document handler before RED0');
+      const firstHint = (await hints())[0];
+      assert.equal((await hints()).length, 1, 'T088 RED0: actual cabinet publisher must deliver one visible_recordings envelope through both Windows scripts');
+      assert.deepEqual(Object.keys(firstHint).sort(), ['command','direction','message_id','nonce','origin','payload','protocol','sent_at_monotonic_ms','version']);
+      assert.equal(firstHint.protocol, 'graf.desktop.bridge'); assert.equal(firstHint.version, 1);
+      assert.equal(firstHint.direction, 'web_to_native'); assert.equal(firstHint.origin, 'https://graf.test');
+      assert.equal(firstHint.nonce, 'nonce-1'); assert(Number.isSafeInteger(firstHint.message_id) && firstHint.message_id > 0);
+      assert(Number.isSafeInteger(firstHint.sent_at_monotonic_ms) && firstHint.sent_at_monotonic_ms >= 0);
+      assert.deepEqual(firstHint.payload, {action:'visibleRecordings',version:1,ids:['visible-local']});
+      await page.locator('[data-graf-local-recording-action="open"]').click();
+      const localAction = await page.evaluate(() => window.messages.find(item => item.command === 'local_recording'));
+      assert.deepEqual(localAction.payload, {action:'open',id:'visible-local'});
+      assert(localAction.message_id > firstHint.message_id, 'hint and local_recording share private monotonic send');
+      const beforeInvalidHints = (await hints()).length;
+      await page.evaluate(() => {
+        const post = body => window.webkit.messageHandlers.grafLocalRecording.postMessage(body);
+        for (const body of [
+          {action:'visibleRecordings',version:2,ids:[]}, {action:'visibleRecordings',version:1.1,ids:[]},
+          {action:'visibleRecordings',version:1,ids:['visible-local','visible-local']},
+          {action:'visibleRecordings',version:1,ids:[7]}, {action:'visibleRecordings',version:1,ids:'visible-local'},
+          {action:'visibleRecordings',version:1,ids:[],extra:true},
+          {action:'visibleRecordings',version:1,ids:Array.from({length:101},(_,i)=>`local-${i}`)}
+        ]) post(body);
+      });
+      assert.equal((await hints()).length, beforeInvalidHints, 'malformed hints are not shortened or partially forwarded');
+      await page.evaluate(() => window.webkit.messageHandlers.grafLocalRecording.postMessage({action:'deleteSelection',version:1,requestId:'44444444-4444-4444-8444-444444444444',localIds:['visible-local'],meetingIds:[]}));
+      assert.deepEqual(await page.evaluate(() => window.messages.find(item => item.command === 'delete_selection').payload),
+        {action:'deleteSelection',version:1,requestId:'44444444-4444-4444-8444-444444444444',localIds:['visible-local'],meetingIds:[]});
+      await page.evaluate(() => Object.defineProperty(document, 'hidden', {configurable:true,value:true}));
+      await publish(); assert.deepEqual((await hints()).at(-1).payload, {action:'visibleRecordings',version:1,ids:[]});
+      assert((await hints()).at(-1).message_id > localAction.message_id);
+      await boot(); // All prior calendar cases retain their original document and deadlines.
+
       await boot();
       await page.evaluate(() => {
         for (const [name, content] of Object.entries({'graf-time-user':'11111111-1111-4111-8111-111111111111',

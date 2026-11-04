@@ -986,3 +986,129 @@ barrier copies и отдельный retained packed root. До его прим�
 Независимая финальная квалификация GREEN завершена: scoped GO C0/H0,
 225/225 исходников и24 receipt pins сверены; прежний SOURCE GO сохранён.
 Разрешён промежуточный checkpoint этого среза, не приёмка всего приложения.
+
+
+## 2026-11-04 — T088 publisher → Windows, проверенный срез
+
+Включён точный Mac publisher visibleRecordings через существующие document
+scripts и private nonce/send в отдельную команду visible_recordings. Native
+handler проверяет весь список против текущей полной защищённой проекции,
+source/route/detail UUID, nonce/message_id, cookie/HTML identity и native
+account/authGeneration. Приоритет только в памяти; навигация/runtime/account/
+публикация отзывают его. Серверный publisher и native local_recording сохранены.
+Lifecycle worker и внешние квитанции ещё не реализованы: T088 остаётся открытой.
+
+На прежнем мосте фактически получен целевой RED CalendarJoinShimTests:84,
+actual0/expected1, после проверки двух точных вызовов настоящего publisher
+и отсутствия script errors. После исправления тот же набор прошёл в Chromium
+и WebKit, exit0. SOURCE review C0/H0 сохранён. Portable C++ сборка сначала
+выявила C++20 starts_with при C++17; заменено только выражение prefix на
+substr/equality, независимо проверено. Native test сначала дал2/3: fixture
+не восстанавливал два сбрасываемых navigation callbacks. Добавлены ровно
+две строки timeReader+inventoryPublisher после новых detail/settings docs,
+все guards/oracles сохранены. После исправления три целевых CTest PASS2.27s;
+11 соседних CTest (WebView lifecycle/settings/attribution/cabinet/offline/
+deletion/calendar) PASS12.35s. Публикация COM моделируется: это portable tests
+на Mac, не WinRT parser execution и не установленная Windows-приёмка.
+
+Текущий WebView2Host.cpp SHA256
+17eb243401a87d0b195f5ae46da86e7d45459b963cf9fb56de1e4788251b96ef;
+CalendarJoinHostTests.cpp
+cc1224177ce7b5ea05d17436f190543988667659599cbb9f49db150dc7dfae0d.
+Восьмифайловый source/log receipt
+69fb1f68f0270838288e5d82e10654422b7aa20b7a6cbd697e2a53bcd2e75f8e.
+
+## 2026-11-04 — T117 ordinary admission: квалифицированный RED
+
+Первый запуск остановился на1522 readers.ok до SETUP_OK: ProtectedInspection
+удерживал member streams. Это fixture failure, не продуктовый RED;
+terminal37d730e3e38490b09d781e25c5b085109e142c9da668f4f681442478c9056bf2.
+Тест теперь освобождает inspection перед следующим readers open, сохраняя
+inspection assertion и Pair. Следующая попытка не дошла до сборки из-за
+Parallels host255 Invalid argument; отдельный запрос подтвердил отсутствие
+build/test процессов и прежний test22bc в VM. Неуспешные журналы сохранены.
+
+Повтор с принятой fixture a88d прошёл подготовку generated v5 package,
+queue g2→g4, switched histories и retained root, затем отказал ровно на1738
+ordinary StoreOwner::open. Stdout точный:
+COMPLETED_HISTORY_SETUP_OK case=0 copy_g=2 current_g=4. host0/build0/CLI3.
+Terminal9432c75b32bbb420f14314d62168752ef941873bbd4bf9411683418bc1fb59df.
+Source225/configuration110/8PE после запуска и installed0.1.0.15 сохранены,
+own0/no forced cleanup/Unicode TEMP+TMP PASS. Production admission candidate
+на момент RED ещё не применён; успешного runtime результата пока нет.
+
+## 2026-11-04 — GitHub exact checkpoint
+
+b38eb07c93a10467244fc8a6b6cf5e3373c53b6b отправлен; governance-fast41754394236
+PASS. macos-pr41754394218 FAIL: три существующих аудиотеста отказали на
+system.isDrained после15s loop. Mac source между предыдущим PASS1aec и b38
+не менялся; причина не установлена. Отдельный macos-diagnostic41756369386
+выполняется на точном b38 и не заменяет required check. Таймауты не ослаблены.
+PR7331 обновлён штатным sync-pr-metadata после successful exact code proof;
+описание содержит b38, реальные результаты и blockers. Old-reader expiry
+2026-11-01 не продлевался; merge/release по-прежнему закрыты.
+
+
+## 2026-11-04 — b38 required macOS check, attempt2
+
+Повтор только failed jobs исходного macos-pr41754394218 завершён успешно
+на b38eb07c93a10467244fc8a6b6cf5e3373c53b6b, attempt2. Последний required
+macos-pr SUCCESS; первоначальный FAIL и отдельный diagnostic PASS сохранены.
+Mac source/таймауты не менялись, причина разницы времени не доказана.
+Полный журнал attempt2 SHA256 62c1b075d0fc83f3a29a85a7a23b940cb84218060ee04ae3c873dc01b1c0df25.
+pr-metadata41756995865 всё ещё FAIL: compatibility exception expiry must
+be in the future (UTC). Срок 2026-11-01 не продлевался, merge/release закрыты.
+Текущий dirty Windows diff отдельно прошёл check_spec_kit_governance.py
+с pinned CLI1.0.7, YAML parse и git diff --check. Эти проверки не заменяют
+Windows runtime GREEN или точные проверки будущего коммита.
+
+
+## 2026-11-04 — T088 receipt decoder: фактический RED
+
+Применены только два тестовых изменения red-tests.patch
+06b90cd875ca914d3557f32354e44c2b7c00185aa74eea252eba7c25732366eb.
+Восемь производственных bases повторно сверены и не менялись; VM не менялась.
+Portable Debug C++17 сборка DesktopDeletionProtocolTests и
+DesktopDeletionLedgerTests завершилась exit0. Прямой первый тест обработчика
+завершился SIGABRT/-6 на testLifecycleCannotAcceptWithoutReceipt:318:
+старый decoder принимает canceled_before_creation без receipt. Строка317 —
+начало assert в исходнике; фактический runtime report содержит318. Это
+целевой RED, не compile/fixture failure. Квитанция с test/exe/build/log pins
+e52137170da9f8ed6af2648868b29d2a9b2c8d39014a9ef0f01845e9d7b40bff.
+Native RED и производственный кандидат пока не исполнены/не применены.
+
+
+## 2026-11-04 — T117 ordinary completed-history admission: GREEN
+
+Принятые четыре производственных файла и supplement активного Pair
+прошли настоящий Windows Debug прогон: host0/build0/CLI0, полный Files
+CTest1/1 PASS944.42s (total944.44s). Все три case0/1/2 прошли; после
+SETUP_OK сохранены штатные прежние stdout markers и ровно16 ожидаемых
+negative diagnostic строк stderr. Current queue g4 не приравнивается
+историческому copy g2, последующие commits/cold open сохраняются; corrupt
+barrier и noncurrent retained root отклоняются без побочных действий.
+225source/configuration110 неизменны во время проверки; остальные7PE
+и installed0.1.0.15 сохранены, own0/noForce/UnicodeTEMP+TMP PASS. Terminal
+c93d8df8a4b9cfeaf4521af13ea0a542fe90e5492989531c885957a6f2f5d071.
+В VM пока нет восьми dirty Web bridge файлов; это отдельная квалификация
+storage source, не combined-source62 или installed acceptance. Полный
+координатор миграции/cleanup/missing-original recovery не принят, T117 открыт.
+
+
+## 2026-11-04 — T088 bridge: Windows CMake14/14 GREEN
+
+После квалифицированного storage GREEN в VM перенесены ровно восемь
+ранее проверенных bridge/test файлов. Windows Debug build0, host0, CTest
+14/14 PASS143.80s; NativeRecordingOfflineWebViewTests PASS128.08s на
+сгенерированном звуке. Native device/audio/network/install0. Начальная
+конфигурация110 имела null command у14 ещё не собранных целей; разрешён
+только переход этих14 к одному точному Debug/<same-name>.exe, остальные
+команды/имена/свойства неизменны. Source225 и8custodyPE сохранены;14новых
+bridgePE проверены после тестов; installed0.1.0.15 неизменён, own0/noForce
+и UnicodeTEMP/TMP PASS. Terminal93a0dea0bbef036017e0ffb5ecbd887e0c08c6d48319b2f360c72c635b1aa97e.
+Первая попытка разбора результата ожидала запятую и явный текст0failed;
+этот CTest пишет100% tests passed out of14. Квалификатор поправлен только
+на две известные формы итоговой строки; все14 точных PASS/name/exit/guard
+проверки сохранены. Это ошибка формата квалификатора, не runtime failure.
+GRAF_WINDOWS_APP_SDK/оригинальный WinRT parser в CMake не исполняется;
+установленный пакет/COM/UI приёмка и весь T088 по этому прогону не закрыты.
