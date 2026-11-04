@@ -50,7 +50,7 @@ def reader(*, embedded=False):
 
 
 @pytest.mark.browser
-@pytest.mark.parametrize("script", ["public-sharing", "sharing-owner"])
+@pytest.mark.parametrize("script", ["public-sharing", "sharing-owner", "sharing-auth-return"])
 def test_sharing_user_journeys_in_browser(tmp_path, script):
     html = (
         reader()

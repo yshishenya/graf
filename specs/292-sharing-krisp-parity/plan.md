@@ -65,3 +65,8 @@ quickstart.md содержит точные группы pytest/node/Swift и ж
 ### R7/R8: уточнение приёмки клавиатуры и recovery
 
 T024 ограничена loadAccess: проверить текущий focus внутри accessList непосредственно после получения ответа и до replaceChildren; вернуть title только при удалении активной строки. T025 ограничена существующим inbox consume и его app caller: успешный consume атомарно устанавливает loading, который уже показывает EmbeddedCabinetWebView; последующие server auth/route/error остаются прежними. Предметные browser/Swift RED до кода, независимое requirements/source review, установленная проверка; новые API/права/хранилища не нужны.
+
+
+### R9: первый вход по адресной ссылке
+
+T026 использует существующие problem_exception_handler browser-auth handoff и initAuthTransition; новый endpoint/cookie/сеанс не вводится. HTTP не получает fragment, поэтому browser переносит только строгий fragment из унаследованного hash страницы входа в существующий next. Только same-origin адресный reader UUID, никакого public share token во входе. Сохраняются проверка next сервером, CSRF/OTP/OAuth и повторные права. Предметные contract/browser RED до fix, независимый review и настоящий получатель на Dev. GET навигация получает вход; GET/HEAD — политика существующего auth handler, не добавление HEAD route (reader HEAD405).

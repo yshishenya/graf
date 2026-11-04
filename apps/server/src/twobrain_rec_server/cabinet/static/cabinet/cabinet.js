@@ -2285,6 +2285,33 @@
     const page = document.querySelector(".auth-page");
     if (!page || page.dataset.authTransitionReady === "true") return;
     page.dataset.authTransitionReady = "true";
+    // HTTP redirects inherit the reader fragment; forms must carry it in safe next.
+    const fragment = window.location.hash;
+    const position = /^#recording\?position_ms=([0-9]{1,8})$/.exec(fragment);
+    if (["#outcomes", "#recording"].includes(fragment) || (position && Number(position[1]) <= 86400000)) {
+      const withContext = (value) => {
+        if (!value || value.startsWith("//")) return value;
+        try {
+          const target = new URL(value, window.location.origin);
+          if (target.origin !== window.location.origin || target.username || target.password || target.hash
+              || !/^\/shared-meetings\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(target.pathname)) return value;
+          return `${target.pathname}${target.search}${fragment}`;
+        } catch { return value; }
+      };
+      page.querySelectorAll('.auth-form input[name="next"]').forEach((input) => {
+        input.value = withContext(input.value);
+      });
+      page.querySelectorAll('a[href]').forEach((link) => {
+        let target;
+        try { target = new URL(link.href, window.location.href); } catch { return; }
+        if (target.origin !== window.location.origin || !/^\/(?:login|sign-up)(?:\/|$)/.test(target.pathname)) return;
+        const next = target.searchParams.get("next");
+        const contextual = withContext(next);
+        if (contextual === next) return;
+        target.searchParams.set("next", contextual);
+        link.href = target.href;
+      });
+    }
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
     page.addEventListener("click", (event) => {
       const link = event.target.closest("a[href]");

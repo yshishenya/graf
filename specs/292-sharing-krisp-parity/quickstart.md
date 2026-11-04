@@ -11,6 +11,8 @@
 ```sh
 bash apps/server/scripts/run_local_postgres_tests.sh --focused tests/integration/test_meeting_sharing_parity.py tests/contract/test_meeting_sharing_parity_ui.py tests/integration/test_summary_sharing.py tests/integration/test_recording_share_public_link.py tests/integration/test_meeting_share_links.py tests/integration/test_cabinet_playback_route.py tests/contract/test_recording_share_ui_contract.py tests/contract/test_recording_share_link_contract.py
 node --test apps/server/tests/browser/summary-sharing-state.test.cjs
+node apps/server/tests/browser/sharing-auth-return.test.cjs
+GRAF_BROWSER=webkit node apps/server/tests/browser/sharing-auth-return.test.cjs
 node apps/server/tests/browser/sharing-export-focus.test.cjs
 GRAF_BROWSER=webkit node apps/server/tests/browser/sharing-export-focus.test.cjs
 # Проверка Contacts/адресатов запускается contract-тестом с настоящим шаблоном:
