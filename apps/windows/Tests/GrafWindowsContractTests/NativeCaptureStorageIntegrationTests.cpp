@@ -263,6 +263,19 @@ StartOwnerRenameRole startOwnerCrashRename(HANDLE file, const void* input, ULONG
         std::all_of(temporary.begin()+10,temporary.end(),[](wchar_t c) { return (c>=L'0' && c<=L'9') || (c>=L'a' && c<=L'f'); })
         ? role : StartOwnerRenameRole::none;
 }
+// Armed only for the generated initial queue-migration fixture below.
+struct InitialBootstrapAmbiguity {
+    std::filesystem::path root;
+    std::wstring directory;
+    std::atomic<bool> armed{true};
+    unsigned qualified = 0, nativeCalls = 0, nativeReturns = 0, distorted = 0, slot = 0;
+    CustodyContext bootstrap{}, queue{}, intent{};
+    CustodyId transaction{};
+    std::uint64_t generation = 0, queueGeneration = 0;
+    FILE_ID_INFO fileIdentity{};
+};
+InitialBootstrapAmbiguity* initialBootstrapAmbiguity = nullptr;
+bool qualifyInitialBootstrapAmbiguity(HANDLE, const void*, ULONG, FILE_INFORMATION_CLASS);
 std::atomic<bool> ambiguousRecordingQueue{false};
 std::atomic<unsigned> liveMetadataRenameTarget{0}, liveMetadataRenameCount{0};
 std::atomic<bool> liveMetadataRenameAfter{false};
@@ -557,6 +570,10 @@ NTSTATUS NTAPI integrationRename(HANDLE file, PIO_STATUS_BLOCK io, PVOID info, U
             io->Status = static_cast<NTSTATUS>(0xC0000022UL); return io->Status;
         }
     }
+    const bool initialSwitchArmed = initialBootstrapAmbiguity && initialBootstrapAmbiguity->armed.load();
+    const bool initialSwitch = initialSwitchArmed && qualifyInitialBootstrapAmbiguity(file, info, length, kind);
+    if (initialSwitchArmed) SetLastError(incoming); // Qualification may also return false after native reads.
+    if (initialSwitch) ++initialBootstrapAmbiguity->nativeCalls;
     const bool startCrashArmed = startOwnerCrashArmed.load(std::memory_order_acquire);
     const auto startRole = startCrashArmed ? startOwnerCrashRename(file,info,length,kind) : StartOwnerRenameRole::none;
     const bool startCrash = startRole==StartOwnerRenameRole::queue;
@@ -583,7 +600,7 @@ NTSTATUS NTAPI integrationRename(HANDLE file, PIO_STATUS_BLOCK io, PVOID info, U
     if (startCrash) ++startOwnerCrash->nativeCalls;
     if (packageCrash) ++startOwnerCrash->packageCalls[packageSlot];
     const auto result = function(file, io, info, length, kind);
-    const auto outgoing = startCrashArmed ? GetLastError() : ERROR_SUCCESS;
+    const auto outgoing = (startCrashArmed || initialSwitchArmed) ? GetLastError() : ERROR_SUCCESS;
     if (startCrash) {
         ++startOwnerCrash->nativeReturns;
         startOwnerCrash->nativeSucceeded.store(result==0 && io && io->Status==0);
@@ -622,8 +639,23 @@ NTSTATUS NTAPI integrationRename(HANDLE file, PIO_STATUS_BLOCK io, PVOID info, U
         std::fprintf(stderr, "LIVE_METADATA rename_cut=%u after=1 qualified_role=1 original_status=0 original_io_status=0\n", ordinal);
         std::fflush(stderr);
     }
+    if (initialSwitch) {
+        auto& cut = *initialBootstrapAmbiguity;
+        ++cut.nativeReturns;
+        assert(result == 0 && io && io->Status == 0 && "initial_switch_requires_actual_native_success");
+        FILE_ID_INFO identity{};
+        assert(GetFileInformationByHandleEx(file, FileIdInfo, &identity, sizeof(identity)));
+        assert(identity.VolumeSerialNumber == cut.fileIdentity.VolumeSerialNumber &&
+            !std::memcmp(identity.FileId.Identifier, cut.fileIdentity.FileId.Identifier, sizeof(identity.FileId.Identifier)));
+        wchar_t path[32768]{};
+        const auto size = GetFinalPathNameByHandleW(file, path, 32768, FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);
+        assert(size && size < 32768 && std::wstring_view(path, size) == cut.directory + (cut.slot ? L"\\index.1" : L"\\index.0"));
+        assert(cut.armed.exchange(false) && ++cut.distorted == 1);
+        io->Status = static_cast<NTSTATUS>(0xC0000022UL); // Distort only the successful operation's completion status.
+    }
     if (result == 0 && ioCut.load() == IoCut::pauseAfterRename) pauseAtCut();
     if (result == 0 && ioCut.load() == IoCut::ambiguousRename) io->Status = static_cast<NTSTATUS>(0xC0000022UL);
+    if (initialSwitchArmed) SetLastError(outgoing); // Preserve the real native call even when qualification was false.
     return result;
 }
 FARPROC WINAPI integrationProcedure(HMODULE module, LPCSTR name) {
@@ -794,6 +826,100 @@ struct ShortDiscardPurgeProbe {
 #define DesktopLocalPurgeService ShortDiscardPurgeProbe
 #include "../../RecApp/Storage/ProtectedCustodyMetadata.cpp"
 #undef DesktopLocalPurgeService
+
+namespace {
+bool qualifyInitialBootstrapAmbiguity(HANDLE file, const void* input, ULONG length, FILE_INFORMATION_CLASS kind) {
+    auto& cut = *initialBootstrapAmbiguity;
+    constexpr auto header = offsetof(FILE_RENAME_INFO, FileName);
+    if (kind != static_cast<FILE_INFORMATION_CLASS>(10) || !input || length < header) return false;
+    FILE_RENAME_INFO rename{}; std::memcpy(&rename, input, header);
+    constexpr std::array<std::wstring_view, 2> targets{L"index.0", L"index.1"};
+    if (rename.ReplaceIfExists != TRUE || rename.RootDirectory || rename.FileNameLength != targets[0].size() * sizeof(wchar_t) ||
+        rename.FileNameLength > length - header) return false;
+    unsigned slot = 0;
+    if (std::memcmp(static_cast<const unsigned char*>(input) + header, targets[0].data(), rename.FileNameLength)) {
+        if (std::memcmp(static_cast<const unsigned char*>(input) + header, targets[1].data(), rename.FileNameLength)) return false;
+        slot = 1;
+    }
+    wchar_t path[32768]{};
+    const auto size = GetFinalPathNameByHandleW(file, path, 32768, FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);
+    if (!size || size >= 32768) return false;
+    const std::wstring_view name(path, size);
+    if (name.size() != cut.directory.size() + 1 + 42 || name.substr(0, cut.directory.size()) != cut.directory ||
+        name[cut.directory.size()] != L'\\') return false;
+    const auto temporary = name.substr(cut.directory.size() + 1);
+    if (temporary.substr(0, 10) != L"index.tmp-" || !std::all_of(temporary.begin() + 10, temporary.end(),
+        [](wchar_t c) { return (c >= L'0' && c <= L'9') || (c >= L'a' && c <= L'f'); })) return false;
+
+    // Fixed native IDs supply expected codec context; never take expectations
+    // (especially the transaction) from the temporary candidate's JSON.
+    const auto fixedId = [&](const std::filesystem::path& relative) {
+        auto native = cut.root / relative;
+        if (native.native().substr(0, 4) != L"\\\\?\\") native = L"\\\\?\\" + native.native();
+        const auto handle = CreateFileW(native.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
+            nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+        assert(handle != INVALID_HANDLE_VALUE);
+        LARGE_INTEGER bytes{}; assert(GetFileSizeEx(handle, &bytes) && bytes.QuadPart == 16);
+        CustodyId id{}; DWORD got = 0;
+        assert(ReadFile(handle, id.data(), static_cast<DWORD>(id.size()), &got, nullptr) && got == id.size());
+        assert(CloseHandle(handle)); return id;
+    };
+    const auto store = fixedId(L".custody-v1\\store.id");
+    const CustodyContext bootstrap{store, fixedId(L".custody-v1\\bootstrap\\id.bin"), CustodyRole::bootstrap};
+    const auto queue = fixedId(L".custody-v1\\queue\\id.bin");
+    auto lease = ProtectedCustodyFiles::open(cut.root, "", bootstrap, CustodyFileAccess::readExisting); assert(lease.ok());
+    auto queueLease = ProtectedCustodyFiles::open(cut.root, "", {store, queue, CustodyRole::queue}, CustodyFileAccess::readExisting); assert(queueLease.ok());
+    const auto cancellation = std::make_shared<std::atomic<bool>>(false);
+    // Same already-open, flushed temporary file; restore its position before
+    // forwarding the original native rename. No guessed write ordinal.
+    LARGE_INTEGER zero{}, position{}, bytes{};
+    assert(SetFilePointerEx(file, zero, &position, FILE_CURRENT) && GetFileSizeEx(file, &bytes));
+    assert(bytes.QuadPart > 0 && static_cast<std::uint64_t>(bytes.QuadPart) <= ProtectedCustodyCodec::indexEnvelopeLimit(CustodyRole::bootstrap));
+    CustodyBytes envelope(static_cast<std::size_t>(bytes.QuadPart)); DWORD got = 0;
+    assert(SetFilePointerEx(file, zero, nullptr, FILE_BEGIN));
+    assert(ReadFile(file, envelope.data(), static_cast<DWORD>(envelope.size()), &got, nullptr) && got == envelope.size());
+    assert(SetFilePointerEx(file, position, nullptr, FILE_BEGIN));
+    auto index = ProtectedCustodyCodec::openIndex(bootstrap, slot, envelope); assert(index.ok());
+    auto bytesValue = graf::windows::readMetadataValue(**lease.value, bootstrap, *index.value, cancellation);
+    assert(bytesValue.ok());
+    auto candidate = readCustodyBootstrap({reinterpret_cast<const char*>(bytesValue.value->data()), bytesValue.value->size()},
+        bootstrap, index.value->generation, queue); assert(candidate.ok());
+    if (candidate.value->mode != CustodyBootstrapMode::protectedStore) return false;
+    assert(!candidate.value->transactionId && !candidate.value->subject && !candidate.value->directory);
+    auto both = (*lease.value)->readValidatedMetadataPair(); assert(both.ok());
+    std::optional<CustodyId> transaction;
+    for (const auto& previous : both.value->indices) {
+        auto plain = graf::windows::readMetadataValue(**lease.value, bootstrap, previous, cancellation); assert(plain.ok());
+        auto value = readCustodyBootstrap({reinterpret_cast<const char*>(plain.value->data()), plain.value->size()}, bootstrap, previous.generation, queue);
+        assert(value.ok());
+        assert(value.value->mode == CustodyBootstrapMode::migrating && value.value->transactionId &&
+            value.value->subject == CustodyMigrationSubject::queue && !value.value->directory);
+        if (transaction) assert(*transaction == *value.value->transactionId);
+        transaction = value.value->transactionId;
+    }
+    assert(index.value->generation == both.value->indices[both.value->selectedSlot].generation + 1 && slot == 1U - both.value->selectedSlot);
+    const CustodyContext intent{store, fixedId(L".custody-v1\\migration-intent\\id.bin"), CustodyRole::migrationIntent};
+    auto history = ProtectedCustodyFiles::open(cut.root, "", intent, CustodyFileAccess::readExisting); assert(history.ok());
+    auto historyBoth = (*history.value)->readValidatedMetadataPair(); assert(historyBoth.ok());
+    std::uint64_t queueGeneration = 0;
+    for (unsigned i = 0; i != 2; ++i) {
+        const auto& current = historyBoth.value->indices[i];
+        auto plain = graf::windows::readMetadataValue(**history.value, intent, current, cancellation); assert(plain.ok());
+        auto value = readCustodyMigration({reinterpret_cast<const char*>(plain.value->data()), plain.value->size()},
+            intent, current.generation, *transaction, CustodyMigrationSubject::queue, ""); assert(value.ok());
+        assert(value.value->stage <= CustodyMigrationStage::copiedVerified && !value.value->authorization && value.value->sourceCount == 1 &&
+            value.value->sources[0].kind == CustodyMigrationSourceKind::ledger && value.value->sources[0].destinationObjectId == queue);
+        if (i == historyBoth.value->selectedSlot) {
+            assert(value.value->stage == CustodyMigrationStage::copiedVerified && value.value->barrier);
+            queueGeneration = *value.value->sources[0].destinationGeneration;
+        }
+    }
+    assert(!cut.qualified++ && GetFileInformationByHandleEx(file, FileIdInfo, &cut.fileIdentity, sizeof(cut.fileIdentity)));
+    cut.bootstrap = bootstrap; cut.queue = {store, queue, CustodyRole::queue}; cut.intent = intent;
+    cut.transaction = *transaction; cut.generation = index.value->generation; cut.queueGeneration = queueGeneration; cut.slot = slot;
+    return true; // All observational leases/plaintext die before the actual native rename.
+}
+}
 
 namespace {
 // Only the owning test worker arms/accesses these; no MF callback touches them.
@@ -4331,6 +4457,128 @@ void nativeLegacyMigrationReadModel() {
     }
     assert(waitFor([&] { return CustodyOwnedMemory::usedBytes() == baseline; }));
 }
+void nativeInitialBootstrapAmbiguityReadModel() {
+    const auto baseline = CustodyOwnedMemory::usedBytes();
+    {
+        Fixture fixture;
+        const auto seed = seedMigrationReadModel(fixture.root, true);
+        const auto original = snapshot(fixture.root);
+        InitialBootstrapAmbiguity cut;
+        cut.root = fixture.root;
+        cut.directory = fixture.root.native();
+        if (cut.directory.substr(0, 4) != L"\\\\?\\") cut.directory = L"\\\\?\\" + cut.directory;
+        cut.directory += L"\\.custody-v1\\bootstrap";
+        assert(!initialBootstrapAmbiguity && ioCut.load() == IoCut::none);
+        initialBootstrapAmbiguity = &cut;
+        std::atomic<unsigned> wireCalls{0};
+        const DesktopHttpTransport::UploadSend wire = [&](const auto&, const auto&) {
+            ++wireCalls; return DesktopHttpTransport::UploadResponse{503, "{}"};
+        };
+        const DesktopHttpTransport::ProtectedUploadSend protectedWire = [&](const auto&, const auto&) {
+            ++wireCalls; return DesktopHttpTransport::ProtectedUploadResponse{503, "{}"};
+        };
+        {
+            NativeCapture capture(fixture.root, {std::make_shared<GeneratedAec>(), false}, wire, protectedWire);
+            capture.startStorageValidation();
+            assert(waitFor([&] { return NativeCaptureStorageTestPeer::ready(capture); }));
+            assert(cut.qualified == 1 && cut.nativeCalls == 1 && cut.nativeReturns == 1 && cut.distorted == 1 && !cut.armed);
+            assert(!NativeCaptureStorageTestPeer::opened(capture));
+            {
+                const auto work = NativeCaptureStorageTestPeer::storageWork(capture);
+                std::lock_guard<std::mutex> lock(work->mutex); assert(work->error == CustodyFileError::recoveryRequired);
+            }
+            capture.pollUploads();
+            assert(!NativeCaptureStorageTestPeer::generation(capture) && !NativeCaptureStorageTestPeer::projection(capture));
+            assert(!capture.localQueueComplete() && !capture.readiness().storageWritable && !capture.localObservation().complete);
+            assert(!capture.localObservation().value && capture.record().reason == ReasonCode::storageUnavailable);
+            capture.shutdown(); assert(waitFor([&] { capture.pollUploads(); return capture.shutdownWorkDrained(); }));
+            assert(NativeCaptureStorageTestPeer::released(capture));
+        } // No first Native owner/worker survives into observation or recovery.
+        initialBootstrapAmbiguity = nullptr;
+        const auto ambiguous = snapshot(fixture.root);
+        std::async(std::launch::async, [&] {
+            auto cancel = std::make_shared<std::atomic<bool>>(false);
+            auto lease = ProtectedCustodyFiles::open(fixture.root, "", cut.bootstrap, CustodyFileAccess::readExisting); assert(lease.ok());
+            auto both = (*lease.value)->readValidatedMetadataPair(); assert(both.ok());
+            assert(both.value->selectedSlot == cut.slot);
+            for (unsigned slot = 0; slot != 2; ++slot) {
+                const auto& index = both.value->indices[slot];
+                auto plain = graf::windows::readMetadataValue(**lease.value, cut.bootstrap, index, cancel); assert(plain.ok());
+                auto value = readCustodyBootstrap({reinterpret_cast<const char*>(plain.value->data()), plain.value->size()},
+                    cut.bootstrap, index.generation, cut.queue.objectId); assert(value.ok());
+                assert(index.generation == cut.generation - (slot == cut.slot ? 0 : 1));
+                if (slot == cut.slot) assert(value.value->mode == CustodyBootstrapMode::protectedStore && !value.value->transactionId);
+                else assert(value.value->mode == CustodyBootstrapMode::migrating && value.value->transactionId == cut.transaction &&
+                    value.value->subject == CustodyMigrationSubject::queue && !value.value->directory);
+            }
+            auto intent = ProtectedCustodyFiles::open(fixture.root, "", cut.intent, CustodyFileAccess::readExisting); assert(intent.ok());
+            auto indices = (*intent.value)->readValidatedMetadataPair(); assert(indices.ok());
+            const auto& selected = indices.value->indices[indices.value->selectedSlot];
+            auto plain = graf::windows::readMetadataValue(**intent.value, cut.intent, selected, cancel); assert(plain.ok());
+            auto value = readCustodyMigration({reinterpret_cast<const char*>(plain.value->data()), plain.value->size()},
+                cut.intent, selected.generation, cut.transaction, CustodyMigrationSubject::queue, "");
+            assert(value.ok() && value.value->stage == CustodyMigrationStage::copiedVerified && value.value->barrier && !value.value->authorization);
+        }).get();
+        assert(snapshot(fixture.root) == ambiguous);
+        Snapshot completed;
+        for (unsigned restart = 0; restart != 2; ++restart) {
+            {
+                NativeCapture cold(fixture.root, {std::make_shared<GeneratedAec>(), false}, wire, protectedWire);
+                cold.startStorageValidation();
+                assert(waitFor([&] { return NativeCaptureStorageTestPeer::ready(cold); }));
+                assert(NativeCaptureStorageTestPeer::opened(cold) && !NativeCaptureStorageTestPeer::generation(cold));
+                assert(!NativeCaptureStorageTestPeer::projection(cold) && !cold.localQueueComplete() && !cold.readiness().storageWritable);
+                cold.pollUploads(); // Only the real cold startup ACK grants admission.
+                assert(NativeCaptureStorageTestPeer::generation(cold) == cut.queueGeneration);
+                const auto value = NativeCaptureStorageTestPeer::projection(cold); assert(value && value->items().size() == 1);
+                const auto& row = value->items()[0];
+                assert(row.localRecordingId == "legacy-recording" && row.directoryId == "legacy-package" && row.sessionId == "legacy-session");
+                assert(std::string_view(row.packageDirectory) == seed.package.packageDirectory.u8string() && row.status == UploadQueueStatus::needsAuth && row.attempts == 3);
+                assert((row.acceptedBytes == std::array<std::uint64_t, 3>{11, 22, 33}) && row.safeReason == "auth_required");
+                assert(row.ownerUserId == "11111111-1111-4111-8111-111111111111" && row.ownerWorkspaceId == "22222222-2222-4222-8222-222222222222");
+                assert(value->deletionOperations().size() == 1 && value->purgeAcknowledgements().size() == 1);
+                assert(cold.localQueueComplete() && cold.readiness().storageWritable && cold.localObservation().complete);
+                cold.shutdown(); assert(waitFor([&] { cold.pollUploads(); return cold.shutdownWorkDrained(); }));
+                assert(NativeCaptureStorageTestPeer::released(cold));
+            }
+            std::async(std::launch::async, [&] {
+                auto cancel = std::make_shared<std::atomic<bool>>(false);
+                { auto owner = ProtectedCustodyStoreOwner::open(fixture.root, cancel); assert(owner.ok());
+                  assert((*owner.value)->queueContext().storeId == cut.queue.storeId && (*owner.value)->queueContext().objectId == cut.queue.objectId);
+                  auto pair = (*owner.value)->readPackage("legacy-package", cancel); assert(pair.ok());
+                  auto proof = LocalRecordingPackage::inspectProtected(fixture.root, *pair.value, "legacy-session", cancel);
+                  assert(proof.ok()); const auto& evidence = (*proof.value)->evidence();
+                  assert(evidence.integrity == PackageIntegrity::valid && evidence.manifestSessionMatched && evidence.playback.decodedFrames &&
+                      evidence.durationMs == seed.package.durationMs && evidence.startedAtMs == seed.package.startedAtMs && evidence.stoppedAtMs == seed.package.stoppedAtMs); }
+                auto bootstrap = ProtectedCustodyBootstrapPair::read(fixture.root, cancel); assert(bootstrap.ok());
+                assert((*bootstrap.value)->current().context.objectId == cut.bootstrap.objectId);
+                for (const auto& slot : (*bootstrap.value)->slots())
+                    assert(slot.mode == CustodyBootstrapMode::protectedStore && !slot.transactionId && !slot.subject && !slot.directory && slot.queueObjectId == cut.queue.objectId);
+                auto input = ProtectedCustodyQueueInput::read(*bootstrap.value, cancel); assert(input.ok());
+                for (unsigned slot = 0; slot != 2; ++slot) {
+                    const auto& bytes = (*input.value)->payloads()[slot];
+                    assert((*input.value)->indices().indices[slot].generation == cut.queueGeneration &&
+                        std::string_view(reinterpret_cast<const char*>(bytes.data()), bytes.size()) == seed.ledger);
+                } // Exact v3 bytes include every row, operation and ACK, not a rewritten v4 projection.
+                auto history = ProtectedCustodyMigrationPair::read(*bootstrap.value, cancel); assert(history.ok());
+                for (const auto& slot : (*history.value)->slots())
+                    assert(slot.context.objectId == cut.intent.objectId && slot.transactionId == cut.transaction && slot.stage == CustodyMigrationStage::switched &&
+                        slot.barrier && !slot.authorization && slot.sources[0].destinationObjectId == cut.queue.objectId && slot.sources[0].destinationGeneration == cut.queueGeneration);
+            }).get();
+            const auto disk = snapshot(fixture.root);
+            assert(disk.at(L".custody-v1\\legacy.originals\\ledger") == sha256(seed.ledger));
+            assert(disk.at(L"desktop-upload-queue.v2") == disk.at(L"desktop-upload-queue.v2.quarantine"));
+            for (const auto& names : {std::pair{L"manifest.json", L"manifest"}, std::pair{L"meeting-transcription.wav", L"media"}, std::pair{L"meeting-review.m4a", L"playback"}})
+                assert(disk.at(std::wstring(L"legacy-package\\.custody-v1\\legacy.originals\\") + names.second) == original.at(std::wstring(L"legacy-package\\") + names.first));
+            if (!restart) completed = disk;
+            else assert(disk == completed); // Stable IDs/history/bytes: no second migration transaction.
+        }
+        assert(cut.qualified == 1 && cut.nativeCalls == 1 && cut.nativeReturns == 1 && cut.distorted == 1 && !wireCalls);
+    }
+    assert(waitFor([&] { return CustodyOwnedMemory::usedBytes() == baseline; }));
+    { std::array<CustodyNativeJob, 4> jobs; for (const auto& job : jobs) assert(job); }
+    { std::array<CustodyPin, 32> pins; for (const auto& pin : pins) assert(pin); }
+}
 void nativeLegacyQuarantineReadModel() {
     const auto baseline = CustodyOwnedMemory::usedBytes();
     {
@@ -4353,6 +4601,145 @@ void nativeLegacyQuarantineReadModel() {
         }
     }
     assert(waitFor([&] { return CustodyOwnedMemory::usedBytes() == baseline; }));
+}
+
+void nativeMigratedLocalRemoval() {
+    const auto baseline = CustodyOwnedMemory::usedBytes();
+    {
+        Fixture fixture;
+        const auto seed = seedMigrationReadModel(fixture.root, true);
+        const auto original = snapshot(fixture.root);
+        const auto packagePath = fixture.root / L"legacy-package";
+        // Preserve root history/originals and queue identity, excluding only
+        // the removed package and mutable queue indices/blocks.
+        const auto fixedRootFiles = [&] {
+            auto files = snapshot(fixture.root);
+            for (auto it = files.begin(); it != files.end();) {
+                if (it->first.rfind(L"legacy-package\\", 0) == 0 ||
+                    (it->first.rfind(L".custody-v1\\queue\\", 0) == 0 && std::filesystem::path(it->first).filename() != L"id.bin"))
+                    it = files.erase(it);
+                else ++it;
+            }
+            return files;
+        };
+        const auto checkUnrelated = [](const auto& value) {
+            assert(value.deletionOperations().size() == 1 && value.purgeAcknowledgements().size() == 1);
+            const auto& op = value.deletionOperations()[0];
+            assert(op.operationId == "33333333-3333-4333-8333-333333333333" && op.target == DeletionTarget::meeting);
+            assert(op.targetId == "44444444-4444-4444-8444-444444444444" && op.actorUserId == "11111111-1111-4111-8111-111111111111" &&
+                op.workspaceId == "22222222-2222-4222-8222-222222222222");
+            assert(op.serverOrigin == "https://example.test" && static_cast<unsigned>(op.phase) == 3);
+            assert(op.requestedAtMs == 100 && op.updatedAtMs == 200 && op.attemptCount == 3 && op.nextAttemptAtMs == 300);
+            assert(op.receiptRequestId == "55555555-5555-4555-8555-555555555555" && op.safeReason == "accepted");
+            const auto& ack = value.purgeAcknowledgements()[0];
+            assert(ack.taskId == "66666666-6666-4666-8666-666666666666" && ack.meetingId == op.targetId && ack.acknowledgedAtMs == 900);
+        };
+        const DesktopHttpTransport::UploadSend account = [](const auto&, const auto& request) -> DesktopHttpTransport::UploadResponse {
+            assert(request.method == "GET");
+            if (request.path == "/desktop/settings/spaces")
+                return {200, R"({"spaces":[{"id":"22222222-2222-4222-8222-222222222222","active":true}]})"};
+            assert(request.path == "/api/v1/auth/me");
+            return {200, R"({"user_id":"11111111-1111-4111-8111-111111111111","workspace_id":"22222222-2222-4222-8222-222222222222","active_session_id":"33333333-3333-4333-8333-333333333333"})"};
+        };
+        std::atomic<unsigned> protectedHttp{0};
+        const DesktopHttpTransport::ProtectedUploadSend noHttp = [&](const auto&, const auto&) {
+            ++protectedHttp; return DesktopHttpTransport::ProtectedUploadResponse{503, "{}"};
+        };
+        CustodyContext queueContext{};
+        Snapshot fixed;
+        std::uint64_t persistedGeneration = 0;
+        {
+            NativeCapture capture(fixture.root, {std::make_shared<GeneratedAec>(), false}, account, noHttp);
+            capture.startStorageValidation();
+            assert(waitFor([&] { return NativeCaptureStorageTestPeer::ready(capture); }));
+            assert(NativeCaptureStorageTestPeer::opened(capture));
+            assert(!NativeCaptureStorageTestPeer::generation(capture) && !NativeCaptureStorageTestPeer::projection(capture));
+            assert(!capture.localQueueComplete() && !capture.readiness().storageWritable);
+            capture.pollUploads(); // Real migration startup ACK/adoption.
+            const auto initialGeneration = NativeCaptureStorageTestPeer::generation(capture); assert(initialGeneration);
+            const auto before = NativeCaptureStorageTestPeer::projection(capture); assert(before && before->items().size() == 1);
+            const auto& row = before->items()[0];
+            assert(row.localRecordingId == "legacy-recording" && row.directoryId == "legacy-package" && row.sessionId == "legacy-session");
+            assert(std::string_view(row.packageDirectory) == seed.package.packageDirectory.u8string());
+            assert(row.ownerUserId == "11111111-1111-4111-8111-111111111111" && row.ownerWorkspaceId == "22222222-2222-4222-8222-222222222222");
+            assert((row.acceptedBytes == std::array<std::uint64_t, 3>{11, 22, 33}) && row.attempts == 3 && row.status == UploadQueueStatus::needsAuth);
+            assert(row.meetingId.empty() && row.mediaRevisionId.empty() && row.uploadSessionId.empty() && !row.accessState);
+            checkUnrelated(*before);
+            assert(capture.localQueueComplete() && capture.readiness().storageWritable);
+            {
+                const auto work = NativeCaptureStorageTestPeer::storageWork(capture);
+                std::lock_guard<std::mutex> lock(work->mutex); queueContext = work->context;
+            }
+            const auto migrated = snapshot(fixture.root);
+            assert(migrated.at(L".custody-v1\\legacy.originals\\ledger") == sha256(seed.ledger));
+            assert(migrated.at(L"desktop-upload-queue.v2") == migrated.at(L"desktop-upload-queue.v2.quarantine") &&
+                migrated.at(L"desktop-upload-queue.v2") != sha256(seed.ledger));
+            for (const auto& names : {std::pair{L"manifest.json", L"manifest"}, std::pair{L"meeting-transcription.wav", L"media"}, std::pair{L"meeting-review.m4a", L"playback"}})
+                assert(migrated.at(std::wstring(L"legacy-package\\.custody-v1\\legacy.originals\\") + names.second) == original.at(std::wstring(L"legacy-package\\") + names.first));
+            fixed = fixedRootFiles();
+            const auto packageBefore = snapshot(packagePath);
+            capture.setAuthSessionToken("generated-migrated-local-removal-owner");
+            assert(waitFor([&] { NativeCaptureStorageTestPeer::pollAccount(capture); return capture.currentAccount().has_value(); }));
+            assert(!capture.requestProtectedLocalRemoval({}, "legacy-recording", capture.authGeneration()));
+            assert(!capture.requestProtectedLocalRemoval(before, "legacy-recording", capture.authGeneration() + 1));
+            assert(!capture.requestProtectedLocalRemoval(before, "legacy-recording", capture.authGeneration(), true));
+            const auto ticket = capture.requestProtectedLocalRemoval(before, "legacy-recording", capture.authGeneration()); assert(ticket);
+            assert(waitFor([&] { return NativeCaptureStorageTestPeer::resultReady(capture); }));
+            const auto intent = NativeCaptureStorageTestPeer::workerTicket(capture);
+            assert(intent.id == ticket->id && intent.kind == NativeCapture::QueueMutationKind::deletionIntent &&
+                intent.state == NativeCapture::QueueTicketState::committed && intent.error == CustodyFileError::none && intent.changed &&
+                intent.baseGeneration == initialGeneration && intent.targetGeneration == initialGeneration + 1);
+            assert(NativeCaptureStorageTestPeer::projection(capture) == before && snapshot(packagePath) == packageBefore);
+            NativeCaptureStorageTestPeer::pollStorage(capture); // Adopt local intent before physical removal.
+            const auto pending = NativeCaptureStorageTestPeer::projection(capture);
+            assert(pending && pending != before && pending->items().size() == 1 && NativeCaptureStorageTestPeer::generation(capture) == intent.targetGeneration);
+            assert(pending->items()[0].localRecordingId == row.localRecordingId && pending->items()[0].directoryId == row.directoryId &&
+                pending->items()[0].sessionId == row.sessionId && pending->items()[0].acceptedBytes == row.acceptedBytes && pending->items()[0].attempts == row.attempts);
+            assert(pending->items()[0].status == UploadQueueStatus::quarantined && pending->items()[0].safeReason == "local_delete_pending");
+            assert(pending->items()[0].meetingId.empty() && pending->items()[0].mediaRevisionId.empty() && pending->items()[0].uploadSessionId.empty());
+            checkUnrelated(*pending);
+            assert(snapshot(packagePath) == packageBefore && fixedRootFiles() == fixed && !protectedHttp.load());
+            assert(!capture.requestProtectedLocalRemoval(before, "legacy-recording", capture.authGeneration()));
+            assert(waitFor([&] { return NativeCaptureStorageTestPeer::deletionSlotRetired(capture); }));
+            std::optional<NativeCapture::DeletionCompletion> completion;
+            assert(waitFor([&] {
+                capture.pollUploads(); completion = capture.takeProtectedDeletionCompletion(ticket->id); return completion.has_value();
+            }));
+            const auto purge = capture.protectedDeletionTicket(ticket->id + 1); assert(purge);
+            assert(completion->saved && !completion->unknown && completion->accepted == 1 && !completion->pending && !completion->rejected &&
+                purge->kind == NativeCapture::QueueMutationKind::deletionPurge && purge->state == NativeCapture::QueueTicketState::committed &&
+                purge->error == CustodyFileError::none && purge->changed && purge->baseGeneration == intent.targetGeneration &&
+                purge->targetGeneration == intent.targetGeneration + 1 && !std::filesystem::exists(packagePath) &&
+                "migrated_local_removal_must_recycle_and_adopt_without_server_purge_ack");
+            assert(NativeCaptureStorageTestPeer::generation(capture) == purge->targetGeneration);
+            const auto removed = NativeCaptureStorageTestPeer::projection(capture); assert(removed && removed->items().empty());
+            checkUnrelated(*removed); checkUnrelated(*before);
+            assert(before->items()[0].status == UploadQueueStatus::needsAuth && fixedRootFiles() == fixed && !protectedHttp.load());
+            assert(waitFor([&] { capture.pollUploads(); return capture.localQueueComplete() && capture.readiness().storageWritable; }));
+            capture.shutdown(); assert(waitFor([&] { capture.pollUploads(); return capture.shutdownWorkDrained(); }));
+            assert(NativeCaptureStorageTestPeer::released(capture));
+            persistedGeneration = NativeCaptureStorageTestPeer::generation(capture);
+        }
+        assert(!std::filesystem::exists(packagePath) && fixedRootFiles() == fixed);
+        const auto beforeCold = snapshot(fixture.root);
+        {
+            NativeCapture cold(fixture.root, {std::make_shared<GeneratedAec>(), false}, account, noHttp);
+            startAndAdopt(cold, persistedGeneration);
+            const auto value = NativeCaptureStorageTestPeer::projection(cold); assert(value && value->items().empty());
+            checkUnrelated(*value);
+            {
+                const auto work = NativeCaptureStorageTestPeer::storageWork(cold);
+                std::lock_guard<std::mutex> lock(work->mutex);
+                assert(work->context.storeId == queueContext.storeId && work->context.objectId == queueContext.objectId && work->context.role == queueContext.role);
+            }
+            assert(cold.localQueueComplete() && cold.readiness().storageWritable && !std::filesystem::exists(packagePath));
+            cold.shutdown(); assert(waitFor([&] { cold.pollUploads(); return cold.shutdownWorkDrained(); }));
+            assert(NativeCaptureStorageTestPeer::released(cold));
+        }
+        assert(snapshot(fixture.root) == beforeCold && fixedRootFiles() == fixed && !protectedHttp.load());
+    }
+    assert(waitFor([&] { return CustodyOwnedMemory::usedBytes() == baseline; }));
+    std::fputs("NATIVE_MIGRATED_LOCAL_REMOVAL intent_adopted=1 actual_recycle=1 purge_adopted=1 cold=1 root_history_unchanged=1 originals_retained=1 unrelated_ops_ack_unchanged=1 device_audio=0 real_network=0\n", stderr);
 }
 
 void unknownRootIsPreserved() {
@@ -9661,6 +10048,7 @@ int main(int argc, char** argv) {
         return 0;
     }
     if (argc == 2 && std::string_view(argv[1]) == "--protected-local-removal") {
+        nativeMigratedLocalRemoval();
         protectedLocalPurge(true);
         assert(waitFor([] { return CustodyOwnedMemory::usedBytes() == idleOwnedBytes; }));
         return 0;
@@ -9728,6 +10116,7 @@ int main(int argc, char** argv) {
     if (argc == 2 && std::string_view(argv[1]) == "--protected-read-model") {
         birthAndRestart();
         nativeLegacyMigrationReadModel();
+        nativeInitialBootstrapAmbiguityReadModel();
         nativeLegacyQuarantineReadModel();
         unknownRootIsPreserved();
         recoveryCommitAndRestart();

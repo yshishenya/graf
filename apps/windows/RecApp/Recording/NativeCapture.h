@@ -917,29 +917,8 @@ public:
         pollProtectedDeletion(); // Retained answers drain even after exit/update closed admission.
         resumeProtectedLocalDeletion();
         pollRecordingLifecycle();
-        if (storageStartup_ && protectedQueueValue_) {
-            if (!shuttingDown_ && !exitAdmissionBlocked_ && !updateAdmissionBlocked_ && pendingRecovery_)
-                requestProtectedUpload();
-            return; // A protected root never falls through to the old plaintext queue.
-        }
-        if (exitAdmissionBlocked_) { (void)scheduler_.drain(); return; } // Cancelled completion only; never new work.
-        if (shuttingDown_ || !localQueueComplete()) return;
-        const native_capture_detail::CustodyMutationScope mutation(synchronousMutations_);
-        (void)scheduler_.drain();
-        if (!currentAccount_) return;
-        if (shuttingDown_ || updateAdmissionBlocked_ || scheduler_.busy() || !pendingRecovery_) return;
-        graf::windows::DesktopHttpConfig config;
-        config.sessionToken = authSessionToken_;
-        config.workspaceId = currentAccount_->workspaceId;
-        // The workspace was verified by /auth/me. No fabricated device identity.
-        // The confirmed account travels with the flight so a retry does not ask
-        // /auth/me again; setAuthSessionToken clears it before any new upload.
-        config.confirmedIdentity = currentAccount_;
-        const auto trigger = *pendingRecovery_;
-        pendingRecovery_.reset();
-        // Failed dispatch is retried by the bounded 30-second recovery timer;
-        // an empty queue must not repeatedly requeue auth states on every UI tick.
-        (void)scheduler_.startAsync(trigger, std::move(config));
+        if (storageStartup_ && protectedQueueValue_ && !shuttingDown_ && !exitAdmissionBlocked_ &&
+            !updateAdmissionBlocked_ && pendingRecovery_) requestProtectedUpload();
     }
     void requestShutdown() {
         if (exitAdmissionBlocked_) return;

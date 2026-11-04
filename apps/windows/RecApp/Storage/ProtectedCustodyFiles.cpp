@@ -123,12 +123,13 @@ struct ProtectedCustodyFiles::State {
     LocalMemory descriptor;
     SECURITY_ATTRIBUTES security{sizeof(SECURITY_ATTRIBUTES), nullptr, FALSE};
     struct Directory {
-        std::filesystem::path path; bool privateDirectory; Handle handle;
+        std::filesystem::path path; bool privateDirectory; Handle handle; bool migrationOnly = false;
         Directory() = default;
-        Directory(const std::filesystem::path& p, bool privateDir, Handle&& h)
-            : path(p), privateDirectory(privateDir), handle(std::move(h)) {}
+        Directory(const std::filesystem::path& p, bool privateDir, Handle&& h, bool migration)
+            : path(p), privateDirectory(privateDir), handle(std::move(h)), migrationOnly(migration) {}
         Directory(Directory&& other)
-            : Directory(other.path, other.privateDirectory, std::move(other.handle)) {}
+            : Directory(other.path, other.privateDirectory, std::move(other.handle), other.migrationOnly) {}
+        Directory& operator=(Directory&&) noexcept = default;
     };
     std::vector<Directory> directories;
     std::filesystem::path trustedRoot;
@@ -284,7 +285,7 @@ struct ProtectedCustodyFiles::State {
         if (!inspect(file.value, path, false, true)) return failure<Handle>(CustodyFileError::unsafeFile);
         return success(std::move(file));
     }
-    CustodyFileResult<bool> lockDirectory(const std::filesystem::path& path, bool privateDirectory, bool create) {
+    CustodyFileResult<bool> lockDirectory(const std::filesystem::path& path, bool privateDirectory, bool create, bool migrationOnly = false) {
         const auto apiPath = win32Path(path);
         if (create && !CreateDirectoryW(apiPath.c_str(), &security) && GetLastError() != ERROR_ALREADY_EXISTS)
             return failure<bool>(CustodyFileError::ioFailed, GetLastError());
@@ -296,7 +297,7 @@ struct ProtectedCustodyFiles::State {
             OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
         if (!dir.valid()) return failure<bool>(CustodyFileError::ioFailed, GetLastError());
         if (!inspect(dir.value, path, true, privateDirectory)) return failure<bool>(CustodyFileError::unsafePath);
-        directories.emplace_back(path, privateDirectory, std::move(dir)); return success(true);
+        directories.emplace_back(path, privateDirectory, std::move(dir), migrationOnly); return success(true);
     }
     CustodyFileResult<bool> identityValue(HANDLE file, const CustodyId* expected, CustodyId& observed) const {
         LARGE_INTEGER size{}; DWORD got = 0; CustodyId actual{};
@@ -568,6 +569,10 @@ CustodyFileResult<CustodyBytes> ProtectedCustodyFiles::readMigrationQueue() cons
 
 void ProtectedCustodyFiles::retireMigrationQueueSource() noexcept {
 #ifdef _WIN32
+    // Package fences belong to migration, not to the admitted store owner.
+    auto& directories = state_->directories;
+    directories.erase(std::remove_if(directories.begin(), directories.end(),
+        [](const State::Directory& directory) noexcept { return directory.migrationOnly; }), directories.end());
     state_->migrationSource.close();
     state_->migrationCounting=false;
     for (auto& barrier:state_->migrationBarriers) barrier.close();
@@ -735,7 +740,7 @@ CustodyFileResult<std::unique_ptr<ProtectedCustodyFiles>> ProtectedCustodyFiles:
         if (name.empty() || name.size() > 300 || !std::all_of(name.begin(), name.end(), [](wchar_t c) {
             return (c >= L'a' && c <= L'z') || (c >= L'A' && c <= L'Z') || (c >= L'0' && c <= L'9') || c == L'_' || c == L'-';
         })) return failure<bool>(CustodyFileError::recoveryRequired);
-        auto locked = state->lockDirectory(path, false, false); if (!locked.ok()) return locked;
+        auto locked = state->lockDirectory(path, false, false, true); if (!locked.ok()) return locked;
         return state->eachChild(path, cancellation, [&](std::wstring_view file, bool dir) {
             if (dir && file == L".custody-v1") return success(true); // Discovery only; package reconciliation owns validation.
             if (dir || (file != L"manifest.json" && file != L"meeting-transcription.wav" && file != L"meeting-review.m4a" &&
@@ -786,7 +791,7 @@ CustodyFileResult<std::unique_ptr<ProtectedCustodyFiles>> ProtectedCustodyFiles:
         const auto path = std::filesystem::u8path(row.packageDirectory.begin(), row.packageDirectory.end());
         const auto expected = root / std::filesystem::u8path(row.directoryId.begin(), row.directoryId.end());
         if (path != expected || !AtomicFileStore::isWithinRoot(root, path)) return failure<Result>(CustodyFileError::unsafePath);
-        auto locked = held->state_->lockDirectory(expected, false, false);
+        auto locked = held->state_->lockDirectory(expected, false, false, true);
         if (!locked.ok()) return failure<Result>(locked.error, locked.nativeError);
     }
     const auto service = root / L".custody-v1";

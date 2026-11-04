@@ -2146,3 +2146,118 @@ project-pinned CLI1.0.7; первый вызов governance без pinned PATH �
 Скрипт prerequisites этой закреплённой версии не знает --require-spec;
 повтор с поддерживаемыми --require-tasks/--include-tasks и отдельной проверкой
 наличия spec.md подтвердил тот же каталог F200, инструменты не менялись.
+
+## 2026-11-04 — checkpoint и initial authority-switch ambiguity
+
+Промежуточный этап сохранён и отправлен:
+`d4bb3f59be5621459b0918c246800c8d31e73ba7`. PR7331 остаётся draft, описание
+сверено с exact HEAD; metadata отказывает только на истёкшем исключении,
+которое не продлевалось. Postcommit project-pinned governance прошёл.
+
+В следующем срезе из pollUploads удалён недостижимый plaintext upload tail.
+localQueueComplete требует protected startup/projection, при которых прежняя
+ветка уже возвращала управление. Старый exit drain был достижим, но без
+создаваемого legacy flight возвращал0; protected retire/cancel/admission
+сохранены. Независимое source review — C0/H0. Общие legacy APIs и их test-only
+обращения пока остаются, полное retirement этим удалением не заявляется.
+
+Добавлен generated initial-switch тест: fixed native paths/IDs и CNG codec
+аутентифицируют bootstrap candidate, ожидаемый transaction берётся из BOTH
+ранее принятого migrating bootstrap. Qualifier проверяет kind10, exact target,
+next generation и copied_verified intent. Выполняется настоящий native rename;
+только после return0/io.Status0 и подтверждения file ID/final path один раз
+подменяется io.Status на0xC0000022, исходный return и LastError сохраняются.
+Generic ambiguousRename выключен. Первый Native отказывает без admission;
+после полного drain два cold startup восстанавливают те же store/queue/intent
+IDs/transaction, exact v3 bytes, package bytes и retained originals.
+Это in-process ambiguous completion, не доказательство power-loss durability.
+
+Main собрал существующие NativeCaptureStartupTests и Native storage target:
+build0, host0/CTest0, 2/2 PASS — startup0,25s и read-model27,61s, всего27,88s.
+Native SHA256 `2d56774a0ad9fb32a843c11769097171903508db754ec642846e984fa4b36357`,
+тест `1b6647ff5e74c1772610c4ddb79ca8b9620eb09b10de369c5c0edc5867c260c6`.
+Source225 совпадает с Main; все прежние23 PE после build стабильны, посторонние
+22 не менялись. Отдельно built/postflight совпал новый Startup EXE. Единственная
+разница configuration110 — появилась command ранее не собранного Startup
+target: Main удалил именно её из after JSON и сравнил весь объект с before.
+Оставшиеся30 команд отсутствуют как прежде и PASS не засчитываются.
+Installed0.1.0.15 сохранён; own0/build0/no-force, runtime encoding receipt нет.
+Result SHA256 `2de6ac13c676cd03845a8a78c43e0c8d27195da0b00fa14cae2a25458bd7a2f8`.
+
+## 2026-11-04 — реальный отказ migrated local removal и lifetime migration fences
+
+В существующий NativeProtectedLocalRemoval добавлен generated сценарий:
+обычный Native startup переносит v3/WAV/AAC seed, принимает startup ACK,
+проверяет владельца через искусственный transport, сохраняет и принимает
+local_delete_pending до OS effect, затем проверяет actual recycle, adoption
+и cold restart. Root migration history/original ledger, gate/sentinel,
+посторонние deletion operation/ACK должны оставаться неизменными; local removal
+не создаёт server purge ACK. Device audio и реальная сеть не используются.
+
+Сценарий выявил настоящий отказ: intent принят (generation1→2), но purge
+возвращал unchanged generation2, pending1/accepted0, пакет оставался на месте.
+Несколько последовательных диагностических запусков сохранены как FAIL,
+а не PASS. Проверка пути прошла; различие plain/extended path не выявлено.
+Настоящий CoInitializeEx(STA) вернул S_OK, поэтому гипотезы MAX_PATH и COM
+не приняты. PreDelete подтвердил exact source identity и recycle flag;
+PostDelete получил0x80270027 без destination, PerformOperations0x80004004.
+Безопасный sink отклонил операцию; permanent fallback не выполнялся.
+
+Разбор lifetime выявил собственные deny-delete handles: queue migration
+открывала package directory в inventory и повторно для ledger row,
+сохраняла оба в root State::directories и передавала root ordinary owner.
+retireMigrationQueueSource закрывал source/barriers, но оставлял эти handles.
+В кандидате помечены ровно два вида временных package guards; существующая
+точка retirement удаляет все помеченные entries после завершения migration.
+Root/ancestor/service/legacy-originals guards и sharing flags не ослаблены.
+Move сохраняет метку, erase использует noexcept move assignment без выделения
+памяти. Все ранние отказы сохраняют RAII и не возвращают admitted owner;
+финальная cold validation обязательна. Временная диагностика из production
+DesktopLocalPurgeService и тестов удалена. Независимая SOURCE оценка C0/H0;
+runtime результат этого кандидата фиксируется отдельным следующим разделом.
+
+## 2026-11-04 — native migrated removal: исправление проверено
+
+Кандидат Native SHA256 `2d56774a0ad9fb32a843c11769097171903508db754ec642846e984fa4b36357`,
+Files `3746d43e2cc93011d2c99c88dc546b94844976f524c0bf00cde42b89034c60da`,
+test `799b63492f3464227bceed861827d16465bce9133b2d5a942d188ab40774d24d`.
+Main: build0/host0/CTest0, NativeProtectedLocalRemoval1/1 PASS64,18s.
+Новый migrated сценарий подтвердил intent_adopted/actual_recycle/purge_adopted/
+cold=1; прежние modes0–8 завершились. Mode8 сохранил внешний deny-delete,
+затем после release восстановил удаление и cold queue. Проверка exact source
+identity, существующие RUN_SERIAL/timeout240s/команда не менялись.
+
+Независимое source/runtime review — scoped GO, C0/H0: 10/10 frozen inputs,
+source225 совпадают с Main, configuration110 до/после равна baseline;
+из24 PE изменился только целевой NativeCaptureStorageIntegrationTests,
+посторонние23 сохранены. Built/postflight hashes совпали, attributes сохранены,
+installed0.1.0.15/EXE e6094e4d… неизменён, own0/build0/no-force.
+Result SHA256 `a80a9435f39b1947e3fabcf7f1b6c2c87731806bd79acd5cef3da3ddd8f4e0fb`.
+Runtime encoding receipt и product PASS не заявляются. Startup/readmodel и
+migration-pair относятся к отдельному следующему запуску на тех же исходниках.
+
+На checkpoint d4bb3f59be5621459b0918c246800c8d31e73ba7 GitHub подтвердил
+SUCCESS governance-fast, macos-pr и Swift build/tests. pr-metadata остаётся
+FAIL из-за истёкшего legacy exception; исключение не продлевается. Эти CI
+результаты относятся только к checkpoint и не переносятся на будущий коммит.
+
+## 2026-11-04 — повторная проверка startup/read-model/migration-pair после lifetime fix
+
+На тех же source225 и Native/Files/test SHA предыдущего раздела Main собрал
+ProtectedCustodyFilesTests и NativeCaptureStartupTests. Build0/host0;
+CTest0, NativeCaptureStartupTests и NativeProtectedReadModel2/2 PASS26,49s.
+Затем отдельный существующий ProtectedCustodyFilesTests --migration-pair
+завершился exit0 с linked_end и protected_end. Проверены обе schema и оба
+subject, fault/allocation/cancellation matrix; native фабрики отчитались
+515/535 allocation/cancel cuts с повторным открытием. Чужие процессы не
+завершались, новые тестовые команды/таймауты в CMake не добавлялись.
+
+Main отдельно сверил frozen inputs, все225 исходных хешей с рабочей копией,
+configuration110 до/после и24 PE: built/postflight одинаковы, менялись только
+два собранных target; посторонние22 PE неизменны. Installed0.1.0.15/EXE e6094e4d…
+сохранён, attributes сохранены, terminal own0/build0/no-force.
+Result SHA256 `c835b305f0dc7f8442c68fb4213561ff6e7f503f41fcec07a8e923c608bea1df`.
+Governance прошёл с project-pinned PATH. Первый doctor без PATH выбрал
+глобальный CLI1.2.6 и отказал; повтор с pinned CLI1.0.7 — doctor OK.
+Это принятие узкого исправления; T117/T118, installed acceptance, настоящий
+сервер и аппаратные gates остаются открытыми, задачи/reviewer markers не менялись.
