@@ -11,6 +11,7 @@ namespace graf::windows {
 class ProtectedCustodyStoreOwner;
 class ProtectedCustodyQueueMigration;
 class ProtectedCustodyRecordingPackage;
+class ProtectedUploadQueueValue;
 struct CustodyMetadataCommit;
 struct CustodyMigrationValue;
 #ifdef _WIN32
@@ -154,6 +155,15 @@ private:
         const std::filesystem::path&, std::shared_ptr<const std::atomic<bool>>, CustodyBytes&,
         unsigned& roles, bool& envelopes);
     [[nodiscard]] CustodyFileResult<CustodyBytes> readMigrationQueue() const;
+    // Volatile final-child proof only; never package/content/cleanup authority.
+    [[nodiscard]] CustodyFileResult<bool> validateQueuePackages(const ProtectedUploadQueueValue&,
+        std::shared_ptr<const std::atomic<bool>>, bool migration, CustodyVector<CustodyString>& absent) const;
+    [[nodiscard]] CustodyFileResult<bool> validateQueueAbsences(const CustodyVector<CustodyString>&,
+        std::shared_ptr<const std::atomic<bool>>) const;
+    [[nodiscard]] CustodyFileResult<bool> captureMigrationAbsences(const ProtectedUploadQueueValue&,
+        std::shared_ptr<const std::atomic<bool>>);
+    [[nodiscard]] CustodyFileResult<bool> validateMigrationAbsences() const;
+    [[nodiscard]] CustodyFileResult<bool> releaseMigrationAbsences();
     [[nodiscard]] CustodyFileResult<bool> installQueueMigrationBarriers(
         const CustodyMigrationValue&, const CustodyBytes&, std::shared_ptr<const std::atomic<bool>>, bool publish);
     void retireMigrationQueueSource() noexcept;

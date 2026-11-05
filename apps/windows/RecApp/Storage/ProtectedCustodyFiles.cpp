@@ -149,10 +149,13 @@ struct ProtectedCustodyFiles::State {
     FILE_ID_INFO migrationSourceId{};
     FILE_BASIC_INFO migrationSourceTimes{};
     std::uint64_t migrationSourceBytes = 0;
+    std::optional<std::array<std::uint8_t,32>> migrationSourceHash;
+    CustodyVector<CustodyString> migrationAbsences;
+    mutable bool absenceConflict = false;
 
 
     explicit State(const std::filesystem::path& root)
-        : directory(root), tokenUser(std::size_t{0}), directories(std::size_t{0}), trustedRoot(root) {}
+        : directory(root), tokenUser(std::size_t{0}), directories(std::size_t{0}), trustedRoot(root), migrationAbsences(std::size_t{0}) {}
 
     const State& storeState() const noexcept { return rootLease ? rootLease->state_->storeState() : *this; }
 
@@ -349,6 +352,9 @@ struct ProtectedCustodyFiles::State {
         return success(true);
     }
     CustodyFileResult<bool> openRole(CustodyFileAccess access, bool discover) {
+        if (access==CustodyFileAccess::createNew) {
+            auto absent=checkMigrationAbsences(); if (!absent.ok()) return absent;
+        }
         directory /= roleName(context.role);
         const auto apiPath = win32Path(directory);
         if (access == CustodyFileAccess::createNew && !CreateDirectoryW(apiPath.c_str(), &security)) {
@@ -370,7 +376,7 @@ struct ProtectedCustodyFiles::State {
     }
     template<class Visit>
     CustodyFileResult<bool> eachChild(const std::filesystem::path& parent,
-        const std::shared_ptr<const std::atomic<bool>>& cancel, Visit visit) const {
+        const std::shared_ptr<const std::atomic<bool>>& cancel, Visit visit, bool requireComplete = false) const {
         if (cancel->load()) return failure<bool>(CustodyFileError::ioFailed, ERROR_OPERATION_ABORTED);
         auto pattern = parent;
         pattern /= L"*";
@@ -382,7 +388,7 @@ struct ProtectedCustodyFiles::State {
         } find{FindFirstFileExW(apiPath.c_str(), FindExInfoBasic, &data, FindExSearchNameMatch, nullptr, 0)};
         if (find.value == INVALID_HANDLE_VALUE) {
             const auto error = GetLastError();
-            return error == ERROR_FILE_NOT_FOUND ? success(true) : failure<bool>(CustodyFileError::ioFailed, error);
+            return !requireComplete && error == ERROR_FILE_NOT_FOUND ? success(true) : failure<bool>(CustodyFileError::ioFailed, error);
         }
         do {
             if (cancel->load()) return failure<bool>(CustodyFileError::ioFailed, ERROR_OPERATION_ABORTED);
@@ -395,6 +401,66 @@ struct ProtectedCustodyFiles::State {
         } while (FindNextFileW(find.value, &data));
         const auto error = GetLastError();
         return error == ERROR_NO_MORE_FILES ? success(true) : failure<bool>(CustodyFileError::ioFailed, error);
+    }
+    static bool sameChild(std::wstring_view child, std::string_view name) noexcept {
+        if (name.empty() || name.size()>300 || child.size()!=name.size()) return false;
+        wchar_t wide[300];
+        for (std::size_t i=0;i<name.size();++i) wide[i]=static_cast<unsigned char>(name[i]);
+        return CompareStringOrdinal(child.data(),static_cast<int>(child.size()),wide,static_cast<int>(name.size()),TRUE)==CSTR_EQUAL;
+    }
+    // Native enumeration succeeds completely under the same retained parent.
+    // It never translates a failed child/ancestor open into proof of absence.
+    template<class Visit>
+    CustodyFileResult<bool> queueChildren(const std::shared_ptr<const std::atomic<bool>>& cancel, Visit visit) const {
+        if (!cancel || cancel->load()) return failure<bool>(CustodyFileError::ioFailed,ERROR_OPERATION_ABORTED);
+        const auto& root=storeState();
+        const auto found=std::find_if(root.directories.begin(),root.directories.end(),[&](const Directory& heldDirectory) {
+            return heldDirectory.path==root.trustedRoot;
+        });
+        if (found==root.directories.end()) return failure<bool>(CustodyFileError::identityMismatch);
+        const auto check=[&](FILE_ID_INFO& identity)->CustodyFileResult<bool> {
+            if (cancel->load()) return failure<bool>(CustodyFileError::ioFailed,ERROR_OPERATION_ABORTED);
+            for (const auto& heldDirectory:root.directories)
+                if (!root.inspect(heldDirectory.handle.value,heldDirectory.path,true,heldDirectory.privateDirectory)) return failure<bool>(CustodyFileError::unsafePath);
+            if (!GetFileInformationByHandleEx(found->handle.value,FileIdInfo,&identity,sizeof(identity)))
+                return failure<bool>(CustodyFileError::ioFailed,GetLastError());
+            return success(true);
+        };
+        FILE_ID_INFO before{},after{};
+        auto checked=check(before); if (!checked.ok()) return checked;
+        checked=root.eachChild(root.trustedRoot,cancel,visit,true); if (!checked.ok()) return checked;
+        checked=check(after); if (!checked.ok()) return checked;
+        return before.VolumeSerialNumber==after.VolumeSerialNumber &&
+            !std::memcmp(before.FileId.Identifier,after.FileId.Identifier,sizeof(before.FileId.Identifier))
+            ? success(true) : failure<bool>(CustodyFileError::identityMismatch);
+    }
+    CustodyFileResult<bool> checkAbsences(const CustodyVector<CustodyString>& names,
+        const std::shared_ptr<const std::atomic<bool>>& cancel) const {
+        if (storeState().absenceConflict) return failure<bool>(CustodyFileError::conflict,ERROR_ALREADY_EXISTS);
+        if (names.empty()) return success(true);
+        return queueChildren(cancel,[&](std::wstring_view child,bool) {
+            for (const auto& name:names) if (sameChild(child,name)) {
+                storeState().absenceConflict=true; // Never rebuild/forget an observed appearance in this pass.
+                return failure<bool>(CustodyFileError::conflict,ERROR_ALREADY_EXISTS);
+            }
+            return success(true);
+        });
+    }
+    CustodyFileResult<bool> checkMigrationAbsences() const {
+        const auto& root=storeState();
+        auto checked=root.checkAbsences(root.migrationAbsences,root.cancellation); if (!checked.ok()) return checked;
+        if (root.migrationAbsences.empty() || !root.migrationSource.valid()) return success(true); // Source retired; keep namespace proof until Owner return.
+        if (!root.migrationSourceHash || !root.inspect(root.migrationSource.value,root.migrationSourcePath,false,false))
+            return failure<bool>(CustodyFileError::unsafeFile);
+        FILE_ID_INFO identity{}; FILE_BASIC_INFO times{}; LARGE_INTEGER size{};
+        if (!GetFileInformationByHandleEx(root.migrationSource.value,FileIdInfo,&identity,sizeof(identity)) ||
+            !GetFileInformationByHandleEx(root.migrationSource.value,FileBasicInfo,&times,sizeof(times)) || !GetFileSizeEx(root.migrationSource.value,&size))
+            return failure<bool>(CustodyFileError::ioFailed,GetLastError());
+        return identity.VolumeSerialNumber==root.migrationSourceId.VolumeSerialNumber &&
+            !std::memcmp(identity.FileId.Identifier,root.migrationSourceId.FileId.Identifier,sizeof(identity.FileId.Identifier)) &&
+            times.LastWriteTime.QuadPart==root.migrationSourceTimes.LastWriteTime.QuadPart && times.ChangeTime.QuadPart==root.migrationSourceTimes.ChangeTime.QuadPart &&
+            size.QuadPart>=0 && static_cast<std::uint64_t>(size.QuadPart)==root.migrationSourceBytes
+            ? success(true) : failure<bool>(CustodyFileError::identityMismatch);
     }
     CustodyFileResult<Handle> create(const std::filesystem::path& path, const std::uint8_t* bytes,
                                     std::uint32_t size, bool renameable = false) const {
@@ -518,11 +584,95 @@ CustodyFileResult<std::unique_ptr<ProtectedCustodyFiles>> ProtectedCustodyFiles:
     return failure<std::unique_ptr<ProtectedCustodyFiles>>(CustodyFileError::unsafePath);
 }
 
+CustodyFileResult<bool> ProtectedCustodyFiles::validateQueuePackages(const ProtectedUploadQueueValue& queue,
+    std::shared_ptr<const std::atomic<bool>> cancellation, bool migration, CustodyVector<CustodyString>& absent) const try {
+#ifndef _WIN32
+    (void)queue; (void)cancellation; (void)migration; (void)absent; return failure<bool>(CustodyFileError::unsupportedPlatform);
+#else
+    if (!cancellation || !absent.empty()) return failure<bool>(CustodyFileError::invalidInput);
+    const auto generic=[](const auto& row) {
+        return row.status==UploadQueueStatus::quarantined && row.safeReason!="capture_prepared" &&
+            row.safeReason!="capture_owner_unknown" && row.safeReason!="local_delete_pending";
+    };
+    // Cold ordinary admission checks generic missing rows only. Its existing
+    // interrupted Start/deletion rules are not replaced by a global directory requirement.
+    if (!migration && std::none_of(queue.items().begin(),queue.items().end(),generic)) return success(true);
+    CustodyVector<std::uint8_t> seen(queue.items().size(),0);
+    for (const auto& row:queue.items()) if (migration || generic(row)) {
+        const auto path=std::filesystem::u8path(row.packageDirectory.begin(),row.packageDirectory.end());
+        const auto expected=state_->trustedRoot/std::filesystem::u8path(row.directoryId.begin(),row.directoryId.end());
+        if (path!=expected || !AtomicFileStore::isWithinRoot(state_->trustedRoot,path)) return failure<bool>(CustodyFileError::unsafePath);
+    }
+    auto checked=state_->queueChildren(cancellation,[&](std::wstring_view child,bool directory) {
+        for (std::size_t i=0;i<queue.items().size();++i) {
+            const auto& row=queue.items()[i];
+            if ((migration || generic(row)) && State::sameChild(child,row.directoryId)) {
+                if (!directory || seen[i]) return failure<bool>(CustodyFileError::conflict);
+                seen[i]=1;
+            }
+        }
+        return success(true);
+    });
+    if (!checked.ok()) return checked;
+    for (std::size_t i=0;i<queue.items().size();++i) {
+        const auto& row=queue.items()[i];
+        if (seen[i] || (!migration && !generic(row))) continue;
+        if (!generic(row) || queue.deletionBlocks(row)) return failure<bool>(CustodyFileError::recoveryRequired);
+        for (const auto& operation:queue.deletionOperations())
+            if (operation.phase!=DeletionOperationPhase::rejected &&
+                ((operation.target==DeletionTarget::ownOrigin && operation.targetId==row.directoryId) ||
+                 (operation.target==DeletionTarget::meeting && operation.targetId==row.meetingId)))
+                return failure<bool>(CustodyFileError::recoveryRequired); // Independent of actor/workspace.
+        absent.push_back(row.directoryId);
+    }
+    return validateQueueAbsences(absent,std::move(cancellation));
+#endif
+} catch (const std::bad_alloc&) { return failure<bool>(CustodyFileError::allocationFailed); }
+  catch (const std::filesystem::filesystem_error&) { return failure<bool>(CustodyFileError::unsafePath); }
+
+CustodyFileResult<bool> ProtectedCustodyFiles::validateQueueAbsences(const CustodyVector<CustodyString>& absent,
+    std::shared_ptr<const std::atomic<bool>> cancellation) const try {
+#ifndef _WIN32
+    (void)absent; (void)cancellation; return failure<bool>(CustodyFileError::unsupportedPlatform);
+#else
+    return state_->checkAbsences(absent,cancellation);
+#endif
+} catch (const std::bad_alloc&) { return failure<bool>(CustodyFileError::allocationFailed); }
+
+CustodyFileResult<bool> ProtectedCustodyFiles::validateMigrationAbsences() const try {
+#ifndef _WIN32
+    return failure<bool>(CustodyFileError::unsupportedPlatform);
+#else
+    return state_->checkMigrationAbsences();
+#endif
+} catch (const std::bad_alloc&) { return failure<bool>(CustodyFileError::allocationFailed); }
+
+CustodyFileResult<bool> ProtectedCustodyFiles::captureMigrationAbsences(const ProtectedUploadQueueValue& queue,
+    std::shared_ptr<const std::atomic<bool>> cancellation) {
+#ifndef _WIN32
+    (void)queue; (void)cancellation; return failure<bool>(CustodyFileError::unsupportedPlatform);
+#else
+    return validateQueuePackages(queue,std::move(cancellation),false,state_->migrationAbsences);
+#endif
+}
+
+CustodyFileResult<bool> ProtectedCustodyFiles::releaseMigrationAbsences() try {
+#ifdef _WIN32
+    if (state_->migrationAbsences.empty()) return success(true);
+    CustodyVector<CustodyString> released(std::size_t{0});
+    auto checked=validateMigrationAbsences(); if (!checked.ok()) return checked;
+    state_->migrationAbsences.swap(released);
+    state_->migrationSourceHash.reset();
+#endif
+    return success(true);
+} catch (const std::bad_alloc&) { return failure<bool>(CustodyFileError::allocationFailed); }
+
 CustodyFileResult<CustodyBytes> ProtectedCustodyFiles::readMigrationQueue() const try {
 #ifndef _WIN32
     return failure<CustodyBytes>(CustodyFileError::unsupportedPlatform);
 #else
     if (!state_->migrationSource.valid() || !state_->cancellation) return failure<CustodyBytes>(CustodyFileError::invalidInput);
+    auto absence=validateMigrationAbsences(); if (!absence.ok()) return failure<CustodyBytes>(absence.error,absence.nativeError);
     const auto& path = state_->migrationSourcePath;
     const auto check = [&]() -> CustodyFileResult<bool> {
         if (state_->cancellation->load()) return failure<bool>(CustodyFileError::ioFailed, ERROR_OPERATION_ABORTED);
@@ -563,6 +713,12 @@ CustodyFileResult<CustodyBytes> ProtectedCustodyFiles::readMigrationQueue() cons
     if (!ReadFile(state_->migrationSource.value, &extra, 1, &got, nullptr)) return failure<CustodyBytes>(CustodyFileError::ioFailed, GetLastError());
     if (got) return failure<CustodyBytes>(CustodyFileError::invalidContent);
     checked = check(); if (!checked.ok()) return failure<CustodyBytes>(checked.error, checked.nativeError);
+    if (state_->migrationSourceHash) {
+        const auto hash=custody_detail::digest(bytes.data(),bytes.size());
+        if (!hash) return failure<CustodyBytes>(CustodyFileError::hashFailed);
+        if (*hash!=*state_->migrationSourceHash) return failure<CustodyBytes>(CustodyFileError::identityMismatch);
+    }
+    absence=validateMigrationAbsences(); if (!absence.ok()) return failure<CustodyBytes>(absence.error,absence.nativeError);
     return success(std::move(bytes));
 #endif
 } catch (const std::bad_alloc&) { return failure<CustodyBytes>(CustodyFileError::allocationFailed); }
@@ -786,11 +942,18 @@ CustodyFileResult<std::unique_ptr<ProtectedCustodyFiles>> ProtectedCustodyFiles:
         return failure<Result>(CustodyFileError::invalidContent);
     auto decoded = ProtectedCustodyStoreOwner::decodeMigrationQueue(plaintext, cancellation.get());
     if (!decoded.ok()) return failure<Result>(decoded.error, decoded.nativeError);
+    checked=held->validateQueuePackages(**decoded.value,cancellation,true,held->state_->migrationAbsences);
+    if (!checked.ok()) return failure<Result>(checked.error,checked.nativeError);
+    if (!held->state_->migrationAbsences.empty()) {
+        held->state_->migrationSourceHash=custody_detail::digest(bytes.value->data(),bytes.value->size());
+        if (!held->state_->migrationSourceHash) return failure<Result>(CustodyFileError::hashFailed);
+    }
     for (const auto& row : (*decoded.value)->items()) {
         if (cancellation->load()) return failure<Result>(CustodyFileError::ioFailed, ERROR_OPERATION_ABORTED);
         const auto path = std::filesystem::u8path(row.packageDirectory.begin(), row.packageDirectory.end());
         const auto expected = root / std::filesystem::u8path(row.directoryId.begin(), row.directoryId.end());
         if (path != expected || !AtomicFileStore::isWithinRoot(root, path)) return failure<Result>(CustodyFileError::unsafePath);
+        if (std::find(held->state_->migrationAbsences.begin(),held->state_->migrationAbsences.end(),row.directoryId)!=held->state_->migrationAbsences.end()) continue;
         auto locked = held->state_->lockDirectory(expected, false, false, true);
         if (!locked.ok()) return failure<Result>(locked.error, locked.nativeError);
     }
@@ -839,6 +1002,7 @@ CustodyFileResult<std::unique_ptr<ProtectedCustodyFiles>> ProtectedCustodyFiles:
     } else {
         // Decode and confinement above precede the first persistent byte.
         if (cancellation->load()) return failure<Result>(CustodyFileError::ioFailed, ERROR_OPERATION_ABORTED);
+        checked=held->validateMigrationAbsences(); if (!checked.ok()) return failure<Result>(checked.error,checked.nativeError);
         if (!CreateDirectoryW(win32Path(service).c_str(), &held->state_->security)) return failure<Result>(CustodyFileError::ioFailed, GetLastError());
         auto locked = held->state_->lockDirectory(service, true, false); if (!locked.ok()) return failure<Result>(locked.error, locked.nativeError);
         const auto rng = BCryptGenRandom(nullptr, held->state_->context.storeId.data(), 16, BCRYPT_USE_SYSTEM_PREFERRED_RNG);
@@ -848,6 +1012,7 @@ CustodyFileResult<std::unique_ptr<ProtectedCustodyFiles>> ProtectedCustodyFiles:
         held->state_->storeId = std::move(*id.value);
     }
     held->state_->migrationCounting=true;
+    checked=held->validateMigrationAbsences(); if (!checked.ok()) return failure<Result>(checked.error,checked.nativeError);
     source = std::move(*bytes.value);
     return success(std::move(held));
 #endif
@@ -1025,6 +1190,7 @@ CustodyFileResult<bool> ProtectedCustodyFiles::createMigrationPackageCustody() {
 #ifndef _WIN32
     return failure<bool>(CustodyFileError::unsupportedPlatform);
 #else
+    auto absent=validateMigrationAbsences(); if (!absent.ok()) return absent;
     bool any=false;
     for (unsigned kind=1;kind<state_->migrationPackageSources.size();++kind) if (state_->migrationPackageSources[kind].file.valid()) {
         auto checked=readMigrationPackageSource(kind,state_->migrationPackageSources[kind].length,0);
@@ -1052,6 +1218,7 @@ CustodyFileResult<bool> ProtectedCustodyFiles::verifyMigrationPackageSources(con
 #ifndef _WIN32
     (void)value; return failure<bool>(CustodyFileError::unsupportedPlatform);
 #else
+    auto absent=validateMigrationAbsences(); if (!absent.ok()) return absent;
     if (value.subject!=CustodyMigrationSubject::package || !value.sourceCount || value.sourceCount>5) return failure<bool>(CustodyFileError::invalidInput);
     std::array<bool,6> seen{};
     for (std::size_t i=0;i<value.sourceCount;++i) {
@@ -1077,7 +1244,7 @@ CustodyFileResult<bool> ProtectedCustodyFiles::verifyMigrationPackageSources(con
     }
     for (unsigned kind=1;kind<seen.size();++kind)
         if (state_->migrationPackageSources[kind].file.valid()!=seen[kind]) return failure<bool>(CustodyFileError::conflict);
-    return success(true);
+    return validateMigrationAbsences();
 #endif
 } catch (const std::bad_alloc&) { return failure<bool>(CustodyFileError::allocationFailed); }
 

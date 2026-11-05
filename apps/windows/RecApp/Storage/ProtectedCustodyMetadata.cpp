@@ -2964,10 +2964,17 @@ CustodyFileResult<std::shared_ptr<ProtectedCustodyQueueMigration>> ProtectedCust
     // ALL fixed barrier/original/absence proofs before any package preparation.
     auto queuePair=owner->queue_->readValidatedMetadataPair(); if (!queuePair.ok()) return reject(queuePair.error,queuePair.nativeError);
     const auto queueGeneration=queuePair.value->indices[queuePair.value->selectedSlot].generation;
-    for (const auto& index:queuePair.value->indices) {
+    for (unsigned slot=0;slot<2;++slot) {
+        const auto& index=queuePair.value->indices[slot];
         auto bytes=readMetadataValue(*owner->queue_,q,index,cancellation); if (!bytes.ok()) return reject(bytes.error,bytes.nativeError);
         auto decoded=ProtectedCustodyStoreOwner::decodeMigrationQueue({reinterpret_cast<const char*>(bytes.value->data()),bytes.value->size()},cancellation.get());
         if (!decoded.ok()) return reject(decoded.error,decoded.nativeError);
+        if (slot==queuePair.value->selectedSlot) {
+            // Volatile inventory only; independently authenticated history below
+            // remains mandatory before any package preparation/effect.
+            auto absent=owner->root_->captureMigrationAbsences(**decoded.value,cancellation);
+            if (!absent.ok()) return reject(absent.error,absent.nativeError);
+        }
     }
     std::optional<CustodyVector<CustodyString>> scopes;
     auto inventory=owner->root_->validateStoreInventory(false,cancellation,false,&scopes,true);
@@ -2990,6 +2997,8 @@ CustodyFileResult<std::shared_ptr<ProtectedCustodyQueueMigration>> ProtectedCust
         auto files=owner->intent_->validateMigrationFiles(owner->current(),owner->values_[1U-owner->indices_.selectedSlot],cancellation);
         if (!files.ok()) return reject(files.error,files.nativeError);
     }
+    auto absent=owner->root_->validateMigrationAbsences();
+    if (!absent.ok()) return reject(absent.error,absent.nativeError);
     if (cancellation->load()) return reject(CustodyFileError::ioFailed,ERROR_OPERATION_ABORTED);
     return {std::move(owner),CustodyFileError::none,0};
 #endif
@@ -3007,6 +3016,8 @@ CustodyFileResult<std::shared_ptr<ProtectedCustodyStoreOwner>> ProtectedCustodyM
     // Existing normal/virgin admission stays first and keeps all of its guards.
     auto ordinary=ProtectedCustodyStoreOwner::open(path,cancellation);
     if (ordinary.ok()) return ordinary;
+    // An observed appearance ends this pass; a fresh fallback must not forget it.
+    if (ordinary.error==CustodyFileError::conflict && ordinary.nativeError==ERROR_ALREADY_EXISTS) return ordinary;
     if (cancellation->load()) return reject(CustodyFileError::ioFailed,ERROR_OPERATION_ABORTED);
     if (ordinary.error==CustodyFileError::allocationFailed || ordinary.error==CustodyFileError::unsafePath ||
         ordinary.error==CustodyFileError::unsafeFile || ordinary.error==CustodyFileError::protectionFailed ||
@@ -3052,6 +3063,7 @@ CustodyFileResult<std::shared_ptr<ProtectedCustodyStoreOwner>> ProtectedCustodyM
     }
     for (const auto& name:packages) {
         if (cancellation->load()) return reject(CustodyFileError::ioFailed,ERROR_OPERATION_ABORTED);
+        auto absent=worker->root_->validateMigrationAbsences(); if (!absent.ok()) return reject(absent.error,absent.nativeError);
         std::string_view session;
         for (const auto& item:queue->items()) if (std::string_view(item.directoryId)==std::string_view(name)) {
             if (!session.empty() && session!=std::string_view(item.sessionId)) return reject(CustodyFileError::conflict);
@@ -3060,11 +3072,14 @@ CustodyFileResult<std::shared_ptr<ProtectedCustodyStoreOwner>> ProtectedCustodyM
         if (session.empty()) return reject(CustodyFileError::recoveryRequired); // Unknown source is retained; no guessed session/owner.
         auto migrated=migratePackage(*worker,name,session,ledger,generation);
         if (!migrated.ok()) return reject(migrated.error,migrated.nativeError);
+        absent=worker->root_->validateMigrationAbsences(); if (!absent.ok()) return reject(absent.error,absent.nativeError);
     }
     // No legacy reader or migration writer survives admission. The same root,
     // queue and bootstrap identities transfer to the ordinary owner; cold history,
     // BOTH closures/retained roots and every barrier/original are freshly proved.
+    auto absent=worker->root_->validateMigrationAbsences(); if (!absent.ok()) return reject(absent.error,absent.nativeError);
     worker->root_->retireMigrationQueueSource();
+    absent=worker->root_->validateMigrationAbsences(); if (!absent.ok()) return reject(absent.error,absent.nativeError);
     worker->intent_.reset();
     CustodyPin pin; if (!pin) return reject(CustodyFileError::allocationFailed,ERROR_NOT_ENOUGH_QUOTA);
     CustodyAllocator<ProtectedCustodyStoreOwner> allocator; auto* raw=allocator.allocate(1);
@@ -3080,6 +3095,8 @@ CustodyFileResult<std::shared_ptr<ProtectedCustodyStoreOwner>> ProtectedCustodyM
         auto admitted=owner->validate(cancellation,nullptr,true); if (!admitted.ok()) return reject(admitted.error,admitted.nativeError);
     }
     if (cancellation->load()) return reject(CustodyFileError::ioFailed,ERROR_OPERATION_ABORTED);
+    absent=owner->root_->validateMigrationAbsences(); if (!absent.ok()) return reject(absent.error,absent.nativeError);
+    absent=owner->root_->releaseMigrationAbsences(); if (!absent.ok()) return reject(absent.error,absent.nativeError);
     return {std::move(owner),CustodyFileError::none,0};
 #endif
 } catch (const std::bad_alloc&) { return {std::nullopt,CustodyFileError::allocationFailed,0}; }
@@ -3237,6 +3254,7 @@ CustodyFileResult<bool> ProtectedCustodyMigration::migratePackage(
     }
     const auto ledgerHash=custody_detail::digest(ledger.data(),ledger.size()); if (!ledgerHash) return reject(CustodyFileError::hashFailed);
     const auto queueStamp=[&](const CustodyMigrationValue& value)->CustodyFileResult<bool> {
+        auto absent=worker.root_->validateMigrationAbsences(); if (!absent.ok()) return absent;
         auto pair=worker.queue_->readValidatedMetadataPair(); if (!pair.ok()) return reject(pair.error,pair.nativeError);
         const auto& selected=pair.value->indices[pair.value->selectedSlot];
         auto bytes=readMetadataValue(*worker.queue_,queueContext,selected,cancellation); if (!bytes.ok()) return reject(bytes.error,bytes.nativeError);
@@ -3505,10 +3523,15 @@ CustodyFileResult<bool> ProtectedCustodyStoreOwner::validate(
         auto decoded = ProtectedUploadQueueValue::decode(
             {reinterpret_cast<const char*>(bytes.value->data()), bytes.value->size()}, cancellation.get());
         if (!decoded.ok()) return reject(decoded.error, decoded.nativeError);
-        if (selectedValue && slot == queue.value->selectedSlot) selected = std::move(*decoded.value);
+        if ((selectedValue || coldAdmission) && slot == queue.value->selectedSlot) selected = std::move(*decoded.value);
     }
     const auto generation = queue.value->indices[queue.value->selectedSlot].generation;
     if (queueGeneration_ && queueGeneration_ != generation) return reject(CustodyFileError::conflict);
+    CustodyVector<CustodyString> absentPackages;
+    if (coldAdmission) {
+        auto absent=root_->validateQueuePackages(*selected,cancellation,false,absentPackages);
+        if (!absent.ok()) return reject(absent.error,absent.nativeError);
+    }
     if (migrationScopes) for (const auto& directory : *migrationScopes) {
         if (cancellation->load()) return reject(CustodyFileError::ioFailed, ERROR_OPERATION_ABORTED);
         const std::string_view name(directory);
@@ -3570,6 +3593,8 @@ CustodyFileResult<bool> ProtectedCustodyStoreOwner::validate(
         } // Cold package checks above retained readers through fixed-file validation.
     }
     if (cancellation->load()) return reject(CustodyFileError::ioFailed, ERROR_OPERATION_ABORTED);
+    auto absent=root_->validateQueueAbsences(absentPackages,cancellation);
+    if (!absent.ok()) return reject(absent.error,absent.nativeError);
     queueGeneration_ = generation;
     if (selectedValue) *selectedValue = std::move(selected);
     return {true, CustodyFileError::none, 0};

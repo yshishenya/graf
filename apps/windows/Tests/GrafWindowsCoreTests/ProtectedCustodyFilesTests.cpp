@@ -93,8 +93,40 @@ bool attributeOnlyLocks = false;
 std::function<void()> afterFlush, afterRename, afterRead;
 HANDLE afterReadFile = INVALID_HANDLE_VALUE; // Borrowed only during the existing afterRead callback.
 bool findFailure = false, nextFailure = false, diskOverride = false;
+DWORD nextFailureError = ERROR_ACCESS_DENIED;
 HRESULT diskFailure = S_OK;
 DISK_SPACE_INFORMATION diskInfo{};
+// One cold-admission cut: remove only the generated child AFTER its appearance
+// was observed by the real root search, before the coordinator can fall back.
+const wchar_t* coldAbsencePattern = nullptr;
+HANDLE coldAbsenceSearch = INVALID_HANDLE_VALUE;
+bool coldAbsenceObserved = false;
+std::function<void()> afterColdAbsenceClose;
+void observeColdAbsence(HANDLE search, const WIN32_FIND_DATAW* data) {
+    if (search != coldAbsenceSearch || search == INVALID_HANDLE_VALUE ||
+        CompareStringOrdinal(data->cFileName, -1, L"package-missing", -1, TRUE) != CSTR_EQUAL) return;
+    assert((data->dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) && !(data->dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT));
+    coldAbsenceObserved = true;
+}
+HANDLE WINAPI fileTestFindFirstEx(LPCWSTR pattern, FINDEX_INFO_LEVELS level, LPVOID data,
+    FINDEX_SEARCH_OPS operation, LPVOID filter, DWORD flags) {
+    const auto search = FindFirstFileExW(pattern, level, data, operation, filter, flags);
+    const auto error = GetLastError();
+    if (coldAbsencePattern && CompareStringOrdinal(pattern, -1, coldAbsencePattern, -1, TRUE) == CSTR_EQUAL) {
+        assert(search != INVALID_HANDLE_VALUE && coldAbsenceSearch == INVALID_HANDLE_VALUE);
+        coldAbsenceSearch = search; observeColdAbsence(search, static_cast<const WIN32_FIND_DATAW*>(data));
+    }
+    SetLastError(error); return search;
+}
+BOOL WINAPI fileTestFindClose(HANDLE search) {
+    const auto closed = FindClose(search); const auto error = GetLastError();
+    if (search == coldAbsenceSearch && search != INVALID_HANDLE_VALUE) {
+        assert(closed && coldAbsenceObserved && afterColdAbsenceClose);
+        coldAbsenceSearch = INVALID_HANDLE_VALUE; coldAbsencePattern = nullptr;
+        afterColdAbsenceClose();
+    }
+    SetLastError(error); return closed;
+}
 HANDLE WINAPI fileTestFindFirst(LPCWSTR pattern, LPWIN32_FIND_DATAW data) {
     ++searches;
     if (findFailure) { SetLastError(ERROR_ACCESS_DENIED); return INVALID_HANDLE_VALUE; }
@@ -102,8 +134,10 @@ HANDLE WINAPI fileTestFindFirst(LPCWSTR pattern, LPWIN32_FIND_DATAW data) {
 }
 BOOL WINAPI fileTestFindNext(HANDLE search, LPWIN32_FIND_DATAW data) {
     ++searches;
-    if (findFailure || nextFailure) { SetLastError(ERROR_ACCESS_DENIED); return FALSE; }
-    return FindNextFileW(search, data);
+    if (findFailure || nextFailure) { SetLastError(nextFailure ? nextFailureError : ERROR_ACCESS_DENIED); return FALSE; }
+    const auto found = FindNextFileW(search, data); const auto error = GetLastError();
+    if (found) observeColdAbsence(search, data);
+    SetLastError(error); return found;
 }
 HRESULT WINAPI fileTestDiskInfo(LPCWSTR root, DISK_SPACE_INFORMATION* info) {
     ++diskChecks;
@@ -191,6 +225,8 @@ NTSTATUS WINAPI fileTestHashCreate(BCRYPT_ALG_HANDLE algorithm, BCRYPT_HASH_HAND
 #define CreateFileW fileTestOpen
 #define ReadFile fileTestRead
 #define FindFirstFileW fileTestFindFirst
+#define FindFirstFileExW fileTestFindFirstEx
+#define FindClose fileTestFindClose
 #define FindNextFileW fileTestFindNext
 #define GetDiskSpaceInformationW fileTestDiskInfo
 #include "../../RecApp/Storage/ProtectedCustodyFiles.cpp"
@@ -200,6 +236,8 @@ NTSTATUS WINAPI fileTestHashCreate(BCRYPT_ALG_HANDLE algorithm, BCRYPT_HASH_HAND
 #undef CreateFileW
 #undef ReadFile
 #undef FindFirstFileW
+#undef FindFirstFileExW
+#undef FindClose
 #undef FindNextFileW
 #undef GetDiskSpaceInformationW
 #endif
@@ -212,6 +250,51 @@ struct ProtectedUploadQueueValueTestPeer {
     }
 };
 struct ProtectedCustodyMigrationTestPeer {
+    static void absenceLifetime(const std::filesystem::path& path, const CustodyBytes& expected,
+        const SECURITY_ATTRIBUTES& security, std::shared_ptr<std::atomic<bool>> cancellation, bool retire) {
+        CustodyBytes source; unsigned roles=0; bool envelopes=false;
+        auto opened=ProtectedCustodyFiles::lockQueueMigrationRoot(path,cancellation,source,roles,envelopes);
+        assert(opened.ok() && source==expected && !roles && !envelopes);
+        auto held=std::shared_ptr<ProtectedCustodyFiles>(opened.value->release()); opened.value.reset();
+        assert(held->state_->migrationAbsences.size()==1 && held->state_->migrationSourceHash);
+        assert(held->validateMigrationAbsences().ok());
+        // The actual source and checked private parent remain deny-write/delete.
+        for (const auto& item:{path,path/L"desktop-upload-queue.v2"}) {
+            const bool directory=item==path;
+            const auto competing=CreateFileW(item.c_str(),DELETE | (directory ? FILE_LIST_DIRECTORY : GENERIC_WRITE),
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,nullptr,OPEN_EXISTING,
+                directory ? FILE_FLAG_BACKUP_SEMANTICS : 0,nullptr);
+            assert(competing==INVALID_HANDLE_VALUE && GetLastError()==ERROR_SHARING_VIOLATION);
+        }
+        cancellation->store(true);
+        const auto cancelled=held->validateMigrationAbsences();
+        assert(!cancelled.ok() && cancelled.error==CustodyFileError::ioFailed && cancelled.nativeError==ERROR_OPERATION_ABORTED);
+        cancellation->store(false); assert(held->validateMigrationAbsences().ok());
+        if (retire) {
+            held->retireMigrationQueueSource();
+            const auto beforeReads=reads;
+            const auto closed=held->readMigrationQueue();
+            assert(!closed.ok() && closed.error==CustodyFileError::invalidInput && reads==beforeReads);
+            assert(held->validateMigrationAbsences().ok() && held->state_->migrationAbsences.size()==1);
+        }
+        inject(FileFault::none);
+        assert(CreateDirectoryW((path/L"package-missing").c_str(),const_cast<SECURITY_ATTRIBUTES*>(&security)));
+        if (!retire) {
+            // Existing role birth must refuse BEFORE its first directory/id write.
+            auto role=ProtectedCustodyFiles::openStoreObject(held,CustodyRole::queue,true);
+            assert(!role.ok() && role.error==CustodyFileError::conflict);
+            assert(!std::filesystem::exists(path/L".custody-v1"/L"queue"));
+        }
+        const auto appeared=held->validateMigrationAbsences();
+        assert(!appeared.ok() && appeared.error==CustodyFileError::conflict);
+        assert(RemoveDirectoryW((path/L"package-missing").c_str())); // Own empty injected directory only.
+        const auto sticky=held->validateMigrationAbsences();
+        assert(!sticky.ok() && sticky.error==CustodyFileError::conflict && !held->releaseMigrationAbsences().ok());
+        assert(!writes && !flushes && !renames && !creates);
+        held.reset(); // Independent file hash only after the real rename/source lease closes.
+        assert(sha256File(path/L"desktop-upload-queue.v2")==sha256(
+            std::string_view(reinterpret_cast<const char*>(expected.data()),expected.size())));
+    }
     static bool failed(const ProtectedCustodyStoreOwner& owner) noexcept { return owner.failed_; }
     static CustodyMigrationValue history(ProtectedCustodyStoreOwner& owner,std::string_view directory,
         std::shared_ptr<const std::atomic<bool>> cancellation) {
@@ -2239,7 +2322,340 @@ void completedHistoryNormalAdmission(bool corrections = false) {
     }
     inject(FileFault::none);
 }
+void missingQuarantinedMigrationRow() {
+    const auto baseline = CustodyOwnedMemory::usedBytes();
+    {
+        Fixture f; std::error_code error;
+        std::filesystem::remove_all(f.root / L".custody-v1", error); assert(!error);
+        assert(CreateDirectoryW((f.root / L"package-a").c_str(), &f.security));
+        const auto legacy = testing::makeGeneratedLegacyPackage(f.root / L"package-a", 100);
+        // Generated input only: this inspection grants no migration/consumer authority.
+        const auto present = LocalRecordingPackage::inspect(legacy.packageDirectory, f.root);
+        assert(present.integrity == PackageIntegrity::valid && present.durationMs == 1000 && present.playbackAvailable);
+        const auto quote = [](const std::string& input) {
+            std::string value; for (const char c : input) { if (c == '\\' || c == '"') value += '\\'; value += c; } return value;
+        };
+        const std::string user = "11111111-1111-4111-8111-111111111111", workspace = "22222222-2222-4222-8222-222222222222";
+        const std::string row = R"({"local_recording_id":"recording-a","directory_id":"package-a","session_id":"session-a","package_directory":")" +
+            quote(legacy.packageDirectory.u8string()) + R"(","status":3,"accepted_bytes":[4,6,8],"attempts":7,"safe_reason":"upload_interrupted","owner_user_id":")" + user +
+            R"(","owner_workspace_id":")" + workspace + R"(","updated_at_ms":123})";
+        const std::string missing = R"({"local_recording_id":"recording-missing","directory_id":"package-missing","session_id":"session-missing","package_directory":")" +
+            quote((f.root / L"package-missing").u8string()) + R"(","status":5,"accepted_bytes":[2,4,6],"attempts":3,"safe_reason":"legacy_opaque_failure","owner_user_id":")" + user +
+            R"(","owner_workspace_id":")" + workspace + R"(","updated_at_ms":124})";
+        // Whole existing v3 operation/ACK shape, unrelated to BOTH package rows.
+        const std::string operation = R"({"operation_id":"33333333-3333-4333-8333-333333333333","target":"meeting","target_id":"44444444-4444-4444-8444-444444444444","actor_user_id":"11111111-1111-4111-8111-111111111111","workspace_id":"22222222-2222-4222-8222-222222222222","server_origin":"https:\/\/example.test","phase":3,"requested_at_ms":100,"updated_at_ms":200,"attempts":3,"next_attempt_at_ms":300,"receipt_request_id":"55555555-5555-4555-8555-555555555555","safe_reason":"accepted"})";
+        const std::string ack = R"({"task_id":"66666666-6666-4666-8666-666666666666","meeting_id":"44444444-4444-4444-8444-444444444444","acknowledged_at_ms":900})";
+        const std::string json = R"({"schema_version":"desktop-upload-queue.v3","items":[)" + row + ',' + missing +
+            R"(],"updated_at_ms":321,"deletion_operations":[)" + operation + R"(],"purge_acknowledgements":[)" + ack + "]}";
+        const CustodyBytes source(json.begin(), json.end());
+        f.write(f.root / L"desktop-upload-queue.v2", source);
+        auto cancellation = std::make_shared<std::atomic<bool>>(false);
+        const auto expected = ProtectedUploadQueueValueTestPeer::decode(json, cancellation.get()); assert(expected.ok());
+        const auto& input = **expected.value;
+        assert(!input.legacy() && input.items().size() == 2 && input.deletionOperations().size() == 1 && input.purgeAcknowledgements().size() == 1);
+        const auto& absent = input.items()[1];
+        assert(absent.status == UploadQueueStatus::quarantined && absent.safeReason == "legacy_opaque_failure" &&
+            absent.attempts == 3 && absent.acceptedBytes == (std::array<std::uint64_t, 3>{2,4,6}));
+        assert(!input.deletionBlocks(absent) && !isPreparedOwnedRecording(absent) && !isPreparedUnownedRecording(absent));
+        for (const auto& item : input.items()) for (const auto& op : input.deletionOperations())
+            assert(op.target == DeletionTarget::meeting && op.targetId != item.meetingId && op.targetId != item.directoryId);
+        auto semantic = input.serialize(cancellation); assert(semantic.ok());
+        const auto sourceHash = custody_detail::digest(source.data(), source.size()); assert(sourceHash);
+
+        // Real private parent + complete successful enumeration, not a missing-open inference.
+        const auto parent = CreateFileW(f.root.c_str(), READ_CONTROL | FILE_READ_ATTRIBUTES | FILE_LIST_DIRECTORY,
+            FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+        assert(parent != INVALID_HANDLE_VALUE);
+        BY_HANDLE_FILE_INFORMATION before{}, after{};
+        assert(GetFileInformationByHandle(parent, &before) && (before.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) &&
+            !(before.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT));
+        PACL acl = nullptr, expectedAcl = nullptr; PSECURITY_DESCRIPTOR descriptor = nullptr;
+        assert(GetSecurityInfo(parent, SE_FILE_OBJECT, DACL_SECURITY_INFORMATION, nullptr, nullptr, &acl, nullptr, &descriptor) == ERROR_SUCCESS);
+        SECURITY_DESCRIPTOR_CONTROL control{}; DWORD revision = 0; BOOL daclPresent = FALSE, defaulted = FALSE;
+        void* actualAce = nullptr; void* expectedAce = nullptr;
+        assert(acl && acl->AceCount == 1 && GetSecurityDescriptorControl(descriptor, &control, &revision) && (control & SE_DACL_PROTECTED));
+        assert(GetSecurityDescriptorDacl(f.descriptor, &daclPresent, &expectedAcl, &defaulted) && daclPresent && expectedAcl &&
+            GetAce(acl, 0, &actualAce) && GetAce(expectedAcl, 0, &expectedAce));
+        const auto* allowed = static_cast<const ACCESS_ALLOWED_ACE*>(actualAce);
+        const auto* expectedAllowed = static_cast<const ACCESS_ALLOWED_ACE*>(expectedAce);
+        assert(allowed->Header.AceType == ACCESS_ALLOWED_ACE_TYPE && !(allowed->Header.AceFlags & INHERIT_ONLY_ACE) &&
+            allowed->Mask == FILE_ALL_ACCESS && EqualSid(const_cast<DWORD*>(&allowed->SidStart), const_cast<DWORD*>(&expectedAllowed->SidStart)));
+        LocalFree(descriptor);
+        WIN32_FIND_DATAW entry{}; const auto pattern = f.root / L"*";
+        const auto search = FindFirstFileW(pattern.c_str(), &entry); assert(search != INVALID_HANDLE_VALUE);
+        unsigned children = 0;
+        do {
+            const std::wstring_view name(entry.cFileName);
+            if (name == L"." || name == L"..") continue;
+            assert(!(entry.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT));
+            assert(CompareStringOrdinal(entry.cFileName, -1, L"package-missing", -1, TRUE) != CSTR_EQUAL);
+            assert((name == L"package-a" && (entry.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) ||
+                (name == L"desktop-upload-queue.v2" && !(entry.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)));
+            ++children;
+        } while (FindNextFileW(search, &entry));
+        const auto enumerationError = GetLastError();
+        assert(FindClose(search) && enumerationError == ERROR_NO_MORE_FILES && children == 2);
+        assert(GetFileInformationByHandle(parent, &after) && before.dwVolumeSerialNumber == after.dwVolumeSerialNumber &&
+            before.nFileIndexHigh == after.nFileIndexHigh && before.nFileIndexLow == after.nFileIndexLow);
+        assert(CloseHandle(parent));
+        const auto snapshot = [&] {
+            std::vector<std::pair<std::filesystem::path, std::string>> files;
+            for (const auto& file : std::filesystem::recursive_directory_iterator(f.root)) {
+                const auto hash = file.is_directory() ? std::string{} : sha256File(file.path());
+                assert(file.is_directory() || hash.size() == 64); files.emplace_back(file.path(), hash);
+            }
+            std::sort(files.begin(), files.end()); return files;
+        };
+        const auto original = snapshot();
+        assert(!afterRead && !afterRename && !afterFlush && !queueAllocation.active && !cancellation->load());
+        inject(FileFault::none);
+        std::printf("MISSING_QUARANTINED_SETUP_OK rows=2 operations=1 acks=1 present=1 absent=1\n"); std::fflush(stdout);
+        auto opened = ProtectedCustodyMigration::open(f.root, cancellation);
+        if (!opened.ok()) {
+            std::printf("MISSING_QUARANTINED_REFUSED error=%u native=%lu writes=%u flushes=%u renames=%u creates=%u\n",
+                static_cast<unsigned>(opened.error), static_cast<unsigned long>(opened.nativeError), writes, flushes, renames, creates); std::fflush(stdout);
+            assert(opened.error == CustodyFileError::ioFailed &&
+                (opened.nativeError == ERROR_FILE_NOT_FOUND || opened.nativeError == ERROR_PATH_NOT_FOUND));
+            assert(!writes && !flushes && !renames && !creates && snapshot() == original);
+            assert(!std::filesystem::exists(f.root / L".custody-v1") && !std::filesystem::exists(f.root / L"desktop-upload-queue.v2.quarantine"));
+        }
+        assert(opened.ok() && "missing_generic_quarantined_row_must_preserve_exact_ledger_and_admit_valid_inventory");
+        auto owner = std::move(*opened.value); opened.value.reset();
+        const auto queueContext = owner->queueContext(); const auto queueGeneration = owner->queueGeneration();
+        {
+            auto value = owner->readQueueValue(cancellation); assert(value.ok());
+            auto actual = (*value.value)->serialize(cancellation); assert(actual.ok() && *actual.value == *semantic.value);
+            assert(!(*value.value)->canManualSend(1, user, workspace, false));
+            const auto history = ProtectedCustodyMigrationTestPeer::history(*owner, "", cancellation);
+            assert(history.stage == CustodyMigrationStage::switched && history.sourceCount == 1 && !history.authorization &&
+                history.sources[0].length == source.size() && history.sources[0].sha256 == *sourceHash &&
+                history.sources[0].destinationLength == source.size() && history.sources[0].destinationSha256 == *sourceHash);
+            const auto packageHistory = ProtectedCustodyMigrationTestPeer::history(*owner, "package-a", cancellation);
+            assert(packageHistory.stage == CustodyMigrationStage::switched && packageHistory.sourceCount == 3 && !packageHistory.authorization);
+            auto package = owner->readPackage("package-a", cancellation); assert(package.ok());
+            auto inspected = LocalRecordingPackage::inspectProtected(f.root, *package.value, "session-a", cancellation); assert(inspected.ok());
+            assert((*inspected.value)->evidence().integrity == PackageIntegrity::valid && (*inspected.value)->evidence().durationMs == 1000);
+        } // All package/readers/history leases retire before independent cold acquisition.
+        assert(sha256File(f.root / L".custody-v1" / L"legacy.originals" / L"ledger") == sha256(json));
+        const auto originals = f.root / L"package-a" / L".custody-v1" / L"legacy.originals";
+        assert(sha256File(originals / L"media") == legacy.wavSha256 && sha256File(originals / L"playback") == legacy.playbackSha256);
+        assert(!std::filesystem::exists(f.root / L"package-missing"));
+        owner.reset();
+        {
+            auto reader = openProtectedCustodyReader(f.root, "", queueContext, cancellation); assert(reader.ok());
+            CustodyBytes bytes(source.size()); ULONG got = 0;
+            assert(reader.value->stream->Read(bytes.data(), static_cast<ULONG>(bytes.size()), &got) == S_OK && got == bytes.size() && bytes == source);
+            assert(reader.value->stream->Read(bytes.data(), 1, &got) == S_FALSE && got == 0);
+        }
+        {
+            auto bootstrap = ProtectedCustodyBootstrapPair::read(f.root, cancellation); assert(bootstrap.ok());
+            for (const auto& slot : (*bootstrap.value)->slots())
+                assert(slot.mode == CustodyBootstrapMode::protectedStore && !slot.transactionId && !slot.subject && !slot.directory);
+            auto history = ProtectedCustodyMigrationPair::read(*bootstrap.value, cancellation); assert(history.ok());
+            assert((*history.value)->current().stage == CustodyMigrationStage::switched);
+        }
+        const auto protectedSnapshot = snapshot(); inject(FileFault::none);
+        {
+            auto cold = ProtectedCustodyStoreOwner::open(f.root, cancellation); assert(cold.ok());
+            assert((*cold.value)->queueContext().storeId == queueContext.storeId && (*cold.value)->queueContext().objectId == queueContext.objectId &&
+                (*cold.value)->queueGeneration() == queueGeneration);
+            auto value = (*cold.value)->readQueueValue(cancellation); assert(value.ok());
+            auto actual = (*value.value)->serialize(cancellation); assert(actual.ok() && *actual.value == *semantic.value);
+        }
+        assert(!writes && !flushes && !renames && !creates && snapshot() == protectedSnapshot);
+    }
+    assert(CustodyOwnedMemory::usedBytes() == baseline);
+    { std::array<CustodyNativeJob, 4> jobs; for (const auto& job : jobs) assert(job); }
+    { std::array<CustodyPin, 32> pins; for (const auto& pin : pins) assert(pin); }
+    inject(FileFault::none);
+}
+
+void missingQuarantinedMigrationRefusals() {
+    const auto baseline=CustodyOwnedMemory::usedBytes();
+    // Empty reason; 3 excluded reasons; non-quarantine; both foreign deletion
+    // targets x all 5 non-rejected phases; 2 incomplete enumerations; quota;
+    // cancellation; insecure parent; retained proof before/after source retirement.
+    for (unsigned mode=0;mode<22;++mode) {
+        {
+            Fixture f; std::error_code error;
+            std::filesystem::remove_all(f.root/L".custody-v1",error); assert(!error);
+            const auto missing=f.root/L"package-missing";
+            std::string path;
+            for (const auto c:missing.u8string()) { if (c=='\\' || c=='"') path+='\\'; path+=c; }
+            const std::string reason=mode==0 ? "" : mode==1 ? "capture_prepared" : mode==2 ? "capture_owner_unknown" :
+                mode==3 ? "local_delete_pending" : "legacy_opaque_failure";
+            const bool deletion=mode>=5 && mode<15;
+            const unsigned phase=deletion ? (mode-5)%5 : 0;
+            const unsigned wirePhase=phase==4 ? 5 : phase; // queued/sending/resolving/accepted/verified; never rejected.
+            const bool meeting=mode>=10 && mode<15;
+            const std::string target=meeting ? "44444444-4444-4444-8444-444444444444" : "package-missing";
+            std::string operation;
+            if (deletion) operation=R"({"operation_id":"33333333-3333-4333-8333-333333333333","target":")"+
+                std::string(meeting ? "meeting" : "own_origin")+R"(","target_id":")"+target+
+                R"(","actor_user_id":"77777777-7777-4777-8777-777777777777","workspace_id":"88888888-8888-4888-8888-888888888888","server_origin":"https:\/\/example.test","phase":)"+
+                std::to_string(wirePhase)+R"(,"requested_at_ms":100,"updated_at_ms":200,"attempts":3,"next_attempt_at_ms":300,"receipt_request_id":"55555555-5555-4555-8555-555555555555","safe_reason":"accepted"})";
+            const std::string json=R"({"schema_version":"desktop-upload-queue.v3","items":[{"local_recording_id":"recording-missing","directory_id":"package-missing","session_id":"session-missing","package_directory":")"+
+                path+R"(","status":)"+std::to_string(mode==4 ? 0 : 5)+R"(,"accepted_bytes":[2,4,6],"attempts":3,"safe_reason":")"+reason+
+                R"(","owner_user_id":"11111111-1111-4111-8111-111111111111","owner_workspace_id":"22222222-2222-4222-8222-222222222222","meeting_id":"44444444-4444-4444-8444-444444444444","updated_at_ms":124}],"updated_at_ms":321,"deletion_operations":[)"+
+                operation+R"(],"purge_acknowledgements":[]})";
+            const CustodyBytes source(json.begin(),json.end()); f.write(f.root/L"desktop-upload-queue.v2",source);
+            auto cancellation=std::make_shared<std::atomic<bool>>(false);
+            const auto decoded=ProtectedUploadQueueValueTestPeer::decode(json,cancellation.get()); assert(decoded.ok());
+            const auto& value=**decoded.value; assert(!value.legacy() && value.items().size()==1);
+            assert(std::string_view(value.items()[0].safeReason)==reason && value.items()[0].attempts==3 &&
+                value.items()[0].acceptedBytes==(std::array<std::uint64_t,3>{2,4,6}));
+            if (deletion) {
+                assert(value.deletionOperations().size()==1 && !value.deletionBlocks(value.items()[0]));
+                const auto& op=value.deletionOperations()[0]; const auto& row=value.items()[0];
+                assert(op.actorUserId!=row.ownerUserId && op.workspaceId!=row.ownerWorkspaceId &&
+                    op.phase!=DeletionOperationPhase::rejected && op.targetId==(meeting ? row.meetingId : row.directoryId));
+            }
+            assert(!std::filesystem::exists(missing) && std::distance(std::filesystem::directory_iterator(f.root),std::filesystem::directory_iterator{})==1);
+            const auto originalHash=sha256File(f.root/L"desktop-upload-queue.v2"); assert(originalHash==sha256(json));
+            if (mode>=20) {
+                ProtectedCustodyMigrationTestPeer::absenceLifetime(f.root,source,f.security,cancellation,mode==21);
+            } else {
+                if (mode==19) {
+                    BOOL present=FALSE,defaulted=FALSE; PACL acl=nullptr;
+                    assert(GetSecurityDescriptorDacl(f.descriptor,&present,&acl,&defaulted) && present && acl);
+                    assert(SetNamedSecurityInfoW(f.root.wstring().data(),SE_FILE_OBJECT,
+                        DACL_SECURITY_INFORMATION|UNPROTECTED_DACL_SECURITY_INFORMATION,nullptr,nullptr,acl,nullptr)==ERROR_SUCCESS);
+                }
+                bool cut=false; unsigned enumerationBefore=0;
+                if (mode==15 || mode==16 || mode==18) afterRead=[&] {
+                    if (cut) return;
+                    wchar_t actual[32768]{};
+                    const auto size=GetFinalPathNameByHandleW(afterReadFile,actual,32768,FILE_NAME_NORMALIZED|VOLUME_NAME_DOS);
+                    assert(size && size<32768);
+                    std::wstring expected=L"\\\\?\\"; expected+=(f.root/L"desktop-upload-queue.v2").native();
+                    if (std::wstring_view(actual,size)!=expected) return;
+                    assert(!writes && !flushes && !renames && !creates);
+                    cut=true; enumerationBefore=searches;
+                    if (mode==18) cancellation->store(true);
+                    else { nextFailureError=mode==15 ? ERROR_ACCESS_DENIED : ERROR_FILE_NOT_FOUND; nextFailure=true; }
+                };
+                CustodyAllocator<std::uint8_t> allocator; std::uint8_t* pressure=nullptr; std::size_t charged=0;
+                if (mode==17) { charged=CustodyOwnedMemory::limit-CustodyOwnedMemory::usedBytes(); pressure=allocator.allocate(charged); }
+                inject(FileFault::none);
+                auto opened=ProtectedCustodyMigration::open(f.root,cancellation);
+                afterRead={}; nextFailure=false; nextFailureError=ERROR_ACCESS_DENIED; cancellation->store(false);
+                if (pressure) allocator.deallocate(pressure,charged);
+                if (mode==0) {
+                    assert(opened.ok() && "empty_opaque_reason_is_not_a_missing_package_whitelist");
+                    auto current=(*opened.value)->readQueueValue(cancellation); assert(current.ok());
+                    auto before=value.serialize(cancellation),after=(*current.value)->serialize(cancellation);
+                    assert(before.ok() && after.ok() && *before.value==*after.value);
+                    assert(!std::filesystem::exists(missing) && (*current.value)->items()[0].safeReason.empty());
+                    assert(sha256File(f.root/L".custody-v1"/L"legacy.originals"/L"ledger")==originalHash);
+                } else {
+                    assert(!opened.ok() && !opened.value);
+                    if (mode==15 || mode==16) assert(cut && searches>enumerationBefore && opened.error==CustodyFileError::ioFailed &&
+                        opened.nativeError==std::uint32_t(mode==15 ? ERROR_ACCESS_DENIED : ERROR_FILE_NOT_FOUND));
+                    else if (mode==17) assert(opened.error==CustodyFileError::allocationFailed);
+                    else if (mode==18) assert(cut && opened.error==CustodyFileError::ioFailed && opened.nativeError==ERROR_OPERATION_ABORTED);
+                    else if (mode==19) assert(opened.error==CustodyFileError::unsafePath);
+                    else assert(opened.error==CustodyFileError::recoveryRequired);
+                    assert(!writes && !flushes && !renames && !creates && !std::filesystem::exists(f.root/L".custody-v1"));
+                    assert(sha256File(f.root/L"desktop-upload-queue.v2")==originalHash && !std::filesystem::exists(missing));
+                    assert(std::distance(std::filesystem::directory_iterator(f.root),std::filesystem::directory_iterator{})==1);
+                }
+            }
+            assert(!afterRead && !afterRename && !afterFlush && !findFailure && !nextFailure && !queueAllocation.active);
+        }
+        assert(CustodyOwnedMemory::usedBytes()==baseline);
+        { std::array<CustodyNativeJob,4> jobs; for (const auto& job:jobs) assert(job); }
+        { std::array<CustodyPin,32> pins; for (const auto& pin:pins) assert(pin); }
+        std::printf("MISSING_QUARANTINED_GUARD mode=%u passed=1\n",mode); std::fflush(stdout);
+    }
+    inject(FileFault::none);
+}
+
+void missingQuarantinedColdAppearance() {
+    const auto baseline=CustodyOwnedMemory::usedBytes();
+    {
+        Fixture f; std::error_code error;
+        std::filesystem::remove_all(f.root/L".custody-v1",error); assert(!error);
+        const auto missing=f.root/L"package-missing";
+        std::string path;
+        for (const auto c:missing.u8string()) { if (c=='\\' || c=='"') path+='\\'; path+=c; }
+        const std::string json=R"({"schema_version":"desktop-upload-queue.v3","items":[{"local_recording_id":"recording-missing","directory_id":"package-missing","session_id":"session-missing","package_directory":")"+
+            path+R"(","status":5,"accepted_bytes":[2,4,6],"attempts":3,"safe_reason":"legacy_opaque_failure","owner_user_id":"11111111-1111-4111-8111-111111111111","owner_workspace_id":"22222222-2222-4222-8222-222222222222","updated_at_ms":124}],"updated_at_ms":321,"deletion_operations":[],"purge_acknowledgements":[]})";
+        f.write(f.root/L"desktop-upload-queue.v2",CustodyBytes(json.begin(),json.end()));
+        auto cancellation=std::make_shared<std::atomic<bool>>(false);
+        const auto decoded=ProtectedUploadQueueValueTestPeer::decode(json,cancellation.get()); assert(decoded.ok());
+        auto expected=(*decoded.value)->serialize(cancellation); assert(expected.ok());
+        CustodyContext context{}; std::uint64_t generation=0;
+        {
+            auto migrated=ProtectedCustodyMigration::open(f.root,cancellation); assert(migrated.ok());
+            context=(*migrated.value)->queueContext(); generation=(*migrated.value)->queueGeneration();
+            auto value=(*migrated.value)->readQueueValue(cancellation); assert(value.ok());
+            auto bytes=(*value.value)->serialize(cancellation); assert(bytes.ok() && *bytes.value==*expected.value);
+        } // Real migration Owner and all values/leases close before the cold call.
+        const auto ledger=f.root/L".custody-v1"/L"legacy.originals"/L"ledger";
+        assert(sha256File(ledger)==sha256(json) && !std::filesystem::exists(missing));
+        const auto snapshot=[&] {
+            std::vector<std::pair<std::filesystem::path,std::string>> files;
+            for (const auto& file:std::filesystem::recursive_directory_iterator(f.root))
+                files.emplace_back(file.path(),file.is_directory() ? std::string{} : sha256File(file.path()));
+            std::sort(files.begin(),files.end()); return files;
+        };
+        const auto before=snapshot();
+        const auto ledgerPath=std::wstring(L"\\\\?\\")+ledger.native();
+        const auto rootPattern=std::wstring(L"\\\\?\\")+(f.root/L"*").native();
+        unsigned ledgerReads=0,readsAtRemoval=0; bool appeared=false,removed=false;
+        assert(!afterRead && !afterColdAbsenceClose && !coldAbsencePattern &&
+            coldAbsenceSearch==INVALID_HANDLE_VALUE && !coldAbsenceObserved);
+        afterRead=[&] {
+            const auto incoming=GetLastError();
+            wchar_t actual[32768]{};
+            const auto size=GetFinalPathNameByHandleW(afterReadFile,actual,32768,FILE_NAME_NORMALIZED|VOLUME_NAME_DOS);
+            assert(size && size<32768);
+            if (std::wstring_view(actual,size)==ledgerPath) {
+                ++ledgerReads;
+                if (!appeared) {
+                    // validate(coldAdmission) has already built its fresh missing set.
+                    assert(!writes && !flushes && !renames && !creates);
+                    assert(CreateDirectoryW(missing.c_str(),&f.security)); appeared=true;
+                    coldAbsencePattern=rootPattern.c_str();
+                }
+            }
+            SetLastError(incoming);
+        };
+        afterColdAbsenceClose=[&] {
+            assert(appeared && !removed && coldAbsenceObserved && ledgerReads);
+            assert(RemoveDirectoryW(missing.c_str())); // Only our just-created empty child.
+            removed=true; readsAtRemoval=ledgerReads;
+        };
+        inject(FileFault::none);
+        auto cold=ProtectedCustodyMigration::open(f.root,cancellation);
+        afterRead={}; afterColdAbsenceClose={};
+        assert(appeared && removed && coldAbsenceObserved && !coldAbsencePattern && coldAbsenceSearch==INVALID_HANDLE_VALUE);
+        coldAbsenceObserved=false;
+        assert(!cold.ok() && !cold.value && cold.error==CustodyFileError::conflict && cold.nativeError==ERROR_ALREADY_EXISTS &&
+            "cold_coordinator_must_not_forget_observed_appearance_via_fresh_fallback");
+        assert(ledgerReads==readsAtRemoval); // No fallback's fresh retained-ledger read after the cut.
+        assert(!writes && !flushes && !renames && !creates && !std::filesystem::exists(missing) && snapshot()==before);
+        {
+            // A NEW invocation gets a fresh proof; refusal must not poison the store.
+            auto fresh=ProtectedCustodyMigration::open(f.root,cancellation); assert(fresh.ok());
+            assert((*fresh.value)->queueContext().storeId==context.storeId && (*fresh.value)->queueContext().objectId==context.objectId &&
+                (*fresh.value)->queueGeneration()==generation);
+            auto value=(*fresh.value)->readQueueValue(cancellation); assert(value.ok());
+            auto bytes=(*value.value)->serialize(cancellation); assert(bytes.ok() && *bytes.value==*expected.value);
+        }
+        assert(!writes && !flushes && !renames && !creates && snapshot()==before && sha256File(ledger)==sha256(json));
+        std::printf("MISSING_QUARANTINED_COLD_APPEARANCE observed=1 removed=1 refused=1 fresh_admitted=1\n"); std::fflush(stdout);
+    }
+    assert(CustodyOwnedMemory::usedBytes()==baseline);
+    { std::array<CustodyNativeJob,4> jobs; for (const auto& job:jobs) assert(job); }
+    { std::array<CustodyPin,32> pins; for (const auto& pin:pins) assert(pin); }
+    inject(FileFault::none);
+}
+
 void linkedMigrationPairs() {
+    missingQuarantinedMigrationRow();
+    missingQuarantinedMigrationRefusals();
+    missingQuarantinedColdAppearance();
     migrationQueueVersionBoundary(); // r4 dependency: real v4 codec must be connected.
     migrationCoordinatorRoute(true); // Failed packed birth -> same-source writeExisting restart.
     completedHistoryNormalAdmission(true); // Focused r3 RED before the existing long matrix; same CLI/deadline.

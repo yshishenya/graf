@@ -447,6 +447,48 @@ protected prepared intent, **после него** protected bootstrap migration
 deletion/range значения. Перед switch повторная source/stamp validation;
 изменение старым клиентом — blocked, не применение устаревшей destination.
 
+**Отсутствующий конечный package directory (T117).** Полный strict decode
+исходного v2/v3 ledger и прежние identity/path/conflict checks обязательны до
+первого persistent byte. Строка без каталога допускается только при
+`status=quarantined`, непрозрачном неизменённом `safe_reason`, отличном от
+`capture_prepared`, `capture_owner_unknown`, `local_delete_pending`, и отсутствии
+активной reservation/deletion ambiguity. `deletionBlocks(row)` означает отказ;
+matching non-rejected directory/meeting deletion target также исключает этот
+случай независимо от actor/owner. Пустая или неизвестная синтаксически допустимая
+причина сама не даёт полномочий и не требует whitelist либо доказанного writer.
+
+Отсутствует именно exact final child под проверенным существующим parent/root:
+retained native identity/path/lease/cancellation проверяются до и после успешного
+полного lookup/enumeration. Ошибка доступа, busy/sharing, reparse, отсутствующий
+parent/`ERROR_PATH_NOT_FOUND` или неизвестный исход — отказ; одного произвольного
+`ERROR_FILE_NOT_FOUND` недостаточно. Missing member существующего пакета не
+подпадает под исключение. У отсутствующего объекта нет выдуманного file ID.
+
+Bounded charged volatile proof связывает exact child/row с удержанным root/parent
+и полным source-ledger stamp (native identity/times/length/hash); число proofs не
+больше decoded rows, прежние bounds/job/pin/cancel guards сохраняются. Свежие
+проверки обязательны до первого persistent byte, при source/copy/switch checks,
+до/после каждого package transition и при final validation до возврата Owner из
+coordinator, включая retirement migration-only handles. Любое наблюдённое
+появление объекта по этому имени в текущем проходе запрещает продолжение и
+частичный допуск, без rollback уже durable records. Конец этого proof — возврат
+coordinator Owner; последующий Native adoption требует отдельного прежнего ACK,
+не обещания дополнительной namespace-проверки или атомарного namespace snapshot.
+
+Копируются все exact queue bytes, включая строку/ranges/owners/operations/ACK;
+original сохраняется. Для отсутствующего каталога не создаются package/state,
+content/intent/success receipt или removed/purge ACK; existing packages проходят
+прежний полный protocol. Queue receipt доказывает copy ledger, не наличие всех
+пакетов; после handoff обычные queue mutations допустимы по §8.1. Новые записи
+получают fresh IDs с прежней проверкой занятых row identities/deletion targets.
+Independent cold admission заново проверяет фактический inventory/current queue/
+BOTH bootstrap/history: отсутствие доказывается заново, существующий объект
+требует прежнего strict normal/migration proof, не name/status-only adoption.
+Volatile факт не переносится через restart и не означает forever-missing либо
+новый persisted marker; законные interrupted states таблицы ниже сохраняются.
+Никакой смены status/reason/owner/ranges/ACK, права очистки либо автоматического
+claim из отсутствия не возникает; unknown quarantine остаётся blocked.
+
 Первый queue transition резервирует fixed queue id.bin/object ID и destination
 IDs в intent, **не создаёт пустой logical ledger**. Prepared intent born g1 в
 двух slots, затем g2 prepared с historical barrier ref. Closing bootstrap
