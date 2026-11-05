@@ -248,8 +248,6 @@ bool historyEntryScenario() { return scenario == "history-entry" || scenario == 
 bool historySameUrlScenario() { return scenario == "history-entry-same-url" || scenario == "history-host-same-url"; }
 bool historyCancelScenario() { return scenario == "cancel-history-host" || scenario == "cancel-history-script"; }
 bool sameDocumentScenario() { return scenario == "history-same-document"; }
-bool historyRaceScenario() { return scenario == "history-race-native-first" || scenario == "history-race-script-first"; }
-bool historyResetScenario() { return scenario == "history-reset"; }
 enum class RevalidationNegative { none, noAnchor, workspace, token, epoch, post, timeoutUnknown, timeoutReconfirmed, closed };
 RevalidationNegative revalidationNegative() {
     if (scenario == "history-revalidation-no-anchor") return RevalidationNegative::noAnchor;
@@ -291,7 +289,7 @@ bool productionHistoryScenario() { return scenario == "history-host-get" || scen
 bool quarantineHistoryScenario() { return scenario == "history-host-quarantine" || scenario == "history-post" || scenario == "history-host-same-url" || heldResetScenario() || redirectHeldScenario(); }
 bool retainedHistoryScenario() { return historyCancelScenario() || historyEntryScenario(); }
 bool historyControlScenario() { return historyCancelScenario() || sameDocumentScenario(); }
-bool historyScenario() { return scenario == "history-get" || scenario == "history-post" || historyEntryScenario() || historySameUrlScenario() || historyControlScenario() || historyRaceScenario() || historyResetScenario(); }
+bool historyScenario() { return scenario == "history-get" || scenario == "history-post" || historyEntryScenario() || historySameUrlScenario() || historyControlScenario(); }
 
 unsigned targetStatus() {
     if (scenario == "login400" || scenario == "login-post400") return 400;
@@ -362,7 +360,6 @@ struct ProbeApp : ApplicationT<ProbeApp> {
         bool completed = false, loaded = false, success = false;
         CoreWebView2WebErrorStatus error = CoreWebView2WebErrorStatus::Unknown;
     };
-    std::array<RaceNavigation, 2> raceNavigations{};
     WebView2HistoryNativeFixture historyFixture;
     std::array<RaceNavigation, 3> heldCompetitors{};
     unsigned heldAttempt = 0, heldRetainedDispatches = 0;
@@ -381,10 +378,6 @@ struct ProbeApp : ApplicationT<ProbeApp> {
     RaceNavigation redirectHeldNavigation;
     unsigned redirectHeldPhase = 0, redirectHeldResponses = 0, redirectLoginAttempts = 0;
     bool redirectHeldRequest = false, redirectHeldStarting = false, redirectReleased = false;
-    ULONGLONG raceStartedAt = 0;
-    int raceGetEntryId = -1;
-    unsigned raceStarts = 0, raceCommands = 0;
-    bool raceNativeAck = false, raceScriptFromC = false, raceUnexpected = false, raceUnsafe = false;
     std::uint64_t historyPreviousGeneration = 0;
     struct ResetDocument {
         std::uint64_t navigation = 0, generation = 0;
@@ -412,10 +405,7 @@ struct ProbeApp : ApplicationT<ProbeApp> {
     unsigned freshLoginInvalidations = 0;
     std::uint64_t freshLoginRedirectGeneration = 0;
     ULONGLONG freshLoginEditedAt = 0;
-    bool resetPending = false, resetCaptured = false, resetVerified = false, resetLostAuthority = false;
     bool resetBridgeAwaiting = false;
-    unsigned resetStarts = 0, resetCompletions = 0, resetAuthCallbacks = 0;
-    std::uint64_t resetGeneration = 0, resetNavigation = 0;
     int resetEntryId = -1, resetForwardId = -1;
     bool productionCommitPending = false, productionPostSeen = false;
     int productionCommittedId = -1;
@@ -1119,10 +1109,7 @@ struct ProbeApp : ApplicationT<ProbeApp> {
                 });
             return;
         }
-        if (historyResetScenario() && phase == 3 && !resetVerified) { startHistoryReset(); return; }
-        if (historyResetScenario() && phase == 6) { finish(true, "actual-reset-and-useful-get-history"); return; }
-        if (historyRaceScenario() && phase == 4) { startHistoryRace(); return; }
-        if (!historyResetScenario() && phase == (post ? 4u : 6u)) {
+        if (phase == (post ? 4u : 6u)) {
             finish(true, historyEntryScenario() ? "actual-browser-entry-traversal" : "actual-history-traversal"); return;
         }
         ++historyPhase;
@@ -1139,27 +1126,6 @@ struct ProbeApp : ApplicationT<ProbeApp> {
             else if (scenario == "cancel-history-script") runHistoryControlScript(L"history.go(-2);true;");
             else if (host->canGoBack()) host->back();
             else finish(false, "history-back-unavailable");
-        } else if ((historyRaceScenario() || historyResetScenario()) && (phase == 2 || phase == 3)) {
-            const auto path = phase == 2 ? "/desktop/meetings" :
-                "/desktop/meetings/33333333-3333-4333-8333-333333333333";
-            if (host->navigate(origin + path).decision != RouteDecision::allow) finish(false, "race-preparation-route");
-        } else if (historyResetScenario() && phase >= 4) {
-            // Isolated reset API mechanism only; production cases use actual host buttons.
-            const auto target = phase == 4 ? resetEntryId : resetForwardId;
-            scriptPending = true;
-            const auto queue = view.DispatcherQueue();
-            view.CoreWebView2().CallDevToolsProtocolMethodAsync(L"Page.navigateToHistoryEntry",
-                to_hstring("{\"entryId\":" + std::to_string(target) + "}"))
-                .Completed([this, queue, nextPhase = historyPhase](auto const& command, auto const&) {
-                    queue.TryEnqueue([this, command, nextPhase] {
-                        scriptPending = false;
-                        if (probeExit != 2 || historyPhase != nextPhase) return;
-                        try {
-                            if (Windows::Data::Json::JsonObject::Parse(command.GetResults()).Size() != 0)
-                                finish(false, "history-entry-command-result");
-                        } catch (...) { finish(false, "history-entry-command"); }
-                    });
-                });
         } else if (phase == 0 && post) {
             formSubmitted = true;
             const auto queue = view.DispatcherQueue();
@@ -1213,44 +1179,6 @@ struct ProbeApp : ApplicationT<ProbeApp> {
                         const auto current = entries.GetObjectAt(static_cast<unsigned>(index));
                         const auto id = integer(current.GetNamedNumber(L"id"));
                         if (to_string(current.GetNamedString(L"url")) != expectedUrl) { finish(false, "history-entry-source"); return; }
-                        if (historyResetScenario()) {
-                            if (phase <= 3) {
-                                if (entries.Size() != phase + 1 || index != static_cast<int>(phase)) {
-                                    finish(false, "reset-preparation-shape"); return;
-                                }
-                                for (unsigned i = 0; i < phase; ++i) {
-                                    const auto entry = entries.GetObjectAt(i);
-                                    const auto url = origin + (i == 0 ? "/desktop/meetings" : i == 1 ?
-                                        "/desktop/meetings/11111111-1111-4111-8111-111111111111" :
-                                        "/desktop/meetings/33333333-3333-4333-8333-333333333333");
-                                    if (integer(entry.GetNamedNumber(L"id")) != historyEntryIds[i] ||
-                                        to_string(entry.GetNamedString(L"url")) != url || id == historyEntryIds[i]) {
-                                        finish(false, "reset-preparation-identity"); return;
-                                    }
-                                }
-                                if (phase < 3) historyEntryIds[phase] = id;
-                                else resetEntryId = id; // Fresh GET-list, not original A or POST B.
-                            } else {
-                                if (phase == 4) {
-                                    for (const auto old : historyEntryIds)
-                                        if (id == old) { finish(false, "reset-new-get-reused-old-id"); return; }
-                                    resetForwardId = id;
-                                }
-                                if (entries.Size() != 2 || index != (phase == 5 ? 0 : 1) ||
-                                    resetForwardId == resetEntryId || resetForwardId < 0 ||
-                                    integer(entries.GetObjectAt(0).GetNamedNumber(L"id")) != resetEntryId ||
-                                    integer(entries.GetObjectAt(1).GetNamedNumber(L"id")) != resetForwardId ||
-                                    to_string(entries.GetObjectAt(0).GetNamedString(L"url")) != origin + "/desktop/meetings" ||
-                                    to_string(entries.GetObjectAt(1).GetNamedString(L"url")) != origin + "/desktop/meetings/33333333-3333-4333-8333-333333333333") {
-                                    finish(false, "reset-useful-history-identity"); return;
-                                }
-                            }
-                            std::printf("T103_RESET_ENTRY phase=%u id=%d count=%u FINAL_METHOD=%s\n",
-                                phase, id, entries.Size(), resetDocument.get ? "GET" : "POST");
-                            if (phase >= 4) requestHistoryResetBridge();
-                            else advanceHistory(page);
-                            return;
-                        }
                         if (phase < 3) {
                             for (unsigned i = 0; i < phase; ++i)
                                 if (historyEntryIds[i] == id) { finish(false, "history-entry-not-distinct"); return; }
@@ -1259,22 +1187,8 @@ struct ProbeApp : ApplicationT<ProbeApp> {
                                 controlEntryCount = entries.Size();
                                 controlEntryIndex = static_cast<unsigned>(index);
                             }
-                        } else if (historyRaceScenario()) {
-                            if (phase == 3) {
-                                raceGetEntryId = id;
-                                for (const auto old : historyEntryIds)
-                                    if (old == id) { finish(false, "race-fresh-get-not-distinct"); return; }
-                            } else {
-                                if (entries.Size() != 5 || index != 4 || raceGetEntryId < 0) { finish(false, "race-preparation-shape"); return; }
-                                const int expectedIds[] = {historyEntryIds[0], historyEntryIds[1], historyEntryIds[2], raceGetEntryId, id};
-                                for (unsigned i = 0; i < 5; ++i) {
-                                    if (integer(entries.GetObjectAt(i).GetNamedNumber(L"id")) != expectedIds[i]) { finish(false, "race-preparation-ids"); return; }
-                                    for (unsigned j = 0; j < i; ++j)
-                                        if (expectedIds[i] == expectedIds[j]) { finish(false, "race-preparation-duplicate"); return; }
-                                }
-                            }
                         } else if (id != historyEntryIds[phase == 3 ? 0 : 2]) { finish(false, "history-entry-restored-id"); return; }
-                        if (!historyRaceScenario() && (phase == 2 || phase == 3)) {
+                        if (phase == 2 || phase == 3) {
                             const auto target = historyEntryIds[phase == 2 ? 0 : 2];
                             const auto targetUrl = phase == 2 ? origin + "/desktop/meetings" :
                                 origin + "/desktop/meetings/33333333-3333-4333-8333-333333333333";
@@ -1292,14 +1206,6 @@ struct ProbeApp : ApplicationT<ProbeApp> {
                     } catch (...) { finish(false, "history-entry-snapshot"); }
                 });
             });
-    }
-
-    bool historyResetOwner() const {
-        return !resetLostAuthority && host->runtimeState() == WebRuntimeState::ready &&
-            host->documentGeneration() == resetGeneration && host->currentUrl() == origin + "/desktop/meetings" &&
-            to_string(view.CoreWebView2().Source()) == host->currentUrl() &&
-            lastStartedNavigationId == resetNavigation && lastCompletedNavigationId == resetNavigation &&
-            starts == resetStarts && completions == resetCompletions && authCallbacks == resetAuthCallbacks;
     }
 
     void requestHistoryResetBridge() {
@@ -1322,65 +1228,6 @@ struct ProbeApp : ApplicationT<ProbeApp> {
                 } catch (...) { finish(false, "reset-real-bridge-script"); }
             });
         });
-    }
-
-    void checkHistoryResetBridge() {
-        if (resetPending && !historyResetOwner()) { finish(false, "reset-retained-authority"); return; }
-        if (!resetBridgeAwaiting || scriptPending) return;
-        if (updateCallbacks != historyPhase - 2) return; // Missing dispatch reaches the unchanged deadline.
-        if (host->runtimeState() != WebRuntimeState::ready ||
-            host->documentGeneration() != resetDocument.generation ||
-            lastStartedNavigationId != resetDocument.navigation || lastCompletedNavigationId != resetDocument.navigation ||
-            authCallbacks != historyPhase + 1 || host->currentUrl() != to_string(view.CoreWebView2().Source())) {
-            finish(false, "reset-real-bridge-owner"); return;
-        }
-        std::printf("T103_RESET_BRIDGE phase=%u dispatches=%u CURRENT_AUTHORITY=1\n", historyPhase, updateCallbacks);
-        resetBridgeAwaiting = false;
-        if (historyPhase == 3) resetPending = false;
-        advanceHistory(historyPhase == 3 || historyPhase == 5 ? 1u : 3u);
-    }
-
-    void startHistoryReset() {
-        if (!resetPending || historyPhase != 3 || resetEntryId < 0 || !resetDocument.get ||
-            resetDocument.responses != 1 || !resetDocument.loaded) { finish(false, "reset-precondition"); return; }
-        resetGeneration = host->documentGeneration();
-        resetNavigation = lastCompletedNavigationId;
-        resetStarts = starts; resetCompletions = completions; resetAuthCallbacks = authCallbacks;
-        resetCaptured = true;
-        const auto queue = view.DispatcherQueue();
-        scriptPending = true;
-        view.CoreWebView2().CallDevToolsProtocolMethodAsync(L"Page.resetNavigationHistory", L"{}")
-            .Completed([this, queue](auto const& command, auto const&) {
-                queue.TryEnqueue([this, command, queue] {
-                    if (probeExit != 2) return;
-                    try {
-                        if (!historyResetOwner() || Windows::Data::Json::JsonObject::Parse(command.GetResults()).Size() != 0) {
-                            finish(false, "reset-command-ack-or-owner"); return;
-                        }
-                        std::puts("T103_RESET_ACK_EMPTY=1 FIXTURE_BLOCK_ALL=1 PRODUCTION_FENCES_PROVEN=0");
-                        // A second actual native snapshot, not the pre-reset response or ACK.
-                        view.CoreWebView2().CallDevToolsProtocolMethodAsync(L"Page.getNavigationHistory", L"{}")
-                            .Completed([this, queue](auto const& snapshot, auto const&) {
-                                queue.TryEnqueue([this, snapshot] {
-                                    scriptPending = false;
-                                    if (probeExit != 2) return;
-                                    try {
-                                        const auto result = Windows::Data::Json::JsonObject::Parse(snapshot.GetResults());
-                                        const auto entries = result.GetNamedArray(L"entries");
-                                        if (!historyResetOwner() || result.GetNamedNumber(L"currentIndex") != 0 || entries.Size() != 1 ||
-                                            entries.GetObjectAt(0).GetNamedNumber(L"id") != resetEntryId ||
-                                            to_string(entries.GetObjectAt(0).GetNamedString(L"url")) != origin + "/desktop/meetings") {
-                                            finish(false, "reset-singleton-identity-or-owner"); return;
-                                        }
-                                        resetVerified = true;
-                                        std::printf("T103_RESET_SINGLETON id=%d SAME_ID_URL_GEN_NAV_AUTH=1 FINAL_GET=1\n", resetEntryId);
-                                        requestHistoryResetBridge();
-                                    } catch (...) { finish(false, "reset-verification-snapshot"); }
-                                });
-                            });
-                    } catch (...) { finish(false, "reset-command"); }
-                });
-            });
     }
 
     void checkHistoryDocument() {
@@ -1407,7 +1254,7 @@ struct ProbeApp : ApplicationT<ProbeApp> {
                     constexpr unsigned getPages[] = {1,2,3,2,1,2,3};
                     constexpr unsigned postPages[] = {1,2,3,1,3,1,3};
                     const auto page = post ? postPages[phase] : getPages[phase];
-                    const auto path = (page == 1 || (page == 2 && (historySameUrlScenario() || historyRaceScenario()))) ? "/desktop/meetings" : page == 2 ?
+                    const auto path = (page == 1 || (page == 2 && historySameUrlScenario())) ? "/desktop/meetings" : page == 2 ?
                         "/desktop/meetings/11111111-1111-4111-8111-111111111111" :
                         "/desktop/meetings/33333333-3333-4333-8333-333333333333";
                     const auto state = host->runtimeState();
@@ -1422,125 +1269,21 @@ struct ProbeApp : ApplicationT<ProbeApp> {
                     }
                     if (state == WebRuntimeState::unavailable) { finish(false, "history-host-unavailable"); return; }
                     if (state != WebRuntimeState::ready || !observedSuccess || (bits & 48) != 48) return;
-                    if (historyResetScenario()) {
-                        if (phase > 6 || starts != phase + 1 || completions != phase + 1 || authCallbacks > phase + 1 ||
-                            observedStatus != 200 || observedError != CoreWebView2WebErrorStatus::Unknown ||
-                            resetDocument.navigation != navigation || resetDocument.generation != generation ||
-                            resetDocument.responses != 1 || !resetDocument.loaded ||
-                            (phase == 1 ? !resetDocument.post : !resetDocument.get)) {
-                            finish(false, "reset-final-response-or-latch"); return;
-                        }
-                        // Ready/bootstrap can precede the native cookie completion.
-                        // Wait within the existing deadline, before capturing reset's owner.
-                        if (authCallbacks < phase + 1) return;
-                    }
                     if (unsigned(bits & 15) != page) { finish(false, "history-document-identity"); return; }
                     const bool acceptedPost = (bits & 64) != 0;
                     if (acceptedPost != (post && phase == 1)) { finish(false, "history-post-document"); return; }
                     if (!hostSourceMatches || !coreSourceMatches) { finish(false, "history-source-identity"); return; }
-                    if ((historyControlScenario() || historyRaceScenario() || historyEntryScenario()) && authCallbacks != phase + 1) {
+                    if ((historyControlScenario() || historyEntryScenario()) && authCallbacks != phase + 1) {
                         if (authCallbacks > phase + 1) finish(false, "history-control-auth-count");
                         return;
                     }
                     // Observe real preparation IDs; entry cases issue one unsolicited
                     // CDP traversal for production denial, never a fixture permit.
-                    if (historyEntryScenario() || historySameUrlScenario() || historyControlScenario() || historyRaceScenario() || historyResetScenario()) checkHistoryEntry(page, origin + path);
+                    if (historyEntryScenario() || historySameUrlScenario() || historyControlScenario()) checkHistoryEntry(page, origin + path);
                     else advanceHistory(page);
                 } catch (...) { finish(false, "history-script"); }
             });
         });
-    }
-
-    void startHistoryRace() {
-        raceStartedAt = GetTickCount64();
-        const auto queue = view.DispatcherQueue();
-        const auto native = [this, queue] {
-            view.CoreWebView2().CallDevToolsProtocolMethodAsync(L"Page.navigateToHistoryEntry",
-                to_hstring("{\"entryId\":" + std::to_string(raceGetEntryId) + "}"))
-                .Completed([this, queue](auto const& command, auto const&) {
-                    queue.TryEnqueue([this, command] {
-                        ++raceCommands;
-                        try { raceNativeAck = Windows::Data::Json::JsonObject::Parse(command.GetResults()).Size() == 0; }
-                        catch (...) { raceUnexpected = true; }
-                        std::printf("RACE_NATIVE_ACK=%d\n", int(raceNativeAck));
-                    });
-                });
-        };
-        const auto script = [this, queue] {
-            view.CoreWebView2().ExecuteScriptAsync(LR"JS((()=>{
-              if(document.getElementById('synthetic-marker')?.dataset.kind!=='history-c')return false;
-              history.go(-3);return true;
-            })())JS").Completed([this, queue](auto const& command, auto const&) {
-                queue.TryEnqueue([this, command] {
-                    ++raceCommands;
-                    try { raceScriptFromC = command.GetResults() == L"true"; }
-                    catch (...) { raceUnexpected = true; }
-                    std::printf("RACE_SCRIPT_FROM_C=%d\n", int(raceScriptFromC));
-                });
-            });
-        };
-        // Send order is not execution order; neither completion supplies an entry/NavId binding.
-        if (scenario == "history-race-native-first") { native(); script(); }
-        else { script(); native(); }
-    }
-
-    void checkHistoryRace() {
-        if (GetTickCount64() - raceStartedAt < 1500) return;
-        const auto queue = view.DispatcherQueue();
-        const auto startingCount = starts;
-        scriptPending = true;
-        view.CoreWebView2().CallDevToolsProtocolMethodAsync(L"Page.getNavigationHistory", L"{}")
-            .Completed([this, queue, startingCount](auto const& command, auto const&) {
-                queue.TryEnqueue([this, queue, command, startingCount] {
-                    if (probeExit != 2) return;
-                    if (starts != startingCount) { scriptPending = false; return; }
-                    try {
-                        const auto snapshot = Windows::Data::Json::JsonObject::Parse(command.GetResults());
-                        const auto entries = snapshot.GetNamedArray(L"entries");
-                        const auto index = snapshot.GetNamedNumber(L"currentIndex");
-                        if (!std::isfinite(index) || index < 0 || index >= entries.Size() || std::floor(index) != index || entries.Size() > 128)
-                            throw std::runtime_error("race-index");
-                        const auto current = entries.GetObjectAt(static_cast<unsigned>(index));
-                        const auto id = current.GetNamedNumber(L"id");
-                        if (!std::isfinite(id) || id < 0 || id > INT_MAX || std::floor(id) != id)
-                            throw std::runtime_error("race-entry");
-                        if (id == historyEntryIds[1]) raceUnsafe = true;
-                        const bool safeEntry = id == raceGetEntryId && to_string(current.GetNamedString(L"url")) == origin + "/desktop/meetings";
-                        std::printf("RACE_FINAL_ENTRY=%d SAFE_GET=%d UNSAFE_POST_SEEN=%d\n", int(id), int(safeEntry), int(raceUnsafe));
-                        // A proven unsafe ID is already decisive; a DOM read may
-                        // fail on precisely this POST restore and must not erase it.
-                        if (raceUnsafe) { scriptPending = false; finish(false, "race-hypothesis-refuted-unsafe-entry"); return; }
-                        view.CoreWebView2().ExecuteScriptAsync(LR"JS((()=>{
-                          const m=document.getElementById('synthetic-marker');
-                          return (m?.dataset.kind==='history-a'?1:0)+(m?.dataset.postAccepted==='1'?2:0)+
-                            (window.__grafDesktopBridgeInstalled===true?16:0)+
-                            (document.documentElement.dataset.syntheticNativeReady==='1'?32:0);
-                        })())JS").Completed([this, queue, startingCount, safeEntry](auto const& result, auto const&) {
-                            queue.TryEnqueue([this, result, startingCount, safeEntry] {
-                                scriptPending = false;
-                                if (probeExit != 2 || starts != startingCount) return;
-                                try {
-                                    const auto bits = std::stoi(to_string(result.GetResults()));
-                                    raceUnsafe = raceUnsafe || (bits & 2) != 0;
-                                    if (raceUnsafe) { finish(false, "race-hypothesis-refuted-unsafe-entry"); return; }
-                                    const auto& allowed = raceNavigations[0];
-                                    const auto& denied = raceNavigations[1];
-                                    const bool reached = raceCommands == 2 && raceNativeAck && raceScriptFromC && !raceUnexpected &&
-                                        raceStarts == 2 && allowed.id && denied.id && allowed.id != denied.id &&
-                                        allowed.completed && allowed.loaded && allowed.success && denied.completed &&
-                                        !denied.loaded && !denied.success && denied.error == CoreWebView2WebErrorStatus::OperationCanceled;
-                                    std::printf("RACE_TWO_STARTS_OBSERVED=%d STARTS=%u COMMANDS=%u DOM_BITS=%d SAFE_GET=%d\n",
-                                        int(reached), raceStarts, raceCommands, bits, int(safeEntry));
-                                    // Even two starts + final GET do not independently
-                                    // identify the cancelled target. Never infer that
-                                    // this URL/kind permit rejected the unsafe entry.
-                                    finish(false, "race-inconclusive-cancelled-target-identity");
-                                } catch (...) { finish(false, "race-inconclusive-dom"); }
-                            });
-                        });
-                    } catch (...) { scriptPending = false; finish(false, "race-inconclusive-snapshot"); }
-                });
-            });
     }
 
     void checkRetainedHistoryEntry() {
@@ -2640,8 +2383,6 @@ struct ProbeApp : ApplicationT<ProbeApp> {
         if (heldResetScenario() && historyPhase >= 3) { checkStaleReset(); return; }
         if (controlledHistoryScenario() && historyFixture.held) { checkHeldHistory(); return; }
         if (productionHistoryScenario()) { checkProductionHistory(); return; }
-        if (historyResetScenario() && (resetBridgeAwaiting || (resetPending && resetCaptured))) { checkHistoryResetBridge(); return; }
-        if (raceStartedAt) { checkHistoryRace(); return; }
         if (scenario == "cancel-before-start") { checkCancelledNavigation(); return; }
         if (cancelPhase && retainedHistoryScenario()) { checkCancelledNavigation(); return; }
         if (cancelPhase && sameDocumentScenario()) { checkSameDocument(); return; }
@@ -2790,8 +2531,6 @@ struct ProbeApp : ApplicationT<ProbeApp> {
                     accountUnavailableAt = GetTickCount64();
                 if (accountHistoryScenario() && accountUnavailableAt && historyPhase == 3 && state != WebRuntimeState::unavailable)
                     accountTerminalLost = true;
-                if (historyResetScenario() && resetPending && resetCaptured && state != WebRuntimeState::ready)
-                    resetLostAuthority = true;
                 if (probeExit == 2 && ((cancelPhase == 1 && retainedHistoryScenario()) ||
                     (sameDocumentScenario() && cancelPhase > 0 && cancelPhase < 3)) && state != WebRuntimeState::ready)
                     controlLostAuthority = true;
@@ -2902,17 +2641,6 @@ struct ProbeApp : ApplicationT<ProbeApp> {
                     !cancelBridgeRequested || updateCallbacks != expected ||
                     host->runtimeState() != WebRuntimeState::ready || host->documentGeneration() != generationBeforeCancel)
                     finish(false, "cancelled-navigation-bridge-authority");
-            });
-            if (historyResetScenario()) host->setUpdateHandler([this] {
-                // Harmless actual bridge dispatch only: no update service/installer is attached.
-                ++updateCallbacks;
-                if (!resetBridgeAwaiting || historyPhase < 3 || historyPhase > 6 ||
-                    updateCallbacks != historyPhase - 2 || !resetVerified ||
-                    host->runtimeState() != WebRuntimeState::ready ||
-                    host->documentGeneration() != resetDocument.generation ||
-                    lastStartedNavigationId != resetDocument.navigation || lastCompletedNavigationId != resetDocument.navigation ||
-                    host->currentUrl() != to_string(view.CoreWebView2().Source()) ||
-                    (resetPending && !historyResetOwner())) finish(false, "reset-bridge-authority");
             });
             if (productionHistoryScenario()) host->setUpdateHandler([this] {
                 ++updateCallbacks; // Actual bootstrap dispatch only, never an installer.
@@ -3054,9 +2782,6 @@ struct ProbeApp : ApplicationT<ProbeApp> {
                             }
                             finish(false, "held-unmatched-completion"); return;
                         }
-                        if (raceStartedAt) for (auto& item : raceNavigations) if (item.id == event.NavigationId()) {
-                            item.completed = true; item.success = event.IsSuccess(); item.error = event.WebErrorStatus();
-                        }
                         if (revalidationNegativeScenario() && revalidationNavigation && event.NavigationId() == revalidationNavigation) {
                             if (negativeSettingsCompleted || (!event.IsSuccess() &&
                                 event.WebErrorStatus() != CoreWebView2WebErrorStatus::OperationCanceled) ||
@@ -3069,9 +2794,6 @@ struct ProbeApp : ApplicationT<ProbeApp> {
                         }
                         ++completions;
                         lastCompletedNavigationId = event.NavigationId();
-                        // Test-only fence installed before the product completion/latch.
-                        // It never sets ready/nonce or supplies metadata to production.
-                        if (historyResetScenario() && historyPhase == 3) resetPending = true;
                         observedStatus = unsigned(event.HttpStatusCode());
                         observedError = event.WebErrorStatus();
                         observedSuccess = event.IsSuccess();
@@ -3122,18 +2844,8 @@ struct ProbeApp : ApplicationT<ProbeApp> {
                             resetDocument.loaded = true;
                         }
                         if (productionHistoryScenario()) observeProductionCommit(event.NavigationId());
-                        if (historyResetScenario()) {
-                            if (resetPending || event.NavigationId() != resetDocument.navigation) {
-                                finish(false, "reset-unexpected-content-loading"); return;
-                            }
-                            resetDocument.loaded = true;
-                        }
-                        if (raceStartedAt) {
-                            for (auto& item : raceNavigations) if (item.id == event.NavigationId()) item.loaded = true;
-                            std::printf("RACE_CONTENT_LOADING nav=%llu\n", static_cast<unsigned long long>(event.NavigationId()));
-                        }
                     });
-                    if (historyResetScenario() || productionHistoryScenario() || historyEntryScenario()) core.WebResourceResponseReceived([this](auto const&, auto const& args) {
+                    if (productionHistoryScenario() || historyEntryScenario()) core.WebResourceResponseReceived([this](auto const&, auto const& args) {
                         try {
                             if (historyEntryScenario() && cancelPhase != 2) return;
                             const auto request = args.Request();
@@ -3150,13 +2862,10 @@ struct ProbeApp : ApplicationT<ProbeApp> {
                                 }
                                 return; // Observe the old actual response, never feed it into the product latch.
                             }
-                            const auto path = historyPhase == 1 ? "/desktop/meetings/11111111-1111-4111-8111-111111111111" :
-                                historyPhase == 2 || historyPhase == 4 || historyPhase == 6 ?
-                                "/desktop/meetings/33333333-3333-4333-8333-333333333333" : "/desktop/meetings";
                             const auto generation = host->documentGeneration();
                             const auto expectedUrl = historyEntryScenario() ? origin + "/desktop/meetings" :
-                                productionHistoryScenario() ? productionHistoryUrl() : origin + path;
-                            if ((resetPending && resetCaptured) || historyPhase > 6 || to_string(request.Uri()) != expectedUrl ||
+                                productionHistoryUrl();
+                            if (historyPhase > 6 || to_string(request.Uri()) != expectedUrl ||
                                 (scenario == "history-get-repeated-url" && headers.Contains(L"X-GRAF-History-Intent")) ||
                                 !headers.Contains(L"X-GRAF-Desktop-Navigation") ||
                                 to_string(headers.GetHeader(L"X-GRAF-Desktop-Navigation")) != std::to_string(generation) ||
@@ -3207,9 +2916,6 @@ struct ProbeApp : ApplicationT<ProbeApp> {
                                 index, static_cast<unsigned long long>(document.navigation),
                                 static_cast<unsigned long long>(generation), response.StatusCode());
                         } catch (...) { finish(false, "fresh-login-response-observation"); }
-                    });
-                    if (historyResetScenario()) core.FrameNavigationStarting([this](auto const&, auto const& event) {
-                        if (resetPending) { event.Cancel(true); finish(false, "reset-interval-frame-navigation"); }
                     });
                     // Isolation fence only; never provides response metadata or calls the host latch.
                     core.AddWebResourceRequestedFilter(L"*", CoreWebView2WebResourceContext::All,
@@ -3377,34 +3083,8 @@ struct ProbeApp : ApplicationT<ProbeApp> {
                         redirectHeldNavigation.id = event.NavigationId();
                     }
                 }
-                if (historyResetScenario()) {
-                    if (resetPending) {
-                        event.Cancel(true); // Test-only ALL navigation fence, before the production subscriber.
-                        finish(false, "reset-interval-navigation"); return;
-                    }
-                    if (event.IsRedirected() || (historyPhase >= 5 && event.NavigationKind() != CoreWebView2NavigationKind::BackOrForward)) {
-                        event.Cancel(true); finish(false, "reset-unexpected-navigation-kind"); return;
-                    }
-                    resetDocument = {};
-                    resetDocument.navigation = event.NavigationId();
-                }
                 if (!profileVerified || !host->routePolicy().sharesOrigin(to_string(event.Uri()))) {
                     event.Cancel(true); finish(false, "unexpected-navigation"); return;
-                }
-                if (raceStartedAt) {
-                    const bool candidate = event.NavigationKind() == CoreWebView2NavigationKind::BackOrForward &&
-                        to_string(event.Uri()) == origin + "/desktop/meetings" && !event.IsRedirected();
-                    if (!candidate || raceStarts >= raceNavigations.size() ||
-                        raceNavigations[0].id == event.NavigationId()) {
-                        raceUnexpected = true; event.Cancel(true);
-                    } else {
-                        auto& item = raceNavigations[raceStarts++];
-                        item.id = event.NavigationId();
-                        if (raceStarts == 2) event.Cancel(true);
-                    }
-                    std::printf("RACE_START nav=%llu kind=%d cancel=%d ordinal=%u candidate=%d\n",
-                        static_cast<unsigned long long>(event.NavigationId()), int(event.NavigationKind()),
-                        int(event.Cancel()), raceStarts, int(candidate));
                 }
                 if (emailStarted && to_string(event.Uri()) == origin + "/desktop/settings/account/email-link/start")
                     emailNavigationId = event.NavigationId();
@@ -3509,7 +3189,7 @@ int wmain(int argc, wchar_t** argv) {
     for (const auto name : {"history-revalidation-no-anchor", "history-revalidation-workspace-boundary", "history-revalidation-token-boundary", "history-revalidation-epoch-boundary", "history-revalidation-post", "history-revalidation-timeout-unknown", "history-revalidation-timeout-reconfirmed", "history-revalidation-close", "history-revalidation-terminal", "history-revalidation-preheaders", "history-revalidation-before-start", "shared-reader-session", "history-get-repeated-url", "history-host-ordinary-back", "initial200", "login400", "email503", "cabinet401", "cabinet503", "login429", "email429",
         "email-json503", "reselect", "billing401", "meeting401", "transport-reset", "tls-failure", "login-post400",
         "history-get", "history-post", "history-entry", "history-entry-same-url", "cancel-before-start", "history-host-same-url",
-        "cancel-history-host", "cancel-history-script", "history-same-document", "history-race-native-first", "history-race-script-first", "history-reset",
+        "cancel-history-host", "cancel-history-script", "history-same-document",
         "history-host-get", "history-host-quarantine", "history-pending-read-fence", "history-terminal-held", "history-fresh-login-redirect", "history-reset-stale-readback", "history-reset-account-boundary", "history-account-boundary-redirect-held"})
         known = known || scenario == name;
     if (!known) return 2;

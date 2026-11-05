@@ -8,7 +8,7 @@ param(
   [Parameter(Mandatory=$true)][string]$SyntheticCertificate,
   [Parameter(Mandatory=$true)][string]$SyntheticPrivateKey,
   [ValidateNotNullOrEmpty()]
-  [ValidateSet('history-revalidation-no-anchor','history-revalidation-workspace-boundary','history-revalidation-token-boundary','history-revalidation-epoch-boundary','history-revalidation-post','history-revalidation-timeout-unknown','history-revalidation-timeout-reconfirmed','history-revalidation-close','history-revalidation-terminal','history-revalidation-preheaders','history-revalidation-before-start','shared-reader-session','history-get-repeated-url','history-host-ordinary-back','initial200','login400','email503','cabinet401','cabinet503','login429','email429','email-json503','reselect','billing401','meeting401','transport-reset','tls-failure','login-post400','history-get','history-post','history-entry','history-entry-same-url','cancel-before-start','history-host-same-url','cancel-history-host','cancel-history-script','history-same-document','history-race-native-first','history-race-script-first','history-reset','history-host-get','history-host-quarantine','history-pending-read-fence','history-terminal-held','history-fresh-login-redirect','history-reset-stale-readback','history-reset-account-boundary','history-account-boundary-redirect-held')]
+  [ValidateSet('history-revalidation-no-anchor','history-revalidation-workspace-boundary','history-revalidation-token-boundary','history-revalidation-epoch-boundary','history-revalidation-post','history-revalidation-timeout-unknown','history-revalidation-timeout-reconfirmed','history-revalidation-close','history-revalidation-terminal','history-revalidation-preheaders','history-revalidation-before-start','shared-reader-session','history-get-repeated-url','history-host-ordinary-back','initial200','login400','email503','cabinet401','cabinet503','login429','email429','email-json503','reselect','billing401','meeting401','transport-reset','tls-failure','login-post400','history-get','history-post','history-entry','history-entry-same-url','cancel-before-start','history-host-same-url','cancel-history-host','cancel-history-script','history-same-document','history-host-get','history-host-quarantine','history-pending-read-fence','history-terminal-held','history-fresh-login-redirect','history-reset-stale-readback','history-reset-account-boundary','history-account-boundary-redirect-held')]
   [string[]]$Scenarios = @('initial200','login400','email503','cabinet401','cabinet503','login429','email429','email-json503','reselect','billing401','meeting401','transport-reset','tls-failure','login-post400','history-get','history-post','history-entry','history-entry-same-url','cancel-before-start','history-host-same-url','cancel-history-host','cancel-history-script','history-same-document'),
   [switch]$CompletionFailureDiagnostic
 )
@@ -144,10 +144,6 @@ try {
       } elseif ($scenario -in @('cancel-history-script','history-same-document')) {
         # Real A/POST-B/C, cancelled traversal or source-only changes, then a new GET-A.
         $countsMatch = $row -cmatch '\A[3-4] 0 0 0 0 1\z'
-      } elseif ($scenario -in @('history-race-native-first','history-race-script-first')) {
-        # Four preparation GETs, then up to two provisional/restored GETs.
-        # Exactly one POST cannot by itself exclude a cached POST restore.
-        $countsMatch = $row -cmatch '\A[4-6] 0 0 0 0 1\z'
       } elseif ($scenario -in @('history-host-get','history-host-ordinary-back')) {
         # Three actual GETs, host Back/Forward; exact IDs/method/authority checked natively.
         $countsMatch = $row -cmatch '\A[3-5] 0 0 0 0 0\z'
@@ -159,10 +155,6 @@ try {
         $countsMatch = $row -cmatch '\A[3-5] 0 0 0 0 0\z'
       } elseif ($scenario -in @('history-host-quarantine','history-post','history-host-same-url')) {
         # A, POST-B, C, host fresh list/reset, fresh forward C, then useful host BF.
-        $countsMatch = $row -cmatch '\A[4-6] 0 0 0 0 1\z'
-      } elseif ($scenario -eq 'history-reset') {
-        # A, POST-B, C, fresh GET-list; reset; new GET-C; selected-ID Back/Forward.
-        # Method/latch, exact singleton and restored authority are native oracles.
         $countsMatch = $row -cmatch '\A[4-6] 0 0 0 0 1\z'
       } elseif ($scenario -eq 'cancel-before-start') {
         # A provisional GET may reach the server before cancellation. It must

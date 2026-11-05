@@ -3351,3 +3351,76 @@ ID DSH19562. Stage `t117-known-row-creators-witness-bp0y0oea`; script SHA256
 `0158831130770444c79aeda70c76ee2a5cc7cc36e3f6c0d0f5c31ba3bcb150a6`, exit0,
 identity/metadata unchanged, GRAF0. Отрицательные сравнения не дают права
 удалять строку и не доказывают её синтетическое происхождение.
+
+
+### 2026-11-05: удаление неподдерживаемых механизмов истории
+
+Main применил точный test-only cleanup3 после независимого SOURCE review:
+`tests-source-review.md` SHA256
+`926c1812e267d1b67a5cbc17f85fe1539d02b1f1904e119ddfebda4964253cab`.
+Удалены три CLI-селектора, их отдельные состояния, пять механизмов и
+принадлежащие им обработчики; +14/−343 строки в трёх тестовых файлах.
+Default23,60 сохраняемых C++ методов и11 Settings сохранены; Python AST
+отличается только удалением трёх членов множеств, текущие PS count/deadline/
+cleanup/qualification проверки не ослаблены. Production Host не менялся.
+
+Patch `631c7617e12ffa1f790caf542878d7cbe27661a3fde87b9ef966152a70ab94cf`;
+новые CPP/PY/PS соответственно:
+`2950731e98bc19e63ba485a59a208ac6b7ac8e8bce866f27241c0a157cc64894`,
+`2c745eb43902f9c3c9bf3122838c14fe7be68c807c2b959f95d723624c9b8641`,
+`4099e20fc688fbb833b04816dcacc2800bffb9d67efa6a4d5e4fe90aff770dd7`.
+
+Main независимо проверил SDK45 harness и закрепил производный stage
+`t097-main-sdk45-dzjngnjz`, Run SHA256
+`0692c59f5e7e0206bb0382b100611edddc1efdb194dbf6e3a9cf8ed9bd7604c6`.
+Это34 сохранённых+11 Settings, обязательны35с/случай и600с общий срок,
+все внутренние отказы/полномочия/счётчики и source225/phase225/Debug24/config110/
+installed.16/runtime/headers guards. Запуск ещё не принят до terminal receipt.
+Проверки выполняются на1e33fe57e+точных dirty cleanup3 inputs; старый donor225
+не меняется. Manifest.17 и RecordingIndicator test не являются SDK host inputs.
+
+
+Первый SDK45 завершил actual inner runner exit0 и все45 native cases PASS,
+но wrapper receipt остался accepted=false: validated `$Phase` столкнулся с
+`foreach($phase in0..2)` при проверке shared-reader. Исходный отказ сохранён;
+он не переименован в GREEN. Green log SHA256 `b9fe490c4b789ea3263a597c02aa86d713d339381a62be85ebdabd2308967ced`,
+raw receipt `00c39ee88fc798933b8f459f2339e4fc5cbbf9b14646ab579b28503ca59a8f4c`. Все225/225 source,24 Debug,110 config,
+installed.16/runtime/headers postguards сохранились, own processes0.
+Для приёмки нужен свежий ограниченный запуск с исправленным именем переменной.
+
+T117: read-only Recycle Bin lookup stage
+`t117-missing-package-recycle-readonly-hu5u51t3` не прошёл guard количества
+элементов до перечисления: exit1, stage recycle_count_before, checked=false.
+Это не отрицательный результат поиска и не доказательство отсутствия пакета
+в корзине. Рабочие данные не менялись; GRAF после проверки0.
+
+
+### 2026-11-05: свежий SDK45 r2 принят
+
+В отдельном single-use stage `t097-main-sdk45-r2-r5r6sqhq` Main выполнил
+новую полную проверку после минимального rename readerPhase, без изменения
+сценариев, отказов, временных ограничений и source/runtime guards. Независимый
+SOURCE review `6548db4199b182560d894fb6eb782a87a64ae0bcc9f13204dcb406fc907aa5c5`;
+Run `965ec9acc2e5c946e12d0d41e00a90c488327c3f2e926ee39bd1f5293098a0d3`. Parallels exit0, raw terminal=true, accepted=true,
+run_exit0, все45 уникальных native/fixture/server/count/browser case PASS,
+aggregate45/45, temp cleanupPASS, stderr0, own processes0. Это34 прежних
+поддерживаемых сценария плюс11 Settings; default23 сохранён.
+
+Raw receipt `bd27752c2faeffd5f72841cc933a58ded87a790d2d8a2702f1d7bf004e509f5b`,
+green log `51a028a3552e789da50017ac684d039b9e3d57608fa8fcdb527f28c3f7747041`. Main независимо сверил каждый case,
+счётчики, выходы и прежний предел35000мс; общий предел600000мс не менялся.
+Pre/post production225/phase225, Debug24/config110, installed.16, runtime
+и generated headers неизменны. Source —1e33fe57e плюс точные cleanup3;
+это не приёмка установленной.17, реального аккаунта, аудио или аппаратуры.
+Первые34/37 и wrapper-failed45 сохранены как исторические отказы.
+
+T117: диагностическое чтение Count установило Int32/1384, а не ошибку типа.
+Main отдельно рассмотрел единственное изменение lookup512→2048, сохранив
+metadata-only exact-parent/name условия, отсутствие payload/children/verb и
+COM/handle guards. Свежий stage `t117-missing-package-recycle-2048-0n634ayl`,
+script SHA256
+`93a454b1aeda47ab4207a541fe200e88b0158cdf44bc12f95d87c365a38c5076`,
+exit0, complete/checked=true/count-bound=true/collection-count unchanged,
+exact и case-insensitive matches0. Queue/root identity/length/write-time
+неизменны, GRAF0. Это отсутствие совпадения в ограниченной текущей корзине,
+не доказательство отсутствия любой копии и не право удалить строку очереди.

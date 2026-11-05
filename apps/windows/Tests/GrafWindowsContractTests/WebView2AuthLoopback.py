@@ -18,15 +18,14 @@ if scenario not in revalidation_scenarios | revalidation_negative_scenarios | {"
                     "meeting401", "transport-reset", "tls-failure", "login-post400",
                     "history-get", "history-post", "history-entry", "history-entry-same-url", "cancel-before-start", "history-host-same-url",
                     "cancel-history-host", "cancel-history-script", "history-same-document",
-                    "history-race-native-first", "history-race-script-first", "history-reset",
                     "history-host-get", "history-host-quarantine", "history-pending-read-fence", "history-terminal-held", "history-fresh-login-redirect", "history-reset-stale-readback", "history-reset-account-boundary", "history-account-boundary-redirect-held"}:
     raise SystemExit(2)
 meeting_path = "/desktop/meetings/11111111-1111-4111-8111-111111111111"
 cabinet_path = "/billing" if scenario == "billing401" else meeting_path if scenario == "meeting401" else "/desktop/meetings"
 history_posts = {"history-post", "history-entry", "history-entry-same-url", "history-host-same-url",
                  "cancel-history-script", "history-same-document",
-                 "history-race-native-first", "history-race-script-first", "history-reset", "history-host-quarantine", "history-reset-stale-readback", "history-reset-account-boundary", "history-account-boundary-redirect-held"}
-history_paths = ("/desktop/meetings", "/desktop/meetings" if scenario in {"history-entry-same-url", "history-host-same-url", "history-race-native-first", "history-race-script-first"} else meeting_path,
+                 "history-host-quarantine", "history-reset-stale-readback", "history-reset-account-boundary", "history-account-boundary-redirect-held"}
+history_paths = ("/desktop/meetings", "/desktop/meetings" if scenario in {"history-entry-same-url", "history-host-same-url"} else meeting_path,
                  "/desktop/meetings/33333333-3333-4333-8333-333333333333")
 if scenario == "history-host-ordinary-back":
     history_paths = ("/desktop/meetings", "/desktop/settings", "/desktop/shared-with-me")
@@ -227,7 +226,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         "history-pending-read-fence", "history-terminal-held"} or scenario in history_posts:
             with lock:
                 allowed = path in history_paths and not (scenario in {"history-post", "history-entry",
-                                                                   "cancel-history-script", "history-same-document", "history-reset", "history-host-quarantine", "history-reset-stale-readback", "history-reset-account-boundary", "history-account-boundary-redirect-held"} and path == history_paths[1])
+                                                                   "cancel-history-script", "history-same-document", "history-host-quarantine", "history-reset-stale-readback", "history-reset-account-boundary", "history-account-boundary-redirect-held"} and path == history_paths[1])
                 counts[0 if allowed else 4] += 1
             if scenario == "history-account-boundary-redirect-held" and not allowed:
                 category = "login" if path == "/login" else "list" if path == cabinet_path else "detail" if path in history_paths else "other"
