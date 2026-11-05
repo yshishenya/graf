@@ -482,7 +482,7 @@ RouteEvaluation WebViewRoutePolicy::evaluate(std::string_view url, bool topLevel
     const auto path = parsed->path;
     if (sharedMeetingPath(path) && url.size() > 16384) return result;
     if (path.find("//") != std::string_view::npos || path.find("..") != std::string_view::npos ||
-        path.find('%') != std::string_view::npos) {
+        path.find('%') != std::string_view::npos || exactOrChild(path, "/desktop/settings/notifications/mac")) {
         result.kind = RouteKind::denied;
         return result;
     }

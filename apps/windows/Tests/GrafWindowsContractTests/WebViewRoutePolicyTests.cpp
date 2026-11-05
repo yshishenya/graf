@@ -527,7 +527,36 @@ static void sharedMeetingRecoveryContract() {
     assert(!policy.isAllowedDownload(origin + "/api/v1/cabinet/meetings/item/downloads/audio", publicReader));
 }
 
+static void retiredNotificationSettingsContract() {
+    using namespace graf::windows;
+    const WebViewRoutePolicy policy;
+    const auto origin = policy.trustedOrigin();
+    const auto notifications = origin + "/desktop/settings/notifications";
+    const auto audio = origin + "/api/v1/cabinet/meetings/123/downloads/audio";
+    const auto blob = "blob:" + origin + "/11111111-1111-4111-8111-111111111111";
+    assert(policy.evaluate(notifications).decision == RouteDecision::allow);
+    assert(policy.evaluate(notifications).kind == RouteKind::settings);
+    assert(policy.allowsNativeBridge(notifications));
+    assert(policy.isAllowedDownload(audio, notifications));
+    assert(policy.isAllowedDownload(blob, notifications));
+    // The retired Mac route is denied, not an alias for ordinary notifications.
+    for (const auto path : {"/desktop/settings/notifications/mac", "/desktop/settings/notifications/mac?x=1",
+                           "/desktop/settings/notifications/mac#x", "/desktop/settings/notifications/mac/",
+                           "/desktop/settings/notifications/mac/child", "/desktop/settings/notifications/%6dac",
+                           "/desktop/settings/notifications/../notifications/mac", "/desktop/settings/notifications%2fmac"}) {
+        const auto retired = origin + path;
+        const auto result = policy.evaluate(retired);
+        assert(result.decision == RouteDecision::deny);
+        assert(result.kind == RouteKind::denied);
+        assert(!policy.allowsNativeBridge(retired));
+        assert(!policy.isAllowedDownload(audio, retired));
+        assert(!policy.isAllowedDownload(blob, retired));
+        assert(!policy.isAllowedDownload(retired, notifications));
+    }
+}
+
 int main() {
+    retiredNotificationSettingsContract();
     safeHistoryContract();
     billingActionParityContract();
     paymentAndResponseContract();
