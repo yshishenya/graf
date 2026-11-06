@@ -277,13 +277,6 @@ public:
         std::string_view json, const std::atomic<bool>* cancellation = nullptr);
     template<class String = std::string> [[nodiscard]] static String originCancellationBody(std::string_view operationId);
     template<class String = std::string> [[nodiscard]] static String meetingDeletionBody();
-    [[nodiscard]] static std::string lifecycleBody(const std::vector<std::string>& origins,
-                                                  const std::vector<std::string>& meetingIds);
-    // Bounded like the server's own limit, and never empty: the endpoint rejects
-    // a selection outside 1..100 targets.
-    [[nodiscard]] static bool validLifecycleSelection(
-        const std::vector<std::string>& origins, const std::vector<std::string>& meetingIds,
-        std::size_t maxEntries) noexcept;
     // Borrowed values: invalidated if scope is changed or destroyed.
     template<class String>
     [[nodiscard]] static std::optional<std::array<std::pair<std::string_view, std::string_view>, 2>> scopedAccountHeaders(

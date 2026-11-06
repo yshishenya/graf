@@ -231,20 +231,12 @@ public:
     [[nodiscard]] static std::shared_ptr<const ProtectedDeletionResponse> deletionProtected(
         const ProtectedDesktopHttpConfig&, const BasicDeletionRequestPlan<CustodyString>&,
         bool readProtocolGate, const ProtectedUploadSend& send = {});
-    [[nodiscard]] DesktopDeletionResponse requestDeletion(std::string_view path, std::string body,
-                                                          const DeletionScope& scope) const;
     [[nodiscard]] static std::shared_ptr<const ProtectedDeletionResponse> recordingLifecycleProtected(
         const ProtectedDesktopHttpConfig&, const CustodyVector<CustodyString>& origins,
         bool readProtocolGate, const ProtectedUploadSend& send = {});
-    [[nodiscard]] DesktopDeletionResponse recordingLifecycle(const std::vector<std::string>& origins,
-                                                            const std::vector<std::string>& meetingIds,
-                                                            const DeletionScope& scope) const;
     // Purge tasks: the server asks this device to remove the local copies of a
     // meeting it has deleted. The answer carries what could actually be proven,
     // never that a request was merely sent.
-    [[nodiscard]] DesktopDeletionResponse ensureLocalPurgeTask(std::string_view meetingId,
-                                                              const DeletionScope& scope) const;
-    [[nodiscard]] DesktopDeletionResponse localPurgeTasks(const DeletionScope& scope) const;
     // Worker-only charged variants. A batch may reuse its unchanged protocol
     // gate; the continuation still owns current epoch/adopted local proof.
     [[nodiscard]] static std::shared_ptr<const ProtectedDeletionResponse> localPurgeTasksProtected(
@@ -256,11 +248,6 @@ public:
         const ProtectedDesktopHttpConfig&, std::string_view taskId, LocalPurgeAckState,
         std::string_view reasonCode, std::string_view completedAtIso, bool readProtocolGate,
         const ProtectedUploadSend& send = {});
-    [[nodiscard]] DesktopDeletionResponse acknowledgeLocalPurgeTask(std::string_view taskId,
-                                                                    LocalPurgeAckState state,
-                                                                    std::string_view reasonCode,
-                                                                    std::string_view completedAtIso,
-                                                                    const DeletionScope& scope) const;
     // Same bound the server enforces (1..100 targets, extra fields forbidden).
     static constexpr std::size_t kLifecycleSelectionLimit = 100;
 

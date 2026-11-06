@@ -1065,7 +1065,7 @@ std::shared_ptr<const ProtectedDeletionResponse> DesktopHttpTransport::recording
     const ProtectedDesktopHttpConfig& config, const CustodyVector<CustodyString>& origins,
     bool readProtocolGate, const ProtectedUploadSend& send) {
     return protectedDeletionCall(config, readProtocolGate, send, [&](auto& call) -> std::string_view {
-        if (origins.empty() || origins.size() > 100) return "invalid_selection";
+        if (origins.empty() || origins.size() > kLifecycleSelectionLimit) return "invalid_selection";
         call.method = "POST"; call.path = DesktopApiClient::lifecyclePath;
         call.body = "{\"origins\":[";
         for (std::size_t n = 0; n != origins.size(); ++n) {
@@ -1171,65 +1171,6 @@ std::shared_ptr<const ProtectedDeletionResponse> DesktopHttpTransport::acknowled
 
 DesktopDeletionResponse DesktopHttpTransport::notificationContext(const DeletionScope& scope) const {
     return deletionCall(config_, scope, "GET", DesktopApiClient::notificationContextPath, {});
-}
-
-DesktopDeletionResponse DesktopHttpTransport::requestDeletion(std::string_view path, std::string body,
-                                                              const DeletionScope& scope) const {
-    if (path.empty()) {
-        DesktopDeletionResponse result;
-        result.safeReason = "invalid_target";
-        return result;
-    }
-    return deletionCall(config_, scope, "POST", path, body);
-}
-
-DesktopDeletionResponse DesktopHttpTransport::recordingLifecycle(const std::vector<std::string>& origins,
-                                                                const std::vector<std::string>& meetingIds,
-                                                                const DeletionScope& scope) const {
-    if (!DesktopApiClient::validLifecycleSelection(origins, meetingIds, kLifecycleSelectionLimit)) {
-        DesktopDeletionResponse result;
-        result.safeReason = "invalid_selection";
-        return result;
-    }
-    return deletionCall(config_, scope, "POST", DesktopApiClient::lifecyclePath,
-                        DesktopApiClient::lifecycleBody(origins, meetingIds));
-}
-
-DesktopDeletionResponse DesktopHttpTransport::ensureLocalPurgeTask(std::string_view meetingId,
-                                                                  const DeletionScope& scope) const {
-    const auto path = DesktopApiClient::localPurgeTaskPath(meetingId);
-    if (path.empty()) {
-        DesktopDeletionResponse result;
-        result.safeReason = "invalid_target";
-        return result;
-    }
-    return deletionCall(config_, scope, "POST", path, {});
-}
-
-DesktopDeletionResponse DesktopHttpTransport::localPurgeTasks(const DeletionScope& scope) const {
-    return deletionCall(config_, scope, "GET", DesktopApiClient::purgeTasksPath, {});
-}
-
-DesktopDeletionResponse DesktopHttpTransport::acknowledgeLocalPurgeTask(std::string_view taskId,
-                                                                       LocalPurgeAckState state,
-                                                                       std::string_view reasonCode,
-                                                                       std::string_view completedAtIso,
-                                                                       const DeletionScope& scope) const {
-    const auto path = DesktopApiClient::localPurgeAckPath(taskId);
-    if (path.empty()) {
-        DesktopDeletionResponse result;
-        result.safeReason = "invalid_target";
-        return result;
-    }
-    // The answer carries a proof code from the client's own vocabulary; an empty
-    // or malformed one would tell the server nothing about the local copies.
-    const auto body = DesktopApiClient::localPurgeAckBody(state, reasonCode, config_.clientVersion, completedAtIso);
-    if (body.empty()) {
-        DesktopDeletionResponse result;
-        result.safeReason = "invalid_body";
-        return result;
-    }
-    return deletionCall(config_, scope, "POST", path, body);
 }
 
 std::optional<DesktopAccountIdentity> DesktopHttpTransport::accountIdentity() const {

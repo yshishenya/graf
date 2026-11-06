@@ -49,8 +49,15 @@ void testProtectedLifecycleTransport() {
                 assert(call.method == "GET" && call.path == DesktopApiClient::notificationContextPath);
                 response.body = R"({"user_id":"11111111-1111-4111-8111-111111111111","workspace_id":"22222222-2222-4222-8222-222222222222","recording_deletion_protocol_version":1})";
             } else {
-                assert(calls == 2 && call.method == "POST" && call.path == DesktopApiClient::lifecyclePath);
-                assert(call.body == R"({"origins":["generated-origin"],"meeting_ids":[]})");
+                assert(call.method == "POST" && call.path == DesktopApiClient::lifecyclePath);
+                if (calls == 2) {
+                    assert(call.body == R"({"origins":["generated-origin"],"meeting_ids":[]})");
+                } else {
+                    assert(calls == 3);
+                    const std::string_view body = call.body;
+                    assert(body.find(R"({"origins":["origin-0",)") == 0);
+                    assert(body.find(R"(,"origin-99"],"meeting_ids":[]})") != std::string_view::npos);
+                }
                 response.body = R"([{"target_type":"own_origin","target_id":"generated-origin","state":"allowed"}])";
             }
             return response;
@@ -61,15 +68,29 @@ void testProtectedLifecycleTransport() {
         assert(DesktopApiClient::decodeLifecycleEntries<CustodyString>(result->body)->size() == 1);
         for (const auto& invalid : {CustodyVector<CustodyString>{},
             CustodyVector<CustodyString>{CustodyString("a/b")},
-            CustodyVector<CustodyString>{CustodyString("duplicate"), CustodyString("duplicate")},
-            CustodyVector<CustodyString>(101, CustodyString("generated"))}) {
+            CustodyVector<CustodyString>{CustodyString("duplicate"), CustodyString("duplicate")}}) {
             const auto refused = DesktopHttpTransport::recordingLifecycleProtected(config, invalid, true, wire);
-            assert(refused && !refused->answered() && calls == 2);
+            assert(refused && refused->safeReason == "invalid_selection" && !refused->answered() && calls == 2);
         }
-        config.scopedAccount->userId = "55555555-5555-4555-8555-555555555555";
-        assert(!DesktopHttpTransport::recordingLifecycleProtected(config, origins, true, wire)->answered() && calls == 2);
+        auto wrong = config; wrong.scopedAccount->userId = "55555555-5555-4555-8555-555555555555";
+        const auto wrongScope = DesktopHttpTransport::recordingLifecycleProtected(wrong, origins, true, wire);
+        assert(wrongScope && wrongScope->safeReason == "invalid_scope" && !wrongScope->answered() && calls == 2);
+        auto noSession = config; noSession.sessionToken.clear();
+        const auto unauthenticated = DesktopHttpTransport::recordingLifecycleProtected(noSession, origins, true, wire);
+        assert(unauthenticated && unauthenticated->safeReason == "auth_required" && !unauthenticated->answered() && calls == 2);
         cancel->store(true);
-        assert(!DesktopHttpTransport::recordingLifecycleProtected(config, origins, true, wire)->answered() && calls == 2);
+        const auto cancelled = DesktopHttpTransport::recordingLifecycleProtected(config, origins, true, wire);
+        assert(cancelled && cancelled->safeReason == "connection" && !cancelled->answered() && calls == 2);
+        cancel->store(false);
+        CustodyVector<CustodyString> maxOrigins;
+        for (std::size_t index = 0; index < 100; ++index) {
+            maxOrigins.emplace_back("origin-" + std::to_string(index));
+        }
+        const auto boundary = DesktopHttpTransport::recordingLifecycleProtected(config, maxOrigins, false, wire);
+        assert(boundary && boundary->accepted() && calls == 3);
+        maxOrigins.emplace_back("origin-100");
+        const auto oversized = DesktopHttpTransport::recordingLifecycleProtected(config, maxOrigins, false, wire);
+        assert(oversized && oversized->safeReason == "invalid_selection" && !oversized->answered() && calls == 3);
     }
     assert(CustodyOwnedMemory::usedBytes() == baseline);
 }
@@ -341,17 +362,6 @@ void testRequestBodies() {
            "{\"confirmation_boundary\":\"Delete this meeting everywhere GRAF controls.\"}");
     assert(DesktopApiClient::originCancellationBody("").empty());
     assert(DesktopApiClient::originCancellationBody("not-a-uuid").empty());
-    assert(DesktopApiClient::lifecycleBody({"directory-1", "directory-2"}, {std::string(kMeeting)}) ==
-           "{\"origins\":[\"directory-1\",\"directory-2\"],\"meeting_ids\":[\"" + std::string(kMeeting) + "\"]}");
-    assert(DesktopApiClient::lifecycleBody({}, {}) == "{\"origins\":[],\"meeting_ids\":[]}");
-    // The endpoint accepts between one and a hundred targets and refuses the rest.
-    assert(DesktopApiClient::validLifecycleSelection({"directory-1"}, {}, 100));
-    assert(DesktopApiClient::validLifecycleSelection({}, {std::string(kMeeting)}, 100));
-    assert(!DesktopApiClient::validLifecycleSelection({}, {}, 100));
-    assert(!DesktopApiClient::validLifecycleSelection({"a/b"}, {}, 100));
-    assert(!DesktopApiClient::validLifecycleSelection({}, {"not-a-uuid"}, 100));
-    assert(DesktopApiClient::validLifecycleSelection(std::vector<std::string>(100, "directory"), {}, 100));
-    assert(!DesktopApiClient::validLifecycleSelection(std::vector<std::string>(101, "directory"), {}, 100));
 }
 
 void testLifecycleCannotAcceptWithoutReceipt() {
@@ -688,12 +698,14 @@ void testProtectedPurgeTransport() {
         assert(ack && ack->accepted() && calls == 4); // HTTP acceptance, not proof of deletion.
         const auto before = calls;
         assert(DesktopHttpTransport::ensureLocalPurgeTaskProtected(config, "../bad", true, wire)->safeReason == "invalid_target");
+        assert(DesktopHttpTransport::acknowledgeLocalPurgeTaskProtected(config, "",
+            LocalPurgeAckState::acknowledged, "local_artifacts_deleted", "", true, wire)->safeReason == "invalid_target");
         assert(DesktopHttpTransport::acknowledgeLocalPurgeTaskProtected(config, kRequest,
             LocalPurgeAckState::failed, "", "", true, wire)->safeReason == "invalid_body");
         auto wrong = config; wrong.scopedAccount->workspaceId = kRequest;
         assert(DesktopHttpTransport::localPurgeTasksProtected(wrong, true, wire)->safeReason == "invalid_scope");
         auto emptySession = config; emptySession.sessionToken.clear();
-        assert(!DesktopHttpTransport::localPurgeTasksProtected(emptySession, true, wire)->accepted());
+        assert(DesktopHttpTransport::localPurgeTasksProtected(emptySession, true, wire)->safeReason == "auth_required");
         assert(calls == before);
         stopAtGate = true;
         assert(!DesktopHttpTransport::localPurgeTasksProtected(config, true, wire)->accepted() && calls == before + 1);
@@ -711,25 +723,6 @@ void testProtectedPurgeTransport() {
     assert(CustodyOwnedMemory::usedBytes() == baseline);
 }
 
-void testPurgeCallsRefusedBeforeTheWire() {
-    DesktopHttpConfig config;
-    const DesktopHttpTransport transport(config);
-    const auto badTarget = transport.ensureLocalPurgeTask("not-a-uuid", scope);
-    assert(badTarget.safeReason == "invalid_target" && !badTarget.answered() && !badTarget.transportFailed);
-    const auto badAckTarget = transport.acknowledgeLocalPurgeTask("", LocalPurgeAckState::acknowledged,
-                                                                 "local_artifacts_deleted", "", scope);
-    assert(badAckTarget.safeReason == "invalid_target" && !badAckTarget.answered());
-    const auto badAckBody = transport.acknowledgeLocalPurgeTask(kRequest, LocalPurgeAckState::acknowledged,
-                                                               "", "", scope);
-    assert(badAckBody.safeReason == "invalid_body" && !badAckBody.answered());
-    // Without a session there is nothing to purge with, and nothing is attempted.
-    assert(transport.localPurgeTasks(scope).safeReason == "auth_required");
-    assert(transport.ensureLocalPurgeTask(kMeeting, scope).safeReason == "auth_required");
-    assert(transport.acknowledgeLocalPurgeTask(kRequest, LocalPurgeAckState::failed, "local_purge_failed", "",
-                                               scope).safeReason == "auth_required");
-    assert(transport.localPurgeTasks(DeletionScope{}).safeReason == "invalid_scope");
-}
-
 void testScopedHeaders() {
     const auto headers = DesktopApiClient::scopedAccountHeaders(scope);
     assert(headers && headers->size() == 2);
@@ -743,29 +736,12 @@ void testScopedHeaders() {
     }
 }
 
-void testCallsRefusedBeforeTheWire() {
-    DesktopHttpConfig config;
-    config.sessionToken = {};
-    const DesktopHttpTransport transport(config);
-    // A target this client may not name is refused locally, and the refusal is
-    // distinguishable from a server that answered no.
-    const auto target = transport.requestDeletion("", DesktopApiClient::meetingDeletionBody(), scope);
-    assert(target.safeReason == "invalid_target" && !target.answered() && !target.transportFailed);
-    // A scope that does not name a real account is never sent: without both
-    // expected-account headers the server would read the request as unscoped.
-    const auto unscoped = transport.requestDeletion(DesktopApiClient::meetingDeletionPath(kMeeting),
-                                                    DesktopApiClient::meetingDeletionBody(), DeletionScope{});
+void testNotificationContextRefusedBeforeTheWire() {
+    const DesktopHttpTransport transport(DesktopHttpConfig{});
+    const auto unscoped = transport.notificationContext(DeletionScope{});
     assert(unscoped.safeReason == "invalid_scope" && !unscoped.answered());
-    const auto emptySelection = transport.recordingLifecycle({}, {}, scope);
-    assert(emptySelection.safeReason == "invalid_selection" && !emptySelection.answered());
-    const auto oversized = transport.recordingLifecycle(std::vector<std::string>(101, "directory"), {}, scope);
-    assert(oversized.safeReason == "invalid_selection" && !oversized.answered());
-    // Without a session there is nothing to delete with, and the request is not
-    // attempted at all.
     const auto unauthenticated = transport.notificationContext(scope);
     assert(unauthenticated.safeReason == "auth_required" && !unauthenticated.answered());
-    const auto noSession = transport.recordingLifecycle({"directory-1"}, {}, scope);
-    assert(noSession.safeReason == "auth_required" && !noSession.answered());
 }
 
 } // namespace
@@ -800,8 +776,7 @@ int main() {
     testPurgeTaskDecoding();
     testPurgeTaskListDecoding();
     testPurgeAckBodies();
-    testPurgeCallsRefusedBeforeTheWire();
     testScopedHeaders();
-    testCallsRefusedBeforeTheWire();
+    testNotificationContextRefusedBeforeTheWire();
     return 0;
 }

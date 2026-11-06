@@ -798,34 +798,6 @@ template<class String> String DesktopApiClient::meetingDeletionBody() {
     String body("{\"confirmation_boundary\":\""); body += deletionConfirmationBoundary; body += "\"}"; return body;
 }
 
-std::string DesktopApiClient::lifecycleBody(const std::vector<std::string>& origins,
-                                            const std::vector<std::string>& meetingIds) {
-    std::string body = "{\"origins\":[";
-    for (std::size_t index = 0; index < origins.size(); ++index) {
-        if (index != 0) body += ',';
-        body += "\"" + escapeJson(origins[index]) + "\"";
-    }
-    body += "],\"meeting_ids\":[";
-    for (std::size_t index = 0; index < meetingIds.size(); ++index) {
-        if (index != 0) body += ',';
-        body += "\"" + escapeJson(meetingIds[index]) + "\"";
-    }
-    return body + "]}";
-}
-
-bool DesktopApiClient::validLifecycleSelection(const std::vector<std::string>& origins,
-                                               const std::vector<std::string>& meetingIds,
-                                               std::size_t maxEntries) noexcept {
-    if (origins.size() + meetingIds.size() < 1 || origins.size() + meetingIds.size() > maxEntries) return false;
-    for (const auto& origin : origins) {
-        if (!safeIdentity(origin)) return false;
-    }
-    for (const auto& meetingId : meetingIds) {
-        if (!accountId(meetingId)) return false;
-    }
-    return true;
-}
-
 template<class String>
 std::optional<std::array<std::pair<std::string_view, std::string_view>, 2>> DesktopApiClient::scopedAccountHeaders(
     const BasicDeletionScope<String>& scope) {
