@@ -1,0 +1,187 @@
+name: windows-pr
+
+on:
+  pull_request:
+    branches: [master]
+    types: [opened, synchronize, reopened, ready_for_review, edited]
+
+permissions:
+  contents: read
+
+jobs:
+  scope:
+    name: Determine Windows test scope
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      required: ${{ steps.scope.outputs.required }}
+      paths_digest: ${{ steps.scope.outputs.paths_digest }}
+      selected_tests: ${{ steps.scope.outputs.selected_tests }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          path: pr
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: ci-tools
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: scripts
+          sparse-checkout-cone-mode: false
+      - name: Resolve exact scope
+        id: scope
+        working-directory: pr
+        shell: bash
+        env:
+          WORKFLOW_SHA: ${{ github.workflow_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$(git -C ../ci-tools rev-parse HEAD)" == "$WORKFLOW_SHA" ]]
+          python3 -I -X utf8 ../ci-tools/scripts/ci-pr-scope.py "$GITHUB_EVENT_PATH" \
+            --event-name pull_request --result "$RUNNER_TEMP/graf-windows-scope.json"
+          python3 -I - "$RUNNER_TEMP/graf-windows-scope.json" "$GITHUB_OUTPUT" <<'PY'
+          import json, pathlib, subprocess, sys
+          scope = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+          tests = subprocess.check_output(
+              [sys.executable, "-I", "../ci-tools/scripts/validate-windows-pr-junit.py", "--list"], text=True
+          ).splitlines() if scope["native_required"] else []
+          with open(sys.argv[2], "a", encoding="utf-8") as output:
+              print("required=" + str(scope["native_required"]).lower(), file=output)
+              print("paths_digest=" + scope["paths_digest"], file=output)
+              print("selected_tests=" + ",".join(tests), file=output)
+          PY
+
+  windows:
+    name: Windows x64 diagnostic tests
+    needs: scope
+    if: always()
+    runs-on: windows-2022
+    timeout-minutes: 25
+    env:
+      PR_HEAD: ${{ github.event.pull_request.head.sha }}
+      PR_BASE: ${{ github.event.pull_request.base.sha }}
+      WORKFLOW_SHA: ${{ github.workflow_sha }}
+      SELECTED_TESTS: ${{ needs.scope.outputs.selected_tests }}
+    steps:
+      - name: Set temporary paths
+        shell: pwsh
+        run: |
+          "REPORT_DIR=$env:RUNNER_TEMP/graf-windows-pr" >> $env:GITHUB_ENV
+          "BUILD_DIR=$env:RUNNER_TEMP/graf-windows-build" >> $env:GITHUB_ENV
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        if: needs.scope.outputs.required == 'true'
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: pr
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        if: needs.scope.outputs.required == 'true'
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: ci-tools
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: scripts
+          sparse-checkout-cone-mode: false
+      - name: Verify exact checkouts
+        if: needs.scope.outputs.required == 'true'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path $env:REPORT_DIR | Out-Null
+          $source = git -C pr rev-parse HEAD
+          if ($LASTEXITCODE -ne 0 -or $source -cne $env:PR_HEAD) { throw 'PR checkout differs from its exact head.' }
+          $workflow = git -C ci-tools rev-parse HEAD
+          if ($LASTEXITCODE -ne 0 -or $workflow -cne $env:WORKFLOW_SHA) {
+            throw 'Workflow tools do not match the event workflow SHA.'
+          }
+      - name: Build Windows x64 test targets
+        id: build
+        if: needs.scope.outputs.required == 'true'
+        working-directory: pr
+        shell: pwsh
+        run: |
+          if ($env:RUNNER_ARCH -ne 'X64' -or [Runtime.InteropServices.RuntimeInformation]::OSArchitecture -ne 'X64') {
+            throw 'A native x64 Windows runner is required.'
+          }
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products '*' -version '[17.0,18.0)' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if ($LASTEXITCODE -ne 0 -or !$vs) { throw 'MSVC for Visual Studio 2022 is missing.' }
+          Import-Module "$vs\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
+          Enter-VsDevShell -VsInstallPath $vs -SkipAutomaticLocation -DevCmdArguments '-arch=x64 -host_arch=x64' | Out-Null
+          if ($env:VSCMD_ARG_TGT_ARCH -notin @('x64', 'amd64') -or $env:VSCMD_ARG_HOST_ARCH -notin @('x64', 'amd64')) {
+            throw 'MSVC developer environment is not x64 to x64.'
+          }
+          $compiler = Get-Command cl.exe -CommandType Application
+          if ($compiler.Source -notmatch '[\\/]Hostx64[\\/]x64[\\/]cl\.exe$') { throw 'Unexpected MSVC compiler path.' }
+          @("msvc=$($env:VCToolsVersion)", "image=$env:ImageVersion", (cmake --version), "ninja=$(ninja --version)") |
+            Set-Content "$env:REPORT_DIR/toolchain.txt"
+          $tests = @($env:SELECTED_TESTS -split ',')
+          if ($tests.Count -ne 5) { throw 'Missing test target list.' }
+          cmake -S apps/windows -B $env:BUILD_DIR -G Ninja -DCMAKE_BUILD_TYPE=Release "-DCMAKE_CXX_COMPILER=$($compiler.Source)"
+          if ($LASTEXITCODE -ne 0) { throw 'CMake configuration failed.' }
+          cmake --build $env:BUILD_DIR --target @tests --parallel 2
+          if ($LASTEXITCODE -ne 0) { throw 'Windows test build failed.' }
+      - name: Run and verify the five tests
+        id: test
+        if: needs.scope.outputs.required == 'true'
+        shell: pwsh
+        run: |
+          $names = @($env:SELECTED_TESTS -split ',')
+          $selector = '^(' + ($names -join '|') + ')$'
+          $commands = ctest --test-dir $env:BUILD_DIR -R $selector --show-only=json-v1
+          if ($LASTEXITCODE -ne 0) { throw 'CTest could not resolve its test commands.' }
+          $commands | Set-Content -Encoding utf8 "$env:REPORT_DIR/ctest-plan.json"
+          python -I ci-tools/scripts/validate-windows-pr-junit.py --commands "$env:REPORT_DIR/ctest-plan.json" --build-dir $env:BUILD_DIR
+          if ($LASTEXITCODE -ne 0) { throw 'CTest will not run the expected Windows executables.' }
+          ctest --test-dir $env:BUILD_DIR -R $selector --no-tests=error --output-on-failure --output-junit "$env:REPORT_DIR/ctest.xml" --timeout 180
+          if ($LASTEXITCODE -ne 0) { throw 'CTest failed.' }
+          python -I ci-tools/scripts/validate-windows-pr-junit.py --report "$env:REPORT_DIR/ctest.xml"
+          if ($LASTEXITCODE -ne 0) { throw 'Expected CTest results are missing or unsuccessful.' }
+      - name: Record diagnostic result
+        if: always()
+        shell: pwsh
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          SCOPE_OUTCOME: ${{ needs.scope.result }}
+          REQUIRED: ${{ needs.scope.outputs.required }}
+          PATHS_DIGEST: ${{ needs.scope.outputs.paths_digest }}
+          BUILD_OUTCOME: ${{ steps.build.outcome }}
+          TEST_OUTCOME: ${{ steps.test.outcome }}
+        run: |
+          New-Item -ItemType Directory -Path $env:REPORT_DIR -Force | Out-Null
+          $tests = @(if ($env:SELECTED_TESTS) { $env:SELECTED_TESTS -split ',' })
+          $scopeValid = $env:SCOPE_OUTCOME -eq 'success' -and $env:PATHS_DIGEST -cmatch '^[0-9a-f]{64}$' -and
+            (($env:REQUIRED -eq 'true' -and $tests.Count -eq 5) -or ($env:REQUIRED -eq 'false' -and $tests.Count -eq 0))
+          $result = if (!$scopeValid) { 'scope_failed' }
+          elseif ($env:REQUIRED -eq 'false') { 'outside_desktop_scope' }
+          elseif ($env:BUILD_OUTCOME -ne 'success') { 'build_failed' }
+          elseif ($env:TEST_OUTCOME -ne 'success') { 'tests_failed' }
+          else { 'passed' }
+          [ordered]@{
+            repository = $env:GITHUB_REPOSITORY
+            pr = [int]$env:PR_NUMBER
+            head_sha = $env:PR_HEAD
+            base_sha = $env:PR_BASE
+            paths_digest = $env:PATHS_DIGEST
+            selected_tests = $tests
+            workflow_sha = $env:WORKFLOW_SHA
+            run_id = [long]$env:GITHUB_RUN_ID
+            run_attempt = [int]$env:GITHUB_RUN_ATTEMPT
+            runner = 'windows-2022'
+            runner_arch = $env:RUNNER_ARCH
+            result = $result
+          } | ConvertTo-Json | Set-Content "$env:REPORT_DIR/result.json"
+          "Windows x64 diagnostic: $result (head $env:PR_HEAD, base $env:PR_BASE)" >> $env:GITHUB_STEP_SUMMARY
+          if ($result -notin @('passed', 'outside_desktop_scope')) { exit 1 }
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          archive: true
+          name: graf-windows-pr-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/graf-windows-pr/
+          if-no-files-found: error
+          retention-days: 30
