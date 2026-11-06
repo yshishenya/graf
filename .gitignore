@@ -74,6 +74,9 @@ out/
 # Local editor metadata
 .idea/
 .vscode/
+.vs/
+*.suo
+*.user
 
 # Dev harness manifests, artifacts and runtime logs (never source/evidence)
 .dev/

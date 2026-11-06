@@ -55,6 +55,7 @@ ${ready ? '<div data-speaker-timeline-shell>' : ''}<div data-speaker-timeline da
       let processingRecoveryGeneration = 1, processingRecoveryPollTimer = null, playbackRecoveryRequest = null;
       const initPlaybackRecoveryPolling = () => {}, initSpeakerNameForms = () => {};
       const localRecordingRows = [{ id: 'local-meeting', meetingId: 'meeting', canOpen: true }];
+      const platformText = mac => mac;
       ${section('const renderDetailLocalPlayback =', 'window.GRAFLocalRecordings =')}
       const processingTranscriptReady = () => true;
       const clearMeetingHistoryCache = () => {};
@@ -142,6 +143,16 @@ ${ready ? '<div data-speaker-timeline-shell>' : ''}<div data-speaker-timeline da
     await page.evaluate(() => window.recoveryTest());
     assert.deepEqual(await page.evaluate(() => [savedAudio.isConnected, savedAudio.paused, savedAudio === document.querySelector('audio')]), [false, true, false], 'recovery must retire a changed media revision even when visible text is unchanged');
     assert.equal(await page.locator('[data-detail-local-playback]').count(), 1, 'media replacement during polling restores local playback action');
+    await page.evaluate(() => {
+      window.savedPlayback = document.querySelector('[data-playback-shell]');
+      window.stableHtml = document.querySelector('main').outerHTML + savedPlayback.outerHTML;
+      window.contextUpdates = 0;
+      savedPlayback.addEventListener('graf:playback-context-updated', () => contextUpdates++);
+    });
+    nextHtml = (await page.evaluate(() => stableHtml)).replace(/<button[^>]*data-detail-local-playback[^>]*>.*?<\/button>/, '');
+    await page.evaluate(() => window.recoveryTest());
+    assert.equal(await page.evaluate(() => savedPlayback === document.querySelector('[data-playback-shell]')), true, 'native-only button text does not replace unchanged playback');
+    assert.equal(await page.evaluate(() => contextUpdates), 0, 'native-only button text does not trigger a false context refresh');
     // A real title editor must not prevent automatic publication or save on refresh.
     nextHtml = html(true).replace('data-summary-rendered-state="processing"', 'data-summary-rendered-state="available"').replace('Published', 'New published summary');
     await page.locator('[data-meeting-title-open]').click();
