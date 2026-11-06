@@ -70,7 +70,6 @@
 #include <winrt/Windows.Storage.h>
 #include <winrt/Windows.Data.Json.h>
 #include <dwmapi.h>
-#include <fstream>
 
 // Заголовок окна рисует система, поэтому её же библиотека нужна для его цветов.
 #pragma comment(lib, "dwmapi.lib")
@@ -354,7 +353,8 @@ HWND nativeWindowHandle(Window const& window) noexcept {
 // окна приложения выглядели одинаково в обеих темах.
 void applyWindowChrome(HWND window, bool isDark) {
     if (!window) return;
-    BOOL dark = isDark ? TRUE : FALSE;
+    const bool highContrast = shellHighContrast();
+    BOOL dark = isDark && !highContrast ? TRUE : FALSE;
     // 20 — Windows 11, 19 — сборки до неё: первый поддерживаемый и решает.
     if (FAILED(DwmSetWindowAttribute(window, 20, &dark, sizeof(dark)))) {
         DwmSetWindowAttribute(window, 19, &dark, sizeof(dark));
@@ -367,13 +367,15 @@ void applyWindowChrome(HWND window, bool isDark) {
         }
         return fallback;
     };
-    // 35 — фон заголовка, 36 — его текст, 34 — рамка окна.
-    const auto caption = colorOf(L"GrafPanelBrush", isDark ? RGB(29, 31, 35) : RGB(255, 255, 255));
-    const auto text = colorOf(L"GrafTextBrush", isDark ? RGB(240, 241, 244) : RGB(29, 34, 43));
-    const auto border = colorOf(L"GrafLineSoftBrush", isDark ? RGB(70, 74, 84) : RGB(226, 229, 235));
-    DwmSetWindowAttribute(window, 35, &caption, sizeof(caption));
-    DwmSetWindowAttribute(window, 36, &text, sizeof(text));
-    DwmSetWindowAttribute(window, 34, &border, sizeof(border));
+    const auto caption = highContrast ? DWMWA_COLOR_DEFAULT :
+        colorOf(L"GrafPanelBrush", isDark ? RGB(29, 31, 35) : RGB(255, 255, 255));
+    const auto text = highContrast ? DWMWA_COLOR_DEFAULT :
+        colorOf(L"GrafTextBrush", isDark ? RGB(240, 241, 244) : RGB(29, 34, 43));
+    const auto border = highContrast ? DWMWA_COLOR_DEFAULT :
+        colorOf(L"GrafLineSoftBrush", isDark ? RGB(70, 74, 84) : RGB(226, 229, 235));
+    DwmSetWindowAttribute(window, DWMWA_CAPTION_COLOR, &caption, sizeof(caption));
+    DwmSetWindowAttribute(window, DWMWA_TEXT_COLOR, &text, sizeof(text));
+    DwmSetWindowAttribute(window, DWMWA_BORDER_COLOR, &border, sizeof(border));
 }
 
 Brush themeBrush(std::wstring_view name) {
@@ -535,6 +537,7 @@ public:
         Resources().MergedDictionaries().Append(XamlControlsResources());
         const bool systemIsDark = systemThemeIsDark();
         shellIsDark_ = graf::windows::resolveShellIsDark(announcedAppearance_, systemIsDark);
+        shellHighContrast_ = shellHighContrast();
         refreshShellPalette(shellIsDark_);
         if (cabinet_) cabinet_->webView().setPreferredColorScheme(shellIsDark_);
         window_ = Window();
@@ -662,19 +665,11 @@ public:
             mainWindowHandle_ = nativeWindowHandle(window_);
             if (!mainWindowHandle_) mainWindowHandle_ = FindWindowW(nullptr, L"GRAF");
         }
+        applyWindowChrome(nativeWindowHandle(window_), shellIsDark_);
         try {
             tray_ = std::make_unique<graf::windows::WindowsTray>(
             reinterpret_cast<std::uintptr_t>(mainWindowHandle_),
-            [this] {
-                // Возврат окна из значка — то, что нельзя проверить иначе, чем
-                // живым щелчком: шаг записывается в журнал оформления.
-                try {
-                    const auto folder = winrt::Windows::Storage::ApplicationData::Current().LocalFolder().Path();
-                    std::ofstream log(std::filesystem::path(folder.c_str()) / L"appearance.log", std::ios::app);
-                    log << GetTickCount64() << " tray-open\n";
-                } catch (...) {}
-                openMainWindow();
-            },
+            [this] { openMainWindow(); },
             [this] { stopCapture(); },
             [this] { requestExit(); },
             [this] { pauseResumeCapture(); },
@@ -1399,38 +1394,13 @@ private:
     // tokens on both platforms. `system` is the default the app starts with, so a
     // page that has not chosen one changes nothing.
     void applyCabinetAppearance(const std::string& theme) {
-        // Объявление кабинета решает всё, кроме «system»: там решает система.
-        // Кисти оболочки пересобираются вместе с темой, иначе окно остаётся
-        // тёмным на светлой странице или наоборот.
-        // Оформление окна — то, что человек видит, поэтому решение записывается
-        // в журнал: без него расхождение окна и страницы неотличимо от ошибки.
-        const auto note = [&](const char* step, bool dark) {
-            try {
-                const auto folder = winrt::Windows::Storage::ApplicationData::Current().LocalFolder().Path();
-                std::ofstream log(std::filesystem::path(folder.c_str()) / L"appearance.log", std::ios::app);
-                log << GetTickCount64() << ' ' << step << " announced=" << theme
-                    << " dark=" << (dark ? 1 : 0) << '\n';
-            } catch (...) {}
-        };
-        // Что получилось на самом деле: цвет фона окна после применения набора.
-        const auto applied = [this] {
-            try {
-                const auto brush = Application::Current().Resources()
-                    .Lookup(box_value(L"GrafBackgroundBrush")).as<SolidColorBrush>();
-                const auto value = brush.Color();
-                char text[16]{};
-                std::snprintf(text, sizeof(text), "#%02X%02X%02X", value.R, value.G, value.B);
-                return std::string(text);
-            } catch (...) { return std::string("unknown"); }
-        };
-        note(("received " + applied()).c_str(), shellIsDark_);
-        // "system" can resolve differently even when the stored choice has not
-        // changed. Compare the resolved palette, not just the preference token.
+        // The same cabinet choice can resolve differently after a system change.
         announcedAppearance_ = theme;
         const bool isDark = graf::windows::resolveShellIsDark(theme, systemThemeIsDark());
-        if (isDark == shellIsDark_ && root_) { note(("same-theme " + applied()).c_str(), isDark); return; }
-        note(("resolved " + applied()).c_str(), isDark);
+        const bool highContrast = shellHighContrast();
+        if (isDark == shellIsDark_ && highContrast == shellHighContrast_ && root_) return;
         shellIsDark_ = isDark;
+        shellHighContrast_ = highContrast;
         refreshShellPalette(isDark);
         if (capture_) capture_->notificationCard().setDarkTheme(isDark);
         // Страница узнаёт системную тему из `prefers-color-scheme`: без этого
@@ -1438,11 +1408,15 @@ private:
         if (cabinet_) cabinet_->webView().setPreferredColorScheme(isDark);
         const auto requested = isDark ? ElementTheme::Dark : ElementTheme::Light;
         // Заголовки окон рисует система: без явных цветов они остаются светлыми.
-        applyWindowChrome(mainWindowHandle_, isDark);
+        if (window_) applyWindowChrome(nativeWindowHandle(window_), isDark);
         if (settingsWindow_) applyWindowChrome(nativeWindowHandle(settingsWindow_), isDark);
         if (playbackWindow_) {
             playbackPanel_.RequestedTheme(requested);
             applyWindowChrome(nativeWindowHandle(playbackWindow_), isDark);
+        }
+        if (updateWindow_) {
+            updateContent_.RequestedTheme(requested);
+            applyWindowChrome(nativeWindowHandle(updateWindow_), isDark);
         }
         if (indicatorWindow_) applyWindowChrome(nativeWindowHandle(indicatorWindow_), isDark);
         if (root_) root_.RequestedTheme(requested);
@@ -2468,7 +2442,6 @@ private:
             if (cabinet_) cabinet_->webView().setAppUpdateAvailable(available);
         }
         if (!updateWindow_) return;
-        updateContent_.RequestedTheme(shellIsDark_ ? ElementTheme::Dark : ElementTheme::Light);
         const auto detail = graf::windows::appUpdateDetail(appUpdate_.result(), appUpdate_.busy());
         if (updateDetail_.Text() != detail) {
             updateDetail_.Text(detail);
@@ -2493,6 +2466,7 @@ private:
         updateWindow_ = Window();
         updateWindow_.Title(L"Обновления GRAF");
         updateContent_ = StackPanel();
+        updateContent_.RequestedTheme(shellIsDark_ ? ElementTheme::Dark : ElementTheme::Light);
         updateContent_.Spacing(18);
         updateContent_.Padding(Thickness{24, 24, 24, 24});
         updateContent_.Background(themeBrush(L"ApplicationPageBackgroundThemeBrush"));
@@ -2559,6 +2533,7 @@ private:
         (void)appUpdate_.check(graf::windows::WindowsAppUpdateController::Clock::now());
         refreshUpdateWindow();
         updateWindow_.Activate();
+        applyWindowChrome(nativeWindowHandle(updateWindow_), shellIsDark_);
         resizeWindowLogical(updateWindow_, 500, 360, true);
     }
 
@@ -3520,8 +3495,11 @@ private:
         }
         const CustodyMutationScope mutation(shellMutations_);
         refreshNotificationInteraction(); // before workers or any card can accept an old decision
-        if (announcedAppearance_ == "system" && systemThemeIsDark() != shellIsDark_)
-            applyCabinetAppearance("system");
+        if (shellHighContrast() != shellHighContrast_ ||
+            (announcedAppearance_ == "system" && systemThemeIsDark() != shellIsDark_)) {
+            const auto theme = announcedAppearance_;
+            applyCabinetAppearance(theme);
+        }
         applyPendingActivation();
         if (!capture_->updateAdmissionBlocked() && attribution_ && capture_->currentAccount() &&
             attributionAccountGeneration_ != capture_->authGeneration()) {
@@ -3891,6 +3869,7 @@ private:
     // указание спросить систему.
     std::string announcedAppearance_ = "system";
     bool shellIsDark_ = true;
+    bool shellHighContrast_ = false;
     bool mainWindowSized_ = false;
     Grid settingsContent_{nullptr};
     StackPanel indicatorPanel_{nullptr};

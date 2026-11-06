@@ -16,7 +16,10 @@ const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 const app = 'apps/windows/RecApp/AppMain.cpp', project = 'apps/windows/RecApp/GrafWindowsApp.vcxproj';
 const prefix = 'apps/windows/Tests/GrafWindowsContractTests/';
 const git = spawnSync('git', ['-C', repo, 'ls-files', '-z', '--cached', '--others', '--exclude-standard', '--', 'apps/windows'], {encoding:'utf8'});
-assert.equal(git.status, 0); const files = [...new Set(git.stdout.split('\0').filter(Boolean))].sort();
+const removed = spawnSync('git', ['-C', repo, 'ls-files', '-z', '--deleted', '--', 'apps/windows'], {encoding:'utf8'});
+assert.equal(git.status, 0); assert.equal(removed.status, 0);
+const deleted = new Set(removed.stdout.split('\0').filter(Boolean));
+const files = [...new Set(git.stdout.split('\0').filter(name => name && !deleted.has(name)))].sort();
 const inputs = {}, outputs = {};
 for (const name of files) {
  assert(name.startsWith('apps/windows/') && !name.split('/').includes('..'));
@@ -109,17 +112,11 @@ if (scenario === 'settings') {
  const cabinet = 'apps/windows/RecApp/Shell/CabinetWindow.h';
  const text = fs.readFileSync(path.join(output, cabinet), 'utf8');
  const constructor = 'CabinetWindow() = default;'; assert.equal(text.split(constructor).length, 2);
- const modified = text.replace(constructor, `CabinetWindow() : webView_(WebViewRoutePolicy("${settingsOrigin}")) {}`);
+ const modified = text.replace(constructor, `CabinetWindow() : CabinetWindow(WebViewRoutePolicy("${settingsOrigin}")) {}`);
  fs.writeFileSync(path.join(output, cabinet), modified); outputs[cabinet] = sha(modified);
- const home = 'apps/windows/RecApp/Shell/CabinetWindow.cpp';
- const homeText = fs.readFileSync(path.join(output, home), 'utf8');
- const productionHome = 'open("https://rec.2brain.pro/desktop/meetings")';
- assert.equal(homeText.split(productionHome).length, 2);
- const testHome = homeText.replace(productionHome, `open("${settingsOrigin}/desktop/meetings")`);
- fs.writeFileSync(path.join(output, home), testHome); outputs[home] = sha(testHome);
 }
 for (const [name, data] of Object.entries({'source.json':inputs, 'test-source.json':outputs,
- 'appmain-test-bindings.json':{scenario, settings_origin:settingsOrigin, production:expectedAppMain, derivative:outputs[app], replacements:[['startup-exit','shell-close'].includes(scenario) ? 'OnLaunched isolated preamble/observer/capture/startup fault/title; original close handlers and timer retained' : 'OnLaunched','automaticPolicy_','wWinMain', ...(scenario === 'settings' ? ['CabinetWindow default constructor (test origin only)', 'CabinetWindow home URL (test origin only)'] : [])],
+ 'appmain-test-bindings.json':{scenario, settings_origin:settingsOrigin, production:expectedAppMain, derivative:outputs[app], replacements:[['startup-exit','shell-close'].includes(scenario) ? 'OnLaunched isolated preamble/observer/capture/startup fault/title; original close handlers and timer retained' : 'OnLaunched','automaticPolicy_','wWinMain', ...(scenario === 'settings' ? ['CabinetWindow default constructor (test origin only)'] : [])],
      forced_include_compile_item:'AppMain.cpp', unchanged_methods:bindings, installed_acceptance:false}}))
  fs.writeFileSync(path.join(output, name), JSON.stringify(data, null, 2)+'\n', {flag:'wx'});
 console.log(JSON.stringify({inputs:files.length, original:expectedAppMain, derivative:outputs[app], method_count:methods.length}));

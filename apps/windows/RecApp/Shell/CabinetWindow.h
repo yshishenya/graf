@@ -3,12 +3,14 @@
 #include "../Web/WebView2Host.h"
 
 #include <string_view>
+#include <utility>
 
 namespace graf::windows {
 
 class CabinetWindow final {
 public:
     CabinetWindow() = default;
+    explicit CabinetWindow(WebViewRoutePolicy policy) : webView_(std::move(policy)) {}
 
     [[nodiscard]] RouteEvaluation openCabinet();
     [[nodiscard]] RouteEvaluation open(std::string_view url);

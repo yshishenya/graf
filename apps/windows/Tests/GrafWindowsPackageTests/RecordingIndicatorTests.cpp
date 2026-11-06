@@ -29,7 +29,8 @@ namespace {
 // Actual OS menu-loop fixture, using only public tray APIs and our own HWNDs.
 // No production seam, direct calendar callback, device read or real target launch.
 struct NativeCalendarPopup {
-    enum class Case { select, unchanged, replacement, account, time, handler, reentry, destroy, callbackDestroy, disabled };
+    enum class Case { select, unchanged, replacement, account, time, handler, reentry, destroy, callbackDestroy,
+                      disabled, start, settings, staleStart, exiting };
     inline static NativeCalendarPopup* active = nullptr;
     Case scenario;
     HWND control = nullptr, trayWindow = nullptr;
@@ -39,6 +40,7 @@ struct NativeCalendarPopup {
     std::vector<graf::windows::UpcomingMeetingRow> rows;
     std::optional<graf::windows::UpcomingMeetingRow> selected;
     unsigned initializations = 0, callbacks = 0, replacements = 0, highlighted = 0, navigationSteps = 0;
+    unsigned starts = 0, settings = 0, selectionId = 101;
     bool timerHandled = false, menuObserved = false, timedOut = false, dispatchFailed = false, navigating = false;
 
     static LRESULT CALLBACK controlProcedure(HWND window, UINT message, WPARAM wParam, LPARAM lParam) {
@@ -71,11 +73,21 @@ struct NativeCalendarPopup {
                     assert(name && name->dwMSAASignature == MSAA_MENU_SIG);
                     assert(name->cchWText == self->rows[i].label.size());
                     assert(std::wstring(name->pszWText, name->cchWText) == self->rows[i].label);
-                    const bool enabled = i == 1 && self->scenario != Case::disabled;
+                    const bool enabled = i == 1 && self->scenario != Case::disabled && self->scenario != Case::exiting;
                     assert(((item.fState & MFS_DISABLED) == 0) == enabled);
                 }
                 MENUITEMINFOW extra{}; extra.cbSize = sizeof(extra); extra.fMask = MIIM_ID;
                 assert(!GetMenuItemInfoW(self->menu, 112, FALSE, &extra)); // Real menu prefix, not a projection-only check.
+                for (const auto& [id, label, enabled] : {
+                    std::tuple{5U, L"Начать запись", self->scenario == Case::start || self->scenario == Case::staleStart},
+                    std::tuple{6U, L"Настройки", self->scenario != Case::exiting}}) {
+                    MENUITEMINFOW item{}; item.cbSize = sizeof(item); item.fMask = MIIM_DATA | MIIM_STATE;
+                    assert(GetMenuItemInfoW(self->menu, id, FALSE, &item));
+                    const auto name = reinterpret_cast<MSAAMENUINFO*>(item.dwItemData);
+                    assert(name && name->dwMSAASignature == MSAA_MENU_SIG &&
+                        std::wstring_view(name->pszWText, name->cchWText) == label);
+                    assert(((item.fState & MFS_DISABLED) == 0) == enabled);
+                }
             }
         }
         return CallWindowProcW(original, window, message, wParam, lParam);
@@ -91,8 +103,14 @@ struct NativeCalendarPopup {
             WS_POPUP, 0, 0, 0, 0, nullptr, nullptr, instance, this);
         assert(control);
         tray = std::make_unique<graf::windows::WindowsTray>(reinterpret_cast<std::uintptr_t>(control),
-            [] {}, [] {}, [] {});
+            [] {}, [] {}, [] {}, graf::windows::WindowsTray::Handler{},
+            [this] { assert(!IsWindowVisible(control)); ++starts; },
+            [this] { assert(!IsWindowVisible(control)); ++settings; });
         assert(tray->available() && tray->interactionPermit().allowed);
+        graf::windows::RecordingIndicator indicator;
+        indicator.publish(graf::windows::SessionState::ready);
+        tray->setState(indicator.snapshot(), scenario == Case::start || scenario == Case::staleStart ||
+            scenario == Case::exiting, scenario == Case::exiting);
         assert(EnumThreadWindows(GetCurrentThreadId(), [](HWND window, LPARAM parameter) -> BOOL {
             const auto fixture = reinterpret_cast<NativeCalendarPopup*>(parameter);
             wchar_t name[64]{};
@@ -127,9 +145,10 @@ struct NativeCalendarPopup {
         active = nullptr;
         DestroyWindow(control);
     }
-    void selectByKeyboard() {
+    void selectByKeyboard(unsigned id = 101) {
         // Navigate the real menu, and press Enter only after Windows highlights
-        // row101. Disabled rows need not be skipped by the platform.
+        // the expected command. Disabled rows need not be skipped by the platform.
+        selectionId = id;
         navigating = true;
         assert(SetTimer(control, 1, 30, nullptr));
         if (!PostMessageW(trayWindow, WM_KEYDOWN, VK_HOME, 1)) dispatchFailed = true;
@@ -142,7 +161,7 @@ struct NativeCalendarPopup {
         if (timerHandled) {
             if (!navigating) return;
             MENUITEMINFOW item{}; item.cbSize = sizeof(item); item.fMask = MIIM_STATE;
-            assert(GetMenuItemInfoW(menu, 101, FALSE, &item));
+            assert(GetMenuItemInfoW(menu, selectionId, FALSE, &item));
             const bool target = (item.fState & MFS_HILITE) != 0;
             assert(++navigationSteps <= 24);
             if (!PostMessageW(trayWindow, WM_KEYDOWN, target ? VK_RETURN : VK_DOWN, 1)) dispatchFailed = true;
@@ -177,7 +196,9 @@ struct NativeCalendarPopup {
         case Case::reentry:
             SendMessageW(trayWindow, WM_APP + 200, MAKELPARAM(80, 80), MAKELPARAM(WM_CONTEXTMENU, 200));
             assert(initializations == 1); selectByKeyboard(); break;
-        case Case::disabled: assert(EndMenu()); break;
+        case Case::disabled: case Case::exiting: assert(EndMenu()); break;
+        case Case::start: case Case::staleStart: selectByKeyboard(5); break;
+        case Case::settings: selectByKeyboard(6); break;
         }
     }
     void run() {
@@ -185,6 +206,18 @@ struct NativeCalendarPopup {
         assert(SetTimer(control, 2, 2000, nullptr)); // Test watchdog, never a product operation deadline.
         SendMessageW(trayWindow, WM_APP + 200, MAKELPARAM(80, 80), MAKELPARAM(WM_CONTEXTMENU, 200));
         KillTimer(control, 1); KillTimer(control, 2);
+        if (scenario == Case::start || scenario == Case::settings || scenario == Case::staleStart) {
+            assert(!starts && !settings); // The menu posts the command after its nested loop exits.
+            if (scenario == Case::staleStart) tray->setState({}, false);
+            MSG command{};
+            assert(PeekMessageW(&command, trayWindow, WM_COMMAND, WM_COMMAND, PM_REMOVE));
+            assert(LOWORD(command.wParam) == selectionId);
+            DispatchMessageW(&command);
+            assert(starts == (scenario == Case::start ? 1U : 0U));
+            assert(settings == (scenario == Case::settings ? 1U : 0U));
+            assert(!PeekMessageW(&command, trayWindow, WM_COMMAND, WM_COMMAND, PM_REMOVE));
+            std::printf("native tray command=%u start=%u settings=%u\n", selectionId, starts, settings);
+        }
         std::printf("native popup diagnostic case=%u init=%u timer=%u loop=%u timeout=%u dispatch=%u callbacks=%u highlight=%u steps=%u\n",
             static_cast<unsigned>(scenario), initializations, timerHandled, menuObserved, timedOut, dispatchFailed, callbacks, highlighted, navigationSteps);
         std::fflush(stdout);
@@ -200,7 +233,7 @@ struct NativeCalendarPopup {
 void testNativeCalendarPopup() {
     using C = NativeCalendarPopup::Case;
     for (auto scenario : {C::select, C::unchanged, C::replacement, C::account, C::time,
-        C::handler, C::reentry, C::destroy, C::callbackDestroy, C::disabled}) {
+        C::handler, C::reentry, C::destroy, C::callbackDestroy, C::disabled, C::start, C::settings, C::staleStart, C::exiting}) {
         NativeCalendarPopup fixture(scenario); fixture.run();
     }
     assert(!NativeCalendarPopup::active);
@@ -839,7 +872,8 @@ void testSystemThemeRefreshWiring() {
     assert(appearance.find("notificationCard().setDarkTheme(isDark)") != std::string::npos);
     const auto refresh = section(app, "    void refreshNativeState()", "    TextBlock privacyNotice_");
     assert(refresh.find("announcedAppearance_ == \"system\" && systemThemeIsDark() != shellIsDark_") != std::string::npos);
-    assert(refresh.find("applyCabinetAppearance(\"system\")") != std::string::npos);
+    expectBefore(refresh, "shellHighContrast() != shellHighContrast_", "applyCabinetAppearance(theme)");
+    expectBefore(refresh, "const auto theme = announcedAppearance_", "applyCabinetAppearance(theme)");
 }
 
 void testInteractionLifecycle() {
