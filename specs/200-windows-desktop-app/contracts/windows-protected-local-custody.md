@@ -290,6 +290,17 @@ partSize clamp/part digest и server accepted offsets; no re-encode или но�
 UUID/session из-за encryption. Server truth/reconcile остаётся авторитетом
 accepted ranges. Decrypt success не даёт owner права и не означает upload PASS.
 
+Для AAC-LC 48 кГц допускается успешно прочитанная `VT_UI8` длительность
+контейнера 0 только при положительной логической длительности короче одного
+кадра (`durationMs * 48 < 1024`) и полном декодировании ровно 1024 PCM-отсчётов
+до EOS. Все прежние format/flags/time/span/bounds/cancellation проверки
+сохраняются; отсутствующая длительность, пустой поток и другое количество
+отсчётов исключением не покрываются. Container evidence остаётся нулём,
+manifest/canonical duration и exact bytes/hash не меняются. Проигрыватель
+принимает только прежний полный retained inspection proof; для такого
+контейнера без положительной длительности MediaEngine показывает проверенную
+логическую длительность, сохраняя готовность аудио/ошибки/EOS и close fences.
+
 ## 7. Account, delete, callback и shutdown fences
 
 Каждая работа владеет value snapshot, cancellation, store/account epoch,

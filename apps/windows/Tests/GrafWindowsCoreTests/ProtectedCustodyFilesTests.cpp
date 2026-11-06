@@ -1603,11 +1603,11 @@ void migrationQueueVersionBoundary() {
     inject(FileFault::none);
 }
 
-void migrationCoordinatorRoute(bool packedRestart = false) {
+void migrationCoordinatorRoute(bool packedRestart = false, bool shortDegraded = false) {
     // A real generated legacy ledger/package; setup uses no migration/normal-history admission.
     // Cancellation is qualified AFTER actual old-ledger native rename. This is
     // release/reopen restart evidence, not a genuine process-death claim.
-    for (unsigned scenario=packedRestart ? 7U : 0U; scenario < (packedRestart ? 8U : 7U); ++scenario) {
+    for (unsigned scenario=shortDegraded ? 4U : packedRestart ? 7U : 0U; scenario < (shortDegraded ? 5U : packedRestart ? 8U : 7U); ++scenario) {
         const auto baseline=CustodyOwnedMemory::usedBytes();
         {
             Fixture f; std::error_code error;
@@ -1627,7 +1627,7 @@ void migrationCoordinatorRoute(bool packedRestart = false) {
                 assert(committed.state==CustodyCommitState::committed);
             } else f.write(f.root/L"desktop-upload-queue.v2",CustodyBytes(json.begin(),json.end()));
             assert(CreateDirectoryW((f.root/L"package-a").c_str(),&f.security));
-            const auto legacy=testing::makeGeneratedLegacyPackage(f.root/L"package-a",100,
+            const auto legacy=testing::makeGeneratedLegacyPackage(f.root/L"package-a",shortDegraded ? 1U : 100U,
                 scenario==4 ? ReasonCode::clockDiscontinuity : ReasonCode::none,
                 scenario==3 ? RecordingStopReason::userRequested : RecordingStopReason::interruption);
             const auto queueHash=scenario==5 ? std::string{} : sha256File(f.root/L"desktop-upload-queue.v2");
@@ -1699,7 +1699,7 @@ void migrationCoordinatorRoute(bool packedRestart = false) {
                     auto pair=owner->readPackage("package-a",cancellation); assert(pair.ok());
                     auto inspection=LocalRecordingPackage::inspectProtected(f.root,*pair.value,"session-a",cancellation); assert(inspection.ok());
                     const auto integrity=scenario==3 ? PackageIntegrity::discardPending : scenario==4 ? PackageIntegrity::degraded : PackageIntegrity::valid;
-                    assert((*inspection.value)->evidence().integrity==integrity && (*inspection.value)->evidence().durationMs==1000);
+                    assert((*inspection.value)->evidence().integrity==integrity && (*inspection.value)->evidence().durationMs==(shortDegraded ? 10U : 1000U));
                 } // Drain the real member group before mutation/reopen.
                 if (!scenario) for (std::uint64_t now:{1000ULL,2000ULL}) {
                     auto current=owner->readQueueValue(cancellation); assert(current.ok());
@@ -1766,6 +1766,12 @@ void migrationCoordinatorRoute(bool packedRestart = false) {
                     auto current=(*cold.value)->readQueueValue(cancellation); assert(current.ok());
                     assert((*cold.value)->queueGeneration()==(scenario==5 ? 2U : scenario ? 1U : 3U));
                     assert((*current.value)->items()[0].updatedAtMs==(scenario ? 123U : 2000U));
+                    if (shortDegraded) {
+                        auto pair=(*cold.value)->readPackage("package-a",cancellation); assert(pair.ok());
+                        auto inspected=LocalRecordingPackage::inspectProtected(f.root,*pair.value,"session-a",cancellation);
+                        assert(inspected.ok() && (*inspected.value)->evidence().integrity==PackageIntegrity::degraded &&
+                            (*inspected.value)->evidence().durationMs==10 && (*inspected.value)->evidence().playback.decodedFrames>0);
+                    }
                 }
                 assert(!writes && !flushes && !renames && !creates && snapshot()==before);
             }
@@ -5683,12 +5689,13 @@ CustodyPackageReference protectRecordingMember(Fixture& f, CustodyRole role, con
     ref.generation = audio ? 2 : 1; ref.length = bytes.size(); ref.sha256 = custody_detail::digest(bytes.data(),bytes.size()); assert(ref.sha256);
     return ref;
 }
-void protectedPlayback() {
+void protectedPlayback(bool shortOnly = false) {
     inject(FileFault::none);
     const auto before = CustodyOwnedMemory::usedBytes();
-    for (const auto& sampleCase : std::array<std::pair<bool, unsigned>, 3>{{{false, 1000}, {true, 1000}, {false, 30'000}}}) {
+    for (const auto& sampleCase : std::array<std::pair<bool, unsigned>, 7>{{{false, 10}, {true, 10}, {false, 20}, {false, 30}, {false, 1000}, {true, 1000}, {false, 30'000}}}) {
         const auto damaged = sampleCase.first;
         const auto durationMs = sampleCase.second;
+        if (shortOnly && durationMs >= 1000) continue;
         Fixture f(CustodyRole::packageState, L"package-state");
         auto cancelled = std::make_shared<std::atomic<bool>>(false);
         const auto plain = f.root / L"generated-audio";
@@ -5758,7 +5765,11 @@ void protectedPlayback() {
         if (damaged) assert(!result.ok() && result.error == CustodyFileError::invalidContent);
         else {
             assert(result.ok() && result.value->decodedFrames > 0 && result.value->decodedFrames <= (durationMs+100ULL)*48);
-            assert(result.value->containerDuration100ns > 0);
+            if (!result.value->containerDuration100ns) {
+                assert(durationMs < 22 && result.value->decodedFrames == 1024);
+                // Same real AAC and protected refs: a longer logical duration must not use the exception.
+                assert(!LocalRecordingPackage::readProtectedPlayback(f.root, *pair.value, 30, cancelled).ok());
+            }
             cancelled->store(true);
             assert(LocalRecordingPackage::readProtectedPlayback(f.root, *pair.value, durationMs, cancelled).nativeError == ERROR_OPERATION_ABORTED);
             cancelled->store(false);
@@ -6395,6 +6406,16 @@ int main(int argc, char** argv) {
     if (argc == 2 && std::string(argv[1]) == "--readonly-owner-cancellation") { readOnlyOwnerCancellation(); return 0; }
     if (argc == 2 && std::string(argv[1]) == "--logical-queue") { protectedQueueCandidate(); return 0; }
     if (argc == 2 && std::string(argv[1]) == "--migration-history") { migrationHistory(); return 0; }
+    if (argc == 2 && std::string(argv[1]) == "--migration-short-degraded") {
+#ifdef _WIN32
+        protectedPlayback(true);
+        migrationCoordinatorRoute(false, true);
+        std::puts("SHORT_DEGRADED_MIGRATION_AND_COLD_REOPEN_PASS");
+#else
+        return 77;
+#endif
+        return 0;
+    }
     if (argc == 2 && std::string(argv[1]) == "--migration-pair") {
         const auto previousTerminate = std::set_terminate([] {
             const char* kind = "other";

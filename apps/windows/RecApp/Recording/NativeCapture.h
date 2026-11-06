@@ -2112,7 +2112,7 @@ private:
                         const auto& evidence = (*inspected.value)->evidence();
                         timing = ProtectedLocalRecordingTiming{evidence.durationMs, evidence.startedAtMs, evidence.stoppedAtMs,
                             evidence.displayTimezoneOffsetMinutes, evidence.integrity == PackageIntegrity::degraded &&
-                            evidence.playback.decodedFrames != 0 && evidence.playback.containerDuration100ns != 0,
+                            evidence.playback.decodedFrames != 0,
                             isPreparedUnownedRecording(row) && evidence.integrity == PackageIntegrity::valid &&
                             pair->current().phase == CustodyPackagePhase::sealedNormal};
                     }

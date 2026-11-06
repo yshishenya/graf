@@ -672,6 +672,13 @@ bool finalizePhaseAdapterForTest(bool (*operation)());
 void observeProtectedInspectionPhase(unsigned stage) noexcept {
     if (inspectionProfileActive) observeUploadStage(stage, 0, 0);
 }
+static thread_local bool zeroPlaybackDurationArmed = false;
+std::uint64_t playbackContainerDurationForTest(std::uint64_t observed) noexcept {
+    if (!zeroPlaybackDurationArmed) return observed;
+    assert(observed > 0);
+    zeroPlaybackDurationArmed = false;
+    return 0;
+}
 void beginFinalizePhase(unsigned stage) noexcept {
     observeStartFinalizePhase(stage); // Existing integration-only observer; ordinary V5 compilation is unchanged.
     playbackProbe.inStage = stage == 2;
@@ -9352,6 +9359,52 @@ void protectedPlaybackConsumer() {
     std::fputs("NATIVE_STORAGE protected_playback_consumer=passed generated_muted=1 UI_acceptance=0\n", stderr);
 }
 
+void protectedShortMediaEngine() {
+    std::async(std::launch::async, [] {
+        testing::GeneratedProtectedRecording capture("generated-short-aac-frame-bound");
+        capture.append(3);
+        const auto sealed = capture.writer->finalize(ReasonCode::none, RecordingStopReason::interruption);
+        assert(sealed.normalPackage() && sealed.durationMs == 30);
+        auto pair = capture.coldPair(); assert(pair.ok());
+        const auto original = LocalRecordingPackage::readProtectedPlayback(capture.paths.root, *pair.value, 30, capture.cancel);
+        assert(original.ok() && original.value->containerDuration100ns > 0 && original.value->decodedFrames == 2048);
+        graf::windows::zeroPlaybackDurationArmed = true;
+        const auto altered = LocalRecordingPackage::readProtectedPlayback(capture.paths.root, *pair.value, 10, capture.cancel);
+        assert(!graf::windows::zeroPlaybackDurationArmed);
+        std::fprintf(stderr, "SHORT_AAC_FRAME_BOUND original_frames=%llu altered_accepted=%u altered_frames=%llu native=%08lx\n",
+            static_cast<unsigned long long>(original.value->decodedFrames), altered.ok() ? 1U : 0U,
+            static_cast<unsigned long long>(altered.ok() ? altered.value->decodedFrames : 0),
+            static_cast<unsigned long>(altered.nativeError));
+        assert(!altered.ok() && altered.error == CustodyFileError::invalidContent && altered.nativeError == 0xC00D36B4u);
+    }).get();
+    std::async(std::launch::async, [] {
+        testing::GeneratedProtectedRecording capture("generated-short-media-engine");
+        capture.append(1);
+        const auto sealed=capture.writer->finalize(ReasonCode::none,RecordingStopReason::interruption);
+        assert(sealed.normalPackage() && sealed.durationMs==10);
+        auto pair=capture.coldPair(); assert(pair.ok());
+        auto inspection=LocalRecordingPackage::inspectProtected(capture.paths.root,*pair.value,capture.session,capture.cancel);
+        assert(inspection.ok() && (*inspection.value)->evidence().playback.decodedFrames==1024);
+        auto opened=ProtectedLocalRecordingPlayback::open(std::move(*inspection.value),capture.cancel,true);
+        if (!opened.ok()) std::fprintf(stderr,"SHORT_MEDIA_ENGINE open error=%u native=%u\n",
+            static_cast<unsigned>(opened.error),opened.nativeError);
+        assert(opened.ok());
+        auto player=std::move(*opened.value);
+        const bool ready=waitFor([&] { const auto state=player->observe(); return SUCCEEDED(state.error) && state.ready && state.muted; },std::chrono::seconds(10));
+        const auto before=player->observe();
+        const auto played=ready ? player->play() : E_FAIL;
+        const bool ended=SUCCEEDED(played) && waitFor([&] { const auto state=player->observe(); return SUCCEEDED(state.error) && state.ended; },std::chrono::seconds(10));
+        const auto after=player->observe();
+        const bool closed=waitFor([&] { return player->startClose() && player->drained(); },std::chrono::seconds(30));
+        player.reset(); // Native close precedes assertions and generated-root cleanup.
+        std::fprintf(stderr,"SHORT_MEDIA_ENGINE ready=%u duration_ms=%.3f play_hr=%08lx ended=%u native=%08lx closed=%u\n",
+            ready ? 1U : 0U,before.durationSeconds*1000,static_cast<unsigned long>(played),ended ? 1U : 0U,
+            static_cast<unsigned long>(after.error),closed ? 1U : 0U);
+        assert(ready && before.durationSeconds>0 && before.durationSeconds<0.022 && SUCCEEDED(played) && ended && closed);
+    }).get();
+    assert(waitFor([] { return CustodyOwnedMemory::usedBytes()==idleOwnedBytes; }));
+}
+
 void protectedMediaEngine() {
     struct Outcomes {
         bool sealed = false, inspected = false, missingProof = false, missingToken = false;
@@ -10562,6 +10615,10 @@ int main(int argc, char** argv) {
     }
     if (argc == 2 && std::string_view(argv[1]) == "--protected-playback-consumer") {
         protectedPlaybackConsumer();
+        return 0;
+    }
+    if (argc == 2 && std::string_view(argv[1]) == "--protected-short-media-engine") {
+        protectedShortMediaEngine();
         return 0;
     }
     if (argc == 2 && std::string_view(argv[1]) == "--protected-media-engine") {

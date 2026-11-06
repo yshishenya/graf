@@ -57,7 +57,7 @@ CustodyFileResult<std::unique_ptr<ProtectedLocalRecordingPlayback>> ProtectedLoc
     const auto& evidence = proof->evidence_;
     if ((package.phase != CustodyPackagePhase::sealedNormal && package.phase != CustodyPackagePhase::sealedDegraded) ||
         (evidence.integrity != PackageIntegrity::valid && evidence.integrity != PackageIntegrity::degraded) ||
-        !evidence.durationMs || !evidence.playback.decodedFrames || !evidence.playback.containerDuration100ns)
+        !evidence.durationMs || !evidence.playback.decodedFrames)
         return {std::nullopt,CustodyFileError::invalidContent,0};
     std::size_t index = 0;
     while (index < package.refCount && package.refs[index].role != CustodyRole::playback) ++index;
@@ -148,6 +148,8 @@ ProtectedLocalRecordingPlayback::Snapshot ProtectedLocalRecordingPlayback::obser
     if (FAILED(value.error)) return value;
     const auto duration = engine_->GetDuration(), position = engine_->GetCurrentTime();
     value.durationSeconds = std::isfinite(duration) && duration > 0 ? duration : 0;
+    if (!value.durationSeconds && !proof_->evidence_.playback.containerDuration100ns)
+        value.durationSeconds = proof_->evidence_.durationMs / 1000.0;
     value.positionSeconds = std::isfinite(position) && position >= 0 ? position : 0;
     value.paused = engine_->IsPaused() != FALSE;
     value.seeking = engine_->IsSeeking() != FALSE;

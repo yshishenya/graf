@@ -28,6 +28,7 @@
 namespace graf::windows {
 #ifdef GRAF_WINDOWS_TEST_INSPECTION_PHASES
 void observeProtectedInspectionPhase(unsigned stage) noexcept;
+std::uint64_t playbackContainerDurationForTest(std::uint64_t observed) noexcept;
 #endif
 namespace {
 
@@ -380,9 +381,14 @@ HRESULT decodePlayback(IMFSourceReader* reader, std::uint64_t durationMs,
         if (SUCCEEDED(status) && duration.vt == VT_UI8) evidence.containerDuration100ns = duration.uhVal.QuadPart;
         else if (SUCCEEDED(status)) status = MF_E_INVALIDMEDIATYPE;
         PropVariantClear(&duration); if (FAILED(status)) return status;
+#ifdef GRAF_WINDOWS_TEST_INSPECTION_PHASES
+        evidence.containerDuration100ns = playbackContainerDurationForTest(evidence.containerDuration100ns);
+#endif
         const auto expected = durationMs * 10'000;
         const auto close = [expected](std::uint64_t value) { return value > 0 && (value > expected ? value-expected : expected-value) <= 1'000'000; };
-        if (!close(evidence.containerDuration100ns)) return MF_E_INVALIDMEDIATYPE;
+        // MF can report zero container duration below one AAC-LC frame; require that exact decoded frame at EOF.
+        const bool subFrameContainer = evidence.containerDuration100ns == 0 && durationMs*48 < 1024;
+        if (!close(evidence.containerDuration100ns) && !subFrameContainer) return MF_E_INVALIDMEDIATYPE;
         status = call([&] { return MFCreateMediaType(&pcm); }); if (FAILED(status)) return status;
         status = call([&] { return pcm->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Audio); }); if (FAILED(status)) return status;
         status = call([&] { return pcm->SetGUID(MF_MT_SUBTYPE, MFAudioFormat_PCM); }); if (FAILED(status)) return status;
@@ -413,7 +419,8 @@ HRESULT decodePlayback(IMFSourceReader* reader, std::uint64_t durationMs,
                 previousTime = time;
                 evidence.decodedFrames += length/2;
             } else if (!(flags & MF_SOURCE_READERF_ENDOFSTREAM)) return MF_E_INVALIDMEDIATYPE;
-            if (flags & MF_SOURCE_READERF_ENDOFSTREAM) return close(ticks(evidence.decodedFrames)) ? S_OK : MF_E_INVALIDMEDIATYPE;
+            if (flags & MF_SOURCE_READERF_ENDOFSTREAM) return
+                (!subFrameContainer || evidence.decodedFrames == 1024) && close(ticks(evidence.decodedFrames)) ? S_OK : MF_E_INVALIDMEDIATYPE;
         }
 }
 
