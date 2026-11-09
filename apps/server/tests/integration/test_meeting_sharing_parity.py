@@ -20,7 +20,7 @@ from tests.fixtures.cabinet_access import (
     set_artifact_policy,
 )
 from tests.integration.test_summary_sharing import prepare
-from twobrain_rec_server.db.models import MeetingShareGrant, ProcessingResult
+from twobrain_rec_server.db.models import Meeting, MeetingShareGrant, ProcessingResult
 
 
 def publish(client, meeting, template, scope="full_meeting"):
@@ -32,6 +32,27 @@ def publish(client, meeting, template, scope="full_meeting"):
     assert response.status_code == 200, response.text
     data = response.json()
     return data, data["share_url"].split("https://graf.example.test")[-1]
+
+
+def test_full_reader_keeps_required_json_date_when_recording_time_is_unknown(client, tmp_path):
+    meeting, template = prepare(client, tmp_path)
+    created = datetime(2026, 7, 10, 13, 25, tzinfo=UTC)
+
+    async def remove_recording_time():
+        async with client.app.state.db_sessionmaker() as db:
+            row = await db.get(Meeting, meeting)
+            row.started_at = None
+            row.created_at = created
+            await db.commit()
+
+    asyncio.run(remove_recording_time())
+    _, path = publish(client, meeting, template)
+    html = client.get(path, headers={"Accept": "text/html"})
+    assert html.status_code == 200
+    assert "data-user-datetime" not in html.text
+    response = client.get(path, headers={"Accept": "application/json"})
+    assert response.status_code == 200, response.text
+    assert datetime.fromisoformat(response.json()["occurred_at"]) == created
 
 
 def test_full_reader_and_explicit_scope_preserve_legacy(client, tmp_path):
@@ -178,6 +199,8 @@ def test_audience_transitions_preserve_addressed_grants(client, tmp_path):
 
 def test_login_continuation_never_copies_share_secret_into_login_url(client, tmp_path):
     meeting, template = prepare(client, tmp_path)
+    client.app.state.settings.env = "development"
+    client.app.state.settings.local_http_auth_cookie_enabled = True
     _, path = publish(client, meeting, template)
     response = client.get(
         path.replace("?", "/continue?") + "&action=sign-in", follow_redirects=False
@@ -299,10 +322,21 @@ def test_continuation_tamper_expiry_and_invalid_context_are_safe(client, tmp_pat
         client.get(route + "&tab=outcomes&position_ms=10", follow_redirects=False).status_code
         == 422
     )
-    response = client.get(
-        route + "&tab=recording&position_ms=14000&media_version=" + "a" * 24, follow_redirects=False
-    )
+    position = "&tab=recording&position_ms=14000&media_version=" + "a" * 24
+    settings = client.app.state.settings
+    settings.env = "production"
+    settings.local_http_auth_cookie_enabled = True
+    assert client.base_url.scheme == "http"
+    production = client.get(route + position, follow_redirects=False)
+    assert production.status_code == 303
+    assert production.headers["location"] == "/login?next=%2Fshared-meeting%2Fcontinue"
+    flags = {part.strip().lower() for part in production.headers["set-cookie"].split(";")[1:]}
+    assert {"secure", "httponly", "samesite=lax", "max-age=600"} <= flags
+    client.cookies.clear()
+    settings.env = "development"
+    response = client.get(route + position, follow_redirects=False)
     assert response.status_code == 303
+    assert "secure" not in {part.strip().lower() for part in response.headers["set-cookie"].split(";")[1:]}
     resumed = client.get("/shared-meeting/continue", follow_redirects=False)
     assert (
         resumed.headers["location"]
