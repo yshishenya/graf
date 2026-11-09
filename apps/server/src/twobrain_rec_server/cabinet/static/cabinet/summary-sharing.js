@@ -72,7 +72,7 @@
     const status=find('[data-share-status]'), title=find('[data-summary-share-title]'), input=find('[data-share-recipient-input]');
     const results=find('[data-share-recipient-results]'), recipients=find('[data-summary-share-recipients]');
     const copy=find('[data-summary-share-copy]'), send=find('[data-summary-share-send]');
-    const editor=find('[data-summary-share-editor]'), outcome=find('[data-summary-share-result]');
+    const editor=find('[data-summary-share-editor]'), options=find('[data-sharing-options]'), outcome=find('[data-summary-share-result]');
     const formatControls=document.querySelector('[data-summary-format-controls]');
     const templateKey=()=>formatControls?.dataset.currentTemplateKey || formatControls?.dataset.currentSummaryFormatKey || 'meeting_minutes';
     find('[data-summary-share-format]').textContent=formatControls?.dataset.currentTemplateName || 'Выбранные итоги';
@@ -120,10 +120,10 @@
       find('[data-summary-link-action="update"]').hidden=full;
       find('[data-sharing-update-description]').textContent=full?'По ссылке доступны текущие итоги, расшифровка и запись.':'Изменения итогов появятся по ссылке только после обновления.';
       const field=find('[data-summary-share-url]');field.value=data.share_url||'';
-      find('[data-summary-share-url-label]').hidden=!data.share_url;
+      find('[data-summary-share-url-label]').hidden=true;
       find('[data-summary-share-expiry-date]').textContent=data.expires_at?`До ${date(data.expires_at)}`:'';
       const publicAudience=general?.audience==='link';
-      copy.textContent=publicAudience&&data.state==='replacement_required'?'Заменить и скопировать ссылку':publicAudience&&data.state==='expired'?'Продлить и скопировать ссылку':'Скопировать ссылку';
+      find('[data-sharing-copy-label]').textContent=publicAudience&&data.state==='replacement_required'?'Заменить и скопировать ссылку':publicAudience&&data.state==='expired'?'Продлить и скопировать ссылку':'Скопировать ссылку';
       if(publicAudience&&data.state==='expired')setStatus('Срок ссылки истёк. Продлите его, чтобы снова открыть доступ.');
       if(publicAudience&&data.state==='replacement_required')setStatus('Чтобы скопировать прежнюю ссылку, нужен её адрес. Здесь можно явно заменить её.');
     }
@@ -132,9 +132,9 @@
       const shareURL=new URL(value,window.location.origin);
       if(!['https:','http:'].includes(shareURL.protocol)){setStatus('Ссылка пока недоступна.',true);return;}
       const field=find('[data-summary-share-url]');field.value=shareURL.href;
-      find('[data-summary-share-url-label]').hidden=false;
-      try{await navigator.clipboard.writeText(shareURL.href);setStatus('Ссылка скопирована');}
-      catch(_){field.focus();field.select();setStatus('Выделите и скопируйте ссылку.');}
+      const label=find('[data-summary-share-url-label]');
+      try{await navigator.clipboard.writeText(shareURL.href);label.hidden=true;setStatus('Ссылка скопирована');}
+      catch(_){label.hidden=false;field.focus();field.select();setStatus('Выделите и скопируйте ссылку.');}
     }
     copy.addEventListener('click',()=>action(async()=>{
       if(!general){setStatus('Обновите настройки доступа.',true);return;}
@@ -195,6 +195,7 @@
     });
     function renderBatch(data) {
       batch=data;retryUnconfirmed=false;editor.hidden=true;outcome.hidden=false;const state=batchResult(data);const changed=title.textContent!==state.title;title.textContent=state.title;if(changed)title.focus({preventScroll:true});
+      find('[data-summary-share-result-title]').textContent=state.title;
       const list=find('[data-summary-share-result-recipients]');list.replaceChildren();
       const labels={accepted:'Отправлено',failed:'Не отправлено',unknown:'Не удалось подтвердить',pending:'Ожидает отправки',sending:'Отправляем…',cancelled:'Отменено',suppressed:'Автоматические письма отключены'};
       for(const recipient of data.recipients||[]){const row=node('li');row.append(node('span',recipient.email));if(state.title!=='Итоги отправлены')row.append(node('small',labels[recipient.state]||'Проверьте отправку'));if(recipient.can_retry){const retry=node('button','Повторить');retry.type='button';retry.addEventListener('click',()=>action(async()=>{renderBatch(await api(`/batches/${data.batch_id}/recipients/${recipient.recipient_id}/retry`,{method:'POST',body:{}}));schedulePoll();}));row.append(retry);}list.append(row);}
@@ -253,7 +254,12 @@
     const meetingBase=`/api/v1/cabinet/meetings/${meetingId}`;
     const meetingAPI=(path,options={})=>request(meetingBase+path,{workspace,...options});
     const audience=find('[data-sharing-audience]'), scope=find('[data-sharing-scope]');
-    const descriptions={invite_only:'Доступ есть только у приглашённых людей.',workspace:'Материалы смогут прочитать все участники вашего пространства.',link:'Любой человек с этой ссылкой сможет прочитать выбранные материалы без входа.'};
+    const audienceDescription=find('[data-sharing-audience-description]');
+    function describeAudience(value) {
+      if(value==='invite_only')return 'Доступ есть только у приглашённых людей.';
+      const materials=scope.selectedOptions[0].textContent.toLowerCase();
+      return value==='workspace'?`Всем в пространстве доступны: ${materials}.`:`Любому со ссылкой доступны: ${materials}.`;
+    }
     function renderGeneral(data) {
       general=data;audience.value=data.audience;scope.value=data.content_scope;
       for(const value of ['workspace','link']) {
@@ -261,14 +267,15 @@
         if(option)option.disabled=data.capabilities?.[value]===false;
       }
       copy.disabled=busy||(data.audience==='link'&&data.capabilities?.link===false);
-      find('[data-sharing-audience-description]').textContent=descriptions[data.audience];
+      audienceDescription.textContent=describeAudience(data.audience);
+      audienceDescription.classList.toggle('sr-only',data.audience==='invite_only');
       if(data.link)renderLink(data.link);
     }
     async function loadGeneral(){renderGeneral(await meetingAPI('/sharing/general-access'));}
     audience.addEventListener('change',()=>action(async()=>{
       const value=audience.value;
       if(!general)return;
-      if(value!==general.audience&&!window.confirm(descriptions[value]+' Сохранить общий доступ?')){audience.value=general.audience;return;}
+      if(value!==general.audience&&!window.confirm(describeAudience(value)+' Сохранить общий доступ?')){audience.value=general.audience;return;}
       renderGeneral(await meetingAPI('/sharing/general-access',{method:'POST',body:{audience:value,expected_fingerprint:general.fingerprint,content_scope:scope.value,template_key:templateKey(),expires_in_days:Number(find('[data-summary-share-expiry]').value)}}));
       setStatus('Общий доступ сохранён');
     }));
@@ -336,8 +343,12 @@
     dialog.addEventListener('keydown',event=>{if(event.key==='Escape'&&!event.defaultPrevented){event.preventDefault();close();}});
     document.addEventListener('pointerdown',event=>{if(dialog.open&&!dialog.contains(event.target)&&!opener?.contains(event.target))close();},{signal:eventSignal});
     window.addEventListener('resize',()=>{if(dialog.open)place();},{signal:eventSignal});
+    const placement=new ResizeObserver(()=>{if(dialog.open)place();});
+    placement.observe(dialog);
+    dialog.addEventListener('close',()=>placement.disconnect(),{once:true});
+    eventSignal.addEventListener('abort',()=>placement.disconnect(),{once:true});
     async function open(mode='link') {
-      closed=false;tab(mode);setBusy(true);if(!dialog.open)dialog.show();place();title.focus({preventScroll:true});try{await loadGeneral();await loadAccess();}catch(error){setStatus(errorText(error),true);}finally{setBusy(false);}await loadAuto();place();
+      closed=false;options.open=mode==='email';tab(mode);setBusy(true);if(!dialog.open)dialog.show();place();title.focus({preventScroll:true});try{await loadGeneral();await loadAccess();}catch(error){setStatus(errorText(error),true);}finally{setBusy(false);}await loadAuto();place();
       if(sendKey)try{await checkBatch();}catch(error){setStatus(errorText(error),true);}
     }
     const requestedMode=opener?.dataset.summaryShareMode||'link';

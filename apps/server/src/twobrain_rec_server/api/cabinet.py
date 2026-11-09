@@ -91,6 +91,7 @@ from twobrain_rec_server.auth.browser_handoff import (
 )
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal, DeviceContext, TenantScope
 from twobrain_rec_server.auth.dependencies import (
+    auth_session_cookie_secure,
     get_device_context,
     get_principal,
     get_tenant_scope,
@@ -2784,7 +2785,9 @@ async def resolve_public_meeting_share_route(
         projection = await full_projection(db, meeting=meeting, summary=projection, outcome_set=outcome_set, outcome_items=items)
         await db.commit()
         if "text/html" not in request.headers.get("accept", "").lower():
-            response = JSONResponse(content=PublicShareMeetingResponse.model_validate(projection).model_dump(mode="json"))
+            # JSON retains the legacy required date; HTML can omit an unknown recording time.
+            transport = {**projection, "occurred_at": meeting.started_at or meeting.created_at}
+            response = JSONResponse(content=PublicShareMeetingResponse.model_validate(transport).model_dump(mode="json"))
         else:
             base = f"/api/v1/cabinet/public-shares/{share_token}"
             query = urlencode({"workspace_id":str(workspace_id)})
@@ -5192,6 +5195,6 @@ async def continue_public_meeting(request: Request, share_token: str,
     cookie = seal(target, encryption_key(request.app.state.settings))
     destination = "/sign-up" if action == "sign-up" else "/login"
     response = RedirectResponse(destination+"?"+urlencode({"next":"/shared-meeting/continue"}),status_code=303)
-    response.set_cookie(CONTINUATION_COOKIE, cookie, max_age=600, httponly=True, samesite="lax", secure=request.url.scheme=="https")
+    response.set_cookie(CONTINUATION_COOKIE, cookie, max_age=600, httponly=True, samesite="lax", secure=auth_session_cookie_secure(request))
     _mark_share_secret_response(response)
     return response

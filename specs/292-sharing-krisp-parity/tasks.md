@@ -119,3 +119,9 @@ T015 после T012/T013; подготовка подписанного macOS-�
 ## Phase 20: Convergence
 
 - [ ] T029 Исправить отмену явного cookie-выбора обычным focus/visibility в `apps/server/src/twobrain_rec_server/public/static/public/analytics.js`: полная проверенная запись, включая data, сохраняет текущую операцию; storage нужного ключа/key=null, pageshow и изменение/порча/недоступность записи инвалидируют поздний ответ. Сохранить revoke→CAS grant, generation fences, запрет optional traffic до подтверждения и явный retry503/409 без автоматического grant/rebase. До кода независимый `checklists/consent-focus.md`, analyze и issue sync; RED на реальной CookieConsent в `apps/server/tests/browser/public-consent-control.test.cjs`, затем весь сценарный набор quickstart T029 и `tests/contract/test_public_analytics_consent_enforcement.py`. API/БД/провайдеры/редакцию не менять; после исправления новые exact PR/release gates. [FR-028/027; partial, HIGH] (Issue #7938)
+
+## Приёмка опубликованного интерфейса
+
+- [X] T030 Упростить панель владельца по скриншоту Krisp, сохранив права, экспорт, адресное приглашение, настройки ссылки и клавиатурный путь; проверить компактное состояние и раскрытие на узком и широком экране. [FR-029/030] (Issue #7942)
+- [X] T031 Сохранить обязательную дату публичного JSON для полной общей встречи без начала с источником не manual_upload и отдельно проверить семантический HTML на PostgreSQL. [FR-031] (Issue #7943)
+- [X] T032 Использовать общую политику защищённых cookie для возврата после входа; проверить Secure при внутреннем HTTP за прокси и прежний локальный режим. [FR-032] (Issue #7944)

@@ -6465,6 +6465,47 @@ select:focus, .settings-page select:focus, .calendar-settings select:focus {
   .summary-share-dialog .share-recipient-row { grid-template-columns: minmax(0, 1fr); }
 }
 
+/* The meeting panel shows the common sharing path before the advanced controls. */
+.summary-share-dialog .share-dialog__surface { gap: 14px; }
+.sharing-dialog-heading { display: flex; align-items: start; gap: 8px; border-bottom: 1px solid var(--line); }
+.sharing-dialog-tabs { display: flex; flex: 1; flex-wrap: wrap; gap: 4px; }
+.sharing-dialog-tabs button {
+  min-height: 40px; padding: 0 12px; border: 0; border-radius: 0;
+  border-bottom: 2px solid transparent; background: transparent;
+}
+.sharing-dialog-tabs button[aria-selected="true"] { color: var(--accent); border-bottom-color: currentColor; }
+.summary-share-dialog .sharing-invitation-form .share-recipient-row { grid-template-columns: minmax(0, 1fr) auto; }
+.sharing-invitation-form .share-recipient-row input, .sharing-invite-button { min-height: 40px; }
+.sharing-invite-button { background: var(--text); border-color: var(--text); color: var(--panel); }
+.sharing-owner { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; }
+.sharing-owner__avatar { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; background: var(--surface-2); color: var(--accent); font-weight: 700; }
+.sharing-general { display: grid; gap: 6px; }
+.sharing-general > label { color: var(--muted); }
+.sharing-audience-control { position: relative; width: min(280px, 100%); }
+.sharing-audience-control svg { position: absolute; inset: 11px auto auto 10px; pointer-events: none; }
+.sharing-audience-control select { width: 100%; min-height: 40px; padding-inline-start: 36px; }
+.sharing-audience-control:has(option:not([value="invite_only"]):checked) svg { display: none; }
+.sharing-audience-control:has(option:not([value="invite_only"]):checked) select { padding-inline-start: 12px; }
+[data-summary-share-result-title] { margin: 0 0 12px; }
+.sharing-options > summary { width: fit-content; cursor: pointer; color: var(--muted); }
+@media (min-width: 391px) {
+  .summary-share-dialog [data-summary-share-editor]:not(:has(.sharing-options[open], [data-summary-share-url-label]:not([hidden]))) {
+    grid-template-columns: minmax(0, 1fr) auto; align-items: center;
+  }
+}
+.sharing-options { min-width: 0; }
+.sharing-options > summary { max-width: 100%; }
+.sharing-options__body { display: grid; gap: 12px; margin-top: 12px; }
+.sharing-options__body > label { display: grid; gap: 6px; }
+.sharing-options__body > .sharing-options__check { display: flex; align-items: center; gap: 8px; }
+.sharing-dialog-actions { display: flex; justify-content: flex-end; }
+.sharing-dialog-actions button { display: inline-flex; align-items: center; gap: 8px; min-height: 40px; text-align: start; border-color: transparent; }
+.summary-share-dialog .share-dialog__status:empty { display: none; }
+@media (max-width: 390px) {
+  .summary-share-dialog .sharing-invitation-form .share-recipient-row button { min-width: 0; }
+  .sharing-dialog-tabs button { padding-inline: 8px; }
+}
+
 /* Storage keeps one main action; period accounting remains available on demand. */
 .billing-storage-page .settings-page__content { width: min(640px, 100%); }
 .billing-storage-page .settings-section.cabinet-card { padding: 24px 0; border-color: var(--line-soft); gap: 18px; }
@@ -6575,7 +6616,7 @@ select:focus, .settings-page select:focus, .calendar-settings select:focus {
 .summary-share-dialog::backdrop { background:transparent; }
 .sharing-invitation-form { display:grid; gap:10px; }
 .sharing-invitation-form > label,.summary-share-dialog [data-meeting-sharing-panel=share] > label { display:grid; gap:6px; }
-.sharing-access-list { margin:16px 0; padding:16px 0; border-top:1px solid var(--line); border-bottom:1px solid var(--line); }
+.sharing-access-list { padding-block: 6px; }
 .sharing-access-list .share-viewer-row { padding:8px 0; flex-wrap:wrap; }
 .sharing-access-list .share-viewer-row > span:first-child { flex:1; min-width:100px; }
 .sharing-access-list small { display:block; }
