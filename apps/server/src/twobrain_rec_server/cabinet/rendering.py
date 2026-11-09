@@ -2420,7 +2420,7 @@ def _render_available_playback(*, playback: PlaybackReviewState, speakers_state:
       <section class="playback-bar detail-playback" data-playback-shell data-playback-state="available" data-playback-reason="{escape(playback.reason_code)}" data-source-mode="{escape(playback.source_mode)}" {comment_attrs} aria-label="Воспроизведение записи" aria-describedby="playback-live-status">
         <audio class="playback-audio" data-playback-player preload="metadata" controls src="{escape(playback_path)}"></audio>
         <div class="speaker-timeline-resize-row"{' hidden' if not has_speakers else ''}>
-          <div class="speaker-timeline-resize" data-speaker-timeline-resize role="separator" aria-orientation="horizontal" aria-controls="speaker-timeline" aria-label="Изменить высоту дорожек спикеров" aria-valuemin="33" aria-valuemax="120" aria-valuenow="120" tabindex="0"></div>
+          <div class="speaker-timeline-resize" data-speaker-timeline-resize role="separator" aria-orientation="horizontal" aria-controls="speaker-timeline" aria-label="Изменить высоту дорожек спикеров" aria-valuemin="48" aria-valuemax="120" aria-valuenow="120" tabindex="0"></div>
         </div>
         <div class="playback-toolbar">
           <div class="playback-tools">
@@ -2463,6 +2463,10 @@ def _render_available_playback(*, playback: PlaybackReviewState, speakers_state:
           <span class="playback-time" data-playback-duration>{_timecode(playback.duration_seconds)}</span>
         </div>
         {speaker_timeline}
+        <dialog class="playback-interval-dialog" data-timeline-interval-dialog aria-label="Интервалы речи">
+          <form method="dialog"><button class="button quiet" type="submit" autofocus>Закрыть</button></form>
+          <div data-timeline-interval-list></div>
+        </dialog>
         <span class="sr-only" data-playback-listen-status role="status"></span>
       </section>
     """
@@ -2499,13 +2503,18 @@ def _render_playback_speaker_timeline(
             source_ids = turn_sources.get((speaker.speaker_key, round(start, 3)), "")
             segment_label = f"{speaker_label} {_timecode(int(start))}-{_timecode(int(end))}"
             segments.append(
-                f'<button type="button" class="timeline-segment" data-lane-segment data-start-seconds="{start:.3f}" data-end-seconds="{end:.3f}" data-source-segments="{escape(source_ids)}" title="{escape(segment_label)}" '
-                f'aria-label="{escape(segment_label)}" style="left:{left:.6f}%;width:{width:.6f}%"></button>'
+                f'<span class="timeline-segment" data-lane-segment data-start-seconds="{start:.3f}" data-end-seconds="{end:.3f}" data-source-segments="{escape(source_ids)}" title="{escape(segment_label)}" '
+                f'aria-label="{escape(segment_label)}" aria-hidden="true" style="left:{left:.6f}%;width:{width:.6f}%"></span>'
             )
+        interval_button = (
+            f'<button type="button" class="timeline-intervals" data-timeline-intervals '
+            f'aria-haspopup="dialog" aria-label="Интервалы речи: {escape(speaker_label)}">Интервалы</button>'
+            if segments else ""
+        )
         lanes.append(f"""
             <div class="timeline-lane {color_class}" data-speaker-lane="{escape(speaker.speaker_key)}" data-speaker-key="{escape(speaker.speaker_key)}">
               <span class="timeline-avatar" aria-hidden="true" data-speaker-initials>{escape(speaker_label[:1].upper())}</span>
-              <span class="timeline-speaker" title="{escape(speaker_label)}"><span class="timeline-label">{escape(speaker_label)}</span></span>
+              <span class="timeline-speaker" title="{escape(speaker_label)}"><span class="timeline-label">{escape(speaker_label)}</span>{interval_button}</span>
               <span class="timeline-scale lane-scale"><span class="timeline-track" data-timeline-track role="group" tabindex="0" aria-label="Дорожка {escape(speaker_label)}: стрелки перемещают позицию">{"".join(segments)}<span class="timeline-playhead" data-timeline-playhead aria-hidden="true"></span></span></span>
               <span class="timeline-share" title="{escape(speakers_state.talk_time_label)}">{speaker.talk_time_percent}%</span>
             </div>

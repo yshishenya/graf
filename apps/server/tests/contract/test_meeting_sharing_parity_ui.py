@@ -18,7 +18,7 @@ def reader(*, embedded=False):
         projection={
             "meeting_label": "Учебная встреча — проверка всех материалов",
             "occurred_at": datetime(2026, 11, 3, tzinfo=UTC),
-            "duration_seconds": 180,
+            "duration_seconds": 30,
             "summary_sections": [{"category": "summary", "text": "Синтетические итоги"}],
             "protocol": None,
             "media_version": "a" * 24,
@@ -29,15 +29,20 @@ def reader(*, embedded=False):
                     "speaker_key": "speaker-1",
                     "text": "Проверка расшифровки",
                     "start_ms": 14000,
-                    "end_ms": 16000,
+                    "end_ms": 14500,
                     "time": "0:14",
                 },
+                {"speaker": "Говорящий", "speaker_key": "speaker-1", "text": "Близкая реплика",
+                 "start_ms": 14250, "end_ms": 14750, "time": "0:14"},
                 {"speaker": "Говорящий", "speaker_key": "speaker-2", "text": "Другая реплика",
                  "start_ms": 18000, "end_ms": 20000, "time": "0:18"},
             ],
             "speakers": [
                 {"speaker_key": f"speaker-{index+1}", "label": "Говорящий", "confirmed": True,
-                 "talk_time_percent": 50, "segments": [{"start_seconds": start, "end_seconds": start+2}]}
+                 "talk_time_percent": 50, "segments": (
+                     [{"start_seconds": 14, "end_seconds": 14.5}, {"start_seconds": 14.25, "end_seconds": 14.75}]
+                     if index == 0 else [{"start_seconds": start, "end_seconds": start+2}]
+                 )}
                 for index, start in enumerate([14, 18])
             ],
         },
