@@ -69,6 +69,26 @@ print(render_template('cabinet/auth/analytics.html', public_analytics=json.loads
   const ready = page => page.waitForFunction(() =>
     window.GRAFPublicAnalytics.currentConsentState !== 'unknown' &&
     window.GRAFPublicAnalytics.consentPending === false);
+  const hold = action => {
+    let entered, release;
+    const arrived = new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('control request not reached: ' + action)), 8000);
+      entered = () => { clearTimeout(timer); resolve(); };
+    });
+    const gate = new Promise(resolve => { release = resolve; });
+    intercept = async body => {
+      if (body.action !== action) return false;
+      entered(); await gate; return false;
+    };
+    return { arrived, release };
+  };
+  const resume = (page, type) => page.evaluate(type =>
+    (type === 'visibilitychange' ? document : window).dispatchEvent(new Event(type)), type);
+  const noTraffic = async page => {
+    assert.equal(await page.evaluate(() => window.GRAFPublicAnalytics.sentEvents.length), 0);
+    assert.equal(await page.evaluate(() =>
+      window.GRAFPublicAnalytics.dispatchEvent('public_download_viewed', {})), false);
+  };
   const open = async (cfg = config, seed) => {
     const page = await context.newPage(); await page.goto(origin);
     await page.evaluate(({ key, seed }) => seed
@@ -76,10 +96,12 @@ print(render_template('cabinet/auth/analytics.html', public_analytics=json.loads
     await loadController(page, cfg); return page;
   };
   try {
-    for (const authPath of ['/login', '/sign-up']) {
+    for (const authPath of ['/login', '/sign-up']) for (const event of ['focus', 'visibilitychange']) {
       const auth = await context.newPage(); await auth.goto(origin + authPath);
       await auth.evaluate(key => localStorage.removeItem(key), KEY);
       await loadController(auth, readConfig(authPath));
+      // Wait for the real modal's delayed initial focus before the keyboard retry.
+      await auth.waitForFunction(() => document.querySelector('.cm').contains(document.activeElement));
       intercept = async (body, reply) => {
         if (body.action !== 'revoke') return false;
         reply(503, { accepted: false, reason: 'choice_unavailable' }); return true;
@@ -88,14 +110,19 @@ print(render_template('cabinet/auth/analytics.html', public_analytics=json.loads
       await pending(auth);
       assert.match(await auth.locator('#graf-public-consent-status').innerText(), /Серверное сохранение отказа пока не подтверждено/);
       assert.equal(await auth.evaluate(() => window.GRAFPublicAnalytics.sentEvents.length), 0);
-      intercept = null;
+      const held = hold('revoke');
       const retryStart = requests.length;
       await auth.locator('[data-consent-retry]').focus(); await auth.keyboard.press('Enter');
+      await held.arrived;
+      await resume(auth, event);
+      await noTraffic(auth);
+      assert.equal(await auth.evaluate(() => window.GRAFPublicAnalytics.consentPending), true);
+      held.release(); intercept = null;
       await ready(auth);
       assert.deepEqual(requests.slice(retryStart).map(r => r.action), ['revoke']);
       assert.deepEqual(rows.get((await cookie(auth)).consentId).categories, ['necessary']);
       await auth.close();
-      console.log('ok_actual_auth_template_refusal_retry ' + authPath);
+      console.log('ok_actual_auth_template_refusal_retry ' + authPath + ' ' + event);
     }
     requests.length = 0; events.length = 0;
     const page = await open();
@@ -231,6 +258,127 @@ print(render_template('cabinet/auth/analytics.html', public_analytics=json.loads
     assert.equal(await late.evaluate(() => window.GRAFPublicAnalytics.sentEvents.length), 0);
     await tab.close(); await late.close();
     console.log('ok_late_cross_tab_and_resume_do_not_regrant');
+    // Resume events preserve only an unchanged, explicit in-flight choice.
+    for (const action of ['revoke', 'grant']) for (const event of ['focus', 'visibilitychange']) {
+      const choice = await open();
+      const held = hold(action);
+      const before = requests.length;
+      await choice.locator('.cm__btns [data-role="all"]').click(); await held.arrived;
+      await resume(choice, event); await noTraffic(choice);
+      assert.equal(await choice.evaluate(() => window.GRAFPublicAnalytics.consentPending), true);
+      held.release(); intercept = null; await ready(choice);
+      assert.deepEqual(requests.slice(before).map(r => r.action), ['revoke', 'grant']);
+      await choice.waitForFunction(() => window.GRAFPublicAnalytics.sentEvents.length > 0);
+      await choice.close();
+    }
+    console.log('ok_resume_preserves_explicit_revoke_and_grant');
+
+    for (const action of ['revoke', 'grant']) for (const change of ['storage', 'storage-clear', 'pageshow', 'cross-tab-clear',
+      'data', 'data-without-event', 'corrupt', 'deleted', 'unavailable']) {
+      const choice = await open();
+      const held = hold(action);
+      const before = requests.length;
+      await choice.locator('.cm__btns [data-role="all"]').click(); await held.arrived;
+      let writer;
+      if (change === 'cross-tab-clear') {
+        writer = await context.newPage(); await writer.goto(origin);
+        await writer.evaluate(() => localStorage.clear());
+        await choice.waitForFunction(() => !window.GRAFPublicAnalytics.consentPending);
+      } else {
+        await choice.evaluate(({ key, change }) => {
+          if (change === 'data' || change === 'data-without-event') {
+            window.CookieConsent.setCookieData({ mode: 'update', value: { graf_consent_copy_version: 'changed' } });
+          } else if (change === 'corrupt') localStorage.setItem(key, '{broken');
+          else if (change === 'deleted') localStorage.removeItem(key);
+          else if (change === 'unavailable') {
+            const original = Storage.prototype.getItem;
+            Storage.prototype.getItem = function (name) {
+              if (name === key) throw new Error('storage unavailable');
+              return original.call(this, name);
+            };
+          }
+          if (change === 'storage' || change === 'storage-clear') {
+            dispatchEvent(new StorageEvent('storage', { key: change === 'storage' ? key : null }));
+          } else if (change !== 'data-without-event') {
+            dispatchEvent(new Event(change === 'pageshow' ? 'pageshow' : 'focus'));
+          }
+        }, { key: KEY, change });
+      }
+      await noTraffic(choice);
+      const response = choice.waitForResponse(r => r.url().endsWith(CONTROL) &&
+        r.request().postDataJSON().action === action);
+      held.release(); intercept = null;
+      await (await response).finished();
+      // Let the response continuation run before observing the stable denial.
+      await choice.evaluate(() => new Promise(resolve => setTimeout(resolve, 0)));
+      await choice.waitForFunction(() => !window.GRAFPublicAnalytics.consentPending);
+      await noTraffic(choice);
+      const mutations = requests.slice(before).filter(r => r.action !== 'read');
+      assert.deepEqual(mutations.map(r => r.action), action === 'grant' ? ['revoke', 'grant'] : ['revoke']);
+      assert.equal(await choice.evaluate(() => window.GRAFPublicAnalytics.currentConsentState), 'unknown');
+      if (change === 'data-without-event') await pending(choice);
+      if (change === 'data' || change === 'data-without-event') {
+        assert.equal((await cookie(choice)).data.graf_consent_copy_version, 'changed');
+        assert.equal((await cookie(choice)).data.graf_public_consent_epoch, null);
+      }
+      if (writer) await writer.close();
+      await choice.close();
+    }
+    console.log('ok_changed_storage_and_restore_discard_late_grant');
+
+    for (const status of [503, 409]) {
+      const choice = await open();
+      intercept = async (body, reply) => {
+        if (body.action !== 'grant') return false;
+        reply(status, { accepted: false, reason: status === 409 ? 'choice_stale' : 'choice_unavailable' });
+        return true;
+      };
+      const before = requests.length;
+      await choice.locator('.cm__btns [data-role="all"]').click(); await pending(choice);
+      await noTraffic(choice);
+      assert.equal(await choice.locator('[data-consent-retry]').innerText(), 'Подтвердить выбранное разрешение');
+      assert.deepEqual(requests.slice(before).map(r => r.action), ['revoke', 'grant']);
+      intercept = null;
+      const retryStart = requests.length;
+      await choice.locator('[data-consent-retry]').click(); await ready(choice);
+      assert.deepEqual(requests.slice(retryStart).map(r => r.action), ['revoke', 'grant']);
+      await choice.close();
+    }
+    console.log('ok_grant_errors_require_explicit_retry');
+
+    for (const changed of [false, true]) {
+      const choice = await open(config, noEpoch); await pending(choice);
+      await choice.evaluate(() => {
+        const run = window.CookieConsent.run;
+        window.CookieConsent.run = async options => {
+          await run(options);
+          await new Promise(resolve => { window.__releaseConsentRun = resolve; });
+        };
+      });
+      const before = requests.length;
+      await choice.locator('[data-consent-retry]').click();
+      await choice.waitForFunction(() => Boolean(window.__releaseConsentRun));
+      if (changed) await choice.evaluate(() => window.CookieConsent.setCookieData({
+        mode: 'update', value: { graf_consent_copy_version: 'changed-during-run' },
+      }));
+      else await resume(choice, 'focus');
+      await noTraffic(choice);
+      assert.equal(await choice.evaluate(() => window.GRAFPublicAnalytics.consentPending), true);
+      await choice.evaluate(() => window.__releaseConsentRun());
+      await choice.waitForFunction(() => !window.GRAFPublicAnalytics.consentPending);
+      if (changed) {
+        await noTraffic(choice);
+        assert.deepEqual(requests.slice(before), []);
+        await pending(choice);
+        assert.equal((await cookie(choice)).data.graf_consent_copy_version, 'changed-during-run');
+      } else {
+        await ready(choice);
+        assert.deepEqual(requests.slice(before).map(r => r.action), ['revoke', 'grant']);
+      }
+      await choice.close();
+    }
+    console.log('ok_retry_library_run_checks_the_full_choice');
+
     console.log('public_consent_control_browser=pass');
   } finally {
     await context.close(); await browser.close();

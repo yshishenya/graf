@@ -175,6 +175,13 @@ def test_real_cookieconsent_uses_server_epochs_and_explicit_retry() -> None:
     )
     assert completed.returncode == 0, completed.stdout + completed.stderr
     assert "public_consent_control_browser=pass" in completed.stdout
+    for scenario in (
+        "ok_resume_preserves_explicit_revoke_and_grant",
+        "ok_changed_storage_and_restore_discard_late_grant",
+        "ok_grant_errors_require_explicit_retry",
+        "ok_retry_library_run_checks_the_full_choice",
+    ):
+        assert scenario in completed.stdout
 
 
 def test_relay_refuses_an_event_without_a_valid_consent_decision(
