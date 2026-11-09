@@ -28,6 +28,9 @@
 
 **Локальная доводка T007 (#7906):** проверить реальный POST с CSRF и точные права после подтверждённого входа, выдачу по независимым правам и повтор без расширения в `apps/server/tests/integration/test_meeting_sharing_parity.py`. Проверить форму внешнего адреса в `tests/browser/sharing-owner.test.cjs`, тексты в `tests/unit/test_email_login_delivery.py` и `tests/contract/test_recording_share_invitation_contract.py`. Затем согласовать `api/schemas.py`, общий текст `auth/email_delivery.py` и `cabinet/templates/cabinet/pages/share_invitation_content.html` с контрактом. Действующие ворота приёмки сохраняются.
 
+**Остаток приёмки T007 (#7906):** исправить ложное закрытие полной адресной записи в `cabinet.js` после проверки в фоне. Выполнить сценарии quickstart для адресного просмотра, отзыва, временного отказа и позднего ответа. Действующие критерии, связь с #7906 и проверки сохранены.
+
+
 ## Phase 5 — US3: получатель начинает пользоваться GRAF
 
 **Independent test**: чистый гость → приглашение/просмотр → вход/регистрация/возврат; своя встреча в своём пространстве.
