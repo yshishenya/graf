@@ -1,6 +1,7 @@
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
 from cryptography.fernet import Fernet
 
 from twobrain_rec_server.cabinet.access import (
@@ -145,7 +146,8 @@ def test_invitation_token_never_bootstraps_login_or_submits_on_get() -> None:
     assert 'data-share-invitation-auto-accept-form' not in template
 
 
-def test_full_invitation_contract_exposes_recording_package_without_workspace_membership() -> None:
+@pytest.mark.parametrize("authenticated", [False, True])
+def test_full_invitation_preview_does_not_promise_file_access(authenticated) -> None:
     browser_source = Path("src/twobrain_rec_server/cabinet/web_routes/browser.py").read_text(
         encoding="utf-8"
     )
@@ -163,9 +165,12 @@ def test_full_invitation_contract_exposes_recording_package_without_workspace_me
         magic_state="synthetic-continuation-state",
         magic_csrf_token="synthetic-magic-csrf-token",
         auto_accept=True,
+        authenticated=authenticated,
     )
 
-    assert "Войти и открыть запись" in rendered
+    assert (">Открыть запись</button>" if authenticated else ">Войти и открыть запись</a>") in rendered
+    assert "можно посмотреть в GRAF" in rendered
+    assert "скачиван" not in rendered.lower() and "экспорт" not in rendered.lower()
     assert "data-share-invitation-auto-accept-form" not in rendered
     assert "Планирование релиза" in rendered
     assert "Сведения о встрече" in rendered

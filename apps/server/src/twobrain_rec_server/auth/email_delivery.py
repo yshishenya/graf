@@ -266,7 +266,7 @@ def _meeting_invitation_bodies(
     recording_access = content_scope == "full_meeting"
     access_label = "запись встречи" if recording_access else "итоги встречи"
     access_details = (
-        "Вам доступны расшифровка, саммари, прослушивание и скачивание аудио."
+        "Доступные материалы встречи можно посмотреть в GRAF."
         if recording_access
         else "Доступ ограничен итогами этой встречи."
     )

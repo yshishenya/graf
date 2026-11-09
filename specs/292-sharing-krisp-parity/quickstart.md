@@ -67,3 +67,10 @@ data без смены категорий, повреждение и недос�
 отклонение позднего ответа после инвалидации и доступный явный повтор при503/409.
 Нужны новые exact-SHA PR и frozen release-full; старые abandoned candidates
 не разрешают выпуск нового исходника.
+
+## Локальная доводка T007/T008
+
+Запустить штатный disposable PostgreSQL runner с `tests/integration/test_meeting_sharing_parity.py`, `tests/integration/test_recording_share_public_link.py`, `tests/integration/test_invitation_delivery_workflow.py`, `tests/unit/test_meeting_sharing.py`, `tests/unit/test_email_login_delivery.py` и `tests/contract/test_recording_share_invitation_contract.py`. Проверить сценарий внешнего адреса в существующем browser-наборе `sharing-owner.test.cjs` в Chromium и WebKit без GUI. Только синтетические данные, подставная доставка, без подключения к рабочему серверу.
+
+- T007: запрос из сессии владельца с CSRF; 4 сочетания файловых прав полной встречи и отказ для итогов с каждым из файловых прав. Собственный подтверждённый вход адресата, просмотр и поток аудио с правами false/false; скачивание и экспорт отдельно запрещены или разрешены согласно сохранённым правам и политике. Повтор не меняет права. Подтвердить отсутствие обещания выгрузки в тексте и HTML письма и в обеих страницах приглашения.
+- T008: гость → публичный reader → sign-up → start с сохранённым next → verify → продолжение → исходный reader с теми же media_version/recording/позиция → доступное аудио. В одном наборе cookies, только тестовая почта. До подтверждения нет новой учётной записи и сеанса; после — собственный личный workspace, без членства у отправителя и в служебном workspace, собственный список встреч. Подмена next, просрочка и подделка cookie не дают чужого доступа.

@@ -1,9 +1,13 @@
 """F292: real public-reader boundaries, legacy compatibility and audience transitions."""
 
 import asyncio
+import re
 from datetime import UTC, datetime, timedelta
+from html import unescape
+from urllib.parse import parse_qs, urlsplit
 from uuid import UUID
 
+import pytest
 from sqlalchemy import select
 
 from tests.contract.test_ingest_openapi_contract import auth_headers
@@ -13,6 +17,7 @@ from tests.fixtures.cabinet_access import (
     SHARED_USER_ID,
     add_retained_playback_m4a,
     add_workspace_user,
+    set_artifact_policy,
 )
 from tests.integration.test_summary_sharing import prepare
 from twobrain_rec_server.db.models import MeetingShareGrant, ProcessingResult
@@ -466,48 +471,228 @@ def test_legacy_visibility_and_disabled_audiences_are_truthful(client, tmp_path)
     )
 
 
-def test_external_full_view_without_file_permissions_opens_recording(client, tmp_path):
-    from tests.fakes.auth_contexts import DEVICE_ID, USER_ID
+@pytest.mark.parametrize(("download", "export"), [(False, False), (True, False), (False, True), (True, True)])
+def test_external_full_invitation_keeps_file_permissions_independent(
+    client, tmp_path, monkeypatch, download, export
+):
+    from tests.fakes.fake_temporal import FakeTemporalClient
     from tests.integration.test_recording_share_public_link import _independent_invitation_login
-    from twobrain_rec_server.cabinet.access import create_share_invitation, open_invitation_delivery
-    from twobrain_rec_server.db.models import Meeting
+    from tests.integration.test_web_owner_session_context import (
+        OWNER_REVIEW_TEST_TOKEN,
+        _seed_owner_review_session,
+    )
+    from twobrain_rec_server.auth.csrf import issue_csrf_token
+    from twobrain_rec_server.auth.dependencies import AUTH_SESSION_COOKIE_NAME
+    from twobrain_rec_server.cabinet.access import open_invitation_delivery
+    from twobrain_rec_server.db.models import MeetingShareInvitation
 
-    meeting_id, _template = prepare(client, tmp_path)
-    key = client.app.state.settings.credential_encryption_key_file.read_bytes()
+    meeting_id, _ = prepare(client, tmp_path)
+    meeting_id = UUID(str(meeting_id))
+    audio = b"synthetic-f292-audio"
+    add_retained_playback_m4a(client, meeting_id, audio)
+    set_artifact_policy(client, meeting_id, audio_download="allowed", transcript_download="allowed")
+    monkeypatch.setattr(client.app.state, "temporal_client", FakeTemporalClient(), raising=False)
+    session = client.portal.call(_seed_owner_review_session, client)
+    client.cookies.set(AUTH_SESSION_COOKIE_NAME, OWNER_REVIEW_TEST_TOKEN)
+    owner_csrf = issue_csrf_token(session_id=session.id, secret=client.app.state.web_csrf_secret)
+    url = f"/api/v1/cabinet/meetings/{meeting_id}/share-invitations"
     address = "reader-f292@example.test"
+    payload = {
+        "address": address,
+        "content_scope": "full_meeting",
+        "can_download": download,
+        "can_export": export,
+    }
+    headers = {"X-CSRF-Token": owner_csrf}
+    if not download and not export:
+        assert client.post(url, json=payload).status_code == 403
+        for permission in ("can_download", "can_export"):
+            summary = {**payload, "content_scope": "summary_only", permission: True}
+            assert client.post(url, headers=headers, json=summary).status_code == 422
 
-    async def invite():
+    created = client.post(url, headers=headers, json=payload)
+    assert created.status_code == 202
+    invitation_id = created.json()["invitation_id"]
+    expires_at = datetime.fromisoformat(created.json()["expires_at"])
+    if not download and not export:
+        repeated = client.post(
+            url, headers=headers, json={**payload, "can_download": True, "can_export": True}
+        )
+        assert repeated.status_code == 202 and repeated.json()["invitation_id"] == invitation_id
+
+    async def read_invitation():
+        key = client.app.state.settings.credential_encryption_key_file.read_bytes().strip()
         async with client.app_state["sessionmaker"]() as db:
-            meeting = await db.get(Meeting, UUID(str(meeting_id)))
-            invitation = await create_share_invitation(
-                db,
-                workspace_id=WORKSPACE_ID,
-                meeting=meeting,
-                actor_user_id=USER_ID,
-                device_id=DEVICE_ID,
-                address=address,
-                content_scope="full_meeting",
-                can_download=False,
-                can_export=False,
-                encryption_key=key,
-                ttl_seconds=3600,
-            )
-            _, token = open_invitation_delivery(invitation.encrypted_delivery_address, key=key)
-            await db.commit()
+            row = await db.get(MeetingShareInvitation, UUID(invitation_id))
+            assert row is not None and row.content_scope == "full_meeting"
+            assert (row.can_download, row.can_export) == (download, export)
+            _, token = open_invitation_delivery(row.encrypted_delivery_address, key=key)
             return token
 
-    response = _independent_invitation_login(
-        client, recipient_email=address, raw_token=asyncio.run(invite())
+    client.cookies.clear()
+    accepted = _independent_invitation_login(
+        client, recipient_email=address, raw_token=client.portal.call(read_invitation)
     )
-    assert response.status_code == 303, response.text
-    assert (
-        response.headers["location"] == f"/shared-meetings/{meeting_id}?workspace_id={WORKSPACE_ID}"
-    )
-    page = client.get(response.headers["location"], headers={"Accept": "text/html"})
+    assert accepted.status_code == 303
+    assert accepted.headers["location"] == f"/shared-meetings/{meeting_id}?workspace_id={WORKSPACE_ID}"
+    page = client.get(accepted.headers["location"], headers={"Accept": "text/html"})
     assert page.status_code == 200 and SAFE_TRANSCRIPT_TEXT in page.text
-    assert f"/shared-meetings/{meeting_id}/downloads/audio" not in page.text
-    denied = client.get(
-        f"/api/v1/cabinet/shared-meetings/{meeting_id}/downloads/audio",
-        params={"workspace_id": str(WORKSPACE_ID)},
+
+    async def check_grant():
+        async with client.app_state["sessionmaker"]() as db:
+            grant = await db.scalar(
+                select(MeetingShareGrant).where(MeetingShareGrant.meeting_id == meeting_id)
+            )
+            assert grant is not None and grant.status == "active" and grant.content_scope == "full_meeting"
+            assert (grant.can_download, grant.can_export) == (download, export)
+            assert grant.expires_at == expires_at
+
+    client.portal.call(check_grant)
+    base = f"/api/v1/cabinet/shared-meetings/{meeting_id}"
+    params = {"workspace_id": str(WORKSPACE_ID)}
+    playback = client.get(base + "/playback", params=params)
+    assert playback.status_code == 200 and playback.content == audio
+
+    file_response = client.get(base + "/downloads/audio", params=params)
+    assert file_response.status_code == (200 if download else 409)
+    if download:
+        assert file_response.content == audio
+        assert file_response.headers["content-disposition"].startswith("attachment;")
+    else:
+        assert file_response.json()["code"] == "artifact_unavailable"
+
+    transcript = client.get(base + "/downloads/transcript", params=params)
+    assert transcript.status_code == (200 if download else 409)
+    if download:
+        assert SAFE_TRANSCRIPT_TEXT in transcript.text
+    else:
+        assert transcript.json()["code"] == "artifact_unavailable"
+
+    capabilities = client.get(base + "/content-exports", params=params)
+    assert capabilities.status_code == 200
+    assert capabilities.json()["transcript"]["state"] == ("available" if export else "denied")
+    csrf = re.search(r'<meta name="csrf-token" content="([^"]+)"', page.text)
+    assert csrf is not None
+    exported = client.post(
+        base + "/content-exports",
+        params=params,
+        headers={"X-CSRF-Token": csrf.group(1)},
+        json={
+            "content_scope": "transcript",
+            "format": "txt",
+            "processing_result_id": capabilities.json()["processing_result_id"],
+        },
     )
-    assert denied.status_code in (403, 409)
+    assert exported.status_code == (200 if export else 409)
+    if export:
+        assert SAFE_TRANSCRIPT_TEXT in exported.text
+        assert exported.headers["content-disposition"].startswith("attachment;")
+    else:
+        assert exported.json()["code"] == "export_unavailable"
+
+
+def test_public_signup_returns_to_original_recording_with_personal_session(client, tmp_path, monkeypatch):
+    from tests.fakes.auth_contexts import AUTH_BOOTSTRAP_WORKSPACE_ID, USER_ID
+    from tests.integration.test_web_owner_session_context import (
+        _set_workspace_self_enrollment_policy,
+    )
+    from twobrain_rec_server.auth import email_delivery
+    from twobrain_rec_server.auth.dependencies import AUTH_SESSION_COOKIE_NAME
+    from twobrain_rec_server.auth.sessions import hash_token
+    from twobrain_rec_server.cabinet.public_sharing import CONTINUATION_COOKIE
+    from twobrain_rec_server.db.models import (
+        AuthSession,
+        ExternalIdentity,
+        Workspace,
+        WorkspaceMembership,
+    )
+
+    async def reject_external_delivery(**kwargs):
+        pytest.fail("The synthetic signup must not call a mail provider")
+
+    monkeypatch.setattr(email_delivery, "send_email_login_code", reject_external_delivery)
+    client.portal.call(_set_workspace_self_enrollment_policy, client, False)
+    monkeypatch.setattr(client, "base_url", client.base_url.copy_with(scheme="https"))
+    meeting, template = prepare(client, tmp_path)
+    audio = b"synthetic-public-signup-audio"
+    add_retained_playback_m4a(client, UUID(str(meeting)), audio)
+    _, path = publish(client, meeting, template)
+    guest = client.get(path, headers={"Accept": "text/html"})
+    assert guest.status_code == 200 and 'data-authenticated="false"' in guest.text
+    version = re.search(r'data-media-version="([a-f0-9]{24})"', guest.text)
+    signup_link = re.search(r'data-public-auth="sign-up" href="([^"]+)"', guest.text)
+    assert version is not None and signup_link is not None
+    media_version = version.group(1)
+    continue_path = "/shared-meeting/continue"
+    started = client.get(
+        unescape(signup_link.group(1)) + f"&tab=recording&position_ms=500&media_version={media_version}",
+        follow_redirects=False,
+    )
+    assert started.status_code == 303
+    signup_url = urlsplit(started.headers["location"])
+    assert signup_url.path == "/sign-up" and parse_qs(signup_url.query) == {"next": [continue_path]}
+    cookie = started.headers["set-cookie"].lower()
+    assert all(value in cookie for value in ("httponly", "samesite=lax", "secure", "max-age=600"))
+    assert client.cookies.get(CONTINUATION_COOKIE)
+    signup = client.get(started.headers["location"])
+    assert signup.status_code == 200
+    email_link = re.search(r'class="email-mode-trigger" href="([^"]+)"', signup.text)
+    assert email_link is not None
+    email_step = client.get(unescape(email_link.group(1)))
+    assert email_step.status_code == 200 and 'action="/sign-up/email/start"' in email_step.text
+    assert f'name="next" value="{continue_path}"' in email_step.text
+
+    address = "new-f292-reader@example.test"
+
+    async def read_identity():
+        async with client.app_state["sessionmaker"]() as db:
+            return await db.scalar(select(ExternalIdentity).where(ExternalIdentity.email == address))
+
+    start = client.post("/sign-up/email/start", data={"email": address, "next": continue_path})
+    assert start.status_code == 200
+    state = re.search(r'name="state" value="([^"]+)"', start.text)
+    code = re.search(r"Код для локальной проверки: <strong>([0-9]{6})</strong>", start.text)
+    assert state is not None and code is not None
+    assert client.portal.call(read_identity) is None and not client.cookies.get(AUTH_SESSION_COOKIE_NAME)
+    verified = client.post(
+        "/sign-up/email/verify",
+        data={"email": address, "state": state.group(1), "code": code.group(1), "next": "/meetings"},
+        follow_redirects=False,
+    )
+    assert verified.status_code == 303 and verified.headers["location"] == continue_path
+    session_token = client.cookies.get(AUTH_SESSION_COOKIE_NAME)
+    assert session_token
+
+    resumed = client.get(verified.headers["location"], follow_redirects=False)
+    assert resumed.status_code == 303
+    assert resumed.headers["location"] == path + f"&media_version={media_version}#recording?position_ms=500"
+    assert not client.cookies.get(CONTINUATION_COOKIE)
+    reader = client.get(resumed.headers["location"], headers={"Accept": "text/html"})
+    assert reader.status_code == 200 and 'data-authenticated="true"' in reader.text
+    assert f'data-media-version="{media_version}"' in reader.text
+    assert SAFE_TRANSCRIPT_TEXT in reader.text and "data-playback-shell" in reader.text
+    assert 'href="/meetings">Мои встречи</a>' in reader.text
+    playback = client.get(path.replace("?", "/playback?") + f"&media_version={media_version}")
+    assert playback.status_code == 200 and playback.content == audio
+    own_meetings = client.get("/meetings", follow_redirects=False)
+    assert own_meetings.status_code == 200 and "Мои встречи" in own_meetings.text
+
+    identity = client.portal.call(read_identity)
+    assert identity is not None and identity.is_verified and identity.user_id != USER_ID
+
+    async def check_workspace():
+        async with client.app_state["sessionmaker"]() as db:
+            session = await db.scalar(
+                select(AuthSession).where(AuthSession.session_token_hash == hash_token(session_token))
+            )
+            assert session is not None and session.status == "active" and session.user_id == identity.user_id
+            workspace = await db.get(Workspace, session.workspace_id)
+            assert workspace is not None and workspace.kind == "personal"
+            assert workspace.owner_user_id == identity.user_id
+            membership = await db.get(WorkspaceMembership, (workspace.id, identity.user_id))
+            assert membership is not None and (membership.role, membership.status) == ("owner", "active")
+            assert AUTH_BOOTSTRAP_WORKSPACE_ID != WORKSPACE_ID
+            for foreign_workspace in (WORKSPACE_ID, AUTH_BOOTSTRAP_WORKSPACE_ID):
+                assert await db.get(WorkspaceMembership, (foreign_workspace, identity.user_id)) is None
+
+    client.portal.call(check_workspace)
