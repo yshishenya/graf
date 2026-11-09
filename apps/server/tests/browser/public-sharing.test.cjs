@@ -96,12 +96,18 @@ async function target24(locator) {
    assert(first.right>second.left);
    await page.mouse.click((first.right+second.left)/2,trackBox.y+trackBox.height/2);
    assert.equal(await audio.evaluate(a=>a.currentTime),14.25,'overlap chooses the upper interval');
+   const waitForSharedPosition = seconds => page.waitForFunction(expected => {
+    const player = document.querySelector('[data-playback-player]');
+    const match = /^#recording\?position_ms=(\d+)$/.exec(location.hash);
+    return !player.seeking && Math.abs(player.currentTime-expected)<0.25
+      && match && Math.abs(Number(match[1])/1000-player.currentTime)<0.01;
+   }, seconds, {timeout:3000});
    await page.mouse.click(trackBox.x+trackBox.width*0.25,trackBox.y+trackBox.height/2);
-   assert(Math.abs(await audio.evaluate(a=>a.currentTime)-7.5)<0.25,'empty track seeks proportionally');
+   await waitForSharedPosition(7.5);
    await track.press('ArrowRight');
-   assert(Math.abs(await audio.evaluate(a=>a.currentTime)-22.5)<0.25);
+   await waitForSharedPosition(22.5);
    await track.press('ArrowLeft');
-   assert(Math.abs(await audio.evaluate(a=>a.currentTime)-7.5)<0.25);
+   await waitForSharedPosition(7.5);
    await page.locator('[data-public-sharing]').evaluate(el=>el.addEventListener('graf:public-recording',event=>{
     window.requestedEnd=event.detail.seconds;
    },{once:true}));

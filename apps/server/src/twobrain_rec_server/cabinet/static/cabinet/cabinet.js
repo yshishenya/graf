@@ -5921,10 +5921,10 @@
         const ids = sourceIds.split(/\s+/).filter(Boolean);
         const turn = transcriptTurns().find((turn) => ids.some((id) => (turn.dataset.sourceSegments || "").split(/\s+/).includes(id)))
           || currentTranscriptTurn(seconds);
-        if (!turn) return;
-        const publicReader = turn.closest('[data-public-sharing]');
+        const publicReader = shell.closest('[data-public-sharing]');
         if (publicReader) publicReader.dispatchEvent(new CustomEvent('graf:public-recording', { detail: { seconds } }));
-        else activateDetailTab("recording");
+        if (!turn) return;
+        if (!publicReader) activateDetailTab("recording");
         scrollTranscriptTurnIntoView(turn, window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth");
         transcriptTurns().forEach((item) => item.classList.remove("is-source-highlight"));
         turn.classList.add("is-source-highlight");
