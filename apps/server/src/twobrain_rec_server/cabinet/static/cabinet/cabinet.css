@@ -6475,8 +6475,8 @@ select:focus, .settings-page select:focus, .calendar-settings select:focus {
 }
 .sharing-dialog-tabs button[aria-selected="true"] { color: var(--accent); border-bottom-color: currentColor; }
 .summary-share-dialog .sharing-invitation-form .share-recipient-row { grid-template-columns: minmax(0, 1fr) auto; }
-.sharing-invitation-form .share-recipient-row input, .sharing-invite-button { min-height: 40px; }
-.sharing-invite-button { background: var(--text); border-color: var(--text); color: var(--panel); }
+.sharing-invitation-form .share-recipient-row input, .sharing-add-person-button { min-height: 40px; }
+.sharing-add-person-button { background: var(--text); border-color: var(--text); color: var(--panel); }
 .sharing-owner { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; }
 .sharing-owner__avatar { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; background: var(--surface-2); color: var(--accent); font-weight: 700; }
 .sharing-general { display: grid; gap: 6px; }
@@ -6484,8 +6484,8 @@ select:focus, .settings-page select:focus, .calendar-settings select:focus {
 .sharing-audience-control { position: relative; width: min(280px, 100%); }
 .sharing-audience-control svg { position: absolute; inset: 11px auto auto 10px; pointer-events: none; }
 .sharing-audience-control select { width: 100%; min-height: 40px; padding-inline-start: 36px; }
-.sharing-audience-control:has(option:not([value="invite_only"]):checked) svg { display: none; }
-.sharing-audience-control:has(option:not([value="invite_only"]):checked) select { padding-inline-start: 12px; }
+.sharing-audience-control:has(option:is([value="workspace"], [value="link"]):checked) svg { display: none; }
+.sharing-audience-control:has(option:is([value="workspace"], [value="link"]):checked) select { padding-inline-start: 12px; }
 [data-summary-share-result-title] { margin: 0 0 12px; }
 .sharing-options > summary { width: fit-content; cursor: pointer; color: var(--muted); }
 @media (min-width: 391px) {
