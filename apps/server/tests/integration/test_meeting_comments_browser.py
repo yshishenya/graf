@@ -97,6 +97,7 @@ const { chromium, webkit } = require(path.join(process.env.GRAF_NODE_MODULES, 'p
     await page.locator('[data-share-dialog-open]').click();
     const share = page.getByRole('dialog', { name: 'Поделиться встречей', exact: true });
     await share.waitFor();
+    await share.getByText('Дополнительные настройки', { exact: true }).click();
     await share.locator('[data-sharing-scope]:enabled').waitFor();
     await share.getByRole('combobox', { name: 'Что доступно получателю', exact: true }).selectOption('summary_only');
     assert.equal(await share.locator('[data-share-existing-role], [data-share-comment-role]').count(), 0);
