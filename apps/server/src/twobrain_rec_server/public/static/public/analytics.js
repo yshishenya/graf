@@ -64,6 +64,7 @@
   var publicConsentControl = Boolean(publicConfig);
   var choiceGeneration = 0;
   var choiceInFlight = false;
+  var pendingChoiceCookie = null;
   var serverChoice = null;
   var retryRevokeOnly = false;
 
@@ -673,6 +674,11 @@
       JSON.stringify(normalizedCategories(left.categories)) === JSON.stringify(normalizedCategories(right.categories)));
   }
 
+  function pendingChoiceMatchesCookie() {
+    var cookie = publicChoiceCookie();
+    return Boolean(cookie && JSON.stringify(cookie) === pendingChoiceCookie);
+  }
+
   function serverChoiceMatchesCookie() {
     var cookie = publicChoiceCookie();
     return Boolean(serverChoice && samePublicChoice(serverChoice.cookie, cookie) &&
@@ -761,6 +767,8 @@
   // No background grant, rebase or retry. Only a fresh user action calls this.
   async function savePublicChoice(details, revokeOnly) {
     var generation = ++choiceGeneration;
+    choiceInFlight = api.consentPending = false;
+    pendingChoiceCookie = null;
     serverChoice = null;
     disableOptionalProviders();
     api.currentConsentState = currentConsentState = "unknown";
@@ -770,6 +778,7 @@
       return false;
     }
     choiceInFlight = api.consentPending = true;
+    pendingChoiceCookie = JSON.stringify(cookie);
     consentStatus("Аналитика отключена. Сохраняем ваш выбор.");
     var revoked = false;
     try {
@@ -778,14 +787,26 @@
         // cached cookie. A retry must first load the actual current choice.
         window.CookieConsent.reset(false);
         await window.CookieConsent.run(Object.assign({}, api.consentOptions, { autoShow: false }));
-        if (generation !== choiceGeneration || !samePublicChoice(cookie, publicChoiceCookie())) {
+        if (generation !== choiceGeneration) {
           return false;
+        }
+        if (!pendingChoiceMatchesCookie()) {
+          throw new Error("choice_unavailable");
         }
       }
       window.CookieConsent.setCookieData({ mode: "update", value: { graf_public_consent_epoch: null } });
+      var pendingCookie = publicChoiceCookie();
+      if (!samePublicChoice(cookie, pendingCookie) || !pendingCookie.data ||
+          pendingCookie.data.graf_public_consent_epoch !== null) {
+        throw new Error("choice_unavailable");
+      }
+      pendingChoiceCookie = JSON.stringify(pendingCookie);
       var result = await publicConsentRequest({ action: "revoke", consent_id: cookie.consentId });
-      if (generation !== choiceGeneration || !samePublicChoice(cookie, publicChoiceCookie())) {
+      if (generation !== choiceGeneration) {
         return false;
+      }
+      if (!pendingChoiceMatchesCookie()) {
+        throw new Error("choice_unavailable");
       }
       if (!result.accepted || result.state !== "revoked" || !uuidV4(result.epoch) ||
           JSON.stringify(result.categories) !== '["necessary"]' || result.copy_version !== null) {
@@ -801,8 +822,11 @@
       if (!revokeOnly && choiceNeedsGrant(cookie)) {
         result = await publicConsentRequest({ action: "grant", consent_id: cookie.consentId,
           expected_epoch: epoch, categories: categories, copy_version: consentCopyVersion() });
-        if (generation !== choiceGeneration || !samePublicChoice(cookie, publicChoiceCookie())) {
+        if (generation !== choiceGeneration) {
           return false;
+        }
+        if (!pendingChoiceMatchesCookie()) {
+          throw new Error("choice_unavailable");
         }
         if (!result.accepted || result.state !== "granted" || !uuidV4(result.epoch) ||
             result.copy_version !== consentCopyVersion() ||
@@ -837,12 +861,14 @@
     } finally {
       if (generation === choiceGeneration) {
         choiceInFlight = api.consentPending = false;
+        pendingChoiceCookie = null;
       }
     }
   }
 
   async function readPublicChoice() {
     var generation = ++choiceGeneration;
+    pendingChoiceCookie = null;
     serverChoice = null;
     choiceInFlight = api.consentPending = false;
     disableOptionalProviders();
@@ -1472,7 +1498,12 @@
       });
     }
   }
-  function refreshConsent() {
+  function refreshConsent(event) {
+    // Ordinary resume must not cancel an unchanged explicit choice in flight.
+    if (choiceInFlight && event && (event.type === "focus" || event.type === "visibilitychange") &&
+        pendingChoiceMatchesCookie()) {
+      return false;
+    }
     return publicConsentControl ? readPublicChoice() : canUseAnalytics();
   }
   window.addEventListener("storage", function (event) {

@@ -50,3 +50,20 @@ FR-026: сравнить на основной и общей странице о
 ## Проверка выпуска FR-027
 
 После T012/T013: T015 фиксирует серверный release train и authoritative full CI; T016 выпускает нотарифицированное macOS-обновление; T017 проверяет опубликованные сервер/страницу/приложение и закрывает задачи только по evidence. Продакшен-проверка использует отдельные синтетические материалы без адресных писем и изменения рабочих встреч. Проверки внешних аккаунтов/истёкшего сеанса выполняются на Dev. Не копировать production backup на Mac; хранить его штатно в закрытом серверном хранилище.
+
+## T029 — реальное согласие на cookies
+
+```sh
+PYTHONPATH="$PWD/apps/server/src" GRAF_NODE_MODULES="$PWD/apps/server/tests/browser/node_modules" node apps/server/tests/browser/public-consent-control.test.cjs
+PYTHONPATH="$PWD/apps/server/src" GRAF_NODE_MODULES="$PWD/apps/server/tests/browser/node_modules" node apps/server/tests/browser/public-analytics-consent-modal.test.cjs
+uv run --project apps/server pytest apps/server/tests/contract/test_public_analytics_consent_enforcement.py -q
+```
+
+Существующие loopback fixtures не отправляют внешние события. Барьеры запросов
+проверяют focus/visibility на refusal retry `/login` и `/sign-up`, обе стадии
+положительного выбора, независимую вкладку с отказом/clear, pageshow, изменение
+data без смены категорий, повреждение и недоступность localStorage. Ожидаются
+единственная явная последовательность revoke→grant, запрет трафика до подтверждения,
+отклонение позднего ответа после инвалидации и доступный явный повтор при503/409.
+Нужны новые exact-SHA PR и frozen release-full; старые abandoned candidates
+не разрешают выпуск нового исходника.
