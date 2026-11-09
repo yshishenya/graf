@@ -66,7 +66,7 @@ T014 выполняется до завершения T011–T013; требуе�
 
 ## Phase 9 — Разрешённый выпуск
 
-- [ ] T015 Подготовить новый CalVer серверный релиз по `docs/agent-guidance/release-and-validation.md`: завершить T012/T013, exact-SHA/base PR gates и линейный merge; `prepare-release.sh`, frozen train/candidate, один authoritative GitHub release-full, train-attest/decide, `cd-remote.sh --dry-run` и штатный execute/health/rollback evidence. [FR-027] (Issue #7916)
+- [X] T015 Подготовить новый CalVer серверный релиз по `docs/agent-guidance/release-and-validation.md`: завершить T012/T013, exact-SHA/base PR gates и линейный merge; `prepare-release.sh`, frozen train/candidate, один authoritative GitHub release-full, train-attest/decide, `cd-remote.sh --dry-run` и штатный execute/health/rollback evidence. [FR-027] (Issue #7916)
 - [ ] T016 Выпустить macOS GRAF с того же frozen source по `docs/agent-guidance/macos-notarization.md`: Developer ID, hardened runtime/timestamp, Accepted notarization, staple/Gatekeeper, проверенный Sparkle archive/signature, tag/GitHub Release и публичный feed readback. Не публиковать ненотарифицированный пакет. [FR-027] (Issue #7917)
 - [ ] T017 Проверить опубликованные сервер, страницу получателя и версию приложения на синтетических материалах; записать metadata-only evidence в `validation.md`, сверить tasks/issues и закрыть task issues перед umbrella через live closeout validator с release-full. Очистить только собственные завершённые временные сборки, сохранить журналы и контрольные суммы. [FR-015/023/027] (Issue #7918)
 
