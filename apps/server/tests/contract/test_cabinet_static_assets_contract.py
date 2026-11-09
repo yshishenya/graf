@@ -14,6 +14,7 @@ STATIC_DIR = ROOT / "src" / "twobrain_rec_server" / "cabinet" / "static" / "cabi
 @pytest.mark.parametrize("script, expected", [
     ("recording-deletion-recovery", "real deletion index pending, phases, report links, safe text and updates passed"),
     ("mixed-meeting-list", "S44 mixed native bulk: late and duplicate replies, accepted alias, current allowed/denied rights passed"),
+    ("addressed-reader-lifecycle", "Addressed lifecycle: retain, transient error, revoke, summary downgrade, stale reply and own scope PASS"),
 ])
 def test_recording_deletion_recovery_in_browser(script: str, expected: str) -> None:
     result = subprocess.run(
@@ -4185,7 +4186,7 @@ if (rendered.includes("PRIVATE")) throw new Error("private detail leaked into re
 def test_detail_fetch_actions_share_fail_closed_authorization_recovery() -> None:
     script = (STATIC_DIR / "cabinet.js").read_text()
 
-    assert script.count("recoverMeetingDetailFromResponse(response)") == 5
+    assert script.count("recoverMeetingDetailFromResponse(response)") == 6
     assert "summaryActionProblemCodes" in script
     assert "sharingActionProblemCodes" in script
     assert '"meeting_not_found"' in script

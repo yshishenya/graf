@@ -8074,6 +8074,31 @@
     const timeout = setTimeout(() => controller.abort(), 10000);
     let changed = false;
     try {
+      if (detail && /^\/shared-meetings\/[^/]+$/.test(location.pathname)) {
+        // The personal lifecycle lookup cannot decide access in the sender's workspace.
+        const readerLocation = location.pathname + location.search;
+        const url = new URL(detail.dataset.playbackPollUrl, location.origin);
+        if (url.origin !== location.origin || url.pathname + url.search !== readerLocation) return;
+        const isCurrent = () => detail.isConnected
+          && document.querySelector("main[data-meeting-id][data-playback-poll-url]") === detail
+          && location.pathname + location.search === readerLocation;
+        const response = await fetch(url, {
+          credentials: "same-origin", cache: "no-store", signal: controller.signal,
+          headers: {
+            "HX-Request": "true",
+            ...(detail.dataset.cabinetEmbedded === "true" ? { "X-GRAF-Client": "desktop" } : {}),
+          },
+        });
+        if (!isCurrent() || await recoverMeetingDetailFromResponse(response) || !response.ok) return;
+        const html = await response.text();
+        if (!isCurrent()) return;
+        const authorized = new DOMParser().parseFromString(html, "text/html")
+          .querySelector("main[data-meeting-id][data-playback-poll-url]");
+        if (authorized?.dataset.meetingId !== detail.dataset.meetingId) {
+          renderMeetingDetailRecovery(detail, "unavailable");
+        }
+        return;
+      }
       // Every visible alias participates; only the HTTP payload is capped.
       for (let offset = 0; offset < ids.length; offset += 100) {
         const batch = ids.slice(offset, offset + 100);
