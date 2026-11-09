@@ -34,6 +34,7 @@ const { chromium, webkit } = require(require.resolve('playwright', { paths: [pro
       window.webkit = { messageHandlers: new Proxy({}, { get: () => ({ postMessage: forbidden }) }) };
     });
     await page.addScriptTag({ path: path.join(__dirname, '../../src/twobrain_rec_server/cabinet/static/cabinet/summary-sharing.js') });
+    await page.getByText('Дополнительные настройки', { exact: true }).click();
     await page.getByRole('tab', { name: 'По почте' }).click();
     const input = page.getByRole('combobox', { name: 'Кому отправить' });
     await input.fill('teammate');
