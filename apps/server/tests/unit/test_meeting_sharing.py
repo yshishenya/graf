@@ -36,12 +36,14 @@ def test_invitation_expiry_is_positive_and_bounded() -> None:
     assert error.value.code == "invalid_invitation_ttl"
 
 
-def test_external_invitation_request_is_summary_only() -> None:
-    with pytest.raises(ValidationError):
-        CreateMeetingShareInvitationRequest(
-            address="recipient@example.test",
-            content_scope="full_meeting",
-        )
+def test_full_invitation_defaults_to_view_only() -> None:
+    invitation = CreateMeetingShareInvitationRequest(
+        address="recipient@example.test", content_scope="full_meeting"
+    )
+    assert not invitation.can_download and not invitation.can_export
+
+
+def test_summary_invitation_rejects_file_permission() -> None:
     with pytest.raises(ValidationError):
         CreateMeetingShareInvitationRequest(
             address="recipient@example.test",

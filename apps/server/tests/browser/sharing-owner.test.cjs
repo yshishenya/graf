@@ -33,6 +33,7 @@ const assets = path.join(__dirname, '../../src/twobrain_rec_server/cabinet/stati
         if(url.pathname===base+'/access'){if(holdAccess)await holdAccess;return route.fulfill({json:{share:{active_grants:grants,active_invitations:[],can_manage_roles:true}}});}
         if(url.pathname.endsWith('/auto-send'))return route.fulfill({json:{state:'off',rules:{},roster:[]}});
         if(url.pathname.endsWith('/recipients'))return route.fulfill({json:{recipients:[{user_id:'synthetic-person',email:'person@example.test',display_label:'Учебный получатель'}]}});
+        if(url.pathname===base+'/share-invitations'&&request.method()==='POST')return route.fulfill({status:202,json:{status:'pending'}});
         if(url.pathname===base+'/shares'&&request.method()==='POST'){
           const body=request.postDataJSON();grants=[{...body,grant_id:'synthetic-grant',version:1,display_name:'Учебный получатель'}];return route.fulfill({json:{grant:grants[0]}});
         }
@@ -82,6 +83,24 @@ const assets = path.join(__dirname, '../../src/twobrain_rec_server/cabinet/stati
       await page.getByRole('combobox',{name:'Что доступно получателю'}).selectOption('summary_only');
       await page.getByText('Состав материалов изменён',{exact:true}).waitFor();
       assert.equal(scope,'summary_only');
+      const external = 'external@example.test';
+      const filePermissions = page.locator('[data-sharing-invite-export]');
+      await page.locator('[data-sharing-invite-role]').selectOption('viewer');
+      assert.equal(await filePermissions.isChecked(),false);
+      for (const allowFiles of [false, true]) {
+        if(allowFiles)await filePermissions.check();
+        await page.locator('[data-sharing-person]').fill(external);
+        const [response] = await Promise.all([
+          page.waitForResponse(response=>new URL(response.url()).pathname.endsWith('/share-invitations')&&response.request().method()==='POST'),
+          page.getByRole('button',{name:'Пригласить',exact:true}).click(),
+        ]);
+        assert.equal(response.status(),202);
+        assert.deepEqual(response.request().postDataJSON(),{
+          address:external,content_scope:'full_meeting',can_comment:false,can_edit:false,can_download:allowFiles,can_export:allowFiles
+        });
+        await page.locator('[data-summary-share-dialog][aria-busy=false]').waitFor();
+      }
+      await filePermissions.uncheck();
       await page.locator('[data-sharing-person]').fill('person');
       await page.getByRole('option',{name:/Учебный получатель/}).click();
       await page.locator('[data-sharing-invite-role]').selectOption('commenter');

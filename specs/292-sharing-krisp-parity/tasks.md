@@ -26,11 +26,15 @@
 
 - [X] T007 [US1] Перестроить окно справа Share/Export, приглашение/owner/список/общую аудиторию/scope/copy в `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/fragments/meeting_share.html`, `cabinet/review_policy_rendering.py`, `static/cabinet/summary-sharing.js`, `static/cabinet/cabinet.js`; переиспользовать существующие адресные grants/invitations и export, сохранить F286 email/auto/idempotency/unknown. Обновить предметные UI/browser проверки в `apps/server/tests/{contract/test_recording_share_ui_contract.py,browser/summary-sharing-state.test.cjs,browser/share-recipient-privacy.test.cjs}`. [FR-002–006/013/017/019/022/024] (Issue #7906)
 
+**Локальная доводка T007 (#7906):** проверить реальный POST с CSRF и точные права после подтверждённого входа, выдачу по независимым правам и повтор без расширения в `apps/server/tests/integration/test_meeting_sharing_parity.py`. Проверить форму внешнего адреса в `tests/browser/sharing-owner.test.cjs`, тексты в `tests/unit/test_email_login_delivery.py` и `tests/contract/test_recording_share_invitation_contract.py`. Затем согласовать `api/schemas.py`, общий текст `auth/email_delivery.py` и `cabinet/templates/cabinet/pages/share_invitation_content.html` с контрактом. Действующие ворота приёмки сохраняются.
+
 ## Phase 5 — US3: получатель начинает пользоваться GRAF
 
 **Independent test**: чистый гость → приглашение/просмотр → вход/регистрация/возврат; своя встреча в своём пространстве.
 
 - [X] T008 [US3] Добавить первое добровольное приглашение, постоянную шапку/вход/начало своей встречи и browser/install fallback в `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/shared_meeting_reader.html`, `static/cabinet/public-sharing.js`; реализовать зашифрованный HttpOnly/SameSite cookie продолжения TTL600 без токена в login query в `api/cabinet.py`/`cabinet/public_sharing.py`; проверить безопасный возврат/expiry/tamper/нет membership в `apps/server/tests/integration/test_meeting_sharing_parity.py`. [FR-010/011/016/021] (Issue #7907)
+
+**Локальная доводка T008 (#7907):** один синтетический сценарий в `apps/server/tests/integration/test_meeting_sharing_parity.py`: без входа открыть публичную встречу с сохранённым аудио → продолжение регистрации → подтверждение кода → собственная сессия и пространство → тот же публичный адрес, версия, вкладка и позиция → фактическое чтение. Отдельно проверить отсутствие членства в пространстве отправителя, отличном от служебного пространства входа. Проверка через HTTP не заменяет браузерную и установленную приёмку.
 
 ## Phase 6 — US4: приложение и браузер
 

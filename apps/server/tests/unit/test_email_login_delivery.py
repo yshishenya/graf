@@ -154,7 +154,8 @@ async def test_postal_meeting_invitation_contains_safe_metadata_and_signup_cta()
 
 
 @pytest.mark.anyio
-async def test_postal_full_meeting_invitation_names_recording_package_without_content() -> None:
+@pytest.mark.parametrize("path", ["/share-invitations/synthetic-token", "/meetings/synthetic-meeting"])
+async def test_postal_full_meeting_invitation_does_not_promise_file_access(path) -> None:
     seen: dict[str, object] = {}
 
     async def handler(request: httpx.Request) -> httpx.Response:
@@ -169,7 +170,7 @@ async def test_postal_full_meeting_invitation_names_recording_package_without_co
     )
     await client.send_meeting_invitation(
         recipient_email="recipient@example.test",
-        acceptance_url="https://graf.example.test/share-invitations/synthetic-token",
+        acceptance_url=f"https://graf.example.test{path}",
         delivery_key="synthetic-delivery-key",
         content_scope="full_meeting",
         meeting_title="Планирование релиза",
@@ -178,8 +179,10 @@ async def test_postal_full_meeting_invitation_names_recording_package_without_co
     payload = seen["payload"]
     assert isinstance(payload, dict)
     assert payload["subject"] == "Вам открыли запись встречи в GRAF"
-    assert "расшифровка" in payload["plain_body"].lower()
-    assert "скачивание аудио" in payload["plain_body"].lower()
+    for body in (payload["plain_body"], payload["html_body"]):
+        assert "можно посмотреть в GRAF" in body
+        assert "скачиван" not in body.lower()
+        assert "экспорт" not in body.lower()
     assert "Открыть GRAF" in payload["html_body"]
     assert "recipient@example.test" not in payload["plain_body"]
     assert "synthetic transcript" not in payload["plain_body"]

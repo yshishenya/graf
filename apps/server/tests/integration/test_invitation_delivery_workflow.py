@@ -61,25 +61,18 @@ async def test_invitation_response_uses_saved_scope_and_roles(monkeypatch, tmp_p
 
 
 @pytest.mark.parametrize(
-    ("content_scope", "can_download", "can_export", "error_text"),
+    ("can_download", "can_export"),
     [
-        ("full_meeting", False, False, "recording invitations"),
-        ("full_meeting", True, False, "recording invitations"),
-        ("full_meeting", False, True, "recording invitations"),
-        ("summary_only", True, False, "summary invitations"),
-        ("summary_only", False, True, "summary invitations"),
+        (True, False),
+        (False, True),
+        (True, True),
     ],
 )
-def test_external_invitation_requires_a_complete_scope_preset(
-    content_scope: str,
-    can_download: bool,
-    can_export: bool,
-    error_text: str,
-) -> None:
-    with pytest.raises(ValueError, match=error_text):
+def test_summary_invitation_rejects_file_permissions(can_download: bool, can_export: bool) -> None:
+    with pytest.raises(ValueError, match="summary invitations"):
         CreateMeetingShareInvitationRequest(
             address="external@example.com",
-            content_scope=content_scope,
+            content_scope="summary_only",
             can_download=can_download,
             can_export=can_export,
         )

@@ -10,7 +10,7 @@
       <p class="muted">{% if meeting_time_is_upload %}Загружено {% endif %}{{ user_time_element(meeting_occurred_at, show_zone=True) }}{% if meeting_duration_seconds is not none %} · {{ (meeting_duration_seconds // 60) }} мин{% endif %} · Приглашение до {{ user_time_element(invitation_expires_at, show_zone=True) }}</p>
     </div>
     {% if content_scope == "full_meeting" %}
-    <p class="muted">Доступны итоги, расшифровка, прослушивание и скачивание аудио.</p>
+    <p class="muted">Доступные материалы встречи можно посмотреть в GRAF.</p>
     {% else %}
     <p class="muted">Откроются только итоги. Запись и расшифровка останутся закрыты.</p>
     {% endif %}

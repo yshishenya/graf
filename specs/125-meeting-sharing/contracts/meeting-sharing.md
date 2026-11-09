@@ -132,17 +132,19 @@ POST /api/v1/cabinet/meetings/{meeting_id}/share-invitations
 ```
 
 This endpoint remains blocked while `share_external_invitations_enabled` is
-false. The UI must not call it in that state. The current controlled rollout
-sets the flag true only with Postal delivery, the public base URL, the
+false. The UI must not call it in that state. The original F125 rollout
+enabled the flag only with Postal delivery, the public base URL, the
 credential-encryption key and the generated share-identity HMAC secret
-available to `rec-api`; public links remain false.
+available to `rec-api`. The separate public-link policy is defined by F292.
 
-Request accepts a normalized address plus one of two server-validated presets:
-`summary_only` with no recording artifacts, or explicit `full_meeting` with
-`can_download=true` and `can_export=true`. The full preset is still view-only;
-it grants the recipient the meeting result package, not workspace membership or
-sharing rights. The domain service must enforce these combinations, invitation
-TTL, duplicate fence, deletion state and rate limits regardless of caller.
+Request accepts a normalized address and a content scope. Per
+[F292](../../292-sharing-krisp-parity/contracts/sharing.md), `summary_only`
+requires both file permissions to be false. For `full_meeting`, `can_download`
+and `can_export` are independent and each defaults to false. The original
+explicit true/true request still works. Viewing does not imply file egress or
+workspace membership. The domain service enforces scope, invitation TTL,
+duplicate fence, deletion state and rate limits regardless of caller. The
+accepted grant inherits the stored permissions; repeats never widen them.
 
 Lifecycle response is one of `pending`, `sending`, `sent`, `accepted`,
 `expired`, `revoked`, `failed`, or bounded `outcome_unknown`. `sent` means the
@@ -156,18 +158,13 @@ token only encrypted-at-rest so a lost response can be replayed for the same
 verified recipient without rotating the grant; a different identity receives a
 privacy-preserving not-found response.
 
-For an anonymous recipient, opening the invitation URL renders a minimal
-transition shell and automatically submits the existing magic-link POST. The
-same shell keeps one visible fallback action: `Открыть итоги` for `summary_only`
-or `Открыть запись` for `full_meeting` when JavaScript is disabled. The action
-uses the one-time continuation nonce plus a double-submit CSRF cookie; the
-bearer invitation token is not placed in the form, login `next` path, referrer
-or analytics. GET only creates the server-side continuation and does not create
-an account or grant. The POST consumes the continuation, resolves the invited
-address from encrypted server-side data, creates or reuses the recipient's
-personal account, issues the browser session and opens the permitted surface in
-one transaction. Existing standard email login remains code-based; the
-invitation magic link is the automatic bootstrap path.
+For an anonymous recipient, opening the invitation renders safe metadata and
+a link to independent email verification. The login next path uses a
+continuation nonce, not the invitation bearer. As required by
+[F286](../../286-sharing-results/spec.md), the invitation token never creates
+an account or a session; the historical magic POST fails closed. After
+independent verification of the invited address the recipient explicitly
+accepts via a CSRF-protected POST. GET does not create a grant.
 
 For an accepted `full_meeting` invitation whose recipient is not an active
 member of the owner's workspace, the browser redirects to the stable
@@ -194,26 +191,16 @@ combined export is revision-pinned and uses the existing `combined` scope. A
 recipient never receives calendar/service metadata, media revision identifiers,
 workspace membership or sharing controls.
 
-When bootstrap created a new account, the server commits the access result
-first and then starts the deterministic
-`share-account-created/{invitation_id}` notification workflow. Notification
-status is independent from access and is one of `pending`, `sending`, `sent`,
-`failed` or `outcome_unknown`. Its body contains only the safe meeting title,
-masked recipient address, GRAF/settings links and revoke/support copy; it never
-contains raw email, invitation/grant tokens, transcript, audio, participants or
-summary text.
-
 ## 6. Share fragment UI contract
 
 The fragment must be rendered only after an explicit Share action. It contains:
 
 1. title and one-sentence explanation of internal summary access versus the
-   explicit external recording package;
+   addressed access to the full meeting;
 2. recipient field with combobox/listbox semantics;
 3. typed-search action and result rows with source labels;
 4. blocked external state when applicable;
-5. collapsed “Что увидит получатель” disclosure naming the external package:
-   summary, transcript, playback and audio download;
+5. collapsed “Что увидит получатель” disclosure describing the meeting view and any separately selected file rights;
 6. current active grants with scope, expiry when available, create-and-copy a
    rotated recipient-bound link and Revoke;
 7. live-region status for loading, success, empty, blocked, rate-limit and
@@ -228,8 +215,8 @@ without a full fragment reload and Copy link uses the API-returned URL.
 
 The invitation landing page and email may contain only safe metadata: inviter
 label, bounded meeting label/time, scope, expiry, action to sign in/create GRAF
-and notification/privacy links. The anonymous landing page has only a minimal
-transition state plus one JavaScript-disabled fallback CTA. No transcript,
+and notification/privacy links. The anonymous landing page offers independent email sign-in. The email and
+landing copy describe viewing available materials without promising file egress. No transcript,
 audio, participant list, summary text, tracking pixel, raw email or token is
 placed there. GET neither silently joins the workspace, creates an account nor
 sends another invitation; the existing CSRF-bound POST performs the explicit
@@ -240,12 +227,6 @@ above.
 After successful authorized view, an optional CTA explains one concrete GRAF
 value and links to explicit onboarding. It never blocks the permitted content,
 joins the workspace, creates another account or sends another invitation.
-
-The anonymous invitation action is the exception to the general onboarding
-rule: account creation happens only after the recipient explicitly submits the
-one-time magic-link action, and only as a personal account needed to open this
-shared surface. The follow-up account-created notification is post-commit and
-does not widen access.
 
 ### 7.1. Effective access and provenance
 
@@ -416,8 +397,10 @@ it does not rotate on retry. Delivery timeout after provider egress is a
 first-class `outcome_unknown` state and must not trigger an automatic duplicate
 send without provider idempotency/reconciliation. Runtime limits apply
 independently to search, grant, rotation, acceptance and distribution. The
-account-created notification has its own durable at-most-once reservation; an
-ambiguous provider result is recorded and not silently resent.
+historical account-created notification has its own durable at-most-once
+reservation; an ambiguous provider result is recorded and not silently resent.
+The current F286 invitation path does not bootstrap an account or schedule
+this notification.
 
 Allowed metadata-only event names are bounded and do not contain meeting content:
 
@@ -456,7 +439,7 @@ grant, membership, письмо или consent. Нет одобрения/осн
 
 `converted` означает ровно одну signup conversion: исходное auth-действие
 создало новый personal account, после чего тот же получатель успешно получил
-разрешённый summary. Создание аккаунта magic-link POST может быть этим
+разрешённый summary. Успешное самостоятельное подтверждение регистрации может быть этим
 auth-событием; GET, попытка входа, письмо, открытие ссылки и CTA click им
 не являются. First own capture/setup учитываются отдельными этапами, не второй
 signup conversion. Вход в существующий аккаунт не становится новой signup.
