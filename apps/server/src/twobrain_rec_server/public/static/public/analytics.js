@@ -67,6 +67,7 @@
   var pendingChoiceCookie = null;
   var serverChoice = null;
   var retryRevokeOnly = false;
+  var restoringPublicPage = false;
 
   (publicConfig && publicConfig.event_catalog ? publicConfig.event_catalog : []).forEach(function (event) {
     if (event && event.event_name) {
@@ -866,13 +867,18 @@
     }
   }
 
-  async function readPublicChoice() {
-    var generation = ++choiceGeneration;
+  function invalidatePublicChoice() {
+    ++choiceGeneration;
     pendingChoiceCookie = null;
     serverChoice = null;
     choiceInFlight = api.consentPending = false;
     disableOptionalProviders();
     api.currentConsentState = currentConsentState = "unknown";
+  }
+
+  async function readPublicChoice() {
+    invalidatePublicChoice();
+    var generation = choiceGeneration;
     var cookie = publicChoiceCookie();
     if (!cookie) {
       return false;
@@ -1499,6 +1505,9 @@
     }
   }
   function refreshConsent(event) {
+    if (restoringPublicPage) {
+      return false;
+    }
     // Ordinary resume must not cancel an unchanged explicit choice in flight.
     if (choiceInFlight && event && (event.type === "focus" || event.type === "visibilitychange") &&
         pendingChoiceMatchesCookie()) {
@@ -1511,7 +1520,22 @@
       refreshConsent();
     }
   });
-  window.addEventListener("pageshow", refreshConsent);
+  window.addEventListener("pagehide", function (event) {
+    if (publicConsentControl && event.persisted) {
+      restoringPublicPage = true;
+      if (choiceInFlight) {
+        consentStatus("Аналитика отключена. Сохранение выбора не подтверждено. Откройте настройки cookies.");
+      }
+      invalidatePublicChoice();
+    }
+  });
+  window.addEventListener("pageshow", function (event) {
+    restoringPublicPage = false;
+    // CookieConsent already reads the saved choice on an ordinary load.
+    if (!publicConsentControl || event.persisted || choiceInFlight) {
+      refreshConsent(event);
+    }
+  });
   window.addEventListener("focus", refreshConsent);
   document.addEventListener("visibilitychange", refreshConsent);
   runCookieConsent();

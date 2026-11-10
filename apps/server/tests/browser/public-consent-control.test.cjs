@@ -69,16 +69,20 @@ print(render_template('cabinet/auth/analytics.html', public_analytics=json.loads
   const ready = page => page.waitForFunction(() =>
     window.GRAFPublicAnalytics.currentConsentState !== 'unknown' &&
     window.GRAFPublicAnalytics.consentPending === false);
-  const hold = action => {
+  const hold = (action, apply) => {
     let entered, release;
     const arrived = new Promise((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error('control request not reached: ' + action)), 8000);
       entered = () => { clearTimeout(timer); resolve(); };
     });
     const gate = new Promise(resolve => { release = resolve; });
-    intercept = async body => {
+    intercept = async (body, reply) => {
       if (body.action !== action) return false;
-      entered(); await gate; return false;
+      const result = apply && apply(body);
+      entered(); await gate;
+      if (!result) return false;
+      reply(200, result);
+      return true;
     };
     return { arrived, release };
   };
@@ -272,6 +276,57 @@ print(render_template('cabinet/auth/analytics.html', public_analytics=json.loads
       await choice.close();
     }
     console.log('ok_resume_preserves_explicit_revoke_and_grant');
+
+    for (const [button, action, clear] of [
+      ['necessary', 'revoke', false], ['all', 'revoke', false],
+      ['all', 'grant', false], ['necessary', 'revoke', true],
+    ]) {
+      const choice = await open();
+      const held = hold(action, body => {
+        if (action === 'grant') assert.equal(rows.get(body.consent_id).epoch, body.expected_epoch);
+        const row = { epoch: randomUUID(), categories: action === 'grant' ? body.categories : ['necessary'],
+          copy_version: action === 'grant' ? body.copy_version : null };
+        rows.set(body.consent_id, row);
+        return { ...row, accepted: true, state: action === 'grant' ? 'granted' : 'revoked' };
+      });
+      const before = requests.length;
+      try {
+        await choice.locator('.cm__btns [data-role="' + button + '"]').click();
+        await held.arrived;
+        await choice.evaluate(() => dispatchEvent(new PageTransitionEvent('pagehide', { persisted: true })));
+        assert.equal(await choice.evaluate(() => window.GRAFPublicAnalytics.consentPending), false);
+        await choice.evaluate(({ key, clear }) => {
+          if (clear) localStorage.removeItem(key);
+          dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }));
+        }, { key: KEY, clear });
+        if (clear) {
+          assert.match(await choice.locator('[role="status"]').innerText(), /Откройте настройки cookies/);
+          await choice.locator('[data-cc]').click();
+          await choice.locator('.pm [data-role="necessary"]').waitFor({ state: 'visible' });
+        } else {
+          await pending(choice);
+        }
+        const late = choice.waitForResponse(r => r.url().endsWith(CONTROL) &&
+          r.request().postDataJSON().action === action);
+        held.release(); intercept = null;
+        await (await late).finished();
+        await choice.evaluate(() => new Promise(resolve => setTimeout(resolve, 0)));
+        await noTraffic(choice);
+        assert.equal((await cookie(choice))?.data.graf_public_consent_epoch ?? null, null);
+        assert.deepEqual(requests.slice(before).map(r => r.action),
+          action === 'grant' ? ['revoke', 'grant', 'read'] : clear ? ['revoke'] : ['revoke', 'read']);
+        if (button === 'necessary' && !clear) {
+          const retry = requests.length;
+          await choice.getByRole('button', { name: 'Повторить сохранение отказа' }).click();
+          await ready(choice);
+          assert.deepEqual(requests.slice(retry).map(r => r.action), ['revoke']);
+        }
+      } finally {
+        held.release(); intercept = null;
+        await choice.close();
+      }
+    }
+    console.log('ok_cached_page_discards_interrupted_choice');
 
     for (const action of ['revoke', 'grant']) for (const change of ['storage', 'storage-clear', 'pageshow', 'cross-tab-clear',
       'data', 'data-without-event', 'corrupt', 'deleted', 'unavailable']) {
