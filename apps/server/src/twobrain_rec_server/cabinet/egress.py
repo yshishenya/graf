@@ -1529,8 +1529,9 @@ async def stored_audio_artifacts(
     *,
     workspace_id: UUID,
     meeting_id: UUID,
+    revision: MediaRevision | None = None,
 ) -> list[TrackArtifact]:
-    revision = await _latest_accepted_media_revision(
+    revision = revision or await _latest_accepted_media_revision(
         db,
         workspace_id=workspace_id,
         meeting_id=meeting_id,
@@ -1599,6 +1600,7 @@ async def review_playback_state(
     meeting: Meeting,
     access: AccessDecision,
     storage: object | None = None,
+    revision: MediaRevision | None = None,
 ) -> PlaybackPreparationState:
     deletion_state = meeting.deletion_state or DeletionState.NONE.value
     if meeting_deletion_active(meeting):
@@ -1615,7 +1617,7 @@ async def review_playback_state(
             label=playback_reason_copy("access_denied"),
         )
 
-    revision = await _latest_accepted_media_revision(
+    revision = revision or await _latest_accepted_media_revision(
         db,
         workspace_id=meeting.workspace_id,
         meeting_id=meeting.id,
@@ -2098,6 +2100,7 @@ async def playback_artifact(
     if locked_meeting is None:
         raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
     meeting = locked_meeting
+    revision = None
     if public_proof is not None:
         from twobrain_rec_server.cabinet.public_sharing import (
             current_media,
@@ -2107,7 +2110,7 @@ async def playback_artifact(
         if public_proof.meeting_id != meeting.id or public_proof.workspace_id != meeting.workspace_id or actor_user_id is not None:
             raise ProblemDetail(status=404, code="share_not_found", title="Share not found")
         await validate_public_proof(db, proof=public_proof, require_full=True)
-        _, current_version = await current_media(db, meeting=meeting)
+        revision, _, current_version = await current_media(db, meeting=meeting)
         if media_version != current_version:
             raise ProblemDetail(status=409, code="shared_media_changed", title="Shared recording changed")
         access = public_access()
@@ -2127,20 +2130,23 @@ async def playback_artifact(
             status=409, code="meeting_deletion_active", title="Meeting deletion is in progress"
         )
 
-    playback_state = await review_playback_state(db, meeting=meeting, access=access)
-    if not playback_state.can_play:
+    # A public request without a versioned revision cannot fall back to the owner's selection.
+    playback_state = None if public_proof is not None and revision is None else (
+        await review_playback_state(db, meeting=meeting, access=access, revision=revision)
+    )
+    if playback_state is None or not playback_state.can_play:
         await _record_playback_denied(
             db,
             meeting=meeting,
             actor_user_id=actor_user_id,
             device_id=device_id,
-            reason=playback_state.reason_code,
+            reason=playback_state.reason_code if playback_state else "no_audio",
         )
         await db.commit()
         raise ProblemDetail(status=409, code="playback_unavailable", title="Playback unavailable")
 
     try:
-        playback = await _stored_review_m4a_artifact(db, meeting=meeting)
+        playback = await _stored_review_m4a_artifact(db, meeting=meeting, revision=revision)
         await _ensure_review_audio_storage_size(
             storage,
             object_key=playback.storage_object_key,
@@ -2257,11 +2263,12 @@ async def _stored_review_m4a_artifact(
     db: AsyncSession,
     *,
     meeting: Meeting,
+    revision: MediaRevision | None = None,
 ) -> TrackArtifact:
     artifacts = {
         artifact.track_role: artifact
         for artifact in await stored_audio_artifacts(
-            db, workspace_id=meeting.workspace_id, meeting_id=meeting.id
+            db, workspace_id=meeting.workspace_id, meeting_id=meeting.id, revision=revision
         )
     }
     playback = artifacts.get(TrackRole.PLAYBACK.value)

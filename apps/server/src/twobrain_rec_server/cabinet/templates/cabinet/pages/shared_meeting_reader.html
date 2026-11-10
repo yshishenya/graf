@@ -20,6 +20,7 @@
     <p role="status" aria-live="polite" data-public-status></p>
     {% if source_changed %}<aside class="public-reader__notice" role="status">Запись обновилась. Старая позиция не применена. <button type="button" data-public-refresh>Слушать новую запись с начала</button></aside>{% endif %}
     <section id="outcomes" data-public-panel="outcomes" aria-label="Итоги встречи">
+      {% if meeting.summary_source_stale|default(false) %}<p class="muted" role="status">По предыдущей версии расшифровки</p>{% endif %}
       {% if protocol_html %}{{ protocol_html | safe }}{% elif summary_sections %}
         {% for section in summary_sections %}<article><h2>{{ section.label }}</h2>{% for item in section['items'] %}<p>{{ item.text }}{% for source in item.sources|default([]) %} <a href="#recording?position_ms={{ source.start_ms }}" data-public-seek="{{ source.start_ms }}">{{ source.time }}</a>{% endfor %}</p>{% endfor %}</article>{% endfor %}
       {% else %}<div class="public-reader__empty"><h2>Итоги пока не подготовлены</h2><p>Расшифровка и запись доступны на соседней вкладке, если владелец уже подготовил их.</p></div>{% endif %}

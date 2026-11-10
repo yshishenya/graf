@@ -3,6 +3,8 @@
 import asyncio
 import re
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
+from hashlib import sha256
 from html import unescape
 from urllib.parse import parse_qs, urlsplit
 from uuid import UUID
@@ -12,6 +14,7 @@ from sqlalchemy import select
 
 from tests.contract.test_ingest_openapi_contract import auth_headers
 from tests.fakes.auth_contexts import WORKSPACE_ID
+from tests.fixtures.artifacts import track_descriptor
 from tests.fixtures.cabinet import SAFE_TRANSCRIPT_TEXT
 from tests.fixtures.cabinet_access import (
     SHARED_USER_ID,
@@ -19,8 +22,25 @@ from tests.fixtures.cabinet_access import (
     add_workspace_user,
     set_artifact_policy,
 )
+from tests.fixtures.processing import apply_job_worker_scope
+from tests.integration.test_playback_normalization_media_matrix import _pipeline, _run_ffmpeg
 from tests.integration.test_summary_sharing import prepare
-from twobrain_rec_server.db.models import Meeting, MeetingShareGrant, ProcessingResult
+from twobrain_rec_server.db.models import (
+    DiarizationSegment,
+    MediaRevision,
+    MediaScribeJob,
+    Meeting,
+    MeetingOutcomeItem,
+    MeetingOutcomeSet,
+    MeetingShareGrant,
+    MeetingSummarySlot,
+    PlaybackNormalizationJob,
+    ProcessingResult,
+    ProcessingWorkflow,
+    TrackArtifact,
+    TranscriptSegment,
+)
+from twobrain_rec_server.normalization.service import run_normalization_job
 
 
 def publish(client, meeting, template, scope="full_meeting"):
@@ -86,6 +106,7 @@ def test_full_reader_and_explicit_scope_preserve_legacy(client, tmp_path):
         "speakers",
         "media_version",
         "playback_available",
+        "summary_source_stale",
     }
     full = response.json()
     keys = {speaker["speaker_key"] for speaker in full["speakers"]}
@@ -139,6 +160,194 @@ def test_public_playback_ranges_revoke_and_media_fence(client, tmp_path):
     assert revoked.status_code == 200
     assert client.get(audio, headers={"Range": "bytes=0-3"}).status_code == 404
     assert client.get(path).status_code == 404
+
+
+def test_public_playback_uses_the_versioned_revision_before_outcomes(client, tmp_path):
+    meeting, template = prepare(client, tmp_path)
+    async def align_fixture_duration():
+        async with client.app_state["sessionmaker"]() as db:
+            row = await db.get(Meeting, meeting)
+            row.duration_seconds = 60
+            await db.commit()
+
+    asyncio.run(align_fixture_duration())
+    original_bytes = add_retained_playback_m4a(client, meeting, b"synthetic-original")
+    _, path = publish(client, meeting, template)
+    original = client.get(path).json()
+    version_a = original["media_version"]
+    assert original["playback_available"] and original["transcript"]
+    assert original["summary_sections"] or original["protocol"]
+    playback = path.replace("?", "/playback?") + "&media_version="
+    assert client.get(playback + version_a).content == original_bytes
+
+    def assert_blocked(version, code):
+        for headers in ({}, {"Range": "bytes=0-7"}):
+            response = client.get(playback + version, headers=headers)
+            assert response.status_code == 409 and response.json()["code"] == code
+            assert "content-range" not in response.headers
+            assert response.headers["content-type"] != "audio/mp4"
+
+    def assert_playback(version, expected):
+        response = client.get(playback + version)
+        assert response.status_code == 200 and response.content == expected
+        response = client.get(playback + version, headers={"Range": "bytes=32-95"})
+        assert response.status_code == 206 and response.content == expected[32:96]
+        assert response.headers["content-range"] == f"bytes 32-95/{len(expected)}"
+
+    session = client.post(
+        f"/api/v1/meetings/{meeting}/media-revisions/upload-sessions",
+        headers=auth_headers(),
+        json={
+            "local_media_revision_id": "f292-t004-synthetic-b",
+            "source_kind": "reprocess",
+            "duration_seconds": 60,
+            "expected_tracks": ["manifest", "media"],
+        },
+    )
+    assert session.status_code == 202, (session.status_code, session.json().get("code"))
+    session_id = session.json()["upload_session"]["session_id"]
+    replacement_audio = tmp_path / "replacement.wav"
+    _run_ffmpeg(["-f", "lavfi", "-i", "sine=frequency=660:sample_rate=16000:duration=60",
+                 "-c:a", "pcm_s16le", str(replacement_audio)])
+    tracks = []
+    for role, data in {
+        "manifest": b"{}",
+        "media": replacement_audio.read_bytes(),
+    }.items():
+        upload = client.put(
+            f"/api/v1/upload-sessions/{session_id}/tracks/{role}/parts/0",
+            headers=auth_headers() | {"X-Byte-Offset": "0", "X-Content-SHA256": sha256(data).hexdigest()},
+            content=data,
+        )
+        assert upload.status_code == 200, (role, upload.status_code)
+        tracks.append(track_descriptor(role, data=data, duration_seconds=60))
+    accepted = client.post(
+        f"/api/v1/upload-sessions/{session_id}/finalize",
+        headers=auth_headers(),
+        json={"manifest_sha256": tracks[0]["sha256"], "tracks": tracks, "archive_audio": True},
+    )
+    assert accepted.status_code == 200, (accepted.status_code, accepted.json().get("code"))
+    revision_b = accepted.json()["meeting"]["media_revision"]
+    assert revision_b["revision_number"] == 2 and revision_b["status"] == "accepted"
+
+    pending = client.get(path).json()
+    version_b = pending["media_version"]
+    assert version_b != version_a
+    assert_blocked(version_a, "shared_media_changed")
+    assert_blocked(version_b, "playback_unavailable")
+    assert not pending["playback_available"] and not pending["transcript"] and not pending["speakers"]
+    assert "data-playback-shell" not in client.get(path, headers={"Accept": "text/html"}).text
+
+    async def normalize_replacement():
+        async with client.app_state["sessionmaker"]() as db:
+            job = await db.scalar(
+                select(PlaybackNormalizationJob)
+                .join(MediaRevision, MediaRevision.id == PlaybackNormalizationJob.media_revision_id)
+                .where(MediaRevision.meeting_id == UUID(str(meeting)), MediaRevision.revision_number == 2)
+            )
+            assert job is not None and job.planned_action == "normalize_source"
+            await apply_job_worker_scope(db, job)
+            return await run_normalization_job(
+                db=db, storage=client.app_state["storage"], job_id=job.id,
+                work_directory=tmp_path, pipeline=_pipeline(),
+            )
+
+    execution = asyncio.run(normalize_replacement())
+    assert execution.derivation_kind == "single_source_transcode"
+
+    async def published_artifact():
+        async with client.app_state["sessionmaker"]() as db:
+            canonical = await db.get(TrackArtifact, execution.canonical_track_artifact_id)
+            revision = await db.get(MediaRevision, canonical.media_revision_id)
+            assert revision.revision_number == 2 and revision.status == "accepted"
+            assert canonical.status == "stored" and canonical.validated_at is not None
+            assert canonical.derivation_kind == "single_source_transcode"
+            assert canonical.duration_seconds == 60
+            body = client.app_state["storage"].get_bytes(canonical.storage_object_key)
+            assert body[4:8] == b"ftyp" and body != original_bytes
+            assert sha256(body).hexdigest() == canonical.sha256
+            return body
+    replacement_bytes = asyncio.run(published_artifact())
+    ready = client.get(path).json()
+    assert ready["media_version"] == version_b and ready["playback_available"]
+    assert not ready["transcript"] and not ready["speakers"]
+    assert_playback(version_b, replacement_bytes)
+
+    async def seed_result_and_outcomes():
+        # This fixture defines the state after publication; it does not test publication writers.
+        async with client.app_state["sessionmaker"]() as db:
+            canonical = await db.get(TrackArtifact, execution.canonical_track_artifact_id)
+            common = {"workspace_id": canonical.workspace_id, "meeting_id": meeting,
+                      "media_revision_id": canonical.media_revision_id}
+            input_media = await db.scalar(select(TrackArtifact).filter_by(**common, track_role="media"))
+            workflow = ProcessingWorkflow(**common, workflow_id="synthetic-published-replacement",
+                                          status="processed", attempt_ordinal=1)
+            db.add(workflow)
+            await db.flush()
+            job = MediaScribeJob(**common, processing_workflow_id=workflow.id,
+                                 external_job_id="fixture-replacement-job", status="ready",
+                                 request_mode="single_track", source_track_artifact_id=input_media.id)
+            db.add(job)
+            await db.flush()
+            result = ProcessingResult(**common, mediascribe_job_id=job.id, processing_workflow_id=workflow.id,
+                                      status="imported", transcript_status="available", diarization_status="available",
+                                      segment_count=1, diarization_segment_count=1, language="ru",
+                                      source_result_hash="synthetic-replacement-result", imported_at=datetime.now(UTC))
+            db.add(result)
+            await db.flush()
+            segment = {"workspace_id": canonical.workspace_id, "meeting_id": meeting, "processing_result_id": result.id,
+                       "sequence": 0, "start_seconds": Decimal("0"), "end_seconds": Decimal("1"),
+                       "text": "Проверка новой версии.", "source_role": "mixed"}
+            transcript = TranscriptSegment(**segment)
+            db.add_all([transcript, DiarizationSegment(**segment, speaker_label="Speaker 1")])
+            slot = await db.scalar(select(MeetingSummarySlot).filter_by(
+                workspace_id=canonical.workspace_id, meeting_id=meeting, is_meeting_default=True,
+            ))
+            assert slot is not None
+            outcome = MeetingOutcomeSet(**common, processing_result_id=result.id, status="available",
+                summary_state="available", generator_version="synthetic-replacement",
+                template_key=slot.template_key, template_version=1, revision_state="accepted",
+                source_result_hash=result.source_result_hash, accepted_at=datetime.now(UTC))
+            db.add(outcome)
+            await db.flush()
+            db.add(MeetingOutcomeItem(
+                workspace_id=canonical.workspace_id, meeting_id=meeting, outcome_set_id=outcome.id,
+                category="summary", sequence=0, state="available", text="Новый итог.",
+                source_refs_json=[{"transcript_segment_id": str(transcript.id)}],
+            ))
+            await db.commit()
+            return slot.id, outcome.id
+    slot_id, outcome_id = asyncio.run(seed_result_and_outcomes())
+    with_old_outcomes = client.get(path).json()
+    version_result_b = with_old_outcomes["media_version"]
+    assert version_result_b not in (version_a, version_b)
+    assert with_old_outcomes["transcript"][0]["text"] == "Проверка новой версии."
+    assert with_old_outcomes["summary_sections"] or with_old_outcomes["protocol"]
+    assert with_old_outcomes["summary_source_stale"] is True
+    old_outcomes_html = client.get(path, headers={"Accept": "text/html"}).text
+    assert "По предыдущей версии расшифровки" in old_outcomes_html
+    old_outcomes_panel = old_outcomes_html.split('id="outcomes"', 1)[1].split("</section>", 1)[0]
+    assert "Сохранённый итог." in old_outcomes_panel and "data-public-seek" not in old_outcomes_panel
+    assert "data-public-seek" in old_outcomes_html
+    assert_blocked(version_b, "shared_media_changed")
+    assert_playback(version_result_b, replacement_bytes)
+
+    async def publish_outcomes():
+        async with client.app_state["sessionmaker"]() as db:
+            slot = await db.get(MeetingSummarySlot, slot_id)
+            slot.current_outcome_set_id = outcome_id
+            await db.commit()
+
+    asyncio.run(publish_outcomes())
+    aligned = client.get(path).json()
+    assert aligned["media_version"] == version_result_b and aligned["summary_source_stale"] is False
+    assert aligned["summary_sections"] == [
+        {"category": "summary", "text": "Новый итог.", "sources": [{"start_ms": 0, "time": "0:00"}]},
+    ]
+    assert "По предыдущей версии расшифровки" not in client.get(
+        path, headers={"Accept": "text/html"},
+    ).text
+    assert_playback(version_result_b, replacement_bytes)
 
 
 def test_audience_transitions_preserve_addressed_grants(client, tmp_path):

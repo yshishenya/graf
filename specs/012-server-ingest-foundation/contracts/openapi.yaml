@@ -21950,6 +21950,9 @@ components:
         playback_available:
           type: boolean
           title: Playback Available
+        summary_source_stale:
+          type: boolean
+          title: Summary Source Stale
       additionalProperties: false
       type: object
       required:
@@ -21960,6 +21963,7 @@ components:
       - speakers
       - media_version
       - playback_available
+      - summary_source_stale
       title: PublicShareMeetingResponse
     PublicSpeakerInterval:
       properties:

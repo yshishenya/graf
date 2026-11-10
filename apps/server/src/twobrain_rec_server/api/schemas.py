@@ -1943,6 +1943,7 @@ class PublicShareMeetingResponse(PublicShareSummaryResponse):
     speakers: list[PublicSpeakerLane]
     media_version: str = Field(pattern=r"^[0-9a-f]{24}$")
     playback_available: bool
+    summary_source_stale: bool
 
 
 class MeetingAccessState(BaseModel):
