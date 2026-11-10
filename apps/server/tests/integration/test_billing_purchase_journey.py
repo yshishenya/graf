@@ -756,6 +756,17 @@ def test_completed_purchase_recovers_late_receipt_without_replaying_money(
     op_id, inv_id = uuid4(), uuid4()
     number = f"INV-RECEIPT-{uuid4().hex}"
     snapshot = {"cycle": "year", "receipt_registration": "pending"}
+    if mode == "wrong_legacy_receipt":
+        snapshot["receipt_observations"] = {
+            "test:other-shop:prior-receipt": {
+                "parent_kind": "payment",
+                "provider_parent_id": "pay-synthetic-receipt",
+                "provider_receipt_id": "prior-receipt",
+                "environment": "test",
+                "shop_id": "other-shop",
+                "status": "pending",
+            },
+        }
     refused = operation_state == "succeeded_refused"
     owner_changed = mode == "owner_changed_late"
     resolution = "workspace_scope_invalid"
@@ -766,6 +777,8 @@ def test_completed_purchase_recovers_late_receipt_without_replaying_money(
         snapshot["service_resolution"] = resolution
     operation_snapshot = {"purchase_schema": 2, "provider_environment": "test",
                           "provider_shop_id": "shop-money-path"} if operation_state != "succeeded_projected" else {}
+    if mode == "wrong_legacy_binding":
+        operation_snapshot["provider_shop_id"] = "original-shop"
     if refused:
         operation_snapshot["reconciliation_detail"] = {"code": resolution}
 
@@ -882,6 +895,8 @@ def test_completed_purchase_recovers_late_receipt_without_replaying_money(
         if mode == "incomplete_legacy":
             del payload["recipient"]
             del payload["test"]
+        if mode == "wrong_legacy_receipt":
+            del payload["receipt_registration"]
         return httpx.Response(200, json=payload)
 
     monkeypatch.setattr(webhook_reconciliation, "YooKassaClient",
@@ -993,6 +1008,14 @@ def test_completed_purchase_recovers_late_receipt_without_replaying_money(
             assert operation.request_snapshot == operation_snapshot
             assert invoice.amount_minor == 12500
             expected = {**snapshot, "receipt_registration": "succeeded" if succeeded else "pending"}
+            if operation_state == "succeeded_projected" and succeeded:
+                expected["receipt_payment_binding"] = {
+                    "operation_id": str(op_id),
+                    "workspace_id": str(workspace),
+                    "payment_id": "pay-synthetic-receipt",
+                    "environment": "test",
+                    "shop_id": "shop-money-path",
+                }
             if mode == "bound_receipt":
                 key = "test:shop-money-path:receipt-1"
                 expected["receipt_observations"] = {
@@ -1024,6 +1047,44 @@ def test_completed_purchase_recovers_late_receipt_without_replaying_money(
                 assert value not in final_detail
     asyncio.run(verify())
 
+    if operation_state == "succeeded_projected":
+        from twobrain_rec_server.billing.reconciliation import (
+            ProviderScope,
+            extract_receipt_observation,
+            record_observed_receipt,
+        )
+
+        async def read_receipt_again(shop: str, environment: str, *, repeat: bool = False):
+            async with client.app_state["sessionmaker"]() as db:
+                invoice = await db.get(BillingInvoice, inv_id)
+                original = dict(invoice.plan_snapshot)
+                result = await record_observed_receipt(
+                    db, workspace_id=workspace,
+                    observation=extract_receipt_observation(
+                        {"id": "receipt-after-restart", "type": "payment",
+                         "payment_id": "pay-synthetic-receipt", "status": "succeeded"},
+                        scope=ProviderScope(environment, shop),
+                    ),
+                    observed_at=now,
+                )
+                assert (await db.get(BillingOperation, op_id)).request_snapshot == operation_snapshot
+                if succeeded and (environment, shop) == ("test", "shop-money-path"):
+                    assert result == ("duplicate" if repeat else "inserted", False)
+                    if repeat:
+                        assert invoice.plan_snapshot == original
+                    assert invoice.plan_snapshot["receipt_payment_binding"] == original["receipt_payment_binding"]
+                    assert len(invoice.plan_snapshot["receipt_observations"]) == 1
+                else:
+                    assert result == ("conflict", False)
+                    assert invoice.plan_snapshot == original
+                assert await db.scalar(select(func.count()).select_from(BillingNotificationDelivery)) == int(succeeded)
+                await db.commit()
+
+        asyncio.run(read_receipt_again("other-shop", "test"))
+        asyncio.run(read_receipt_again("shop-money-path", "production"))
+        asyncio.run(read_receipt_again("shop-money-path", "test"))
+        asyncio.run(read_receipt_again("shop-money-path", "test", repeat=True))
+
     if owner_changed:
         before = len(calls)
         asyncio.run(change_access(role="member"))
@@ -1032,7 +1093,9 @@ def test_completed_purchase_recovers_late_receipt_without_replaying_money(
         asyncio.run(verify())
 
 
-@pytest.mark.parametrize("mode", ["background", "incomplete_legacy"])
+@pytest.mark.parametrize(
+    "mode", ["background", "incomplete_legacy", "wrong_legacy_binding", "wrong_legacy_receipt"]
+)
 def test_projected_storage_purchase_recovers_receipt_without_replaying_projection(
     client, monkeypatch, tmp_path, mode
 ):

@@ -33,6 +33,7 @@ from twobrain_rec_server.billing.reconciliation import (
     PaymentObservation,
     ProviderObservationError,
     ProviderScope,
+    confirm_receipt_payment_binding,
     extract_payment_observation,
     extract_receipt_observation,
     extract_refund_observation,
@@ -64,22 +65,6 @@ if TYPE_CHECKING:
 
 RECEIPT_OBSERVATION_STATES = ("succeeded", "succeeded_projected", "succeeded_refused")
 RECONCILABLE_WEBHOOK_STATES = frozenset(("accepted", "pending_reconciliation"))
-
-
-def _verified_receipt_scope(
-    payload: dict, operation: BillingOperation, scope: ProviderScope
-) -> tuple[str, str] | None:
-    recipient = payload.get("recipient")
-    binding = operation.request_snapshot
-    if (
-        isinstance(recipient, dict)
-        and recipient.get("account_id") == scope.shop_id
-        and payload.get("test") is (scope.environment == "test")
-        and binding.get("provider_environment", scope.environment) == scope.environment
-        and binding.get("provider_shop_id", scope.shop_id) == scope.shop_id
-    ):
-        return scope.environment, scope.shop_id
-    return None
 
 
 async def apply_confirmed_purchase(
@@ -153,7 +138,11 @@ async def apply_confirmed_purchase(
             **(invoice.plan_snapshot or {}),
             "provider_paid_at": (observation.captured_at or observation.provider_created_at).isoformat(),
         }
-    receipt_scope = _verified_receipt_scope(payload, operation, scope)
+    receipt_scope = (
+        (scope.environment, scope.shop_id)
+        if confirm_receipt_payment_binding(operation, invoice, scope, verified_payment=payload)
+        else None
+    )
     if operation.kind == "initial_checkout":
         result = await grant_confirmed_payment(
             db,
@@ -398,12 +387,14 @@ async def reconcile_pending_initial_checkout_operations(
                 raise ProviderObservationError("completed payment receipt scope conflicts")
             observation = extract_payment_observation(payload, scope=scope)
             operation.updated_at = datetime.now(UTC)
-            receipt_scope = _verified_receipt_scope(payload, operation, scope)
-            if observation.receipt_registration is not None and receipt_scope is not None:
+            receipt_bound = confirm_receipt_payment_binding(
+                operation, invoice, scope, verified_payment=payload
+            )
+            if observation.receipt_registration is not None and receipt_bound:
                 invoice.plan_snapshot, available = merge_receipt_registration(
                     invoice.plan_snapshot,
                     status=observation.receipt_registration,
-                    payment_binding=(*receipt_scope, observation.provider_payment_id),
+                    payment_binding=(scope.environment, scope.shop_id, observation.provider_payment_id),
                 )
                 subscription = await db.get(WorkspaceSubscription, operation.workspace_id)
                 if available and subscription is not None and subscription.billing_owner_id is not None:

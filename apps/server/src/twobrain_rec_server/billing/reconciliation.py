@@ -14,6 +14,7 @@ from twobrain_rec_server.billing.provider_events import validate_provider_identi
 from twobrain_rec_server.billing.receipts import (
     ReceiptRegistration,
     merge_receipt_registration,
+    payment_receipt_record,
     receipt_observation_records,
 )
 from twobrain_rec_server.billing.referral_rewards import reverse_credit_for_payment
@@ -192,6 +193,61 @@ def validate_purchase_payment(
     ):
         raise ProviderObservationError("operation shop binding does not match")
     return _payment_status(payment.get("status"))
+
+
+def confirm_receipt_payment_binding(
+    operation: BillingOperation,
+    invoice: BillingInvoice,
+    scope: ProviderScope,
+    *,
+    verified_payment: Mapping[str, Any] | None = None,
+) -> bool:
+    """Require a stored binding, or save it after a validated, complete payment GET."""
+    request = operation.request_snapshot
+    snapshot = invoice.plan_snapshot
+    if (
+        not isinstance(request, Mapping)
+        or not isinstance(snapshot, Mapping)
+        or not operation.provider_id
+        or invoice.operation_id != operation.id
+        or invoice.workspace_id != operation.workspace_id
+    ):
+        return False
+    expected = {"provider_environment": scope.environment, "provider_shop_id": scope.shop_id}
+    if any(key in request and request[key] != value for key, value in expected.items()):
+        return False
+    complete = all(key in request for key in expected)
+    if request.get("purchase_schema") == 2 and not complete:
+        return False
+    binding = {
+        "operation_id": str(operation.id),
+        "workspace_id": str(operation.workspace_id),
+        "payment_id": operation.provider_id,
+        "environment": scope.environment,
+        "shop_id": scope.shop_id,
+    }
+    key = "receipt_payment_binding"
+    if key in snapshot and snapshot[key] != binding:
+        return False
+    if verified_payment is None:
+        return complete or key in snapshot
+    recipient = verified_payment.get("recipient")
+    if (
+        not isinstance(recipient, Mapping)
+        or recipient.get("account_id") != scope.shop_id
+        or verified_payment.get("test") is not (scope.environment == "test")
+    ):
+        return False
+    if not complete and key not in snapshot:
+        try:
+            payment_receipt_record(
+                receipt_observation_records(snapshot),
+                (scope.environment, scope.shop_id, operation.provider_id),
+            )
+        except ValueError:
+            return False
+        invoice.plan_snapshot = {**snapshot, key: binding}
+    return True
 
 
 def _operation_id(metadata: object) -> UUID | None:
@@ -489,12 +545,7 @@ async def record_observed_receipt(
             and operation.provider_id != observation.related_payment_id
         ):
             raise ProviderObservationError("provider receipt payment conflicts with refund invoice")
-    binding = operation.request_snapshot
-    if not isinstance(binding, Mapping):
-        return "conflict", False
-    environment = binding.get("provider_environment")
-    shop = binding.get("provider_shop_id")
-    if environment != observation.scope.environment or shop != observation.scope.shop_id:
+    if not confirm_receipt_payment_binding(operation, invoice, observation.scope):
         return "conflict", False
     if observation.parent_kind == "refund":
         refund_scope_confirmed = bool(
@@ -502,8 +553,6 @@ async def record_observed_receipt(
             and observed_refund is not None
             and observed_refund.status == "succeeded"
         )
-    if not isinstance(invoice.plan_snapshot, Mapping):
-        return "conflict", False
     previous_registration = invoice.plan_snapshot.get("receipt_registration")
     merged, result = merge_receipt_observation_snapshot(
         invoice.plan_snapshot,

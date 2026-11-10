@@ -83,6 +83,30 @@ def receipt_observation_records(
     return dict(raw)
 
 
+def payment_receipt_record(
+    records: Mapping[str, Mapping[str, object]],
+    payment_binding: tuple[str, str, str] | None,
+) -> tuple[str, Mapping[str, object]] | None:
+    payment = [(key, entry) for key, entry in records.items() if entry["parent_kind"] == "payment"]
+    if not payment:
+        return None
+    if len(payment) > 1:
+        raise ValueError("multiple receipt identities for payment")
+    key, entry = payment[0]
+    receipt_id = entry.get("provider_receipt_id")
+    if (
+        payment_binding is None
+        or payment_binding != (
+            entry.get("environment"), entry.get("shop_id"), entry.get("provider_parent_id")
+        )
+        or not isinstance(receipt_id, str)
+        or not receipt_id
+        or key != ":".join((*payment_binding[:2], receipt_id))
+    ):
+        raise ValueError("payment receipt binding conflicts")
+    return key, entry
+
+
 def merge_receipt_registration(
     snapshot: Mapping[str, object],
     *,
@@ -110,22 +134,10 @@ def merge_receipt_registration(
     previous = snapshot.get("receipt_registration")
     check_transition(previous)
     records = receipt_observation_records(snapshot)
-    payment = [(key, entry) for key, entry in records.items() if entry["parent_kind"] == "payment"]
-    if len(payment) > 1:
-        raise ValueError("multiple receipt identities for payment")
-
+    payment = payment_receipt_record(records, payment_binding)
     updated = dict(snapshot)
-    if payment:
-        key, entry = payment[0]
-        receipt_id = entry.get("provider_receipt_id")
-        if (
-            payment_binding is None
-            or payment_binding != (entry.get("environment"), entry.get("shop_id"), entry.get("provider_parent_id"))
-            or not isinstance(receipt_id, str)
-            or not receipt_id
-            or key != ":".join((*payment_binding[:2], receipt_id))
-        ):
-            raise ValueError("payment receipt binding conflicts")
+    if payment is not None:
+        key, entry = payment
         stored_status = entry.get("status")
         if stored_status is None:
             raise ValueError("stored receipt registration status is invalid")
