@@ -448,13 +448,13 @@ final class AppControlAccessibilityTests: XCTestCase {
                 .appendingPathComponent("apps/macos/RecApp/Sources/AppShell/ContentView.swift"),
             encoding: .utf8
         )
-        let terminationBlock = try XCTUnwrap(
-            source.range(of: ".onReceive(NotificationCenter.default.publisher(for: .twoBrainRecApplicationShouldTerminate))")
+        let terminationStart = try XCTUnwrap(
+            source.range(of: "private func beginApplicationTerminationCleanup()")
         )
-        let nextReceive = try XCTUnwrap(
-            source[terminationBlock.upperBound...].range(of: ".onReceive(NotificationCenter.default.publisher(for: .twoBrainRecDesktopAuthSessionDidChange))")
+        let terminationEnd = try XCTUnwrap(
+            source[terminationStart.upperBound...].range(of: "private func synchronizeRecordingDeletionsLoop()")
         )
-        let block = source[terminationBlock.lowerBound..<nextReceive.lowerBound]
+        let block = source[terminationStart.lowerBound..<terminationEnd.lowerBound]
 
         XCTAssertFalse(block.contains("requestStartupMicrophonePermission"))
         XCTAssertFalse(block.contains("requestStartupSystemAudioPermission"))

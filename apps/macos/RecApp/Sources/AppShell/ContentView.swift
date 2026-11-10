@@ -376,19 +376,7 @@ struct ContentView: View {
         }
         .task(id: localRecordingActive) { await pollRecordingLevelsLoop() }
         .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecApplicationShouldTerminate)) { _ in
-            // Keep the explicit setup intent across a system-requested quit/reopen.
-            permissionOnboardingRequestInProgress = false
-            permissionRecoverySuggested = false
-            dismissMeetingDetectionPrompt()
-            guard !terminationCleanupInProgress else { return }
-            terminationCleanupInProgress = true
-            localRecordingWriter.preserveRecordingForInterruption()
-            Task {
-                await releaseCaptureResourcesForAppExit()
-                await MainActor.run {
-                    NotificationCenter.default.post(name: .twoBrainRecApplicationTerminationCleanupFinished, object: nil)
-                }
-            }
+            beginApplicationTerminationCleanup()
         }
         .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecDesktopCabinetDidShowMeetingDetail)) { event in
             reportFirstResultViewed(meetingId: event.userInfo?["meetingId"] as? String)
@@ -423,28 +411,10 @@ struct ContentView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecOpenSettings)) { event in
-            let section = event.userInfo?["section"] as? String ?? "account"
-            guard let configuration = desktopCabinetConfiguration else {
-                (NSApp.delegate as? AppLifecycleDelegate)?.presentSettingsFallback(section: section)
-                return
-            }
-            let retry = event.userInfo?["retry"] as? Bool == true
-            if desktopCabinetState != .ready && desktopCabinetState != .loading && !retry {
-                (NSApp.delegate as? AppLifecycleDelegate)?.presentSettingsFallback(section: section)
-                return
-            }
-            let route = configuration.baseURL.appending(path: "desktop/settings/\(section)")
-            if desktopCabinetState == .ready && selectedCabinetRoute == route {
-                (NSApp.delegate as? AppLifecycleDelegate)?.closeSettingsFallback()
-            } else {
-                openingSettings = section
-                selectedCabinetRoute = route
-                if retry { desktopCabinetState = .loading }
-            }
+            handleOpenSettings(event)
         }
         .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecOpenMeetingsFromTray)) { _ in
-            guard let configuration = desktopCabinetConfiguration else { return }
-            selectedCabinetRoute = configuration.meetingsURL()
+            openMeetingsFromTray()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
             appIsActive = false
@@ -474,6 +444,51 @@ struct ContentView: View {
         }
         // Closing/hiding the cabinet must not end capture. The application
         // termination notification above owns the awaited resource cleanup.
+    }
+
+    @MainActor
+    private func handleOpenSettings(_ event: Notification) {
+        let section = event.userInfo?["section"] as? String ?? "account"
+        guard let configuration = desktopCabinetConfiguration else {
+            (NSApp.delegate as? AppLifecycleDelegate)?.presentSettingsFallback(section: section)
+            return
+        }
+        let retry = event.userInfo?["retry"] as? Bool == true
+        if desktopCabinetState != .ready && desktopCabinetState != .loading && !retry {
+            (NSApp.delegate as? AppLifecycleDelegate)?.presentSettingsFallback(section: section)
+            return
+        }
+        let route = configuration.baseURL.appending(path: "desktop/settings/\(section)")
+        if desktopCabinetState == .ready && selectedCabinetRoute == route {
+            (NSApp.delegate as? AppLifecycleDelegate)?.closeSettingsFallback()
+        } else {
+            openingSettings = section
+            selectedCabinetRoute = route
+            if retry { desktopCabinetState = .loading }
+        }
+    }
+
+    @MainActor
+    private func openMeetingsFromTray() {
+        guard let configuration = desktopCabinetConfiguration else { return }
+        selectedCabinetRoute = configuration.meetingsURL()
+    }
+
+    @MainActor
+    private func beginApplicationTerminationCleanup() {
+        // Keep the explicit setup intent across a system-requested quit/reopen.
+        permissionOnboardingRequestInProgress = false
+        permissionRecoverySuggested = false
+        dismissMeetingDetectionPrompt()
+        guard !terminationCleanupInProgress else { return }
+        terminationCleanupInProgress = true
+        localRecordingWriter.preserveRecordingForInterruption()
+        Task {
+            await releaseCaptureResourcesForAppExit()
+            await MainActor.run {
+                NotificationCenter.default.post(name: .twoBrainRecApplicationTerminationCleanupFinished, object: nil)
+            }
+        }
     }
 
     private func synchronizeRecordingDeletionsLoop() async {
