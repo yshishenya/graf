@@ -18,7 +18,6 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
     }
 
     func testOnlineProductSidebarIsWebOwnedWhileNativeCaptureChromeRemainsNative() {
-        XCTAssertFalse(DesktopMeetingShellChrome.idleShowsNativeTopBar)
         XCTAssertEqual(DesktopMeetingShellChrome.compactRailLabels, ["Статус записи", "Локальная сохранность"])
         XCTAssertGreaterThan(DesktopMeetingShellChrome.recordingStripHeight, 0)
         XCTAssertGreaterThanOrEqual(DesktopMeetingShellChrome.inspectorToggleHitSize, 40)
@@ -40,7 +39,7 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
             encoding: .utf8
         )
         let appSource = try String(
-            contentsOf: root.appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift"),
+            contentsOf: root.appendingPathComponent("apps/macos/RecApp/Sources/AppShell/ContentView.swift"),
             encoding: .utf8
         )
 
@@ -84,7 +83,7 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
             encoding: .utf8
         )
         let appSource = try String(
-            contentsOf: root.appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift"),
+            contentsOf: root.appendingPathComponent("apps/macos/RecApp/Sources/AppShell/ContentView.swift"),
             encoding: .utf8
         )
 
@@ -113,7 +112,7 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
             encoding: .utf8
         )
         let appSource = try String(
-            contentsOf: root.appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift"),
+            contentsOf: root.appendingPathComponent("apps/macos/RecApp/Sources/AppShell/ContentView.swift"),
             encoding: .utf8
         )
 
@@ -421,7 +420,7 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
         XCTAssertTrue(shellSource.contains("onSubmit: onSupportIncidentReport"))
         XCTAssertTrue(shellSource.contains("accessibilityElement(children: summary.safeReport == nil ? .combine : .contain)"))
         XCTAssertTrue(stripSource.contains(DesktopSupportIncidentActionCopy.sendTitle))
-        XCTAssertTrue(stripSource.contains(DesktopSupportIncidentActionCopy.failureMessage))
+        XCTAssertTrue(stripSource.contains(DesktopSupportIncidentActionCopy.rejectedMessage))
         XCTAssertTrue(stripSource.contains(".accessibilityLabel(DesktopSupportIncidentActionCopy.sendTitle)"))
         XCTAssertFalse(stripSource.contains("Скопировать отчет"))
         XCTAssertFalse(stripSource.contains("Отправить отчет"))
@@ -603,7 +602,7 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
     private func repositoryRootForMeetingShellBoundaryTests() throws -> URL {
         var candidate = URL(fileURLWithPath: #filePath)
         while candidate.path != "/" {
-            let appSourceURL = candidate.appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift")
+            let appSourceURL = candidate.appendingPathComponent("apps/macos/RecApp/Sources/AppShell/ContentView.swift")
             if FileManager.default.fileExists(atPath: appSourceURL.path) {
                 return candidate
             }

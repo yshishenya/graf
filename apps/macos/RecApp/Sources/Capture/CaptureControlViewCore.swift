@@ -3,8 +3,8 @@ import TwoBrainRecShared
 
 public struct CaptureControlView: View {
     private let session: CaptureSession?
-    private let blockedReason: String?
-    private let localRecordingStatus: String?
+    private let blockedReason: RecordingBlockerPresentation?
+    private let localRecordingStatus: LocalRecordingPresentation?
     private let muteTruthWarning: String?
     private let recordingMicrophoneSelection: RecordingMicrophoneSelection?
     private let recordingMicrophoneInputs: [PhysicalAudioDevice]
@@ -29,8 +29,8 @@ public struct CaptureControlView: View {
 
     public init(
         session: CaptureSession?,
-        blockedReason: String? = nil,
-        localRecordingStatus: String? = nil,
+        blockedReason: RecordingBlockerPresentation? = nil,
+        localRecordingStatus: LocalRecordingPresentation? = nil,
         muteTruthWarning: String? = nil,
         recordingMicrophoneSelection: RecordingMicrophoneSelection? = nil,
         recordingMicrophoneInputs: [PhysicalAudioDevice] = [],
@@ -94,22 +94,13 @@ public struct CaptureControlView: View {
                     localRecordingStatus: localRecordingStatus,
                     calendarPrompt: calendarPrompt
                 ) {
-                    Label(
-                        Self.primaryStatus(
-                            for: session,
-                            blockedReason: blockedReason,
-                            localRecordingStatus: localRecordingStatus
-                        ),
-                        systemImage: Self.hasActionableProblem(blockedReason: blockedReason)
-                            ? "exclamationmark.triangle.fill"
-                            : "record.circle"
+                    let status = Self.idleStatus(
+                        blockedReason: blockedReason,
+                        localRecordingStatus: localRecordingStatus
                     )
+                    Label(status.title, systemImage: status.systemImage)
                         .font(.caption)
-                        .foregroundStyle(
-                            Self.hasActionableProblem(blockedReason: blockedReason)
-                                ? DesktopDesignTokens.amber
-                                : secondaryTextColor
-                        )
+                        .foregroundStyle(Self.color(for: status.tone, secondary: secondaryTextColor))
                         .lineLimit(1)
                         .minimumScaleFactor(0.85)
                 }
@@ -150,18 +141,14 @@ public struct CaptureControlView: View {
                 }
             }
 
-            if let blockedReason, !blockedReason.isEmpty {
+            if let blockedReason {
                 StatusNoteView(
-                    icon: "exclamationmark.triangle.fill",
-                    title: Self.primaryStatus(
-                        for: session,
-                        blockedReason: blockedReason,
-                        localRecordingStatus: localRecordingStatus
-                    ),
-                    detail: blockedReason,
-                    iconColor: DesktopDesignTokens.amber
+                    icon: blockedReason.systemImage,
+                    title: blockedReason.title,
+                    detail: blockedReason.message,
+                    iconColor: Self.color(for: blockedReason.tone, secondary: secondaryTextColor)
                 )
-                    .accessibilityLabel(blockedReason)
+                    .accessibilityLabel("\(blockedReason.title). \(blockedReason.message)")
                     .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.blockerBanner)
             }
 
@@ -255,12 +242,12 @@ public struct CaptureControlView: View {
             if let localRecordingStatus,
                Self.shouldShowLocalRecordingStatus(localRecordingStatus, for: session) {
                 StatusNoteView(
-                    icon: Self.localRecordingStatusIcon(for: localRecordingStatus),
-                    title: Self.localRecordingSummary(for: localRecordingStatus),
-                    detail: localRecordingStatusDetail,
-                    iconColor: Self.localRecordingStatusStyle(for: localRecordingStatus)
+                    icon: localRecordingStatus.systemImage,
+                    title: localRecordingStatus.title,
+                    detail: localRecordingStatus.detail,
+                    iconColor: Self.color(for: localRecordingStatus.tone, secondary: secondaryTextColor)
                 )
-                    .accessibilityLabel(localRecordingStatus)
+                    .accessibilityLabel(Self.accessibilityLabel(for: localRecordingStatus))
                     .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.localRecordingStatus)
             }
 
@@ -339,113 +326,89 @@ public struct CaptureControlView: View {
         shouldShowRecordButton(for: session) && calendarPrompt?.kind != .record
     }
 
-    public static func hasActionableProblem(blockedReason: String?) -> Bool {
-        guard let blockedReason else { return false }
-        return !blockedReason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    public static func hasActionableProblem(blockedReason: RecordingBlockerPresentation?) -> Bool {
+        blockedReason?.isActionable == true
     }
 
     public static func shouldShowSessionStatus(
         for session: CaptureSession,
-        blockedReason: String?
+        blockedReason: RecordingBlockerPresentation?
     ) -> Bool {
         CaptureStatusItem.showsStopButton(for: session) ||
             !hasActionableProblem(blockedReason: blockedReason)
     }
 
     public static func shouldShowIdleStatus(
-        blockedReason: String?,
-        localRecordingStatus: String?,
+        blockedReason: RecordingBlockerPresentation?,
+        localRecordingStatus: LocalRecordingPresentation?,
         calendarPrompt: DesktopCalendarPrompt?
     ) -> Bool {
         guard !hasActionableProblem(blockedReason: blockedReason) else { return false }
         guard calendarPrompt?.kind != .record else { return false }
-        return localRecordingStatus?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true
+        return localRecordingStatus == nil
     }
 
     public static func shouldShowLocalRecordingStatus(
-        _ localRecordingStatus: String,
+        _ localRecordingStatus: LocalRecordingPresentation,
         for session: CaptureSession?
     ) -> Bool {
-        let normalized = localRecordingStatus.lowercased()
-        let carriesActionableDetail = ["огранич", "заблок", "не сохран", "degraded", "blocked", "failed"]
-            .contains { normalized.contains($0) }
-        if carriesActionableDetail {
-            return true
-        }
+        if localRecordingStatus.requiresAttention { return true }
         guard let session else { return true }
-        return localRecordingSummary(for: localRecordingStatus) != captureStatus(for: session.state)
+        return localRecordingStatus.title != CaptureStatusPresentation.resolve(session: session).title
     }
 
-    public static func primaryStatus(
-        for session: CaptureSession?,
-        blockedReason: String?,
-        localRecordingStatus: String?
-    ) -> String {
-        if let session, CaptureStatusItem.showsStopButton(for: session) {
-            return captureStatus(for: session.state)
+    public static func idleStatus(
+        blockedReason: RecordingBlockerPresentation?,
+        localRecordingStatus: LocalRecordingPresentation?
+    ) -> CaptureStatusPresentation {
+        if let blockedReason, blockedReason.isActionable {
+            return .init(
+                kind: .failed,
+                title: blockedReason.title,
+                detail: blockedReason.message,
+                systemImage: blockedReason.systemImage,
+                tone: blockedReason.tone,
+                isActionable: true
+            )
         }
-        if hasActionableProblem(blockedReason: blockedReason) {
-            let normalized = blockedReason?.lowercased() ?? ""
-            if normalized.contains("разреш") || normalized.contains("доступ") {
-                return "Нужно разрешение"
-            }
-            return "Нужна помощь"
+        if let localRecordingStatus {
+            return .init(
+                kind: .idle,
+                title: localRecordingStatus.title,
+                detail: localRecordingStatus.detail,
+                systemImage: localRecordingStatus.systemImage,
+                tone: localRecordingStatus.tone,
+                isActionable: localRecordingStatus.requiresAttention
+            )
         }
-        if let localRecordingStatus, !localRecordingStatus.isEmpty {
-            return localRecordingSummary(for: localRecordingStatus)
-        }
-        guard let session else {
-            return "Готово к записи"
-        }
-        return captureStatus(for: session.state)
+        return .resolve(session: nil)
     }
 
     public static func meetingDetectionSummary(for status: MeetingDetectionStatus?) -> String? {
         status?.summary
     }
 
-    public static func localRecordingSummary(for status: String) -> String {
-        if status == SystemAudioStatusLabels.recordingFailed { return "Нужна помощь" }
-        let normalized = status.lowercased()
-        if normalized.contains("не сохран") || normalized.contains("заблок") {
-            return "Нужна помощь"
-        }
-        if normalized.contains("сохран") {
-            return "Сохранено на Mac"
-        }
-        if normalized.contains("пауз") || normalized.contains("микрофон выключен") {
-            return "Идет запись · микрофон выключен"
-        }
-        if normalized.contains("идет") {
-            return "Идет запись"
-        }
-        return status
-    }
-
     public static func shouldShowMeters(for recordingLevels: LiveRecordingLevels) -> Bool {
         recordingLevels.isRecording
     }
 
-    private static func captureStatus(for state: CaptureSessionState) -> String {
-        switch state {
-        case .idle, .ready:
-            return "Готово к записи"
-        case .detecting:
-            return "Проверяем готовность"
-        case .starting:
-            return "Начинаем запись…"
-        case .active:
-            return "Идет запись"
-        case .paused:
-            return "Идет запись · микрофон выключен"
-        case .degraded:
-            return "Запись с ограничением"
-        case .stopping:
-            return "Сохраняем запись…"
-        case .stopped, .finalized:
-            return SystemAudioStatusLabels.recordingStopped
-        case .failed:
-            return "Нужна помощь"
+    public static func accessibilityLabel(for localRecordingStatus: LocalRecordingPresentation) -> String {
+        [localRecordingStatus.title, localRecordingStatus.detail]
+            .compactMap { $0 }
+            .filter { !$0.isEmpty }
+            .joined(separator: ". ")
+    }
+
+    public static func color(for tone: StatusTone, secondary: Color = DesktopDesignTokens.muted) -> Color {
+        switch tone {
+        case .success:
+            return DesktopDesignTokens.green
+        case .warning:
+            return DesktopDesignTokens.amber
+        case .danger:
+            return DesktopDesignTokens.red
+        case .muted, .neutral:
+            return secondary
         }
     }
 
@@ -495,66 +458,6 @@ public struct CaptureControlView: View {
 
     private var secondaryTextColor: Color {
         colorSchemeContrast == .increased ? DesktopDesignTokens.text : DesktopDesignTokens.muted
-    }
-
-    static func localRecordingStatusIcon(for localRecordingStatus: String) -> String {
-        if localRecordingStatus == SystemAudioStatusLabels.recordingFailed {
-            return "exclamationmark.triangle.fill"
-        }
-        if localRecordingStatus.localizedCaseInsensitiveContains("blocked") ||
-            localRecordingStatus.localizedCaseInsensitiveContains("permission") ||
-            localRecordingStatus.localizedCaseInsensitiveContains("заблок") ||
-            localRecordingStatus.localizedCaseInsensitiveContains("не сохран") {
-            return "lock.trianglebadge.exclamationmark"
-        }
-        if localRecordingStatus.localizedCaseInsensitiveContains("degraded") ||
-            localRecordingStatus.localizedCaseInsensitiveContains("огранич") {
-            return "exclamationmark.triangle.fill"
-        }
-        return "waveform.path.badge.plus"
-    }
-
-    static func localRecordingStatusStyle(for localRecordingStatus: String) -> Color {
-        if localRecordingStatus == SystemAudioStatusLabels.recordingFailed {
-            return DesktopDesignTokens.amber
-        }
-        if localRecordingStatus.localizedCaseInsensitiveContains("blocked") ||
-            localRecordingStatus.localizedCaseInsensitiveContains("permission") ||
-            localRecordingStatus.localizedCaseInsensitiveContains("degraded") ||
-            localRecordingStatus.localizedCaseInsensitiveContains("заблок") ||
-            localRecordingStatus.localizedCaseInsensitiveContains("не сохран") ||
-            localRecordingStatus.localizedCaseInsensitiveContains("огранич") {
-            return DesktopDesignTokens.amber
-        }
-        return DesktopDesignTokens.muted
-    }
-
-    private var localRecordingStatusTitle: String {
-        guard let localRecordingStatus else { return "Локальная запись" }
-        if localRecordingStatus.localizedCaseInsensitiveContains("огранич") ||
-            localRecordingStatus.localizedCaseInsensitiveContains("degraded") {
-            return "Локальная копия сохранена"
-        }
-        if localRecordingStatus.localizedCaseInsensitiveContains("заблок") ||
-            localRecordingStatus.localizedCaseInsensitiveContains("blocked") {
-            return "Запись требует внимания"
-        }
-        if localRecordingStatus.localizedCaseInsensitiveContains("не сохран") {
-            return "Локальная копия не сохранена"
-        }
-        return localRecordingStatus
-    }
-
-    private var localRecordingStatusDetail: String? {
-        guard let localRecordingStatus else { return nil }
-        if localRecordingStatus.localizedCaseInsensitiveContains("огранич") ||
-            localRecordingStatus.localizedCaseInsensitiveContains("degraded") {
-            return "Есть ограничения проверки"
-        }
-        if localRecordingStatus == localRecordingStatusTitle {
-            return nil
-        }
-        return localRecordingStatus
     }
 
 }
@@ -827,6 +730,7 @@ private struct EqualizerBars: View {
     let isLive: Bool
     let warning: Bool
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private let bars = 10
 
     var body: some View {
@@ -838,8 +742,8 @@ private struct EqualizerBars: View {
             }
         }
         .frame(width: 87, height: 22, alignment: .bottom)
-        .animation(.linear(duration: 0.05), value: level)
-        .animation(.linear(duration: 0.05), value: isLive)
+        .animation(reduceMotion ? nil : .linear(duration: 0.05), value: level)
+        .animation(reduceMotion ? nil : .linear(duration: 0.05), value: isLive)
         .accessibilityHidden(true)
     }
 

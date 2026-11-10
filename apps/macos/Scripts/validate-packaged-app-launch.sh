@@ -72,8 +72,18 @@ EXECUTABLE=$(/usr/bin/plutil -extract CFBundleExecutable raw -o - "$INFO_PLIST" 
 [ "$EXECUTABLE" = "GRAF" ] || fail "candidate executable must be GRAF"
 BINARY="$APP_BUNDLE/Contents/MacOS/$EXECUTABLE"
 [ -x "$BINARY" ] || fail "candidate binary is missing or not executable"
-BASELINE="$APP_BUNDLE/Contents/Resources/TwoBrainRecMacOS_TwoBrainRecAppCore.bundle/Resources/meeting-target-registry-baseline.json"
-[ -f "$BASELINE" ] || fail "candidate target registry baseline is missing"
+RESOURCE_BUNDLE="$APP_BUNDLE/Contents/Resources/TwoBrainRecMacOS_TwoBrainRecAppCore.bundle"
+BASELINE=""
+for candidate in \
+  "$RESOURCE_BUNDLE/Resources/meeting-target-registry-baseline.json" \
+  "$RESOURCE_BUNDLE/Contents/Resources/meeting-target-registry-baseline.json" \
+  "$RESOURCE_BUNDLE/Contents/Resources/Resources/meeting-target-registry-baseline.json"; do
+  if [ -f "$candidate" ]; then
+    BASELINE=$candidate
+    break
+  fi
+done
+[ -n "$BASELINE" ] || fail "candidate target registry baseline is missing"
 
 RUNTIME_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/graf-packaged-launch.XXXXXX")
 CHILD_PID=

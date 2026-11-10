@@ -368,11 +368,13 @@ public struct AVFoundationRecordingMicrophoneInputProvider: RecordingMicrophoneI
     }
 }
 
-public final class MicrophoneCaptureService: Sendable {
+public final class MicrophoneCaptureService: @unchecked Sendable {
     public typealias Clock = @Sendable () -> Date
 
     private let authorizer: MicrophonePermissionAuthorizing
     private let inputProvider: RecordingMicrophoneInputProviding
+    private let inputCacheLock = NSLock()
+    private var cachedAvailableInputs: [PhysicalAudioDevice]?
     private let clock: Clock
     private let inputPolicy: RecordingMicrophoneInputPolicy
 
@@ -426,7 +428,18 @@ public final class MicrophoneCaptureService: Sendable {
     }
 
     public func availableRecordingMicrophoneInputs() -> [PhysicalAudioDevice] {
-        inputProvider.availableInputs()
+        inputCacheLock.lock()
+        defer { inputCacheLock.unlock() }
+        if let cachedAvailableInputs { return cachedAvailableInputs }
+        let inputs = inputProvider.availableInputs()
+        cachedAvailableInputs = inputs
+        return inputs
+    }
+
+    public func invalidateAvailableRecordingMicrophoneInputs() {
+        inputCacheLock.lock()
+        cachedAvailableInputs = nil
+        inputCacheLock.unlock()
     }
 
     public func makeAppOwnedMicrophoneSampleSource(

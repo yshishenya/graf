@@ -2,6 +2,7 @@ import SwiftUI
 import TwoBrainRecShared
 
 public struct CaptureStatusItem: View {
+    @Environment(\.desktopNotificationCard) private var notificationCard
     private let session: CaptureSession?
     private let stopDisabled: Bool
     private let pauseDisabled: Bool
@@ -106,7 +107,7 @@ public struct CaptureStatusItem: View {
         .opacity(statusOpacity(for: session))
         .background {
             if Self.showsStopButton(for: session) {
-                DesktopNotificationProtectedRegion().allowsHitTesting(false)
+                DesktopNotificationProtectedRegion(card: notificationCard).allowsHitTesting(false)
             }
         }
     }
@@ -165,28 +166,7 @@ public struct CaptureStatusItem: View {
     }
 
     public static func statusLabel(for session: CaptureSession) -> String {
-        switch session.state {
-        case .idle:
-            return "Готово к записи"
-        case .detecting:
-            return "Проверяем готовность"
-        case .ready:
-            return "Готово к записи"
-        case .starting:
-            return "Начинаем запись…"
-        case .active:
-            return "Идет запись"
-        case .paused:
-            return "Идет запись · микрофон выключен"
-        case .degraded:
-            return "Запись с ограничением"
-        case .stopping:
-            return "Сохраняем запись…"
-        case .stopped, .finalized:
-            return SystemAudioStatusLabels.recordingStopped
-        case .failed:
-            return "Нужна помощь"
-        }
+        CaptureStatusPresentation.resolve(session: session).title
     }
 
     // ponytail: attribution stays bounded to approved session evidence; per-process audio attribution needs a separate capture contract.
@@ -232,11 +212,7 @@ public struct CaptureStatusItem: View {
     }
 
     public nonisolated static func showsStopButton(for session: CaptureSession) -> Bool {
-        session.state == .starting ||
-            session.state == .active ||
-            session.state == .paused ||
-            session.state == .degraded ||
-            session.state == .stopping
+        CaptureStatusPresentation.showsStopButton(for: session)
     }
 
     public static func showsStopAction(for session: CaptureSession) -> Bool {

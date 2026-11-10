@@ -44,7 +44,4 @@ public enum GrafAppChannel: String, CaseIterable, Equatable, Sendable {
         }
     }
 
-    public var isLoopbackOnly: Bool {
-        self != .production
-    }
 }

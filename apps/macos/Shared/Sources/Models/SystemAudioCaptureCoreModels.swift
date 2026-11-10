@@ -1,9 +1,5 @@
 import Foundation
 
-public enum SystemAudioCaptureModels {
-    public static let featureIdentifier = "025-system-audio-capture-pivot"
-}
-
 public enum CapturePermissionState: String, Codable, Sendable {
     case unknown
     case granted
@@ -794,17 +790,32 @@ public enum SystemAudioStatusLabels {
     }
 
     public static func captureFailureDetail(failureCode: String, hasPlayableFragment: Bool) -> String {
+        let reason: String
+        switch failureCode {
+        case "source_overflow":
+            reason = "источник записи переполнен"
+        case "stop_drain_limit_exceeded":
+            reason = "не удалось завершить запись вовремя"
+        case "canonical_artifact_unavailable":
+            reason = "не удалось сохранить итоговый аудиофайл"
+        case "render_reference_missing":
+            reason = "не удалось получить опорный звук"
+        case "aec_capture_failed":
+            reason = "не удалось обработать звук"
+        default:
+            reason = "запись прервалась"
+        }
         let result = hasPlayableFragment
-            ? "Уже очищенная часть сохранена локально."
-            : "Сохраненного очищенного фрагмента нет."
-        return "Запись остановлена: \(failureCode). \(result)"
+            ? "Доступная часть сохранена локально."
+            : "Сохранённого фрагмента нет."
+        return "Запись остановлена: \(reason). \(result)"
     }
 
     public static let recordButtonTitle = "Начать запись"
     public static let recordButtonAccessibilityLabel = "Начать запись системного звука"
     public static let stopButtonTitle = "Остановить запись"
     public static let stopButtonAccessibilityLabel = "Остановить запись"
-    public static let pauseButtonTitle = "Mute"
+    public static let pauseButtonTitle = "Выключить микрофон"
     public static let pauseButtonAccessibilityLabel = "Выключить микрофон в записи GRAF. Системный звук продолжает записываться."
     public static let resumeButtonTitle = "Включить микрофон"
     public static let resumeButtonAccessibilityLabel = "Включить микрофон в записи GRAF. Системный звук продолжает записываться."
@@ -815,15 +826,15 @@ public enum SystemAudioStatusLabels {
     public static let localRecordingPausedStatus =
         "Микрофон выключен. Системный звук продолжает записываться. Остановить можно в любой момент."
     public static let meetingMuteTruthLimitationCopy =
-        "GRAF не может проверить, выключен ли микрофон во встрече. Чтобы ваша речь не попала в запись, используйте «Mute» или «Остановить запись» в GRAF."
+        "GRAF не может проверить, выключен ли микрофон во встрече. Чтобы ваша речь не попала в запись, используйте «Выключить микрофон» или «Остановить запись» в GRAF."
     public static let captureAudioTitle = "Уровни записи"
     public static let microphoneTitle = "Микрофон"
     public static let incomingTitle = "Встреча"
     public static let microphonePendingStatus = "Проверим доступ при старте записи"
     public static let speakerPendingStatus = "Проверим звук при старте записи"
+    public static let metersWaiting = "Уровни появятся во время записи"
     public static let activeState = "Есть звук"
     public static let silentState = "Тихо"
-    public static let metersWaiting = "Уровни появятся во время записи"
     public static let waitingForRecordingAudio = "Ожидаем старт записи"
     public static let calendarGenericMeetingTitle = "Встреча из календаря"
     public static let calendarJoinPromptMessage =

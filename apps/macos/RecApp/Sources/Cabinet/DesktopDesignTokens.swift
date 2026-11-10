@@ -12,8 +12,6 @@ public enum DesktopDesignTokens {
         public static let compact: CGFloat = 10
         public static let card: CGFloat = 12
         public static let panel: CGFloat = 14
-        public static let dialog: CGFloat = 16
-        public static let pill: CGFloat = 999
     }
 
     public enum FontSize {
@@ -23,7 +21,6 @@ public enum DesktopDesignTokens {
         public static let subtitle: CGFloat = 15
         public static let section: CGFloat = 16
         public static let headingSmall: CGFloat = 18
-        public static let dialogTitle: CGFloat = 19
         public static let pageTitle: CGFloat = 20
         public static let headingLarge: CGFloat = 24
         public static let display: CGFloat = 28
@@ -40,7 +37,6 @@ public enum DesktopDesignTokens {
     public static let muted = color(dark: 0xADB2BC, light: 0x525B68)
     public static let accent = color(dark: 0xAB99FF, light: 0x6248D5)
     public static let accentSolid = color(dark: 0x7056E9, light: 0x6248D5)
-    public static let accentHover = color(dark: 0x755CDE, light: 0x5339C5)
     public static let accentForeground = color(dark: 0xFFFFFF, light: 0xFFFFFF)
     public static let green = color(dark: 0x2FC9A6, light: 0x066E58)
     public static let amber = color(dark: 0xF0A742, light: 0x9A5B00)
@@ -49,14 +45,8 @@ public enum DesktopDesignTokens {
     public static let focusRing = color(dark: 0xC0B6FF, light: 0x4D32CC)
 
     // success/warning/danger — `color-mix(..., transparent)`, accent — `color-mix(..., var(--surface))`.
-    public static let successSurface = tinted(dark: 0x2FC9A6, light: 0x066E58, alpha: 0.09)
-    public static let warningSurface = tinted(dark: 0xF0A742, light: 0x9A5B00, alpha: 0.09)
-    public static let dangerSurface = tinted(dark: 0xFF6B6B, light: 0xB4232C, alpha: 0.08)
     public static let accentSurface = color(dark: 0x2D2E3B, light: 0xF2F0FC)
     // Границы совпадают с `color-mix(in srgb, <тон> N%, var(--line))` кабинета.
-    public static let successBorder = color(dark: 0x5BA59E, light: 0x477A7A)
-    public static let warningBorder = color(dark: 0xB29670, light: 0x897150)
-    public static let dangerBorder = color(dark: 0xB97B83, light: 0x955764)
     public static let accentBorder = color(dark: 0x918FC3, light: 0x706BAF)
     public static let overlayBackdrop = color(dark: 0x05070C, light: 0x05070C, darkAlpha: 0.70, lightAlpha: 0.40)
     public static let speakerContrastText = color(dark: 0x151719, light: 0xFFFFFF)
@@ -95,7 +85,4 @@ public enum DesktopDesignTokens {
         Color(nsColor: nsColor(dark: dark, light: light, darkAlpha: darkAlpha, lightAlpha: lightAlpha))
     }
 
-    private static func tinted(dark: Int, light: Int, alpha: CGFloat) -> Color {
-        color(dark: dark, light: light, darkAlpha: alpha, lightAlpha: alpha)
-    }
 }

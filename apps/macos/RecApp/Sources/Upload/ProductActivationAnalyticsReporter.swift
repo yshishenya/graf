@@ -67,24 +67,6 @@ public final class UserDefaultsProductActivationMilestoneLedger: ProductActivati
     }
 }
 
-@MainActor
-public final class InMemoryProductActivationMilestoneLedger: ProductActivationMilestoneLedger {
-    private var counted: Set<String> = []
-
-    public init() {}
-
-    public func hasCounted(_ key: String) -> Bool {
-        counted.contains(key)
-    }
-
-    public func record(_ key: String) {
-        counted.insert(key)
-    }
-
-    public func reset() {
-        counted = []
-    }
-}
 
 /// Что произошло с вехой при попытке отправки.
 public enum ProductActivationAnalyticsOutcome: Equatable, Sendable {
