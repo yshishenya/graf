@@ -245,7 +245,7 @@ Pre-purchase copy MUST place the finite archive boundary next to unlimited wordi
 - Пригласивший получает 7 календарных суток за first-paid monthly и 30 суток за first-paid annual после 14-calendar-day maturity. Security review MAY pause maturity; authoritative provider-confirmed refund before maturity prevents reward, and a later confirmed refund follows bounded reversal. Credit привязан к personal workspace: у active с автопродлением он откладывает следующую renewal date, у cancel-scheduled продлевает только финальный service/add-on cutoff без создания charge job, у `Free` хранится до 12 месяцев и применяется после первой собственной оплаты. Launch cap — 180 начисленных суток на workspace за rolling 12 months; один referee создаёт одну награду.
 - На `Личном` минуты, встречи, транскрипции и AI-заметки отображаются как `Без лимита` плюс фактическое использование без `remaining`. Хранение отображает used/reserved/available и остаётся единственным коммерческим расходуемым лимитом paid-плана.
 - `Free` содержит 250 MB playback archive, Trial — 500 MB, `Личный` — 2 GB; add-on выбирает одну итоговую ёмкость 5/20/100/500 GB. Add-on co-termed с базовой подпиской: в initial checkout это отдельная строка; mid-cycle upgrade активируется после немедленной pro-rata оплаты положительной разницы до общей renewal date; downgrade/removal применяется на следующем renewal. При переходе на `Free` over-quota data не удаляется, но archival uploads блокируются до удаления данных или возобновления тарифа/add-on; no-archive processing remains available under plan processing entitlement.
-- При confirmed renewal failure paid access заканчивается ровно в `paid_through`, повторных автоматических попыток нет. Pending/unknown operation после cutoff даёт `Free` плюс статус `Проверяем исход`; новый платёж блокирован. Late success без более раннего отказа восстанавливает полный оплаченный период от момента восстановления и сдвигает следующий anchor; late-after-refusal оставляет `Free` и открывает priority case, пока плательщик явно не выберет non-renewing paid period.
+- При подтверждённом отказе и при неизвестном исходе на границе оплаченного периода применяется Free без льготного доступа; при неизвестном исходе новый платёж заблокирован. Позднее подтверждение ранее отправленного продления сохраняет оплаченный срок один раз. Отзыв согласия блокирует новые списания и не отменяет этот срок (F278 FR-041, FR-104).
 - Refund email и все ответы обрабатываются вне GRAF. Продукт не хранит обращение и не показывает его состояние; backoffice отвечает по email без собственного публичного SLA и вручную выполняет одобренный возврат в YooKassa. Отказ от будущих списаний остаётся отдельным self-service действием в кабинете и не выводится из свободного текста письма автоматически.
 - Receipt contact для personal launch — verified primary login email, snapshot которого ограниченно хранится на invoice/payment; checkout показывает mask, но не позволяет подменить адрес. Изменение login email требует отдельного verified account flow.
 - Daily YooKassa registry launch flow — audited manual import официального CSV оператором; hash+report date+part dedupe, Moscow-day cutoff, empty/missing/multipart handling и ограниченная retention обязательны. SFTP automation остаётся отдельным улучшением.
@@ -380,10 +380,10 @@ Owner меняет способ оплаты, отключает или возв
 
 1. **Given** renewal имеет confirmed `payment.canceled` или unusable method, **When** наступает `paid_through`, **Then** workspace немедленно получает `Free`, future retries отсутствуют, а CTA предлагает ручное `Возобновить Личный`.
 2. **Given** provider вернул 500/timeout и исход неизвестен, **When** наступает cutoff, **Then** entitlement становится `Free` с derived status `Проверяем исход`; worker только читает/повторяет ту же operation/key, а новый payment CTA отсутствует.
-3. **Given** unknown operation позднее подтверждена successful без более раннего effective refusal, **When** GRAF применяет authoritative truth, **Then** `Личный` восстанавливается ровно один раз на полный purchased period от `access_restored_at`, а следующий anchor сдвигается.
+3. **Given** исходная операция продления позднее подтверждена для того же уполномоченного плательщика, **When** GRAF применяет результат, **Then** предоставляется ровно один полный оплаченный период от фактического начала по FR-104.
 4. **Given** renewal окончательно не прошёл, **When** пользователь вручную возобновляет тариф, **Then** он получает fresh summary/consent/checkout и новый logical operation только после финализации предыдущего.
 5. **Given** после downgrade storage выше 250 MB, **When** пользователь открывает данные, **Then** существующие meeting data доступны для чтения/export/delete, archival upload блокирован, no-archive processing follows plan quota, а автоматическое удаление не начинается.
-6. **Given** пользователь раньше отключил renewal/отказался от payment data, **When** unknown payment позднее стал successful, **Then** workspace остаётся `Free`, recurring authority остаётся off, создаётся один internal financial incident без public case UI, пользователь получает email с support address, а возврат/иная коррекция решается backoffice вне продукта.
+6. **Given** плательщик ранее отозвал согласие на автопродление, **When** позднее подтверждена та же уже отправленная операция, **Then** предоставляется один оплаченный срок, отзыв и его версия сохраняются, а плательщику положено одно подтверждение оплаты. Независимая непредоставленная услуга остаётся отдельной веткой сверки.
 
 ---
 
@@ -485,7 +485,7 @@ Owner вводит промокод в checkout или `Скидки`, сраз�
 - Workspace превышает Free limits после downgrade; данные read-only, retention clock, export и deletion описаны до действия.
 - Два concurrent storage upgrades; add-on payment unknown; downgrade capacity ниже used bytes; base cancel or separately authorized entitlement correction after observed provider refund при активном add-on; logical delete освобождает quota раньше physical purge.
 - Paid workload аномален: fair-use/rate/safety ceiling срабатывает без коммерческого `remaining`, без скрытого overage и без остановки локального capture.
-- Renewal unknown at cutoff, поздний success после периода на `Free`, cancel/refusal от payment data одновременно с in-flight operation; late success after effective refusal remains `Free` and has no user choice workflow.
+- Неизвестный исход на границе периода, затем позднее подтверждение исходной операции; отзыв согласия одновременно с уже отправленной операцией. Подтверждённый срок сохраняется, автопродление не включается из старого согласия (FR-104). Закрытие аккаунта проверяется отдельно.
 - Локальный desktop offline во время downgrade/cancel; запись уже идёт; upload queue содержит неопубликованные файлы.
 - Email receipt/notice не доставлен или verified login email изменён после immutable invoice snapshot.
 - Backoffice refund pending/canceled/unknown or original method unavailable remains outside product; GRAF reconciles only authoritative provider/registry truth and never retries a payout.
@@ -570,10 +570,10 @@ Owner вводит промокод в checkout или `Скидки`, сраз�
 - **FR-042**: Renewal launch MUST создавать ровно одну automatic charge operation per period. Confirmed failure MUST NOT schedule T+ retries; at exact `paid_through` workspace becomes `Free`, auto-renewal becomes off and manual resume requires fresh summary/consent.
 - **FR-043**: Outcome classifier MUST различать confirmed success, final canceled/action-required and transport `unknown`. Same-key GET/transport recovery of one unknown operation is not a new charge; silent new-key retries are prohibited.
 - **FR-044**: HTTP 500/timeout with unknown outcome MUST до provider key expiry повторять exact operation/key or GET. After expiry, fail closed into owned gap and never create a new payment/binding until absence/manual closure is proven. Each GRAF-originated provider operation snapshots current recurring-authority version and MUST recheck it under the same workspace lock immediately before network mutation; GRAF never originates refund execution.
-- **FR-045**: Cancel renewal MUST быть self-service, называться `Отключить автопродление`, показывать end date/consequences, не требовать причины and electronically record refusal from future use of saved payment data. It immediately vetoes future jobs. Refusal timestamp before provider mutation wins; an already in-flight unknown is resolved without new charge, and late success creates an internal financial incident plus support-email notice, not a product refund case.
+- **FR-045**: «Отключить автопродление» доступно в кабинете, показывает дату окончания и последствия, не требует причины и сохраняет отказ от будущего использования платёжных данных. Зафиксированный отзыв блокирует новую отправку. Исход уже отправленной операции разрешается без нового списания; подтверждённый результат учитывается по FR-104.
 - **FR-046**: Retention/save offers (`более дешёвый тариф`, `пауза`) MAY быть показаны как optional alternatives, но MUST NOT скрывать, переименовывать или блокировать cancel action.
 - **FR-047**: Resume MUST требовать usable payment method, показывать next amount/date и не списывать деньги немедленно без отдельного preview/consent.
-- **FR-048**: At `paid_through`, cancel/final failure/unconfirmed unknown MUST immediately project `Free`; unknown exposes `renewal_resolution_pending` and blocks manual pay. Accepted-before-cutoff jobs finish; unaccepted queue stays local. Late success restores a full term only when no effective refusal/cancel/withdrawal/account-close precedence exists; otherwise recurring authority stays off and FR-104 applies. Downgrade never starts deletion.
+- **FR-048**: На `paid_through` при отмене, итоговом отказе или неизвестном исходе немедленно применяется Free. Неизвестный исход показывает `renewal_resolution_pending` и блокирует новую ручную оплату. Принятые до границы задания завершаются; непринятая очередь остаётся локальной. Поздний результат учитывается по FR-104. Переход на Free не запускает удаление.
 
 ### Invoices, Receipts And Observed Refund Reconciliation
 
@@ -587,7 +587,7 @@ Owner вводит промокод в checkout или `Скидки`, сраз�
 - **FR-056**: Observed refund reconciliation and any separately authorized entitlement/referral correction MUST have immutable metadata-only audit with actor/source/provider-reference class/outcome/reason and before/after; support email content and backoffice decision evidence MUST NOT enter product logs, analytics or broad audit. Any four-eyes action threshold is a versioned launch-gate value in minor units; approver and executor MUST be distinct named roles for provider and off-provider corrections, and an unset threshold or role mapping blocks enablement.
 - **FR-102**: A provider refund observation MUST NOT automatically restore recurring authority or infer claim basis. Any entitlement/add-on correction requires a separate explicit audited backoffice decision; referral maturity/reversal MAY use authoritative confirmed refund amount/timestamp under FR-064/FR-069. No refund state is rendered to the user.
 - **FR-103**: Recurring payment authority MUST be first-class append-only evidence (`accepted|refused`, purpose/version, actor/source, `recorded_at`, `effective_at`) plus current monotonic authority version/allowed flag. `Отключить автопродление`, separate self-service payment-data refusal and account-close scheduling use the same atomic service; free-form refund email MUST NOT mutate this authority. A mutation authorized under version N MUST fail before network call if current version changed; database commit order is authoritative for equal timestamps, and an already-started outbound call is classified as a late result under FR-104 rather than silently winning. UI and email persist a refusal confirmation with exact time.
-- **FR-104**: Late-success precedence MUST be deterministic: without effective refusal it creates an append-only full-duration entitlement grant from `access_restored_at`; with earlier cancel/payment-data refusal/account close it never restores recurring authority or access by default, keeps workspace `Free`, creates an internal financial incident and sends a support-email notice. Backoffice resolves refund or correction outside the product; no refund case or user-facing choice workflow is created in GRAF.
+- **FR-104**: Позднее подтверждение исходной операции учитывается однократно. Для того же уполномоченного плательщика предоставляется полный оплаченный срок с фактического начала, в том числе после отзыва согласия (F278 FR-041). Отзыв блокирует только новые отправки и не восстанавливается из платежа. Если услугу невозможно предоставить по независимой причине, действуют отдельные правила финансовой сверки; это правило не восстанавливает доступ, когда его предоставление запрещено правилами закрытия аккаунта FR-018/019. Возврат и отдельная компенсация решаются во внешнем процессе; в GRAF нет выбора, который требовался бы для получения уже оплаченного срока.
 - **FR-105**: Invoice MUST immutably store purchased duration and planned interval; confirmed payment creates a separate append-only actual Entitlement Grant. Normal success uses planned interval; late success uses actual restoration interval. History/notices show both only when they differ. Fiscal service line MUST identify plan/cycle/duration without promising a final calendar interval that can shift before authoritative success.
 
 ### Promotions
@@ -1139,3 +1139,29 @@ T077/#4932 и не меняет клиентскую историю и опла�
   неизвестной свежести явно виден в операторском письме. Только durable
   Postal accepted относится к доставке в транспорт; приёмка получателем
   и решение по инциденту отдельны.
+
+## Уточнение T048/T068: подтверждение поздно начавшегося оплаченного периода — 10.11.2026
+
+Уточнение исполнителя по F278 FR-041, F140 FR-070–072/104/105 и
+[контракту уведомлений](contracts/notifications-support.md). Отдельного
+решения владельца о деньгах, доступе или возврате нет: рабочие правила
+не меняются. Непредоставленная услуга сохраняет отдельную финансовую сверку.
+
+При подтверждённом автоматическом продлении схемы 2 действующему
+плательщику отправляется прежнее единственное обязательное подтверждение.
+В нём допустима фраза «В GRAF новый оплаченный период начался после окончания
+предыдущего периода», если фактический срок действительно предоставлен и
+его начало строго позже сохранённой границы прежнего периода этой операции.
+Снимки операции и исходного счёта должны согласоваться между собой и с
+границей подписки до её обновления под блокировкой. Если доказанной связи
+нет, текст остаётся обычным. Наличие письма о неизвестном исходе, состояние
+Free, срок ключа, время списания у банка и отзыв согласия не служат
+критерием для этой фразы. Сумма и фактические даты в МСК берутся из
+подтверждённого счёта и выданного срока. Ссылка ведёт к исходному счёту.
+
+Письмо не обещает следующее списание, текущий тариф или готовность чека.
+Самостоятельные письма о неизвестном исходе и о готовности чека сохраняются.
+Исторические строки очереди не меняются. Этот срез не ставит их заново
+и не отменяет штатную обработку уже ожидающих записей. Полный
+плановый интервал FR-105, фактическое получение #7524 и другие исходы
+T048/T068 этим срезом не принимаются.

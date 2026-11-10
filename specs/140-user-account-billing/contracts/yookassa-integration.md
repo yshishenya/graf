@@ -34,7 +34,7 @@ Store only encrypted opaque `payment_method.id` plus safe presentation. A new me
 
 ## Decline and no-grace mapping
 
-Any confirmed `payment.canceled` means the single renewal failed: no scheduled new-key retry. At exact paid cutoff GRAF projects Free and requires manual resume/new method. HTTP timeout/500 is `unknown`, reusing identical request/key or GET; after cutoff it still gives no paid grace and blocks new payment until resolved. Without an effective refusal, late success creates a separate full-duration entitlement grant from restoration time. With earlier cancel/payment-data refusal/account close, recurring authority remains off, no grant is created, one internal financial incident is recorded and the user receives the static support-email instruction. There is no product refund case or `Оставить оплаченный период` workflow. The invoice retains purchased duration/planned interval; actual interval exists only if a grant was created.
+Confirmed cancellation and unknown outcome follow the current F278 renewal and cutoff rules. At the paid cutoff an unresolved outcome does not grant paid grace and blocks a replacement payment. GRAF reads the original unresolved operation without creating a new key or a new charge. Under F278 FR-041 and F140 FR-104, confirmation of that operation grants the full term once to the same authorized payer, including after recurring authority was withdrawn. The grant does not restore that authority. Independent inability to provide the service follows its own reconciliation path. No product refund case or customer choice is created.
 
 ## Observing a manual merchant refund
 

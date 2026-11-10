@@ -654,8 +654,9 @@ elsewhere; real-shop canary is a separate approved release step.
 8. Cancel writes recurring-authority refusal before future provider mutation;
    current term remains. Renewal creates one automatic operation. Confirmed
    failure or unconfirmed cutoff projects Free immediately with no retry/grace;
-   unknown blocks pay-again. Late success grants once only without earlier
-   refusal; late-after-refusal remains Free and creates one internal incident.
+   unknown blocks pay-again. A late confirmation grants one full paid term to
+   the same authorized payer; a previous refusal remains in force for future sends.
+   Independent inability to provide service follows financial reconciliation.
 
 ### 3. Free usage, unlimited paid use and storage
 
@@ -1292,3 +1293,22 @@ PostgreSQL с FORCE RLS защищает проверку всей очеред�
   содержит проверенный свежий исход для всего текущего basis. Без
   доказательства разрешение не выдумывается; неизменный count не
   создаёт следующий incident после принятого решения.
+
+### T048/T068 — подтверждение поздно начавшегося оплаченного периода
+
+- В согласованном файле T068 использовать отдельную PostgreSQL и рабочую
+  роль RLS. Планировщик и отправка создают исходную операцию; подставной
+  HTTP отвечает pending. Рабочий переход на Free фиксирует неизвестный
+  исход. Проверенный GET той же операции сообщает захват денег до границы;
+  GRAF применяет результат после неё. В новой сессии виден один полный
+  grant; ранее отозванное согласие и его версия не меняются.
+- Отдельной сессией в подставном отправщике проверить сохранённый захват
+  одного подтверждения и точные фактические даты в МСК. Письмо сообщает о
+  начале периода в GRAF, не о времени банковского списания. Проверить
+  обязательность при выключенной необязательной почте и отсутствие нового
+  платежа, права или письма на повторе.
+- Применение раньше и ровно на границе, неполная/изменившаяся связь снимков,
+  исторический payload и неизвестное значение признака сохраняют обычный
+  текст. При неподтверждённом результате, непредоставленной услуге и откате
+  подтверждения выданного срока нет. Связь с чеком не подменяет его отдельный
+  источник. Реальные письма, платежи, данные и приёмка #7524 исключены.

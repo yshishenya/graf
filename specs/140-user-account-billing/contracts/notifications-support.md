@@ -8,12 +8,13 @@
 | Trial ending | тот же владелец | те же даты и условия, ссылка на тарифы | один раз в каждом окне [T−72ч, T−24ч) и [T−24ч, T); необязательные письма |
 | Trial expired | тот же владелец | те же даты и условия, переход на бесплатный тариф без автосписания, ссылка на тарифы | [T, T+24ч); обязательное письмо |
 | Renewal upcoming | Owner | plan, amount/date, masked method, cancel/manage link | T-3 days |
-| Payment succeeded + receipt | Owner/receipt contact by policy | amount/period, receipt availability, next date | after confirmed success |
+| Payment succeeded | текущий плательщик по действующим правилам | подтверждённая сумма, фактический предоставленный срок, безопасная ссылка на историю; без обещания следующего списания или чека | после подтверждения и сохранения предоставленного срока |
+| Payment receipt available | получатель по действующим правилам чека | готовность подтверждённого чека и безопасная ссылка на историю платежей | после отдельного подтверждения готовности |
 | Renewal failed → Free | Owner | exact paid cutoff, `Free` now, no automatic retry, manual resume link | after confirmed failure/cutoff |
 | Renewal outcome unknown | Owner | `Free` now, no second charge, status/support link | at cutoff and material resolution |
 | Cancel/resume/method required | Owner | resulting state and date/amount/action | immediately after ledger change |
 | Recurring authority refused | verified payer | refusal effective time, future charges stopped, safe status/support link | immediately and persistently after atomic refusal |
-| Charged after refusal | verified payer | access remains Free, recurring authority remains off, safe invoice reference and support email instruction | immediately after authoritative late success |
+| Confirmed renewal after refusal | действующий подтверждённый плательщик | одно подтверждение по исходному счёту: сумма, фактический предоставленный срок и ссылка на счёт; без обещания следующего списания | после подтверждения и сохранения предоставленного срока |
 | Storage threshold/add-on | Owner | used/capacity, effect/price/date, delete/manage link | 80/95/100% and change transitions |
 | Fair-use review | affected user/Owner | named capability/reason class, effect, review-by ≤24h, appeal/support link; no meeting content | before non-urgent restriction or immediately for urgent containment |
 | Referral reward | participant as authorized | invitee discount or 7/30-day credit, cap/expiry/applied interval | maturity/application/reversal |
@@ -122,3 +123,23 @@ FR-101 и FR-108. Уведомление описывает уже зафикс�
 история не раскрывается. В ссылку и текст не попадают идентификаторы
 пространства или провайдера, токены, данные приглашённого или материалы встреч.
 Исторические письма без новых полей не дополняются догадками.
+
+## Позднее начало оплаченного периода
+
+Уточнение F140 FR-070–072/104 и F278 FR-041. Использовать прежнее событие
+`payment:<invoice UUID>:succeeded` и шаблон `payment_succeeded`; срок и
+уведомление сохраняются вместе. Единственный дополнительный признак
+`renewal_timing=after_cutoff` допускается только при условиях уточнения
+T048/T068 в спецификации. Постановка и шаблон принимают именно это значение.
+Шаблон без признака или с неизвестным значением сохраняет прежний текст.
+Дополнительная фраза описывает начало срока в GRAF, а не момент списания у
+банка, длительность недоступности или состояние на момент доставки.
+
+Получатель остаётся привязанным к событию; штатная доставка ищет его
+действующий подтверждённый адрес. Обязательность не зависит от настройки
+необязательной почты. Откат не оставляет новой записи; повтор не создаёт
+нового подтверждения и не обновляет историческое. Старые типы сохраняют
+совместимость чтения, а ожидающие записи обрабатываются по действующим
+правилам; этот срез не создаёт для них новую отправку. Если услуга не
+предоставлена, действует отдельная финансовая сверка, а письмо об успешно
+предоставленном сроке не создаётся.
