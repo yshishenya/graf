@@ -277,11 +277,22 @@ print(render_template('cabinet/auth/analytics.html', public_analytics=json.loads
     }
     console.log('ok_resume_preserves_explicit_revoke_and_grant');
 
-    for (const [button, action, clear] of [
+    for (const [button, action, clear, refusalRetry] of [
       ['necessary', 'revoke', false], ['all', 'revoke', false],
       ['all', 'grant', false], ['necessary', 'revoke', true],
+      ['all', 'revoke', false, true],
     ]) {
       const choice = await open();
+      if (refusalRetry) {
+        intercept = async (body, reply) => {
+          if (body.action !== 'revoke') return false;
+          reply(503, { accepted: false, reason: 'choice_unavailable' });
+          return true;
+        };
+        await choice.locator('.cm__btns [data-role="all"]').click();
+        await pending(choice);
+        assert.ok((await cookie(choice)).categories.includes('analytics'));
+      }
       const held = hold(action, body => {
         if (action === 'grant') assert.equal(rows.get(body.consent_id).epoch, body.expected_epoch);
         const row = { epoch: randomUUID(), categories: action === 'grant' ? body.categories : ['necessary'],
@@ -291,7 +302,11 @@ print(render_template('cabinet/auth/analytics.html', public_analytics=json.loads
       });
       const before = requests.length;
       try {
-        await choice.locator('.cm__btns [data-role="' + button + '"]').click();
+        if (refusalRetry) {
+          await choice.getByRole('button', { name: 'Повторить сохранение отказа' }).click();
+        } else {
+          await choice.locator('.cm__btns [data-role="' + button + '"]').click();
+        }
         await held.arrived;
         await choice.evaluate(() => dispatchEvent(new PageTransitionEvent('pagehide', { persisted: true })));
         assert.equal(await choice.evaluate(() => window.GRAFPublicAnalytics.consentPending), false);
@@ -315,7 +330,7 @@ print(render_template('cabinet/auth/analytics.html', public_analytics=json.loads
         assert.equal((await cookie(choice))?.data.graf_public_consent_epoch ?? null, null);
         assert.deepEqual(requests.slice(before).map(r => r.action),
           action === 'grant' ? ['revoke', 'grant', 'read'] : clear ? ['revoke'] : ['revoke', 'read']);
-        if (button === 'necessary' && !clear) {
+        if ((button === 'necessary' || refusalRetry) && !clear) {
           const retry = requests.length;
           await choice.getByRole('button', { name: 'Повторить сохранение отказа' }).click();
           await ready(choice);
@@ -327,6 +342,21 @@ print(render_template('cabinet/auth/analytics.html', public_analytics=json.loads
       }
     }
     console.log('ok_cached_page_discards_interrupted_choice');
+
+    const lost = await open();
+    await lost.locator('.cm__btns [data-role="necessary"]').click();
+    await ready(lost);
+    const beforeLoss = requests.length;
+    await lost.evaluate(key => {
+      dispatchEvent(new PageTransitionEvent('pagehide', { persisted: true }));
+      localStorage.removeItem(key);
+      dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }));
+    }, KEY);
+    await noTraffic(lost);
+    assert.match(await lost.locator('[role="status"]').innerText(), /Откройте настройки cookies/);
+    assert.equal(requests.length, beforeLoss);
+    await lost.close();
+    console.log('ok_cached_page_reports_loss_of_confirmed_choice');
 
     for (const action of ['revoke', 'grant']) for (const change of ['storage', 'storage-clear', 'pageshow', 'cross-tab-clear',
       'data', 'data-without-event', 'corrupt', 'deleted', 'unavailable']) {
