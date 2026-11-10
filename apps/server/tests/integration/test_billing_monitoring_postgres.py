@@ -86,9 +86,11 @@ def test_observation_source_probe_partial_counts_roles_and_no_writes(database, c
 
     async def probe():
         empty = await run(config())
-        assert empty == {"schema_version": 1, "source_profile": profile, "source_generation": generation,
+        assert empty == {"schema_version": 2, "source_profile": profile, "source_generation": generation,
                          "as_of": empty["as_of"], "coverage": "partial", "event_count": 0,
-                         "failed_event_count": 0, "conflicting_attempt_count": 0, "last_event_at": None}
+                         "failed_event_count": 0, "conflicting_attempt_count": 0, "last_event_at": None,
+                         "receipt_canceled_count": 0, "receipt_overdue_confirmed_count": 0,
+                         "receipt_overdue_unknown_count": 0}
         engine = create_async_engine(database)
         try:
             workflow = f"billing-reconciliation/{uuid4()}/v1"
@@ -135,6 +137,35 @@ def test_observation_source_probe_partial_counts_roles_and_no_writes(database, c
     assert "private-source" not in caplog.text and "postgresql" not in caplog.text
 
 
+def test_observation_source_refuses_hidden_nonempty_receipt_history(database):
+    from twobrain_rec_server.billing.observation_alerts import ObservationError
+    from twobrain_rec_server.billing.observation_probe import collect_probe
+
+    async def scenario():
+        engine = create_async_engine(database)
+        reader = create_async_engine(settings(database).database_url)
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(text("""
+                    INSERT INTO billing_receipt_observation_deltas
+                      (canceled_delta, overdue_confirmed_delta, overdue_unknown_delta) VALUES (1, 0, 0)
+                """))
+                await conn.execute(text("""
+                    ALTER POLICY receipt_observation_read ON billing_receipt_observation_deltas USING (false)
+                """))
+            async with create_sessionmaker(reader)() as db:
+                db.sync_session.info["tenant_context"] = maintenance_context_settings(MaintenanceTenantContext(
+                    operation_name="billing_reconciliation", actor_id="synthetic", reason_category="synthetic",
+                    feature_area="billing"))
+                with pytest.raises(ObservationError):
+                    await collect_probe(db, source_profile=str(uuid4()), source_generation=str(uuid4()))
+        finally:
+            await reader.dispose()
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+
 def test_observation_source_rr_detects_old_late_commit_and_read_only_before_hooks(database):
     from twobrain_rec_server.billing.observation_probe import collect_probe
     from twobrain_rec_server.cli.billing_observation_probe import run
@@ -153,15 +184,31 @@ def test_observation_source_rr_detects_old_late_commit_and_read_only_before_hook
                     VALUES ('private-late',:workflow,:run,'private-late',1,'failed',:at)"""),
                     {"workflow": f"billing-reconciliation/{uuid4()}/v1", "run": str(uuid4()),
                      "at": datetime.now(UTC) - timedelta(days=30)})
+                await late.execute(text("""
+                    INSERT INTO billing_receipt_observation_deltas
+                      (canceled_delta, overdue_confirmed_delta, overdue_unknown_delta)
+                    VALUES (1, 0, 2)
+                """))
+                # This gets a later identity but commits first. Both must be included.
+                async with writer.begin() as early:
+                    await early.execute(text("""
+                        INSERT INTO billing_receipt_observation_deltas
+                          (canceled_delta, overdue_confirmed_delta, overdue_unknown_delta)
+                        VALUES (0, 3, 0)
+                    """))
                 async with create_sessionmaker(reader)() as db:
                     db.sync_session.info["tenant_context"] = maintenance_context_settings(MaintenanceTenantContext(
                         operation_name="billing_reconciliation", actor_id="synthetic", reason_category="synthetic",
                         feature_area="billing"))
                     first = await collect_probe(db, source_profile=profile, source_generation=generation)
                     assert first["event_count"] == 0
+                    assert [first[key] for key in ("receipt_canceled_count", "receipt_overdue_confirmed_count",
+                                                   "receipt_overdue_unknown_count")] == [0, 3, 0]
                     await late.commit()
                     same = await collect_probe(db, source_profile=profile, source_generation=generation)
                     assert same["event_count"] == 0 and same["last_event_at"] is None
+                    assert [same[key] for key in ("receipt_canceled_count", "receipt_overdue_confirmed_count",
+                                                  "receipt_overdue_unknown_count")] == [0, 3, 0]
             observed = []
 
             def before_sql(conn, _cursor, _statement, _parameters, _context, _many):
@@ -181,6 +228,8 @@ def test_observation_source_rr_detects_old_late_commit_and_read_only_before_hook
                 event.remove(__import__('sqlalchemy').engine.Engine, "before_cursor_execute", before_sql)
             assert result["event_count"] == result["failed_event_count"] == 1
             assert result["conflicting_attempt_count"] == 0
+            assert [result[key] for key in ("receipt_canceled_count", "receipt_overdue_confirmed_count",
+                                            "receipt_overdue_unknown_count")] == [1, 3, 2]
             assert datetime.fromisoformat(result["last_event_at"]) < datetime.fromisoformat(result["as_of"]) - timedelta(days=29)
             assert observed and all(tuple(row) == ("on", "repeatable read") for row in observed)
         finally:
@@ -824,6 +873,7 @@ def database(registry_database):  # noqa: F811 — imported pytest fixture
                 # Roles are created by registry_database after migrations; grant
                 # the same two privileges as0109, without any history mutation.
                 await conn.execute(text("GRANT SELECT,INSERT ON billing_reconciliation_observations TO twobrain_rec_maintenance"))
+                await conn.execute(text("GRANT SELECT ON billing_receipt_observation_deltas TO twobrain_rec_maintenance"))
                 for model in (*TABLES, *STORAGE_TABLES):
                     flags = (await conn.execute(text(
                         "select relrowsecurity, relforcerowsecurity from pg_class where relname=:table"

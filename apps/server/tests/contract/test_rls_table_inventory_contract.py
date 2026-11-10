@@ -235,6 +235,10 @@ def test_rls_validation_inventory_matches_031_migration_policy_maps() -> None:
         | set(auth_rate_limit_migration.AUTH_RATE_LIMIT_TABLES)
         | {billing_registry_migration.IMPORTS, billing_registry_migration.GAPS}
         | {observations_migration.TABLE}
+        | {
+            _load_migration_module(RECONCILIATION_OBSERVATIONS_MIGRATION.with_name(filename), filename[:-3]).TABLE
+            for filename in ("0110_billing_receipt_identities.py", "0111_receipt_observation_deltas.py")
+        }
         | {"workspace_join_offers"}
         | {
             "billing_plan_versions",

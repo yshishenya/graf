@@ -24,10 +24,17 @@ MAX_RECORDS = 262144
 MAX_INCIDENTS = 500
 ZERO_HASH = "0" * 64
 HOLD_MARKER = b"GRAF_OBSERVATION_HOLD_V1\n"
+RECEIPT_COUNTERS = {f"receipt_{kind}": f"receipt_{kind}_count" for kind in
+                    ("canceled", "overdue_confirmed", "overdue_unknown")}
+RECEIPT_SUMMARIES = {
+    "receipt_canceled": "Регистрация чека отменена.",
+    "receipt_overdue_confirmed": "Подтверждено ожидание регистрации чека.",
+    "receipt_overdue_unknown": "Последнее подтверждённое состояние — ожидание, актуальность неизвестна.",
+}
 KINDS = frozenset({"reconciliation_failure", "reconciliation_conflict", "source_gap", "producer_gap",
-                   "observer_gap", "witness_gap", "source_discontinuity"})
+                   "observer_gap", "witness_gap", "source_discontinuity", *RECEIPT_COUNTERS})
 REASONS = ("schema_invalid", "source_generation_changed", "counters_decreased",
-           "source_time_invalid", "local_clock_rollback")
+           "source_time_invalid", "local_clock_rollback", "source_version_decreased")
 COUNTERS = ("event_count", "failed_event_count", "conflicting_attempt_count")
 
 
@@ -108,14 +115,15 @@ def decode(raw):
 
 
 def validate_sample(value):
+    require(type(value) is dict and type(value.get("schema_version")) is int and value["schema_version"] in (1, 2))
+    receipt_fields = tuple(RECEIPT_COUNTERS.values()) if value["schema_version"] == 2 else ()
     closed(value, {"schema_version", "source_profile", "source_generation", "as_of", "coverage",
-                   *COUNTERS, "last_event_at"})
-    require(type(value["schema_version"]) is int and value["schema_version"] == 1
-            and value["coverage"] == "partial")
+                   *COUNTERS, *receipt_fields, "last_event_at"})
+    require(value["coverage"] == "partial")
     uuid(value["source_profile"])
     uuid(value["source_generation"])
     timestamp(value["as_of"])
-    for key in COUNTERS:
+    for key in (*COUNTERS, *receipt_fields):
         integer(value[key])
     require(value["failed_event_count"] <= value["event_count"]
             and value["conflicting_attempt_count"] <= value["event_count"] // 2)
@@ -166,6 +174,8 @@ class AlertJournal:
         self.messages = {}
         self.consumed = set()
         self.source = None
+        self.receipt_totals = None
+        self.receipt_ready = False
         self.source_checked_at = None
         self.producer_at = None
         self.peer = None
@@ -349,6 +359,11 @@ class AlertJournal:
                 validate_sample(data["source"])
                 require(data["source"]["source_profile"] == self.activation["source_profile"]
                         and data["source"]["source_generation"] == self.activation["source_generation"])
+                require(self.receipt_source_issue(data["source"]) is None)
+                if data["source"]["schema_version"] == 2:
+                    require(self.discontinuity is None and self.source_time_valid(data["source"], now))
+                    self.receipt_totals = {key: data["source"][key] for key in RECEIPT_COUNTERS.values()}
+                    self.receipt_ready = True
                 self.source = data["source"]
                 self.source_checked_at = data["at"]
                 self.producer_at = data["source"]["last_event_at"]
@@ -372,6 +387,10 @@ class AlertJournal:
             detected = timestamp(data["detected_at"])
             require(timestamp(data["initial_deadline"]) == detected + timedelta(seconds=300))
             previous = self.current(data["kind"])
+            if data["kind"] in RECEIPT_COUNTERS:
+                require(self.receipt_ready and self.discontinuity is None
+                        and data["basis"]["count"] == self.receipt_totals[RECEIPT_COUNTERS[data["kind"]]]
+                        and (previous is None or data["basis"]["count"] > previous["basis"]["count"]))
             if data["incident_id"] in self.incidents:
                 require(previous is self.incidents[data["incident_id"]] and previous["closure"] is None
                         and data["basis_revision"] == previous["basis_revision"] + 1
@@ -396,7 +415,7 @@ class AlertJournal:
             integer(data["basis_revision"])
             uuid(data["binding_version"])
             require(data["basis_revision"] == incident["basis_revision"] and incident["closure"] is None
-                    and incident["basis"]["source_generation"] == self.activation["source_generation"]
+                    and self.sendable(incident)
                     and data["message_key"] == self.message_key(incident, data["binding_version"]))
             if data["message_key"] in self.messages:
                 require(incident["current_message_key"] != data["message_key"]
@@ -416,7 +435,7 @@ class AlertJournal:
             require(data["attempt"] == message["attempt"] + 1 and message["outcome"] != "accepted"
                     and message["basis_revision"] == incident["basis_revision"] and incident["closure"] is None
                     and data["message_key"] == incident["current_message_key"]
-                    and incident["basis"]["source_generation"] == self.activation["source_generation"]
+                    and self.sendable(incident)
                     and now >= timestamp(self.last_now)
                     and now >= timestamp(incident["next_allowed_at"])
                     and timestamp(data["next_allowed_at"]) == now + timedelta(seconds=300))
@@ -468,6 +487,7 @@ class AlertJournal:
             else:
                 self.activation = {**self.activation, "source_generation": data["source_generation"]}
                 self.source = self.source_checked_at = self.producer_at = self.peer = None
+            self.receipt_ready = False
             self.discontinuity = None
             self.hold = False
             self.last_now = data["at"]
@@ -477,10 +497,32 @@ class AlertJournal:
     def current(self, kind):
         return next((x for x in reversed(list(self.incidents.values())) if x["kind"] == kind), None)
 
+    def receipt_source_issue(self, source):
+        if self.receipt_totals is not None:
+            if source["schema_version"] < 2:
+                return "source_version_decreased"
+            if any(source[key] < count for key, count in self.receipt_totals.items()):
+                return "counters_decreased"
+        return None
+
+    def source_time_valid(self, source, now):
+        as_of = timestamp(source["as_of"])
+        last_event = timestamp(source["last_event_at"]) if source["last_event_at"] is not None else None
+        return (as_of <= now
+                and (self.source is None or as_of >= timestamp(self.source["as_of"]))
+                and (last_event is None or last_event <= as_of)
+                and (self.producer_at is None or last_event is None or last_event >= timestamp(self.producer_at)))
+
+    def sendable(self, incident):
+        if incident["kind"] in RECEIPT_COUNTERS:
+            return self.receipt_ready and self.discontinuity is None
+        return incident["basis"]["source_generation"] == self.activation["source_generation"]
+
     def validate_basis(self, kind, basis):
         common = {"source_profile", "source_generation", "kind"}
         fields = {"reconciliation_failure": {"count"}, "reconciliation_conflict": {"count"},
-                  "source_discontinuity": {"sequence", "reason"}}
+                  "source_discontinuity": {"sequence", "reason"},
+                  **dict.fromkeys(RECEIPT_COUNTERS, {"count"})}
         closed(basis, common | fields.get(kind, {"anchor", "head"}))
         require(basis["kind"] == kind and basis["source_profile"] == self.activation["source_profile"]
                 and basis["source_generation"] == self.activation["source_generation"])
@@ -545,13 +587,11 @@ class AlertJournal:
                 reason = "schema_invalid"
             if reason is None and source["source_generation"] != self.activation["source_generation"]:
                 reason = "source_generation_changed"
+            if reason is None:
+                reason = self.receipt_source_issue(source)
             if reason is None and self.source is not None and any(source[k] < self.source[k] for k in COUNTERS):
                 reason = "counters_decreased"
-            if reason is None and (timestamp(source["as_of"]) > now or
-                    (self.source is not None and timestamp(source["as_of"]) < timestamp(self.source["as_of"])) or
-                    (source["last_event_at"] is not None and timestamp(source["last_event_at"]) > timestamp(source["as_of"])) or
-                    (self.producer_at is not None and source["last_event_at"] is not None
-                     and timestamp(source["last_event_at"]) < timestamp(self.producer_at))):
+            if reason is None and not self.source_time_valid(source, now):
                 reason = "source_time_invalid"
             if reason is not None:
                 self.append("discontinuity", {"reason": reason, "at": stamp(now), "hold": False})
@@ -580,6 +620,11 @@ class AlertJournal:
                                   ("reconciliation_conflict", "conflicting_attempt_count")):
                     if accepted_source[key] > 0:
                         self.detect(kind, {"count": accepted_source[key]}, now)
+                if accepted_source["schema_version"] == 2:
+                    for kind, key in RECEIPT_COUNTERS.items():
+                        previous = self.current(kind)
+                        if accepted_source[key] > (previous["basis"]["count"] if previous else 0):
+                            self.detect(kind, {"count": accepted_source[key]}, now)
             for kind, anchor in (("source_gap", self.source_checked_at), ("producer_gap", self.producer_at)):
                 anchor = anchor or self.activation["activated_at"]
                 if now - timestamp(anchor) >= timedelta(seconds=900):
@@ -591,8 +636,7 @@ class AlertJournal:
             self.detect("witness_gap" if self.activation["role"] == "primary" else "observer_gap",
                         {"anchor": anchor, "head": self.peer["head"] if self.peer else ZERO_HASH}, now)
         for incident in self.incidents.values():
-            if (incident["closure"] is not None
-                    or incident["basis"]["source_generation"] != self.activation["source_generation"]):
+            if incident["closure"] is not None or not self.sendable(incident):
                 continue
             key = self.message_key(incident, binding_version)
             if key not in self.messages or incident["current_message_key"] != key:
@@ -602,7 +646,7 @@ class AlertJournal:
         for message in self.messages.values():
             incident = self.incidents[message["incident_id"]]
             if (incident["closure"] is None and message["basis_revision"] == incident["basis_revision"]
-                    and incident["basis"]["source_generation"] == self.activation["source_generation"]
+                    and self.sendable(incident)
                     and message["message_key"] == incident["current_message_key"]
                     and message["binding_version"] == binding_version and message["outcome"] != "accepted"
                     and now >= timestamp(incident["next_allowed_at"])):
@@ -613,7 +657,8 @@ class AlertJournal:
             reserved = self.observed_time(now)
             self.append("reservation", {"message_key": message["message_key"], "attempt": message["attempt"] + 1,
                 "at": stamp(reserved), "next_allowed_at": stamp(reserved + timedelta(seconds=300))})
-            text = (f"GRAF: {incident['kind']}\nВажность: high\nИнцидент: {incident['incident_id']}\n"
+            label = RECEIPT_SUMMARIES.get(incident["kind"], incident["kind"])
+            text = (f"GRAF: {label}\nВажность: high\nИнцидент: {incident['incident_id']}\n"
                     f"Обнаружен: {incident['detected_at']}\nПроверить до: {incident['initial_deadline']}\n"
                     "Подтверждения: operational_observation. Ответственный: владелец GRAF.\n"
                     "Наблюдение неполное; неизвестный исход не является финансовым отказом.\n"
@@ -664,6 +709,8 @@ class AlertJournal:
             incident["investigating_at"] = data["transferred_at"]
         else:
             require(incident["investigating_at"] is not None)
+            if incident["kind"] in RECEIPT_COUNTERS and data["action"] == "resolved":
+                require(data["evidence_class"] == "receipt_reconciliation_verified")
             incident["closure"] = {"action": data["action"], "at": data["transferred_at"],
                                    "evidence_class": data["evidence_class"], "evidence_ref": data["evidence_ref"]}
             update_breach(incident, timestamp(data["transferred_at"]))

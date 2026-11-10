@@ -201,6 +201,17 @@ twobrain_rec_maintenance`, `row_security = on`, maintenance context,
 role receives only SELECT/INSERT; UPDATE/DELETE are not granted and the history
 trigger rejects both operations. Downgrade is blocked while observations exist.
 
+`billing_receipt_identities` uses the same exact maintenance role and
+billing reconciliation context with forced RLS. Only SELECT and INSERT are
+permitted. The technical identity is removed by the invoice foreign key when
+the invoice is deleted; ordinary roles cannot read or write this table.
+
+`billing_receipt_observation_deltas` stores only anonymous additive totals under
+forced RLS. The exact billing reconciliation maintenance session receives
+SELECT only. An invoice trigger appends deltas as the dedicated NOLOGIN
+writer; runtime roles cannot assume that role or execute the trigger function.
+The source survives invoice deletion and blocks downgrade while nonempty.
+
 `workspace_invitations` and `admin_audit_events` use the direct workspace policy
 for normal request and worker contexts, and additionally allow `auth_bootstrap` only when
 `workspace_id = current_workspace_id()` and the bootstrap workspace belongs to

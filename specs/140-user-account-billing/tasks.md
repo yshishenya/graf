@@ -540,3 +540,47 @@ billing/entitlements.py, billing/purchases.py, cabinet/web_routes/billing.py;
 существующие тесты unit/test_billing_notifications.py,
 integration/test_billing_purchase_journey.py и integration/test_billing_return.py. Все исходные
 87 ID/описаний сохраняются; T048/T068 остаются `[ ]`, новых дублей issues нет.
+
+## Уточнение исполнения T075/T077 — регистрация чеков, 10.11.2026
+
+Без новых идентификаторов задач. Исходные T074/T075/T077 остаются открытыми.
+
+1. **T075/T077:** независимое ревью `checklists/receipt-escalation.md`,
+   затем analyze требований R1–R6 и сверка #4930/#4932.
+2. **T075:** сначала отрицательные сценарии
+   `apps/server/tests/integration/test_billing_receipt_escalation.py`;
+   затем общий переход в `apps/server/src/twobrain_rec_server/billing/receipts.py`
+   и его вызовы в `entitlements.py`, `webhook_reconciliation.py`,
+   `reconciliation.py` того же каталога. Подключить ограниченный периодический
+   проход в `apps/server/src/twobrain_rec_server/workflows/worker.py`.
+3. **T077:** источник сохраняет подтверждённые основания, просрочки и
+   неизвестный возраст; после проверки источника — отдельное уточнение
+   стыка с независимым O16, без клиентской очереди и без новых внешних служб.
+4. **T074:** приёмка всего test-shop сценария и остальных исходных требований
+   отдельно от проверок с подставным провайдером. Все исходные строки задач,
+   существующие ограничения и сроки остаются в силе.
+
+### Исполнение T077/#4932 — передача фискальных оснований O16
+
+Уточнение прежней задачи, без новых ID и изменения исходной отметки.
+Ворота: чеклист `checklists/receipt-o16.md` → независимое ревью →
+scoped analyze ROC1–ROC4 → сверка существующей #4932.
+
+1. PostgreSQL, RED до миграции: `apps/server/tests/integration/test_billing_monitoring_postgres.py`
+   и отдельные сценарии миграции/ролей. Затем следующая свободная миграция в
+   `apps/server/src/twobrain_rec_server/db/migrations/versions/`,
+   `apps/server/scripts/bootstrap_runtime_database_roles.py`,
+   `apps/server/src/twobrain_rec_server/db/rls_validation.py` и
+   `specs/031-rls-hardening/contracts/rls-policy-matrix.md`: анонимный
+   append, полный перенос, отказ неполных прав, атомарность и прежнее удаление.
+2. Транспорт только после источника: `billing/observation_probe.py` и
+   `billing/observation_alerts.py` под `apps/server/src/twobrain_rec_server/`,
+   `infra/scripts/billing-observation-probe.sh` и
+   `infra/docs/billing-observation.md`: закрытый v2, replay, прежний peer
+   status, отдельные виды, recovery/lineage и прежняя очередь/паузы.
+   RED в `apps/server/tests/unit/test_billing_observation_alerts.py` и
+   `apps/server/tests/contract/test_billing_observation_infra.py`.
+3. Пройти quickstart, независимое ревью и converge; связать результат с
+   прежней #4932 и PR. GitHub exact SHA/base — отдельно. T074 test-shop,
+   release/full, production и фактическая приёмка владельцем не считаются
+   пройденными по локальному циклу.

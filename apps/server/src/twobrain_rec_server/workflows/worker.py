@@ -36,6 +36,7 @@ from twobrain_rec_server.billing.notifications import (
 )
 from twobrain_rec_server.billing.operations import provider_key_is_expired
 from twobrain_rec_server.billing.purchases import settle_acceptance_budget
+from twobrain_rec_server.billing.receipt_poll import reconcile_pending_receipts
 from twobrain_rec_server.billing.reconciliation import ProviderScope, validate_purchase_payment
 from twobrain_rec_server.billing.reconciliation_observation import (
     current_reconciliation_attempt,
@@ -1049,11 +1050,14 @@ async def _run_billing_reconciliation_activity(payload: dict[str, str]) -> dict[
                 db, settings, commit_each_operation=True
             )
             await db.commit()
+            # Poll receipts before trial notices can wait on workspace locks.
+            receipt_counters = await reconcile_pending_receipts(db, settings)
             await apply_tenant_context(db, context)
             await enqueue_due_trial_notices(db, now=datetime.now(UTC))
             await db.commit()
         return {
             "run_id": safe_payload["run_id"],
+            **receipt_counters,
             **counters,
             **{f"webhook_{k}": v for k, v in webhook_counters.items()},
             **{f"initial_checkout_{k}": v for k, v in initial_checkout_counters.items()},

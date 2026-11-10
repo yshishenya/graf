@@ -28,7 +28,10 @@ from twobrain_rec_server.billing.purchases import (
     effective_paid_storage,
     settle_acceptance_budget,
 )
-from twobrain_rec_server.billing.receipts import ReceiptRegistration, merge_receipt_registration
+from twobrain_rec_server.billing.receipts import (
+    ReceiptRegistration,
+    merge_confirmed_receipt_registration,
+)
 from twobrain_rec_server.billing.referral_rewards import create_pending_credit
 from twobrain_rec_server.billing.storage import lock_storage_workspace
 from twobrain_rec_server.db.models import (
@@ -157,6 +160,7 @@ async def grant_confirmed_payment(
     payment_method_key_version: str = "billing-v1",
     payment_method_label: str | None = None,
     receipt_registration: ReceiptRegistration | None = None,
+    receipt_scope: tuple[str, str] | None = None,
     defer_referral_reward: bool = False,
 ) -> str:
     """Grant one immutable invoice only after provider GET confirms its amount."""
@@ -193,14 +197,15 @@ async def grant_confirmed_payment(
     receipt_became_available = False
     if receipt_registration is not None:
         try:
-            updated_snapshot, receipt_became_available = merge_receipt_registration(
+            updated_snapshot, receipt_became_available = await merge_confirmed_receipt_registration(
+                db,
                 invoice.plan_snapshot,
                 status=receipt_registration,
+                payment_binding=(*receipt_scope, provider_payment_id) if receipt_scope else None,
             )
         except ValueError:
-            if existing_grant is None:
-                operation.state = "reconciliation_gap"
-                return "receipt_mismatch"
+            # An inconsistent fiscal status cannot invalidate the confirmed payment.
+            pass
         else:
             invoice.plan_snapshot = updated_snapshot
     if existing_grant is not None:

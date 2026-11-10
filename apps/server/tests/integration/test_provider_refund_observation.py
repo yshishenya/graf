@@ -267,6 +267,7 @@ async def test_metadata_less_refund_receipt_http_rls_and_financial_invariants(
                 idempotency_key=f"checkout-{uuid4()}",
                 provider_id=payment_id,
                 state="succeeded",
+                request_snapshot={"provider_environment": "test", "provider_shop_id": "shop-1"},
             )
         )
         await db.flush()
@@ -597,13 +598,23 @@ async def refund_queue_case(rls_engine, tmp_path, monkeypatch):
     async def transport(request):
         calls.append((request.method, request.url.path))
         assert request.method == "GET"
+        if request.url.path == f"/v3/payments/{payment_id}" and "payment_receipt_status" in provider_state:
+            return httpx.Response(200, json={
+                "id": payment_id, "status": "succeeded", "receipt_registration": provider_state["payment_receipt_status"],
+                "amount": {"value": "10.00", "currency": "RUB"}, "created_at": NOW.isoformat(),
+                **({} if provider_state.get("incomplete_payment_receipt") else {
+                    "recipient": {"account_id": "shop-1"}, "test": True,
+                }),
+            })
         if request.url.path.startswith("/v3/receipts/"):
             return httpx.Response(
                 200,
                 json={
-                    "id": request.url.path.rsplit("/", 1)[1],
+                    "id": provider_state.get("receipt_response_id", request.url.path.rsplit("/", 1)[1]),
                     "type": "refund",
-                    "status": [] if provider_state["malformed_receipts"] else "succeeded",
+                    "status": [] if provider_state["malformed_receipts"] else provider_state.get(
+                        "receipt_status", "succeeded"
+                    ),
                     "refund_id": receipt_parents[request.url.path.rsplit("/", 1)[1]],
                     "payment_id": payment_id,
                 },
@@ -643,6 +654,7 @@ async def refund_queue_case(rls_engine, tmp_path, monkeypatch):
                 idempotency_key=f"checkout-{uuid4()}",
                 provider_id=payment_id,
                 state="succeeded",
+                request_snapshot={"provider_environment": "test", "provider_shop_id": "shop-1"},
             )
         )
         await db.flush()
@@ -726,14 +738,14 @@ async def refund_queue_case(rls_engine, tmp_path, monkeypatch):
         )
         await db.commit()
 
-    async def add_events(kind, count, received_at):
+    async def add_events(kind, count, received_at, *, receipt_id=None):
         async with sessions() as db:
             await apply_tenant_context(db, context)
             event_ids = []
             for index in range(count):
                 event_id = uuid4()
                 event_ids.append(event_id)
-                object_id = refund_id if kind == "parent" else f"{kind}-{event_id}"
+                object_id = refund_id if kind == "parent" else receipt_id or f"{kind}-{event_id}"
                 if kind in {"receipt", "malformed-receipt"}:
                     receipt_parents[object_id] = refund_id if index == 0 else f"missing-{event_id}"
                     provider_state["malformed_receipts"] = kind == "malformed-receipt"
@@ -742,9 +754,11 @@ async def refund_queue_case(rls_engine, tmp_path, monkeypatch):
                         id=event_id,
                         workspace_id=workspace_id,
                         provider_event_id=f"event-{event_id}",
-                        event_type="receipt.succeeded"
-                        if kind in {"receipt", "malformed-receipt"}
-                        else "refund.succeeded",
+                        event_type=(
+                            "receipt.waiting_for_cancellation"
+                            if provider_state.get("receipt_status") == "canceled"
+                            else "receipt.succeeded"
+                        ) if kind in {"receipt", "malformed-receipt"} else "refund.succeeded",
                         object_id=object_id,
                         occurred_at=NOW,
                         received_at=received_at,
@@ -792,6 +806,8 @@ async def refund_queue_case(rls_engine, tmp_path, monkeypatch):
             after = await rows(model)
             if model is BillingInvoice:
                 after[0]["plan_snapshot"].pop("receipt_observations", None)
+                after[0]["plan_snapshot"].pop("receipt_registration", None)
+                after[0]["plan_snapshot"].pop("receipt_registration_timing", None)
             assert after == before_financial[model], model.__name__
 
     case = SimpleNamespace(
@@ -800,6 +816,7 @@ async def refund_queue_case(rls_engine, tmp_path, monkeypatch):
         settings=settings,
         workspace_id=workspace_id,
         owner_id=owner_id,
+        another_user_id=ids["user_b"],
         invoice_id=invoice_id,
         refund_id=refund_id,
         calls=calls,
@@ -870,6 +887,105 @@ async def test_refund_queue_failed_batch_cannot_starve_new_parent(
     assert invoice["amount_minor"] == 1000 and invoice["status"] == "succeeded"
     assert (await case.rows(BillingOperation))[0]["state"] == "succeeded"
     await case.assert_financial_unchanged()
+
+
+@pytest.mark.strict_rls
+@pytest.mark.asyncio
+async def test_receipt_get_must_match_requested_receipt(refund_queue_case):
+    case = refund_queue_case
+    await case.add_events("parent", 1, NOW)
+    assert (await case.process(1))["reconciled"] == 1
+
+    await case.add_events("receipt", 1, NOW)
+    before = await case.rows(BillingInvoice)
+    case.provider_state["receipt_response_id"] = "different-receipt"
+    assert (await case.process(1))["pending"] == 1
+    assert await case.rows(BillingInvoice) == before
+
+    del case.provider_state["receipt_response_id"]
+    assert (await case.process(1))["reconciled"] == 1
+    snapshot = (await case.rows(BillingInvoice))[0]["plan_snapshot"]
+    assert len(snapshot["receipt_observations"]) == 1
+    await case.assert_financial_unchanged()
+
+
+@pytest.mark.strict_rls
+@pytest.mark.asyncio
+@pytest.mark.parametrize("shop", ["shop-1", "other-shop", None])
+async def test_canceled_refund_receipt_basis_requires_bound_shop(
+    refund_queue_case, shop, monkeypatch
+):
+    from sqlalchemy import select
+
+    from twobrain_rec_server.billing import webhook_reconciliation
+    from twobrain_rec_server.db.models import (
+        BillingNotificationDelivery,
+        BillingReceiptIdentity,
+        BillingWebhookEvent,
+    )
+    from twobrain_rec_server.db.tenant_context import apply_tenant_context
+
+    case = refund_queue_case
+    async with case.sessions() as db:
+        await apply_tenant_context(db, case.context)
+        operation = await db.scalar(
+            select(BillingOperation).where(BillingOperation.workspace_id == case.workspace_id)
+        )
+        operation.request_snapshot = (
+            {"provider_environment": "test", "provider_shop_id": shop} if shop else {}
+        )
+        await db.commit()
+
+    await case.add_events("parent", 1, NOW)
+    assert (await case.process(1))["reconciled"] == 1
+    case.provider_state["receipt_status"] = "canceled"
+    before = (await case.rows(BillingInvoice))[0]
+    await case.add_events("receipt", 1, NOW, receipt_id="synthetic-canceled-refund-receipt")
+    if shop == "shop-1":
+        record = webhook_reconciliation.record_observed_receipt
+
+        async def fail_after_flush(*args, **kwargs):
+            assert await record(*args, **kwargs) == ("inserted", False)
+            raise ProviderObservationError("synthetic rollback after receipt flush")
+
+        with monkeypatch.context() as scoped:
+            scoped.setattr(webhook_reconciliation, "record_observed_receipt", fail_after_flush)
+            assert (await case.process(1))["pending"] == 1
+        assert (await case.rows(BillingInvoice))[0] == before
+        assert not await case.rows(BillingReceiptIdentity)
+
+    started = datetime.now(UTC)
+    counters = await case.process(1)
+    after = (await case.rows(BillingInvoice))[0]
+    if shop != "shop-1":
+        assert counters["pending"] == 1
+        assert after == before
+        return
+
+    assert counters["reconciled"] == 1
+    entry = next(iter(after["plan_snapshot"]["receipt_observations"].values()))
+    assert entry["status"] == "canceled"
+    assert entry["observed_at"] == NOW.isoformat()
+    basis = entry["canceled"]
+    assert started <= datetime.fromisoformat(basis["detected_at"]) <= datetime.now(UTC)
+    assert basis["due_at"] == basis["detected_at"]
+    await case.add_events("receipt", 1, NOW, receipt_id="synthetic-canceled-refund-receipt")
+    assert (await case.process(1))["reconciled"] == 1
+    assert (await case.rows(BillingInvoice))[0] == after
+    case.provider_state["receipt_status"] = "pending"
+    await case.add_events("receipt", 1, NOW, receipt_id="second-synthetic-refund-receipt")
+    assert (await case.process(1))["reconciled"] == 1
+    records = (await case.rows(BillingInvoice))[0]["plan_snapshot"]["receipt_observations"]
+    assert records["test:shop-1:synthetic-canceled-refund-receipt"] == entry
+    second = records["test:shop-1:second-synthetic-refund-receipt"]
+    assert second["legacy_pending_unknown"] is False
+    assert started <= datetime.fromisoformat(second["first_confirmed_pending_at"]) <= datetime.now(UTC)
+    assert "canceled" not in second
+    identities = await case.rows(BillingReceiptIdentity)
+    assert len(identities) == 2
+    assert {identity["provider_parent_id"] for identity in identities} == {case.refund_id}
+    assert all(row["state"] == "reconciled" for row in await case.rows(BillingWebhookEvent))
+    assert not await case.rows(BillingNotificationDelivery)
 
 
 @pytest.mark.strict_rls
@@ -999,3 +1115,594 @@ async def test_accepted_refund_with_temporarily_missing_parent_retries(refund_qu
     assert (await case.process(1))["reconciled"] == 1
     assert len(await case.rows(ObservedProviderRefund)) == 1
     await case.assert_financial_unchanged()
+
+
+@pytest.mark.strict_rls
+@pytest.mark.asyncio
+@pytest.mark.parametrize("workspace_and_scope", ["same", "different-workspace", "different-shop", "different-environment"])
+async def test_receipt_id_is_unique_across_concurrent_invoices(
+    refund_queue_case, rls_engine, workspace_and_scope,
+):
+    from dataclasses import replace
+    from uuid import uuid4
+
+    from sqlalchemy import select
+
+    from tests.integration.test_rls_postgres_policies import _seed_probe_rows
+    from twobrain_rec_server.billing.reconciliation import record_observed_receipt
+    from twobrain_rec_server.db.models import BillingReceiptIdentity
+    from twobrain_rec_server.db.tenant_context import apply_tenant_context
+
+    case = refund_queue_case
+    workspace_ids = (
+        case.workspace_id,
+        (await _seed_probe_rows(rls_engine))["workspace_a"]
+        if workspace_and_scope == "different-workspace" else case.workspace_id,
+    )
+    scope = ProviderScope(environment="test", shop_id="shop-1")
+    alternate = {
+        "different-shop": replace(scope, shop_id="shop-2"),
+        "different-environment": replace(scope, environment="production"),
+    }.get(workspace_and_scope, scope)
+    receipt_id = f"receipt-{uuid4()}"
+    invoices = []
+    async with case.sessions() as db:
+        await apply_tenant_context(db, case.context)
+        for workspace_id, invoice_scope in zip(workspace_ids, (scope, alternate), strict=True):
+            operation = BillingOperation(
+                id=uuid4(), workspace_id=workspace_id, kind="initial_checkout",
+                idempotency_key=str(uuid4()), provider_id=f"payment-{uuid4()}", state="succeeded",
+                request_snapshot={
+                    "provider_environment": invoice_scope.environment,
+                    "provider_shop_id": invoice_scope.shop_id,
+                },
+            )
+            db.add(operation)
+            await db.flush()
+            invoice_id = uuid4()
+            db.add(BillingInvoice(
+                id=invoice_id, workspace_id=workspace_id, operation_id=operation.id,
+                safe_number=f"INV-{uuid4()}", amount_minor=1000, currency="RUB",
+                status="succeeded", plan_snapshot={},
+            ))
+            invoices.append((workspace_id, invoice_id, operation.provider_id, invoice_scope))
+        await db.commit()
+
+    async def observe(item, status="pending", *, commit=True):
+        workspace_id, _, payment_id, invoice_scope = item
+        observation = extract_receipt_observation(
+            {"id": receipt_id, "type": "payment", "payment_id": payment_id, "status": status},
+            scope=invoice_scope,
+        )
+        async with case.sessions() as db:
+            await apply_tenant_context(db, case.context)
+            result = await record_observed_receipt(db, workspace_id=workspace_id, observation=observation)
+            if commit:
+                await db.commit()
+            return result
+
+    assert await observe(invoices[0], commit=False) == ("inserted", False)
+    outcomes = await asyncio.wait_for(
+        asyncio.gather(*(observe(item) for item in invoices)), timeout=10
+    )
+    if scope != alternate:
+        assert outcomes == [("inserted", False), ("inserted", False)]
+        return
+    assert sorted(outcomes) == [("conflict", False), ("inserted", False)]
+    winner = outcomes.index(("inserted", False))
+    assert await observe(invoices[winner], "succeeded") == ("updated", True)
+    assert await observe(invoices[winner], "succeeded") == ("duplicate", False)
+    assert await observe(invoices[1 - winner], "succeeded") == ("conflict", False)
+
+    async with case.sessions() as db:
+        await apply_tenant_context(db, case.context)
+        loser = await db.scalar(select(BillingInvoice).where(BillingInvoice.id == invoices[1 - winner][1]))
+        assert (loser.status, loser.amount_minor, loser.plan_snapshot) == ("succeeded", 1000, {})
+
+
+    async with case.sessions() as db:
+        await apply_tenant_context(db, replace(case.context, operation_name="operator_diagnostics"))
+        assert await db.scalar(
+            select(BillingReceiptIdentity.invoice_id).filter_by(provider_receipt_id=receipt_id)
+        ) is None
+
+
+@pytest.mark.strict_rls
+@pytest.mark.asyncio
+@pytest.mark.parametrize("first", ["payment", "receipt", "legacy_canceled"])
+async def test_payment_receipt_confirmation_clock_survives_id_binding(refund_queue_case, first):
+    from sqlalchemy import select
+
+    from twobrain_rec_server.billing.receipts import merge_confirmed_receipt_registration
+    from twobrain_rec_server.billing.reconciliation import record_observed_receipt
+    from twobrain_rec_server.db.models import BillingNotificationDelivery
+    from twobrain_rec_server.db.tenant_context import apply_tenant_context
+
+    case = refund_queue_case
+    payment_id = (await case.rows(BillingOperation))[0]["provider_id"]
+    receipt_id = f"receipt-{case.invoice_id}"
+    timing_key = "receipt_registration_timing"
+
+    async def card():
+        return (await case.rows(BillingInvoice))[0]["plan_snapshot"]
+
+    async def confirm(source, status):
+        async with case.sessions() as db:
+            await apply_tenant_context(db, case.context)
+            if source == "receipt":
+                observation = extract_receipt_observation(
+                    {"id": receipt_id, "type": "payment", "payment_id": payment_id, "status": status},
+                    scope=SCOPE,
+                )
+                outcome = await record_observed_receipt(
+                    db, workspace_id=case.workspace_id, observation=observation, observed_at=NOW,
+                )
+                assert outcome[0] in {"inserted", "updated", "duplicate"}
+            else:
+                invoice = await db.scalar(
+                    select(BillingInvoice).where(BillingInvoice.id == case.invoice_id).with_for_update()
+                )
+                invoice.plan_snapshot, available = await merge_confirmed_receipt_registration(
+                    db, invoice.plan_snapshot, status=status,
+                    payment_binding=(SCOPE.environment, SCOPE.shop_id, payment_id),
+                )
+                assert not available
+            await db.commit()
+
+    if first == "legacy_canceled":
+        async with case.sessions() as db:
+            await apply_tenant_context(db, case.context)
+            invoice = await db.get(BillingInvoice, case.invoice_id)
+            invoice.plan_snapshot = {"receipt_registration": "canceled"}
+            await db.commit()
+        assert timing_key not in await card()
+        pending_timing = {}
+    else:
+        started = datetime.now(UTC)
+        await confirm(first, "pending")
+        pending_timing = (await card())[timing_key]
+        assert pending_timing["legacy_pending_unknown"] is False
+        assert started <= datetime.fromisoformat(pending_timing["first_confirmed_pending_at"]) <= datetime.now(UTC)
+        await confirm("receipt" if first == "payment" else "payment", "pending")
+        assert (await card())[timing_key] == pending_timing
+
+    started = datetime.now(UTC)
+    await confirm("receipt" if first == "payment" else "payment", "canceled")
+    saved = await card()
+    basis = saved[timing_key]["canceled"]
+    assert basis["freshness"] == "confirmed"
+    assert basis["detected_at"] == basis["due_at"]
+    assert started <= datetime.fromisoformat(basis["detected_at"]) <= datetime.now(UTC)
+    assert saved[timing_key] == {**pending_timing, "canceled": basis}
+    await confirm("payment", "canceled")
+    await confirm("receipt", "canceled")
+    assert (await card())[timing_key] == saved[timing_key]
+    assert not await case.rows(BillingNotificationDelivery)
+
+
+@pytest.mark.strict_rls
+@pytest.mark.asyncio
+@pytest.mark.parametrize("latest_status", ["pending", "succeeded", "canceled"])
+async def test_receipt_overdue_reads_locked_invoice_and_survives_retry(refund_queue_case, latest_status):
+    from datetime import timedelta
+
+    from sqlalchemy import func, select
+
+    from twobrain_rec_server.billing.reconciliation import record_observed_receipt
+    from twobrain_rec_server.db.models import BillingNotificationDelivery, BillingReceiptIdentity
+    from twobrain_rec_server.db.tenant_context import apply_tenant_context
+
+    case = refund_queue_case
+    payment_id = (await case.rows(BillingOperation))[0]["provider_id"]
+    observation = extract_receipt_observation(
+        {"id": f"receipt-{case.invoice_id}", "type": "payment",
+         "payment_id": payment_id, "status": "pending"},
+        scope=SCOPE,
+    )
+    timing_key = "receipt_registration_timing"
+    async with case.sessions() as db:
+        await apply_tenant_context(db, case.context)
+        now = await db.scalar(select(func.clock_timestamp()))
+        first = now - timedelta(hours=73)
+        due = first + timedelta(hours=72)
+        invoice = await db.get(BillingInvoice, case.invoice_id)
+        previous_timing = {"first_confirmed_pending_at": first.isoformat(), "legacy_pending_unknown": True}
+        invoice.plan_snapshot = {"receipt_registration": "pending", timing_key: previous_timing}
+        await db.commit()
+
+    async def accept(db):
+        return await record_observed_receipt(
+            db, workspace_id=case.workspace_id, observation=observation, observed_at=NOW,
+        )
+
+    async with case.sessions() as stale:
+        await apply_tenant_context(stale, case.context)
+        invoice = await stale.get(BillingInvoice, case.invoice_id)
+        assert invoice.plan_snapshot["receipt_registration"] == "pending"
+        if latest_status != "pending":
+            async with case.sessions() as writer:
+                await apply_tenant_context(writer, case.context)
+                current = await writer.get(BillingInvoice, case.invoice_id)
+                current.plan_snapshot = {**current.plan_snapshot, "receipt_registration": latest_status}
+                await writer.commit()
+            assert invoice.plan_snapshot["receipt_registration"] == "pending"
+            assert await accept(stale) == ("conflict", False)
+            await stale.commit()
+        else:
+            assert await accept(stale) == ("inserted", False)
+            assert "pending_overdue" in invoice.plan_snapshot[timing_key]
+            await stale.rollback()
+
+    readback = (await case.rows(BillingInvoice))[0]["plan_snapshot"]
+    assert readback["receipt_registration"] == latest_status
+    assert readback[timing_key] == previous_timing
+    assert not await case.rows(BillingReceiptIdentity)
+    if latest_status == "pending":
+        async with case.sessions() as db:
+            await apply_tenant_context(db, case.context)
+            assert await accept(db) == ("inserted", False)
+            await db.commit()
+        saved = (await case.rows(BillingInvoice))[0]["plan_snapshot"][timing_key]
+        overdue = saved["pending_overdue"]
+        assert overdue["due_at"] == due.isoformat()
+        assert overdue["freshness"] == "confirmed"
+        assert now <= datetime.fromisoformat(overdue["detected_at"]) <= datetime.now(UTC)
+        async with case.sessions() as db:
+            await apply_tenant_context(db, case.context)
+            assert await accept(db) == ("duplicate", False)
+            await db.commit()
+        assert (await case.rows(BillingInvoice))[0]["plan_snapshot"][timing_key] == saved
+    assert not await case.rows(BillingNotificationDelivery)
+
+
+
+@pytest.mark.strict_rls
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", ["canceled", "succeeded"])
+async def test_malformed_payment_receipt_timing_preserves_fiscal_atomicity(refund_queue_case, status):
+    from twobrain_rec_server.billing.receipts import merge_confirmed_receipt_registration
+    from twobrain_rec_server.billing.reconciliation import record_observed_receipt
+    from twobrain_rec_server.db.models import BillingReceiptIdentity
+    from twobrain_rec_server.db.tenant_context import apply_tenant_context
+
+    case = refund_queue_case
+    payment_id = (await case.rows(BillingOperation))[0]["provider_id"]
+    previous = {"receipt_registration": "pending", "receipt_registration_timing": "invalid"}
+    observation = extract_receipt_observation(
+        {"id": f"receipt-{case.invoice_id}", "type": "payment",
+         "payment_id": payment_id, "status": status},
+        scope=SCOPE,
+    )
+    async with case.sessions() as db:
+        await apply_tenant_context(db, case.context)
+        invoice = await db.get(BillingInvoice, case.invoice_id)
+        invoice.plan_snapshot = previous
+        await db.commit()
+
+    async with case.sessions() as db:
+        await apply_tenant_context(db, case.context)
+        args = {"status": status, "payment_binding": (SCOPE.environment, SCOPE.shop_id, payment_id)}
+        if status == "canceled":
+            with pytest.raises(ValueError, match="receipt timing is invalid"):
+                await merge_confirmed_receipt_registration(db, previous, **args)
+        else:
+            merged, available = await merge_confirmed_receipt_registration(db, previous, **args)
+            assert available and merged == {**previous, "receipt_registration": "succeeded"}
+        result = await record_observed_receipt(db, workspace_id=case.workspace_id, observation=observation)
+        assert result == (("conflict", False) if status == "canceled" else ("inserted", True))
+        await db.commit()
+
+    snapshot = (await case.rows(BillingInvoice))[0]["plan_snapshot"]
+    assert snapshot["receipt_registration_timing"] == previous["receipt_registration_timing"]
+    if status == "canceled":
+        assert snapshot == previous
+        assert not await case.rows(BillingReceiptIdentity)
+    else:
+        assert snapshot["receipt_registration"] == "succeeded"
+        assert len(await case.rows(BillingReceiptIdentity)) == 1
+
+
+@pytest.mark.strict_rls
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reply", ["unavailable", "canceled", "succeeded", "pending", "incomplete"])
+async def test_receipt_poll_checks_provider_before_overdue_and_keeps_payment(refund_queue_case, reply):
+    from datetime import timedelta
+
+    from sqlalchemy import select, update
+
+    from twobrain_rec_server.billing.receipt_poll import reconcile_pending_receipts
+    from twobrain_rec_server.db.models import BillingNotificationDelivery, WorkspaceSubscription
+    from twobrain_rec_server.db.tenant_context import apply_tenant_context
+
+    case = refund_queue_case
+    if reply != "unavailable":
+        case.provider_state["payment_receipt_status"] = "canceled" if reply == "incomplete" else reply
+        case.provider_state["incomplete_payment_receipt"] = reply == "incomplete"
+    first = datetime.now(UTC) - timedelta(hours=72, seconds=1)
+    async with case.sessions() as db:
+        await apply_tenant_context(db, case.context)
+        await db.execute(update(BillingOperation).where(
+            BillingOperation.workspace_id == case.workspace_id
+        ).values(created_at=first))
+        if reply == "succeeded":
+            await db.execute(update(WorkspaceSubscription).where(
+                WorkspaceSubscription.workspace_id == case.workspace_id
+            ).values(billing_owner_id=case.another_user_id))
+        invoice = await db.scalar(select(BillingInvoice).where(BillingInvoice.id == case.invoice_id))
+        invoice.plan_snapshot = {
+            "receipt_registration": "pending",
+            "receipt_registration_timing": {"first_confirmed_pending_at": first.isoformat()},
+        }
+        await db.commit()
+        counters = await reconcile_pending_receipts(db, case.settings)
+        assert counters["receipt_gets"] == 1
+
+    async with case.sessions() as db:
+        await apply_tenant_context(db, case.context)
+        assert (await reconcile_pending_receipts(db, case.settings))["receipt_gets"] == 0
+
+    assert len(case.calls) == 1 and case.calls[0][0] == "GET"
+    snapshot = (await case.rows(BillingInvoice))[0]["plan_snapshot"]
+    timing = snapshot["receipt_registration_timing"]
+    assert timing["last_poll_result"] == {"unavailable": "unavailable", "incomplete": "conflict"}.get(reply, "confirmed")
+    assert snapshot["receipt_registration"] == ("pending" if reply in {"unavailable", "incomplete"} else reply)
+    if reply in {"unavailable", "pending"}:
+        overdue = timing["pending_overdue"]
+        assert overdue["due_at"] == (first + timedelta(hours=72)).isoformat()
+        assert overdue["freshness"] == ("unknown" if reply == "unavailable" else "confirmed")
+    else:
+        assert "pending_overdue" not in timing
+        assert ("canceled" in timing) == (reply == "canceled")
+    deliveries = await case.rows(BillingNotificationDelivery)
+    assert [row["recipient_id"] for row in deliveries] == ([case.another_user_id] if reply == "succeeded" else [])
+    assert (await case.rows(BillingOperation))[0]["state"] == "succeeded"
+
+
+@pytest.mark.strict_rls
+@pytest.mark.asyncio
+async def test_receipt_poll_shared_limit_rotates_refunds_and_persists_reservation(refund_queue_case, monkeypatch):
+    from datetime import timedelta
+
+    from sqlalchemy import update
+
+    from twobrain_rec_server.billing.receipt_poll import reconcile_pending_receipts
+    from twobrain_rec_server.billing.reconciliation import record_observed_receipt
+    from twobrain_rec_server.billing.yookassa import YooKassaClient
+    from twobrain_rec_server.db.tenant_context import apply_tenant_context
+
+    case = refund_queue_case
+    first = datetime.now(UTC) - timedelta(hours=73)
+    await case.add_events("parent", 1, NOW)
+    assert (await case.process(1))["reconciled"] == 1
+    case.calls.clear()
+    payment_id = (await case.rows(BillingOperation))[0]["provider_id"]
+    refund_ids = [f"receipt-{case.invoice_id}-{i:02d}" for i in range(11)]
+    for receipt_id in refund_ids:
+        await case.add_events("receipt", 1, NOW, receipt_id=receipt_id)
+    async with case.sessions() as db:
+        await apply_tenant_context(db, case.context)
+        await db.execute(update(BillingOperation).where(
+            BillingOperation.workspace_id == case.workspace_id
+        ).values(created_at=first))
+        for receipt_id in refund_ids:
+            observation = extract_receipt_observation(
+                {"id": receipt_id, "type": "refund", "refund_id": case.refund_id,
+                 "payment_id": payment_id, "status": "pending"}, scope=SCOPE,
+            )
+            assert await record_observed_receipt(
+                db, workspace_id=case.workspace_id, observation=observation, observed_at=NOW,
+            ) == ("inserted", False)
+        invoice = await db.get(BillingInvoice, case.invoice_id)
+        invoice.plan_snapshot = {
+            **invoice.plan_snapshot,
+            "receipt_registration": "pending",
+            "receipt_registration_timing": {
+                "first_confirmed_pending_at": first.isoformat(),
+                "last_reserved_poll_at": first.isoformat(),
+            },
+        }
+        await db.commit()
+
+    get_receipt = YooKassaClient.get_receipt
+
+    async def inspect_reservation(self, receipt_id):
+        snapshot = (await case.rows(BillingInvoice))[0]["plan_snapshot"]
+        saved = snapshot["receipt_observations"][f"test:shop-1:{receipt_id}"]
+        assert saved["last_poll_result"] == "reserved"
+        assert datetime.fromisoformat(saved["last_reserved_poll_at"]) > first
+        return await get_receipt(self, receipt_id)
+
+    monkeypatch.setattr(YooKassaClient, "get_receipt", inspect_reservation)
+    case.provider_state["receipt_status"] = "pending"
+
+    async def run():
+        async with case.sessions() as db:
+            await apply_tenant_context(db, case.context)
+            return await reconcile_pending_receipts(db, case.settings)
+
+    first_pass = await run()
+    assert first_pass["receipt_gets"] == 10
+    assert first_pass["receipt_poll_incomplete"] == 1
+    assert [path.rsplit("/", 1)[-1] for method, path in case.calls if method == "GET"] == refund_ids[:10]
+    second_pass = await run()
+    assert second_pass["receipt_gets"] == 2
+    assert case.calls[-2:] == [("GET", f"/v3/receipts/{refund_ids[-1]}"), ("GET", f"/v3/payments/{payment_id}")]
+    assert (await run())["receipt_gets"] == 0
+    snapshot = (await case.rows(BillingInvoice))[0]["plan_snapshot"]
+    assert snapshot["receipt_registration_timing"]["pending_overdue"]["freshness"] == "unknown"
+    assert all(entry["last_poll_result"] == "confirmed" for entry in snapshot["receipt_observations"].values())
+
+
+@pytest.mark.strict_rls
+@pytest.mark.asyncio
+async def test_receipt_poll_concurrent_pass_cannot_repeat_reserved_get(refund_queue_case, monkeypatch):
+    import asyncio
+    from datetime import timedelta
+
+    from sqlalchemy import update
+
+    from twobrain_rec_server.billing.receipt_poll import reconcile_pending_receipts
+    from twobrain_rec_server.billing.yookassa import YooKassaClient
+    from twobrain_rec_server.db.tenant_context import apply_tenant_context
+
+    case = refund_queue_case
+    first = datetime.now(UTC) - timedelta(hours=25)
+    async with case.sessions() as db:
+        await apply_tenant_context(db, case.context)
+        await db.execute(update(BillingOperation).where(
+            BillingOperation.workspace_id == case.workspace_id
+        ).values(created_at=first))
+        invoice = await db.get(BillingInvoice, case.invoice_id)
+        invoice.plan_snapshot = {"receipt_registration": "pending"}
+        await db.commit()
+
+    entered = asyncio.Event()
+    resume = asyncio.Event()
+    provider_get = YooKassaClient.get_payment
+
+    async def get_payment(self, payment_id):
+        entered.set()
+        await resume.wait()
+        return await provider_get(self, payment_id)
+
+    monkeypatch.setattr(YooKassaClient, "get_payment", get_payment)
+    case.provider_state["payment_receipt_status"] = "pending"
+
+    async def run():
+        async with case.sessions() as db:
+            await apply_tenant_context(db, case.context)
+            return await reconcile_pending_receipts(db, case.settings)
+
+    async with asyncio.TaskGroup() as group:
+        leader = group.create_task(run())
+        try:
+            await asyncio.wait_for(entered.wait(), timeout=2)
+            card = (await case.rows(BillingInvoice))[0]["plan_snapshot"]
+            timing = card["receipt_registration_timing"]
+            assert timing["last_poll_result"] == "reserved"
+            assert "first_confirmed_pending_at" not in timing
+            assert (await run())["receipt_gets"] == 0
+        finally:
+            resume.set()
+
+    assert leader.result()["receipt_gets"] == 1
+    timing = (await case.rows(BillingInvoice))[0]["plan_snapshot"]["receipt_registration_timing"]
+    assert timing["legacy_pending_unknown"] is True
+    assert "pending_overdue" not in timing
+    assert len(case.calls) == 1
+
+
+@pytest.mark.strict_rls
+@pytest.mark.asyncio
+@pytest.mark.parametrize("provider_available", [True, False])
+async def test_receipt_poll_rejects_clock_rollback_during_get(refund_queue_case, monkeypatch, provider_available):
+    from datetime import timedelta
+
+    from sqlalchemy import update
+
+    from twobrain_rec_server.billing import receipt_poll
+    from twobrain_rec_server.db.tenant_context import apply_tenant_context
+
+    case = refund_queue_case
+    now = datetime.now(UTC)
+    first = now - timedelta(hours=73)
+    before_get = now + timedelta(seconds=10)
+    after_get = now + timedelta(seconds=5)
+    moments = iter((now, now, now, before_get, before_get, after_get))
+
+    async def clock(_db):
+        return next(moments, after_get)
+
+    monkeypatch.setattr(receipt_poll, "_clock", clock)
+    if provider_available:
+        case.provider_state["payment_receipt_status"] = "pending"
+    async with case.sessions() as db:
+        await apply_tenant_context(db, case.context)
+        await db.execute(update(BillingOperation).where(
+            BillingOperation.workspace_id == case.workspace_id
+        ).values(created_at=first))
+        invoice = await db.get(BillingInvoice, case.invoice_id)
+        invoice.plan_snapshot = {
+            "receipt_registration": "pending",
+            "receipt_registration_timing": {"first_confirmed_pending_at": first.isoformat()},
+        }
+        await db.commit()
+        counters = await receipt_poll.reconcile_pending_receipts(db, case.settings)
+
+    assert counters["receipt_gets"] == counters["receipt_source_invalid"] == 1
+    snapshot = (await case.rows(BillingInvoice))[0]["plan_snapshot"]
+    assert snapshot["receipt_registration"] == "pending"
+    assert snapshot["receipt_registration_timing"] == {
+        "first_confirmed_pending_at": first.isoformat(),
+        "last_reserved_poll_at": now.isoformat(),
+        "last_poll_result": "clock_rollback",
+    }
+
+
+@pytest.mark.strict_rls
+@pytest.mark.asyncio
+async def test_o16_receipt_delta_is_atomic_and_survives_invoice_deletion(refund_queue_case):
+    from uuid import uuid4
+
+    from sqlalchemy import text
+
+    from twobrain_rec_server.billing.receipts import merge_confirmed_receipt_registration
+    from twobrain_rec_server.db.tenant_context import apply_tenant_context
+
+    case = refund_queue_case
+    invoice_id = uuid4()
+    operation_id = uuid4()
+    payment_id = f"synthetic-o16-{operation_id}"
+    async with case.sessions() as db:
+        await apply_tenant_context(db, case.context)
+        db.add(BillingOperation(
+            id=operation_id, workspace_id=case.workspace_id, kind="initial_checkout",
+            idempotency_key=payment_id, provider_id=payment_id, state="succeeded",
+            request_snapshot={"provider_environment": "test", "provider_shop_id": "shop-1"},
+        ))
+        await db.flush()
+        db.add(BillingInvoice(
+            id=invoice_id, workspace_id=case.workspace_id, operation_id=operation_id,
+            safe_number=f"SYNTHETIC-O16-{invoice_id}", amount_minor=1000, status="succeeded",
+            plan_snapshot={"receipt_registration": "pending"},
+        ))
+        await db.commit()
+
+    async def totals():
+        async with case.sessions() as db:
+            await apply_tenant_context(db, case.context)
+            return tuple((await db.execute(text("""
+                SELECT coalesce(sum(canceled_delta), 0),
+                       coalesce(sum(overdue_confirmed_delta), 0),
+                       coalesce(sum(overdue_unknown_delta), 0)
+                FROM billing_receipt_observation_deltas
+            """))).one())
+
+    async def confirm(db):
+        invoice = await db.get(BillingInvoice, invoice_id, with_for_update=True)
+        invoice.plan_snapshot, available = await merge_confirmed_receipt_registration(
+            db, invoice.plan_snapshot, status="canceled", payment_binding=("test", "shop-1", payment_id),
+        )
+        assert not available
+        await db.flush()
+
+    before = await totals()
+    async with case.sessions() as db:
+        await apply_tenant_context(db, case.context)
+        await confirm(db)
+        assert await totals() == before
+        await db.rollback()
+    assert await totals() == before
+
+    async with case.sessions() as db:
+        await apply_tenant_context(db, case.context)
+        await confirm(db)
+        await db.commit()
+        after = (before[0] + 1, *before[1:])
+        assert await totals() == after
+        await confirm(db)
+        await db.commit()
+        assert await totals() == after
+        await db.delete(await db.get(BillingInvoice, invoice_id))
+        await db.commit()
+    assert await totals() == after

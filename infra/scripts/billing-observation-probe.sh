@@ -133,14 +133,20 @@ def validate_image(cfg, raw):
 
 
 def safe_output(mode, value):
-    require(type(value) is dict and type(value.get("schema_version")) is int and value["schema_version"] == 1)
+    require(type(value) is dict and type(value.get("schema_version")) is int
+            and value["schema_version"] in ((1, 2) if mode == "source" else (1,)))
     if mode == "source":
         keys = {"schema_version", "source_profile", "source_generation", "as_of", "coverage",
                 "event_count", "failed_event_count", "conflicting_attempt_count", "last_event_at"}
+        counters = {"event_count", "failed_event_count", "conflicting_attempt_count"}
+        if value["schema_version"] == 2:
+            receipt = {"receipt_canceled_count", "receipt_overdue_confirmed_count", "receipt_overdue_unknown_count"}
+            keys |= receipt
+            counters |= receipt
         require(set(value) == keys and value["coverage"] == "partial")
         for field in ("source_profile", "source_generation"):
             require(type(value[field]) is str and str(UUID(value[field])) == value[field])
-        for field in ("event_count", "failed_event_count", "conflicting_attempt_count"):
+        for field in counters:
             require(type(value[field]) is int and 0 <= value[field] <= 9223372036854775807)
         times = [value["as_of"]] + ([] if value["last_event_at"] is None else [value["last_event_at"]])
     elif mode in {"status", "tick", "witness"}:

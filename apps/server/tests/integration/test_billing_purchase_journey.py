@@ -117,9 +117,16 @@ def test_initial_storage_early_renewal_and_scheduled_downgrade_are_one_coherent_
     workspace, headers = _prepare_owner_session(client)
     seed_catalog_and_budget(client, workspace)
 
-    def provider_for_step():
+    def provider_for_step(receipt_status=None):
         provider = _FakeYooKassa(saved_card=True)
-        transport = httpx.MockTransport(provider.handle)
+
+        def handle(request):
+            response = provider.handle(request)
+            if request.method == "GET" and receipt_status is not None:
+                return httpx.Response(200, json={**response.json(), "receipt_registration": receipt_status})
+            return response
+
+        transport = httpx.MockTransport(handle)
 
         def factory(settings):
             return YooKassaClient(settings, transport=transport)
@@ -136,7 +143,7 @@ def test_initial_storage_early_renewal_and_scheduled_downgrade_are_one_coherent_
             await db.commit()
             return result
 
-    initial = provider_for_step()
+    initial = provider_for_step("canceled")
     preview = client.post(
         "/billing/checkout/preview",
         headers=headers,
@@ -159,7 +166,23 @@ def test_initial_storage_early_renewal_and_scheduled_downgrade_are_one_coherent_
     assert response.status_code == 303
     assert len(initial.create_payloads) == 1
     assert initial.create_payloads[0]["amount"]["value"] == "10.00"
+    before_initial_get = datetime.now(UTC)
     assert asyncio.run(observe())["succeeded"] == 1
+
+    async def verify_initial_receipt():
+        async with client.app_state["sessionmaker"]() as db:
+            invoice = await db.scalar(select(BillingInvoice).join(
+                BillingOperation, BillingInvoice.operation_id == BillingOperation.id,
+            ).where(BillingOperation.provider_id == initial.payment_id))
+            assert invoice.status == "succeeded"
+            assert invoice.plan_snapshot["receipt_registration"] == "canceled"
+            timing = invoice.plan_snapshot["receipt_registration_timing"]
+            assert set(timing) == {"canceled"}
+            basis = timing["canceled"]
+            assert basis["freshness"] == "confirmed" and basis["detected_at"] == basis["due_at"]
+            assert before_initial_get <= datetime.fromisoformat(basis["detected_at"]) <= datetime.now(UTC)
+
+    asyncio.run(verify_initial_receipt())
 
     storage = provider_for_step()
     preview = client.post(
@@ -733,7 +756,7 @@ def test_expired_quote_and_changed_catalog_never_reach_provider(client, monkeypa
 
 
 @pytest.mark.parametrize("kind", ["initial_checkout", "storage_upgrade", "early_renewal", "renewal"])
-@pytest.mark.parametrize("mode", ["background", "boundary", "late_manual", "manual_pending", "manual_get_failure", "wrong_scope", "wrong_amount", "wrong_test", "wrong_metadata", "get_failure", "owner_missing"])
+@pytest.mark.parametrize("mode", ["background", "bound_receipt", "boundary", "late_manual", "manual_pending", "manual_get_failure", "wrong_scope", "wrong_amount", "wrong_test", "wrong_metadata", "get_failure", "owner_missing"])
 def test_completed_purchase_recovers_late_receipt_without_replaying_money(
     client, monkeypatch, tmp_path, kind, mode, operation_state="succeeded"
 ):
@@ -756,6 +779,17 @@ def test_completed_purchase_recovers_late_receipt_without_replaying_money(
     op_id, inv_id = uuid4(), uuid4()
     number = f"INV-RECEIPT-{uuid4().hex}"
     snapshot = {"cycle": "year", "receipt_registration": "pending"}
+    if mode == "wrong_legacy_receipt":
+        snapshot["receipt_observations"] = {
+            "test:other-shop:prior-receipt": {
+                "parent_kind": "payment",
+                "provider_parent_id": "pay-synthetic-receipt",
+                "provider_receipt_id": "prior-receipt",
+                "environment": "test",
+                "shop_id": "other-shop",
+                "status": "pending",
+            },
+        }
     refused = operation_state == "succeeded_refused"
     owner_changed = mode == "owner_changed_late"
     resolution = "workspace_scope_invalid"
@@ -766,6 +800,8 @@ def test_completed_purchase_recovers_late_receipt_without_replaying_money(
         snapshot["service_resolution"] = resolution
     operation_snapshot = {"purchase_schema": 2, "provider_environment": "test",
                           "provider_shop_id": "shop-money-path"} if operation_state != "succeeded_projected" else {}
+    if mode == "wrong_legacy_binding":
+        operation_snapshot["provider_shop_id"] = "original-shop"
     if refused:
         operation_snapshot["reconciliation_detail"] = {"code": resolution}
 
@@ -819,6 +855,25 @@ def test_completed_purchase_recovers_late_receipt_without_replaying_money(
                                           spent_minor=12500, reserved_minor=0,
                                           enabled=False, expires_at=now - timedelta(hours=1)))
             await db.flush()
+            if mode == "bound_receipt":
+                from twobrain_rec_server.billing.reconciliation import (
+                    ProviderScope,
+                    extract_receipt_observation,
+                    record_observed_receipt,
+                )
+                observation = extract_receipt_observation(
+                    {
+                        "id": "receipt-1",
+                        "type": "payment",
+                        "payment_id": "pay-synthetic-receipt",
+                        "status": "pending",
+                    },
+                    scope=ProviderScope("test", "shop-money-path"),
+                )
+                assert await record_observed_receipt(
+                    db, workspace_id=workspace, observation=observation, observed_at=now
+                ) == ("inserted", False)
+                snapshot = dict((await db.get(BillingInvoice, inv_id)).plan_snapshot)
             if not refused:
                 db.add(BillingEntitlementGrant(workspace_id=workspace, invoice_id=inv_id,
                        provider_payment_id="pay-synthetic-receipt", plan_code="personal",
@@ -851,7 +906,7 @@ def test_completed_purchase_recovers_late_receipt_without_replaying_money(
         assert request.url.path == "/v3/payments/pay-synthetic-receipt"
         if mode in {"get_failure", "manual_get_failure"}:
             raise httpx.ConnectError("synthetic outage", request=request)
-        return httpx.Response(200, json={
+        payload = {
             "id": "pay-synthetic-receipt", "status": "succeeded", "test": mode != "wrong_test",
             "created_at": now.isoformat(), "paid": True,
             "recipient": {"account_id": "wrong" if mode == "wrong_scope" else "shop-money-path"},
@@ -859,7 +914,13 @@ def test_completed_purchase_recovers_late_receipt_without_replaying_money(
             "metadata": {"workspace_id": str(workspace), "operation_id": str(uuid4()) if mode == "wrong_metadata" else str(op_id),
                          "invoice_number": number},
             "receipt_registration": receipt_status,
-        })
+        }
+        if mode == "incomplete_legacy":
+            del payload["recipient"]
+            del payload["test"]
+        if mode == "wrong_legacy_receipt":
+            del payload["receipt_registration"]
+        return httpx.Response(200, json=payload)
 
     monkeypatch.setattr(webhook_reconciliation, "YooKassaClient",
                         lambda settings: YooKassaClient(settings, transport=httpx.MockTransport(handle)))
@@ -946,6 +1007,12 @@ def test_completed_purchase_recovers_late_receipt_without_replaying_money(
         assert result["processed"] == 0 and calls == []
     else:
         assert result["processed"] == 1 and calls == ["GET"]
+    async def read_timing():
+        async with client.app_state["sessionmaker"]() as db:
+            invoice = await db.get(BillingInvoice, inv_id)
+            return invoice.plan_snapshot["receipt_registration_timing"]
+
+    first_timing = asyncio.run(read_timing()) if mode in {"background", "bound_receipt", "boundary"} else None
     receipt_status = "pending" if mode == "manual_pending" else "succeeded"
     if manual:
         response = client.post(f"/billing/checkout/status/{number}/refresh?return_to=invoice", headers=headers,
@@ -958,18 +1025,37 @@ def test_completed_purchase_recovers_late_receipt_without_replaying_money(
             assert "Не удалось проверить чек" in returned.text and "Оплачен" in returned.text
         elif mode == "manual_pending":
             assert "Чек формируется" in returned.text and "Оплачен" in returned.text
+            first_timing = asyncio.run(read_timing())
         else:
             assert "Чек зарегистрирован" in returned.text
     else:
         asyncio.run(observe())
-    succeeded = mode in {"background", "boundary", "late_manual", "owner_changed_late"}
+    succeeded = mode in {"background", "bound_receipt", "boundary", "late_manual", "owner_changed_late"}
     async def verify():
         async with client.app_state["sessionmaker"]() as db:
             invoice, operation = await db.get(BillingInvoice, inv_id), await db.get(BillingOperation, op_id)
             assert operation.state == operation_state and invoice.status == "succeeded"
             assert operation.request_snapshot == operation_snapshot
             assert invoice.amount_minor == 12500
-            assert invoice.plan_snapshot == {**snapshot, "receipt_registration": "succeeded" if succeeded else "pending"}
+            expected = {**snapshot, "receipt_registration": "succeeded" if succeeded else "pending"}
+            if operation_state == "succeeded_projected" and succeeded:
+                expected["receipt_payment_binding"] = {
+                    "operation_id": str(op_id),
+                    "workspace_id": str(workspace),
+                    "payment_id": "pay-synthetic-receipt",
+                    "environment": "test",
+                    "shop_id": "shop-money-path",
+                }
+            if mode == "bound_receipt":
+                key = "test:shop-money-path:receipt-1"
+                expected["receipt_observations"] = {
+                    key: {**snapshot["receipt_observations"][key], "status": "succeeded"},
+                }
+            if first_timing is not None:
+                assert first_timing["legacy_pending_unknown"] is True
+                assert now <= datetime.fromisoformat(first_timing["first_confirmed_pending_at"]) <= datetime.now(UTC)
+                expected["receipt_registration_timing"] = first_timing
+            assert invoice.plan_snapshot == expected
             subscription = await db.get(WorkspaceSubscription, workspace)
             assert not subscription.recurring_allowed and subscription.paid_through == now + timedelta(days=365)
             assert subscription.capacity_bytes == 10_000_000_000
@@ -995,6 +1081,44 @@ def test_completed_purchase_recovers_late_receipt_without_replaying_money(
                 assert value not in final_detail
     asyncio.run(verify())
 
+    if operation_state == "succeeded_projected":
+        from twobrain_rec_server.billing.reconciliation import (
+            ProviderScope,
+            extract_receipt_observation,
+            record_observed_receipt,
+        )
+
+        async def read_receipt_again(shop: str, environment: str, *, repeat: bool = False):
+            async with client.app_state["sessionmaker"]() as db:
+                invoice = await db.get(BillingInvoice, inv_id)
+                original = dict(invoice.plan_snapshot)
+                result = await record_observed_receipt(
+                    db, workspace_id=workspace,
+                    observation=extract_receipt_observation(
+                        {"id": "receipt-after-restart", "type": "payment",
+                         "payment_id": "pay-synthetic-receipt", "status": "succeeded"},
+                        scope=ProviderScope(environment, shop),
+                    ),
+                    observed_at=now,
+                )
+                assert (await db.get(BillingOperation, op_id)).request_snapshot == operation_snapshot
+                if succeeded and (environment, shop) == ("test", "shop-money-path"):
+                    assert result == ("duplicate" if repeat else "inserted", False)
+                    if repeat:
+                        assert invoice.plan_snapshot == original
+                    assert invoice.plan_snapshot["receipt_payment_binding"] == original["receipt_payment_binding"]
+                    assert len(invoice.plan_snapshot["receipt_observations"]) == 1
+                else:
+                    assert result == ("conflict", False)
+                    assert invoice.plan_snapshot == original
+                assert await db.scalar(select(func.count()).select_from(BillingNotificationDelivery)) == int(succeeded)
+                await db.commit()
+
+        asyncio.run(read_receipt_again("other-shop", "test"))
+        asyncio.run(read_receipt_again("shop-money-path", "production"))
+        asyncio.run(read_receipt_again("shop-money-path", "test"))
+        asyncio.run(read_receipt_again("shop-money-path", "test", repeat=True))
+
     if owner_changed:
         before = len(calls)
         asyncio.run(change_access(role="member"))
@@ -1003,11 +1127,14 @@ def test_completed_purchase_recovers_late_receipt_without_replaying_money(
         asyncio.run(verify())
 
 
+@pytest.mark.parametrize(
+    "mode", ["background", "incomplete_legacy", "wrong_legacy_binding", "wrong_legacy_receipt"]
+)
 def test_projected_storage_purchase_recovers_receipt_without_replaying_projection(
-    client, monkeypatch, tmp_path
+    client, monkeypatch, tmp_path, mode
 ):
     test_completed_purchase_recovers_late_receipt_without_replaying_money(
-        client, monkeypatch, tmp_path, "storage_upgrade", "background",
+        client, monkeypatch, tmp_path, "storage_upgrade", mode,
         operation_state="succeeded_projected",
     )
 
@@ -1144,6 +1271,7 @@ def test_pending_receipts_rotate_with_one_batch_slot(client, monkeypatch, tmp_pa
     async def financial_snapshot():
         async with client.app_state["sessionmaker"]() as db:
             result = []
+            timings = {}
             for model in (BillingOperation, BillingInvoice, WorkspaceSubscription,
                           BillingAcceptanceBudget, BillingEntitlementGrant,
                           BillingStorageEntitlementGrant, BillingAuditEvent,
@@ -1153,13 +1281,28 @@ def test_pending_receipts_rotate_with_one_batch_slot(client, monkeypatch, tmp_pa
                                 for column in model.__table__.columns
                                 if not (model is BillingOperation and column.key == "updated_at")}
                                for row in rows])
-            return result
+                if model is BillingInvoice:
+                    for invoice in result[-1]:
+                        invoice["plan_snapshot"] = dict(invoice["plan_snapshot"])
+                        timing = invoice["plan_snapshot"].pop("receipt_registration_timing", None)
+                        if timing is not None:
+                            timings[invoice["safe_number"]] = timing
+            return result, timings
     from twobrain_rec_server.db.models import BillingEntitlementGrant
-    before = asyncio.run(financial_snapshot())
-    asyncio.run(observe())
-    assert asyncio.run(financial_snapshot()) == before
-    asyncio.run(observe())
-    assert asyncio.run(financial_snapshot()) == before
+    before, initial_timings = asyncio.run(financial_snapshot())
+    assert not initial_timings
+    allowed = {payment_id: number for _, number, payment_id in identities[0 if first_result == "pending" else 1:]}
+    first_pass = {}
+    for _ in range(2):
+        asyncio.run(observe())
+        after, timings = asyncio.run(financial_snapshot())
+        assert after == before
+        assert timings.keys() == {allowed[payment_id] for payment_id in calls if payment_id in allowed}
+        assert all(timings[number] == timing for number, timing in first_pass.items())
+        for timing in timings.values():
+            assert timing["legacy_pending_unknown"] is True
+            assert now <= datetime.fromisoformat(timing["first_confirmed_pending_at"]) <= datetime.now(UTC)
+        first_pass = timings
     assert calls == [item[2] for item in (identities[1:] if first_result == "ownerless" else identities)]
 
 

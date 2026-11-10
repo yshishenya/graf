@@ -8,6 +8,10 @@ from twobrain_rec_server.billing.payment_methods import (
     extract_saved_bank_card,
     seal_provider_reference,
 )
+from twobrain_rec_server.billing.receipts import (
+    confirm_receipt_timing,
+    merge_receipt_registration,
+)
 from twobrain_rec_server.billing.reconciliation import (
     ObservationRecords,
     ProviderObservationError,
@@ -283,12 +287,151 @@ def test_receipt_snapshot_is_scoped_bounded_and_monotonic() -> None:
         {
             "id": "receipt-refund-2",
             "type": "refund",
-            "refund_id": "refund-2",
+            "refund_id": "refund-1",
             "status": "canceled",
         },
         scope=SCOPE,
     )
-    _, result = merge_receipt_observation_snapshot(
+    snapshot, result = merge_receipt_observation_snapshot(
         snapshot, canceled_refund_receipt, source="registry", observed_at=NOW
     )
     assert result == "inserted"
+    assert snapshot["receipt_observations"]["test:shop-1:receipt-refund-1"]["status"] == "succeeded"
+    assert snapshot["receipt_observations"]["test:shop-1:receipt-refund-2"]["status"] == "canceled"
+
+
+@pytest.mark.parametrize(
+    ("receipt_id", "status", "legacy_status", "extra_record"),
+    [
+        ("receipt-2", "succeeded", "pending", None),
+        ("receipt-1", "succeeded", "canceled", None),
+        ("receipt-1", "succeeded", "pending", {"parent_kind": "payment"}),
+        ("receipt-1", "succeeded", "pending", "invalid"),
+    ],
+)
+def test_payment_receipt_conflicts_preserve_snapshot(
+    receipt_id, status, legacy_status, extra_record
+) -> None:
+    pending = extract_receipt_observation(
+        {"id": "receipt-1", "type": "payment", "payment_id": "pay-1", "status": "pending"},
+        scope=SCOPE,
+    )
+    snapshot, _ = merge_receipt_observation_snapshot(
+        {}, pending, source="webhook", observed_at=NOW
+    )
+    snapshot["receipt_registration"] = legacy_status
+    if extra_record is not None:
+        snapshot["receipt_observations"]["test:shop-1:receipt-old"] = extra_record
+    incoming = extract_receipt_observation(
+        {"id": receipt_id, "type": "payment", "payment_id": "pay-1", "status": status},
+        scope=SCOPE,
+    )
+    merged, result = merge_receipt_observation_snapshot(
+        snapshot, incoming, source="poll", observed_at=NOW
+    )
+    assert result == "conflict"
+    assert merged == snapshot
+
+
+@pytest.mark.parametrize("payment_first", [False, True])
+def test_payment_and_receipt_get_share_one_terminal_state(payment_first: bool) -> None:
+    binding = ("test", "shop-1", "pay-1")
+    receipt = extract_receipt_observation(
+        {
+            "id": "receipt-1",
+            "type": "payment",
+            "payment_id": "pay-1",
+            "status": "succeeded",
+            "registered_at": NOW.isoformat(),
+        },
+        scope=SCOPE,
+    )
+    if payment_first:
+        snapshot, available = merge_receipt_registration(
+            {}, status="succeeded", payment_binding=binding
+        )
+        assert available
+        snapshot, result = merge_receipt_observation_snapshot(
+            snapshot, receipt, source="webhook", observed_at=NOW
+        )
+        assert result == "inserted"
+    else:
+        snapshot, _ = merge_receipt_observation_snapshot(
+            {}, receipt, source="webhook", observed_at=NOW
+        )
+    unchanged, available = merge_receipt_registration(
+        snapshot, status="succeeded", payment_binding=binding
+    )
+    assert not available
+    assert unchanged == snapshot
+    assert len(snapshot["receipt_observations"]) == 1
+    assert snapshot["receipt_observations"]["test:shop-1:receipt-1"]["registered_at"] == NOW.isoformat()
+    with pytest.raises(ValueError, match="regressive"):
+        merge_receipt_registration(snapshot, status="canceled", payment_binding=binding)
+    with pytest.raises(ValueError, match="binding conflicts"):
+        merge_receipt_registration(snapshot, status="succeeded", payment_binding=("test", "other", "pay-1"))
+
+
+def test_payment_can_be_confirmed_without_a_valid_fiscal_status() -> None:
+    observation = extract_payment_observation(
+        {
+            "id": "pay-1",
+            "status": "succeeded",
+            "amount": {"value": "790.00", "currency": "RUB"},
+            "created_at": NOW.isoformat(),
+            "receipt_registration": {"invalid": True},
+        },
+        scope=SCOPE,
+    )
+    assert observation.status == "succeeded"
+    assert observation.receipt_registration is None
+
+
+@pytest.mark.asyncio
+async def test_receipt_pending_overdue_uses_exact_deadline_and_never_rewrites_it():
+    class Clock:
+        now = NOW
+
+        async def scalar(self, _):
+            return self.now
+
+    db = Clock()
+    timing = {"first_confirmed_pending_at": NOW.isoformat(), "legacy_pending_unknown": True}
+    due = NOW + timedelta(hours=72)
+    db.now = due - timedelta(microseconds=1)
+    assert await confirm_receipt_timing(db, timing, status="pending", was_pending=True) == timing
+
+    db.now = due
+    overdue = await confirm_receipt_timing(db, timing, status="pending", was_pending=True)
+    assert overdue == {
+        **timing,
+        "pending_overdue": {
+            "detected_at": due.isoformat(), "due_at": due.isoformat(), "freshness": "confirmed",
+        },
+    }
+    assert "pending_overdue" not in timing
+    db.now += timedelta(minutes=7)
+    assert await confirm_receipt_timing(db, overdue, status="pending", was_pending=True) == overdue
+    assert await confirm_receipt_timing(db, timing, status="succeeded", was_pending=True) == timing
+    canceled = await confirm_receipt_timing(db, timing, status="canceled", was_pending=True)
+    assert "pending_overdue" not in canceled
+    assert canceled["canceled"]["due_at"] == db.now.isoformat()
+    both = await confirm_receipt_timing(db, overdue, status="canceled", was_pending=True)
+    assert both["pending_overdue"] == overdue["pending_overdue"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("first", ["unparseable", "2026-08-06", "2026-08-06T13:00:00+00:00"])
+async def test_receipt_overdue_rejects_invalid_or_future_clock_but_accepts_terminal(first):
+    class Clock:
+        async def scalar(self, _):
+            return NOW
+
+    db = Clock()
+    timing = {"first_confirmed_pending_at": first}
+    with pytest.raises(ValueError, match="receipt (pending timestamp|confirmation clock)"):
+        await confirm_receipt_timing(db, timing, status="pending", was_pending=True)
+    assert await confirm_receipt_timing(db, timing, status="succeeded", was_pending=True) == timing
+    canceled = await confirm_receipt_timing(db, timing, status="canceled", was_pending=True)
+    assert canceled["canceled"]["detected_at"] == NOW.isoformat()
+    assert "pending_overdue" not in canceled
