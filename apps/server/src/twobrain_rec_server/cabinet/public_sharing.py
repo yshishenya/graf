@@ -132,14 +132,20 @@ async def current_media(db, *, meeting):
     version = sha256(
         f"{revision.id if revision else 'absent'}:{result.id if result else 'absent'}".encode()
     ).hexdigest()[:24]
-    return result, version
+    return revision, result, version
 
 
 async def full_projection(db, *, meeting, summary, outcome_set=None, outcome_items=()):
     from twobrain_rec_server.cabinet.egress import review_playback_state
 
-    result, version = await current_media(db, meeting=meeting)
-    playback = await review_playback_state(db, meeting=meeting, access=public_access())
+    revision, result, version = await current_media(db, meeting=meeting)
+    playback_available = revision is not None and (
+        await review_playback_state(db, meeting=meeting, access=public_access(), revision=revision)
+    ).can_play
+    summary_source_stale = (
+        outcome_set is not None and result is not None
+        and outcome_set.processing_result_id != result.id
+    )
     turns = []
     speakers = []
     sources = {}
@@ -172,7 +178,7 @@ async def full_projection(db, *, meeting, summary, outcome_set=None, outcome_ite
             transcript_segments=segments,
             diarization_segments=diarization,
             status="ready",
-            playback_available=playback.can_play,
+            playback_available=playback_available,
             playback_duration_seconds=meeting.duration_seconds,
         )
         lanes = speaker_state(diarization, transcript_segments=segments, speaker_names=names, can_rename=False)
@@ -241,7 +247,8 @@ async def full_projection(db, *, meeting, summary, outcome_set=None, outcome_ite
         "transcript": turns,
         "speakers": speakers,
         "media_version": version,
-        "playback_available": playback.can_play,
+        "playback_available": playback_available,
+        "summary_source_stale": summary_source_stale,
     }
 
 
