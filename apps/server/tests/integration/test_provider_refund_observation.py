@@ -603,7 +603,9 @@ async def refund_queue_case(rls_engine, tmp_path, monkeypatch):
                 json={
                     "id": provider_state.get("receipt_response_id", request.url.path.rsplit("/", 1)[1]),
                     "type": "refund",
-                    "status": [] if provider_state["malformed_receipts"] else "succeeded",
+                    "status": [] if provider_state["malformed_receipts"] else provider_state.get(
+                        "receipt_status", "succeeded"
+                    ),
                     "refund_id": receipt_parents[request.url.path.rsplit("/", 1)[1]],
                     "payment_id": payment_id,
                 },
@@ -726,14 +728,14 @@ async def refund_queue_case(rls_engine, tmp_path, monkeypatch):
         )
         await db.commit()
 
-    async def add_events(kind, count, received_at):
+    async def add_events(kind, count, received_at, *, receipt_id=None):
         async with sessions() as db:
             await apply_tenant_context(db, context)
             event_ids = []
             for index in range(count):
                 event_id = uuid4()
                 event_ids.append(event_id)
-                object_id = refund_id if kind == "parent" else f"{kind}-{event_id}"
+                object_id = refund_id if kind == "parent" else receipt_id or f"{kind}-{event_id}"
                 if kind in {"receipt", "malformed-receipt"}:
                     receipt_parents[object_id] = refund_id if index == 0 else f"missing-{event_id}"
                     provider_state["malformed_receipts"] = kind == "malformed-receipt"
@@ -742,9 +744,11 @@ async def refund_queue_case(rls_engine, tmp_path, monkeypatch):
                         id=event_id,
                         workspace_id=workspace_id,
                         provider_event_id=f"event-{event_id}",
-                        event_type="receipt.succeeded"
-                        if kind in {"receipt", "malformed-receipt"}
-                        else "refund.succeeded",
+                        event_type=(
+                            "receipt.waiting_for_cancellation"
+                            if provider_state.get("receipt_status") == "canceled"
+                            else "receipt.succeeded"
+                        ) if kind in {"receipt", "malformed-receipt"} else "refund.succeeded",
                         object_id=object_id,
                         occurred_at=NOW,
                         received_at=received_at,
@@ -890,6 +894,71 @@ async def test_receipt_get_must_match_requested_receipt(refund_queue_case):
     snapshot = (await case.rows(BillingInvoice))[0]["plan_snapshot"]
     assert len(snapshot["receipt_observations"]) == 1
     await case.assert_financial_unchanged()
+
+
+@pytest.mark.strict_rls
+@pytest.mark.asyncio
+@pytest.mark.parametrize("shop", ["shop-1", "other-shop", None])
+async def test_canceled_refund_receipt_basis_requires_bound_shop(
+    refund_queue_case, shop, monkeypatch
+):
+    from sqlalchemy import select
+
+    from twobrain_rec_server.billing import webhook_reconciliation
+    from twobrain_rec_server.db.models import BillingNotificationDelivery, BillingWebhookEvent
+    from twobrain_rec_server.db.tenant_context import apply_tenant_context
+
+    case = refund_queue_case
+    if shop is not None:
+        async with case.sessions() as db:
+            await apply_tenant_context(db, case.context)
+            operation = await db.scalar(
+                select(BillingOperation).where(BillingOperation.workspace_id == case.workspace_id)
+            )
+            operation.request_snapshot = {"provider_environment": "test", "provider_shop_id": shop}
+            await db.commit()
+
+    await case.add_events("parent", 1, NOW)
+    assert (await case.process(1))["reconciled"] == 1
+    case.provider_state["receipt_status"] = "canceled"
+    before = (await case.rows(BillingInvoice))[0]
+    await case.add_events("receipt", 1, NOW, receipt_id="synthetic-canceled-refund-receipt")
+    if shop == "shop-1":
+        record = webhook_reconciliation.record_observed_receipt
+
+        async def fail_after_flush(*args, **kwargs):
+            assert await record(*args, **kwargs) == "inserted"
+            raise ProviderObservationError("synthetic rollback after receipt flush")
+
+        with monkeypatch.context() as scoped:
+            scoped.setattr(webhook_reconciliation, "record_observed_receipt", fail_after_flush)
+            assert (await case.process(1))["pending"] == 1
+        assert (await case.rows(BillingInvoice))[0] == before
+
+    started = datetime.now(UTC)
+    counters = await case.process(1)
+    after = (await case.rows(BillingInvoice))[0]
+    if shop == "other-shop":
+        assert counters["pending"] == 1
+        assert after == before
+        return
+
+    assert counters["reconciled"] == 1
+    entry = next(iter(after["plan_snapshot"]["receipt_observations"].values()))
+    assert entry["status"] == "canceled"
+    assert entry["observed_at"] == NOW.isoformat()
+    if shop is None:
+        assert "canceled" not in entry
+        return
+
+    basis = entry["canceled"]
+    assert started <= datetime.fromisoformat(basis["detected_at"]) <= datetime.now(UTC)
+    assert basis["due_at"] == basis["detected_at"]
+    await case.add_events("receipt", 1, NOW, receipt_id="synthetic-canceled-refund-receipt")
+    assert (await case.process(1))["reconciled"] == 1
+    assert (await case.rows(BillingInvoice))[0] == after
+    assert all(row["state"] == "reconciled" for row in await case.rows(BillingWebhookEvent))
+    assert not await case.rows(BillingNotificationDelivery)
 
 
 @pytest.mark.strict_rls

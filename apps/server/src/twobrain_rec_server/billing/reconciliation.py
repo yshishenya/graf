@@ -429,6 +429,7 @@ async def record_observed_receipt(
 ) -> ReceiptObservationResult:
     """Persist bounded receipt truth without changing entitlement or refunds."""
     invoice: BillingInvoice | None
+    refund_scope_confirmed = False
     if observation.parent_kind == "payment":
         operation = await db.scalar(
             select(BillingOperation)
@@ -470,25 +471,62 @@ async def record_observed_receipt(
             )
     if invoice is None:
         return "unmatched"
-    # Check the optional hint before every merge, including duplicate receipts.
-    # Older projections need no new field: the immutable invoice/operation is
-    # the authoritative payment binding of the already observed refund.
-    if observation.related_payment_id is not None:
+    if observation.parent_kind == "refund":
         operation = await db.scalar(
             select(BillingOperation).where(
                 BillingOperation.workspace_id == workspace_id,
                 BillingOperation.id == invoice.operation_id,
             )
         )
-        if operation is None or operation.provider_id != observation.related_payment_id:
+        if operation is None:
+            return "unmatched"
+        if (
+            observation.related_payment_id is not None
+            and operation.provider_id != observation.related_payment_id
+        ):
             raise ProviderObservationError("provider receipt payment conflicts with refund invoice")
+        binding = operation.request_snapshot
+        if not isinstance(binding, Mapping):
+            return "conflict"
+        environment = binding.get("provider_environment")
+        shop = binding.get("provider_shop_id")
+        if (environment is not None and environment != observation.scope.environment) or (
+            shop is not None and shop != observation.scope.shop_id
+        ):
+            return "conflict"
+        refund_scope_confirmed = bool(
+            operation.provider_id
+            and environment == observation.scope.environment
+            and shop == observation.scope.shop_id
+            and observed_refund is not None
+            and observed_refund.status == "succeeded"
+        )
     merged, result = merge_receipt_observation_snapshot(
         invoice.plan_snapshot,
         observation,
         source=source,
         observed_at=observed_at or datetime.now(UTC),
     )
-    if result in {"inserted", "updated"}:
+    if refund_scope_confirmed and observation.status == "canceled" and result in {
+        "inserted", "updated", "duplicate"
+    }:
+        key = _receipt_observation_key(observation)
+        receipts = merged["receipt_observations"]
+        entry = receipts[key]
+        if "canceled" not in entry:
+            confirmed_at = _aware_utc(await db.scalar(select(func.clock_timestamp()))).isoformat()
+            merged["receipt_observations"] = {
+                **receipts,
+                key: {
+                    **entry,
+                    "canceled": {
+                        "detected_at": confirmed_at,
+                        "due_at": confirmed_at,
+                        "freshness": "confirmed",
+                    },
+                },
+            }
+    if merged != invoice.plan_snapshot:
         invoice.plan_snapshot = merged
         await db.flush()
     return result
