@@ -4,6 +4,7 @@
 **Source SHA**: `813e9dabba35c546a782852795e921bd325f3689`
 **Candidate**: `rc-20261110T103104Z-24a9a722c7ef`
 **GitHub Release**: https://github.com/yshishenya/graf/releases/tag/v2026.11.10.3
+**Server release / deploy**: https://github.com/yshishenya/graf/releases/tag/v2026.11.10.4
 
 ## Checks
 
@@ -45,8 +46,18 @@
 - PR #8003 fixed the SwiftPM `Contents/Resources/Resources` layout for both the release launch validator and the runtime meeting-target registry lookup.
 - `build-local-installer.sh` now uses `swift build --show-bin-path` instead of assuming the pre-Xcode-27 product path; the release itself was built with an equivalent local path compatibility step.
 
+## Production deploy v2026.11.10.4
+
+- Source SHA: `a50cf9748cab05bff7eb5ce5a0696da18c64ade6`
+- GitHub Release: https://github.com/yshishenya/graf/releases/tag/v2026.11.10.4
+- `release-full` 42811315428 — PASS (Ubuntu static/governance, PostgreSQL strict/performance, 8 shards, macOS full).
+- `deploy_result=pass`; branch `master`; deployed SHA `a50cf9748cab05bff7eb5ce5a0696da18c64ade6`.
+- Backup: `/opt/projects/2brain-rec/backups/20261110T121314Z`.
+- Runtime SHA: `a50cf9748cab05bff7eb5ce5a0696da18c64ade6`; readiness `infra_smoke_ready`.
+- macOS app remains `v2026.11.10.3`; Sparkle appcast was not changed.
+
 ## Limitations
 
-- Production server deployment was not executed; the GitHub Release and Sparkle update are published.
+- Production deployment is the server-only `v2026.11.10.4`; the macOS app update remains `v2026.11.10.3`.
 - Full 60-minute hardware performance run and increased-contrast matrix remain deferred.
 - Umbrella #7967 remains open for T007, T012, T023, T025, T028, T029.

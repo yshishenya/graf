@@ -56,7 +56,7 @@
 - Full CI: https://github.com/yshishenya/graf/actions/runs/42799821665 — PASS
 - macOS: Developer ID, notarization Accepted, stapled, Gatekeeper accepted, Sparkle signature valid, live appcast version `2026.11.10.3`.
 - Подробные идентификаторы и SHA-256: `specs/293-interface-hardening/validation/release.md`.
-- Production-выкладка сервера не выполнялась; это отдельное подтверждаемое действие оператора.
+- Production-выкладка сервера выполнена как `v2026.11.10.4`: `deploy_result=pass`, source `a50cf9748cab05bff7eb5ce5a0696da18c64ade6`, backup `/opt/projects/2brain-rec/backups/20261110T121314Z`. macOS-приложение остаётся `v2026.11.10.3`.
 
 ## Deferred / not claimed
 
