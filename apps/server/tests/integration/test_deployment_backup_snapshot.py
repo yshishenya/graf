@@ -247,6 +247,10 @@ def test_full_migrated_database_restore_comparison(
           (SELECT max(id) FROM billing_registry_imports),now(),now(),now()+interval '1 hour') RETURNING id;
     """
     assert psql(source, registry_rows, role="twobrain_rec_maintenance").splitlines() == ["1", "1"]
+    psql(source, """
+        INSERT INTO billing_receipt_observation_deltas
+          (canceled_delta, overdue_confirmed_delta, overdue_unknown_delta) VALUES (1, 2, 3);
+    """, role="twobrain_rec")
     reference = tmp_path / "reference"
     capture(source, "twobrain_rec", reference, dump=True)
     target = snapshot_postgres
@@ -254,12 +258,18 @@ def test_full_migrated_database_restore_comparison(
         # Only role attributes: schema/ACL must come from the real dump.
         psql(target, f"CREATE ROLE twobrain_rec_{role} LOGIN NOINHERIT; "
              f"ALTER ROLE twobrain_rec_{role} SET row_security=on", role="twobrain_rec")
+    psql(target, "CREATE ROLE twobrain_rec_receipt_observation_writer NOLOGIN NOINHERIT",
+         role="twobrain_rec")
     database = "rec_restore_rehearsal_" + uuid.uuid4().hex
     psql(target, f'CREATE DATABASE "{database}"', database="postgres", role="twobrain_rec")
     with (reference / "postgres.dump").open("rb") as stream:
         subprocess.run(["docker", "exec", "-i", target, "pg_restore", "--exit-on-error",
                         "-U", "twobrain_rec", "-d", database], stdin=stream,
                        check=True, capture_output=True, timeout=30)
+    assert psql(target, """
+        SELECT sum(canceled_delta), sum(overdue_confirmed_delta), sum(overdue_unknown_delta)
+        FROM billing_receipt_observation_deltas;
+    """, database=database, role="twobrain_rec").strip() == "1|2|3"
     restored = tmp_path / "restored"
     capture(target, database, restored, dump=False)
     schema_database = "rec_restore_schema_" + uuid.uuid4().hex
@@ -280,7 +290,7 @@ def test_full_migrated_database_restore_comparison(
     migrations_relative = Path("apps/server/src/twobrain_rec_server/db/migrations/versions")
     shutil.copytree(REPO / migrations_relative, checkout / migrations_relative)
     next_migration = checkout / migrations_relative / "t113_next.py"
-    next_migration.write_text("revision = 't113_next'\ndown_revision = '0110_billing_receipt_identities'\n")
+    next_migration.write_text("revision = 't113_next'\ndown_revision = '0111_receipt_observation_deltas'\n")
     next_command = [command[0], str(verifier_path), *command[2:]]
     preflight = next_command[:3] + ["--inventory"]
     assert subprocess.run(preflight, capture_output=True).returncode == 0
@@ -293,7 +303,7 @@ def test_full_migrated_database_restore_comparison(
     next_spec.loader.exec_module(next_verifier)
     next_verifier.inventory(restored, database)  # Valid alone; only the source/restore mismatch fails.
     assert subprocess.run(next_command, capture_output=True).returncode != 0
-    psql(target, "UPDATE alembic_version SET version_num='0110_billing_receipt_identities'", database=database, role="twobrain_rec")
+    psql(target, "UPDATE alembic_version SET version_num='0111_receipt_observation_deltas'", database=database, role="twobrain_rec")
     capture(target, database, restored, dump=False)
     assert subprocess.run(next_command, capture_output=True).returncode == 0
     # Broken checkout histories fail closed, without executing migration code.

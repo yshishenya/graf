@@ -131,5 +131,90 @@ def test_receipt_identity_backfill_roundtrip_refusal_and_cascade(
         assert asyncio.run(execute(select_identities)) == binding
         asyncio.run(execute(delete(BillingInvoice).where(BillingInvoice.id == invoices[0])))
         assert asyncio.run(execute(select_identities)) == []
+        # Upgrade from 0110, not a clean database: refuse malformed history
+        # without recording a partial transfer, then carry all three classes.
+        observation_revision = "0111_receipt_observation_deltas"
+        delta_table = "billing_receipt_observation_deltas"
+        delta_marker = text(f"select version_num, to_regclass('{delta_table}')::text from alembic_version")
+        sums = text(f"select sum(canceled_delta), sum(overdue_confirmed_delta), sum(overdue_unknown_delta) from {delta_table}")
+        start, due = "2026-11-01T12:00:00+00:00", "2026-11-04T12:00:00+00:00"
+        payment_timing = {
+            "first_confirmed_pending_at": start,
+            "canceled": {"freshness": "confirmed", "detected_at": due, "due_at": due},
+            "pending_overdue": {"freshness": "confirmed", "detected_at": due, "due_at": due},
+        }
+        refund = {
+            "parent_kind": "refund", "provider_receipt_id": "synthetic-refund",
+            "provider_parent_id": "synthetic-parent", "environment": "test", "shop_id": "shop-1",
+            "first_confirmed_pending_at": start,
+            "pending_overdue": {"freshness": "unknown", "detected_at": due, "due_at": due},
+        }
+        with_refund = {"receipt_registration_timing": payment_timing,
+                       "receipt_observations": {"test:shop-1:synthetic-refund": refund}}
+        asyncio.run(execute(change_second.values(plan_snapshot={
+            **with_refund, "receipt_registration_timing": {**payment_timing, "pending_overdue": {}},
+        })))
+        with pytest.raises(DBAPIError, match="Receipt observation basis is invalid"):
+            command.upgrade(config, observation_revision)
+        assert asyncio.run(execute(delta_marker)) == [(CURRENT, None)]
+
+        asyncio.run(execute(change_second.values(plan_snapshot={
+            **with_refund, "receipt_observations": {"test:shop-1:synthetic-refund": {
+                **refund, "provider_parent_id": None,
+            }},
+        })))
+        with pytest.raises(DBAPIError, match="Receipt observation basis is invalid"):
+            command.upgrade(config, observation_revision)
+        assert asyncio.run(execute(delta_marker)) == [(CURRENT, None)]
+
+        asyncio.run(execute(change_second.values(plan_snapshot=with_refund)))
+        async def prove_refusal_under_force_rls():
+            from importlib import import_module
+
+            from alembic.migration import MigrationContext
+            from alembic.operations import Operations
+
+            migration = import_module(
+                "twobrain_rec_server.db.migrations.versions.0111_receipt_observation_deltas"
+            )
+            limited = f"receipt_limited_{uuid4().hex}"
+            engine = create_async_engine(postgres_clean_database_url)
+            try:
+                async with engine.begin() as conn:
+                    await conn.execute(text(f"CREATE ROLE {limited} NOLOGIN NOINHERIT"))
+                    await conn.execute(text(f"GRANT USAGE, CREATE ON SCHEMA public TO {limited}"))
+                    await conn.execute(text(f"GRANT SELECT, UPDATE ON billing_invoices TO {limited}"))
+                    await conn.execute(text("""
+                        DO $$ BEGIN
+                            IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'twobrain_rec_receipt_observation_writer') THEN
+                                CREATE ROLE twobrain_rec_receipt_observation_writer NOLOGIN NOINHERIT;
+                            END IF;
+                        END $$
+                    """))
+                with pytest.raises(DBAPIError, match='query would be affected by row-level security policy for table "billing_invoices"'):
+                    async with engine.begin() as conn:
+                        await conn.execute(text(f"SET LOCAL ROLE {limited}"))
+
+                        def upgrade(sync_conn):
+                            with Operations.context(MigrationContext.configure(sync_conn)):
+                                migration.upgrade()
+
+                        await conn.run_sync(upgrade)
+                async with engine.begin() as conn:
+                    await conn.execute(text(f"DROP OWNED BY {limited}"))
+                    await conn.execute(text(f"DROP ROLE {limited}"))
+            finally:
+                await engine.dispose()
+
+        asyncio.run(prove_refusal_under_force_rls())
+        assert asyncio.run(execute(delta_marker)) == [(CURRENT, None)]
+        command.upgrade(config, observation_revision)
+        assert asyncio.run(execute(sums)) == [(1, 1, 1)]
+        with pytest.raises(DBAPIError, match="Receipt observation basis cannot change"):
+            asyncio.run(execute(change_second.values(plan_snapshot={"receipt_registration_timing": payment_timing})))
+        with pytest.raises(DBAPIError, match="downgrade blocked: receipt observation history exists"):
+            command.downgrade(config, CURRENT)
+        assert asyncio.run(execute(delta_marker)) == [(observation_revision, delta_table)]
+        assert asyncio.run(execute(sums)) == [(1, 1, 1)]
     finally:
         get_settings.cache_clear()

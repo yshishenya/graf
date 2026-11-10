@@ -1637,3 +1637,72 @@ async def test_receipt_poll_rejects_clock_rollback_during_get(refund_queue_case,
         "last_reserved_poll_at": now.isoformat(),
         "last_poll_result": "clock_rollback",
     }
+
+
+@pytest.mark.strict_rls
+@pytest.mark.asyncio
+async def test_o16_receipt_delta_is_atomic_and_survives_invoice_deletion(refund_queue_case):
+    from uuid import uuid4
+
+    from sqlalchemy import text
+
+    from twobrain_rec_server.billing.receipts import merge_confirmed_receipt_registration
+    from twobrain_rec_server.db.tenant_context import apply_tenant_context
+
+    case = refund_queue_case
+    invoice_id = uuid4()
+    operation_id = uuid4()
+    payment_id = f"synthetic-o16-{operation_id}"
+    async with case.sessions() as db:
+        await apply_tenant_context(db, case.context)
+        db.add(BillingOperation(
+            id=operation_id, workspace_id=case.workspace_id, kind="initial_checkout",
+            idempotency_key=payment_id, provider_id=payment_id, state="succeeded",
+            request_snapshot={"provider_environment": "test", "provider_shop_id": "shop-1"},
+        ))
+        await db.flush()
+        db.add(BillingInvoice(
+            id=invoice_id, workspace_id=case.workspace_id, operation_id=operation_id,
+            safe_number=f"SYNTHETIC-O16-{invoice_id}", amount_minor=1000, status="succeeded",
+            plan_snapshot={"receipt_registration": "pending"},
+        ))
+        await db.commit()
+
+    async def totals():
+        async with case.sessions() as db:
+            await apply_tenant_context(db, case.context)
+            return tuple((await db.execute(text("""
+                SELECT coalesce(sum(canceled_delta), 0),
+                       coalesce(sum(overdue_confirmed_delta), 0),
+                       coalesce(sum(overdue_unknown_delta), 0)
+                FROM billing_receipt_observation_deltas
+            """))).one())
+
+    async def confirm(db):
+        invoice = await db.get(BillingInvoice, invoice_id, with_for_update=True)
+        invoice.plan_snapshot, available = await merge_confirmed_receipt_registration(
+            db, invoice.plan_snapshot, status="canceled", payment_binding=("test", "shop-1", payment_id),
+        )
+        assert not available
+        await db.flush()
+
+    before = await totals()
+    async with case.sessions() as db:
+        await apply_tenant_context(db, case.context)
+        await confirm(db)
+        assert await totals() == before
+        await db.rollback()
+    assert await totals() == before
+
+    async with case.sessions() as db:
+        await apply_tenant_context(db, case.context)
+        await confirm(db)
+        await db.commit()
+        after = (before[0] + 1, *before[1:])
+        assert await totals() == after
+        await confirm(db)
+        await db.commit()
+        assert await totals() == after
+        await db.delete(await db.get(BillingInvoice, invoice_id))
+        await db.commit()
+    assert await totals() == after

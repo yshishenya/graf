@@ -196,3 +196,20 @@ time.sleep(30)
 def test_unexpected_container_output_is_never_forwarded(launcher, value):
     with pytest.raises((launcher.LauncherError, ValueError)):
         launcher.safe_output("status", value)
+
+
+def test_source_launcher_accepts_both_versions_but_not_missing_or_private_fields(launcher):
+    source = {
+        "schema_version": 1, "source_profile": "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa",
+        "source_generation": "bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb",
+        "as_of": "2026-11-03T12:00:00+00:00", "coverage": "partial", "last_event_at": None,
+        "event_count": 0, "failed_event_count": 0, "conflicting_attempt_count": 0,
+    }
+    launcher.safe_output("source", source)
+    v2 = source | {"schema_version": 2, "receipt_canceled_count": 1,
+                   "receipt_overdue_confirmed_count": 0, "receipt_overdue_unknown_count": 2}
+    launcher.safe_output("source", v2)
+    for invalid in (source | {"schema_version": 2}, v2 | {"receipt_canceled_count": True},
+                    v2 | {"receipt_id": "synthetic"}, v2 | {"schema_version": 1}):
+        with pytest.raises(launcher.LauncherError):
+            launcher.safe_output("source", invalid)

@@ -686,6 +686,39 @@ async def test_runtime_role_bootstrap_is_idempotent_and_verifies_privileges(
                 ("twobrain_rec_maintenance", "SELECT"),
                 ("twobrain_rec_maintenance", "INSERT"),
             }
+            await verification_connection.execute(
+                "grant insert on public.billing_receipt_observation_deltas to twobrain_rec_maintenance"
+            )
+            await verification_connection.execute(
+                "grant usage on sequence public.billing_receipt_observation_deltas_id_seq to twobrain_rec_app"
+            )
+            await bootstrap._bootstrap()
+            assert tuple(await verification_connection.fetchrow("""
+                select has_table_privilege('twobrain_rec_maintenance', 'billing_receipt_observation_deltas', 'SELECT'),
+                       has_table_privilege('twobrain_rec_maintenance', 'billing_receipt_observation_deltas', 'INSERT'),
+                       has_sequence_privilege('twobrain_rec_app', 'billing_receipt_observation_deltas_id_seq', 'USAGE'),
+                       has_function_privilege('twobrain_rec_app', 'rec_append_receipt_observation()', 'EXECUTE')
+            """)) == (True, False, False, False)
+            await verification_connection.execute(
+                "grant twobrain_rec_receipt_observation_writer to twobrain_rec_app"
+            )
+            try:
+                with pytest.raises(RuntimeError, match="receipt observation writer role is unsafe"):
+                    await bootstrap._bootstrap()
+            finally:
+                await verification_connection.execute(
+                    "revoke twobrain_rec_receipt_observation_writer from twobrain_rec_app"
+                )
+            await verification_connection.execute(
+                "grant select (plan_snapshot) on public.billing_invoices to twobrain_rec_receipt_observation_writer"
+            )
+            try:
+                with pytest.raises(RuntimeError, match="receipt observation writer role is unsafe"):
+                    await bootstrap._bootstrap()
+            finally:
+                await verification_connection.execute(
+                    "revoke select (plan_snapshot) on public.billing_invoices from twobrain_rec_receipt_observation_writer"
+                )
         finally:
             await verification_connection.close()
 

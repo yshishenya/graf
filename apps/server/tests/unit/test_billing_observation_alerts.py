@@ -1019,3 +1019,65 @@ def test_cli_reads_operation_time_after_journal_replay(tmp_path, monkeypatch, mo
             assert journal.last_now == stamp(NOW + timedelta(seconds=3))
             assert journal.discontinuity is None
     assert posts == []
+
+
+@pytest.mark.parametrize("regressed", ["version", "total", None])
+def test_receipt_recovery_keeps_accepted_and_replays_sample_without_incident(tmp_path, regressed):
+    from twobrain_rec_server.billing.observation_alerts import ObservationError, stamp
+
+    cls, path, profile, generation, binding = setup_journal(tmp_path)
+    posts = []
+
+    def source(gen, now, *, canceled=1, confirmed=0, unknown=0):
+        return sample(profile, gen, now, events=0) | {
+            "schema_version": 2, "receipt_canceled_count": canceled,
+            "receipt_overdue_confirmed_count": confirmed, "receipt_overdue_unknown_count": unknown,
+        }
+
+    def tick(journal, envelope, now):
+        return asyncio.run(journal.tick(source=envelope, peer=None, now=now, binding_version=binding,
+                                       client=postal(posts), recipient="synthetic@example.invalid"))
+
+    later = NOW + timedelta(seconds=1)
+    next_gen = str(uuid4())
+    with cls(path) as journal:
+        with pytest.raises(ObservationError):
+            journal.append("sample", {"at": stamp(NOW), "source": source(generation, later), "peer": None})
+        assert journal.receipt_totals is None
+        tick(journal, sample(profile, generation, events=0), NOW)
+        tick(journal, source(generation, NOW), NOW)
+        accepted = journal.current("receipt_canceled").copy()
+        assert accepted["notified_key"] is not None and len(posts) == 1
+        assert journal.producer_at is None
+        # A crash after a durable sample must not lose the new basis.
+        journal.append("sample", {"at": stamp(later), "source": source(generation, later, confirmed=1, unknown=1),
+                                  "peer": None})
+        assert journal.current("receipt_overdue_confirmed") is None
+        journal.append("recovery", {"expected_head": journal.head, "source_generation": next_gen,
+                                    "at": stamp(later), "evidence_ref": "synthetic:verified"})
+
+    with cls(path) as journal:
+        envelope = {
+            "version": sample(profile, next_gen, later),
+            "total": source(next_gen, later, confirmed=1),
+            None: source(next_gen, later, confirmed=1, unknown=1),
+        }[regressed]
+        status = tick(journal, envelope, later)
+        assert journal.current("receipt_canceled") == accepted
+        if regressed is not None:
+            assert status["source_check"] == "discontinuity"
+            assert journal.current("receipt_overdue_confirmed") is None
+            assert journal.current("receipt_overdue_unknown") is None
+            return
+        assert status["source_check"] == "available"
+        assert journal.current("receipt_overdue_confirmed")["basis"]["count"] == 1
+        assert journal.current("receipt_overdue_unknown")["basis"]["count"] == 1
+        assert len(posts) == 2
+
+    with cls(path) as journal:
+        later += timedelta(seconds=1)
+        tick(journal, source(next_gen, later, confirmed=1, unknown=1), later)
+        assert len(posts) == 3
+        assert {i["kind"] for i in journal.incidents.values() if i["notified_key"]} == {
+            "receipt_canceled", "receipt_overdue_confirmed", "receipt_overdue_unknown",
+        }

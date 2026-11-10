@@ -125,6 +125,7 @@ RLS_OPERATOR_TABLES = frozenset(
 RLS_BILLING_TABLES = frozenset(
     {
         "billing_receipt_identities",
+        "billing_receipt_observation_deltas",
         "billing_reconciliation_observations",
         "billing_registry_imports",
         "billing_registry_gaps",

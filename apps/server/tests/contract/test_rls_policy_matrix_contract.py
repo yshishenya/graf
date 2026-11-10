@@ -203,6 +203,7 @@ def test_rls_migration_covers_every_current_tenant_table() -> None:
         + BILLING_REGISTRY_MIGRATION.read_text(encoding="utf-8")
         + RECONCILIATION_OBSERVATIONS_MIGRATION.read_text(encoding="utf-8")
         + RECEIPT_IDENTITIES_MIGRATION.read_text(encoding="utf-8")
+        + RECEIPT_IDENTITIES_MIGRATION.with_name("0111_receipt_observation_deltas.py").read_text(encoding="utf-8")
     )
 
     for table_name in sorted(RLS_COVERED_TABLES):

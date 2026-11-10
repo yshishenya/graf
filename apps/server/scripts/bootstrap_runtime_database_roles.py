@@ -276,6 +276,72 @@ async def _verify_runtime_roles(
             raise RuntimeError("media database role lock privileges are unsafe")
 
 
+async def _restrict_receipt_observation_source(connection: asyncpg.Connection) -> None:
+    table = "public.billing_receipt_observation_deltas"
+    if not await connection.fetchval("select to_regclass($1)", table):
+        return  # The role bootstrap also runs before the migration is installed.
+    sequence = table + "_id_seq"
+    trigger = "public.rec_append_receipt_observation()"
+    bases = "public.rec_receipt_observation_bases(jsonb)"
+    writer = "twobrain_rec_receipt_observation_writer"
+    runtime = f"public, {APP_ROLE}, {MAINTENANCE_ROLE}, {MEDIA_ROLE}"
+    for statement in (
+        f"revoke all on {table} from {runtime}",
+        f"revoke all on sequence {sequence} from {runtime}",
+        f"revoke all on function {trigger}, {bases} from {runtime}",
+        f"grant select on {table} to {MAINTENANCE_ROLE}",
+    ):
+        await connection.execute(statement)
+    safe = await connection.fetchval(
+        """
+        select not (r.rolcanlogin or r.rolinherit or r.rolsuper or r.rolbypassrls
+                    or r.rolcreatedb or r.rolcreaterole or r.rolreplication)
+            and not exists (select from pg_auth_members m where r.oid in (m.roleid, m.member))
+            and not has_schema_privilege(r.oid, 'public', 'CREATE')
+            and has_schema_privilege(r.oid, 'public', 'USAGE')
+            and p.proowner = r.oid and p.prosecdef
+            and has_table_privilege(r.oid, $2, 'INSERT')
+            and not has_any_column_privilege(r.oid, $2, 'SELECT,UPDATE,REFERENCES')
+            and not has_table_privilege(r.oid, $2, 'DELETE,TRUNCATE,TRIGGER')
+            and has_sequence_privilege(r.oid, $3, 'USAGE')
+            and not has_sequence_privilege(r.oid, $3, 'SELECT,UPDATE')
+            and has_function_privilege(r.oid, $5, 'EXECUTE')
+            and not exists (
+                select from pg_class c join pg_namespace n on n.oid = c.relnamespace
+                where n.nspname !~ '^pg_' and n.nspname <> 'information_schema'
+                  and c.oid not in ($2::text::regclass, $3::text::regclass)
+                  and case
+                    when c.relkind = 'S' then has_sequence_privilege(r.oid, c.oid, 'USAGE,SELECT,UPDATE')
+                    when c.relkind in ('r','p','v','m','f') then
+                        has_table_privilege(r.oid, c.oid, 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+                        or has_any_column_privilege(r.oid, c.oid, 'SELECT,INSERT,UPDATE,REFERENCES')
+                    else false
+                  end
+            )
+        from pg_roles r join pg_proc p on p.oid = $4::text::regprocedure
+        where r.rolname = $1
+        """,
+        writer, table, sequence, trigger, bases,
+    )
+    if not safe:
+        raise RuntimeError("receipt observation writer role is unsafe")
+    for role in (APP_ROLE, MAINTENANCE_ROLE, MEDIA_ROLE):
+        safe = await connection.fetchval(
+            """
+            select has_table_privilege($1::name, $2, 'SELECT') = $6
+               and ($6 or not has_any_column_privilege($1::name, $2, 'SELECT'))
+               and not has_any_column_privilege($1::name, $2, 'INSERT,UPDATE,REFERENCES')
+               and not has_table_privilege($1::name, $2, 'DELETE,TRUNCATE,TRIGGER')
+               and not has_sequence_privilege($1::name, $3, 'USAGE,SELECT,UPDATE')
+               and not has_function_privilege($1::name, $4, 'EXECUTE')
+               and not has_function_privilege($1::name, $5, 'EXECUTE')
+            """,
+            role, table, sequence, trigger, bases, role == MAINTENANCE_ROLE,
+        )
+        if not safe:
+            raise RuntimeError("receipt observation runtime privileges are unsafe")
+
+
 async def _bootstrap() -> None:
     owner_password = _read_secret("TWOBRAIN_DB_OWNER_PASSWORD_FILE")
     app_password = _read_secret("TWOBRAIN_DB_APP_PASSWORD_FILE")
@@ -374,6 +440,7 @@ async def _bootstrap() -> None:
                 await connection.execute(
                     f"grant select ({', '.join(columns)}) on public.{table} to {MEDIA_ROLE}"
                 )
+            await _restrict_receipt_observation_source(connection)
             await _verify_runtime_roles(connection, database_name=database_name)
     finally:
         await connection.close()
