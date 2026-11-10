@@ -358,6 +358,51 @@ print(render_template('cabinet/auth/analytics.html', public_analytics=json.loads
     await lost.close();
     console.log('ok_cached_page_reports_loss_of_confirmed_choice');
 
+    const interrupted = await open();
+    intercept = async (body, reply) => {
+      if (body.action !== 'revoke') return false;
+      reply(503, { accepted: false }); return true;
+    };
+    await interrupted.locator('.cm__btns [data-role="all"]').click();
+    await pending(interrupted);
+    intercept = null;
+    const oldChoice = await cookie(interrupted);
+    oldChoice.data = { ...accepted.data, graf_public_consent_epoch: randomUUID() };
+    rows.set(oldChoice.consentId, { epoch: oldChoice.data.graf_public_consent_epoch,
+      categories: oldChoice.categories, copy_version: accepted.data.graf_consent_copy_version });
+    await interrupted.evaluate(({ key, oldChoice }) => {
+      localStorage.setItem(key, JSON.stringify(oldChoice));
+      const run = window.CookieConsent.run;
+      window.CookieConsent.run = async options => {
+        await run(options);
+        await new Promise(resolve => { window.__releaseConsentRun = resolve; });
+      };
+    }, { key: KEY, oldChoice });
+    const beforeInterruption = requests.length;
+    await interrupted.getByRole('button', { name: 'Повторить сохранение отказа' }).click();
+    await interrupted.waitForFunction(() => Boolean(window.__releaseConsentRun));
+    await interrupted.evaluate(({ key, oldChoice }) => {
+      dispatchEvent(new PageTransitionEvent('pagehide', { persisted: true }));
+      localStorage.removeItem(key);
+      dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }));
+      localStorage.setItem(key, JSON.stringify(oldChoice));
+      window.__releaseConsentRun();
+      window.__releaseConsentRun = null;
+      dispatchEvent(new Event('focus'));
+    }, { key: KEY, oldChoice });
+    await interrupted.waitForFunction(() =>
+      window.GRAFPublicAnalytics.currentConsentState !== 'unknown' ||
+      !document.querySelector('[data-consent-retry]').hidden);
+    await noTraffic(interrupted);
+    assert.deepEqual(requests.slice(beforeInterruption).map(r => r.action), ['read']);
+    await interrupted.getByRole('button', { name: 'Повторить сохранение отказа' }).click();
+    await interrupted.waitForFunction(() => Boolean(window.__releaseConsentRun));
+    await interrupted.evaluate(() => window.__releaseConsentRun());
+    await ready(interrupted);
+    assert.deepEqual(requests.slice(beforeInterruption).map(r => r.action), ['read', 'revoke']);
+    await interrupted.close();
+    console.log('ok_cached_page_keeps_interrupted_refusal_through_unreadable_choice');
+
     for (const action of ['revoke', 'grant']) for (const change of ['storage', 'storage-clear', 'pageshow', 'cross-tab-clear',
       'data', 'data-without-event', 'corrupt', 'deleted', 'unavailable']) {
       const choice = await open();

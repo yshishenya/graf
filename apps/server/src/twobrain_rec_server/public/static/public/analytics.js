@@ -888,15 +888,13 @@
     invalidatePublicChoice();
     var generation = choiceGeneration;
     var cookie = publicChoiceCookie();
-    if (interruptedChoice && interruptedChoice.cookie !== JSON.stringify(cookie)) {
-      interruptedChoice = null;
-    }
     if (!cookie) {
       if (restored) {
         unconfirmedChoiceStatus();
       }
       return false;
     }
+    var sameInterruptedChoice = interruptedChoice && interruptedChoice.cookie === JSON.stringify(cookie);
     try {
       var result = await publicConsentRequest({ action: "read", consent_id: cookie.consentId });
       if (generation !== choiceGeneration || !samePublicChoice(cookie, publicChoiceCookie())) {
@@ -904,7 +902,7 @@
       }
       var categories = normalizedCategories(cookie.categories);
       // A fresh read may still see the choice that the interrupted action was replacing.
-      if (interruptedChoice || (categories.length > 1 && !publicConfig.enabled) ||
+      if (sameInterruptedChoice || (categories.length > 1 && !publicConfig.enabled) ||
           !cookie.data || !uuidV4(cookie.data.graf_public_consent_epoch) ||
           result.state !== "known" || result.epoch !== cookie.data.graf_public_consent_epoch ||
           JSON.stringify(normalizedCategories(result.categories)) !== JSON.stringify(categories) ||
@@ -912,13 +910,14 @@
           !consentVersionMatches(cookie) || !acceptPublicChoice(cookie, result.epoch)) {
         throw new Error("choice_unavailable");
       }
+      interruptedChoice = null;
       consentStatus("");
       enableOptionalProviders();
       startGrantedProviders();
       return true;
     } catch (_) {
       if (generation === choiceGeneration) {
-        choicePendingStatus(cookie, Boolean(interruptedChoice && interruptedChoice.revokeOnly) || !choiceNeedsGrant(cookie));
+        choicePendingStatus(cookie, Boolean(sameInterruptedChoice && interruptedChoice.revokeOnly) || !choiceNeedsGrant(cookie));
       }
       return false;
     }
