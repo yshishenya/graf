@@ -5,7 +5,7 @@
 ## Code candidate
 
 - Branch: `293-interface-hardening`
-- Code SHA: `09f1644304de678f278dc432ebf74b4b962767ba` (кодовый кандидат; финальный PR-коммит может содержать только документацию)
+- Code SHA: `813e9dabba35c546a782852795e921bd325f3689` (финальный source выпуска после PR #8003)
 - Risk lane: high-risk-feature
 - Release gate: GitHub `release-full` on frozen candidate, then Developer ID/notarization/Sparkle
 
@@ -14,13 +14,13 @@
 | Check | Result |
 |---|---|
 | `swift build --package-path apps/macos` | PASS |
-| `apps/macos/Scripts/run-swift-tests.sh` | PASS: 1327 tests, 9 skipped, 0 failures (через `ci-local.sh --fast`) |
+| `apps/macos/Scripts/run-swift-tests.sh` / GitHub `release-full` | PASS: 1330 tests, 9 skipped, 0 failures |
 | `swift run --package-path apps/macos ContractValidation` | PASS |
 | `infra/scripts/ci-local.sh --fast` with pinned Spec Kit 1.0.7/bootstrap 0.9.10 | PASS: components `macos,docs`; coverage `partial`; next gate `full_before_release` |
 | `ci-local` evidence | `.dev/ci-evidence/ci-fast-09f1644304de-ce22b36950d7.json` |
-| GitHub `governance-fast` | PASS: https://github.com/yshishenya/graf/actions/runs/42787311536 |
-| GitHub `macos-pr` | PASS: https://github.com/yshishenya/graf/actions/runs/42787309766 |
-| GitHub `pr-metadata` | PASS: https://github.com/yshishenya/graf/actions/runs/42787312556 |
+| GitHub `governance-fast` | PASS: https://github.com/yshishenya/graf/actions/runs/42787311536 (PR #8002); финальный `release-full` 42799821665 — PASS |
+| GitHub `macos-pr` | PASS: https://github.com/yshishenya/graf/actions/runs/42787309766 (PR #8002); PR #8003 — PASS |
+| GitHub `pr-metadata` | PASS: https://github.com/yshishenya/graf/actions/runs/42787312556 (PR #8002); PR #8003 — PASS |
 
 ## New and changed tests
 
@@ -47,6 +47,16 @@
 - Date formatting uses a bounded cache; upload queue reads/writes are detached from MainActor; logs are queued and bounded.
 - Notification-card protected regions now use the explicit card owner; the protected-region tests pass.
 - Dead types/constants/enums and the outdated raw failure-code copy were removed.
+
+## Release
+
+- Version: `v2026.11.10.3`
+- Source SHA: `813e9dabba35c546a782852795e921bd325f3689`
+- GitHub Release: https://github.com/yshishenya/graf/releases/tag/v2026.11.10.3
+- Full CI: https://github.com/yshishenya/graf/actions/runs/42799821665 — PASS
+- macOS: Developer ID, notarization Accepted, stapled, Gatekeeper accepted, Sparkle signature valid, live appcast version `2026.11.10.3`.
+- Подробные идентификаторы и SHA-256: `specs/293-interface-hardening/validation/release.md`.
+- Production-выкладка сервера не выполнялась; это отдельное подтверждаемое действие оператора.
 
 ## Deferred / not claimed
 
