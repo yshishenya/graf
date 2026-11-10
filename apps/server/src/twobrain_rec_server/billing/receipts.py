@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from datetime import UTC
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import Literal
 
@@ -160,13 +160,34 @@ async def confirm_receipt_timing(
 ) -> Mapping[str, object]:
     if not isinstance(timing, Mapping):
         raise ValueError("receipt timing is invalid")
-    if status == "pending" and timing.get("first_confirmed_pending_at") is None:
-        confirmed_at = await db.scalar(select(func.clock_timestamp()))
-        return {
-            **timing,
-            "first_confirmed_pending_at": confirmed_at.astimezone(UTC).isoformat(),
-            "legacy_pending_unknown": was_pending,
-        }
+    if status == "pending" and "pending_overdue" not in timing:
+        confirmed_at = (await db.scalar(select(func.clock_timestamp()))).astimezone(UTC)
+        first = timing.get("first_confirmed_pending_at")
+        if first is None:
+            return {
+                **timing,
+                "first_confirmed_pending_at": confirmed_at.isoformat(),
+                "legacy_pending_unknown": was_pending,
+            }
+        if not isinstance(first, str):
+            raise ValueError("receipt pending timestamp is invalid")
+        try:
+            first_at = datetime.fromisoformat(first)
+        except ValueError:
+            raise ValueError("receipt pending timestamp is invalid") from None
+        if first_at.utcoffset() != timedelta(0):
+            raise ValueError("receipt pending timestamp must be UTC")
+        if confirmed_at < first_at:
+            raise ValueError("receipt confirmation clock moved backwards")
+        if confirmed_at - first_at >= timedelta(hours=72):
+            return {
+                **timing,
+                "pending_overdue": {
+                    "detected_at": confirmed_at.isoformat(),
+                    "due_at": (first_at + timedelta(hours=72)).isoformat(),
+                    "freshness": "confirmed",
+                },
+            }
     if status == "canceled" and "canceled" not in timing:
         confirmed_at = await db.scalar(select(func.clock_timestamp()))
         timestamp = confirmed_at.astimezone(UTC).isoformat()
@@ -184,12 +205,15 @@ async def confirm_payment_receipt_timing(
 ) -> None:
     key = "receipt_registration_timing"
     timing = previous.get(key, {})
+    status = merged["receipt_registration"]
+    if status == "succeeded" and not isinstance(timing, Mapping):
+        return
     was_pending = previous.get("receipt_registration") == "pending" or any(
         row.get("parent_kind") == "payment" and row.get("status") == "pending"
         for row in receipt_observation_records(previous).values()
     )
     updated = await confirm_receipt_timing(
-        db, timing, status=merged["receipt_registration"], was_pending=was_pending,
+        db, timing, status=status, was_pending=was_pending,
     )
     if updated != timing:
         merged[key] = updated

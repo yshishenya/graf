@@ -512,6 +512,7 @@ async def record_observed_receipt(
                     BillingInvoice.operation_id == operation.id,
                 )
                 .with_for_update()
+                .execution_options(populate_existing=True)
             )
     else:
         observed_refund = await db.scalar(
@@ -532,6 +533,7 @@ async def record_observed_receipt(
                     BillingInvoice.id == observed_refund.invoice_id,
                 )
                 .with_for_update()
+                .execution_options(populate_existing=True)
             )
     if invoice is None:
         return "unmatched", False
@@ -567,6 +569,12 @@ async def record_observed_receipt(
     if result == "conflict":
         return "conflict", False
 
+    if observation.parent_kind == "payment":
+        try:
+            await confirm_payment_receipt_timing(db, invoice.plan_snapshot, merged)
+        except ValueError:
+            return "conflict", False
+
     identity = {
         "environment": observation.scope.environment,
         "shop_id": observation.scope.shop_id,
@@ -587,9 +595,7 @@ async def record_observed_receipt(
     ) is None:
         return "conflict", False
 
-    if observation.parent_kind == "payment":
-        await confirm_payment_receipt_timing(db, invoice.plan_snapshot, merged)
-    elif refund_scope_confirmed:
+    if refund_scope_confirmed:
         key = _receipt_observation_key(observation)
         receipts = merged["receipt_observations"]
         previous = receipt_observation_records(invoice.plan_snapshot).get(key, {})

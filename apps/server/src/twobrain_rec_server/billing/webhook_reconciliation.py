@@ -84,6 +84,7 @@ async def apply_confirmed_purchase(
             BillingInvoice.workspace_id == operation.workspace_id,
         )
         .with_for_update()
+        .execution_options(populate_existing=True)
     )
     if invoice is None:
         raise ProviderObservationError("purchase invoice is missing")
@@ -381,7 +382,7 @@ async def reconcile_pending_initial_checkout_operations(
             invoice = await db.scalar(select(BillingInvoice).where(
                 BillingInvoice.operation_id == operation.id,
                 BillingInvoice.workspace_id == operation.workspace_id,
-            ).with_for_update())
+            ).with_for_update().execution_options(populate_existing=True))
             if invoice is None or validate_purchase_payment(
                 payload, operation=operation, invoice=invoice, scope=scope
             ) != "succeeded":

@@ -8,7 +8,10 @@ from twobrain_rec_server.billing.payment_methods import (
     extract_saved_bank_card,
     seal_provider_reference,
 )
-from twobrain_rec_server.billing.receipts import merge_receipt_registration
+from twobrain_rec_server.billing.receipts import (
+    confirm_receipt_timing,
+    merge_receipt_registration,
+)
 from twobrain_rec_server.billing.reconciliation import (
     ObservationRecords,
     ProviderObservationError,
@@ -382,3 +385,53 @@ def test_payment_can_be_confirmed_without_a_valid_fiscal_status() -> None:
     )
     assert observation.status == "succeeded"
     assert observation.receipt_registration is None
+
+
+@pytest.mark.asyncio
+async def test_receipt_pending_overdue_uses_exact_deadline_and_never_rewrites_it():
+    class Clock:
+        now = NOW
+
+        async def scalar(self, _):
+            return self.now
+
+    db = Clock()
+    timing = {"first_confirmed_pending_at": NOW.isoformat(), "legacy_pending_unknown": True}
+    due = NOW + timedelta(hours=72)
+    db.now = due - timedelta(microseconds=1)
+    assert await confirm_receipt_timing(db, timing, status="pending", was_pending=True) == timing
+
+    db.now = due
+    overdue = await confirm_receipt_timing(db, timing, status="pending", was_pending=True)
+    assert overdue == {
+        **timing,
+        "pending_overdue": {
+            "detected_at": due.isoformat(), "due_at": due.isoformat(), "freshness": "confirmed",
+        },
+    }
+    assert "pending_overdue" not in timing
+    db.now += timedelta(minutes=7)
+    assert await confirm_receipt_timing(db, overdue, status="pending", was_pending=True) == overdue
+    assert await confirm_receipt_timing(db, timing, status="succeeded", was_pending=True) == timing
+    canceled = await confirm_receipt_timing(db, timing, status="canceled", was_pending=True)
+    assert "pending_overdue" not in canceled
+    assert canceled["canceled"]["due_at"] == db.now.isoformat()
+    both = await confirm_receipt_timing(db, overdue, status="canceled", was_pending=True)
+    assert both["pending_overdue"] == overdue["pending_overdue"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("first", ["unparseable", "2026-08-06", "2026-08-06T13:00:00+00:00"])
+async def test_receipt_overdue_rejects_invalid_or_future_clock_but_accepts_terminal(first):
+    class Clock:
+        async def scalar(self, _):
+            return NOW
+
+    db = Clock()
+    timing = {"first_confirmed_pending_at": first}
+    with pytest.raises(ValueError, match="receipt (pending timestamp|confirmation clock)"):
+        await confirm_receipt_timing(db, timing, status="pending", was_pending=True)
+    assert await confirm_receipt_timing(db, timing, status="succeeded", was_pending=True) == timing
+    canceled = await confirm_receipt_timing(db, timing, status="canceled", was_pending=True)
+    assert canceled["canceled"]["detected_at"] == NOW.isoformat()
+    assert "pending_overdue" not in canceled
