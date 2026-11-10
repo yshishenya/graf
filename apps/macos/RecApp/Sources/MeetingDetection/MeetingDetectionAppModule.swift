@@ -29,14 +29,15 @@ public enum MeetingDetectionAppModule {
         resourceURL: URL?,
         fileManager: FileManager = .default
     ) -> URL? {
-        guard let url = resourceURL?
+        guard let resourceURL else { return nil }
+        let bundle = resourceURL
             .appendingPathComponent("TwoBrainRecMacOS_TwoBrainRecAppCore.bundle", isDirectory: true)
-            .appendingPathComponent("Resources", isDirectory: true)
-            .appendingPathComponent("meeting-target-registry-baseline.json"),
-              fileManager.fileExists(atPath: url.path) else {
-            return nil
-        }
-        return url
+        let candidates = [
+            bundle.appendingPathComponent("Resources/meeting-target-registry-baseline.json"),
+            bundle.appendingPathComponent("Contents/Resources/meeting-target-registry-baseline.json"),
+            bundle.appendingPathComponent("Contents/Resources/Resources/meeting-target-registry-baseline.json")
+        ]
+        return candidates.first { fileManager.fileExists(atPath: $0.path) }
     }
 
     public static func applicationSupportBaseURL(
