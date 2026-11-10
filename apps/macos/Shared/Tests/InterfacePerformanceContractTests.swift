@@ -50,6 +50,24 @@ final class InterfacePerformanceContractTests: XCTestCase {
         XCTAssertTrue(source.contains("invalidateAvailableRecordingMicrophoneInputs"))
     }
 
+    func testMicrophoneDeviceChangesPublishObservedInputs() throws {
+        let source = try String(
+            contentsOf: repositoryRoot().appendingPathComponent("apps/macos/RecApp/Sources/AppShell/ContentView.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(source.contains("@State private var recordingMicrophoneInputs"))
+        XCTAssertTrue(source.contains("refreshRecordingMicrophoneInputs()"))
+        XCTAssertTrue(source.contains("recordingMicrophoneInputs: recordingMicrophoneInputs"))
+    }
+
+    func testDeletionSynchronizationNeverDependsOnWindowFocus() throws {
+        let source = try String(
+            contentsOf: repositoryRoot().appendingPathComponent("apps/macos/RecApp/Sources/AppShell/ContentView.swift"),
+            encoding: .utf8
+        )
+        XCTAssertFalse(source.contains("if appIsActive { await synchronizeRecordingDeletions() }"))
+    }
+
     func testUserTimeCanFormatRepeatedlyWithoutChangingOutput() {
         let date = Date(timeIntervalSince1970: 1_800_000_000)
         let first = UserTime.format(date, timeZone: TimeZone(identifier: "Europe/Moscow") ?? .gmt)

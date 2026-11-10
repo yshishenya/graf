@@ -30,6 +30,7 @@ struct ContentView: View {
     @State private var recordingEvidenceEvents: [RecordingEvidenceEvent] = []
     @State private var localRecordingManifest: LocalRecordingManifest?
     @State private var selectedRecordingMicrophoneDeviceId: String?
+    @State private var recordingMicrophoneInputs: [PhysicalAudioDevice] = []
     private let interfacePreferences = InterfacePreferencesStore()
     @State private var recordingMicrophoneSelection: RecordingMicrophoneSelection?
     @State private var activeMicrophoneSampleSource: AppOwnedMicrophoneSampleSource?
@@ -177,7 +178,7 @@ struct ContentView: View {
                 localRecordingStatus: localRecordingPresentation,
                 muteTruthWarning: meetingMuteTruthWarningText,
                 recordingMicrophoneSelection: recordingMicrophoneSelection,
-                recordingMicrophoneInputs: microphoneCaptureService.availableRecordingMicrophoneInputs(),
+                recordingMicrophoneInputs: recordingMicrophoneInputs,
                 selectedRecordingMicrophoneDeviceId: selectedRecordingMicrophoneDeviceId,
                 calendarPrompt: desktopCalendarPrompt,
                 meetingDetectionStatus: meetingDetectionStatus,
@@ -324,6 +325,7 @@ struct ContentView: View {
         contentBase
         .onAppear {
             openPendingSharedMeeting()
+            refreshRecordingMicrophoneInputs()
             if selectedRecordingMicrophoneDeviceId == nil {
                 selectedRecordingMicrophoneDeviceId = interfacePreferences.selectedMicrophoneDeviceID
                 if let selectedRecordingMicrophoneDeviceId {
@@ -430,9 +432,11 @@ struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: AVCaptureDevice.wasConnectedNotification)) { _ in
             microphoneCaptureService.invalidateAvailableRecordingMicrophoneInputs()
+            refreshRecordingMicrophoneInputs()
         }
         .onReceive(NotificationCenter.default.publisher(for: AVCaptureDevice.wasDisconnectedNotification)) { notification in
             microphoneCaptureService.invalidateAvailableRecordingMicrophoneInputs()
+            refreshRecordingMicrophoneInputs()
             handleRecordingMicrophoneDisconnect(notification.object as? AVCaptureDevice)
         }
         .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)) { _ in
@@ -476,6 +480,11 @@ struct ContentView: View {
     }
 
     @MainActor
+    private func refreshRecordingMicrophoneInputs() {
+        recordingMicrophoneInputs = microphoneCaptureService.availableRecordingMicrophoneInputs()
+    }
+
+    @MainActor
     private func handleRecordingMicrophoneDisconnect(_ device: AVCaptureDevice?) {
         guard RecordingMicrophoneDisconnectPolicy.shouldMarkDegraded(
             disconnectedDeviceID: device?.uniqueID,
@@ -513,8 +522,10 @@ struct ContentView: View {
     }
 
     private func synchronizeRecordingDeletionsLoop() async {
+        // Revoking deleted audio must never depend on window focus: a background
+        // client still has to reconcile deletions made in the web cabinet.
         while !Task.isCancelled {
-            if appIsActive { await synchronizeRecordingDeletions() }
+            await synchronizeRecordingDeletions()
             try? await Task.sleep(for: .seconds(30))
         }
     }
