@@ -93,7 +93,7 @@ let activeV5ProductSourcePaths = [
     "apps/macos/RecApp/Sources/Capture/CaptureControlViewCore.swift",
     "apps/macos/RecApp/Sources/Capture/RecordingEvidenceService.swift",
     "apps/macos/RecApp/Sources/Diagnostics/DiagnosticBundleCoreService.swift",
-    "apps/macos/RecApp/App/TwoBrainRecApp.swift"
+    "apps/macos/RecApp/Sources/AppShell/ContentView.swift"
 ]
 
 func decode<T: Decodable>(_ type: T.Type, from url: URL) throws -> T {
@@ -796,7 +796,7 @@ func validateSystemAudioRetryCleanupSourceOrderingInvariant() throws {
 }
 
 func validateAppStopFailureFailClosedSourceInvariant() throws {
-    let appSourceURL = repositoryRoot.appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift")
+    let appSourceURL = repositoryRoot.appendingPathComponent("apps/macos/RecApp/Sources/AppShell/ContentView.swift")
     let source = try String(contentsOf: appSourceURL, encoding: .utf8)
     let permissionSourceURL = repositoryRoot.appendingPathComponent("apps/macos/RecApp/Sources/Capture/SystemAudioCaptureService.swift")
     let permissionSource = try String(contentsOf: permissionSourceURL, encoding: .utf8)
@@ -882,7 +882,7 @@ func validateAppStopFailureFailClosedSourceInvariant() throws {
 }
 
 func validateRecordingMetersUseLocalWriterInvariant() throws {
-    let appSourceURL = repositoryRoot.appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift")
+    let appSourceURL = repositoryRoot.appendingPathComponent("apps/macos/RecApp/Sources/AppShell/ContentView.swift")
     let source = try String(contentsOf: appSourceURL, encoding: .utf8)
 
     try require(
