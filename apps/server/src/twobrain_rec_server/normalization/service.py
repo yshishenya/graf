@@ -253,12 +253,6 @@ class NormalizationPipeline(Protocol):
 DEFAULT_NORMALIZATION_ACTIVITY_LEASE = timedelta(seconds=90)
 DEFAULT_NORMALIZATION_WORK_BUDGET_BYTES = 6_442_450_944
 DEFAULT_NORMALIZATION_WORK_RESERVE_BYTES = 268_435_456
-_SINGLE_SOURCE_KINDS = frozenset(
-    {
-        MediaRevisionSourceKind.INITIAL_MIXED_RECORDING.value,
-        MediaRevisionSourceKind.MANUAL_UPLOAD.value,
-    }
-)
 
 
 def _require_normalization_work_capacity(
@@ -2536,6 +2530,14 @@ async def _prepare_attempt(
     if job.cycle_attempt_count >= 4:
         raise NormalizationExecutionDeferred("normalization retry cycle is exhausted")
 
+    revision = await db.get(MediaRevision, job.media_revision_id)
+    if revision is None or revision.status != MediaRevisionStatus.ACCEPTED.value:
+        raise RuntimeError("source_missing")
+    try:
+        source_roles = authoritative_track_roles(revision.source_kind)
+    except ValueError:
+        raise RuntimeError("source_mismatch") from None
+
     artifacts = list(
         await db.scalars(
             select(TrackArtifact)
@@ -2543,14 +2545,7 @@ async def _prepare_attempt(
                 TrackArtifact.workspace_id == job.workspace_id,
                 TrackArtifact.meeting_id == job.meeting_id,
                 TrackArtifact.media_revision_id == job.media_revision_id,
-                TrackArtifact.track_role.in_(
-                    [
-                        TrackRole.PLAYBACK.value,
-                        TrackRole.MEDIA.value,
-                        TrackRole.MICROPHONE.value,
-                        TrackRole.SYSTEM.value,
-                    ]
-                ),
+                TrackArtifact.track_role.in_((TrackRole.PLAYBACK.value, *source_roles)),
             )
             .order_by(TrackArtifact.created_at, TrackArtifact.id)
         )
@@ -2568,48 +2563,19 @@ async def _prepare_attempt(
         if job.planned_action == PlannedAction.VALIDATE_CANDIDATE.value and len(candidate_rows) == 1
         else None
     )
-    media = next(
-        (
-            artifact
-            for artifact in artifacts
-            if artifact.track_role == TrackRole.MEDIA.value and artifact.status == "stored"
-        ),
-        None,
-    )
-    microphone = next(
-        (
-            artifact
-            for artifact in artifacts
-            if artifact.track_role == TrackRole.MICROPHONE.value and artifact.status == "stored"
-        ),
-        None,
-    )
-    system = next(
-        (
-            artifact
-            for artifact in artifacts
-            if artifact.track_role == TrackRole.SYSTEM.value and artifact.status == "stored"
-        ),
-        None,
-    )
-    revision = await db.get(MediaRevision, job.media_revision_id)
-    if revision is None or revision.status != MediaRevisionStatus.ACCEPTED.value:
-        raise RuntimeError("source_missing")
+    sources: dict[str, TrackArtifact] = {}
+    for artifact in artifacts:
+        if artifact.track_role in source_roles and artifact.status == "stored":
+            sources.setdefault(artifact.track_role, artifact)
     expected_source_digests = revision.track_sha256_by_role or {}
     source_error: str | None = None
-    if revision.source_kind in _SINGLE_SOURCE_KINDS:
-        if media is None:
-            source_error = "source_missing"
-        elif expected_source_digests.get(TrackRole.MEDIA.value) != media.sha256:
-            source_error = "source_mismatch"
-    else:
-        if microphone is None or system is None:
-            source_error = "source_missing"
-        elif (
-            expected_source_digests.get(TrackRole.MICROPHONE.value) != microphone.sha256
-            or expected_source_digests.get(TrackRole.SYSTEM.value) != system.sha256
-        ):
-            source_error = "source_mismatch"
+    if len(sources) != len(source_roles):
+        source_error = "source_missing"
+    elif any(expected_source_digests.get(role) != artifact.sha256 for role, artifact in sources.items()):
+        source_error = "source_mismatch"
+    media = sources.get(TrackRole.MEDIA.value)
+    microphone = sources.get(TrackRole.MICROPHONE.value)
+    system = sources.get(TrackRole.SYSTEM.value)
     if candidate is None and source_error is not None:
         raise RuntimeError(source_error)
 

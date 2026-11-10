@@ -253,6 +253,68 @@ def test_superseded_v5_candidate_preserves_authoritative_source_normalization(
     assert canonical is not None and canonical.status == "stored"
 
 
+@pytest.mark.parametrize("source_kind", ["local_trim", "replace", "restore", "reprocess", "video_capture"])
+def test_accepted_replacement_normalizes_its_own_media(
+    client: TestClient, tmp_path: Path, source_kind: str,
+) -> None:
+    from tests.integration.test_playback_normalization_workflow import FakeNormalizationPipeline
+
+    initial = create_finalized_mixed_recording(
+        client, duration_seconds=60, media_bytes=deterministic_canonical_wav_bytes(frame_count=161),
+    )
+    meeting_id = initial["meeting"]["meeting_id"]
+    headers = auth_headers()
+    session = client.post(
+        f"/api/v1/meetings/{meeting_id}/media-revisions/upload-sessions",
+        headers=headers,
+        json={
+            "local_media_revision_id": "normalization-replacement",
+            "source_kind": source_kind,
+            "duration_seconds": 60,
+            "expected_tracks": ["manifest", "media"],
+        },
+    )
+    assert session.status_code == 202
+    revision_id = UUID(session.json()["media_revision"]["media_revision_id"])
+    session_url = f"/api/v1/upload-sessions/{session.json()['upload_session']['session_id']}"
+    tracks = []
+    for role, data in {"manifest": b"{}", "media": deterministic_canonical_wav_bytes()}.items():
+        uploaded = client.put(
+            f"{session_url}/tracks/{role}/parts/0",
+            headers=headers | {"X-Byte-Offset": "0", "X-Content-SHA256": sha256(data).hexdigest()},
+            content=data,
+        )
+        assert uploaded.status_code == 200
+        tracks.append(track_descriptor(role, data=data))
+    finalized = client.post(
+        f"{session_url}/finalize",
+        headers=headers,
+        json={"manifest_sha256": tracks[0]["sha256"], "tracks": tracks, "archive_audio": True},
+    )
+    assert finalized.status_code == 200
+    assert finalized.json()["meeting"]["media_revision"]["status"] == "accepted"
+
+    async def normalize_replacement() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            job = await db.scalar(select(PlaybackNormalizationJob).where(
+                PlaybackNormalizationJob.media_revision_id == revision_id,
+            ))
+            assert job is not None and job.planned_action == "normalize_source"
+            await apply_job_worker_scope(db, job)
+            pipeline = FakeNormalizationPipeline("invalid")
+            execution = await run_normalization_job(
+                db=db, storage=client.app_state["storage"], job_id=job.id,
+                work_directory=tmp_path, pipeline=pipeline,
+            )
+            assert pipeline.calls == ["single_source"]
+            assert execution.derivation_kind == "single_source_transcode"
+            canonical = await db.get(TrackArtifact, execution.canonical_track_artifact_id)
+            assert canonical is not None and canonical.status == "stored"
+            assert canonical.media_revision_id == revision_id
+
+    asyncio.run(normalize_replacement())
+
+
 def test_no_archive_manual_normalization_publishes_without_storage_reservation(
     client: TestClient,
     tmp_path: Path,
