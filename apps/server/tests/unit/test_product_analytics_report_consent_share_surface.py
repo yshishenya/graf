@@ -12,7 +12,7 @@
 import asyncio
 import json
 import os
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from uuid import uuid4
 
@@ -121,6 +121,7 @@ def test_consent_share_is_computed_by_the_product_from_the_level_1_aggregate(
             [
                 {"visits": 60},
                 {"visits": 40, "landing_path": "/download"},
+                {"visits": 900, "bucket_date": BUCKET_DATE - timedelta(days=1)},
             ],
         )
     )
@@ -271,7 +272,7 @@ def test_cost_per_installer_download_uses_the_level_1_download_counter(
     assert cost["report"]["rows"][0]["cost_per_result"] == 20000.0 / 4
 
 
-def test_cost_report_needs_the_period_to_judge_completeness(
+def test_reports_require_a_period_to_compare_counts(
     report_database_url: str,
     tmp_path: Path,
 ) -> None:
@@ -287,12 +288,16 @@ def test_cost_report_needs_the_period_to_judge_completeness(
     surface = asyncio.run(_surface(report_database_url, environ))
     cost = surface["cost_per_result"]
 
-    # Без периода нельзя ответить, загружен ли расход целиком, поэтому стоимость
-    # не считается и причина названа. Долю согласия отсутствие периода не ломает.
     assert cost["blocked_reason"] == "report_period_unknown"
     assert cost["report"] is None
-    assert surface["consent_share"]["published"] is True
-    assert surface["consent_share"]["consent_share_label"] == "41 %"
+    share = surface["consent_share"]
+    assert share["published"] is False
+    assert share["blocked_reason"] == "report_period_unknown"
+    for field in (
+        "aggregate_visits", "consent_visits", "consent_share",
+        "consent_share_percent", "consent_share_label",
+    ):
+        assert share[field] is None
 
 
 def test_counts_file_with_personal_data_is_refused(

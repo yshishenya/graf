@@ -42,14 +42,19 @@ async def _seed_buckets(client, buckets: list[dict]) -> None:
         await session.commit()
 
 
-def _write_report_inputs(monkeypatch, tmp_path: Path, *, consent_visits: int) -> None:
+def _write_report_inputs(
+    monkeypatch, tmp_path: Path, *, consent_visits: int, with_period: bool = True
+) -> None:
     counts_path = tmp_path / "report-counts.json"
     counts_path.write_text(
         json.dumps(
             {
                 "version": REPORT_COUNTS_VERSION,
-                "period_start": BUCKET_DATE.isoformat(),
-                "period_end": BUCKET_DATE.isoformat(),
+                **(
+                    {"period_start": BUCKET_DATE.isoformat(), "period_end": BUCKET_DATE.isoformat()}
+                    if with_period
+                    else {}
+                ),
                 "consent_visits": consent_visits,
                 "conversions": {"brand-search": {"first_value": 4}},
             },
@@ -111,6 +116,21 @@ def test_reports_endpoint_hides_the_share_when_the_denominator_is_empty(
     assert share["consent_share"] is None
     assert share["consent_share_label"] is None
     assert share["blocked_reason"] == "below_minimum_bucket_size"
+
+
+def test_reports_endpoint_hides_unbounded_consent_share(client, monkeypatch, tmp_path: Path) -> None:
+    asyncio.run(_seed_buckets(client, [{"visits": 100}]))
+    _write_report_inputs(monkeypatch, tmp_path, consent_visits=41, with_period=False)
+
+    response = client.get("/api/v1/product-analytics/reports", headers=auth_headers())
+
+    assert response.status_code == 200
+    share = response.json()["consent_share"]
+    assert share["blocked_reason"] == "report_period_unknown"
+    assert share["published"] is False
+    assert share["aggregate_visits"] is None
+    assert share["consent_visits"] is None
+    assert share["consent_share_label"] is None
 
 
 def test_reports_endpoint_requires_an_authenticated_operator(client) -> None:

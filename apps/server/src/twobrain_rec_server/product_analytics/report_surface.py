@@ -207,9 +207,7 @@ def parse_report_counts(text: str, *, state_path: str = "") -> ReportCounts:
         errors.append("report_counts_period_incomplete")
     elif period_start is not None and period_end is not None and period_end < period_start:
         errors.append("report_counts_period_reversed")
-    # Отсутствие периода целиком файл не портит: доля согласия считается и без
-    # него, а стоимость результата без периода не считается вовсе и говорит об
-    # этом отдельной причиной.
+    # Файл без дат читается, но оба отчёта указывают, что период неизвестен.
 
     consent_visits = _parse_count(payload.get("consent_visits"))
     if consent_visits is None:
@@ -326,9 +324,10 @@ def _build_consent_share(
     aggregate_visits: int | None,
 ) -> dict[str, Any]:
     """Долю считает продукт: числитель и знаменатель соединяет одна функция."""
+    period_unknown = counts.usable and not counts.has_period
     report = build_public_consent_share_report(
-        aggregate_visits=aggregate_visits,
-        consent_visits=counts.consent_visits if counts.usable else None,
+        aggregate_visits=None if period_unknown else aggregate_visits,
+        consent_visits=counts.consent_visits if counts.usable and counts.has_period else None,
     )
     report["report_id"] = "R11"
     report["owner"] = REPORT_OWNERS["R11"]
@@ -341,7 +340,9 @@ def _build_consent_share(
         # Причину отказа называет продукт, но источник пробела виднее здесь:
         # «invalid_counts» не отличил бы отсутствие знаменателя от отсутствия
         # числителя, а оператору нужно знать, какой источник чинить.
-        if aggregate_state != "measured":
+        if period_unknown:
+            report["blocked_reason"] = "report_period_unknown"
+        elif aggregate_state != "measured":
             report["blocked_reason"] = "aggregate_unavailable"
         elif not counts.usable:
             report["blocked_reason"] = "counts_unavailable"
