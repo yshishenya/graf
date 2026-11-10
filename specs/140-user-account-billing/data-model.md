@@ -639,3 +639,13 @@ minimized where lawful. No refund email or merchant decision evidence enters
 GRAF. Playback/source/transient artifacts follow existing lifecycle and the
 specification’s deletion precedence; backup expiry and YooKassa-controlled
 objects remain separately disclosed.
+
+## T068/T070: пробный срок и очередь уведомлений
+
+Существующая `TrialActivation` задаёт ID, пользователя, пространство и обе
+даты. Существующая подписка подтверждает текущий пробный срок и владельца.
+Идентификатор события очереди связывает ID активации и фазу. В полезных
+данных только даты и фиксированный путь кабинета; адрес определяется из
+действующей подтверждённой личности при отправке, отдельно от записи
+очереди. Подавленная запись остаётся свидетельством обработанной фазы.
+Новые таблицы, роли и поля не требуются.

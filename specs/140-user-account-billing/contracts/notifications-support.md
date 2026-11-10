@@ -4,7 +4,9 @@
 
 | Event | Recipient | Minimum content | Timing |
 |---|---|---|---|
-| Trial started/ending | user/Owner | exact start/end, once-only rule, no card/auto-charge, choose-plan link | immediately after explicit start, then T-3 days and T-24h |
+| Trial started | подтверждённый пользователь, начавший пробный срок, пока он владелец личного пространства | даты начала и окончания, один пробный срок, без карты и автосписания, ссылка на тарифы | при явной активации S; отправка в [S, S+24ч); необязательное письмо |
+| Trial ending | тот же владелец | те же даты и условия, ссылка на тарифы | один раз в каждом окне [T−72ч, T−24ч) и [T−24ч, T); необязательные письма |
+| Trial expired | тот же владелец | те же даты и условия, переход на бесплатный тариф без автосписания, ссылка на тарифы | [T, T+24ч); обязательное письмо |
 | Renewal upcoming | Owner | plan, amount/date, masked method, cancel/manage link | T-3 days |
 | Payment succeeded + receipt | Owner/receipt contact by policy | amount/period, receipt availability, next date | after confirmed success |
 | Renewal failed → Free | Owner | exact paid cutoff, `Free` now, no automatic retry, manual resume link | after confirmed failure/cutoff |

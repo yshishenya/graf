@@ -129,6 +129,7 @@ from twobrain_rec_server.billing.trial import (
     require_trial_activation,
     trial_used_by_lineage,
 )
+from twobrain_rec_server.billing.trial_notifications import enqueue_trial_started
 from twobrain_rec_server.billing.usage import format_duration, moscow_window_for
 from twobrain_rec_server.billing.webhook_reconciliation import (
     RECEIPT_OBSERVATION_STATES,
@@ -2721,15 +2722,14 @@ async def activate_billing_trial(
         verified=True,
         eligible=True,
     )
-    db.add(
-        TrialActivation(
-            user_id=principal.user_id,
-            workspace_id=tenant_scope.workspace_id,
-            starts_at=trial.starts_at,
-            ends_at=trial.ends_at,
-            policy_version=trial.policy_version,
-        )
+    activation = TrialActivation(
+        user_id=principal.user_id,
+        workspace_id=tenant_scope.workspace_id,
+        starts_at=trial.starts_at,
+        ends_at=trial.ends_at,
+        policy_version=trial.policy_version,
     )
+    db.add(activation)
     if subscription is None:
         db.add(
             WorkspaceSubscription(
@@ -2747,6 +2747,7 @@ async def activate_billing_trial(
         subscription.capacity_bytes = 500_000_000
         subscription.trial_ends_at = trial.ends_at
     try:
+        await enqueue_trial_started(db, activation, now=now)
         await db.commit()
     except IntegrityError:
         await db.rollback()

@@ -257,3 +257,32 @@ def test_old_or_invalid_confirmation_payload_directs_to_cabinet(kind, payload):
     event = build_notification(event_id="diagnostic", kind=kind, payload=payload)
     _, body = notification_copy(event)
     assert "указана в кабинете" in body and "private" not in body and "₽" not in body
+
+
+@pytest.mark.parametrize(
+    "kind", [BillingNotification.TRIAL_STARTED, BillingNotification.TRIAL_ENDING,
+             BillingNotification.TRIAL_EXPIRED]
+)
+def test_trial_copy_uses_both_dates_and_no_private_fields(kind):
+    event = build_notification(
+        event_id="trial:synthetic",
+        kind=kind,
+        payload={
+            "trial_starts_at": "03.11.2026 12:00",
+            "trial_ends_at": "10.11.2026 12:00",
+            "action_path": "/billing",
+            "email": "private@example.test",
+        },
+    )
+    assert set(event.safe_payload) == {"trial_starts_at", "trial_ends_at", "action_path"}
+    _, body = notification_copy(event)
+    assert "03.11.2026 12:00 МСК" in body and "10.11.2026 12:00 МСК" in body
+    assert "один раз" in body and "без карты и автоматического списания" in body
+    assert ("«Бесплатный»" in body) is (kind == BillingNotification.TRIAL_EXPIRED)
+
+    invalid = build_notification(
+        event_id=event.event_id, kind=kind,
+        payload={"trial_starts_at": "31.11.2026 12:00", "trial_ends_at": "provider:secret"},
+    )
+    assert not invalid.safe_payload
+    assert "provider" not in notification_copy(invalid)[1]
