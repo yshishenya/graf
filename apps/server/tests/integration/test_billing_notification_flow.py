@@ -1,5 +1,15 @@
-import pytest
+import asyncio
+from datetime import timedelta
+from types import SimpleNamespace
 
+import pytest
+from sqlalchemy import select
+from sqlalchemy.engine import make_url
+
+from tests.fixtures.postgres_test_database import prepare_schema
+from tests.integration import test_billing_renewal_planner_postgres as planner
+from tests.integration.test_billing_renewal_planner_postgres import paid_workspace as paid_workspace
+from tests.integration.test_rls_postgres_policies import _create_probe_role, _drop_probe_role
 from twobrain_rec_server.billing.events import BillingEvent, notification_kind_for
 from twobrain_rec_server.billing.notifications import (
     REFERRAL_NOTICE_KINDS,
@@ -7,6 +17,26 @@ from twobrain_rec_server.billing.notifications import (
     build_notification,
     notification_copy,
 )
+from twobrain_rec_server.db.models import (
+    BillingInvoice,
+    BillingNotificationDelivery,
+    BillingNotificationPreference,
+    BillingOperation,
+    WorkspaceSubscription,
+)
+from twobrain_rec_server.workflows import worker
+
+
+@pytest.fixture
+async def billing_maintenance_probe_url(postgres_clean_database_url, postgres_advisory_lock):
+    # The sender polls the whole queue: isolate it from other modules' pending rows.
+    url = postgres_clean_database_url
+    await asyncio.to_thread(prepare_schema, url)
+    role, password = await _create_probe_role(url, role_name="twobrain_rec_maintenance")
+    try:
+        yield make_url(url).set(username=role, password=password).render_as_string(hide_password=False)
+    finally:
+        await _drop_probe_role(url, role)
 
 
 @pytest.mark.parametrize("event_type", tuple(BillingEvent))
@@ -401,3 +431,124 @@ def test_referral_notice_from_reward_transition_to_delivery(client, monkeypatch,
         assert {row.state for row in await read()} == {"delivered"}
 
     asyncio.run(run())
+
+
+@pytest.mark.asyncio
+@pytest.mark.strict_rls
+async def test_committed_billing_events_reach_one_delivery_each(paid_workspace, monkeypatch):
+    case = paid_workspace
+    cutoff = case.original["subscription"]["paid_through"]
+    charge = planner.renewal_charge
+
+    async def notices(db):
+        return {
+            row.id: row for row in await db.scalars(
+                select(BillingNotificationDelivery)
+                .where(BillingNotificationDelivery.workspace_id == case.workspace)
+            )
+        }
+
+    operation_id, invoice_id = await planner._stage_unresolved_renewal(case)
+    async with planner._session(case.factory) as db:
+        db.add(BillingNotificationPreference(user_id=case.owner, optional_email_enabled=False))
+        subscription = await db.get(WorkspaceSubscription, case.workspace)
+        subscription.recurring_allowed = False
+        subscription.recurring_authority_version += 1
+        operation = await db.get(BillingOperation, operation_id)
+        operation.provider_id = None
+        await charge.project_renewal_cutoffs(db, now=cutoff - timedelta(microseconds=1))
+        assert {row.template_key for row in (await notices(db)).values()} == {
+            "payment_succeeded", "receipt_available", "renewal_upcoming",
+        }
+        await db.commit()
+
+    async with planner._session(case.factory) as db:
+        await charge.project_renewal_cutoffs(db, now=cutoff)
+        await db.commit()
+
+    unknown_id = f"renewal:{invoice_id}:unknown"
+    async with planner._session(case.factory) as db:
+        expected = {
+            f"payment:{case.invoice_id}:succeeded": ("Платеж подтвержден", "Предоставленные периоды:"),
+            f"receipt:{case.invoice_id}:available": ("Чек доступен", "историю платежей"),
+            await planner._assert_upcoming_notice(db, case): (
+                "Напоминание о продлении", "по расписанию на момент события",
+            ),
+            unknown_id: ("Статус продления на конец периода", "результат платежа ещё не был известен"),
+        }
+        before = list((await notices(db)).values())
+        assert len(before) == 4 and {row.event_id for row in before} == expected.keys()
+        assert next(row.template_key for row in before if row.event_id == unknown_id) == "renewal_unknown"
+
+        await charge.lock_storage_workspace(db, case.workspace)
+        subscription = await db.scalar(
+            select(WorkspaceSubscription)
+            .where(WorkspaceSubscription.workspace_id == case.workspace)
+            .with_for_update()
+        )
+        assert subscription.plan_code == "free" and subscription.renewal_resolution == "unknown_pending"
+        operation = await db.get(BillingOperation, operation_id)
+        invoice = await db.get(BillingInvoice, invoice_id)
+        # A late confirmation identifies the original operation, without another charge.
+        operation.provider_id = f"synthetic-confirmed-{operation_id}"
+        await charge.record_renewal_decline(
+            db, subscription=subscription, operation=operation, invoice=invoice,
+            now=cutoff + timedelta(seconds=1),
+        )
+        await db.commit()
+
+    async with planner._session(case.factory) as db:
+        await planner._assert_final_failure_notice(db, case, invoice_id)
+        failed_id = f"renewal:{invoice_id}:failed"
+        before = await notices(db)
+        failed = next(row for row in before.values() if row.event_id == failed_id)
+        expected[failed_id] = (
+            "Продление не состоялось",
+            f"Оплаченный период завершился {failed.safe_payload['access_until']} МСК",
+        )
+        assert len(before) == 5 and {row.event_id for row in before.values()} == expected.keys()
+        assert all(
+            (row.recipient_id, row.channel, row.state, row.attempts) == (case.owner, "email", "pending", 0)
+            for row in before.values()
+        )
+
+    by_key = {f"billing:{row_id}": row for row_id, row in before.items()}
+    calls = []
+
+    async def stop_after_poll(seconds):
+        assert seconds == 60
+        raise asyncio.CancelledError
+
+    async def synthetic_transport(*, delivery_key, recipient_email, subject, plain_body, **_):
+        old = by_key[delivery_key]
+        async with planner._session(case.factory) as db:
+            claim = await db.get(BillingNotificationDelivery, old.id)
+            calls.append((
+                old.event_id, recipient_email, subject, plain_body,
+                (claim.state, claim.attempts, claim.last_error_code),
+            ))
+
+    monkeypatch.setattr(worker, "send_billing_notification", synthetic_transport)
+    monkeypatch.setattr(worker, "asyncio", SimpleNamespace(
+        CancelledError=asyncio.CancelledError, sleep=stop_after_poll,
+    ))
+    for _ in range(2):
+        with pytest.raises(asyncio.CancelledError):
+            await worker.run_billing_notification_reconciler(case.settings)
+        assert len(calls) == 5 and {call[0] for call in calls} == expected.keys()
+    for event_id, recipient, subject, body, claim in calls:
+        assert recipient == "planner@example.invalid"
+        expected_subject, phrase = expected[event_id]
+        assert subject == expected_subject and phrase in body
+        assert claim == ("failed", 1, "postal_outcome_unknown")
+
+    async with planner._session(case.factory) as db:
+        after = await notices(db)
+        assert after.keys() == before.keys()
+        for row_id, row in after.items():
+            old = before[row_id]
+            assert (row.event_id, row.recipient_id, row.channel, row.safe_payload) == (
+                old.event_id, old.recipient_id, old.channel, old.safe_payload,
+            )
+            assert (row.state, row.attempts, row.last_error_code) == ("delivered", 1, None)
+            assert row.delivered_at is not None
