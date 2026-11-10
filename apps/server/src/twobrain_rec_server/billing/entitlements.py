@@ -157,6 +157,7 @@ async def grant_confirmed_payment(
     payment_method_key_version: str = "billing-v1",
     payment_method_label: str | None = None,
     receipt_registration: ReceiptRegistration | None = None,
+    receipt_scope: tuple[str, str] | None = None,
     defer_referral_reward: bool = False,
 ) -> str:
     """Grant one immutable invoice only after provider GET confirms its amount."""
@@ -196,11 +197,11 @@ async def grant_confirmed_payment(
             updated_snapshot, receipt_became_available = merge_receipt_registration(
                 invoice.plan_snapshot,
                 status=receipt_registration,
+                payment_binding=(*receipt_scope, provider_payment_id) if receipt_scope else None,
             )
         except ValueError:
-            if existing_grant is None:
-                operation.state = "reconciliation_gap"
-                return "receipt_mismatch"
+            # An inconsistent fiscal status cannot invalidate the confirmed payment.
+            pass
         else:
             invoice.plan_snapshot = updated_snapshot
     if existing_grant is not None:

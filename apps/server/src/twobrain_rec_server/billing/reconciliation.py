@@ -11,6 +11,11 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.billing.provider_events import validate_provider_identifier
+from twobrain_rec_server.billing.receipts import (
+    ReceiptRegistration,
+    merge_receipt_registration,
+    receipt_observation_records,
+)
 from twobrain_rec_server.billing.referral_rewards import reverse_credit_for_payment
 from twobrain_rec_server.db.models import (
     BillingInvoice,
@@ -19,7 +24,6 @@ from twobrain_rec_server.db.models import (
 )
 
 ObservationSource = Literal["webhook", "poll", "registry"]
-ReceiptRegistration = Literal["pending", "succeeded", "canceled"]
 ReceiptObservationResult = Literal["inserted", "duplicate", "updated", "unmatched", "conflict"]
 
 _MAX_RECEIPT_OBSERVATIONS = 16
@@ -97,6 +101,11 @@ def extract_payment_observation(
     scope: ProviderScope,
 ) -> PaymentObservation:
     amount_minor, currency = _money(payload.get("amount"))
+    try:
+        receipt_registration = _receipt_registration(payload.get("receipt_registration"))
+    except ProviderObservationError:
+        # Fiscal registration is independent from confirmation of the payment.
+        receipt_registration = None
     return PaymentObservation(
         scope=scope,
         provider_payment_id=_provider_id(payload.get("id")),
@@ -104,7 +113,7 @@ def extract_payment_observation(
         currency=currency,
         status=_payment_status(payload.get("status")),
         provider_created_at=_timestamp(payload.get("created_at"), required=True),
-        receipt_registration=_receipt_registration(payload.get("receipt_registration")),
+        receipt_registration=receipt_registration,
         operation_id=_operation_id(payload.get("metadata")),
         captured_at=_timestamp(payload.get("captured_at"), required=False),
     )
@@ -343,35 +352,28 @@ def merge_receipt_observation_snapshot(
         raise ProviderObservationError("invoice snapshot is invalid")
 
     merged = dict(snapshot)
-    raw_records = merged.get("receipt_observations")
-    records: dict[str, dict[str, Any]] = {}
-    if raw_records is not None:
-        if not isinstance(raw_records, Mapping):
-            raise ProviderObservationError("receipt observation projection is invalid")
-        for key, value in raw_records.items():
-            if (
-                not isinstance(key, str)
-                or not isinstance(value, Mapping)
-                or value.get("parent_kind") not in ("payment", "refund")
-            ):
-                return merged, "conflict"
-            records[key] = dict(value)
+    try:
+        records = receipt_observation_records(snapshot)
+    except ValueError:
+        return merged, "conflict"
 
     scope_key = _receipt_observation_key(observation)
     current = records.get(scope_key)
-    legacy_status = merged.get("receipt_registration")
-    if legacy_status is not None and legacy_status not in {"pending", "succeeded", "canceled"}:
-        raise ProviderObservationError("invoice receipt status is invalid")
-    if observation.parent_kind == "payment" and (
-        any(
-            key != scope_key and record["parent_kind"] == "payment"
-            for key, record in records.items()
-        )
-        or not _receipt_state_advances(legacy_status, observation.status)
-    ):
-        return merged, "conflict"
+    if observation.parent_kind == "payment":
+        if any(key != scope_key and record["parent_kind"] == "payment" for key, record in records.items()):
+            return merged, "conflict"
+        try:
+            merged, _ = merge_receipt_registration(
+                snapshot,
+                status=observation.status,
+                payment_binding=(
+                    observation.scope.environment, observation.scope.shop_id, observation.provider_parent_id
+                ),
+            )
+        except ValueError:
+            return dict(snapshot), "conflict"
     if current is None and len(records) >= _MAX_RECEIPT_OBSERVATIONS:
-        return merged, "conflict"
+        return dict(snapshot), "conflict"
     if current is not None:
         if (
             current.get("provider_receipt_id") != observation.provider_receipt_id
@@ -380,16 +382,21 @@ def merge_receipt_observation_snapshot(
             or current.get("environment") != observation.scope.environment
             or current.get("shop_id") != observation.scope.shop_id
         ):
-            return merged, "conflict"
+            return dict(snapshot), "conflict"
         previous_status = current.get("status")
-        if previous_status not in {"pending", "succeeded", "canceled"}:
+        if previous_status not in ("pending", "succeeded", "canceled"):
             raise ProviderObservationError("receipt observation status is invalid")
         if not _receipt_state_advances(previous_status, observation.status):
-            return merged, "conflict"
-        if previous_status == observation.status:
-            return merged, "duplicate"
+            return dict(snapshot), "conflict"
+        if previous_status == observation.status and (
+            observation.parent_kind == "refund"
+            or observation.registered_at is None
+            or current.get("registered_at") is not None
+        ):
+            return merged, "duplicate" if merged == snapshot else "updated"
 
     records[scope_key] = {
+        **(current or {}),
         "provider_receipt_id": observation.provider_receipt_id,
         "parent_kind": observation.parent_kind,
         "provider_parent_id": observation.provider_parent_id,
@@ -398,14 +405,11 @@ def merge_receipt_observation_snapshot(
         "status": observation.status,
         "registered_at": observation.registered_at.isoformat()
         if observation.registered_at
-        else None,
+        else (current or {}).get("registered_at"),
         "source": source,
         "observed_at": seen_at.isoformat(),
     }
     merged["receipt_observations"] = records
-    # Keep the existing UI projection, but only move it forward.
-    if observation.parent_kind == "payment":
-        merged["receipt_registration"] = observation.status
     return merged, "inserted" if current is None else "updated"
 
 
@@ -426,7 +430,7 @@ async def record_observed_receipt(
     observation: ReceiptObservation,
     source: ObservationSource = "webhook",
     observed_at: datetime | None = None,
-) -> ReceiptObservationResult:
+) -> tuple[ReceiptObservationResult, bool]:
     """Persist bounded receipt truth without changing entitlement or refunds."""
     invoice: BillingInvoice | None
     refund_scope_confirmed = False
@@ -470,7 +474,7 @@ async def record_observed_receipt(
                 .with_for_update()
             )
     if invoice is None:
-        return "unmatched"
+        return "unmatched", False
     if observation.parent_kind == "refund":
         operation = await db.scalar(
             select(BillingOperation).where(
@@ -479,28 +483,28 @@ async def record_observed_receipt(
             )
         )
         if operation is None:
-            return "unmatched"
+            return "unmatched", False
         if (
             observation.related_payment_id is not None
             and operation.provider_id != observation.related_payment_id
         ):
             raise ProviderObservationError("provider receipt payment conflicts with refund invoice")
-        binding = operation.request_snapshot
-        if not isinstance(binding, Mapping):
-            return "conflict"
-        environment = binding.get("provider_environment")
-        shop = binding.get("provider_shop_id")
-        if (environment is not None and environment != observation.scope.environment) or (
-            shop is not None and shop != observation.scope.shop_id
-        ):
-            return "conflict"
+    binding = operation.request_snapshot
+    if not isinstance(binding, Mapping):
+        return "conflict", False
+    environment = binding.get("provider_environment")
+    shop = binding.get("provider_shop_id")
+    if environment != observation.scope.environment or shop != observation.scope.shop_id:
+        return "conflict", False
+    if observation.parent_kind == "refund":
         refund_scope_confirmed = bool(
             operation.provider_id
-            and environment == observation.scope.environment
-            and shop == observation.scope.shop_id
             and observed_refund is not None
             and observed_refund.status == "succeeded"
         )
+    if not isinstance(invoice.plan_snapshot, Mapping):
+        return "conflict", False
+    previous_registration = invoice.plan_snapshot.get("receipt_registration")
     merged, result = merge_receipt_observation_snapshot(
         invoice.plan_snapshot,
         observation,
@@ -529,7 +533,11 @@ async def record_observed_receipt(
     if merged != invoice.plan_snapshot:
         invoice.plan_snapshot = merged
         await db.flush()
-    return result
+    return result, (
+        observation.parent_kind == "payment"
+        and previous_registration != "succeeded"
+        and merged.get("receipt_registration") == "succeeded"
+    )
 
 
 async def record_observed_refund(

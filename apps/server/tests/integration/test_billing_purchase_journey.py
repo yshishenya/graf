@@ -733,7 +733,7 @@ def test_expired_quote_and_changed_catalog_never_reach_provider(client, monkeypa
 
 
 @pytest.mark.parametrize("kind", ["initial_checkout", "storage_upgrade", "early_renewal", "renewal"])
-@pytest.mark.parametrize("mode", ["background", "boundary", "late_manual", "manual_pending", "manual_get_failure", "wrong_scope", "wrong_amount", "wrong_test", "wrong_metadata", "get_failure", "owner_missing"])
+@pytest.mark.parametrize("mode", ["background", "bound_receipt", "boundary", "late_manual", "manual_pending", "manual_get_failure", "wrong_scope", "wrong_amount", "wrong_test", "wrong_metadata", "get_failure", "owner_missing"])
 def test_completed_purchase_recovers_late_receipt_without_replaying_money(
     client, monkeypatch, tmp_path, kind, mode, operation_state="succeeded"
 ):
@@ -819,6 +819,25 @@ def test_completed_purchase_recovers_late_receipt_without_replaying_money(
                                           spent_minor=12500, reserved_minor=0,
                                           enabled=False, expires_at=now - timedelta(hours=1)))
             await db.flush()
+            if mode == "bound_receipt":
+                from twobrain_rec_server.billing.reconciliation import (
+                    ProviderScope,
+                    extract_receipt_observation,
+                    record_observed_receipt,
+                )
+                observation = extract_receipt_observation(
+                    {
+                        "id": "receipt-1",
+                        "type": "payment",
+                        "payment_id": "pay-synthetic-receipt",
+                        "status": "pending",
+                    },
+                    scope=ProviderScope("test", "shop-money-path"),
+                )
+                assert await record_observed_receipt(
+                    db, workspace_id=workspace, observation=observation, observed_at=now
+                ) == ("inserted", False)
+                snapshot = dict((await db.get(BillingInvoice, inv_id)).plan_snapshot)
             if not refused:
                 db.add(BillingEntitlementGrant(workspace_id=workspace, invoice_id=inv_id,
                        provider_payment_id="pay-synthetic-receipt", plan_code="personal",
@@ -851,7 +870,7 @@ def test_completed_purchase_recovers_late_receipt_without_replaying_money(
         assert request.url.path == "/v3/payments/pay-synthetic-receipt"
         if mode in {"get_failure", "manual_get_failure"}:
             raise httpx.ConnectError("synthetic outage", request=request)
-        return httpx.Response(200, json={
+        payload = {
             "id": "pay-synthetic-receipt", "status": "succeeded", "test": mode != "wrong_test",
             "created_at": now.isoformat(), "paid": True,
             "recipient": {"account_id": "wrong" if mode == "wrong_scope" else "shop-money-path"},
@@ -859,7 +878,11 @@ def test_completed_purchase_recovers_late_receipt_without_replaying_money(
             "metadata": {"workspace_id": str(workspace), "operation_id": str(uuid4()) if mode == "wrong_metadata" else str(op_id),
                          "invoice_number": number},
             "receipt_registration": receipt_status,
-        })
+        }
+        if mode == "incomplete_legacy":
+            del payload["recipient"]
+            del payload["test"]
+        return httpx.Response(200, json=payload)
 
     monkeypatch.setattr(webhook_reconciliation, "YooKassaClient",
                         lambda settings: YooKassaClient(settings, transport=httpx.MockTransport(handle)))
@@ -962,14 +985,20 @@ def test_completed_purchase_recovers_late_receipt_without_replaying_money(
             assert "Чек зарегистрирован" in returned.text
     else:
         asyncio.run(observe())
-    succeeded = mode in {"background", "boundary", "late_manual", "owner_changed_late"}
+    succeeded = mode in {"background", "bound_receipt", "boundary", "late_manual", "owner_changed_late"}
     async def verify():
         async with client.app_state["sessionmaker"]() as db:
             invoice, operation = await db.get(BillingInvoice, inv_id), await db.get(BillingOperation, op_id)
             assert operation.state == operation_state and invoice.status == "succeeded"
             assert operation.request_snapshot == operation_snapshot
             assert invoice.amount_minor == 12500
-            assert invoice.plan_snapshot == {**snapshot, "receipt_registration": "succeeded" if succeeded else "pending"}
+            expected = {**snapshot, "receipt_registration": "succeeded" if succeeded else "pending"}
+            if mode == "bound_receipt":
+                key = "test:shop-money-path:receipt-1"
+                expected["receipt_observations"] = {
+                    key: {**snapshot["receipt_observations"][key], "status": "succeeded"},
+                }
+            assert invoice.plan_snapshot == expected
             subscription = await db.get(WorkspaceSubscription, workspace)
             assert not subscription.recurring_allowed and subscription.paid_through == now + timedelta(days=365)
             assert subscription.capacity_bytes == 10_000_000_000
@@ -1003,11 +1032,12 @@ def test_completed_purchase_recovers_late_receipt_without_replaying_money(
         asyncio.run(verify())
 
 
+@pytest.mark.parametrize("mode", ["background", "incomplete_legacy"])
 def test_projected_storage_purchase_recovers_receipt_without_replaying_projection(
-    client, monkeypatch, tmp_path
+    client, monkeypatch, tmp_path, mode
 ):
     test_completed_purchase_recovers_late_receipt_without_replaying_money(
-        client, monkeypatch, tmp_path, "storage_upgrade", "background",
+        client, monkeypatch, tmp_path, "storage_upgrade", mode,
         operation_state="succeeded_projected",
     )
 

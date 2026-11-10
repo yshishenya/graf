@@ -8,6 +8,7 @@ from twobrain_rec_server.billing.payment_methods import (
     extract_saved_bank_card,
     seal_provider_reference,
 )
+from twobrain_rec_server.billing.receipts import merge_receipt_registration
 from twobrain_rec_server.billing.reconciliation import (
     ObservationRecords,
     ProviderObservationError,
@@ -327,3 +328,57 @@ def test_payment_receipt_conflicts_preserve_snapshot(
     )
     assert result == "conflict"
     assert merged == snapshot
+
+
+@pytest.mark.parametrize("payment_first", [False, True])
+def test_payment_and_receipt_get_share_one_terminal_state(payment_first: bool) -> None:
+    binding = ("test", "shop-1", "pay-1")
+    receipt = extract_receipt_observation(
+        {
+            "id": "receipt-1",
+            "type": "payment",
+            "payment_id": "pay-1",
+            "status": "succeeded",
+            "registered_at": NOW.isoformat(),
+        },
+        scope=SCOPE,
+    )
+    if payment_first:
+        snapshot, available = merge_receipt_registration(
+            {}, status="succeeded", payment_binding=binding
+        )
+        assert available
+        snapshot, result = merge_receipt_observation_snapshot(
+            snapshot, receipt, source="webhook", observed_at=NOW
+        )
+        assert result == "inserted"
+    else:
+        snapshot, _ = merge_receipt_observation_snapshot(
+            {}, receipt, source="webhook", observed_at=NOW
+        )
+    unchanged, available = merge_receipt_registration(
+        snapshot, status="succeeded", payment_binding=binding
+    )
+    assert not available
+    assert unchanged == snapshot
+    assert len(snapshot["receipt_observations"]) == 1
+    assert snapshot["receipt_observations"]["test:shop-1:receipt-1"]["registered_at"] == NOW.isoformat()
+    with pytest.raises(ValueError, match="regressive"):
+        merge_receipt_registration(snapshot, status="canceled", payment_binding=binding)
+    with pytest.raises(ValueError, match="binding conflicts"):
+        merge_receipt_registration(snapshot, status="succeeded", payment_binding=("test", "other", "pay-1"))
+
+
+def test_payment_can_be_confirmed_without_a_valid_fiscal_status() -> None:
+    observation = extract_payment_observation(
+        {
+            "id": "pay-1",
+            "status": "succeeded",
+            "amount": {"value": "790.00", "currency": "RUB"},
+            "created_at": NOW.isoformat(),
+            "receipt_registration": {"invalid": True},
+        },
+        scope=SCOPE,
+    )
+    assert observation.status == "succeeded"
+    assert observation.receipt_registration is None

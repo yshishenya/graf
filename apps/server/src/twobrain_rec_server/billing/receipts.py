@@ -67,32 +67,74 @@ def receipt_state_for_registration(status: str | None) -> ReceiptState:
     raise ValueError("receipt registration status is invalid")
 
 
+def receipt_observation_records(
+    snapshot: Mapping[str, object],
+) -> dict[str, Mapping[str, object]]:
+    raw = snapshot.get("receipt_observations")
+    if raw is None:
+        return {}
+    if not isinstance(raw, Mapping) or any(
+        not isinstance(key, str)
+        or not isinstance(value, Mapping)
+        or value.get("parent_kind") not in ("payment", "refund")
+        for key, value in raw.items()
+    ):
+        raise ValueError("receipt observation projection is invalid")
+    return dict(raw)
+
+
 def merge_receipt_registration(
     snapshot: Mapping[str, object],
     *,
     status: str,
+    payment_binding: tuple[str, str, str] | None = None,
 ) -> tuple[dict[str, object], bool]:
-    """Apply one monotonic provider receipt status to an invoice snapshot.
+    """Advance the payment receipt and its existing identity as one transition.
 
-    The invoice snapshot contains only metadata needed by the cabinet.  Raw
-    receipt payloads and provider URLs/identifiers never cross this helper.
-    The returned boolean is true only for the first transition to
-    ``succeeded`` and is suitable for idempotent mandatory-notification
-    enqueueing.
+    The binding is the verified (environment, shop, payment ID). A payment GET
+    supplies the registration status but cannot replace the receipt ID or time.
     """
-
-    if status not in _REGISTRATION_STATES:
+    if not isinstance(snapshot, Mapping):
+        raise ValueError("invoice snapshot is invalid")
+    if not isinstance(status, str) or status not in _REGISTRATION_STATES:
         raise ValueError("receipt registration status is invalid")
+
+    def check_transition(previous: object) -> None:
+        if previous is not None and (
+            not isinstance(previous, str) or previous not in _REGISTRATION_STATES
+        ):
+            raise ValueError("stored receipt registration status is invalid")
+        if status not in _REGISTRATION_TRANSITIONS[previous]:
+            raise ValueError("receipt registration is regressive")
+
     previous = snapshot.get("receipt_registration")
-    if previous is not None and previous not in _REGISTRATION_STATES:
-        raise ValueError("stored receipt registration status is invalid")
-    if status not in _REGISTRATION_TRANSITIONS[previous]:
-        raise ValueError("receipt registration is regressive")
-    if previous == status:
-        return dict(snapshot), False
+    check_transition(previous)
+    records = receipt_observation_records(snapshot)
+    payment = [(key, entry) for key, entry in records.items() if entry["parent_kind"] == "payment"]
+    if len(payment) > 1:
+        raise ValueError("multiple receipt identities for payment")
+
     updated = dict(snapshot)
+    if payment:
+        key, entry = payment[0]
+        receipt_id = entry.get("provider_receipt_id")
+        if (
+            payment_binding is None
+            or payment_binding != (entry.get("environment"), entry.get("shop_id"), entry.get("provider_parent_id"))
+            or not isinstance(receipt_id, str)
+            or not receipt_id
+            or key != ":".join((*payment_binding[:2], receipt_id))
+        ):
+            raise ValueError("payment receipt binding conflicts")
+        stored_status = entry.get("status")
+        if stored_status is None:
+            raise ValueError("stored receipt registration status is invalid")
+        check_transition(stored_status)
+        if stored_status != status:
+            updated["receipt_observations"] = {**records, key: {**entry, "status": status}}
+
     updated["receipt_registration"] = status
-    return updated, status == "succeeded"
+    return updated, previous != status and status == "succeeded"
 
 
 def receipt_label(state: ReceiptState) -> str:

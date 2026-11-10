@@ -267,6 +267,7 @@ async def test_metadata_less_refund_receipt_http_rls_and_financial_invariants(
                 idempotency_key=f"checkout-{uuid4()}",
                 provider_id=payment_id,
                 state="succeeded",
+                request_snapshot={"provider_environment": "test", "provider_shop_id": "shop-1"},
             )
         )
         await db.flush()
@@ -645,6 +646,7 @@ async def refund_queue_case(rls_engine, tmp_path, monkeypatch):
                 idempotency_key=f"checkout-{uuid4()}",
                 provider_id=payment_id,
                 state="succeeded",
+                request_snapshot={"provider_environment": "test", "provider_shop_id": "shop-1"},
             )
         )
         await db.flush()
@@ -909,14 +911,15 @@ async def test_canceled_refund_receipt_basis_requires_bound_shop(
     from twobrain_rec_server.db.tenant_context import apply_tenant_context
 
     case = refund_queue_case
-    if shop is not None:
-        async with case.sessions() as db:
-            await apply_tenant_context(db, case.context)
-            operation = await db.scalar(
-                select(BillingOperation).where(BillingOperation.workspace_id == case.workspace_id)
-            )
-            operation.request_snapshot = {"provider_environment": "test", "provider_shop_id": shop}
-            await db.commit()
+    async with case.sessions() as db:
+        await apply_tenant_context(db, case.context)
+        operation = await db.scalar(
+            select(BillingOperation).where(BillingOperation.workspace_id == case.workspace_id)
+        )
+        operation.request_snapshot = (
+            {"provider_environment": "test", "provider_shop_id": shop} if shop else {}
+        )
+        await db.commit()
 
     await case.add_events("parent", 1, NOW)
     assert (await case.process(1))["reconciled"] == 1
@@ -927,7 +930,7 @@ async def test_canceled_refund_receipt_basis_requires_bound_shop(
         record = webhook_reconciliation.record_observed_receipt
 
         async def fail_after_flush(*args, **kwargs):
-            assert await record(*args, **kwargs) == "inserted"
+            assert await record(*args, **kwargs) == ("inserted", False)
             raise ProviderObservationError("synthetic rollback after receipt flush")
 
         with monkeypatch.context() as scoped:
@@ -938,7 +941,7 @@ async def test_canceled_refund_receipt_basis_requires_bound_shop(
     started = datetime.now(UTC)
     counters = await case.process(1)
     after = (await case.rows(BillingInvoice))[0]
-    if shop == "other-shop":
+    if shop != "shop-1":
         assert counters["pending"] == 1
         assert after == before
         return
@@ -947,10 +950,6 @@ async def test_canceled_refund_receipt_basis_requires_bound_shop(
     entry = next(iter(after["plan_snapshot"]["receipt_observations"].values()))
     assert entry["status"] == "canceled"
     assert entry["observed_at"] == NOW.isoformat()
-    if shop is None:
-        assert "canceled" not in entry
-        return
-
     basis = entry["canceled"]
     assert started <= datetime.fromisoformat(basis["detected_at"]) <= datetime.now(UTC)
     assert basis["due_at"] == basis["detected_at"]

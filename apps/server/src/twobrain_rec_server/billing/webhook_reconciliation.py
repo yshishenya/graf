@@ -66,6 +66,22 @@ RECEIPT_OBSERVATION_STATES = ("succeeded", "succeeded_projected", "succeeded_ref
 RECONCILABLE_WEBHOOK_STATES = frozenset(("accepted", "pending_reconciliation"))
 
 
+def _verified_receipt_scope(
+    payload: dict, operation: BillingOperation, scope: ProviderScope
+) -> tuple[str, str] | None:
+    recipient = payload.get("recipient")
+    binding = operation.request_snapshot
+    if (
+        isinstance(recipient, dict)
+        and recipient.get("account_id") == scope.shop_id
+        and payload.get("test") is (scope.environment == "test")
+        and binding.get("provider_environment", scope.environment) == scope.environment
+        and binding.get("provider_shop_id", scope.shop_id) == scope.shop_id
+    ):
+        return scope.environment, scope.shop_id
+    return None
+
+
 async def apply_confirmed_purchase(
     db: AsyncSession,
     settings: Settings,
@@ -137,6 +153,7 @@ async def apply_confirmed_purchase(
             **(invoice.plan_snapshot or {}),
             "provider_paid_at": (observation.captured_at or observation.provider_created_at).isoformat(),
         }
+    receipt_scope = _verified_receipt_scope(payload, operation, scope)
     if operation.kind == "initial_checkout":
         result = await grant_confirmed_payment(
             db,
@@ -151,7 +168,8 @@ async def apply_confirmed_purchase(
             saved_payment_method=extract_saved_bank_card(payload),
             payment_method_label=extract_payment_method_label(payload),
             payment_method_key=read_billing_encryption_key(settings.credential_encryption_key_file),
-            receipt_registration=observation.receipt_registration,
+            receipt_registration=observation.receipt_registration if receipt_scope is not None else None,
+            receipt_scope=receipt_scope,
             defer_referral_reward=defer_referral_reward,
         )
         if defer_referral_reward and result in {"granted", "duplicate"}:
@@ -159,11 +177,15 @@ async def apply_confirmed_purchase(
                 db, operation=operation, observation=observation
             )
         return result
-    if observation.receipt_registration is not None:
-        invoice.plan_snapshot, receipt_available = merge_receipt_registration(
-            invoice.plan_snapshot,
-            status=observation.receipt_registration,
-        )
+    if observation.receipt_registration is not None and receipt_scope is not None:
+        try:
+            invoice.plan_snapshot, receipt_available = merge_receipt_registration(
+                invoice.plan_snapshot,
+                status=observation.receipt_registration,
+                payment_binding=(*receipt_scope, observation.provider_payment_id),
+            )
+        except ValueError:
+            receipt_available = False
         if receipt_available:
             subscription = await db.scalar(
                 select(WorkspaceSubscription).where(
@@ -376,9 +398,12 @@ async def reconcile_pending_initial_checkout_operations(
                 raise ProviderObservationError("completed payment receipt scope conflicts")
             observation = extract_payment_observation(payload, scope=scope)
             operation.updated_at = datetime.now(UTC)
-            if observation.receipt_registration is not None:
+            receipt_scope = _verified_receipt_scope(payload, operation, scope)
+            if observation.receipt_registration is not None and receipt_scope is not None:
                 invoice.plan_snapshot, available = merge_receipt_registration(
-                    invoice.plan_snapshot, status=observation.receipt_registration
+                    invoice.plan_snapshot,
+                    status=observation.receipt_registration,
+                    payment_binding=(*receipt_scope, observation.provider_payment_id),
                 )
                 subscription = await db.get(WorkspaceSubscription, operation.workspace_id)
                 if available and subscription is not None and subscription.billing_owner_id is not None:
@@ -741,6 +766,8 @@ async def _reconcile_event(
     if event.event_type.startswith("payment."):
         payload = await provider.get_payment(event.object_id)
         observation = extract_payment_observation(payload, scope=scope)
+        if observation.provider_payment_id != event.object_id:
+            raise ProviderObservationError("provider payment reference does not match event")
         if observation.status in {"succeeded", "canceled"}:
             # Same prefix as entitlement projection and renewal observation:
             # never acquire an operation before its workspace/subscription.
@@ -782,7 +809,7 @@ async def _reconcile_event(
         observation = extract_receipt_observation(payload, scope=scope)
         if observation.provider_receipt_id != event.object_id:
             raise ProviderObservationError("provider receipt reference does not match event")
-        result = await record_observed_receipt(
+        result, receipt_available = await record_observed_receipt(
             db,
             workspace_id=event.workspace_id,
             observation=observation,
@@ -795,7 +822,7 @@ async def _reconcile_event(
             raise ProviderObservationError(
                 "provider receipt observation conflicts with stored truth"
             )
-        if observation.parent_kind == "payment" and result in {"inserted", "updated"}:
+        if receipt_available:
             operation = await db.scalar(
                 select(BillingOperation).where(
                     BillingOperation.workspace_id == event.workspace_id,
@@ -810,7 +837,7 @@ async def _reconcile_event(
                         BillingInvoice.operation_id == operation.id,
                     )
                 )
-            if invoice is not None and observation.status == "succeeded":
+            if invoice is not None:
                 owner = await db.scalar(
                     select(WorkspaceMembership)
                     .where(
