@@ -953,7 +953,7 @@ final class DesktopCalendarReminderTests: XCTestCase {
         for (state, title, hasAction) in [(GrafTrayRecordingState.starting, "Начинаем запись…", false),
                                           (.recording, "Остановить запись", true),
                                           (.paused, "Остановить запись", true),
-                                          (.stopping, "Завершаем запись…", false)] {
+                                          (.stopping, "Сохраняем запись…", false)] {
             tray.showRecordingState(state)
             tray.rebuildMenu()
             let first = try XCTUnwrap(tray.menu.items.first)

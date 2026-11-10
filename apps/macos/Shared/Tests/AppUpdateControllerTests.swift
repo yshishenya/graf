@@ -405,14 +405,14 @@ final class AppUpdateControllerTests: XCTestCase {
         return values
     }
 
-    private static func readRepositoryFile(_ relativePath: String) throws -> String {
+    nonisolated private static func readRepositoryFile(_ relativePath: String) throws -> String {
         try String(
             contentsOf: repositoryRoot().appendingPathComponent(relativePath),
             encoding: .utf8
         )
     }
 
-    private static func repositoryRoot() throws -> URL {
+    nonisolated private static func repositoryRoot() throws -> URL {
         var candidate = URL(fileURLWithPath: #filePath)
         while candidate.path != "/" {
             let marker = candidate.appendingPathComponent("apps/macos/Package.swift")

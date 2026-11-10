@@ -5,7 +5,7 @@
 ## Code candidate
 
 - Branch: `293-interface-hardening`
-- Code SHA: `7d3b51ca9aa1` (app code and tests; documentation-only commits may follow)
+- Code SHA: `09f1644304de678f278dc432ebf74b4b962767ba` (кодовый кандидат; финальный PR-коммит может содержать только документацию)
 - Risk lane: high-risk-feature
 - Release gate: GitHub `release-full` on frozen candidate, then Developer ID/notarization/Sparkle
 
@@ -14,14 +14,18 @@
 | Check | Result |
 |---|---|
 | `swift build --package-path apps/macos` | PASS |
-| `apps/macos/Scripts/run-swift-tests.sh` | PASS: 1313 tests, 9 skipped, 0 failures |
+| `apps/macos/Scripts/run-swift-tests.sh` | PASS: 1327 tests, 9 skipped, 0 failures (через `ci-local.sh --fast`) |
 | `swift run --package-path apps/macos ContractValidation` | PASS |
 | `infra/scripts/ci-local.sh --fast` with pinned Spec Kit 1.0.7/bootstrap 0.9.10 | PASS: components `macos,docs`; coverage `partial`; next gate `full_before_release` |
-| `ci-local` evidence | `.dev/ci-evidence/ci-fast-7d3b51ca9aa1-a14bb58d56b8.json` |
+| `ci-local` evidence | `.dev/ci-evidence/ci-fast-09f1644304de-ce22b36950d7.json` |
+| GitHub `governance-fast` | PASS: https://github.com/yshishenya/graf/actions/runs/42787311536 |
+| GitHub `macos-pr` | PASS: https://github.com/yshishenya/graf/actions/runs/42787309766 |
+| GitHub `pr-metadata` | PASS: https://github.com/yshishenya/graf/actions/runs/42787312556 |
 
 ## New and changed tests
 
 - `CaptureStatusPresentationTests`: all capture/custody/blocker states, attention flags, no raw failure codes.
+- `AppShellBehaviorTests`: добавлена проверка политики отключения выбранного микрофона во время записи.
 - `AppMenuBuilderTests`: Russian menu, unique shortcuts, global Stop `⌘⇧S`, single zoom increase, `⌘0` reset.
 - `AccountSwitchResetTests`: reset plan and page-storage cleanup script.
 - `AppShellBehaviorTests`: settings-section availability, preference round-trip, invalid frame rejection, unavailable microphone.
@@ -32,6 +36,8 @@
 ## Behavior verified
 
 - Capture, local custody and blocker presentations are typed; views no longer decide behavior by `contains` on user copy.
+- Меню-бар использует те же заголовки статуса, что панель и titlebar; дублирующие строки удалены.
+- Отключение выбранного микрофона во время записи переводит сессию в честное состояние `degraded` с объяснением; системный звук продолжается.
 - Visible copy no longer includes raw failure codes; known codes map to human Russian text.
 - Application menu is Russian; one visible zoom increase; `⌘0` belongs to cabinet zoom reset; Stop is available from the application menu.
 - Account switch resets route, calendar prompt/pending state, selected recording, local player and reloads the cabinet; page storage is cleared and cookies remain owned by the session bridge.
@@ -47,6 +53,8 @@
 - Full 60-minute hardware recording with 100 queue items and Instruments Time Profiler was not run in this worktree. The code-level performance contract and existing queue stress tests pass; the full manual performance gate remains required before release closeout.
 - Full Dynamic Type/localization for all 582 strings is out of scope; key fixed widths are scaled and critical contrast/reduce-motion paths are covered.
 - `LocalBufferService` write/encryption path, analytics scaffold and test-only contract helpers remain until a separate product decision.
+- `PermissionPresentation` не добавлен параллельно существующему `SystemAudioPermissionGate`; T012 оставлен открытым с пояснением.
+- Отдельная increased-contrast и длинная строковая матрица не добавлена; T025 оставлен открытым с пояснением.
 - Web cabinet dead-CSS pruning was not included in this candidate; it is a separate low-risk web-surface change.
 - Manual `/Applications/GRAF Dev.app` matrix was not run from this worktree at this point.
 

@@ -431,8 +431,9 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: AVCaptureDevice.wasConnectedNotification)) { _ in
             microphoneCaptureService.invalidateAvailableRecordingMicrophoneInputs()
         }
-        .onReceive(NotificationCenter.default.publisher(for: AVCaptureDevice.wasDisconnectedNotification)) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: AVCaptureDevice.wasDisconnectedNotification)) { notification in
             microphoneCaptureService.invalidateAvailableRecordingMicrophoneInputs()
+            handleRecordingMicrophoneDisconnect(notification.object as? AVCaptureDevice)
         }
         .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)) { _ in
             Task { await synchronizeRecordingDeletions() }
@@ -472,6 +473,26 @@ struct ContentView: View {
     private func openMeetingsFromTray() {
         guard let configuration = desktopCabinetConfiguration else { return }
         selectedCabinetRoute = configuration.meetingsURL()
+    }
+
+    @MainActor
+    private func handleRecordingMicrophoneDisconnect(_ device: AVCaptureDevice?) {
+        guard RecordingMicrophoneDisconnectPolicy.shouldMarkDegraded(
+            disconnectedDeviceID: device?.uniqueID,
+            selectedDeviceID: selectedRecordingMicrophoneDeviceId,
+            sessionState: captureSession?.state
+        ),
+        let degraded = try? captureController.markDegraded(
+            source: "microphone",
+            recoveryAction: RecordingMicrophoneDisconnectPolicy.recoveryAction
+        ) else {
+            return
+        }
+        captureSession = degraded
+        AppLog.writeRaw(
+            event: AuditEventName.localRecordingDegraded.rawValue,
+            detail: "reason=microphone_disconnected"
+        )
     }
 
     @MainActor

@@ -35,6 +35,34 @@ final class AppShellBehaviorTests: XCTestCase {
         XCTAssertNil(store.selectedMicrophoneDeviceID)
     }
 
+    func testMicrophoneDisconnectDegradesOnlySelectedDeviceDuringRecording() {
+        XCTAssertTrue(RecordingMicrophoneDisconnectPolicy.shouldMarkDegraded(
+            disconnectedDeviceID: "mic-selected",
+            selectedDeviceID: "mic-selected",
+            sessionState: .active
+        ))
+        XCTAssertTrue(RecordingMicrophoneDisconnectPolicy.shouldMarkDegraded(
+            disconnectedDeviceID: "mic-selected",
+            selectedDeviceID: "mic-selected",
+            sessionState: .paused
+        ))
+        XCTAssertFalse(RecordingMicrophoneDisconnectPolicy.shouldMarkDegraded(
+            disconnectedDeviceID: "mic-other",
+            selectedDeviceID: "mic-selected",
+            sessionState: .active
+        ))
+        XCTAssertFalse(RecordingMicrophoneDisconnectPolicy.shouldMarkDegraded(
+            disconnectedDeviceID: "mic-selected",
+            selectedDeviceID: nil,
+            sessionState: .active
+        ))
+        XCTAssertFalse(RecordingMicrophoneDisconnectPolicy.shouldMarkDegraded(
+            disconnectedDeviceID: "mic-selected",
+            selectedDeviceID: "mic-selected",
+            sessionState: .starting
+        ))
+    }
+
     func testSelectedMicrophoneClearsWhenDeviceUnavailable() {
         let selection = RecordingMicrophoneSelection(
             selectionId: "synthetic",

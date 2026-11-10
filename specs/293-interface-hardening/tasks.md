@@ -37,11 +37,13 @@
 - [X] T009 [P] [US1] Add failing matrix tests in `apps/macos/Shared/Tests/CaptureStatusPresentationTests.swift` for capture, local-custody and blocker states, actions, tones, forbidden strings and partial-upload/expired copy.
 - [X] T010 [US1] Implement `CaptureStatusPresentation`, `RecordingBlockerPresentation` and `LocalRecordingPresentation` per `data-model.md`, including `saving/active/saved/degraded/blocked/failed/terminal/deleting/corrupted/uploading/expired`.
 - [X] T011 [US1] Wire the shared status presentation into `apps/macos/RecApp/Sources/Capture/CaptureControlViewCore.swift`, `CaptureStatusItem.swift`, `Cabinet/DesktopMeetingShellView.swift` titlebar HUD and `Calendar/CalendarTray.swift`; remove duplicate state switches.
-- [X] T012 [US1] Add `PermissionPresentation` in `apps/macos/RecApp/Sources/Capture/PermissionPresentation.swift`; use it in `DesktopPermissionOnboardingView.swift`, `CaptureControlViewCore.swift` and `SystemAudioPermissionGate.swift`.
+- [ ] T012 [US1] Add `PermissionPresentation` in `apps/macos/RecApp/Sources/Capture/PermissionPresentation.swift`; use it in `DesktopPermissionOnboardingView.swift`, `CaptureControlViewCore.swift` and `SystemAudioPermissionGate.swift`.
 - [X] T013 [US1] Remove raw failure codes from `SystemAudioStatusLabels.captureFailureDetail` in `apps/macos/Shared/Sources/Models/SystemAudioCaptureCoreModels.swift`; map codes to human copy and update `CaptureControlV5Tests`/`DesktopUploadQueueV5Tests`.
 - [X] T014 [US1] Replace `recordingBlocker: String?`/`localRecordingStatus: String?` in `apps/macos/RecApp/Sources/AppShell/ContentView.swift` with typed models; remove `contains`-based decisions and add regression tests in `AppShellBehaviorTests.swift`/`CaptureStatusPresentationTests.swift`.
 
 **Checkpoint**: status/blocker/custody/permission logic is typed; no raw codes or text-dependent behavior.
+
+**Deferred note**: T012 не добавляет параллельный `PermissionPresentation`, чтобы не дублировать существующий типизированный `SystemAudioPermissionGate`/`SystemAudioPermissionPresentation`, который остаётся источником для стартового гейта. Унификация текстов онбординга с этим гейтом — отдельная задача.
 
 ---
 
@@ -71,10 +73,12 @@
 ## Phase 6: US4 — Цельный и доступный интерфейс (P2)
 
 - [X] T024 [US4] Update `SystemAudioStatusLabels` and all surfaces to canonical «Остановить запись», «Выключить микрофон», «Включить микрофон»; remove visible `Mute`; add menu/copy tests in `AppMenuBuilderTests.swift`/`SystemAudioLocalizationTests.swift`.
-- [X] T025 [US4] Add `accessibilitySortPriority` for capture region, reduce-motion handling in `EqualizerBars`, increased-contrast handling in settings/onboarding, `@ScaledMetric`/adaptive widths in shell/onboarding/settings and long-string tests.
+- [ ] T025 [US4] Add `accessibilitySortPriority` for capture region, reduce-motion handling in `EqualizerBars`, increased-contrast handling in settings/onboarding, `@ScaledMetric`/adaptive widths in shell/onboarding/settings and long-string tests.
 - [X] T026 [US4] Add «Скопировано» feedback to `DesktopSupportIncidentActionStrip.swift`; use `DesktopUserTimeContext.shared.timeZone` in `DesktopNotificationPresenter.swift` and `EmbeddedCabinetLocalRecordingRow.rows`; add accessibility tree tests in `AppShellBehaviorTests.swift`.
 
 **Checkpoint**: menus/copy/accessibility are consistent; critical actions work with keyboard/VoiceOver and long strings.
+
+**Partial note**: T025 выполнил `accessibilitySortPriority`, reduce-motion и адаптивные `@ScaledMetric`-ширины. Отдельная матрица increased-contrast и длинных строк не добавлена; существующие accessibility-проверки меню, панели и карточки находятся в `AppControlAccessibilityTests` и `DesktopNotificationAccessibilityTests`.
 
 ---
 
@@ -91,7 +95,7 @@
 
 ## Phase 8: Release
 
-- [ ] T031 Create PR, run required GitHub checks and `scripts/validate-pr-checks.py`; record URLs/IDs in `specs/293-interface-hardening/validation.md`.
+- [X] T031 Create PR, run required GitHub checks and `scripts/validate-pr-checks.py`; record URLs/IDs in `specs/293-interface-hardening/validation.md`.
 - [ ] T032 Prepare release `v2026.11.10.3` with `GRAF_RELEASE_OPERATOR` and `./scripts/prepare-release.sh 2026.11.10.3`; run `infra/scripts/cd-remote.sh --dry-run`.
 - [ ] T033 Build/notarize/staple with `release-app-update.sh --phase prepare`; publish tag/GitHub Release and run `--phase publish --verify-feed 2026.11.10.3`.
 - [ ] T034 Re-download public artifacts and verify appcast version/URL/length/XML/SHA-256, Sparkle signature and Gatekeeper in `specs/293-interface-hardening/validation/release.md`; close issue #7967 and task issues with Russian closure comments.

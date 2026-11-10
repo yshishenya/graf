@@ -15,10 +15,10 @@ public enum GrafTrayRecordingState: Equatable, Sendable {
     var label: String? {
         switch self {
         case .idle: nil
-        case .starting: "Начинаем запись…"
-        case .recording: "Идет запись"
-        case .paused: "Идет запись · микрофон выключен"
-        case .stopping: "Завершаем запись"
+        case .starting: CaptureStatusPresentation.title(for: .starting)
+        case .recording: CaptureStatusPresentation.title(for: .active)
+        case .paused: CaptureStatusPresentation.title(for: .paused)
+        case .stopping: CaptureStatusPresentation.title(for: .stopping)
         }
     }
 }
@@ -289,7 +289,7 @@ public final class CalendarTrayController: NSObject, NSMenuDelegate {
         case .idle:
             addItem("Начать запись", action: #selector(startRecording), id: "graf.menu.start")
         case .starting:
-            addItem("Начинаем запись…", id: "graf.menu.starting", informational: true)
+            addItem(GrafTrayRecordingState.starting.label ?? "Начинаем запись…", id: "graf.menu.starting", informational: true)
         case .recording, .paused:
             addItem(SystemAudioStatusLabels.stopButtonTitle, action: #selector(stopRecording), id: "graf.menu.stop")
             let muted = model.recordingState == .paused
@@ -299,10 +299,10 @@ public final class CalendarTrayController: NSObject, NSMenuDelegate {
             item.toolTip = muted ? SystemAudioStatusLabels.resumeButtonAccessibilityLabel
                                 : SystemAudioStatusLabels.pauseButtonAccessibilityLabel
         case .stopping:
-            addItem("Завершаем запись…", id: "graf.menu.stopping", informational: true)
+            addItem(GrafTrayRecordingState.stopping.label ?? "Сохраняем запись…", id: "graf.menu.stopping", informational: true)
         }
         if model.recordingState == .recording || model.recordingState == .paused {
-            addItem("Идет запись · " + DesktopControlModel.shared.elapsed(),
+            addItem(CaptureStatusPresentation.title(for: .active) + " · " + DesktopControlModel.shared.elapsed(),
                     id: "graf.menu.elapsed", informational: true)
         }
         menu.addItem(.separator())
