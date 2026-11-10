@@ -8,6 +8,7 @@ from typing import Any, Literal
 from uuid import UUID
 
 from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.billing.provider_events import validate_provider_identifier
@@ -21,6 +22,7 @@ from twobrain_rec_server.billing.referral_rewards import reverse_credit_for_paym
 from twobrain_rec_server.db.models import (
     BillingInvoice,
     BillingOperation,
+    BillingReceiptIdentity,
     ObservedProviderRefund,
 )
 
@@ -560,9 +562,30 @@ async def record_observed_receipt(
         source=source,
         observed_at=observed_at or datetime.now(UTC),
     )
-    if refund_scope_confirmed and observation.status == "canceled" and result in {
-        "inserted", "updated", "duplicate"
-    }:
+    if result == "conflict":
+        return "conflict", False
+
+    identity = {
+        "environment": observation.scope.environment,
+        "shop_id": observation.scope.shop_id,
+        "provider_receipt_id": observation.provider_receipt_id,
+        "workspace_id": workspace_id,
+        "invoice_id": invoice.id,
+        "parent_kind": observation.parent_kind,
+        "provider_parent_id": observation.provider_parent_id,
+    }
+    claimed = await db.scalar(
+        insert(BillingReceiptIdentity)
+        .values(**identity)
+        .on_conflict_do_nothing(index_elements=["environment", "shop_id", "provider_receipt_id"])
+        .returning(BillingReceiptIdentity.invoice_id)
+    )
+    if claimed is None and await db.scalar(
+        select(BillingReceiptIdentity.invoice_id).filter_by(**identity)
+    ) is None:
+        return "conflict", False
+
+    if refund_scope_confirmed and observation.status == "canceled":
         key = _receipt_observation_key(observation)
         receipts = merged["receipt_observations"]
         entry = receipts[key]

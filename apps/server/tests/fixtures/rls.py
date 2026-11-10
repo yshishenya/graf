@@ -98,6 +98,7 @@ RLS_OPERATOR_TABLES = {
     "billing_registry_imports",
     "billing_registry_gaps",
     "billing_reconciliation_observations",
+    "billing_receipt_identities",
 }
 
 RLS_BILLING_TABLES = {

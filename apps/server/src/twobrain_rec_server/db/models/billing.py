@@ -184,6 +184,26 @@ class BillingInvoice(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class BillingReceiptIdentity(Base):
+    __tablename__ = "billing_receipt_identities"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["workspace_id", "invoice_id"], ["billing_invoices.workspace_id", "billing_invoices.id"],
+            ondelete="CASCADE",
+        ),
+        CheckConstraint("parent_kind IN ('payment', 'refund')", name="receipt_identity_parent_kind"),
+        Index("ix_billing_receipt_identities_invoice", "workspace_id", "invoice_id"),
+    )
+
+    environment: Mapped[str] = mapped_column(String(32), primary_key=True)
+    shop_id: Mapped[str] = mapped_column(String(160), primary_key=True)
+    provider_receipt_id: Mapped[str] = mapped_column(String(160), primary_key=True)
+    workspace_id: Mapped[UUID] = mapped_column(nullable=False)
+    invoice_id: Mapped[UUID] = mapped_column(nullable=False)
+    parent_kind: Mapped[str] = mapped_column(String(8), nullable=False)
+    provider_parent_id: Mapped[str] = mapped_column(String(160), nullable=False)
+
+
 class BillingEntitlementGrant(Base):
     __tablename__ = "billing_entitlement_grants"
     __table_args__ = (

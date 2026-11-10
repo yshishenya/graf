@@ -674,6 +674,18 @@ async def test_runtime_role_bootstrap_is_idempotent_and_verifies_privileges(
                     )
                 await bootstrap._bootstrap()
             await bootstrap._bootstrap()
+            receipt_privileges = await verification_connection.fetch(
+                """select name, privilege
+                   from unnest($1::text[]) as names(name)
+                   cross join unnest(array['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER'])
+                       as privileges(privilege)
+                   where has_table_privilege(name, 'billing_receipt_identities', privilege)""",
+                [*role_names, "public"],
+            )
+            assert {(row["name"], row["privilege"]) for row in receipt_privileges} == {
+                ("twobrain_rec_maintenance", "SELECT"),
+                ("twobrain_rec_maintenance", "INSERT"),
+            }
         finally:
             await verification_connection.close()
 

@@ -907,7 +907,11 @@ async def test_canceled_refund_receipt_basis_requires_bound_shop(
     from sqlalchemy import select
 
     from twobrain_rec_server.billing import webhook_reconciliation
-    from twobrain_rec_server.db.models import BillingNotificationDelivery, BillingWebhookEvent
+    from twobrain_rec_server.db.models import (
+        BillingNotificationDelivery,
+        BillingReceiptIdentity,
+        BillingWebhookEvent,
+    )
     from twobrain_rec_server.db.tenant_context import apply_tenant_context
 
     case = refund_queue_case
@@ -937,6 +941,7 @@ async def test_canceled_refund_receipt_basis_requires_bound_shop(
             scoped.setattr(webhook_reconciliation, "record_observed_receipt", fail_after_flush)
             assert (await case.process(1))["pending"] == 1
         assert (await case.rows(BillingInvoice))[0] == before
+        assert not await case.rows(BillingReceiptIdentity)
 
     started = datetime.now(UTC)
     counters = await case.process(1)
@@ -956,6 +961,11 @@ async def test_canceled_refund_receipt_basis_requires_bound_shop(
     await case.add_events("receipt", 1, NOW, receipt_id="synthetic-canceled-refund-receipt")
     assert (await case.process(1))["reconciled"] == 1
     assert (await case.rows(BillingInvoice))[0] == after
+    await case.add_events("receipt", 1, NOW, receipt_id="second-synthetic-refund-receipt")
+    assert (await case.process(1))["reconciled"] == 1
+    identities = await case.rows(BillingReceiptIdentity)
+    assert len(identities) == 2
+    assert {identity["provider_parent_id"] for identity in identities} == {case.refund_id}
     assert all(row["state"] == "reconciled" for row in await case.rows(BillingWebhookEvent))
     assert not await case.rows(BillingNotificationDelivery)
 
@@ -1087,3 +1097,93 @@ async def test_accepted_refund_with_temporarily_missing_parent_retries(refund_qu
     assert (await case.process(1))["reconciled"] == 1
     assert len(await case.rows(ObservedProviderRefund)) == 1
     await case.assert_financial_unchanged()
+
+
+@pytest.mark.strict_rls
+@pytest.mark.asyncio
+@pytest.mark.parametrize("workspace_and_scope", ["same", "different-workspace", "different-shop", "different-environment"])
+async def test_receipt_id_is_unique_across_concurrent_invoices(
+    refund_queue_case, rls_engine, workspace_and_scope,
+):
+    from dataclasses import replace
+    from uuid import uuid4
+
+    from sqlalchemy import select
+
+    from tests.integration.test_rls_postgres_policies import _seed_probe_rows
+    from twobrain_rec_server.billing.reconciliation import record_observed_receipt
+    from twobrain_rec_server.db.models import BillingReceiptIdentity
+    from twobrain_rec_server.db.tenant_context import apply_tenant_context
+
+    case = refund_queue_case
+    workspace_ids = (
+        case.workspace_id,
+        (await _seed_probe_rows(rls_engine))["workspace_a"]
+        if workspace_and_scope == "different-workspace" else case.workspace_id,
+    )
+    scope = ProviderScope(environment="test", shop_id="shop-1")
+    alternate = {
+        "different-shop": replace(scope, shop_id="shop-2"),
+        "different-environment": replace(scope, environment="production"),
+    }.get(workspace_and_scope, scope)
+    receipt_id = f"receipt-{uuid4()}"
+    invoices = []
+    async with case.sessions() as db:
+        await apply_tenant_context(db, case.context)
+        for workspace_id, invoice_scope in zip(workspace_ids, (scope, alternate), strict=True):
+            operation = BillingOperation(
+                id=uuid4(), workspace_id=workspace_id, kind="initial_checkout",
+                idempotency_key=str(uuid4()), provider_id=f"payment-{uuid4()}", state="succeeded",
+                request_snapshot={
+                    "provider_environment": invoice_scope.environment,
+                    "provider_shop_id": invoice_scope.shop_id,
+                },
+            )
+            db.add(operation)
+            await db.flush()
+            invoice_id = uuid4()
+            db.add(BillingInvoice(
+                id=invoice_id, workspace_id=workspace_id, operation_id=operation.id,
+                safe_number=f"INV-{uuid4()}", amount_minor=1000, currency="RUB",
+                status="succeeded", plan_snapshot={},
+            ))
+            invoices.append((workspace_id, invoice_id, operation.provider_id, invoice_scope))
+        await db.commit()
+
+    async def observe(item, status="pending", *, commit=True):
+        workspace_id, _, payment_id, invoice_scope = item
+        observation = extract_receipt_observation(
+            {"id": receipt_id, "type": "payment", "payment_id": payment_id, "status": status},
+            scope=invoice_scope,
+        )
+        async with case.sessions() as db:
+            await apply_tenant_context(db, case.context)
+            result = await record_observed_receipt(db, workspace_id=workspace_id, observation=observation)
+            if commit:
+                await db.commit()
+            return result
+
+    assert await observe(invoices[0], commit=False) == ("inserted", False)
+    outcomes = await asyncio.wait_for(
+        asyncio.gather(*(observe(item) for item in invoices)), timeout=10
+    )
+    if scope != alternate:
+        assert outcomes == [("inserted", False), ("inserted", False)]
+        return
+    assert sorted(outcomes) == [("conflict", False), ("inserted", False)]
+    winner = outcomes.index(("inserted", False))
+    assert await observe(invoices[winner], "succeeded") == ("updated", True)
+    assert await observe(invoices[winner], "succeeded") == ("duplicate", False)
+    assert await observe(invoices[1 - winner], "succeeded") == ("conflict", False)
+
+    async with case.sessions() as db:
+        await apply_tenant_context(db, case.context)
+        loser = await db.scalar(select(BillingInvoice).where(BillingInvoice.id == invoices[1 - winner][1]))
+        assert (loser.status, loser.amount_minor, loser.plan_snapshot) == ("succeeded", 1000, {})
+
+
+    async with case.sessions() as db:
+        await apply_tenant_context(db, replace(case.context, operation_name="operator_diagnostics"))
+        assert await db.scalar(
+            select(BillingReceiptIdentity.invoice_id).filter_by(provider_receipt_id=receipt_id)
+        ) is None

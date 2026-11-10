@@ -351,6 +351,15 @@ async def _bootstrap() -> None:
                 f"public.rec_playback_normalization_cleanup_page(integer) to {MEDIA_ROLE}",
             ):
                 await connection.execute(statement)
+            receipt_identities = "public.billing_receipt_identities"
+            if await connection.fetchval("select to_regclass($1)", receipt_identities):
+                await connection.execute(
+                    f"revoke all privileges on {receipt_identities} "
+                    f"from public, {APP_ROLE}, {MAINTENANCE_ROLE}, {MEDIA_ROLE}"
+                )
+                await connection.execute(
+                    f"grant select, insert on {receipt_identities} to {MAINTENANCE_ROLE}"
+                )
             for table, columns in MEDIA_STORAGE_COLUMNS.items():
                 # Table-level REVOKE does not remove separately granted column rights.
                 all_columns = await connection.fetch(
