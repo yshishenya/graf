@@ -37,6 +37,9 @@ class BillingEvent(StrEnum):
     STORAGE_THRESHOLD = "storage.threshold"
     RECEIPT_AVAILABLE = "receipt.available"
     REFERRAL_CREDIT = "referral.credit"
+    REFERRAL_AVAILABLE = "referral.available"
+    REFERRAL_APPLIED = "referral.applied"
+    REFERRAL_REVERSED = "referral.reversed"
     FAIR_USE_REVIEW = "fair_use.review"
     ACCOUNT_CLOSE = "account.close"
 
@@ -53,6 +56,9 @@ _EVENT_NOTIFICATION_KIND: dict[BillingEvent, BillingNotification] = {
     BillingEvent.STORAGE_THRESHOLD: BillingNotification.STORAGE_THRESHOLD,
     BillingEvent.RECEIPT_AVAILABLE: BillingNotification.RECEIPT_AVAILABLE,
     BillingEvent.REFERRAL_CREDIT: BillingNotification.REFERRAL_CREDIT,
+    BillingEvent.REFERRAL_AVAILABLE: BillingNotification.REFERRAL_AVAILABLE,
+    BillingEvent.REFERRAL_APPLIED: BillingNotification.REFERRAL_APPLIED,
+    BillingEvent.REFERRAL_REVERSED: BillingNotification.REFERRAL_REVERSED,
     BillingEvent.FAIR_USE_REVIEW: BillingNotification.FAIR_USE_REVIEW,
     BillingEvent.ACCOUNT_CLOSE: BillingNotification.ACCOUNT_CLOSE,
 }

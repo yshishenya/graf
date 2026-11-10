@@ -9,7 +9,9 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from twobrain_rec_server.billing.events import BillingEvent
 from twobrain_rec_server.billing.purchases import effective_paid_storage
+from twobrain_rec_server.billing.referral_notifications import enqueue_referral_notice
 from twobrain_rec_server.billing.referrals import (
     ReferralReward,
     ReferralRiskSignals,
@@ -192,6 +194,7 @@ async def mature_pending_credits(db: AsyncSession, *, now: datetime, rolling_day
             if attribution is not None and attribution.state in {"paid", "pending_maturity"}:
                 attribution.state = "rejected"
             continue
+        became_available = row.state != "available"
         row.state = "available"
         if attribution is not None and attribution.state == "pending_maturity":
             attribution.state = "available"
@@ -200,13 +203,14 @@ async def mature_pending_credits(db: AsyncSession, *, now: datetime, rolling_day
             .where(WorkspaceSubscription.workspace_id == row.workspace_id)
             .with_for_update()
         )
-        if subscription is None:
-            continue
         if (
-            subscription.plan_code != "personal"
+            subscription is None
+            or subscription.plan_code != "personal"
             or subscription.paid_through is None
             or subscription.paid_through.astimezone(UTC) <= current
         ):
+            if became_available:
+                await enqueue_referral_notice(db, credit=row, kind=BillingEvent.REFERRAL_AVAILABLE, at=current)
             continue
         start = (
             subscription.paid_through.astimezone(UTC)
@@ -228,6 +232,7 @@ async def mature_pending_credits(db: AsyncSession, *, now: datetime, rolling_day
         row.applied_end = start + timedelta(days=days)
         subscription.paid_through = row.applied_end
         subscription.application_version = (subscription.application_version or 0) + 1
+        await enqueue_referral_notice(db, credit=row, kind=BillingEvent.REFERRAL_APPLIED, at=current)
         total_applied += days
     await db.flush()
     return total_applied
@@ -280,6 +285,7 @@ async def reverse_credit_for_payment(
             "available",
         }:
             attribution.state = "reversed"
+        await enqueue_referral_notice(db, credit=row, kind=BillingEvent.REFERRAL_REVERSED, at=_utc(now))
         await db.flush()
         return "reversed"
     reversal_ref = f"{source_ref}:reversal"
@@ -333,5 +339,6 @@ async def reverse_credit_for_payment(
     ):
         subscription.paid_through = row.applied_start
         subscription.application_version = (subscription.application_version or 0) + 1
+    await enqueue_referral_notice(db, credit=row, kind=BillingEvent.REFERRAL_REVERSED, at=_utc(now))
     await db.flush()
     return "reversed"
