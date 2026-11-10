@@ -780,6 +780,8 @@ async def _reconcile_event(
     if event.event_type.startswith("receipt."):
         payload = await provider.get_receipt(event.object_id)
         observation = extract_receipt_observation(payload, scope=scope)
+        if observation.provider_receipt_id != event.object_id:
+            raise ProviderObservationError("provider receipt reference does not match event")
         result = await record_observed_receipt(
             db,
             workspace_id=event.workspace_id,

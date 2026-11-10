@@ -601,7 +601,7 @@ async def refund_queue_case(rls_engine, tmp_path, monkeypatch):
             return httpx.Response(
                 200,
                 json={
-                    "id": request.url.path.rsplit("/", 1)[1],
+                    "id": provider_state.get("receipt_response_id", request.url.path.rsplit("/", 1)[1]),
                     "type": "refund",
                     "status": [] if provider_state["malformed_receipts"] else "succeeded",
                     "refund_id": receipt_parents[request.url.path.rsplit("/", 1)[1]],
@@ -869,6 +869,26 @@ async def test_refund_queue_failed_batch_cannot_starve_new_parent(
     invoice = (await case.rows(BillingInvoice))[0]
     assert invoice["amount_minor"] == 1000 and invoice["status"] == "succeeded"
     assert (await case.rows(BillingOperation))[0]["state"] == "succeeded"
+    await case.assert_financial_unchanged()
+
+
+@pytest.mark.strict_rls
+@pytest.mark.asyncio
+async def test_receipt_get_must_match_requested_receipt(refund_queue_case):
+    case = refund_queue_case
+    await case.add_events("parent", 1, NOW)
+    assert (await case.process(1))["reconciled"] == 1
+
+    await case.add_events("receipt", 1, NOW)
+    before = await case.rows(BillingInvoice)
+    case.provider_state["receipt_response_id"] = "different-receipt"
+    assert (await case.process(1))["pending"] == 1
+    assert await case.rows(BillingInvoice) == before
+
+    del case.provider_state["receipt_response_id"]
+    assert (await case.process(1))["reconciled"] == 1
+    snapshot = (await case.rows(BillingInvoice))[0]["plan_snapshot"]
+    assert len(snapshot["receipt_observations"]) == 1
     await case.assert_financial_unchanged()
 
 
