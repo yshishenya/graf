@@ -25,7 +25,7 @@
 - [X] T004 Create `apps/macos/RecApp/Sources/AppShell/AppMenuBuilder.swift` with testable `makeMenu` and move `installMainMenu`/selector logic out of the executable target.
 - [X] T005 Add `CaptureStatusPresentation.swift`, `RecordingBlockerPresentation.swift`, `LocalRecordingPresentation.swift` under `apps/macos/RecApp/Sources/Capture/`, `InterfacePreferences.swift` and `AccountSwitchResetPolicy.swift` under `apps/macos/RecApp/Sources/AppShell/`/`Cabinet/` per `data-model.md`.
 - [X] T006 Add `apps/macos/Shared/Tests/DesktopDesignTokenContractTests.swift` parsing `cabinet.css` core variables and comparing `DesktopDesignTokens`.
-- [ ] T007 Move `DesktopDesignTokens.swift`, `DesktopWebButtonStyle` and `DesktopMeetingShellChrome` into `apps/macos/RecApp/Sources/DesignSystem/`; update imports and source-text test paths so Capture does not depend on Cabinet for design primitives.
+- [X] T007 Move `DesktopDesignTokens.swift`, `DesktopWebButtonStyle` and `DesktopMeetingShellChrome` into `apps/macos/RecApp/Sources/DesignSystem/`; update imports and source-text test paths so Capture does not depend on Cabinet for design primitives.
 - [X] T008 Add `apps/macos/Shared/Tests/InterfacePerformanceContractTests.swift` skeleton and update existing source-text tests in `Shared/Tests/AppControlAccessibilityTests.swift`/`DesktopNotificationAppIntegrationTests.swift` to the new AppShell paths or replace them with behavior tests.
 
 **Checkpoint**: app-shell is testable, presentation/reset/preferences models exist, project builds.
@@ -37,7 +37,7 @@
 - [X] T009 [P] [US1] Add failing matrix tests in `apps/macos/Shared/Tests/CaptureStatusPresentationTests.swift` for capture, local-custody and blocker states, actions, tones, forbidden strings and partial-upload/expired copy.
 - [X] T010 [US1] Implement `CaptureStatusPresentation`, `RecordingBlockerPresentation` and `LocalRecordingPresentation` per `data-model.md`, including `saving/active/saved/degraded/blocked/failed/terminal/deleting/corrupted/uploading/expired`.
 - [X] T011 [US1] Wire the shared status presentation into `apps/macos/RecApp/Sources/Capture/CaptureControlViewCore.swift`, `CaptureStatusItem.swift`, `Cabinet/DesktopMeetingShellView.swift` titlebar HUD and `Calendar/CalendarTray.swift`; remove duplicate state switches.
-- [ ] T012 [US1] Add `PermissionPresentation` in `apps/macos/RecApp/Sources/Capture/PermissionPresentation.swift`; use it in `DesktopPermissionOnboardingView.swift`, `CaptureControlViewCore.swift` and `SystemAudioPermissionGate.swift`.
+- [X] T012 [US1] Add `PermissionPresentation` in `apps/macos/RecApp/Sources/Capture/PermissionPresentation.swift`; use it in `DesktopPermissionOnboardingView.swift`, `CaptureControlViewCore.swift` and `SystemAudioPermissionGate.swift`.
 - [X] T013 [US1] Remove raw failure codes from `SystemAudioStatusLabels.captureFailureDetail` in `apps/macos/Shared/Sources/Models/SystemAudioCaptureCoreModels.swift`; map codes to human copy and update `CaptureControlV5Tests`/`DesktopUploadQueueV5Tests`.
 - [X] T014 [US1] Replace `recordingBlocker: String?`/`localRecordingStatus: String?` in `apps/macos/RecApp/Sources/AppShell/ContentView.swift` with typed models; remove `contains`-based decisions and add regression tests in `AppShellBehaviorTests.swift`/`CaptureStatusPresentationTests.swift`.
 
@@ -64,7 +64,7 @@
 
 - [X] T021 [US3] Cache available microphone inputs in `MicrophoneCaptureService.swift` with connect/disconnect refresh; move `EmbeddedCabinetLocalRecordingRow.rows` out of `ContentView.body` into detached queue-change computation.
 - [X] T022 [US3] Add bounded `DateFormatter` cache in `apps/macos/Shared/Sources/UserTime.swift`; move `loadItems`/`applyRetentionExpiry`/`currentDeletionOperations` off MainActor; make `AppLog` asynchronous/batched with cached ISO8601 and cheaper `BoundedLogFileWriter` append.
-- [ ] T023 [US3] Pause 30-second refresh loops while inactive; add `os_signpost` around capture actions; run the 60-minute/100-item measurement and record `specs/293-interface-hardening/validation/performance.md`.
+- [X] T023 [US3] Pause 30-second refresh loops while inactive; add `os_signpost` around capture actions; run the 60-minute/100-item measurement and record `specs/293-interface-hardening/validation/performance.md`.
 
 **Checkpoint**: render path has no blocking I/O/device work; latency budget is measured.
 
@@ -73,7 +73,7 @@
 ## Phase 6: US4 — Цельный и доступный интерфейс (P2)
 
 - [X] T024 [US4] Update `SystemAudioStatusLabels` and all surfaces to canonical «Остановить запись», «Выключить микрофон», «Включить микрофон»; remove visible `Mute`; add menu/copy tests in `AppMenuBuilderTests.swift`/`SystemAudioLocalizationTests.swift`.
-- [ ] T025 [US4] Add `accessibilitySortPriority` for capture region, reduce-motion handling in `EqualizerBars`, increased-contrast handling in settings/onboarding, `@ScaledMetric`/adaptive widths in shell/onboarding/settings and long-string tests.
+- [X] T025 [US4] Add `accessibilitySortPriority` for capture region, reduce-motion handling in `EqualizerBars`, increased-contrast handling in settings/onboarding, `@ScaledMetric`/adaptive widths in shell/onboarding/settings and long-string tests.
 - [X] T026 [US4] Add «Скопировано» feedback to `DesktopSupportIncidentActionStrip.swift`; use `DesktopUserTimeContext.shared.timeZone` in `DesktopNotificationPresenter.swift` and `EmbeddedCabinetLocalRecordingRow.rows`; add accessibility tree tests in `AppShellBehaviorTests.swift`.
 
 **Checkpoint**: menus/copy/accessibility are consistent; critical actions work with keyboard/VoiceOver and long strings.
@@ -85,8 +85,8 @@
 ## Phase 7: US5 — Безопасно развивать и выпускать (P2)
 
 - [X] T027 [US5] Remove confirmed dead types/constants/methods (`CaptureFinalizationService`, `DebugClipCleanupService`, dead enums, unused status/menu constants) and update `AppControlAccessibilityTests`/`DesktopDesignTokensTests`/other affected tests.
-- [ ] T028 [US5] Remove confirmed dead CSS classes from `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css` and update/add `apps/server/tests/contract/test_cabinet_frontend_foundation_contract.py`.
-- [ ] T029 [US5] Extract shared `TitlebarAccessoryHost` and `CaptureTransportControls`; fix `EmbeddedCabinetWebView.swift` compiler warnings without behavior change; add tests.
+- [X] T028 [US5] Remove confirmed dead CSS classes from `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css` and update/add `apps/server/tests/contract/test_cabinet_frontend_foundation_contract.py`.
+- [X] T029 [US5] Extract shared `TitlebarAccessoryHost` and `CaptureTransportControls`; fix `EmbeddedCabinetWebView.swift` compiler warnings without behavior change; add tests.
 - [X] T030 [US5] Run `swift build`, focused tests, full `apps/macos/Scripts/run-swift-tests.sh`, `ci-local.sh --fast`; update `specs/293-interface-hardening/validation.md`, `docs/current-product-status.md` and `changes/unreleased/F293.yaml`.
 
 **Checkpoint**: dead code removed, warnings reduced, validation evidence recorded.
@@ -100,7 +100,13 @@
 - [X] T033 Build/notarize/staple with `release-app-update.sh --phase prepare`; publish tag/GitHub Release and run `--phase publish --verify-feed 2026.11.10.3`.
 - [X] T034 Re-download public artifacts and verify appcast version/URL/length/XML/SHA-256, Sparkle signature and Gatekeeper in `specs/293-interface-hardening/validation/release.md`; close issue #7967 and task issues with Russian closure comments.
 
-**Release evidence**: `v2026.11.10.3`, source `813e9dabba35c546a782852795e921bd325f3689`, https://github.com/yshishenya/graf/releases/tag/v2026.11.10.3. Umbrella #7967 остаётся открытой из-за отложенных T007/T012/T023/T025/T028/T029.
+**Release evidence**:
+- `v2026.11.10.3`: source `813e9dabba35c546a782852795e921bd325f3689`, https://github.com/yshishenya/graf/releases/tag/v2026.11.10.3 — macOS-приложение.
+- `v2026.11.10.4`: source `a50cf9748cab05bff7eb5ce5a0696da18c64ade6`, https://github.com/yshishenya/graf/releases/tag/v2026.11.10.4 — серверный выпуск и production deploy.
+
+## Owner decision 2026-11-10
+
+Владелец полностью закрывает задачу F293. Задачи T007, T012, T023, T025, T028 и T029 закрыты как отложенные: они не входят в `v2026.11.10.3`/`v2026.11.10.4` и не реализованы. Причины и остаточный технический долг зафиксированы в `validation.md`, `validation/release.md` и `docs/current-product-status.md`. Umbrella #7967 закрывается вместе с фичей.
 
 ## Dependencies & Execution Order
 

@@ -12,6 +12,11 @@ wav.writeUInt32LE(16,16);wav.writeUInt16LE(1,20);wav.writeUInt16LE(1,22);
 wav.writeUInt32LE(8000,24);wav.writeUInt32LE(8000,28);wav.writeUInt16LE(1,32);wav.writeUInt16LE(8,34);
 wav.write('data',36);wav.writeUInt32LE(240000,40);
 const {chromium,webkit} = require(require.resolve('playwright',{paths:[process.env.GRAF_NODE_MODULES || process.cwd()]}));
+function sendAudio(route) {
+ const range = /^bytes=(\d+)-(\d*)$/.exec(route.request().headers().range || '');
+ const start = range ? Number(range[1]) : 0, end = range && range[2] ? Math.min(Number(range[2]), wav.length-1) : wav.length-1;
+ return route.fulfill({status:range?206:200,contentType:'audio/wav',headers:{'Accept-Ranges':'bytes','Content-Length':String(end-start+1),...(range?{'Content-Range':`bytes ${start}-${end}/${wav.length}`}:{})},body:wav.subarray(start,end+1)});
+}
 async function checkContext(page, tab, position) {
  for (const selector of ['[data-public-auth]', '[data-public-native]']) {
   const link=page.locator(selector).first();
@@ -40,20 +45,48 @@ async function target24(locator) {
   for(const width of [320,390,1440]) for(const colorScheme of ['light','dark']){
    const context=await browser.newContext({viewport:{width,height:900},colorScheme});
    const page=await context.newPage(),errors=[],privateRequests=[];page.on('pageerror',e=>errors.push(e.message));
-   await page.route('**/*',route=>{const url=new URL(route.request().url());if(url.pathname==='/reader')return route.fulfill({contentType:'text/html',body:fs.readFileSync(process.argv[2],'utf8')});if(url.pathname==='/audio') {
-     const range = /^bytes=(\d+)-(\d*)$/.exec(route.request().headers().range || '');
-     const start = range ? Number(range[1]) : 0, end = range && range[2] ? Math.min(Number(range[2]), wav.length-1) : wav.length-1;
-     return route.fulfill({status:range?206:200,contentType:'audio/wav',headers:{'Accept-Ranges':'bytes','Content-Length':String(end-start+1),...(range?{'Content-Range':`bytes ${start}-${end}/${wav.length}`}:{})},body:wav.subarray(start,end+1)});
-    }
+   await page.route('**/*',route=>{const url=new URL(route.request().url());if(url.pathname==='/reader')return route.fulfill({contentType:'text/html',body:fs.readFileSync(process.argv[2],'utf8')});if(url.pathname==='/audio')return sendAudio(route);
     const name=path.basename(url.pathname);
     if(/\.(js|css)$/.test(name)&&fs.existsSync(path.join(assets,name)))return route.fulfill({contentType:name.endsWith('.js')?'text/javascript':'text/css',body:fs.readFileSync(path.join(assets,name),'utf8')});
     if(/\/(comments|contacts|shares|recipients)(?:\?|$)/.test(url.pathname))privateRequests.push(url.pathname);
     return route.fulfill({status:204});});
    await page.goto('https://graf.test/reader');
    await page.getByRole('button',{name:'Посмотреть встречу',exact:true}).click();
+   if(width===320) {
+    await page.setViewportSize({width,height:480});
+    await page.evaluate(()=>{ location.hash='#recording?position_ms=14000'; });
+    await page.waitForFunction(()=>document.querySelector('audio').currentTime===14);
+    const more=page.getByLabel('Действия со встречей',{exact:true});
+    await more.click();
+    const native=page.getByRole('link',{name:'Открыть в GRAF',exact:true});
+    await native.evaluate(el=>el.addEventListener('click',event=>event.preventDefault(),{once:true}));
+    await native.press('Enter');
+    const help=page.locator('[data-public-app-help]');
+    assert(await help.evaluate(el=>{
+     const {top,bottom}=el.getBoundingClientRect();
+     return top>=0 && bottom<=document.querySelector('.public-reader__player').getBoundingClientRect().top;
+    }), 'App help and its actions must fit above the player after opening');
+    assert.equal(await help.getByRole('heading').evaluate(el=>el===document.activeElement),true);
+    assert(await help.getByRole('link',{name:'Установить GRAF'}).isVisible());
+    const handoff=new URL(await page.locator('[data-public-native]').getAttribute('href'));
+    assert.equal(handoff.searchParams.get('tab'),'recording');
+    assert.equal(handoff.searchParams.get('position_ms'),'14000');
+    await help.getByRole('button',{name:'Продолжить в браузере'}).press('Enter');
+    assert.equal(await help.isVisible(),false);
+    assert.equal(await more.evaluate(el=>el===document.activeElement),true);
+    assert.equal(new URL(page.url()).hash,'#recording?position_ms=14000');
+    assert.equal(await page.locator('audio').evaluate(el=>el.currentTime),14);
+    await page.setViewportSize({width,height:900});
+   }
    await target24(page.getByRole('link',{name:'Войти',exact:true}));
    await target24(page.getByRole('link',{name:'Итоги',exact:true}));
    await target24(page.getByRole('link',{name:'Расшифровка',exact:true}));
+   assert(await page.locator('[data-public-tab]').evaluateAll(tabs=>tabs.every(tab=>{
+    const range=document.createRange();
+    range.selectNodeContents(tab);
+    return range.getClientRects().length===1;
+   })), 'Tab labels must stay on one line');
+
    await page.getByRole('link',{name:'Расшифровка',exact:true}).click();
    await target24(page.locator('[data-public-seek]').first());
    const search=page.getByRole('searchbox');await search.fill('неттакогослова');
@@ -65,6 +98,23 @@ async function target24(locator) {
    await page.waitForFunction(()=>document.querySelector('audio').readyState>=1);
    assert.equal(await page.locator('[data-speaker-lane]').count(),2);
    assert.deepEqual(await page.locator('[data-speaker-lane]').evaluateAll(rows=>rows.map(row=>row.dataset.speakerKey)),['speaker-1','speaker-2']);
+   const waitForSharedPosition = seconds => page.waitForFunction(expected => {
+    const player = document.querySelector('[data-playback-player]');
+    const match = /^#recording\?position_ms=(\d+)$/.exec(location.hash);
+    return !player.seeking && Math.abs(player.currentTime-expected)<0.25
+      && match && Math.abs(Number(match[1])/1000-player.currentTime)<0.01;
+   }, seconds, {timeout:3000});
+   await audio.evaluate(el=>{
+    const {get,set}=Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype,'currentTime');
+    Object.defineProperty(el,'currentTime',{configurable:true,get,set(time){
+     window.seekWrites=(window.seekWrites||0)+1;set.call(this,time);
+    }});
+   });
+   const countSeekWrites = async (seconds) => {
+    await waitForSharedPosition(seconds);
+    await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+    assert.equal(await page.evaluate(()=>window.seekWrites),1,'Updating the public link must not seek a second time');
+   };
    const lane = page.locator('[data-speaker-lane="speaker-1"]');
    const track = lane.locator('[data-timeline-track]');
    const intervals = lane.locator('[data-timeline-intervals]');
@@ -79,9 +129,10 @@ async function target24(locator) {
    assert.equal(await intervals.evaluate(el=>el===document.activeElement),true);
    assert.equal(await audio.evaluate(a=>a.currentTime),14);
    await intervals.click();
+   await page.evaluate(()=>{window.seekWrites=0;});
    await choose.locator('[data-timeline-interval-choice]').nth(1).press('Enter');
    await choose.waitFor({state:'hidden'});
-   assert.equal(await audio.evaluate(a=>a.currentTime),14.25);
+   await countSeekWrites(14.25);
    assert.equal(await intervals.evaluate(el=>el===document.activeElement),true);
    await intervals.click();
    const firstChoice = choose.locator('[data-timeline-interval-choice]').first();
@@ -96,12 +147,6 @@ async function target24(locator) {
    assert(first.right>second.left);
    await page.mouse.click((first.right+second.left)/2,trackBox.y+trackBox.height/2);
    assert.equal(await audio.evaluate(a=>a.currentTime),14.25,'overlap chooses the upper interval');
-   const waitForSharedPosition = seconds => page.waitForFunction(expected => {
-    const player = document.querySelector('[data-playback-player]');
-    const match = /^#recording\?position_ms=(\d+)$/.exec(location.hash);
-    return !player.seeking && Math.abs(player.currentTime-expected)<0.25
-      && match && Math.abs(Number(match[1])/1000-player.currentTime)<0.01;
-   }, seconds, {timeout:3000});
    await page.mouse.click(trackBox.x+trackBox.width*0.25,trackBox.y+trackBox.height/2);
    await waitForSharedPosition(7.5);
    await track.press('ArrowRight');
@@ -128,12 +173,19 @@ async function target24(locator) {
    await page.getByRole('button',{name:'Показать дорожки',exact:true}).click();
    await page.locator('[data-timeline-track]').first().press('Home');
    assert.equal(await audio.evaluate(a=>a.currentTime),0);
+   await page.evaluate(()=>{window.seekWrites=0;});
    await page.getByRole('button',{name:'Следующая реплика',exact:true}).click();
-   assert(Math.abs(await audio.evaluate(a=>a.currentTime)-14)<0.5);
+   await countSeekWrites(14);
+   await audio.evaluate(el=>{delete el.currentTime;});
+   await page.evaluate(()=>history.back());
+   await waitForSharedPosition(0);
+   await page.evaluate(()=>history.forward());
+   await waitForSharedPosition(14);
    await page.getByRole('button',{name:'Слушать спикеров',exact:true}).click();
    await page.locator('[data-listen-speaker="speaker-2"]').check();
    await page.waitForFunction(()=>document.querySelector('audio').currentTime>=18&&!document.querySelector('audio').paused);
    await page.getByRole('button',{name:'Приостановить',exact:true}).click();
+   await page.waitForFunction(()=>{const audio=document.querySelector('audio');return audio.paused&&!audio.seeking;});
    await checkContext(page,'recording',String(await audio.evaluate(a=>Math.round(a.currentTime*1000))));
    assert.deepEqual(privateRequests,[]);
    const overflow=await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth);
@@ -144,16 +196,24 @@ async function target24(locator) {
   }
   for(const [position,changed] of [[15000,false],[0,false],[15000,true]]) {
    const context=await browser.newContext();const page=await context.newPage();
-   await page.route('**/*',route=>{
+   let releaseAudio;
+   const delayedAudio=new Promise(resolve=>{releaseAudio=resolve;});
+   await page.route('**/*',async route=>{
     const url=new URL(route.request().url()),name=path.basename(url.pathname);
+    if(url.pathname==='/audio'){await delayedAudio;return sendAudio(route);}
     if(url.pathname==='/reader')return route.fulfill({contentType:'text/html',body:fs.readFileSync(process.argv[2],'utf8').replace('data-source-changed="false"',`data-source-changed="${changed}"`)});
     if(/\.(js|css)$/.test(name)&&fs.existsSync(path.join(assets,name)))return route.fulfill({contentType:name.endsWith('.js')?'text/javascript':'text/css',body:fs.readFileSync(path.join(assets,name),'utf8')});
     return route.fulfill({status:204});
    });
-   await page.goto(`https://graf.test/reader#recording?position_ms=${position}`);
+   await page.goto(`https://graf.test/reader#recording?position_ms=${position}`,{waitUntil:'domcontentloaded'});
    await page.getByRole('button',{name:'Посмотреть встречу',exact:true}).click();
    assert.equal(await page.locator('audio').evaluate(a=>a.readyState),0);
    await checkContext(page,'recording',changed?null:String(position));
+   releaseAudio();
+   await page.waitForFunction(seconds=>{
+    const audio=document.querySelector('audio');
+    return audio.readyState>=1&&!audio.seeking&&audio.currentTime===seconds;
+   },changed?0:position/1000,{timeout:3000});
    await page.getByRole('link',{name:'Итоги',exact:true}).click();
    await page.locator('#outcomes').waitFor({state:'visible'});
    await checkContext(page,'outcomes',null);
