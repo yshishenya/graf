@@ -47,3 +47,12 @@ The persisted row is a read-only observed provider refund. It may feed determini
 ## Receipts and reconciliation
 
 Approved configuration supplies VAT/subject/text, verified primary email snapshot and launch `payment_mode=full_payment` only after finance/legal approval; configs requiring a separate prepayment-settlement receipt block launch. Track registration, not assumed email delivery: `canceled` alerts immediately, `pending` polls and escalates at 3 days. For manual refund GRAF only observes YooKassa `receipt_registration`/receipt truth; operator selected amount/items in the merchant cabinet. Daily official CSV uses separate payments/refunds sets; audited import binds shop/environment/schema/language/config, Moscow report date, all parts/last-part, row identity/hash and requires configured empty reports to distinguish zero from missing. SFTP is deferred. Any mismatch is an owned internal gap.
+
+### Scoped follow-up: receipt confirmation and escalation clock — 2026-11-10
+
+См. [R1–R6](../spec.md#уточнение-t075t077-подтверждение-и-сроки-регистрации-чека--10112026).
+Сигнал требует GET и проверки полученного ID/родителя. Только подтверждённый
+`pending` участвует в повторном чтении. Успешный GET платежа и отдельный GET
+чека оплаты не образуют двух оснований. Запись отмены/просрочки не изменяет
+выданный доступ и не вызывает финансовые мутации. У возвратного чека — своя
+проверенная привязка; клиентское письмо о возврате отсутствует.

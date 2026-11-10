@@ -540,3 +540,22 @@ billing/entitlements.py, billing/purchases.py, cabinet/web_routes/billing.py;
 существующие тесты unit/test_billing_notifications.py,
 integration/test_billing_purchase_journey.py и integration/test_billing_return.py. Все исходные
 87 ID/описаний сохраняются; T048/T068 остаются `[ ]`, новых дублей issues нет.
+
+## Уточнение исполнения T075/T077 — регистрация чеков, 10.11.2026
+
+Без новых идентификаторов задач. Исходные T074/T075/T077 остаются открытыми.
+
+1. **T075/T077:** независимое ревью `checklists/receipt-escalation.md`,
+   затем analyze требований R1–R6 и сверка #4930/#4932.
+2. **T075:** сначала отрицательные сценарии
+   `apps/server/tests/integration/test_billing_receipt_escalation.py`;
+   затем общий переход в `apps/server/src/twobrain_rec_server/billing/receipts.py`
+   и его вызовы в `entitlements.py`, `webhook_reconciliation.py`,
+   `reconciliation.py` того же каталога. Подключить ограниченный периодический
+   проход в `apps/server/src/twobrain_rec_server/workflows/worker.py`.
+3. **T077:** источник сохраняет подтверждённые основания, просрочки и
+   неизвестный возраст; после проверки источника — отдельное уточнение
+   стыка с независимым O16, без клиентской очереди и без новых внешних служб.
+4. **T074:** приёмка всего test-shop сценария и остальных исходных требований
+   отдельно от проверок с подставным провайдером. Все исходные строки задач,
+   существующие ограничения и сроки остаются в силе.
