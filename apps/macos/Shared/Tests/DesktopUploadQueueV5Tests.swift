@@ -2166,7 +2166,7 @@ final class DesktopUploadQueueTests: XCTestCase {
         XCTAssertEqual(SystemAudioStatusLabels.captureFailureDetail(
             failureCode: "aec_capture_failed",
             hasPlayableFragment: (try? service.localPlaybackURL(itemId: item.id)) != nil),
-            "Запись остановлена: aec_capture_failed. Уже очищенная часть сохранена локально.")
+            "Запись остановлена: не удалось обработать звук. Доступная часть сохранена локально.")
 
         var staleItem = item
         staleItem.failureCategory = .schemaIncompatibility
@@ -2228,7 +2228,7 @@ final class DesktopUploadQueueTests: XCTestCase {
         XCTAssertEqual(SystemAudioStatusLabels.captureFailureDetail(
             failureCode: "aec_capture_failed",
             hasPlayableFragment: (try? service.localPlaybackURL(itemId: item.id)) != nil),
-            "Запись остановлена: aec_capture_failed. Сохраненного очищенного фрагмента нет.")
+            "Запись остановлена: не удалось обработать звук. Сохранённого фрагмента нет.")
     }
 
     func testPostCaptureLocalFileLossIsNotProjectedAsPartialCapture() throws {

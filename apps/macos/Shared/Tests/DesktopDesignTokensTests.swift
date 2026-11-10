@@ -22,7 +22,6 @@ final class DesktopDesignTokensTests: XCTestCase {
         try assertToken(DesktopDesignTokens.muted, dark: 0xADB2BC, light: 0x525B68)
         try assertToken(DesktopDesignTokens.accent, dark: 0xAB99FF, light: 0x6248D5)
         try assertToken(DesktopDesignTokens.accentSolid, dark: 0x7056E9, light: 0x6248D5)
-        try assertToken(DesktopDesignTokens.accentHover, dark: 0x755CDE, light: 0x5339C5)
         try assertToken(DesktopDesignTokens.accentForeground, dark: 0xFFFFFF, light: 0xFFFFFF)
         try assertToken(DesktopDesignTokens.green, dark: 0x2FC9A6, light: 0x066E58)
         try assertToken(DesktopDesignTokens.amber, dark: 0xF0A742, light: 0x9A5B00)
@@ -33,30 +32,6 @@ final class DesktopDesignTokensTests: XCTestCase {
     }
 
     func testStateTonesMatchTheCabinetTintedSurfaces() throws {
-        try assertToken(
-            DesktopDesignTokens.successSurface,
-            dark: 0x2FC9A6, light: 0x066E58, darkAlpha: 0.09, lightAlpha: 0.09
-        )
-        try assertToken(
-            DesktopDesignTokens.successBorder,
-            dark: 0x5BA59E, light: 0x477A7A, darkAlpha: 1, lightAlpha: 1
-        )
-        try assertToken(
-            DesktopDesignTokens.warningSurface,
-            dark: 0xF0A742, light: 0x9A5B00, darkAlpha: 0.09, lightAlpha: 0.09
-        )
-        try assertToken(
-            DesktopDesignTokens.warningBorder,
-            dark: 0xB29670, light: 0x897150, darkAlpha: 1, lightAlpha: 1
-        )
-        try assertToken(
-            DesktopDesignTokens.dangerSurface,
-            dark: 0xFF6B6B, light: 0xB4232C, darkAlpha: 0.08, lightAlpha: 0.08
-        )
-        try assertToken(
-            DesktopDesignTokens.dangerBorder,
-            dark: 0xB97B83, light: 0x955764, darkAlpha: 1, lightAlpha: 1
-        )
         try assertToken(
             DesktopDesignTokens.accentSurface,
             dark: 0x2D2E3B, light: 0xF2F0FC, darkAlpha: 1, lightAlpha: 1
@@ -78,8 +53,6 @@ final class DesktopDesignTokensTests: XCTestCase {
         XCTAssertEqual(DesktopDesignTokens.Radius.compact, 10)
         XCTAssertEqual(DesktopDesignTokens.Radius.card, 12)
         XCTAssertEqual(DesktopDesignTokens.Radius.panel, 14)
-        XCTAssertEqual(DesktopDesignTokens.Radius.dialog, 16)
-        XCTAssertEqual(DesktopDesignTokens.Radius.pill, 999)
     }
 
     func testFontSizeScaleMatchesTheContract() {
@@ -89,7 +62,6 @@ final class DesktopDesignTokensTests: XCTestCase {
         XCTAssertEqual(DesktopDesignTokens.FontSize.subtitle, 15)
         XCTAssertEqual(DesktopDesignTokens.FontSize.section, 16)
         XCTAssertEqual(DesktopDesignTokens.FontSize.headingSmall, 18)
-        XCTAssertEqual(DesktopDesignTokens.FontSize.dialogTitle, 19)
         XCTAssertEqual(DesktopDesignTokens.FontSize.pageTitle, 20)
         XCTAssertEqual(DesktopDesignTokens.FontSize.headingLarge, 24)
         XCTAssertEqual(DesktopDesignTokens.FontSize.display, 28)

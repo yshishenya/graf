@@ -12,26 +12,14 @@ public enum DesktopMeetingShellChrome {
     public static let webButtonCornerRadius = DesktopDesignTokens.Radius.sm
     public static let webButtonHorizontalPadding: CGFloat = 12
     public static let webButtonDisabledOpacity: CGFloat = 0.68
-    public static let webButtonPrimaryHex = "#7056e9"
-    public static let webButtonSecondaryDarkHex = "#272a30"
-    public static let webButtonBorderDarkHex = "#7e8898"
     public static let webButtonPrimaryColor = DesktopDesignTokens.accentSolid
     public static let webButtonSecondaryDarkColor = DesktopDesignTokens.surface2
-    public static let webButtonSecondaryLightColor = DesktopDesignTokens.surface2
     public static let webButtonBorderDarkColor = DesktopDesignTokens.line
-    public static let webButtonBorderLightColor = DesktopDesignTokens.line
     public static let webButtonTextDarkColor = DesktopDesignTokens.text
-    public static let webButtonTextLightColor = DesktopDesignTokens.text
     public static let webButtonDestructiveColor = DesktopDesignTokens.red
     public static let minimumInteractiveTarget: CGFloat = 40
     public static let collapsedInspectorWidth: CGFloat = 52
     public static let expandedInspectorWidth: CGFloat = 308
-    public static let shellBackgroundHex = "#17181b"
-    public static let shellRailHex = "#1d1f23"
-    public static let shellSurfaceHex = "#22252a"
-    public static let recordingStripHex = "#342087"
-    public static let shellAccentHex = "#7056e9"
-    public static let webEmbeddedBackgroundHex = shellBackgroundHex
     public static let shellBackgroundColor = DesktopDesignTokens.background
     public static let shellRailColor = DesktopDesignTokens.panel
     public static let shellSurfaceColor = DesktopDesignTokens.surface
@@ -40,8 +28,6 @@ public enum DesktopMeetingShellChrome {
     public static let recordingStripColor = Color(red: 0.204, green: 0.125, blue: 0.529)
     public static let shellAccentColor = DesktopDesignTokens.accentSolid
     public static let recordingStripHeight: CGFloat = 44
-    public static let idleShowsNativeTopBar = false
-    public static let fontStackDescription = "SF Pro Text / system"
     public static let compactRailLabels = ["Статус записи", "Локальная сохранность"]
     public static let compactRailStartLabel = "Начать запись"
     public static let compactRailStopLabel = SystemAudioStatusLabels.stopButtonTitle
@@ -80,14 +66,6 @@ public enum DesktopMeetingShellChrome {
         isSettingsSurface && !recordingActive && !hasCaptureProblem
     }
 
-    public static func recordingTitle(for mode: CaptureMode) -> String {
-        switch mode {
-        case .audioRecording:
-            return "Запись аудио"
-        case .transcriptOnly:
-            return "Транскрибация"
-        }
-    }
 }
 
 public enum DesktopWebButtonVariant: Equatable, Sendable {
@@ -216,7 +194,8 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     private let onOpenSupportSignIn: () -> Void
     private let captureControls: CaptureControls
     private let meetingsWorkspace: MeetingsWorkspace
-    @State private var inspectorExpanded = false
+    @State private var inspectorExpanded: Bool
+    private let onInspectorExpandedChange: (Bool) -> Void
     @State private var custodyExpanded = false
     @ObservedObject private var controlModel = DesktopControlModel.shared
     @AccessibilityFocusState private var focusedRecordingSessionID: String?
@@ -251,6 +230,8 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         },
         onCopySupportIncidentReport: @escaping ([String]) throws -> String? = { _ in nil },
         onOpenSupportSignIn: @escaping () -> Void = {},
+        initialInspectorExpanded: Bool = false,
+        onInspectorExpandedChange: @escaping (Bool) -> Void = { _ in },
         @ViewBuilder captureControls: () -> CaptureControls,
         @ViewBuilder meetingsWorkspace: () -> MeetingsWorkspace
     ) {
@@ -273,6 +254,8 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         self.onSupportIncidentSync = onSupportIncidentSync
         self.onCopySupportIncidentReport = onCopySupportIncidentReport
         self.onOpenSupportSignIn = onOpenSupportSignIn
+        self.onInspectorExpandedChange = onInspectorExpandedChange
+        _inspectorExpanded = State(initialValue: initialInspectorExpanded)
         self.captureControls = captureControls()
         self.meetingsWorkspace = meetingsWorkspace()
     }
@@ -298,6 +281,9 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
                 onResume: onResumeRecording
             )
             .frame(width: 0, height: 0)
+        }
+        .onChange(of: inspectorExpanded) { _, value in
+            onInspectorExpandedChange(value)
         }
         .animation(accessibilityReduceMotion ? nil : .easeInOut(duration: 0.18), value: expandedInspectorVisible)
         .onChange(of: isSettingsSurface, initial: true) { _, isSettings in
@@ -665,7 +651,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
                 .accessibilityIdentifier("desktop-meeting-shell-recording-status")
                 .background {
                     if recordingStripSession != nil {
-                        DesktopNotificationProtectedRegion().allowsHitTesting(false)
+                        DesktopNotificationProtectedRegion(card: notificationCard).allowsHitTesting(false)
                     }
                 }
 
@@ -723,7 +709,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
             .help(DesktopMeetingShellChrome.compactRailStopLabel)
             .accessibilityLabel(DesktopMeetingShellChrome.compactRailStopLabel)
             .accessibilityIdentifier("desktop-meeting-shell-stop-recording-button")
-            .background(DesktopNotificationProtectedRegion().allowsHitTesting(false))
+            .background(DesktopNotificationProtectedRegion(card: notificationCard).allowsHitTesting(false))
         } else {
             Button(action: onStartRecording) {
                 Image(systemName: recordingTransitionInProgress ? "clock" : "record.circle.fill")
@@ -1255,6 +1241,7 @@ private final class RecordingTitlebarAccessoryAnchor: NSView {
 }
 
 private struct RecordingTitlebarHUD: View {
+    @Environment(\.desktopNotificationCard) private var notificationCard
     let session: CaptureSession
     let transitionInProgress: Bool
     let onStop: () -> Void
@@ -1317,7 +1304,7 @@ private struct RecordingTitlebarHUD: View {
                 RoundedRectangle(cornerRadius: DesktopDesignTokens.Radius.card, style: .continuous)
                     .stroke(DesktopMeetingShellChrome.recordingStripColor.opacity(0.58), lineWidth: 1)
             )
-            .background(DesktopNotificationProtectedRegion().allowsHitTesting(false))
+            .background(DesktopNotificationProtectedRegion(card: notificationCard).allowsHitTesting(false))
 
             Spacer(minLength: 0)
         }

@@ -27,17 +27,7 @@ public enum PhysicalDeviceAvailabilityState: String, Codable, Sendable {
     case unsupported
 }
 
-public enum MeasurementStatus: String, Codable, Sendable {
-    case passed
-    case degraded
-    case blocked
-}
 
-public enum IntelligibilityStatus: String, Codable, Sendable {
-    case notIntelligible = "not_intelligible"
-    case intelligible
-    case unknown
-}
 
 public enum CaptureMode: String, Codable, Sendable {
     case audioRecording = "audio_recording"
@@ -185,14 +175,6 @@ public enum LocalRecordingFailureReason: String, Codable, Sendable {
     }
 }
 
-public enum MuteTruthArtifactState: String, Codable, CaseIterable, Sendable {
-    case muteRespecting = "mute_respecting"
-    case meetingMuteUnproven = "meeting_mute_unproven"
-    case unsupported
-    case deferred
-    case degraded
-    case failed
-}
 
 public enum TranscriptionReadinessState: String, Codable, Sendable {
     case ready

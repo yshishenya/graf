@@ -953,7 +953,7 @@ final class DesktopCalendarReminderTests: XCTestCase {
         for (state, title, hasAction) in [(GrafTrayRecordingState.starting, "Начинаем запись…", false),
                                           (.recording, "Остановить запись", true),
                                           (.paused, "Остановить запись", true),
-                                          (.stopping, "Завершаем запись…", false)] {
+                                          (.stopping, "Сохраняем запись…", false)] {
             tray.showRecordingState(state)
             tray.rebuildMenu()
             let first = try XCTUnwrap(tray.menu.items.first)
@@ -978,7 +978,7 @@ final class DesktopCalendarReminderTests: XCTestCase {
             XCTAssertEqual(mute != nil, state == .recording)
             XCTAssertEqual(unmute != nil, state == .paused)
             if let mute {
-                XCTAssertEqual(mute.title, "Mute микрофона")
+                XCTAssertEqual(mute.title, "Выключить микрофон")
                 XCTAssertTrue(mute.toolTip?.contains("Системный звук продолжает записываться") == true)
                 let index = try XCTUnwrap(tray.menu.items.firstIndex(of: mute))
                 tray.menu.performActionForItem(at: index)

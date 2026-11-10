@@ -154,7 +154,10 @@ final class DesktopNotificationProtectedConsumerTests: XCTestCase {
         }
         // Allow pending registration work after layout; never supply an obstacle here.
         await Task.yield()
-        let protectedFrames = card.protectedFrames
+        for _ in 0..<100 where card.protectedFrames.count < (expanded ? 2 : 3) {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        let settledProtectedFrames = card.protectedFrames
         let indicators = controlNodes.filter { node in
             if inTitlebar {
                 return role(node) == NSAccessibility.Role.staticText.rawValue
@@ -170,15 +173,15 @@ final class DesktopNotificationProtectedConsumerTests: XCTestCase {
         let indicator = try XCTUnwrap(indicators.first)
         let indicatorFrame = try XCTUnwrap(frame(indicator))
         XCTAssertFalse(indicatorFrame.isEmpty)
-        XCTAssertTrue(protectedFrames.contains { $0.insetBy(dx: -1, dy: -1).contains(indicatorFrame) },
+        XCTAssertTrue(settledProtectedFrames.contains { $0.insetBy(dx: -1, dy: -1).contains(indicatorFrame) },
                       "Actual indicator \(indicatorFrame) must also be protected")
         XCTAssertTrue(
-            protectedFrames.contains { $0.insetBy(dx: -1, dy: -1).contains(stopFrame) },
-            "Actual \(inTitlebar ? "titlebar HUD" : "compact rail") Stop \(stopFrame) is not protected: \(protectedFrames)"
+            settledProtectedFrames.contains { $0.insetBy(dx: -1, dy: -1).contains(stopFrame) },
+            "Actual \(inTitlebar ? "titlebar HUD" : "compact rail") Stop \(stopFrame) is not protected: \(settledProtectedFrames)"
         )
-        XCTAssertEqual(protectedFrames.count, expanded ? 2 : 3,
+        XCTAssertEqual(settledProtectedFrames.count, expanded ? 2 : 3,
                        "Protect expanded status + HUD, or compact indicator + Stop + HUD")
-        let region = try XCTUnwrap(protectedFrames.first { $0.insetBy(dx: -1, dy: -1).contains(stopFrame) })
+        let region = try XCTUnwrap(settledProtectedFrames.first { $0.insetBy(dx: -1, dy: -1).contains(stopFrame) })
         if !inTitlebar, !expanded {
             XCTAssertEqual(region.width, stopFrame.width, accuracy: 1)
             XCTAssertEqual(region.height, stopFrame.height, accuracy: 1)

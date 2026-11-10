@@ -35,8 +35,7 @@ final class ShortRecordingNoticeTests: XCTestCase {
         _ = try controller.requestStop(reason: .userRequested)
         let stopped = try controller.completeStop()
         XCTAssertEqual(CaptureStatusItem.statusLabel(for: stopped), "Запись остановлена")
-        XCTAssertEqual(CaptureControlView.primaryStatus(for: stopped, blockedReason: nil,
-                                                       localRecordingStatus: nil), "Запись остановлена")
+        XCTAssertEqual(CaptureStatusPresentation.resolve(session: stopped).title, "Запись остановлена")
         presenter.dismissShortRecording()
         XCTAssertFalse(window.isVisible)
         XCTAssertNil(presenter.card.window)
