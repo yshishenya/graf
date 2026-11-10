@@ -9,6 +9,9 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from tests.integration import test_billing_renewal_planner_postgres as planner
 from tests.integration.test_billing_renewal_planner_postgres import paid_workspace as paid_workspace
+from tests.integration.test_provider_refund_observation import (
+    refund_queue_case as refund_queue_case,
+)
 from tests.integration.test_rls_postgres_policies import _create_probe_role
 from twobrain_rec_server.billing.events import BillingEvent, notification_kind_for
 from twobrain_rec_server.billing.notifications import (
@@ -61,7 +64,7 @@ async def billing_maintenance_probe_url(postgres_isolated_cluster_database_url):
 
 
 @pytest.fixture
-async def trial_maintenance_engine(billing_maintenance_probe_url):
+async def rls_engine(billing_maintenance_probe_url):
     engine = create_async_engine(billing_maintenance_probe_url, pool_pre_ping=True)
     try:
         yield engine
@@ -71,7 +74,7 @@ async def trial_maintenance_engine(billing_maintenance_probe_url):
 
 @pytest.mark.strict_rls
 @pytest.mark.asyncio
-async def test_trial_lifecycle_uses_current_owner_and_exact_windows(trial_maintenance_engine, monkeypatch):
+async def test_trial_lifecycle_uses_current_owner_and_exact_windows(rls_engine, monkeypatch):
     import asyncio
     from datetime import UTC, datetime, timedelta
     from types import SimpleNamespace
@@ -98,9 +101,9 @@ async def test_trial_lifecycle_uses_current_owner_and_exact_windows(trial_mainte
     from twobrain_rec_server.db.tenant_context import MaintenanceTenantContext, apply_tenant_context
     from twobrain_rec_server.workflows import worker
 
-    ids = await _seed_probe_rows(trial_maintenance_engine)
+    ids = await _seed_probe_rows(rls_engine)
     owner, workspace = ids["user_a"], ids["workspace_a"]
-    sessions = create_sessionmaker(trial_maintenance_engine)
+    sessions = create_sessionmaker(rls_engine)
     context = MaintenanceTenantContext(
         operation_name="billing_reconciliation",
         actor_id="test-trial",
@@ -135,7 +138,7 @@ async def test_trial_lifecycle_uses_current_owner_and_exact_windows(trial_mainte
             )
 
     monkeypatch.setattr(worker, "datetime", TrialClock)
-    monkeypatch.setattr(worker, "create_engine", lambda settings: trial_maintenance_engine)
+    monkeypatch.setattr(worker, "create_engine", lambda settings: rls_engine)
     monkeypatch.setattr(worker, "send_billing_notification", send)
 
     async def dispatch():
@@ -258,7 +261,7 @@ async def test_trial_lifecycle_uses_current_owner_and_exact_windows(trial_mainte
 
 @pytest.mark.strict_rls
 @pytest.mark.asyncio
-async def test_trial_poll_bounds_batch_and_excludes_processed_or_stale_events(trial_maintenance_engine):
+async def test_trial_poll_bounds_batch_and_excludes_processed_or_stale_events(rls_engine):
     from datetime import UTC, datetime, timedelta
     from uuid import uuid4
 
@@ -282,8 +285,8 @@ async def test_trial_poll_bounds_batch_and_excludes_processed_or_stale_events(tr
     from twobrain_rec_server.db.session import create_sessionmaker
     from twobrain_rec_server.db.tenant_context import MaintenanceTenantContext, apply_tenant_context
 
-    sessions = create_sessionmaker(trial_maintenance_engine)
-    ids = await _seed_probe_rows(trial_maintenance_engine)
+    sessions = create_sessionmaker(rls_engine)
+    ids = await _seed_probe_rows(rls_engine)
     context = MaintenanceTenantContext(
         operation_name="billing_reconciliation",
         actor_id="test-trial",
@@ -860,3 +863,116 @@ async def test_committed_billing_events_reach_one_delivery_each(paid_workspace, 
             )
             assert (row.state, row.attempts, row.last_error_code) == ("delivered", 1, None)
             assert row.delivered_at is not None
+
+
+@pytest.mark.strict_rls
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reply", ["unavailable", "canceled", "succeeded", "pending", "incomplete"])
+async def test_receipt_poll_checks_provider_before_overdue_and_keeps_payment(refund_queue_case, reply, monkeypatch):
+    from datetime import UTC, datetime
+
+    from pydantic import AnyUrl
+    from sqlalchemy import update
+
+    from twobrain_rec_server.billing.receipt_poll import reconcile_pending_receipts
+    from twobrain_rec_server.db.models import ExternalIdentity
+    from twobrain_rec_server.db.tenant_context import apply_tenant_context
+
+    case = refund_queue_case
+    recipient_email = "receipt-contact@example.invalid"
+    public_base_url = AnyUrl("https://graf.example.invalid")
+    settings = case.settings.model_copy(update={"public_base_url": public_base_url})
+    if reply != "unavailable":
+        case.provider_state["payment_receipt_status"] = "canceled" if reply == "incomplete" else reply
+        case.provider_state["incomplete_payment_receipt"] = reply == "incomplete"
+    first = datetime.now(UTC) - timedelta(hours=72, seconds=1)
+    async with case.sessions() as db:
+        await apply_tenant_context(db, case.context)
+        await db.execute(update(BillingOperation).where(
+            BillingOperation.workspace_id == case.workspace_id
+        ).values(created_at=first))
+        if reply == "succeeded":
+            assert case.another_user_id != case.owner_id
+            db.add(ExternalIdentity(
+                user_id=case.another_user_id, provider="email", provider_subject="receipt-contact",
+                email=recipient_email, is_active=True, is_verified=True,
+            ))
+            db.add(BillingNotificationPreference(user_id=case.another_user_id, optional_email_enabled=False))
+            await db.execute(update(WorkspaceSubscription).where(
+                WorkspaceSubscription.workspace_id == case.workspace_id
+            ).values(billing_owner_id=case.another_user_id))
+        invoice = await db.scalar(select(BillingInvoice).where(BillingInvoice.id == case.invoice_id))
+        action_path = f"/billing/invoices/{invoice.safe_number}"
+        invoice.plan_snapshot = {
+            "receipt_registration": "pending",
+            "receipt_registration_timing": {"first_confirmed_pending_at": first.isoformat()},
+        }
+        await db.commit()
+        counters = await reconcile_pending_receipts(db, case.settings)
+        assert counters["receipt_gets"] == 1
+
+    async with case.sessions() as db:
+        await apply_tenant_context(db, case.context)
+        assert (await reconcile_pending_receipts(db, case.settings))["receipt_gets"] == 0
+
+    assert len(case.calls) == 1 and case.calls[0][0] == "GET"
+    snapshot = (await case.rows(BillingInvoice))[0]["plan_snapshot"]
+    timing = snapshot["receipt_registration_timing"]
+    assert timing["last_poll_result"] == {"unavailable": "unavailable", "incomplete": "conflict"}.get(reply, "confirmed")
+    assert snapshot["receipt_registration"] == ("pending" if reply in {"unavailable", "incomplete"} else reply)
+    if reply in {"unavailable", "pending"}:
+        overdue = timing["pending_overdue"]
+        assert overdue["due_at"] == (first + timedelta(hours=72)).isoformat()
+        assert overdue["freshness"] == ("unknown" if reply == "unavailable" else "confirmed")
+    else:
+        assert "pending_overdue" not in timing
+        assert ("canceled" in timing) == (reply == "canceled")
+    deliveries = await case.rows(BillingNotificationDelivery)
+    assert [row["recipient_id"] for row in deliveries] == ([case.another_user_id] if reply == "succeeded" else [])
+    assert (await case.rows(BillingOperation))[0]["state"] == "succeeded"
+
+    if deliveries:
+        notice = deliveries[0]
+        assert (notice["template_key"], notice["state"], notice["attempts"]) == ("receipt_available", "pending", 0)
+        assert notice["safe_payload"]["action_path"] == action_path
+
+    calls = []
+
+    async def transport(*, recipient_email, subject, plain_body, delivery_key, **_):
+        assert len(deliveries) == 1
+        assert delivery_key == f"billing:{deliveries[0]['id']}"
+        [claim] = await case.rows(BillingNotificationDelivery)
+        assert (claim["state"], claim["attempts"], claim["last_error_code"]) == (
+            "failed", 1, "postal_outcome_unknown",
+        )
+        calls.append((recipient_email, subject, plain_body))
+
+    async def stop_cycle(seconds):
+        assert seconds == 60
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(worker, "create_engine", lambda _: case.sessions.kw["bind"])
+    monkeypatch.setattr(worker, "create_sessionmaker", lambda _: case.sessions)
+    monkeypatch.setattr(worker, "send_billing_notification", transport)
+    monkeypatch.setattr(worker, "asyncio", SimpleNamespace(
+        CancelledError=asyncio.CancelledError, sleep=stop_cycle,
+    ))
+    for _ in range(2):
+        with pytest.raises(asyncio.CancelledError):
+            await worker.run_billing_notification_reconciler(settings)
+        assert len(calls) == (1 if reply == "succeeded" else 0)
+
+    result = await case.rows(BillingNotificationDelivery)
+    if reply == "succeeded":
+        [(email, subject, plain)] = calls
+        assert email == recipient_email and subject == "Чек доступен"
+        assert plain == (
+            "Откройте историю платежей, чтобы посмотреть чек.\n\n"
+            f"Открыть кабинет: {str(public_base_url).rstrip('/')}{action_path}"
+        )
+        [notice] = result
+        assert notice["id"] == deliveries[0]["id"]
+        assert (notice["state"], notice["attempts"], notice["last_error_code"]) == ("delivered", 1, None)
+        assert notice["delivered_at"] is not None
+    else:
+        assert result == []
