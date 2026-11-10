@@ -264,7 +264,8 @@ def test_cost_per_installer_download_uses_the_level_1_download_counter(
     assert by_campaign["brand-search"]["cost_per_result"] == 4000.0
     # Корзина меньше минимального размера не раскрывается: кампания без
     # раскрытых скачиваний получает «нет данных», а не выдуманный ноль.
-    assert by_campaign["generic-search"]["results"] == 0
+    assert by_campaign["generic-search"]["results"] is None
+    assert by_campaign["generic-search"]["state"] == "results_not_measured"
     assert by_campaign["generic-search"]["cost_per_result"] is None
     assert by_campaign["generic-search"]["rendered_cost"] == "нет данных"
     assert cost["report"]["rows"][0]["cost_per_result"] == 20000.0 / 4

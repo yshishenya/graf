@@ -89,6 +89,8 @@ def test_reports_endpoint_computes_the_consent_share_and_the_cost(
     assert payload["aggregate_state"] == "measured"
     rows = {row["label"]: row for row in payload["cost_per_result"]["report"]["rows"]}
     assert rows["brand-search"]["cost_per_result"] == 5000.0
+    assert rows["generic-search"]["results"] is None
+    assert rows["generic-search"]["state"] == "results_not_measured"
     assert rows["generic-search"]["cost_per_result"] is None
     assert rows["generic-search"]["rendered_cost"] == "нет данных"
     assert payload["cost_per_result"]["report"]["spend_period_complete"] is True
