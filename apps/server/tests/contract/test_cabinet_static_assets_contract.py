@@ -2009,19 +2009,19 @@ if (scenario === "one") {
 } else if (["two", "fit"].includes(scenario)) {
   if (handle.hidden) throw new Error("multiple rows cannot shrink");
   handle.dispatch("keydown", { key: "Home", preventDefault() {} });
-  if (timeline.style.height !== "33px") throw new Error("minimum must retain one visible row");
+  if (timeline.style.height !== "48px") throw new Error("minimum must retain one visible row");
 } else {
   if (handle.hidden) throw new Error("overflow rows hid the resize affordance");
   handle.dispatch("pointerdown", { button: 0, pointerId: 1, clientY: 100, preventDefault() {} });
   document.dispatch("pointermove", { pointerId: 1, clientY: 70 });
   document.dispatch("pointerup", { pointerId: 1 });
-  if (timeline.style.height !== (scenario === "viewport" ? "141px" : "150px")) throw new Error("pointer resize did not move the bounded panel");
+  if (timeline.style.height !== "150px") throw new Error("pointer resize did not move the bounded panel");
   handle.dispatch("keydown", { key: "End", preventDefault() {} });
-  const expectedMax = scenario === "viewport" ? 141 : 320;
+  const expectedMax = scenario === "viewport" ? 156 : 320;
   if (handle.attributes["aria-valuemax"] !== String(expectedMax)) throw new Error("wrong resize ceiling");
   if (timeline.style.height !== `${expectedMax}px`) throw new Error("End did not use bounded height");
   handle.dispatch("keydown", { key: "Home", preventDefault() {} });
-  if (timeline.style.height !== "33px") throw new Error("Home did not restore one visible row");
+  if (timeline.style.height !== "48px") throw new Error("Home did not restore one visible row");
 }
 body.dispatch("htmx:afterSwap", { detail: { target: null } });
 if (handle.listenerCount("keydown") !== 1) throw new Error("partial update duplicated resize listeners");

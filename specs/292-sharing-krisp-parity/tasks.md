@@ -20,6 +20,8 @@
 - [X] T005 [US2] Реализовать общий public resolver, узкую full DTO и потоковое audio в `apps/server/src/twobrain_rec_server/cabinet/public_sharing.py`, `cabinet/egress.py`, `api/cabinet.py`: повторная проверка grant под fence, effective accepted result и одинаковые workspace/meeting/result, media_version24hex, несовпадение409, буфер <=4MiB, без materialize всего файла; summary-only JSON совместим. [FR-007–009/012/020/025] (Issue #7904)
 - [X] T006 [US2] Собрать reader с tabs/copy/search/говорящими/таймкодами/player±15/speed и пустыми состояниями в `apps/server/src/twobrain_rec_server/cabinet/rendering.py`, `templates/cabinet/pages/shared_meeting_reader.html`, `static/cabinet/public-sharing.js`, `static/cabinet/cabinet.css`; обеспечить 320/390/1440/light/dark/keyboard/no-JS и добавить проверки в `apps/server/tests/contract/test_recording_share_ui_contract.py`, `tests/browser/public-sharing.test.cjs`. [FR-007/008/013/018/019/022/023] (Issue #7905)
 
+**Локальная доводка T006 (#7905, высокий риск):** сначала воспроизвести и закрепить геометрию и точный переход в `tests/browser/public-sharing.test.cjs` и проверках общего проигрывателя, затем исправить цели на странице получателя и общий выбор интервала в `cabinet/rendering.py`, `static/cabinet/cabinet.css` и `static/cabinet/cabinet.js`. [FR-013/018/023/026] Условия живой приёмки и закрытия исходной задачи сохраняются.
+
 ## Phase 4 — US1: владелец передаёт доступ
 
 **Independent test**: панель владельца, роли/список/отзыв/экспорт, стабильное копирование и прежняя отправка итогов.

@@ -2948,11 +2948,21 @@
     }
     const timeline = current.querySelector("[data-speaker-timeline]"), nextTimeline = next.querySelector("[data-speaker-timeline]");
     if (timeline && nextTimeline) {
+      const intervalDialog = current.querySelector("[data-timeline-interval-dialog]");
+      const active = document.activeElement;
+      const focusedOpener = active?.matches("[data-timeline-intervals]") && timeline.contains(active);
+      const restoreFocus = focusedOpener || intervalDialog?.contains(active);
+      const speakerKey = focusedOpener ? active.closest("[data-speaker-lane]").dataset.speakerKey : intervalDialog?.dataset.speakerKey;
+      if (intervalDialog?.open) intervalDialog.close();
       const wrapper = nextTimeline.closest("[data-speaker-timeline-shell]");
       if (wrapper && !timeline.closest("[data-speaker-timeline-shell]")) timeline.replaceWith(wrapper);
       else {
         timeline.replaceChildren(...nextTimeline.childNodes);
         Object.assign(timeline.dataset, nextTimeline.dataset);
+      }
+      if (restoreFocus) {
+        const lane = Array.from(current.querySelectorAll("[data-speaker-lane]")).find(node => node.dataset.speakerKey === speakerKey);
+        (lane?.querySelector("[data-timeline-intervals]") || current.querySelector("[data-playback-toggle]"))?.focus();
       }
     }
     const manager = current.querySelector("[data-speaker-manager]"), nextManager = next.querySelector("[data-speaker-manager]");
@@ -5715,7 +5725,7 @@
       const defaultHeight = Number.parseFloat(
         timeline.dataset.speakerTimelineDefaultHeight || String(DEFAULT_TIMELINE_HEIGHT),
       ) || DEFAULT_TIMELINE_HEIGHT;
-      let minimumHeight = 33;
+      let minimumHeight = 48;
       let currentHeight = minimumHeight;
       let baselineBarTop = playback.getBoundingClientRect().top;
       let drag = null;
@@ -5736,7 +5746,7 @@
       };
       const refreshNaturalHeight = () => {
         const measuredHeight = measureNaturalHeight();
-        minimumHeight = Math.min(33, measuredHeight || 33);
+        minimumHeight = Math.min(48, measuredHeight || 48);
         return measuredHeight;
       };
       const contentHeight = () => Math.max(
@@ -5911,10 +5921,10 @@
         const ids = sourceIds.split(/\s+/).filter(Boolean);
         const turn = transcriptTurns().find((turn) => ids.some((id) => (turn.dataset.sourceSegments || "").split(/\s+/).includes(id)))
           || currentTranscriptTurn(seconds);
-        if (!turn) return;
-        const publicReader = turn.closest('[data-public-sharing]');
+        const publicReader = shell.closest('[data-public-sharing]');
         if (publicReader) publicReader.dispatchEvent(new CustomEvent('graf:public-recording', { detail: { seconds } }));
-        else activateDetailTab("recording");
+        if (!turn) return;
+        if (!publicReader) activateDetailTab("recording");
         scrollTranscriptTurnIntoView(turn, window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth");
         transcriptTurns().forEach((item) => item.classList.remove("is-source-highlight"));
         turn.classList.add("is-source-highlight");
@@ -6041,14 +6051,44 @@
       shell.querySelectorAll("[data-playback-skip]").forEach((button) => button.addEventListener("click", () => seekTo(player.currentTime + Number(button.dataset.playbackSkip))));
       shell.querySelector("[data-playback-next]")?.addEventListener("click", () => navigateSpeech(1));
       progress?.addEventListener("input", () => seekTo(Number(progress.value)));
+      const intervalDialog = shell.querySelector("[data-timeline-interval-dialog]");
+      const intervalTime = (seconds) => {
+        const milliseconds = Math.round(Number(seconds) * 1000);
+        const fraction = milliseconds % 1000;
+        return formatTime(Math.floor(milliseconds / 1000)) + (fraction ? `,${String(fraction).padStart(3, "0")}` : "");
+      };
+      const seekInterval = (segment) => seekTo(Number(segment.dataset.startSeconds), { sourceIds: segment.dataset.sourceSegments });
       shell.addEventListener("click", (event) => {
+        const opener = event.target.closest("[data-timeline-intervals]");
+        if (opener && intervalDialog && !sourceBlocked()) {
+          const lane = opener.closest("[data-speaker-lane]");
+          const segments = Array.from(lane.querySelectorAll("[data-lane-segment]"))
+            .sort((a, b) => Number(a.dataset.startSeconds) - Number(b.dataset.startSeconds));
+          intervalDialog.dataset.speakerKey = lane.dataset.speakerKey;
+          intervalDialog.setAttribute("aria-label", opener.getAttribute("aria-label"));
+          intervalDialog.querySelector("[data-timeline-interval-list]").replaceChildren(...segments.map(segment => {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.className = "button quiet";
+            button.dataset.timelineIntervalChoice = "";
+            button.textContent = `${intervalTime(segment.dataset.startSeconds)} – ${intervalTime(segment.dataset.endSeconds)}`;
+            button.addEventListener("click", () => { intervalDialog.close(); seekInterval(segment); });
+            return button;
+          }));
+          opener.focus({ preventScroll: true });
+          intervalDialog.showModal();
+          return;
+        }
         const avatar = event.target.closest("[data-playback-avatar]");
         if (avatar) { selectedSpeakers.clear(); syncSelection(); navigateSpeech(1, avatar.dataset.playbackAvatar, true); return; }
         const track = event.target.closest("[data-timeline-track]");
         if (!track) return;
-        const segment = event.target.closest("[data-lane-segment]");
-        if (segment) { seekTo(Number(segment.dataset.startSeconds), { sourceIds: segment.dataset.sourceSegments }); return; }
         if (!event.detail) return;
+        const segment = Array.from(track.querySelectorAll("[data-lane-segment]")).findLast(node => {
+          const { left, right } = node.getBoundingClientRect();
+          return event.clientX >= left && event.clientX < right;
+        });
+        if (segment) { seekInterval(segment); return; }
         const rect = track.getBoundingClientRect();
         if (rect.width) seekTo(playbackDuration() * Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)));
       });
@@ -8314,6 +8354,7 @@
       const listen = node.querySelector?.("[data-listen-speaker]");
       listen?.setAttribute("aria-label", `Слушать: ${displayLabel}`);
       const track = node.querySelector?.("[data-timeline-track]");
+      node.querySelector?.("[data-timeline-intervals]")?.setAttribute("aria-label", `Интервалы речи: ${displayLabel}`);
       if (track) track.setAttribute(
         "aria-label",
         `Дорожка ${displayLabel}: стрелки перемещают позицию`,

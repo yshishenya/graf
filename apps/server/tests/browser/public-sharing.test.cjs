@@ -25,6 +25,15 @@ async function checkContext(page, tab, position) {
   assert.equal(url.protocol,selector==='[data-public-native]'?'grafrec-dev:':'https:');
  }
 }
+async function target24(locator) {
+ await locator.scrollIntoViewIfNeeded();
+ const hit = await locator.evaluate(el => {
+  const {x,y,width,height}=el.getBoundingClientRect();
+  const hits=[x+width/2-11,x+width/2+11].flatMap(px=>[y+height/2-11,y+height/2+11].map(py=>document.elementFromPoint(px,py)));
+  return [width,height,hits.every(node=>el.contains(node)),hits.map(node=>node?.className)];
+ });
+ assert(hit[0]>=24&&hit[1]>=24&&hit[2], `unreachable target: ${locator} ${hit}`);
+}
 (async()=>{
  const browser=await (process.env.GRAF_BROWSER==='webkit'?webkit:chromium).launch({headless:true});
  try {
@@ -42,7 +51,11 @@ async function checkContext(page, tab, position) {
     return route.fulfill({status:204});});
    await page.goto('https://graf.test/reader');
    await page.getByRole('button',{name:'Посмотреть встречу',exact:true}).click();
+   await target24(page.getByRole('link',{name:'Войти',exact:true}));
+   await target24(page.getByRole('link',{name:'Итоги',exact:true}));
+   await target24(page.getByRole('link',{name:'Расшифровка',exact:true}));
    await page.getByRole('link',{name:'Расшифровка',exact:true}).click();
+   await target24(page.locator('[data-public-seek]').first());
    const search=page.getByRole('searchbox');await search.fill('неттакогослова');
    assert.equal(await page.locator('[data-public-turn]:visible').count(),0);
    await search.fill('Проверка');assert.equal(await page.locator('[data-public-turn]:visible').count(),1);
@@ -52,7 +65,58 @@ async function checkContext(page, tab, position) {
    await page.waitForFunction(()=>document.querySelector('audio').readyState>=1);
    assert.equal(await page.locator('[data-speaker-lane]').count(),2);
    assert.deepEqual(await page.locator('[data-speaker-lane]').evaluateAll(rows=>rows.map(row=>row.dataset.speakerKey)),['speaker-1','speaker-2']);
-   await page.locator('[data-lane-segment]').last().click();
+   const lane = page.locator('[data-speaker-lane="speaker-1"]');
+   const track = lane.locator('[data-timeline-track]');
+   const intervals = lane.locator('[data-timeline-intervals]');
+   await target24(track);
+   await target24(intervals);
+   const choose = page.locator('[data-timeline-interval-dialog]');
+   await intervals.press('Enter');
+   assert.equal(await choose.isVisible(),true);
+   await target24(choose.locator('[data-timeline-interval-choice]').nth(1));
+   await page.keyboard.press('Escape');
+   await choose.waitFor({state:'hidden'});
+   assert.equal(await intervals.evaluate(el=>el===document.activeElement),true);
+   assert.equal(await audio.evaluate(a=>a.currentTime),14);
+   await intervals.click();
+   await choose.locator('[data-timeline-interval-choice]').nth(1).press('Enter');
+   await choose.waitFor({state:'hidden'});
+   assert.equal(await audio.evaluate(a=>a.currentTime),14.25);
+   assert.equal(await intervals.evaluate(el=>el===document.activeElement),true);
+   await intervals.click();
+   const firstChoice = choose.locator('[data-timeline-interval-choice]').first();
+   assert.notEqual(await firstChoice.textContent(),await choose.locator('[data-timeline-interval-choice]').nth(1).textContent());
+   await firstChoice.click();
+   assert.equal(await audio.evaluate(a=>a.currentTime),14);
+   await page.waitForFunction(()=>document.querySelector('[data-public-turn].is-source-highlight')?.textContent.includes('Проверка'));
+   const trackBox=await track.boundingBox();
+   const [first, second]=await lane.locator('[data-lane-segment]').evaluateAll(nodes=>nodes.map(el=>{
+    const {left,right}=el.getBoundingClientRect();return {left,right};
+   }));
+   assert(first.right>second.left);
+   await page.mouse.click((first.right+second.left)/2,trackBox.y+trackBox.height/2);
+   assert.equal(await audio.evaluate(a=>a.currentTime),14.25,'overlap chooses the upper interval');
+   const waitForSharedPosition = seconds => page.waitForFunction(expected => {
+    const player = document.querySelector('[data-playback-player]');
+    const match = /^#recording\?position_ms=(\d+)$/.exec(location.hash);
+    return !player.seeking && Math.abs(player.currentTime-expected)<0.25
+      && match && Math.abs(Number(match[1])/1000-player.currentTime)<0.01;
+   }, seconds, {timeout:3000});
+   await page.mouse.click(trackBox.x+trackBox.width*0.25,trackBox.y+trackBox.height/2);
+   await waitForSharedPosition(7.5);
+   await track.press('ArrowRight');
+   await waitForSharedPosition(22.5);
+   await track.press('ArrowLeft');
+   await waitForSharedPosition(7.5);
+   await page.locator('[data-public-sharing]').evaluate(el=>el.addEventListener('graf:public-recording',event=>{
+    window.requestedEnd=event.detail.seconds;
+   },{once:true}));
+   await track.press('End');
+   assert.equal(await page.evaluate(()=>window.requestedEnd),30);
+   const last=page.locator('[data-lane-segment]').last();
+   await last.scrollIntoViewIfNeeded();
+   const box=await last.boundingBox();
+   await page.mouse.click(box.x+box.width/2,box.y+box.height/2);
    await page.waitForFunction(()=>Math.abs(document.querySelector('audio').currentTime-18)<0.5,{},{timeout:3000});
    assert(Math.abs(await audio.evaluate(a=>a.currentTime)-18)<0.5, JSON.stringify({errors,ready:await page.locator('[data-playback-shell]').getAttribute('data-playback-ready'),time:await audio.evaluate(a=>a.currentTime)}));
    assert.equal(new URL(page.url()).hash,'#recording?position_ms=18000');
@@ -96,8 +160,16 @@ async function checkContext(page, tab, position) {
    await context.close();
   }
   const context=await browser.newContext({javaScriptEnabled:false});const page=await context.newPage();
-  await page.route('**/*',r=>r.fulfill({contentType:'text/html',body:fs.readFileSync(process.argv[2],'utf8')}));await page.goto('https://graf.test/reader');
+  await page.route('**/*',r=>{
+   const name=path.basename(new URL(r.request().url()).pathname);
+   if(name==='reader')return r.fulfill({contentType:'text/html',body:fs.readFileSync(process.argv[2],'utf8')});
+   if(name.endsWith('.css')&&fs.existsSync(path.join(assets,name)))return r.fulfill({contentType:'text/css',path:path.join(assets,name)});
+   return r.fulfill({status:204});
+  });
+  await page.goto('https://graf.test/reader');
   assert.equal(await page.locator('#outcomes').isVisible(),true);assert.equal(await page.locator('#recording').isVisible(),true);
+  assert.equal(await page.locator('[data-timeline-intervals]').first().isVisible(),false);
+  assert.equal(await page.locator('audio[controls]').isVisible(),true);
   await context.close();
   console.log('public reader: fragments, tabs, welcome, search, timestamp, pending/loaded/changed continuation, 320/390/1440 light/dark, no-JS PASS');
  } finally {await browser.close();}

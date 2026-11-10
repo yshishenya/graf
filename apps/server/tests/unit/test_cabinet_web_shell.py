@@ -2375,7 +2375,7 @@ def test_detail_shell_renders_speaker_timeline_segments() -> None:
 
     assert "data-speaker-timeline" in page
     assert 'data-speaker-timeline-default-height="120"' in page
-    assert 'aria-valuemin="33" aria-valuemax="120" aria-valuenow="120"' in page
+    assert 'aria-valuemin="48" aria-valuemax="120" aria-valuenow="120"' in page
     assert page.count("data-speaker-timeline-hint") == 0
     assert page.index("</main>") < page.index("data-playback-shell")
     assert 'data-lane-segment' in page

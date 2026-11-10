@@ -28,7 +28,7 @@ const html = ready => `<meta charset="utf-8"><button id="outside">Вне фор�
 <div data-playback-carousel ${ready ? '' : 'hidden'}><button data-avatar-scroll="-1">Назад</button><div data-playback-avatars>${ready ? '<button data-playback-avatar="s0">S0</button><button data-playback-avatar="s1">S1</button>' : ''}</div><button data-avatar-scroll="1">Вперёд</button></div>
 <input data-playback-progress type="range" max="20"><span data-playback-current></span><span data-playback-duration></span><span data-playback-listen-status></span>
 <span class="playback-speaker-overview">${ready ? '<span class="playback-speaker-interval" data-speaker-key="s0"></span>' : ''}</span>
-${ready ? '<div data-speaker-timeline-shell>' : ''}<div data-speaker-timeline data-speaker-timeline-count="${ready ? '2' : '0'}">${ready ? [2, 6].map((start, i) => `<div data-speaker-lane data-speaker-key="s${i}"><div data-timeline-track tabindex="0"><button data-lane-segment data-start-seconds="${start}" data-end-seconds="${start + 3}" data-source-segments="seg${i}">Отрезок ${i}</button></div></div>`).join('') : ''}</div>${ready ? '</div>' : ''}</section>`;
+${ready ? '<div data-speaker-timeline-shell>' : ''}<div data-speaker-timeline data-speaker-timeline-count="${ready ? '2' : '0'}">${ready ? [2, 6].map((start, i) => `<div data-speaker-lane data-speaker-key="s${i}"><button type="button" data-timeline-intervals aria-label="Интервалы речи">Интервалы</button><div data-timeline-track tabindex="0"><span data-lane-segment data-start-seconds="${start}" data-end-seconds="${start + 3}" data-source-segments="seg${i}">Отрезок ${i}</span></div></div>`).join('') : ''}</div>${ready ? '</div>' : ''}<dialog data-timeline-interval-dialog><form method="dialog"><button autofocus>Закрыть</button></form><div data-timeline-interval-list></div></dialog></section>`;
 
 (async () => {
   const browser = await (process.env.GRAF_BROWSER === 'webkit' ? webkit : chromium).launch({ headless: true });
@@ -113,8 +113,28 @@ ${ready ? '<div data-speaker-timeline-shell>' : ''}<div data-speaker-timeline da
     await page.getByRole('button', { name: 'Отмена', exact: true }).click();
     await page.locator('[data-playback-next]').click();
     assert.equal(await page.evaluate(() => savedAudio.currentTime), 6);
-    await page.locator('[data-lane-segment]').first().click();
+    const intervals = page.locator('[data-timeline-intervals]').first();
+    const chooser = page.locator('[data-timeline-interval-dialog]');
+    await intervals.click();
+    await chooser.locator('[data-timeline-interval-choice]').click();
+    assert.equal(await intervals.evaluate(el => el === document.activeElement), true);
     assert.equal(await page.evaluate(() => savedAudio.currentTime), 2);
+    await intervals.press('Enter');
+    await page.evaluate(async () => {
+      document.querySelector('main').dataset.processingTranscriptContentReady = 'false';
+      await window.refreshTest();
+    });
+    await chooser.waitFor({ state: 'hidden' });
+    assert.equal(await intervals.evaluate(el => el === document.activeElement), true, 'refresh returns focus to replacement lane control');
+    await intervals.press('Enter');
+    nextHtml = html(true).replaceAll('data-timeline-intervals', 'data-removed-intervals');
+    await page.evaluate(async () => {
+      document.querySelector('main').dataset.processingTranscriptContentReady = 'false';
+      await window.refreshTest();
+    });
+    await chooser.waitFor({ state: 'hidden' });
+    assert.equal(await page.locator('[data-playback-toggle]').evaluate(el => el === document.activeElement), true, 'removed lane control returns focus to playback');
+    nextHtml = html(true);
     await page.locator('[data-timeline-track]').first().press('Home');
     assert.equal(await page.evaluate(() => savedAudio.currentTime), 0);
     await page.locator('[data-playback-avatar="s1"]').click();
