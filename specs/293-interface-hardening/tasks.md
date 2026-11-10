@@ -96,9 +96,11 @@
 ## Phase 8: Release
 
 - [X] T031 Create PR, run required GitHub checks and `scripts/validate-pr-checks.py`; record URLs/IDs in `specs/293-interface-hardening/validation.md`.
-- [ ] T032 Prepare release `v2026.11.10.3` with `GRAF_RELEASE_OPERATOR` and `./scripts/prepare-release.sh 2026.11.10.3`; run `infra/scripts/cd-remote.sh --dry-run`.
-- [ ] T033 Build/notarize/staple with `release-app-update.sh --phase prepare`; publish tag/GitHub Release and run `--phase publish --verify-feed 2026.11.10.3`.
-- [ ] T034 Re-download public artifacts and verify appcast version/URL/length/XML/SHA-256, Sparkle signature and Gatekeeper in `specs/293-interface-hardening/validation/release.md`; close issue #7967 and task issues with Russian closure comments.
+- [X] T032 Prepare release `v2026.11.10.3` with `GRAF_RELEASE_OPERATOR` and `./scripts/prepare-release.sh 2026.11.10.3`; run `infra/scripts/cd-remote.sh --dry-run`.
+- [X] T033 Build/notarize/staple with `release-app-update.sh --phase prepare`; publish tag/GitHub Release and run `--phase publish --verify-feed 2026.11.10.3`.
+- [X] T034 Re-download public artifacts and verify appcast version/URL/length/XML/SHA-256, Sparkle signature and Gatekeeper in `specs/293-interface-hardening/validation/release.md`; close issue #7967 and task issues with Russian closure comments.
+
+**Release evidence**: `v2026.11.10.3`, source `813e9dabba35c546a782852795e921bd325f3689`, https://github.com/yshishenya/graf/releases/tag/v2026.11.10.3. Umbrella #7967 остаётся открытой из-за отложенных T007/T012/T023/T025/T028/T029.
 
 ## Dependencies & Execution Order
 

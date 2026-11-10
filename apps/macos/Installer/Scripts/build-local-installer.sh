@@ -201,7 +201,12 @@ build_architecture() {
     --product TwoBrainRecApp >&2; then
     return 1
   fi
-  bin_dir="$scratch_path/${triple%%-*}-apple-macosx/release"
+  bin_dir="$(swift build \
+    --package-path "$MACOS_DIR" \
+    --scratch-path "$scratch_path" \
+    --triple "$triple" \
+    -c release \
+    --show-bin-path)"
   if [ ! -x "$bin_dir/TwoBrainRecApp" ]; then
     echo "Missing $architecture executable at $bin_dir/TwoBrainRecApp" >&2
     return 1
