@@ -178,7 +178,7 @@
 
 ## Legacy Impact
 
-Classification: `compatibility-preserving`
+Classification: `untouched`
 
 - Удалённое legacy-аудио-маршрутизирование не возвращается и не используется как fallback.
 - `LocalBufferService`, analytics scaffold и связанные контракты сохраняются до отдельного продуктового решения; новых миграций или aliases нет.
