@@ -128,6 +128,7 @@ def test_zero_results_is_not_a_zero_cost() -> None:
     report = _report(conversions={"brand-search": {"first_value": 0}})
     row = next(row for row in report.rows if row.label == "brand-search")
 
+    assert row.results == 0
     assert row.cost_per_result is None
     assert row.rendered_cost == UNDEFINED_VALUE_LABEL
     assert row.state == "no_results"
@@ -268,14 +269,15 @@ def test_unknown_spend_is_not_spread_over_other_campaigns() -> None:
     assert {row.label for row in report.rows} == {"brand-search", "generic-search"}
 
 
-def test_campaign_without_conversions_gets_no_backfilled_cost() -> None:
-    report = _report(conversions={"brand-search": {"first_value": 6}})
+@pytest.mark.parametrize("other_counts", [{}, {"generic-search": {"download_intent_clicks": 9}}])
+def test_missing_activation_count_is_not_reported_as_zero(other_counts: dict) -> None:
+    report = _report(conversions={"brand-search": {"first_value": 6}, **other_counts})
     generic = next(row for row in report.rows if row.label == "generic-search")
 
     assert generic.spend_rub == 30_000.0
-    assert generic.results == 0
+    assert generic.results is None
     assert generic.cost_per_result is None
-    assert generic.state == "no_results"
+    assert generic.state == "results_not_measured"
     assert "пропорционально кликам" in COST_JOIN_RULES["no_backfill_from_totals"]
 
 

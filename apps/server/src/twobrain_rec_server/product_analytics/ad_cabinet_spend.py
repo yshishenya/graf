@@ -749,12 +749,10 @@ def _row_state(
     return "measured"
 
 
-def _results_count(values: Mapping[str, Any] | None, field: str) -> int:
-    if not values:
-        return 0
-    value = values.get(field, 0)
+def _results_count(values: Mapping[str, Any] | None, field: str) -> int | None:
+    value = values.get(field) if values else None
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-        return 0
+        return None
     return value
 
 
