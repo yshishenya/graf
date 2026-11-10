@@ -28,7 +28,10 @@ from twobrain_rec_server.billing.purchases import (
     effective_paid_storage,
     settle_acceptance_budget,
 )
-from twobrain_rec_server.billing.receipts import ReceiptRegistration, merge_receipt_registration
+from twobrain_rec_server.billing.receipts import (
+    ReceiptRegistration,
+    merge_confirmed_receipt_registration,
+)
 from twobrain_rec_server.billing.referral_rewards import create_pending_credit
 from twobrain_rec_server.billing.storage import lock_storage_workspace
 from twobrain_rec_server.db.models import (
@@ -194,7 +197,8 @@ async def grant_confirmed_payment(
     receipt_became_available = False
     if receipt_registration is not None:
         try:
-            updated_snapshot, receipt_became_available = merge_receipt_registration(
+            updated_snapshot, receipt_became_available = await merge_confirmed_receipt_registration(
+                db,
                 invoice.plan_snapshot,
                 status=receipt_registration,
                 payment_binding=(*receipt_scope, provider_payment_id) if receipt_scope else None,

@@ -14,6 +14,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from twobrain_rec_server.billing.provider_events import validate_provider_identifier
 from twobrain_rec_server.billing.receipts import (
     ReceiptRegistration,
+    confirm_payment_receipt_timing,
+    confirm_receipt_timing,
     merge_receipt_registration,
     payment_receipt_record,
     receipt_observation_records,
@@ -585,23 +587,18 @@ async def record_observed_receipt(
     ) is None:
         return "conflict", False
 
-    if refund_scope_confirmed and observation.status == "canceled":
+    if observation.parent_kind == "payment":
+        await confirm_payment_receipt_timing(db, invoice.plan_snapshot, merged)
+    elif refund_scope_confirmed:
         key = _receipt_observation_key(observation)
         receipts = merged["receipt_observations"]
+        previous = receipt_observation_records(invoice.plan_snapshot).get(key, {})
         entry = receipts[key]
-        if "canceled" not in entry:
-            confirmed_at = _aware_utc(await db.scalar(select(func.clock_timestamp()))).isoformat()
-            merged["receipt_observations"] = {
-                **receipts,
-                key: {
-                    **entry,
-                    "canceled": {
-                        "detected_at": confirmed_at,
-                        "due_at": confirmed_at,
-                        "freshness": "confirmed",
-                    },
-                },
-            }
+        updated = await confirm_receipt_timing(
+            db, entry, status=observation.status, was_pending=previous.get("status") == "pending",
+        )
+        if updated != entry:
+            merged["receipt_observations"] = {**receipts, key: updated}
     if merged != invoice.plan_snapshot:
         invoice.plan_snapshot = merged
         await db.flush()

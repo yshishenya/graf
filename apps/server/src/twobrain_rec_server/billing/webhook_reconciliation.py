@@ -28,7 +28,7 @@ from twobrain_rec_server.billing.payment_methods import (
 from twobrain_rec_server.billing.promotions import release_payment_promo
 from twobrain_rec_server.billing.provider_events import ProviderEventError
 from twobrain_rec_server.billing.purchases import grant_confirmed_storage, settle_acceptance_budget
-from twobrain_rec_server.billing.receipts import merge_receipt_registration
+from twobrain_rec_server.billing.receipts import merge_confirmed_receipt_registration
 from twobrain_rec_server.billing.reconciliation import (
     PaymentObservation,
     ProviderObservationError,
@@ -168,7 +168,8 @@ async def apply_confirmed_purchase(
         return result
     if observation.receipt_registration is not None and receipt_scope is not None:
         try:
-            invoice.plan_snapshot, receipt_available = merge_receipt_registration(
+            invoice.plan_snapshot, receipt_available = await merge_confirmed_receipt_registration(
+                db,
                 invoice.plan_snapshot,
                 status=observation.receipt_registration,
                 payment_binding=(*receipt_scope, observation.provider_payment_id),
@@ -391,7 +392,8 @@ async def reconcile_pending_initial_checkout_operations(
                 operation, invoice, scope, verified_payment=payload
             )
             if observation.receipt_registration is not None and receipt_bound:
-                invoice.plan_snapshot, available = merge_receipt_registration(
+                invoice.plan_snapshot, available = await merge_confirmed_receipt_registration(
+                    db,
                     invoice.plan_snapshot,
                     status=observation.receipt_registration,
                     payment_binding=(scope.environment, scope.shop_id, observation.provider_payment_id),

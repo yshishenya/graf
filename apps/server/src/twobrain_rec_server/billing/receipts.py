@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from datetime import UTC
 from enum import StrEnum
 from typing import Literal
 
-from sqlalchemy import select
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.db.models import ExternalIdentity
 
@@ -147,6 +149,65 @@ def merge_receipt_registration(
 
     updated["receipt_registration"] = status
     return updated, previous != status and status == "succeeded"
+
+
+async def confirm_receipt_timing(
+    db: AsyncSession,
+    timing: Mapping[str, object],
+    *,
+    status: str,
+    was_pending: bool,
+) -> Mapping[str, object]:
+    if not isinstance(timing, Mapping):
+        raise ValueError("receipt timing is invalid")
+    if status == "pending" and timing.get("first_confirmed_pending_at") is None:
+        confirmed_at = await db.scalar(select(func.clock_timestamp()))
+        return {
+            **timing,
+            "first_confirmed_pending_at": confirmed_at.astimezone(UTC).isoformat(),
+            "legacy_pending_unknown": was_pending,
+        }
+    if status == "canceled" and "canceled" not in timing:
+        confirmed_at = await db.scalar(select(func.clock_timestamp()))
+        timestamp = confirmed_at.astimezone(UTC).isoformat()
+        return {
+            **timing,
+            "canceled": {"detected_at": timestamp, "due_at": timestamp, "freshness": "confirmed"},
+        }
+    return timing
+
+
+async def confirm_payment_receipt_timing(
+    db: AsyncSession,
+    previous: Mapping[str, object],
+    merged: dict[str, object],
+) -> None:
+    key = "receipt_registration_timing"
+    timing = previous.get(key, {})
+    was_pending = previous.get("receipt_registration") == "pending" or any(
+        row.get("parent_kind") == "payment" and row.get("status") == "pending"
+        for row in receipt_observation_records(previous).values()
+    )
+    updated = await confirm_receipt_timing(
+        db, timing, status=merged["receipt_registration"], was_pending=was_pending,
+    )
+    if updated != timing:
+        merged[key] = updated
+
+
+async def merge_confirmed_receipt_registration(
+    db: AsyncSession,
+    snapshot: Mapping[str, object],
+    *,
+    status: str,
+    payment_binding: tuple[str, str, str] | None,
+) -> tuple[dict[str, object], bool]:
+    merged, available = merge_receipt_registration(
+        snapshot, status=status, payment_binding=payment_binding,
+    )
+    if payment_binding is not None:
+        await confirm_payment_receipt_timing(db, snapshot, merged)
+    return merged, available
 
 
 def receipt_label(state: ReceiptState) -> str:

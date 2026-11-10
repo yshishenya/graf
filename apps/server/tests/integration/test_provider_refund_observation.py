@@ -961,8 +961,15 @@ async def test_canceled_refund_receipt_basis_requires_bound_shop(
     await case.add_events("receipt", 1, NOW, receipt_id="synthetic-canceled-refund-receipt")
     assert (await case.process(1))["reconciled"] == 1
     assert (await case.rows(BillingInvoice))[0] == after
+    case.provider_state["receipt_status"] = "pending"
     await case.add_events("receipt", 1, NOW, receipt_id="second-synthetic-refund-receipt")
     assert (await case.process(1))["reconciled"] == 1
+    records = (await case.rows(BillingInvoice))[0]["plan_snapshot"]["receipt_observations"]
+    assert records["test:shop-1:synthetic-canceled-refund-receipt"] == entry
+    second = records["test:shop-1:second-synthetic-refund-receipt"]
+    assert second["legacy_pending_unknown"] is False
+    assert started <= datetime.fromisoformat(second["first_confirmed_pending_at"]) <= datetime.now(UTC)
+    assert "canceled" not in second
     identities = await case.rows(BillingReceiptIdentity)
     assert len(identities) == 2
     assert {identity["provider_parent_id"] for identity in identities} == {case.refund_id}
@@ -1187,3 +1194,76 @@ async def test_receipt_id_is_unique_across_concurrent_invoices(
         assert await db.scalar(
             select(BillingReceiptIdentity.invoice_id).filter_by(provider_receipt_id=receipt_id)
         ) is None
+
+
+@pytest.mark.strict_rls
+@pytest.mark.asyncio
+@pytest.mark.parametrize("first", ["payment", "receipt", "legacy_canceled"])
+async def test_payment_receipt_confirmation_clock_survives_id_binding(refund_queue_case, first):
+    from sqlalchemy import select
+
+    from twobrain_rec_server.billing.receipts import merge_confirmed_receipt_registration
+    from twobrain_rec_server.billing.reconciliation import record_observed_receipt
+    from twobrain_rec_server.db.models import BillingNotificationDelivery
+    from twobrain_rec_server.db.tenant_context import apply_tenant_context
+
+    case = refund_queue_case
+    payment_id = (await case.rows(BillingOperation))[0]["provider_id"]
+    receipt_id = f"receipt-{case.invoice_id}"
+    timing_key = "receipt_registration_timing"
+
+    async def card():
+        return (await case.rows(BillingInvoice))[0]["plan_snapshot"]
+
+    async def confirm(source, status):
+        async with case.sessions() as db:
+            await apply_tenant_context(db, case.context)
+            if source == "receipt":
+                observation = extract_receipt_observation(
+                    {"id": receipt_id, "type": "payment", "payment_id": payment_id, "status": status},
+                    scope=SCOPE,
+                )
+                outcome = await record_observed_receipt(
+                    db, workspace_id=case.workspace_id, observation=observation, observed_at=NOW,
+                )
+                assert outcome[0] in {"inserted", "updated", "duplicate"}
+            else:
+                invoice = await db.scalar(
+                    select(BillingInvoice).where(BillingInvoice.id == case.invoice_id).with_for_update()
+                )
+                invoice.plan_snapshot, available = await merge_confirmed_receipt_registration(
+                    db, invoice.plan_snapshot, status=status,
+                    payment_binding=(SCOPE.environment, SCOPE.shop_id, payment_id),
+                )
+                assert not available
+            await db.commit()
+
+    if first == "legacy_canceled":
+        async with case.sessions() as db:
+            await apply_tenant_context(db, case.context)
+            invoice = await db.get(BillingInvoice, case.invoice_id)
+            invoice.plan_snapshot = {"receipt_registration": "canceled"}
+            await db.commit()
+        assert timing_key not in await card()
+        pending_timing = {}
+    else:
+        started = datetime.now(UTC)
+        await confirm(first, "pending")
+        pending_timing = (await card())[timing_key]
+        assert pending_timing["legacy_pending_unknown"] is False
+        assert started <= datetime.fromisoformat(pending_timing["first_confirmed_pending_at"]) <= datetime.now(UTC)
+        await confirm("receipt" if first == "payment" else "payment", "pending")
+        assert (await card())[timing_key] == pending_timing
+
+    started = datetime.now(UTC)
+    await confirm("receipt" if first == "payment" else "payment", "canceled")
+    saved = await card()
+    basis = saved[timing_key]["canceled"]
+    assert basis["freshness"] == "confirmed"
+    assert basis["detected_at"] == basis["due_at"]
+    assert started <= datetime.fromisoformat(basis["detected_at"]) <= datetime.now(UTC)
+    assert saved[timing_key] == {**pending_timing, "canceled": basis}
+    await confirm("payment", "canceled")
+    await confirm("receipt", "canceled")
+    assert (await card())[timing_key] == saved[timing_key]
+    assert not await case.rows(BillingNotificationDelivery)
