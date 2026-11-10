@@ -30,7 +30,7 @@
 ## Финальная проверка authority и денег 2026-08-06
 
 - [x] CHK016 Shared atomic recurring-authority version makes refusal win before any provider charge. [FR-044, FR-103]
-- [ ] CHK017 Late-after-refusal stays Free, records one internal incident and sends static support-email instruction; no product case or keep-period workflow exists. [FR-048, FR-104] Проверка 2026-10-30: X4; см. [отчёт T075](../t075-requirements-review-20261030.md).
+- [ ] CHK017 Подтверждённый срок сохраняется после отзыва согласно F278 FR-041 и F140 FR-104; согласие не возвращается. Независимая непредоставленная услуга сохраняет отдельную сверку без публичного дела о возврате. [FR-048, FR-104] Формулировка «Late-after-refusal stays Free» заменена F278 FR-041. Историческая проверка прежней нормы от 2026-10-30: X4; см. [отчёт T075](../t075-requirements-review-20261030.md).
 - [x] CHK018 Invoice purchased duration/planned interval is separate from actual grant and fiscal wording. [FR-105] Проверка 01.11.2026: подтверждена только формулировка требований; реализация планового интервала не принята, остаток T048 открыт. См. [отдельное ревью](../review-planned-interval-checklist-20261101.md).
 - [x] CHK019 Consumer withdrawal affects access immediately while monetary state changes only after confirmed refund outcome. [FR-102]
 - [ ] CHK020 Refund approval/execution concurrency and four-eyes produce exactly one money mutation. [FR-056, FR-102] Проверка 2026-10-30: X4; см. [отчёт T075](../t075-requirements-review-20261030.md).

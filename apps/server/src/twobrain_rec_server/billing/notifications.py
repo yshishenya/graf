@@ -368,6 +368,8 @@ def notification_copy(
             f"Оплата была подтверждена. Сумма: {price}. "
             + (f"Предоставленные периоды: {payload['service_periods']} МСК."
                if "service_periods" in payload else "Период указан в истории платежей.")
+            + (" В GRAF новый оплаченный период начался после окончания предыдущего периода."
+               if payload.get("renewal_timing") == "after_cutoff" else "")
             + f"{suffix} Чек и актуальный статус — в истории платежей.",
         ),
         BillingNotification.PAYMENT_FAILED: (
@@ -452,7 +454,9 @@ def build_notification(
         BillingNotification.AUTORENEWAL_DISABLED: set(),
         BillingNotification.AUTORENEWAL_ENABLED: {"amount_minor", "currency", "next_attempt_label"},
         BillingNotification.STORAGE_SELECTION_CHANGED: set(),
-        BillingNotification.PAYMENT_SUCCEEDED: {"invoice", "amount_minor", "currency", "service_periods"},
+        BillingNotification.PAYMENT_SUCCEEDED: {
+            "invoice", "amount_minor", "currency", "service_periods", "renewal_timing",
+        },
         BillingNotification.SERVICE_RECONCILIATION: {"invoice"},
         BillingNotification.PAYMENT_FAILED: {"invoice", "access_until"},
         BillingNotification.RECEIPT_AVAILABLE: {"invoice"},
@@ -525,6 +529,7 @@ def build_notification(
             "cycle": r"month|year",
             "last4": r"[0-9]{4}",
             "referral_days": r"[1-9][0-9]{0,2}",
+            "renewal_timing": r"after_cutoff",
         }.get(key) or (
             r"\d{2}\.\d{2}\.\d{4} \d{2}:\d{2}"
             if key in {"review_by", "access_until", "scheduled_at", "referral_expiry",

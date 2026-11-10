@@ -45,7 +45,7 @@ The primary button is `Оплатить {amount} ₽ в YooKassa`; offer and rec
 
 There is exactly one automatic renewal operation per period. Authoritative success extends paid term. Final canceled/unusable method causes `Free` at exact `paid_through`; no T+1/+3/+5 charge exists. HTTP timeout/500 remains `unknown`: same body/key GET/recovery continues, but after cutoff access is Free with `renewal_resolution_pending` and no manual pay CTA.
 
-Late success without an effective refusal creates an actual full-duration grant from `access_restored_at` and shifts the anchor. With earlier cancel/payment-data refusal/account close, recurring authority stays off, access remains Free, one internal financial incident is recorded and the verified payer receives the safe support email instruction. GRAF creates neither a refund case nor a user choice/refund workflow. Any later entitlement correction is an explicit audited backoffice decision independent of recurring authority. Invoice keeps planned interval/duration; UI shows actual interval only for an actual grant.
+A confirmed late renewal creates one actual full-duration grant for the same authorized payer from restoration time, including after a recurring-authority refusal (F278 FR-041, F140 FR-104). Refusal blocks future sends and is not reversed by that payment. Inability to provide the service for an independent reason remains a separate reconciliation outcome; account-close rules remain separate. GRAF creates neither a refund case nor a choice to receive the already paid term. The invoice retains the planned interval/duration; only an actual grant supplies an actual interval.
 
 ## Referral service time
 

@@ -359,10 +359,11 @@ Append-only actual access entry: workspace, source payment/time-credit/manual
 correction reference, kind `paid|late_paid|time_credit|correction`, actual
 `starts_at/ends_at`, plan/capacity snapshot, source authority version,
 application version, optional `reversal_of_id` and bounded reason. Normal
-success uses the planned interval; late success without an earlier effective
-refusal starts a full term at `access_restored_at`. Late success after refusal
-creates no grant and leaves Free; any later correction is a separate explicit
-audited backoffice decision, not an inferred refund state.
+success uses the planned interval. Late confirmation of the original renewal
+creates one actual full term for the same authorized payer, even after recurring
+refusal (F278 FR-041). The grant does not restore recurring authority. Independent
+inability to provide service follows existing reconciliation. A later correction
+remains a separate explicit audited decision outside the product.
 
 ### `storage_capacity_addon`
 
@@ -611,9 +612,9 @@ object IDs, суммы и контакты здесь не сохраняютс�
    webhook body cannot grant access. Same operation/key resolves unknown; no
    silent new payment exists after provider-key expiry.
 3. Renewal planner creates one `(subscription, paid period)` operation.
-   Confirmed/unconfirmed cutoff → Free and no retry. Late success grants once
-   only when no earlier effective refusal; otherwise it creates an internal
-   financial incident and support-email notice, not a refund case.
+   Cutoff applies Free under the current F278 rules. A confirmed late renewal
+   grants the same payer one paid term even after refusal; refusal stays in force
+   for future sends. Independent service gaps remain subject to reconciliation.
 4. Trial uniqueness is identity-scoped; plan/subscription/usage/storage are
    workspace-scoped. Every mutation rechecks current membership/role/session.
 5. Free usage commits only deduplicated accepted ranges. Storage admission

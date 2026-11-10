@@ -623,10 +623,25 @@ async def grant_confirmed_renewal(
     # Late success after cancellation still delivers the paid period. Never
     # restore recurring_allowed or replace a card from this old authority.
     starts_at = grant_starts_at.astimezone(UTC)
-    if subscription.paid_through is not None:
+    cutoff = subscription.paid_through
+    if cutoff is not None:
         # A renewal charged inside the reminder window completes the current
         # period instead of shortening the access already paid for.
-        starts_at = max(starts_at, subscription.paid_through.astimezone(UTC))
+        cutoff = cutoff.astimezone(UTC)
+        starts_at = max(starts_at, cutoff)
+    invoice_snapshot = invoice.plan_snapshot or {}
+    after_cutoff = (
+        operation.kind == "renewal"
+        and invoice.workspace_id == workspace_id
+        and snapshot.get("purchase_schema") == invoice_snapshot.get("purchase_schema") == 2
+        and cutoff is not None
+        and starts_at > cutoff
+        and snapshot.get("paid_through_at") == invoice_snapshot.get("paid_through_at") == cutoff.isoformat()
+        and recurring_actor_matches_current_owner(
+            snapshot_actor=invoice_snapshot.get("billing_actor_user_id"),
+            current_owner_id=owner.user_id,
+        )
+    )
     ends_at = _add_paid_interval(starts_at, cycle)
     grant = BillingEntitlementGrant(
         workspace_id=workspace_id,
@@ -674,16 +689,19 @@ async def grant_confirmed_renewal(
         )
     )
     await redeem_invoice_promo(db, invoice_id=invoice.id, now=grant_starts_at)
+    payload = payment_success_payload(
+        invoice, periods=[(grant.starts_at, grant.ends_at)],
+        action_path=f"/billing/invoices/{invoice.safe_number}",
+    )
+    if after_cutoff:
+        payload["renewal_timing"] = "after_cutoff"
     await enqueue_billing_notification(
         db,
         workspace_id=workspace_id,
         recipient_id=owner.user_id,
         event_id=f"payment:{invoice.id}:succeeded",
         kind=BillingNotification.PAYMENT_SUCCEEDED,
-        payload=payment_success_payload(
-            invoice, periods=[(grant.starts_at, grant.ends_at)],
-            action_path=f"/billing/invoices/{invoice.safe_number}",
-        ),
+        payload=payload,
         marketing_allowed=False,
     )
     await settle_acceptance_budget(

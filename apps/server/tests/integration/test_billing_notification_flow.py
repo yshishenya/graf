@@ -865,6 +865,244 @@ async def test_committed_billing_events_reach_one_delivery_each(paid_workspace, 
             assert row.delivered_at is not None
 
 
+@pytest.mark.parametrize("scenario", [
+    "late", "early", "exact", "missing_cutoff", "different_cutoff", "changed_period",
+    "wrong_payer", "pending", "rollback",
+])
+@pytest.mark.strict_rls
+@pytest.mark.asyncio
+async def test_renewal_confirmation_reports_only_a_proven_late_grant(
+    paid_workspace, tmp_path, monkeypatch, scenario,
+):
+    from datetime import datetime
+    from uuid import uuid4
+    from zoneinfo import ZoneInfo
+
+    import httpx
+
+    from twobrain_rec_server.billing import entitlements, webhook_reconciliation
+    from twobrain_rec_server.billing.yookassa import YooKassaClient
+    from twobrain_rec_server.config import Settings
+    from twobrain_rec_server.db.models import BillingEntitlementGrant
+
+    case = paid_workspace
+    cutoff = case.original["subscription"]["paid_through"]
+    captured = cutoff - timedelta(hours=2)
+    applied = {"early": cutoff - timedelta(hours=1), "exact": cutoff}.get(
+        scenario, cutoff + timedelta(hours=3),
+    )
+    secret = tmp_path / "synthetic-provider-secret"
+    secret.write_text("synthetic-offline-not-a-real-key")
+    secret.chmod(0o600)
+    settings = Settings(_env_file=None, **{**case.settings.model_dump(),
+        "public_base_url": "https://example.invalid",
+        "billing_checkout_enabled": True,
+        "billing_provider_observation_enabled": True,
+        "billing_checkout_workspace_ids": frozenset({case.workspace}),
+        "billing_yookassa_base_url": "https://api.yookassa.test",
+        "billing_yookassa_environment": "test",
+        "billing_yookassa_shop_id": "1",
+        "billing_yookassa_secret_file": secret,
+        "billing_yookassa_webhook_secret_file": secret,
+        "billing_referral_secret_file": secret,
+        "billing_support_email": "support@example.invalid",
+        "billing_receipt_tax_system_code": 2,
+        "billing_receipt_vat_code": 1,
+    })
+    charge = planner.renewal_charge
+    async with planner._session(case.factory) as db:
+        (operation_id,) = await charge.plan_due_renewals(
+            db, now=case.t0, allowed_workspace_ids=frozenset({case.workspace}),
+        )
+        await db.commit()
+
+    reference = str(uuid4())
+    calls = []
+
+    def offline_provider(request):
+        calls.append(request.method)
+        if request.method == "POST":
+            assert request.url.path == "/v3/payments"
+            return httpx.Response(200, json={"id": reference, "status": "pending"})
+        assert request.method == "GET" and request.url.path == f"/v3/payments/{reference}"
+        return httpx.Response(200, json=reply)
+
+    transport = httpx.MockTransport(offline_provider)
+
+    async def mock_only_send(client, request, **kwargs):
+        assert request.url.host == "api.yookassa.test"
+        assert client._transport_for_url(request.url) is transport
+        return await planner._ASYNC_HTTP_SEND(client, request, **kwargs)
+
+    monkeypatch.setattr(httpx.AsyncClient, "send", mock_only_send)
+    for module in (charge, worker):
+        monkeypatch.setattr(
+            module, "YooKassaClient", lambda config: YooKassaClient(config, transport=transport),
+        )
+    async with planner._session(case.factory) as db:
+        dispatched = await charge.charge_renewal_operation(
+            db, settings, operation_id=operation_id, workspace_id=case.workspace, now=case.t0,
+        )
+        assert dispatched.status == "sent" and dispatched.provider_id == reference
+
+    async def notices(db):
+        return {row.event_id: row for row in await db.scalars(
+            select(BillingNotificationDelivery)
+            .where(BillingNotificationDelivery.workspace_id == case.workspace)
+        )}
+
+    async with planner._session(case.factory) as db:
+        subscription = await db.get(WorkspaceSubscription, case.workspace)
+        # Model an already recorded refusal; the cancellation UI has its own acceptance.
+        subscription.recurring_allowed = False
+        subscription.recurring_authority_version += 1
+        authority = subscription.recurring_authority_version
+        db.add(BillingNotificationPreference(user_id=case.owner, optional_email_enabled=False))
+        operation = await db.get(BillingOperation, operation_id)
+        invoice = await db.scalar(select(BillingInvoice).where(BillingInvoice.operation_id == operation_id))
+        assert operation.request_snapshot["purchase_schema"] == invoice.plan_snapshot["purchase_schema"] == 2
+        if applied > cutoff:
+            assert await charge.project_renewal_cutoffs(db, now=cutoff) == 1
+        if scenario == "missing_cutoff":
+            invoice.plan_snapshot = {k: v for k, v in invoice.plan_snapshot.items() if k != "paid_through_at"}
+        elif scenario == "different_cutoff":
+            invoice.plan_snapshot = {**invoice.plan_snapshot, "paid_through_at": captured.isoformat()}
+        elif scenario == "changed_period":
+            subscription.paid_through = cutoff + timedelta(hours=1)
+        elif scenario == "wrong_payer":
+            operation.request_snapshot = {**operation.request_snapshot, "billing_actor_user_id": str(uuid4())}
+        invoice_id = invoice.id
+        amount = invoice.amount_minor
+        reply = {
+            "id": reference, "status": "succeeded", "paid": True, "test": True,
+            "created_at": case.t0.isoformat(), "captured_at": captured.isoformat(),
+            "recipient": {"account_id": "1"},
+            "amount": {"value": f"{amount // 100}.{amount % 100:02d}", "currency": "RUB"},
+            "metadata": {
+                "workspace_id": str(case.workspace), "operation_id": str(operation_id),
+                "invoice_number": invoice.safe_number,
+            },
+        }
+        if scenario == "pending":
+            reply.update(status="pending", paid=False, captured_at=None)
+        action_path = f"/billing/invoices/{invoice.safe_number}"
+        await db.commit()
+
+    unknown_id = f"renewal:{invoice_id}:unknown"
+    event_id = f"payment:{invoice_id}:succeeded"
+    async with planner._session(case.factory) as db:
+        subscription = await db.get(WorkspaceSubscription, case.workspace)
+        before = await notices(db)
+        assert event_id not in before
+        if applied > cutoff:
+            assert subscription.plan_code == "free" and subscription.renewal_resolution == "unknown_pending"
+            assert before[unknown_id].template_key == "renewal_unknown"
+        else:
+            assert unknown_id not in before
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return applied.astimezone(tz)
+
+    for module in (worker, webhook_reconciliation, entitlements):
+        monkeypatch.setattr(module, "datetime", Clock)
+    monkeypatch.setattr(worker, "get_settings", lambda: settings)
+    request = {"operation_id": str(operation_id), "workspace_id": str(case.workspace)}
+
+    if scenario == "rollback":
+        async def fail_after_enqueue(db, **_):
+            await db.flush()
+            assert event_id in await notices(db)
+            raise RuntimeError("synthetic rollback after enqueue")
+
+        monkeypatch.setattr(entitlements, "settle_acceptance_budget", fail_after_enqueue)
+        with pytest.raises(RuntimeError, match="synthetic rollback after enqueue"):
+            await worker.run_billing_renewal_activity(request)
+    elif scenario == "pending":
+        assert (await worker.run_billing_renewal_activity(request))["status"] == "manual_resolution"
+    else:
+        status = "reconciliation_gap" if scenario == "wrong_payer" else "succeeded"
+        assert (await worker.run_billing_renewal_activity(request))["status"] == status
+        if status == "succeeded":
+            assert (await worker.run_billing_renewal_activity(request))["status"] == status
+    assert calls == ["POST", "GET"]
+
+    phrase = "В GRAF новый оплаченный период начался после окончания предыдущего периода"
+    async with planner._session(case.factory) as db:
+        subscription = await db.get(WorkspaceSubscription, case.workspace)
+        assert subscription.recurring_allowed is False and subscription.recurring_authority_version == authority
+        grants = list(await db.scalars(
+            select(BillingEntitlementGrant).where(BillingEntitlementGrant.invoice_id == invoice_id)
+        ))
+        after = await notices(db)
+        if scenario in {"wrong_payer", "pending", "rollback"}:
+            assert not grants and event_id not in after
+            assert subscription.plan_code == "free" and subscription.paid_through == cutoff
+            extra = {f"payment:{invoice_id}:service_gap"} if scenario == "wrong_payer" else set()
+            assert after.keys() == before.keys() | extra
+            return
+        grant, = grants
+        assert grant.starts_at == max(cutoff, applied)
+        assert grant.ends_at == subscription.paid_through and subscription.plan_code == "personal"
+        assert timedelta(days=28) <= grant.ends_at - grant.starts_at <= timedelta(days=31)
+        invoice = await db.get(BillingInvoice, invoice_id)
+        assert datetime.fromisoformat(invoice.plan_snapshot["provider_paid_at"]) == captured < cutoff
+        assert after.keys() == before.keys() | {event_id}
+        row = after[event_id]
+        assert (row.template_key, row.recipient_id, row.state, row.attempts) == (
+            "payment_succeeded", case.owner, "pending", 0,
+        )
+        assert row.safe_payload["action_path"] == action_path
+        assert row.safe_payload["amount_minor"] == str(amount)
+        assert row.safe_payload.get("renewal_timing") == ("after_cutoff" if scenario == "late" else None)
+        msk = ZoneInfo("Europe/Moscow")
+        dates = f"{grant.starts_at.astimezone(msk):%d.%m.%Y %H:%M} — {grant.ends_at.astimezone(msk):%d.%m.%Y %H:%M}"
+        row_id = row.id
+
+    sends = []
+
+    async def offline_send(*, delivery_key, recipient_email, subject, plain_body, **_):
+        if delivery_key == f"billing:{row_id}":
+            async with planner._session(case.factory) as db:
+                claim = await db.get(BillingNotificationDelivery, row_id)
+                assert (claim.state, claim.attempts, claim.last_error_code) == ("failed", 1, "postal_outcome_unknown")
+            sends.append((recipient_email, subject, plain_body))
+
+    async def stop_after_poll(seconds):
+        assert seconds == 60
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(worker, "send_billing_notification", offline_send)
+    monkeypatch.setattr(worker, "asyncio", SimpleNamespace(
+        CancelledError=asyncio.CancelledError, sleep=stop_after_poll,
+    ))
+    for _ in range(2):
+        with pytest.raises(asyncio.CancelledError):
+            await worker.run_billing_notification_reconciler(case.settings)
+        assert len(sends) == 1
+    recipient, subject, body = sends[0]
+    assert (recipient, subject) == ("planner@example.invalid", "Платеж подтвержден")
+    rubles, kopecks = divmod(amount, 100)
+    assert f"{rubles:,}".replace(",", " ") + f",{kopecks:02d} ₽" in body
+    assert f"{dates} МСК" in body
+    assert (phrase in body) == (scenario == "late")
+    async with planner._session(case.factory) as db:
+        delivered = await db.get(BillingNotificationDelivery, row_id)
+        assert (delivered.state, delivered.attempts) == ("delivered", 1)
+
+
+def test_payment_confirmation_ignores_unknown_stored_renewal_timing():
+    from twobrain_rec_server.billing.notifications import NotificationEvent
+
+    kind = BillingNotification.PAYMENT_SUCCEEDED
+    regular = build_notification(event_id="payment:test", kind=kind, payload={})
+    raw = {"renewal_timing": "after_cutoff_extra"}
+    sanitized = build_notification(event_id=regular.event_id, kind=kind, payload=raw)
+    assert sanitized.safe_payload == regular.safe_payload
+    assert notification_copy(NotificationEvent(regular.event_id, kind, raw)) == notification_copy(regular)
+
+
 @pytest.mark.strict_rls
 @pytest.mark.asyncio
 @pytest.mark.parametrize("reply", ["unavailable", "canceled", "succeeded", "pending", "incomplete"])
