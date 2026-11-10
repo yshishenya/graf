@@ -490,6 +490,7 @@ async def record_observed_receipt(
     observation: ReceiptObservation,
     source: ObservationSource = "webhook",
     observed_at: datetime | None = None,
+    confirmed_at: datetime | None = None,
 ) -> tuple[ReceiptObservationResult, bool]:
     """Persist bounded receipt truth without changing entitlement or refunds."""
     invoice: BillingInvoice | None
@@ -571,7 +572,7 @@ async def record_observed_receipt(
 
     if observation.parent_kind == "payment":
         try:
-            await confirm_payment_receipt_timing(db, invoice.plan_snapshot, merged)
+            await confirm_payment_receipt_timing(db, invoice.plan_snapshot, merged, confirmed_at=confirmed_at)
         except ValueError:
             return "conflict", False
 
@@ -602,6 +603,7 @@ async def record_observed_receipt(
         entry = receipts[key]
         updated = await confirm_receipt_timing(
             db, entry, status=observation.status, was_pending=previous.get("status") == "pending",
+            confirmed_at=confirmed_at,
         )
         if updated != entry:
             merged["receipt_observations"] = {**receipts, key: updated}

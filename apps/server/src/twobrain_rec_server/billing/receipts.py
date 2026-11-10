@@ -151,17 +151,51 @@ def merge_receipt_registration(
     return updated, previous != status and status == "succeeded"
 
 
+def receipt_utc_timestamp(value: object, *, field: str = "timestamp") -> datetime:
+    if not isinstance(value, str):
+        raise ValueError(f"receipt {field} is invalid")
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        raise ValueError(f"receipt {field} is invalid") from None
+    if parsed.utcoffset() != timedelta(0):
+        raise ValueError(f"receipt {field} must be UTC")
+    return parsed
+
+
+def record_receipt_overdue(
+    timing: Mapping[str, object], *, now: datetime, freshness: Literal["confirmed", "unknown"],
+) -> Mapping[str, object]:
+    first = timing.get("first_confirmed_pending_at")
+    if first is None or "pending_overdue" in timing:
+        return timing
+    first_at = receipt_utc_timestamp(first, field="pending timestamp")
+    if now < first_at:
+        raise ValueError("receipt confirmation clock moved backwards")
+    if now - first_at < timedelta(hours=72):
+        return timing
+    return {
+        **timing,
+        "pending_overdue": {
+            "detected_at": now.isoformat(),
+            "due_at": (first_at + timedelta(hours=72)).isoformat(),
+            "freshness": freshness,
+        },
+    }
+
+
 async def confirm_receipt_timing(
     db: AsyncSession,
     timing: Mapping[str, object],
     *,
     status: str,
     was_pending: bool,
+    confirmed_at: datetime | None = None,
 ) -> Mapping[str, object]:
     if not isinstance(timing, Mapping):
         raise ValueError("receipt timing is invalid")
     if status == "pending" and "pending_overdue" not in timing:
-        confirmed_at = (await db.scalar(select(func.clock_timestamp()))).astimezone(UTC)
+        confirmed_at = (confirmed_at or await db.scalar(select(func.clock_timestamp()))).astimezone(UTC)
         first = timing.get("first_confirmed_pending_at")
         if first is None:
             return {
@@ -169,27 +203,9 @@ async def confirm_receipt_timing(
                 "first_confirmed_pending_at": confirmed_at.isoformat(),
                 "legacy_pending_unknown": was_pending,
             }
-        if not isinstance(first, str):
-            raise ValueError("receipt pending timestamp is invalid")
-        try:
-            first_at = datetime.fromisoformat(first)
-        except ValueError:
-            raise ValueError("receipt pending timestamp is invalid") from None
-        if first_at.utcoffset() != timedelta(0):
-            raise ValueError("receipt pending timestamp must be UTC")
-        if confirmed_at < first_at:
-            raise ValueError("receipt confirmation clock moved backwards")
-        if confirmed_at - first_at >= timedelta(hours=72):
-            return {
-                **timing,
-                "pending_overdue": {
-                    "detected_at": confirmed_at.isoformat(),
-                    "due_at": (first_at + timedelta(hours=72)).isoformat(),
-                    "freshness": "confirmed",
-                },
-            }
+        return record_receipt_overdue(timing, now=confirmed_at, freshness="confirmed")
     if status == "canceled" and "canceled" not in timing:
-        confirmed_at = await db.scalar(select(func.clock_timestamp()))
+        confirmed_at = confirmed_at or await db.scalar(select(func.clock_timestamp()))
         timestamp = confirmed_at.astimezone(UTC).isoformat()
         return {
             **timing,
@@ -202,6 +218,8 @@ async def confirm_payment_receipt_timing(
     db: AsyncSession,
     previous: Mapping[str, object],
     merged: dict[str, object],
+    *,
+    confirmed_at: datetime | None = None,
 ) -> None:
     key = "receipt_registration_timing"
     timing = previous.get(key, {})
@@ -213,7 +231,7 @@ async def confirm_payment_receipt_timing(
         for row in receipt_observation_records(previous).values()
     )
     updated = await confirm_receipt_timing(
-        db, timing, status=status, was_pending=was_pending,
+        db, timing, status=status, was_pending=was_pending, confirmed_at=confirmed_at,
     )
     if updated != timing:
         merged[key] = updated
@@ -225,12 +243,13 @@ async def merge_confirmed_receipt_registration(
     *,
     status: str,
     payment_binding: tuple[str, str, str] | None,
+    confirmed_at: datetime | None = None,
 ) -> tuple[dict[str, object], bool]:
     merged, available = merge_receipt_registration(
         snapshot, status=status, payment_binding=payment_binding,
     )
     if payment_binding is not None:
-        await confirm_payment_receipt_timing(db, snapshot, merged)
+        await confirm_payment_receipt_timing(db, snapshot, merged, confirmed_at=confirmed_at)
     return merged, available
 
 
