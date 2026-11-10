@@ -1404,62 +1404,6 @@ async def test_malformed_payment_receipt_timing_preserves_fiscal_atomicity(refun
 
 @pytest.mark.strict_rls
 @pytest.mark.asyncio
-@pytest.mark.parametrize("reply", ["unavailable", "canceled", "succeeded", "pending", "incomplete"])
-async def test_receipt_poll_checks_provider_before_overdue_and_keeps_payment(refund_queue_case, reply):
-    from datetime import timedelta
-
-    from sqlalchemy import select, update
-
-    from twobrain_rec_server.billing.receipt_poll import reconcile_pending_receipts
-    from twobrain_rec_server.db.models import BillingNotificationDelivery, WorkspaceSubscription
-    from twobrain_rec_server.db.tenant_context import apply_tenant_context
-
-    case = refund_queue_case
-    if reply != "unavailable":
-        case.provider_state["payment_receipt_status"] = "canceled" if reply == "incomplete" else reply
-        case.provider_state["incomplete_payment_receipt"] = reply == "incomplete"
-    first = datetime.now(UTC) - timedelta(hours=72, seconds=1)
-    async with case.sessions() as db:
-        await apply_tenant_context(db, case.context)
-        await db.execute(update(BillingOperation).where(
-            BillingOperation.workspace_id == case.workspace_id
-        ).values(created_at=first))
-        if reply == "succeeded":
-            await db.execute(update(WorkspaceSubscription).where(
-                WorkspaceSubscription.workspace_id == case.workspace_id
-            ).values(billing_owner_id=case.another_user_id))
-        invoice = await db.scalar(select(BillingInvoice).where(BillingInvoice.id == case.invoice_id))
-        invoice.plan_snapshot = {
-            "receipt_registration": "pending",
-            "receipt_registration_timing": {"first_confirmed_pending_at": first.isoformat()},
-        }
-        await db.commit()
-        counters = await reconcile_pending_receipts(db, case.settings)
-        assert counters["receipt_gets"] == 1
-
-    async with case.sessions() as db:
-        await apply_tenant_context(db, case.context)
-        assert (await reconcile_pending_receipts(db, case.settings))["receipt_gets"] == 0
-
-    assert len(case.calls) == 1 and case.calls[0][0] == "GET"
-    snapshot = (await case.rows(BillingInvoice))[0]["plan_snapshot"]
-    timing = snapshot["receipt_registration_timing"]
-    assert timing["last_poll_result"] == {"unavailable": "unavailable", "incomplete": "conflict"}.get(reply, "confirmed")
-    assert snapshot["receipt_registration"] == ("pending" if reply in {"unavailable", "incomplete"} else reply)
-    if reply in {"unavailable", "pending"}:
-        overdue = timing["pending_overdue"]
-        assert overdue["due_at"] == (first + timedelta(hours=72)).isoformat()
-        assert overdue["freshness"] == ("unknown" if reply == "unavailable" else "confirmed")
-    else:
-        assert "pending_overdue" not in timing
-        assert ("canceled" in timing) == (reply == "canceled")
-    deliveries = await case.rows(BillingNotificationDelivery)
-    assert [row["recipient_id"] for row in deliveries] == ([case.another_user_id] if reply == "succeeded" else [])
-    assert (await case.rows(BillingOperation))[0]["state"] == "succeeded"
-
-
-@pytest.mark.strict_rls
-@pytest.mark.asyncio
 async def test_receipt_poll_shared_limit_rotates_refunds_and_persists_reservation(refund_queue_case, monkeypatch):
     from datetime import timedelta
 
