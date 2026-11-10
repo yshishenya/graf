@@ -8,7 +8,7 @@ final class SystemAudioLocalizationTests: XCTestCase {
         XCTAssertEqual(SystemAudioStatusLabels.recordingIdle, "Запись не идет")
         XCTAssertEqual(SystemAudioStatusLabels.recordButtonTitle, "Начать запись")
         XCTAssertEqual(SystemAudioStatusLabels.stopButtonTitle, "Остановить запись")
-        XCTAssertEqual(SystemAudioStatusLabels.pauseButtonTitle, "Mute")
+        XCTAssertEqual(SystemAudioStatusLabels.pauseButtonTitle, "Выключить микрофон")
         XCTAssertEqual(SystemAudioStatusLabels.resumeButtonTitle, "Включить микрофон")
         XCTAssertEqual(SystemAudioStatusLabels.activeState, "Есть звук")
         XCTAssertEqual(SystemAudioStatusLabels.silentState, "Тихо")
@@ -52,9 +52,9 @@ final class SystemAudioLocalizationTests: XCTestCase {
     func testMuteTruthLimitationCopyDoesNotClaimMeetingAppMuteSupport() {
         XCTAssertEqual(
             SystemAudioStatusLabels.meetingMuteTruthLimitationCopy,
-            "GRAF не может проверить, выключен ли микрофон во встрече. Чтобы ваша речь не попала в запись, используйте «Mute» или «Остановить запись» в GRAF."
+            "GRAF не может проверить, выключен ли микрофон во встрече. Чтобы ваша речь не попала в запись, используйте «Выключить микрофон» или «Остановить запись» в GRAF."
         )
-        XCTAssertTrue(SystemAudioStatusLabels.meetingMuteTruthLimitationCopy.contains("«Mute» или «Остановить запись»"))
+        XCTAssertTrue(SystemAudioStatusLabels.meetingMuteTruthLimitationCopy.contains("«Выключить микрофон» или «Остановить запись»"))
         XCTAssertTrue(SystemAudioStatusLabels.meetingMuteTruthLimitationCopy.contains("не может проверить"))
         XCTAssertFalse(SystemAudioStatusLabels.meetingMuteTruthLimitationCopy.localizedCaseInsensitiveContains("mute-respecting"))
         XCTAssertFalse(SystemAudioStatusLabels.meetingMuteTruthLimitationCopy.localizedCaseInsensitiveContains("guarantee"))

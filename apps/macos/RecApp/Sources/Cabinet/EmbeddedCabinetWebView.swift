@@ -1020,7 +1020,8 @@ public struct EmbeddedCabinetLocalRecordingRow: Codable, Equatable, Sendable {
 
     public static func rows(
         for items: [DesktopUploadQueueItem],
-        recordingsRootURL: URL
+        recordingsRootURL: URL,
+        timeZone: TimeZone = .autoupdatingCurrent
     ) -> [Self] {
         items.compactMap { item in
             let localDeletionPending = item.state == .terminalDeleted && item.serverCreationAttempted == false
@@ -1071,7 +1072,7 @@ public struct EmbeddedCabinetLocalRecordingRow: Codable, Equatable, Sendable {
             return Self(
                 id: item.id,
                 meetingId: item.meetingId ?? item.serverTruth.meetingId,
-                title: item.recordingMetadata?.displayTitle() ?? "Запись",
+                title: item.recordingMetadata?.displayTitle(timeZone: timeZone) ?? "Запись",
                 generatedTitlePrefix: item.recordingMetadata?.generatedDisplayTitlePrefix,
                 startedAt: startedAt,
                 durationSeconds: max(0, item.artifactProfile.durationSeconds),

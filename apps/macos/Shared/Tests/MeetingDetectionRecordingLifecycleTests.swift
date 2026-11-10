@@ -59,7 +59,7 @@ final class MeetingDetectionRecordingLifecycleTests: XCTestCase {
     private static func desktopAppSource() throws -> String {
         var candidate = URL(fileURLWithPath: #filePath)
         while candidate.path != "/" {
-            let sourceURL = candidate.appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift")
+            let sourceURL = candidate.appendingPathComponent("apps/macos/RecApp/Sources/AppShell/ContentView.swift")
             if FileManager.default.fileExists(atPath: sourceURL.path) {
                 return try String(contentsOf: sourceURL, encoding: .utf8)
             }

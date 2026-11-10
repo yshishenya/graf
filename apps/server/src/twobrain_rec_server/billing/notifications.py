@@ -27,6 +27,9 @@ class BillingNotification(StrEnum):
     STORAGE_THRESHOLD = "storage_threshold"
     RECEIPT_AVAILABLE = "receipt_available"
     REFERRAL_CREDIT = "referral_credit"
+    REFERRAL_AVAILABLE = "referral_available"
+    REFERRAL_APPLIED = "referral_applied"
+    REFERRAL_REVERSED = "referral_reversed"
     RENEWAL_UNKNOWN = "renewal_unknown"
     RENEWAL_UPCOMING = "renewal_upcoming"
     RENEWAL_ATTEMPT_FAILED = "renewal_attempt_failed"
@@ -35,6 +38,13 @@ class BillingNotification(StrEnum):
     RENEWAL_MANUAL_RESUME = "renewal_manual_resume"
     FAIR_USE_REVIEW = "fair_use_review"
     ACCOUNT_CLOSE = "account_close"
+
+
+REFERRAL_NOTICE_KINDS = frozenset({
+    BillingNotification.REFERRAL_AVAILABLE,
+    BillingNotification.REFERRAL_APPLIED,
+    BillingNotification.REFERRAL_REVERSED,
+})
 
 
 MANDATORY_NOTIFICATION_KINDS = frozenset(
@@ -328,6 +338,11 @@ def notification_copy(
             if event.kind == BillingNotification.TRIAL_EXPIRED else ""
         )
         return trial_title, f"{dates} {terms}{free}"
+    referral_expiry = payload.get("referral_expiry")
+    referral_days = payload.get("referral_days")
+    referral_start = payload.get("referral_start")
+    referral_end = payload.get("referral_end")
+    referral_reversed = payload.get("referral_reversed")
     copy = {
         BillingNotification.SERVICE_RECONCILIATION: (
             "Проверяем предоставление оплаченной услуги",
@@ -373,6 +388,22 @@ def notification_copy(
         BillingNotification.REFERRAL_CREDIT: (
             "Начислен реферальный бонус",
             "Дополнительные дни применены к вашему оплачиваемому периоду.",
+        ),
+        BillingNotification.REFERRAL_AVAILABLE: (
+            "Реферальный бонус доступен",
+            f"Бонус можно применить до {referral_expiry} МСК." if referral_expiry
+            else "Проверьте срок действия бонуса в кабинете.",
+        ),
+        BillingNotification.REFERRAL_APPLIED: (
+            "Реферальный бонус применен",
+            f"Добавлено дней: {referral_days}. Период бонуса: с {referral_start} до {referral_end} МСК."
+            if referral_days and referral_start and referral_end
+            else "Проверьте период бонуса в кабинете.",
+        ),
+        BillingNotification.REFERRAL_REVERSED: (
+            "Реферальный бонус отменен",
+            f"Отмена бонуса зафиксирована {referral_reversed} МСК." if referral_reversed
+            else "Подробности об изменении бонуса доступны в кабинете.",
         ),
         BillingNotification.RENEWAL_UNKNOWN: (
             "Статус продления на конец периода",
@@ -438,6 +469,9 @@ def build_notification(
         BillingNotification.TRIAL_EXPIRED: {"trial_starts_at", "trial_ends_at"},
         BillingNotification.STORAGE_THRESHOLD: set(),
         BillingNotification.REFERRAL_CREDIT: set(),
+        BillingNotification.REFERRAL_AVAILABLE: {"referral_expiry"},
+        BillingNotification.REFERRAL_APPLIED: {"referral_days", "referral_start", "referral_end"},
+        BillingNotification.REFERRAL_REVERSED: {"referral_reversed"},
         BillingNotification.FAIR_USE_REVIEW: {"capability", "reason", "review_by"},
         BillingNotification.ACCOUNT_CLOSE: set(),
     }[kind]
@@ -490,15 +524,19 @@ def build_notification(
             "currency": r"RUB",
             "cycle": r"month|year",
             "last4": r"[0-9]{4}",
+            "referral_days": r"[1-9][0-9]{0,2}",
         }.get(key) or (
             r"\d{2}\.\d{2}\.\d{4} \d{2}:\d{2}"
-            if key in {"review_by", "access_until", "scheduled_at"}
+            if key in {"review_by", "access_until", "scheduled_at", "referral_expiry",
+                       "referral_start", "referral_end", "referral_reversed"}
             else r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}"
         )
         if isinstance(value, str) and re.fullmatch(pattern, value):
             safe[key] = value
     action_path = payload.get("action_path")
-    if isinstance(action_path, str) and re.fullmatch(
+    if kind in REFERRAL_NOTICE_KINDS:
+        safe["action_path"] = "/referrals"
+    elif isinstance(action_path, str) and re.fullmatch(
         r"/(?:account|settings|billing|meetings)(?:/[A-Za-z0-9_-]+){0,8}",
         action_path,
     ):

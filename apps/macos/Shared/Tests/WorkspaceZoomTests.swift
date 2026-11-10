@@ -49,7 +49,7 @@ final class WorkspaceZoomTests: XCTestCase {
             .filter { $0.command == .reset }
             .map(\.keyEquivalent)
 
-        XCTAssertEqual(Set(increaseKeys), Set(["+", "="]))
+        XCTAssertEqual(increaseKeys, ["="])
         XCTAssertEqual(decreaseKeys, ["-"])
         XCTAssertEqual(resetKeys, ["0"])
         XCTAssertFalse(WorkspaceZoomMenu.items.map(\.title).joined(separator: " ").localizedCaseInsensitiveContains("web view"))

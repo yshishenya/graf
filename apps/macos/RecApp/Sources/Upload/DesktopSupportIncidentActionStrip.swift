@@ -9,7 +9,6 @@ public enum DesktopSupportIncidentActionCopy {
     public static let copyTitle = "Скопировать безопасную сводку"
     public static let sendingMessage = "Отправляем запрос в поддержку…"
     public static let rejectedMessage = "Запрос не принят. Проверьте подключение или скопируйте безопасную сводку."
-    public static let failureMessage = rejectedMessage
 
     public static func successMessage(incidentNumber: String?) -> String {
         guard let incidentNumber = normalized(incidentNumber) else {
@@ -76,6 +75,7 @@ struct DesktopSupportIncidentActionStrip: View {
     let onOpenSignIn: () -> Void
 
     @State private var submissionOverride: DesktopSupportIncidentSubmissionState?
+    @State private var copyConfirmationVisible = false
 
     init(
         summary: DesktopUploadCustodySummary,
@@ -98,6 +98,13 @@ struct DesktopSupportIncidentActionStrip: View {
     var body: some View {
         if summary.safeReport != nil, showsSupportSurface {
             VStack(alignment: .leading, spacing: 6) {
+                if copyConfirmationVisible {
+                    Label("Скопировано", systemImage: "checkmark.circle")
+                        .font(.caption2)
+                        .foregroundStyle(DesktopDesignTokens.green)
+                        .accessibilityLabel("Безопасная сводка скопирована")
+                }
+
                 if let message = DesktopSupportIncidentActionCopy.visibleMessage(for: submissionState) {
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
                         if isSending {
@@ -326,6 +333,11 @@ struct DesktopSupportIncidentActionStrip: View {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
+        copyConfirmationVisible = true
+        Task {
+            try? await Task.sleep(for: .seconds(2))
+            copyConfirmationVisible = false
+        }
     }
 
     private var supportIncidentItemIDs: [String] {

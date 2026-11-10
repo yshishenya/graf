@@ -11,25 +11,25 @@ final class DesktopNotificationAppIntegrationTests: XCTestCase {
     }
 
     func testShortRecordingHasOnlyTheSharedDeliveryPath() throws {
-        let app = try String(contentsOf: root.appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift"), encoding: .utf8)
+        let app = try String(contentsOf: root.appendingPathComponent("apps/macos/RecApp/Sources/AppShell/ContentView.swift"), encoding: .utf8)
         XCTAssertFalse(app.contains("DesktopRecordingNoticePresenter"))
         XCTAssertTrue(app.contains("DesktopNotificationPresenter.shared.presentShortRecording()"))
         XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("apps/macos/RecApp/Sources/Notifications/DesktopRecordingNoticePresenter.swift").path))
     }
 
     func testFailureResultDoesNotClaimAllLocalDataWasLost() throws {
-        let app = try String(contentsOf: root.appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift"), encoding: .utf8)
+        let app = try String(contentsOf: root.appendingPathComponent("apps/macos/RecApp/Sources/AppShell/ContentView.swift"), encoding: .utf8)
         XCTAssertFalse(app.contains("return \"Локальная запись не сохранена\""))
-        XCTAssertTrue(app.contains("SystemAudioStatusLabels.localRecordingStatus(manifest.status)"))
+        XCTAssertTrue(app.contains(".from(manifest.status)"))
         let start = try XCTUnwrap(app.range(of: "private func localCaptureFailureCopy("))
-        let end = try XCTUnwrap(app.range(of: "private func recordingBlockerText(", range: start.upperBound..<app.endIndex))
+        let end = try XCTUnwrap(app.range(of: "private func recordingBlockerPresentation(", range: start.upperBound..<app.endIndex))
         let body = app[start.lowerBound..<end.lowerBound]
         XCTAssertTrue(body.contains("localPlaybackURL(itemId: item.id)"))
         XCTAssertTrue(body.contains("$0.sessionId == sessionID"))
     }
 
     func testAppOwnsPromptIdentityAndChecksPresentationFailure() throws {
-        let app = try String(contentsOf: root.appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift"), encoding: .utf8)
+        let app = try String(contentsOf: root.appendingPathComponent("apps/macos/RecApp/Sources/AppShell/ContentView.swift"), encoding: .utf8)
         XCTAssertTrue(app.contains("meetingDetectionPromptToken"))
         XCTAssertTrue(app.contains("isCurrentMeetingDetectionPrompt"))
         XCTAssertTrue(app.contains("let shown = DesktopNotificationPresenter.shared.presentRecordingPrompt("))
@@ -38,14 +38,14 @@ final class DesktopNotificationAppIntegrationTests: XCTestCase {
     }
 
     func testNoRetiredNotificationNavigationCallbacksRemain() throws {
-        for path in ["apps/macos/RecApp/App/TwoBrainRecApp.swift", "apps/macos/RecApp/Sources/Cabinet/EmbeddedCabinetWebView.swift", "apps/macos/RecApp/Sources/Cabinet/DesktopCabinetWorkspaceView.swift"] {
+        for path in ["apps/macos/RecApp/Sources/AppShell/ContentView.swift", "apps/macos/RecApp/Sources/Cabinet/EmbeddedCabinetWebView.swift", "apps/macos/RecApp/Sources/Cabinet/DesktopCabinetWorkspaceView.swift"] {
             let source = try String(contentsOf: root.appendingPathComponent(path), encoding: .utf8)
             XCTAssertFalse(source.contains("onOpenNotificationSettings"), path)
         }
     }
 
     func testDetectedStartCommitsAfterRevalidationWithoutAnotherSuspension() throws {
-        let app = try String(contentsOf: root.appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift"), encoding: .utf8)
+        let app = try String(contentsOf: root.appendingPathComponent("apps/macos/RecApp/Sources/AppShell/ContentView.swift"), encoding: .utf8)
         let start = try XCTUnwrap(app.range(of: "let directory = try await localRecordingWriter.startAsync("))
         let end = try XCTUnwrap(app.range(of: "captureSession = active", range: start.upperBound..<app.endIndex))
         let boundary = String(app[start.lowerBound..<end.lowerBound])

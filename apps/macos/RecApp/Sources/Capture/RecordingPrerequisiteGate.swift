@@ -32,9 +32,6 @@ public struct RecordingPrerequisiteGate: Sendable {
         return updated
     }
 
-    public func canStartRecording(_ snapshot: RecordingPrerequisiteSnapshot) -> Bool {
-        evaluate(snapshot).allowsRecording
-    }
 
     private func blocked(
         _ snapshot: RecordingPrerequisiteSnapshot,

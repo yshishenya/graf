@@ -76,7 +76,4 @@ public struct DesktopCalendarPromptActions {
         return true
     }
 
-    public func dismissPrompt(_ prompt: DesktopCalendarPrompt) {
-        dismiss(prompt)
-    }
 }

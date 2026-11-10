@@ -25,6 +25,27 @@ final class MeetingTargetRegistryTests: XCTestCase {
         )
     }
 
+    func testPackagedBaselineRegistryResolvesFromSwiftPMContentsLayouts() throws {
+        for relativePath in [
+            "TwoBrainRecMacOS_TwoBrainRecAppCore.bundle/Contents/Resources/meeting-target-registry-baseline.json",
+            "TwoBrainRecMacOS_TwoBrainRecAppCore.bundle/Contents/Resources/Resources/meeting-target-registry-baseline.json"
+        ] {
+            let root = temporaryRoot()
+            defer { try? FileManager.default.removeItem(at: root) }
+            let expected = root.appendingPathComponent(relativePath)
+            try FileManager.default.createDirectory(
+                at: expected.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try Data("{}".utf8).write(to: expected)
+            XCTAssertEqual(
+                MeetingDetectionAppModule.packagedTargetRegistryURL(resourceURL: root),
+                expected,
+                "failed layout: \(relativePath)"
+            )
+        }
+    }
+
     func testMissingPackagedBaselineRegistryReturnsNil() {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -431,7 +452,7 @@ final class MeetingTargetRegistryTests: XCTestCase {
     private static func repositoryRoot() throws -> URL {
         var candidate = URL(fileURLWithPath: #filePath)
         while candidate.path != "/" {
-            let appSourceURL = candidate.appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift")
+            let appSourceURL = candidate.appendingPathComponent("apps/macos/RecApp/Sources/AppShell/ContentView.swift")
             if FileManager.default.fileExists(atPath: appSourceURL.path) {
                 return candidate
             }
@@ -447,7 +468,7 @@ final class MeetingTargetRegistryTests: XCTestCase {
     private static func desktopAppSource() throws -> String {
         try String(
             contentsOf: repositoryRoot()
-                .appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift"),
+                .appendingPathComponent("apps/macos/RecApp/Sources/AppShell/ContentView.swift"),
             encoding: .utf8
         )
     }

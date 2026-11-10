@@ -151,11 +151,15 @@ final class AppUpdateControllerTests: XCTestCase {
     }
 
     func testApplicationMenuAndLifecycleRouteThroughTheSingleUpdateController() throws {
-        let source = try Self.readRepositoryFile("apps/macos/RecApp/App/TwoBrainRecApp.swift")
+        let source = try [
+            "apps/macos/RecApp/Sources/AppShell/ContentView.swift",
+            "apps/macos/RecApp/Sources/AppShell/AppLifecycleDelegate.swift",
+            "apps/macos/RecApp/Sources/AppShell/AppMenuBuilder.swift"
+        ].map(Self.readRepositoryFile).joined(separator: "\n")
 
-        XCTAssertTrue(source.contains("withTitle: \"Проверить обновления…\""))
-        XCTAssertTrue(source.contains("action: #selector(AppLifecycleDelegate.checkForUpdates(_:))"))
-        XCTAssertTrue(source.contains("updateItem.target = zoomTarget"))
+        XCTAssertTrue(source.contains("\"Проверить обновления…\""))
+        XCTAssertTrue(source.contains("#selector(AppLifecycleDelegate.checkForUpdates(_:))"))
+        XCTAssertTrue(source.contains("target: zoomTarget"))
         XCTAssertTrue(source.contains("NSMenuItemValidation"))
         XCTAssertTrue(source.contains("appUpdateController.isManualCheckActionEnabled"))
         XCTAssertTrue(source.contains("private let appUpdateController: AppUpdateController"))
@@ -401,14 +405,14 @@ final class AppUpdateControllerTests: XCTestCase {
         return values
     }
 
-    private static func readRepositoryFile(_ relativePath: String) throws -> String {
+    nonisolated private static func readRepositoryFile(_ relativePath: String) throws -> String {
         try String(
             contentsOf: repositoryRoot().appendingPathComponent(relativePath),
             encoding: .utf8
         )
     }
 
-    private static func repositoryRoot() throws -> URL {
+    nonisolated private static func repositoryRoot() throws -> URL {
         var candidate = URL(fileURLWithPath: #filePath)
         while candidate.path != "/" {
             let marker = candidate.appendingPathComponent("apps/macos/Package.swift")

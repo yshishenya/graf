@@ -13,7 +13,7 @@ import pytest
 from sqlalchemy import select
 
 from tests.contract.test_ingest_openapi_contract import auth_headers
-from tests.fakes.auth_contexts import WORKSPACE_ID
+from tests.fakes.auth_contexts import PERSONAL_WORKSPACE_ID, WORKSPACE_ID
 from tests.fixtures.artifacts import track_descriptor
 from tests.fixtures.cabinet import SAFE_TRANSCRIPT_TEXT
 from tests.fixtures.cabinet_access import (
@@ -33,6 +33,7 @@ from twobrain_rec_server.db.models import (
     MeetingOutcomeItem,
     MeetingOutcomeSet,
     MeetingShareGrant,
+    MeetingShareInvitation,
     MeetingSummarySlot,
     PlaybackNormalizationJob,
     ProcessingResult,
@@ -350,25 +351,79 @@ def test_public_playback_uses_the_versioned_revision_before_outcomes(client, tmp
     assert_playback(version_result_b, replacement_bytes)
 
 
-def test_audience_transitions_preserve_addressed_grants(client, tmp_path):
+@pytest.mark.parametrize(("first", "second"), [("workspace", "link"), ("link", "workspace")])
+def test_audience_transitions_preserve_addressed_access(client, tmp_path, first, second):
     meeting, template = prepare(client, tmp_path)
+    meeting_id = UUID(str(meeting))
     add_workspace_user(client)
     client.app.state.settings.share_workspace_audience_enabled = True
+    expires_at = datetime.now(UTC) + timedelta(days=2)
+    base = f"/api/v1/cabinet/meetings/{meeting_id}"
     addressed = client.post(
-        f"/api/v1/cabinet/meetings/{meeting}/shares",
+        base + "/shares",
         headers=auth_headers(),
         json={
             "audience_type": "user",
             "audience_id": str(SHARED_USER_ID),
             "content_scope": "full_meeting",
-            "can_download": False,
+            "can_comment": True,
+            "can_download": True,
             "can_export": False,
+            "expires_at": expires_at.isoformat(),
         },
     )
     assert addressed.status_code == 201, addressed.text
-    url = f"/api/v1/cabinet/meetings/{meeting}/sharing/general-access"
-    state = client.get(url, headers=auth_headers()).json()
-    for audience in ("workspace", "link", "invite_only"):
+    grant_id = UUID(addressed.json()["grant"]["grant_id"])
+
+    async def seed_invitation():
+        async with client.app_state["sessionmaker"]() as db:
+            owner = await db.get(Meeting, meeting_id)
+            invitation = MeetingShareInvitation(
+                workspace_id=WORKSPACE_ID,
+                meeting_id=meeting_id,
+                invited_by_user_id=owner.created_by_user_id,
+                normalized_address_hash="synthetic-f292-recipient",
+                encrypted_delivery_address="synthetic-ciphertext",
+                token_hash="synthetic-f292-invitation",
+                status="pending",
+                expires_at=expires_at,
+            )
+            db.add(invitation)
+            await db.flush()
+            invitation_id = invitation.id
+            await db.commit()
+            return invitation_id
+
+    invitation_id = client.portal.call(seed_invitation)
+
+    async def check(audience):
+        async with client.app_state["sessionmaker"]() as db:
+            grants = (await db.scalars(
+                select(MeetingShareGrant).where(
+                    MeetingShareGrant.meeting_id == meeting_id,
+                    MeetingShareGrant.status == "active",
+                )
+            )).all()
+            assert sorted(g.audience_type for g in grants) == (
+                ["user"] if audience == "invite_only" else sorted([audience, "user"])
+            )
+            grant = next(g for g in grants if g.audience_type == "user")
+            assert (grant.id, grant.audience_id) == (grant_id, SHARED_USER_ID)
+            assert (grant.content_scope, grant.expires_at) == ("full_meeting", expires_at)
+            assert (grant.can_comment, grant.can_edit, grant.can_download, grant.can_export) == (
+                True, False, True, False,
+            )
+            invitation = await db.get(MeetingShareInvitation, invitation_id)
+            assert invitation is not None and invitation.meeting_id == meeting_id
+            assert (invitation.status, invitation.expires_at) == ("pending", expires_at)
+
+    url = base + "/sharing/general-access"
+    initial = client.get(url, headers=auth_headers())
+    assert initial.status_code == 200
+    state = initial.json()
+    assert state["audience"] == "invite_only"
+    client.portal.call(check, "invite_only")
+    for audience in (first, second, "invite_only"):
         response = client.post(
             url,
             headers=auth_headers(),
@@ -380,30 +435,53 @@ def test_audience_transitions_preserve_addressed_grants(client, tmp_path):
             },
         )
         assert response.status_code == 200, response.text
-        state = response.json()
-        if audience == "workspace":
+        changed = response.json()
+        assert changed["fingerprint"] != state["fingerprint"]
+        state = changed
+        if audience == first:
             stale = state["fingerprint"]
         assert state["audience"] == audience
+        client.portal.call(check, audience)
+
     conflict = client.post(
         url,
         headers=auth_headers(),
-        json={"audience": "workspace", "expected_fingerprint": stale, "template_key": template},
+        json={"audience": first, "expected_fingerprint": stale, "template_key": template},
     )
     assert conflict.status_code == 409
+    client.portal.call(check, "invite_only")
 
-    async def check():
-        async with client.app_state["sessionmaker"]() as db:
-            grants = (
-                await db.scalars(
-                    select(MeetingShareGrant).where(
-                        MeetingShareGrant.meeting_id == UUID(str(meeting)),
-                        MeetingShareGrant.status == "active",
-                    )
-                )
-            ).all()
-            assert len(grants) == 1 and grants[0].audience_type == "user"
 
-    asyncio.run(check())
+def test_general_access_rejects_wrong_workspace_and_missing_cookie_csrf(client, tmp_path):
+    from tests.integration.test_web_owner_session_context import (
+        OWNER_REVIEW_TEST_TOKEN,
+        _seed_owner_review_session,
+    )
+    from twobrain_rec_server.auth.csrf import issue_csrf_token
+    from twobrain_rec_server.auth.dependencies import AUTH_SESSION_COOKIE_NAME
+
+    meeting, _ = prepare(client, tmp_path)
+    client.app.state.settings.share_workspace_audience_enabled = True
+    url = f"/api/v1/cabinet/meetings/{meeting}/sharing/general-access"
+    session = client.portal.call(_seed_owner_review_session, client)
+    client.cookies.set(AUTH_SESSION_COOKIE_NAME, OWNER_REVIEW_TEST_TOKEN)
+    owner_view = client.get(url)
+    assert owner_view.status_code == 200
+    before = owner_view.json()
+    assert before["audience"] == "invite_only"
+    payload = {"audience": "workspace", "expected_fingerprint": before["fingerprint"]}
+    assert client.post(url, json=payload).status_code == 403
+    assert client.get(url).json() == before
+    csrf = issue_csrf_token(session_id=session.id, secret=client.app.state.web_csrf_secret)
+    updated = client.post(url, headers={"X-CSRF-Token": csrf}, json=payload)
+    assert updated.status_code == 200 and updated.json()["audience"] == "workspace"
+    client.cookies.clear()
+
+    other_workspace = {**auth_headers(), "X-Workspace-Id": str(PERSONAL_WORKSPACE_ID)}
+    payload = {"audience": "invite_only", "expected_fingerprint": updated.json()["fingerprint"]}
+    assert client.get(url, headers=other_workspace).status_code in {403, 404}
+    assert client.post(url, headers=other_workspace, json=payload).status_code in {403, 404}
+    assert client.get(url, headers=auth_headers()).json() == updated.json()
 
 
 def test_login_continuation_never_copies_share_secret_into_login_url(client, tmp_path):

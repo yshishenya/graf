@@ -83,6 +83,7 @@ public struct DesktopPermissionOnboardingView: View {
     private let onRestart: () -> Void
     @State private var settingsHelp: DesktopPermissionStep?
     @State private var helpExpanded = false
+    @ScaledMetric(relativeTo: .body) private var pageWidth: CGFloat = 520
 
     public init(
         status: DesktopPermissionOnboardingStatus,
@@ -130,7 +131,7 @@ public struct DesktopPermissionOnboardingView: View {
             }
             footer
         }
-        .frame(width: 520)
+        .frame(width: min(pageWidth, 640))
         .frame(maxHeight: min(700, max(320, (NSApp.keyWindow?.screen?.visibleFrame.height ?? 860) - 160)))
         .tint(DesktopMeetingShellChrome.shellAccentColor)
         .accessibilityIdentifier(DesktopPermissionOnboardingAccessibilityIdentifier.page)
