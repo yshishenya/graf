@@ -1,5 +1,8 @@
 import pytest
+from sqlalchemy.engine import make_url
+from sqlalchemy.ext.asyncio import create_async_engine
 
+from tests.integration.test_rls_postgres_policies import _create_probe_role
 from twobrain_rec_server.billing.events import BillingEvent, notification_kind_for
 from twobrain_rec_server.billing.notifications import (
     BillingNotification,
@@ -33,12 +36,26 @@ def test_refund_and_unknown_provider_events_are_not_customer_notifications() -> 
         notification_kind_for("provider.unknown")
 
 
-pytest_plugins = ("tests.integration.test_rls_postgres_policies",)
+@pytest.fixture
+async def billing_maintenance_probe_url(postgres_isolated_cluster_database_url):
+    # Keep the fixed maintenance role and the whole sender queue isolated.
+    url = postgres_isolated_cluster_database_url
+    role, password = await _create_probe_role(url, role_name="twobrain_rec_maintenance")
+    return make_url(url).set(username=role, password=password).render_as_string(hide_password=False)
+
+
+@pytest.fixture
+async def trial_maintenance_engine(billing_maintenance_probe_url):
+    engine = create_async_engine(billing_maintenance_probe_url, pool_pre_ping=True)
+    try:
+        yield engine
+    finally:
+        await engine.dispose()
 
 
 @pytest.mark.strict_rls
 @pytest.mark.asyncio
-async def test_trial_lifecycle_uses_current_owner_and_exact_windows(rls_engine, monkeypatch):
+async def test_trial_lifecycle_uses_current_owner_and_exact_windows(trial_maintenance_engine, monkeypatch):
     import asyncio
     from datetime import UTC, datetime, timedelta
     from types import SimpleNamespace
@@ -65,9 +82,9 @@ async def test_trial_lifecycle_uses_current_owner_and_exact_windows(rls_engine, 
     from twobrain_rec_server.db.tenant_context import MaintenanceTenantContext, apply_tenant_context
     from twobrain_rec_server.workflows import worker
 
-    ids = await _seed_probe_rows(rls_engine)
+    ids = await _seed_probe_rows(trial_maintenance_engine)
     owner, workspace = ids["user_a"], ids["workspace_a"]
-    sessions = create_sessionmaker(rls_engine)
+    sessions = create_sessionmaker(trial_maintenance_engine)
     context = MaintenanceTenantContext(
         operation_name="billing_reconciliation",
         actor_id="test-trial",
@@ -102,7 +119,7 @@ async def test_trial_lifecycle_uses_current_owner_and_exact_windows(rls_engine, 
             )
 
     monkeypatch.setattr(worker, "datetime", TrialClock)
-    monkeypatch.setattr(worker, "create_engine", lambda settings: rls_engine)
+    monkeypatch.setattr(worker, "create_engine", lambda settings: trial_maintenance_engine)
     monkeypatch.setattr(worker, "send_billing_notification", send)
 
     async def dispatch():
@@ -225,7 +242,7 @@ async def test_trial_lifecycle_uses_current_owner_and_exact_windows(rls_engine, 
 
 @pytest.mark.strict_rls
 @pytest.mark.asyncio
-async def test_trial_poll_bounds_batch_and_excludes_processed_or_stale_events(rls_engine):
+async def test_trial_poll_bounds_batch_and_excludes_processed_or_stale_events(trial_maintenance_engine):
     from datetime import UTC, datetime, timedelta
     from uuid import uuid4
 
@@ -249,8 +266,8 @@ async def test_trial_poll_bounds_batch_and_excludes_processed_or_stale_events(rl
     from twobrain_rec_server.db.session import create_sessionmaker
     from twobrain_rec_server.db.tenant_context import MaintenanceTenantContext, apply_tenant_context
 
-    sessions = create_sessionmaker(rls_engine)
-    ids = await _seed_probe_rows(rls_engine)
+    sessions = create_sessionmaker(trial_maintenance_engine)
+    ids = await _seed_probe_rows(trial_maintenance_engine)
     context = MaintenanceTenantContext(
         operation_name="billing_reconciliation",
         actor_id="test-trial",
