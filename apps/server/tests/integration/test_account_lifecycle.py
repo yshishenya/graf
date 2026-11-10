@@ -21,6 +21,7 @@ from twobrain_rec_server.db.models import (
     AuthAuditEvent,
     AuthSession,
     AuthSessionDeviceBinding,
+    BillingNotificationDelivery,
     BillingOperation,
     ExternalIdentity,
     RegisteredDevice,
@@ -90,7 +91,10 @@ async def _seed_personal_workspace(client) -> tuple[UUID, UUID]:
         return workspace.id, device_id
 
 
-def test_trial_requires_explicit_confirmation_and_is_one_per_identity(client) -> None:
+@pytest.mark.parametrize("rollback", [False, True])
+def test_trial_requires_explicit_confirmation_and_is_one_per_identity(
+    client, monkeypatch, rollback
+) -> None:
     workspace_id, device_id = asyncio.run(_seed_personal_workspace(client))
 
     async def seed_verified_identity() -> None:
@@ -105,6 +109,7 @@ def test_trial_requires_explicit_confirmation_and_is_one_per_identity(client) ->
                     is_active=True,
                 )
             )
+            db.add(WorkspaceSubscription(workspace_id=workspace_id, billing_owner_id=None))
             await db.commit()
 
     asyncio.run(seed_verified_identity())
@@ -119,6 +124,35 @@ def test_trial_requires_explicit_confirmation_and_is_one_per_identity(client) ->
     assert missing_confirmation.status_code == 303
     assert missing_confirmation.headers["location"].endswith("trial=confirmation_required")
 
+    async def saved():
+        async with client.app_state["sessionmaker"]() as db:
+            activation = await db.scalar(select(TrialActivation).where(TrialActivation.user_id == USER_ID))
+            deliveries = (
+                await db.scalars(select(BillingNotificationDelivery).where(
+                    BillingNotificationDelivery.workspace_id == workspace_id
+                ))
+            ).all()
+            sub = await db.get(WorkspaceSubscription, workspace_id)
+            assert sub.billing_owner_id is None
+            return activation, deliveries, sub.state
+
+    assert asyncio.run(saved()) == (None, [], "free")
+    if rollback:
+        from sqlalchemy.exc import IntegrityError
+
+        from twobrain_rec_server.cabinet.web_routes import billing
+
+        enqueue = billing.enqueue_trial_started
+
+        async def fail_after_enqueue(db, activation, *, now):
+            await enqueue(db, activation, now=now)
+            assert await db.scalar(select(BillingNotificationDelivery.id).where(
+                BillingNotificationDelivery.workspace_id == workspace_id
+            )) is not None
+            raise IntegrityError("synthetic rollback", None, Exception())
+
+        monkeypatch.setattr(billing, "enqueue_trial_started", fail_after_enqueue)
+
     activated = client.post(
         "/billing/trial/activate",
         headers=headers,
@@ -126,6 +160,10 @@ def test_trial_requires_explicit_confirmation_and_is_one_per_identity(client) ->
         follow_redirects=False,
     )
     assert activated.status_code == 303
+    if rollback:
+        assert activated.headers["location"].endswith("trial=already")
+        assert asyncio.run(saved()) == (None, [], "free")
+        return
     assert activated.headers["location"].endswith("trial=activated")
 
     # A second workspace context for the same identity cannot consume a second
@@ -196,6 +234,12 @@ def test_trial_requires_explicit_confirmation_and_is_one_per_identity(client) ->
             )
 
     assert asyncio.run(count_trials()) == 1
+    activation, deliveries, state = asyncio.run(saved())
+    assert state == "trial"
+    assert activation is not None
+    assert len(deliveries) == 1
+    assert deliveries[0].event_id == f"trial.started:{activation.id.hex}:started"
+    assert deliveries[0].recipient_id == USER_ID
 
 
 def test_trial_activation_is_blocked_while_checkout_is_pending(client) -> None:

@@ -2,7 +2,7 @@
   <a class="skip-link" href="#cabinet-main">К содержимому</a>
   <header class="public-reader__header">
     <a href="{{ '/desktop/meetings' if embedded else '/' }}" class="public-reader__brand" aria-label="GRAF — главная"><img src="{{ cabinet_static_url }}/graf-icon.png" width="32" height="32" alt=""><strong>GRAF</strong><span>Запись, расшифровка и итоги встреч</span></a>
-    <nav aria-label="Начать пользоваться GRAF">{% if authenticated %}<a class="button primary" href="{{ '/desktop/meetings' if embedded else '/meetings' }}">Мои встречи</a>{% else %}<a data-public-auth="sign-in" href="{{ continue_url }}&amp;action=sign-in">Войти</a><a class="button primary" data-public-auth="sign-up" href="{{ continue_url }}&amp;action=sign-up">Начать пользоваться GRAF</a>{% endif %}</nav>
+    <nav aria-label="Начать пользоваться GRAF">{% if authenticated %}<a class="button primary" href="{{ '/desktop/meetings' if embedded else '/meetings' }}">Мои встречи</a>{% else %}<a data-public-auth="sign-in" href="{{ continue_url }}&amp;action=sign-in">Войти</a><a class="button primary" data-public-auth="sign-up" href="{{ continue_url }}&amp;action=sign-up">Попробовать GRAF</a>{% endif %}</nav>
   </header>
   <p class="sr-only" id="playback-live-status" role="status" aria-live="polite"></p>
   <main id="cabinet-main" class="public-reader__main" tabindex="-1">
@@ -17,6 +17,14 @@
       <button type="button" class="button quiet" data-public-copy hidden>Копировать</button>
       <details class="public-reader__more"><summary aria-label="Действия со встречей">Еще</summary><div><button type="button" data-public-copy-link>Скопировать ссылку</button><a href="{{ native_url }}" data-public-native{% if embedded %} hidden{% endif %}>Открыть в GRAF</a>{% if not embedded %}<a href="/download">Установить GRAF</a>{% endif %}</div></details>
     </div>
+    <aside class="public-reader__app-help" data-public-app-help hidden aria-labelledby="public-app-help-title">
+      <h2 id="public-app-help-title" tabindex="-1">GRAF не открылся?</h2>
+      <p>Разрешите открытие в браузере. Если GRAF не установлен, скачайте его или продолжите просмотр здесь.</p>
+      <div class="public-reader__help-actions">
+        <button type="button" class="button quiet" data-public-app-dismiss>Продолжить в браузере</button>
+        <a class="button quiet" href="/download">Установить GRAF</a>
+      </div>
+    </aside>
     <p role="status" aria-live="polite" data-public-status></p>
     {% if source_changed %}<aside class="public-reader__notice" role="status">Запись обновилась. Старая позиция не применена. <button type="button" data-public-refresh>Слушать новую запись с начала</button></aside>{% endif %}
     <section id="outcomes" data-public-panel="outcomes" aria-label="Итоги встречи">
@@ -30,7 +38,6 @@
       <div class="transcript" data-public-transcript>{% if transcript_html %}{{ transcript_html }}{% else %}<div class="public-reader__empty"><h2>Расшифровка пока недоступна</h2><p>Владелец встречи сможет поделиться ей после обработки.</p></div>{% endif %}</div>
     </section>
     {% endif %}<aside class="public-reader__cta"><strong>Следующая встреча — с GRAF</strong><p>Сохраняйте запись, находите нужные слова и делитесь решениями с коллегами.</p><a class="button primary" href="{{ '/desktop/meetings' if embedded else '/meetings' if authenticated else '/sign-up?next=%2Fmeetings' }}">Начать со своей встречи</a></aside>
-    <aside class="public-reader__app-help" data-public-app-help hidden><strong>Переход в приложение</strong><p>Подтвердите открытие GRAF в браузере. Если приложение не открылось, продолжайте читать здесь или установите GRAF.</p><a href="/download">Установить GRAF</a><button type="button" data-public-app-dismiss>Продолжить в браузере</button></aside>
   </main>
   {% if playback_html %}<footer class="public-reader__player" aria-label="Запись встречи">{{ playback_html }}</footer>{% elif full_meeting %}<p class="public-reader__audio-empty muted">Аудиозапись пока недоступна.</p>{% endif %}
   <dialog class="public-reader__welcome" data-public-welcome aria-labelledby="public-welcome-title"><button type="button" class="icon-button" data-public-welcome-close aria-label="Закрыть приглашение">×</button><img src="{{ cabinet_static_url }}/graf-icon.png" width="48" height="48" alt=""><p class="eyebrow">GRAF</p><h2 id="public-welcome-title">С вами поделились встречей</h2><p>{% if full_meeting %}Прочитайте итоги, найдите нужный момент в расшифровке и послушайте запись.{% else %}Прочитайте решения и задачи. В GRAF вы сможете сохранять итоги и своих встреч.{% endif %}</p><a class="button primary" data-public-auth="sign-up" href="{{ continue_url }}&amp;action=sign-up">Начать пользоваться GRAF</a><button type="button" class="button quiet" data-public-welcome-close>Посмотреть встречу</button></dialog>

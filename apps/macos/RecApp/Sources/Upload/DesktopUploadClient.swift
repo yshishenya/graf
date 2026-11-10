@@ -329,7 +329,6 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
     public static let localOwnerSessionCookieName = "graf_dev_owner_session"
     public static let desktopCalendarUpcomingPath = "/api/v1/desktop/calendar/upcoming"
     public static let meetingDetectionTargetRegistryPath = "/api/v1/desktop/meeting-detection/target-registry"
-    public static let meetingDetectionTelemetryPath = "/api/v1/desktop/meeting-detection/telemetry"
 
     private let baseURL: URL
     private let headers: [String: String]

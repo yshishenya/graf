@@ -9,12 +9,8 @@ public enum UserTime {
         showZone: Bool = false,
         timeZone: TimeZone = .autoupdatingCurrent
     ) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "ru_RU")
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.timeZone = timeZone
-        formatter.dateFormat = dateOnly ? "dd.MM.yyyy" : timeOnly ? "HH:mm" : "dd.MM.yyyy, HH:mm"
-        let text = formatter.string(from: date)
+        let format = dateOnly ? "dd.MM.yyyy" : timeOnly ? "HH:mm" : "dd.MM.yyyy, HH:mm"
+        let text = FormatterCache.shared.string(from: date, format: format, timeZone: timeZone)
         guard showZone || ["UTC", "GMT", "Etc/UTC", "Etc/GMT"].contains(timeZone.identifier) else { return text }
         let offsetMinutes = timeZone.secondsFromGMT(for: date) / 60
         let offset = abs(offsetMinutes)
@@ -36,6 +32,29 @@ public enum UserTime {
             return minutes > 0 ? "\(hours) ч \(minutes) мин" : "\(hours) ч"
         }
         return minutes > 0 ? "\(minutes) мин" : "\(total) с"
+    }
+}
+
+private final class FormatterCache: @unchecked Sendable {
+    static let shared = FormatterCache()
+    private let lock = NSLock()
+    private var formatters: [String: DateFormatter] = [:]
+
+    func string(from date: Date, format: String, timeZone: TimeZone) -> String {
+        let key = format + "|" + timeZone.identifier
+        lock.lock()
+        defer { lock.unlock() }
+        if let formatter = formatters[key] {
+            return formatter.string(from: date)
+        }
+        if formatters.count >= 8 { formatters.removeAll() }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "ru_RU")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.timeZone = timeZone
+        formatter.dateFormat = format
+        formatters[key] = formatter
+        return formatter.string(from: date)
     }
 }
 

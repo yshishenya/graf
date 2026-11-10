@@ -436,7 +436,14 @@ async def test_public_referral_landing_lookup_is_token_and_expiry_scoped(rls_eng
 async def test_referral_reward_pending_and_reversal_cross_workspace_in_billing_maintenance(
     rls_engine,
 ) -> None:
-    """Provider reconciliation may reward the inviter's workspace safely."""
+    """Provider reconciliation may reward and notify the inviter in their own workspace."""
+    from twobrain_rec_server.billing.database import require_billing_maintenance_database
+    from twobrain_rec_server.db.models import (
+        BillingNotificationDelivery,
+        ExternalIdentity,
+        Workspace,
+    )
+
     ids = await _seed_probe_rows(rls_engine)
     payment_id = f"pay-referral-{ids['slug']}"
     attribution_id = uuid4()
@@ -495,6 +502,12 @@ async def test_referral_reward_pending_and_reversal_cross_workspace_in_billing_m
                 feature_area="billing",
             ),
         )
+        await require_billing_maintenance_database(db)
+        await db.execute(update(Workspace).where(Workspace.id == ids["workspace_a"])
+            .values(kind="personal", owner_user_id=ids["user_a"]))
+        db.add(ExternalIdentity(user_id=ids["user_a"], provider="email", provider_subject=ids["slug"],
+            email="synthetic@example.invalid", is_verified=True, is_active=True))
+        await db.flush()
         assert (
             await create_pending_credit(
                 db,
@@ -600,6 +613,13 @@ async def test_referral_reward_pending_and_reversal_cross_workspace_in_billing_m
         )
         assert legacy_row.state == "reversed"
         await db.commit()
+        notices = (await db.scalars(select(BillingNotificationDelivery)
+            .where(BillingNotificationDelivery.workspace_id.in_((ids["workspace_a"], ids["workspace_b"]))))).all()
+        assert {notice.event_id for notice in notices} == {
+            f"referral.applied:{ledger.id}", f"referral.reversed:{ledger.id}", f"referral.reversed:{legacy_row.id}",
+        }
+        assert all(notice.recipient_id == ids["user_a"] and notice.workspace_id == ids["workspace_a"]
+                   and notice.state == "pending" for notice in notices)
 
 
 @pytest.mark.asyncio

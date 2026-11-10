@@ -238,33 +238,27 @@ final class CaptureControlTests: XCTestCase {
     }
 
     func testCapturePresentationCoversReadyPermissionDetectedRecordingAndSavedStates() {
-        XCTAssertEqual(
-            CaptureControlView.primaryStatus(
-                for: nil,
-                blockedReason: nil,
-                localRecordingStatus: nil
-            ),
-            "Готово к записи"
+        let ready = CaptureStatusPresentation.resolve(session: nil)
+        XCTAssertEqual(ready.title, "Готово к записи")
+        XCTAssertFalse(ready.showsStop)
+
+        let permissionBlocker = RecordingBlockerPresentation(
+            kind: .permission,
+            message: "Нужен доступ к микрофону. Откройте настройки."
         )
-        XCTAssertEqual(
-            CaptureControlView.primaryStatus(
-                for: nil,
-                blockedReason: "Нужен доступ к микрофону. Откройте настройки.",
-                localRecordingStatus: nil
-            ),
-            "Нужно разрешение"
-        )
-        XCTAssertTrue(CaptureControlView.hasActionableProblem(
-            blockedReason: "Нужен доступ к микрофону"
-        ))
+        XCTAssertEqual(CaptureControlView.idleStatus(
+            blockedReason: permissionBlocker,
+            localRecordingStatus: nil
+        ).title, "Нужно разрешение")
+        XCTAssertTrue(CaptureControlView.hasActionableProblem(blockedReason: permissionBlocker))
         XCTAssertFalse(CaptureControlView.shouldShowIdleStatus(
-            blockedReason: "Нужен доступ к микрофону",
+            blockedReason: permissionBlocker,
             localRecordingStatus: nil,
             calendarPrompt: nil
         ))
         XCTAssertFalse(CaptureControlView.shouldShowIdleStatus(
             blockedReason: nil,
-            localRecordingStatus: "Локальная запись сохранена",
+            localRecordingStatus: .from(.saved),
             calendarPrompt: nil
         ))
         XCTAssertTrue(CaptureControlView.shouldShowIdleStatus(
@@ -301,10 +295,10 @@ final class CaptureControlTests: XCTestCase {
         )
         XCTAssertTrue(CaptureControlView.shouldShowSessionStatus(
             for: activeSession,
-            blockedReason: "Запись продолжается с ограничением"
+            blockedReason: permissionBlocker
         ))
         XCTAssertFalse(CaptureControlView.shouldShowLocalRecordingStatus(
-            "Локальная запись идет",
+            .from(.active),
             for: activeSession
         ))
         let savedSession = makePresentationSession(
@@ -312,14 +306,12 @@ final class CaptureControlTests: XCTestCase {
             indicator: .hidden,
             canStop: false
         )
-        XCTAssertTrue(CaptureControlView.shouldShowLocalRecordingStatus(
-            "Локальная запись сохранена",
-            for: savedSession
-        ))
-        XCTAssertTrue(CaptureControlView.shouldShowLocalRecordingStatus(
-            "Локальная запись сохранена с ограничениями",
-            for: savedSession
-        ))
+        XCTAssertTrue(CaptureControlView.shouldShowLocalRecordingStatus(.from(.saved), for: savedSession))
+        XCTAssertTrue(CaptureControlView.shouldShowLocalRecordingStatus(.from(.degraded), for: savedSession))
+        XCTAssertEqual(CaptureControlView.idleStatus(
+            blockedReason: nil,
+            localRecordingStatus: .from(.saved)
+        ).title, "Сохранено на Mac")
         let failedSession = makePresentationSession(
             state: .failed,
             indicator: .error,
@@ -327,7 +319,7 @@ final class CaptureControlTests: XCTestCase {
         )
         XCTAssertFalse(CaptureControlView.shouldShowSessionStatus(
             for: failedSession,
-            blockedReason: "Не удалось начать запись"
+            blockedReason: RecordingBlockerPresentation(kind: .capture, message: "Не удалось начать запись")
         ))
         XCTAssertEqual(
             CaptureControlView.meetingDetectionSummary(for: .meetingFound("Яндекс Телемост")),
@@ -358,30 +350,17 @@ final class CaptureControlTests: XCTestCase {
         XCTAssertEqual(MeetingDetectionStatus.notSaved.label, "Выбор не сохранен")
         XCTAssertEqual(MeetingDetectionStatus.notStarted.label, "Ожидает запуск")
         XCTAssertEqual(MeetingDetectionStatus.blocked.summary, "Автозапись заблокирована")
+        XCTAssertEqual(CaptureStatusPresentation.resolve(session: activeSession).title, "Идет запись")
         XCTAssertEqual(
-            CaptureControlView.primaryStatus(
-                for: makePresentationSession(state: .active, indicator: .active, canStop: true),
-                blockedReason: nil,
-                localRecordingStatus: nil
-            ),
-            "Идет запись"
-        )
-        XCTAssertEqual(
-            CaptureControlView.primaryStatus(
-                for: makePresentationSession(state: .paused, indicator: .paused, canStop: true),
-                blockedReason: nil,
-                localRecordingStatus: nil
-            ),
+            CaptureStatusPresentation.resolve(
+                session: makePresentationSession(state: .paused, indicator: .paused, canStop: true)
+            ).title,
             "Идет запись · микрофон выключен"
         )
-        XCTAssertEqual(CaptureControlView.localRecordingSummary(for: SystemAudioStatusLabels.localRecordingPausedStatus),
-                       "Идет запись · микрофон выключен")
         XCTAssertEqual(
-            CaptureControlView.primaryStatus(
-                for: makePresentationSession(state: .stopping, indicator: .active, canStop: true),
-                blockedReason: nil,
-                localRecordingStatus: nil
-            ),
+            CaptureStatusPresentation.resolve(
+                session: makePresentationSession(state: .stopping, indicator: .active, canStop: true)
+            ).title,
             "Сохраняем запись…"
         )
         XCTAssertEqual(
@@ -404,44 +383,26 @@ final class CaptureControlTests: XCTestCase {
         )
         XCTAssertEqual(SystemAudioStatusLabels.meterState(isLive: false), "Тихо")
         XCTAssertNotEqual(SystemAudioStatusLabels.meterState(isLive: false), "Недоступно")
-        XCTAssertEqual(
-            CaptureControlView.primaryStatus(
-                for: makePresentationSession(state: .stopped, indicator: .hidden, canStop: false),
-                blockedReason: nil,
-                localRecordingStatus: nil
-            ),
-            "Запись остановлена"
-        )
-        XCTAssertEqual(
-            CaptureControlView.primaryStatus(
-                for: nil,
-                blockedReason: nil,
-                localRecordingStatus: "Локальная запись сохранена"
-            ),
-            "Сохранено на Mac"
-        )
     }
 
     func testFailedRecordingSummaryRequiresAttentionWithoutClaimingDataLoss() {
-        XCTAssertEqual(CaptureControlView.localRecordingSummary(for: "Запись завершилась с ошибкой"),
-                       "Нужна помощь")
+        XCTAssertEqual(LocalRecordingPresentation.from(.failed).title, "Нужна помощь")
+        XCTAssertTrue(LocalRecordingPresentation.from(.failed).requiresAttention)
     }
 
     func testFailedRecordingKeepsWarningWithOrWithoutPlayableFragment() {
         for hasFragment in [false, true] {
-            let status = SystemAudioStatusLabels.localRecordingStatus(.failed)
-            XCTAssertEqual(status, "Запись завершилась с ошибкой")
-            XCTAssertEqual(CaptureControlView.localRecordingStatusIcon(for: status), "exclamationmark.triangle.fill")
-            XCTAssertEqual(CaptureControlView.localRecordingStatusStyle(for: status), DesktopDesignTokens.amber)
-            XCTAssertEqual(CaptureControlView.primaryStatus(
-                for: makePresentationSession(state: .stopped, indicator: .hidden, canStop: false),
-                blockedReason: nil, localRecordingStatus: status), "Нужна помощь")
-            XCTAssertTrue(CaptureControlView.shouldShowLocalRecordingStatus(status, for: nil))
+            let presentation = LocalRecordingPresentation.from(.failed)
+            XCTAssertEqual(presentation.title, "Нужна помощь")
+            XCTAssertEqual(presentation.systemImage, "exclamationmark.triangle.fill")
+            XCTAssertEqual(presentation.tone, .danger)
+            XCTAssertTrue(presentation.requiresAttention)
+            XCTAssertTrue(CaptureControlView.shouldShowLocalRecordingStatus(presentation, for: nil))
             let detail = SystemAudioStatusLabels.captureFailureDetail(
                 failureCode: "render_reference_missing", hasPlayableFragment: hasFragment)
             XCTAssertEqual(detail, hasFragment
-                ? "Запись остановлена: render_reference_missing. Уже очищенная часть сохранена локально."
-                : "Запись остановлена: render_reference_missing. Сохраненного очищенного фрагмента нет.")
+                ? "Запись остановлена: не удалось получить опорный звук. Доступная часть сохранена локально."
+                : "Запись остановлена: не удалось получить опорный звук. Сохранённого фрагмента нет.")
         }
     }
 
@@ -544,7 +505,7 @@ final class CaptureControlTests: XCTestCase {
             encoding: .utf8
         )
         let appSource = try String(
-            contentsOf: root.appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift"),
+            contentsOf: root.appendingPathComponent("apps/macos/RecApp/Sources/AppShell/ContentView.swift"),
             encoding: .utf8
         )
         XCTAssertTrue(controlsSource.contains("onMeetingDetectionSettings"))
@@ -560,7 +521,7 @@ final class CaptureControlTests: XCTestCase {
     func testMeetingDetectionPrerequisiteDoesNotUseStopInProgressAsIndicatorAvailability() throws {
         let source = try String(
             contentsOf: repositoryRootForCaptureTests()
-                .appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift"),
+                .appendingPathComponent("apps/macos/RecApp/Sources/AppShell/ContentView.swift"),
             encoding: .utf8
         )
 
@@ -575,7 +536,7 @@ final class CaptureControlTests: XCTestCase {
     func testMeetingDetectionReconcilesRegistryRecoveryAndPromptOutcomes() throws {
         let source = try String(
             contentsOf: repositoryRootForCaptureTests()
-                .appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift"),
+                .appendingPathComponent("apps/macos/RecApp/Sources/AppShell/ContentView.swift"),
             encoding: .utf8
         )
 
@@ -611,7 +572,7 @@ final class CaptureControlTests: XCTestCase {
     func testMeetingDetectionPromptRestoresCountdownAndAutoStart() throws {
         let source = try String(
             contentsOf: repositoryRootForCaptureTests()
-                .appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift"),
+                .appendingPathComponent("apps/macos/RecApp/Sources/AppShell/ContentView.swift"),
             encoding: .utf8
         )
 
@@ -657,7 +618,7 @@ final class CaptureControlTests: XCTestCase {
     func testMeetingDetectionEndStopsMatchingDetectedRecording() throws {
         let source = try String(
             contentsOf: repositoryRootForCaptureTests()
-                .appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift"),
+                .appendingPathComponent("apps/macos/RecApp/Sources/AppShell/ContentView.swift"),
             encoding: .utf8
         )
 
@@ -671,7 +632,7 @@ final class CaptureControlTests: XCTestCase {
 
     func testTrayStartAvailabilityDoesNotUseMainWindowCalendarButtonVisibility() throws {
         let source = try String(contentsOf: repositoryRootForCaptureTests()
-            .appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift"), encoding: .utf8)
+            .appendingPathComponent("apps/macos/RecApp/Sources/AppShell/ContentView.swift"), encoding: .utf8)
         let snapshot = try XCTUnwrap(source.components(separatedBy: "private var controlPanelSnapshot:").last?
             .components(separatedBy: "private func syncControlPanel").first)
         XCTAssertFalse(snapshot.contains("shouldShowDirectRecordButton"))
@@ -683,7 +644,7 @@ final class CaptureControlTests: XCTestCase {
 
     func testTrayCaptureCommandsUseSharedControlDispatcherForEveryAction() throws {
         let source = try String(contentsOf: repositoryRootForCaptureTests()
-            .appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift"), encoding: .utf8)
+            .appendingPathComponent("apps/macos/RecApp/Sources/AppShell/AppLifecycleDelegate.swift"), encoding: .utf8)
         let bridge = try XCTUnwrap(
             source.components(separatedBy: "private func captureCommandFromTray(").last?
                 .components(separatedBy: "    func openMeetingsFromTray()").first
@@ -773,7 +734,7 @@ final class CaptureControlTests: XCTestCase {
     func testCalendarResolveCannotGateUploadQueueProcessing() throws {
         let source = try String(
             contentsOf: repositoryRootForCaptureTests()
-                .appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift"),
+                .appendingPathComponent("apps/macos/RecApp/Sources/AppShell/ContentView.swift"),
             encoding: .utf8
         )
 
@@ -785,7 +746,7 @@ final class CaptureControlTests: XCTestCase {
     func testUploadQueueRecoverySkipsActiveWriterAndCoalescesRefreshRequests() throws {
         let source = try String(
             contentsOf: repositoryRootForCaptureTests()
-                .appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift"),
+                .appendingPathComponent("apps/macos/RecApp/Sources/AppShell/ContentView.swift"),
             encoding: .utf8
         )
 
@@ -1309,7 +1270,7 @@ private func makePresentationSession(
 private func repositoryRootForCaptureTests() throws -> URL {
     var candidate = URL(fileURLWithPath: #filePath)
     while candidate.path != "/" {
-        let appSourceURL = candidate.appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift")
+        let appSourceURL = candidate.appendingPathComponent("apps/macos/RecApp/Sources/AppShell/ContentView.swift")
         if FileManager.default.fileExists(atPath: appSourceURL.path) {
             return candidate
         }

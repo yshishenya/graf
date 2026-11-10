@@ -271,37 +271,145 @@ private struct AutomaticRecordingRulePicker: View {
 }
 
 /// Local controls remain reachable while the cabinet is unavailable.
+public enum LocalSettingsSection: String, CaseIterable, Equatable, Sendable {
+    case account
+    case recording
+    case notifications
+    case calendar
+    case billing
+
+    public var title: String {
+        switch self {
+        case .account: "Аккаунт"
+        case .recording: "Запись"
+        case .notifications: "Уведомления"
+        case .calendar: "Календарь"
+        case .billing: "Биллинг"
+        }
+    }
+
+    public var isAvailableLocally: Bool {
+        self == .recording || self == .notifications
+    }
+
+    public var unavailableMessage: String {
+        switch self {
+        case .account:
+            "Аккаунт, вход и устройства доступны в кабинете GRAF."
+        case .calendar:
+            "Календарь и подключение провайдеров доступны в кабинете GRAF."
+        case .billing:
+            "Тариф, оплата и история платежей доступны в кабинете GRAF."
+        case .recording, .notifications:
+            ""
+        }
+    }
+}
+
 public struct LocalSettingsFallbackView: View {
-    @State private var notifications: Bool
+    @State private var selected: LocalSettingsSection
+    @ScaledMetric(relativeTo: .body) private var sidebarWidth: CGFloat = 208
     private let onOpenAll: () -> Void
-    public init(notifications: Bool, onOpenAll: @escaping () -> Void) {
-        _notifications = State(initialValue: notifications)
+
+    public init(section: String, onOpenAll: @escaping () -> Void) {
+        selected = LocalSettingsSection(rawValue: section) ?? .recording
         self.onOpenAll = onOpenAll
     }
+
+    public init(notifications: Bool, onOpenAll: @escaping () -> Void) {
+        self.init(section: notifications ? "notifications" : "recording", onOpenAll: onOpenAll)
+    }
+
     public var body: some View {
         HStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 12) {
-                Button(action: onOpenAll) { Label("Все настройки GRAF", systemImage: "chevron.left") }
-                    .buttonStyle(.plain)
-                    .frame(minHeight: 40)
-                Text("На этом Mac").font(.caption).foregroundStyle(.secondary).padding(.top, 16)
-                ForEach([false, true], id: \.self) { item in
-                    Button { notifications = item } label: {
-                        Label(item ? "Уведомления" : "Запись", systemImage: item ? "bell" : "record.circle")
-                            .frame(maxWidth: .infinity, alignment: .leading).padding(10)
-                            .background(notifications == item ? DesktopDesignTokens.accentSurface : .clear, in: RoundedRectangle(cornerRadius: DesktopDesignTokens.Radius.xs))
+                Button(action: onOpenAll) {
+                    Label("Все настройки GRAF", systemImage: "chevron.left")
+                }
+                .buttonStyle(.plain)
+                .frame(minHeight: 40)
+
+                Text("На этом Mac")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 16)
+
+                ForEach([LocalSettingsSection.recording, .notifications], id: \.rawValue) { section in
+                    Button {
+                        selected = section
+                    } label: {
+                        Label(section.title, systemImage: section == .notifications ? "bell" : "record.circle")
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(10)
+                            .background(
+                                selected == section ? DesktopDesignTokens.accentSurface : .clear,
+                                in: RoundedRectangle(cornerRadius: DesktopDesignTokens.Radius.xs)
+                            )
                     }
                     .buttonStyle(.plain)
                     .frame(minHeight: 40)
-                    .accessibilityAddTraits(notifications == item ? .isSelected : [])
+                    .accessibilityAddTraits(selected == section ? .isSelected : [])
                 }
+
                 Spacer()
+
                 Text("Кабинет недоступен. Локальные настройки продолжают работать.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }.padding(16).frame(width: 208).frame(maxHeight: .infinity).background(DesktopDesignTokens.surface2)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(16)
+            .frame(width: min(max(sidebarWidth, 208), 280))
+            .frame(maxHeight: .infinity)
+            .background(DesktopDesignTokens.surface2)
+
             Divider()
-            if notifications { DesktopNotificationsSettingsView() }
-            else { MeetingDetectionSettingsView() }
+
+            content
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .accessibilityIdentifier("desktop.localSettingsFallback")
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if selected.isAvailableLocally {
+            if selected == .notifications {
+                DesktopNotificationsSettingsView()
+            } else {
+                MeetingDetectionSettingsView()
+            }
+        } else {
+            unavailableSection
+        }
+    }
+
+    private var unavailableSection: some View {
+        VStack(alignment: .center, spacing: 16) {
+            Image(systemName: "lock.trianglebadge.exclamationmark")
+                .font(.system(size: 26, weight: .semibold))
+                .foregroundStyle(DesktopDesignTokens.amber)
+            Text(selected.title)
+                .font(.title3.weight(.semibold))
+            Text(selected.unavailableMessage)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 420)
+            HStack(spacing: 12) {
+                Button("Повторить") {
+                    onOpenAll()
+                }
+                .buttonStyle(DesktopWebButtonStyle(.primary))
+                .frame(minHeight: 40)
+                Button("Локальные настройки") {
+                    selected = .recording
+                }
+                .buttonStyle(DesktopWebButtonStyle(.secondary))
+                .frame(minHeight: 40)
+            }
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityElement(children: .contain)
     }
 }

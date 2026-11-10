@@ -278,7 +278,8 @@ async def test_observation_repeated_external_cancel_interrupts_optional_cancel_r
     assert asyncio.all_tasks() == before
 
 
-def test_billing_reconciliation_releases_maintenance_locks_before_webhooks(monkeypatch) -> None:
+@pytest.mark.parametrize("trial_fails", [False, True])
+def test_billing_reconciliation_releases_maintenance_locks_before_webhooks(monkeypatch, trial_fails) -> None:
     events: list[str] = []
 
     class Db:
@@ -317,6 +318,12 @@ def test_billing_reconciliation_releases_maintenance_locks_before_webhooks(monke
         assert kwargs == {"commit_each_operation": True}
         return {"processed": 1}
 
+    async def trial_notices(_db, *, now):
+        assert now.tzinfo is not None
+        events.append("trial_notices")
+        if trial_fails:
+            raise RuntimeError("synthetic trial enqueue failure")
+
     async def receipts(_db, _settings):
         events.append("receipts")
         return {"receipt_gets": 1}
@@ -329,18 +336,22 @@ def test_billing_reconciliation_releases_maintenance_locks_before_webhooks(monke
     monkeypatch.setattr(worker, "reconcile_billing_maintenance", maintenance)
     monkeypatch.setattr(worker, "reconcile_pending_webhook_events", webhooks)
     monkeypatch.setattr(worker, "reconcile_pending_initial_checkout_operations", initial)
+    monkeypatch.setattr(worker, "enqueue_due_trial_notices", trial_notices)
     monkeypatch.setattr(worker, "reconcile_pending_receipts", receipts)
 
-    result = asyncio.run(
-        worker.run_billing_reconciliation_activity(
-            {"run_id": str(UUID("10000000-0000-4000-8000-000000000001"))}
-        )
-    )
-
-    assert events == [
+    payload = {"run_id": str(UUID("10000000-0000-4000-8000-000000000001"))}
+    expected_events = [
         "context", "database_identity", "maintenance", "commit",
-        "webhooks", "initial", "commit", "receipts", "dispose",
+        "webhooks", "initial", "commit", "receipts", "context", "trial_notices",
     ]
+    if trial_fails:
+        with pytest.raises(RuntimeError, match="synthetic trial enqueue failure"):
+            asyncio.run(worker.run_billing_reconciliation_activity(payload))
+        assert events == [*expected_events, "dispose"]
+        return
+
+    result = asyncio.run(worker.run_billing_reconciliation_activity(payload))
+    assert events == [*expected_events, "commit", "dispose"]
     assert result == {
         "run_id": "10000000-0000-4000-8000-000000000001",
         "maintenance": 1,

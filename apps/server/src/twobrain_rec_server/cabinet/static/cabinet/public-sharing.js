@@ -22,17 +22,19 @@
       audio.currentTime = Math.min(ms / 1000, Math.max(0, audio.duration));
       pendingSeek = null;
     }
-    function activate() {
+    function activate(applyPosition = true) {
       current = parseFragment(location.hash);
       if (!one(`[data-public-panel="${current.tab}"]`)) current = {tab:'outcomes',position:null};
       all('[data-public-panel]').forEach(panel => { panel.hidden = panel.dataset.publicPanel !== current.tab; });
       all('[data-public-tab]').forEach(tab => { tab.setAttribute('aria-current', tab.dataset.publicTab === current.tab ? 'page' : 'false'); });
-      if (current.position !== null) seek(current.position);
+      if (applyPosition && current.position !== null) seek(current.position);
     }
-    activate(); window.addEventListener('hashchange', activate);
+    activate(); window.addEventListener('hashchange', () => activate());
     root.addEventListener('graf:public-recording', event => {
-      location.hash = '#recording?position_ms=' + Math.round(event.detail.seconds * 1000);
-      activate();
+      const fragment = '#recording?position_ms=' + Math.round(event.detail.seconds * 1000);
+      if (location.hash !== fragment) history.pushState(null, '', fragment);
+      // The shared player already moved when its metadata was ready.
+      activate(!Number.isFinite(audio?.duration));
     });
     all('[data-public-seek]').forEach(link => link.addEventListener('click', () => seek(Number(link.dataset.publicSeek))));
     const welcome = one('[data-public-welcome]');
@@ -65,11 +67,20 @@
       return native ? url.href : url.pathname + url.search;
     }
     all('[data-public-auth]').forEach(link => link.addEventListener('click', () => { link.href = contextURL(link.href, false); }));
-    one('[data-public-native]').addEventListener('click', event => {
+    const nativeLink = one('[data-public-native]');
+    const appMenu = nativeLink.closest('details');
+    const appHelp = one('[data-public-app-help]');
+    nativeLink.addEventListener('click', event => {
       event.currentTarget.href = contextURL(event.currentTarget.href, true);
-      one('[data-public-app-help]').hidden = false;
+      appHelp.hidden = false;
+      appMenu.open = false;
+      appHelp.querySelector('h2').focus({preventScroll: true});
+      appHelp.scrollIntoView({block: 'nearest'});
     });
-    one('[data-public-app-dismiss]').addEventListener('click', () => { one('[data-public-app-help]').hidden = true; });
+    one('[data-public-app-dismiss]').addEventListener('click', () => {
+      appHelp.hidden = true;
+      appMenu.querySelector('summary').focus();
+    });
     const refresh = one('[data-public-refresh]');
     if (refresh) refresh.addEventListener('click', () => { changed = false; root.dataset.sourceChanged = 'false'; pendingSeek = null; location.hash = '#recording'; if (audio) audio.currentTime = 0; refresh.closest('aside').hidden = true; });
     const footer = one('.public-reader__player');

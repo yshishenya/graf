@@ -1594,15 +1594,6 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         ]
     }
 
-    public static func visibleSummary(for items: [DesktopUploadQueueItem]) -> DesktopUploadQueueSummary? {
-        let sorted = items.sortedForDisplay()
-        guard let primary = sorted.first else { return nil }
-        return DesktopUploadQueueSummary(
-            primaryItem: primary,
-            pendingCount: sorted.filter { !$0.state.isTerminal }.count,
-            totalCount: sorted.count
-        )
-    }
 
     public static func custodyProjections(
         for items: [DesktopUploadQueueItem],

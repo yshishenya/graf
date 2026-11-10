@@ -36,13 +36,6 @@ public final class CaptureSessionController {
         self.readinessHooks = readinessHooks
     }
 
-    public func setReadinessHook(
-        for mode: CaptureMode,
-        _ hook: CaptureModeTriggerEvidenceHook?
-    ) {
-        readinessHooks[mode] = hook
-    }
-
     public func beginPreparing(
         mode: CaptureMode,
         sourceAppEligibility: SourceAppEligibility
@@ -289,13 +282,6 @@ public final class CaptureSessionController {
         current.state = .finalized
         current.visibleIndicatorState = .hidden
         current.stopActionAvailable = false
-        session = current
-        return current
-    }
-
-    public func updateEligibility(_ value: SourceAppEligibility) throws -> CaptureSession {
-        var current = try requireSession()
-        current.sourceAppEligibility = value
         session = current
         return current
     }

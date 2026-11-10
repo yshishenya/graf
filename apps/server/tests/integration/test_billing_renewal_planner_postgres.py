@@ -142,7 +142,12 @@ def _assert_linked_renewal(rows, case, operation_id):
 
 
 @pytest.fixture
-async def paid_workspace(migrated_postgres_urls, tmp_path, monkeypatch):
+def billing_maintenance_probe_url(migrated_postgres_urls):
+    return migrated_postgres_urls.probe_url
+
+
+@pytest.fixture
+async def paid_workspace(billing_maintenance_probe_url, tmp_path, monkeypatch):
     requests = []
 
     def forbid_http(*args, **kwargs):
@@ -158,7 +163,7 @@ async def paid_workspace(migrated_postgres_urls, tmp_path, monkeypatch):
     settings = Settings(
         _env_file=None,
         env="test",
-        database_url=migrated_postgres_urls.probe_url,
+        database_url=billing_maintenance_probe_url,
         credential_encryption_key_file=key,
         billing_checkout_enabled=False,
         billing_provider_observation_enabled=False,
