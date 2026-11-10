@@ -1,6 +1,7 @@
 import AppKit
 import TwoBrainRecShared
 
+@MainActor
 enum AppMenuBuilder {
     static func install(on app: NSApplication, zoomTarget: AnyObject) {
         let menu = makeMenu(zoomTarget: zoomTarget)
