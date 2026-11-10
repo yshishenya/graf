@@ -15,6 +15,7 @@ from twobrain_rec_server.db.models import BillingInvoice, BillingNotificationDel
 
 
 class BillingNotification(StrEnum):
+    TRIAL_STARTED = "trial_started"
     TRIAL_ENDING = "trial_ending"
     TRIAL_EXPIRED = "trial_expired"
     PAYMENT_SUCCEEDED = "payment_succeeded"
@@ -321,20 +322,28 @@ def notification_copy(
         if support_email and "\n" not in support_email and "\r" not in support_email
         else " Обратитесь в поддержку через историю платежей."
     )
+    trial_title = {
+        BillingNotification.TRIAL_STARTED: "Пробный период начался",
+        BillingNotification.TRIAL_ENDING: "Пробный период скоро закончится",
+        BillingNotification.TRIAL_EXPIRED: "Пробный период закончился",
+    }.get(event.kind)
+    if trial_title:
+        start, end = payload.get("trial_starts_at"), payload.get("trial_ends_at")
+        if not start or not end:
+            return trial_title, "Даты и действующий тариф указаны в кабинете."
+        dates = f"Начало: {start} МСК. Окончание: {end} МСК."
+        terms = "Пробный период доступен один раз, без карты и автоматического списания."
+        free = (
+            " По окончании действует «Бесплатный» тариф."
+            if event.kind == BillingNotification.TRIAL_EXPIRED else ""
+        )
+        return trial_title, f"{dates} {terms}{free}"
     referral_expiry = payload.get("referral_expiry")
     referral_days = payload.get("referral_days")
     referral_start = payload.get("referral_start")
     referral_end = payload.get("referral_end")
     referral_reversed = payload.get("referral_reversed")
     copy = {
-        BillingNotification.TRIAL_ENDING: (
-            "Пробный период скоро закончится",
-            "Выберите тариф, чтобы сохранить платную обработку.",
-        ),
-        BillingNotification.TRIAL_EXPIRED: (
-            "Пробный период закончился",
-            "Платный режим отключен. Выберите тариф, чтобы продолжить.",
-        ),
         BillingNotification.SERVICE_RECONCILIATION: (
             "Проверяем предоставление оплаченной услуги",
             f"Оплата подтверждена, но предоставление услуги требует проверки. Платёж передан на финансовую сверку. Подробности и помощь — в истории платежей.{suffix}",
@@ -455,8 +464,9 @@ def build_notification(
         BillingNotification.RENEWAL_LATE_SUCCESS: {"invoice"},
         BillingNotification.RENEWAL_LATE_SUCCESS_REFUSED: {"invoice"},
         BillingNotification.RENEWAL_MANUAL_RESUME: {"invoice"},
-        BillingNotification.TRIAL_ENDING: set(),
-        BillingNotification.TRIAL_EXPIRED: set(),
+        BillingNotification.TRIAL_STARTED: {"trial_starts_at", "trial_ends_at"},
+        BillingNotification.TRIAL_ENDING: {"trial_starts_at", "trial_ends_at"},
+        BillingNotification.TRIAL_EXPIRED: {"trial_starts_at", "trial_ends_at"},
         BillingNotification.STORAGE_THRESHOLD: set(),
         BillingNotification.REFERRAL_CREDIT: set(),
         BillingNotification.REFERRAL_AVAILABLE: {"referral_expiry"},
@@ -468,6 +478,16 @@ def build_notification(
     safe: dict[str, str] = {}
     for key in allowed_keys:
         value = payload.get(key)
+        if key in {"trial_starts_at", "trial_ends_at"}:
+            if isinstance(value, str) and re.fullmatch(
+                r"[0-9]{2}\.[0-9]{2}\.[0-9]{4} [0-9]{2}:[0-9]{2}", value
+            ):
+                try:
+                    datetime.strptime(value, "%d.%m.%Y %H:%M")
+                except ValueError:
+                    continue
+                safe[key] = value
+            continue
         if key in {"service_periods", "next_attempt_label"}:
             if not isinstance(value, str) or len(value) > 4096:
                 continue

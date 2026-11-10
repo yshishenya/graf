@@ -5,11 +5,11 @@ from types import SimpleNamespace
 import pytest
 from sqlalchemy import select
 from sqlalchemy.engine import make_url
+from sqlalchemy.ext.asyncio import create_async_engine
 
-from tests.fixtures.postgres_test_database import prepare_schema
 from tests.integration import test_billing_renewal_planner_postgres as planner
 from tests.integration.test_billing_renewal_planner_postgres import paid_workspace as paid_workspace
-from tests.integration.test_rls_postgres_policies import _create_probe_role, _drop_probe_role
+from tests.integration.test_rls_postgres_policies import _create_probe_role
 from twobrain_rec_server.billing.events import BillingEvent, notification_kind_for
 from twobrain_rec_server.billing.notifications import (
     REFERRAL_NOTICE_KINDS,
@@ -25,18 +25,6 @@ from twobrain_rec_server.db.models import (
     WorkspaceSubscription,
 )
 from twobrain_rec_server.workflows import worker
-
-
-@pytest.fixture
-async def billing_maintenance_probe_url(postgres_clean_database_url, postgres_advisory_lock):
-    # The sender polls the whole queue: isolate it from other modules' pending rows.
-    url = postgres_clean_database_url
-    await asyncio.to_thread(prepare_schema, url)
-    role, password = await _create_probe_role(url, role_name="twobrain_rec_maintenance")
-    try:
-        yield make_url(url).set(username=role, password=password).render_as_string(hide_password=False)
-    finally:
-        await _drop_probe_role(url, role)
 
 
 @pytest.mark.parametrize("event_type", tuple(BillingEvent))
@@ -62,6 +50,326 @@ def test_refund_and_unknown_provider_events_are_not_customer_notifications() -> 
         notification_kind_for("refund.succeeded")
     with pytest.raises(ValueError):
         notification_kind_for("provider.unknown")
+
+
+@pytest.fixture
+async def billing_maintenance_probe_url(postgres_isolated_cluster_database_url):
+    # Keep the fixed maintenance role and the whole sender queue isolated.
+    url = postgres_isolated_cluster_database_url
+    role, password = await _create_probe_role(url, role_name="twobrain_rec_maintenance")
+    return make_url(url).set(username=role, password=password).render_as_string(hide_password=False)
+
+
+@pytest.fixture
+async def trial_maintenance_engine(billing_maintenance_probe_url):
+    engine = create_async_engine(billing_maintenance_probe_url, pool_pre_ping=True)
+    try:
+        yield engine
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.strict_rls
+@pytest.mark.asyncio
+async def test_trial_lifecycle_uses_current_owner_and_exact_windows(trial_maintenance_engine, monkeypatch):
+    import asyncio
+    from datetime import UTC, datetime, timedelta
+    from types import SimpleNamespace
+    from uuid import UUID
+
+    from sqlalchemy import select, text
+
+    from tests.integration.test_rls_postgres_policies import _request_context, _seed_probe_rows
+    from twobrain_rec_server.auth.email_delivery import EmailLoginDeliveryError
+    from twobrain_rec_server.billing.trial_notifications import (
+        enqueue_due_trial_notices,
+        enqueue_trial_started,
+        trial_notice_recipient,
+    )
+    from twobrain_rec_server.db.models import (
+        BillingNotificationDelivery,
+        BillingNotificationPreference,
+        ExternalIdentity,
+        TrialActivation,
+        Workspace,
+        WorkspaceSubscription,
+    )
+    from twobrain_rec_server.db.session import create_sessionmaker
+    from twobrain_rec_server.db.tenant_context import MaintenanceTenantContext, apply_tenant_context
+    from twobrain_rec_server.workflows import worker
+
+    ids = await _seed_probe_rows(trial_maintenance_engine)
+    owner, workspace = ids["user_a"], ids["workspace_a"]
+    sessions = create_sessionmaker(trial_maintenance_engine)
+    context = MaintenanceTenantContext(
+        operation_name="billing_reconciliation",
+        actor_id="test-trial",
+        reason_category="trial-notices",
+        feature_area="billing",
+    )
+    start = datetime(2026, 8, 1, 12, tzinfo=UTC)
+    end = start + timedelta(days=7)
+    clock = start
+    calls = []
+    failure = None
+
+    class TrialClock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return clock.astimezone(tz) if tz else clock.replace(tzinfo=None)
+
+    async def stop_cycle(_seconds):
+        raise asyncio.CancelledError()
+
+    async def send(**kwargs):
+        async with sessions() as db:
+            await apply_tenant_context(db, context)
+            notice = await db.scalar(select(BillingNotificationDelivery).where(
+                BillingNotificationDelivery.id == UUID(kwargs["delivery_key"].split(":", 1)[1])
+            ))
+            assert notice.state == "failed" and notice.last_error_code == "postal_outcome_unknown"
+        calls.append(kwargs)
+        if failure is not None:
+            raise EmailLoginDeliveryError(
+                "synthetic retry", retryable=True, outcome_unknown=(failure == "unknown")
+            )
+
+    monkeypatch.setattr(worker, "datetime", TrialClock)
+    monkeypatch.setattr(worker, "create_engine", lambda settings: trial_maintenance_engine)
+    monkeypatch.setattr(worker, "send_billing_notification", send)
+
+    async def dispatch():
+        # The worker and the SQL assertions use separate transactions.
+        with monkeypatch.context() as cycle:
+            cycle.setattr(worker.asyncio, "sleep", stop_cycle)
+            with pytest.raises(asyncio.CancelledError):
+                await worker.run_billing_notification_reconciler(SimpleNamespace(
+                    billing_support_email=None, public_base_url="https://graf.example.test"
+                ))
+
+    async def poll(at):
+        async with sessions.begin() as db:
+            await apply_tenant_context(db, context)
+            await enqueue_due_trial_notices(db, now=at)
+
+    async def deliveries():
+        async with sessions() as db:
+            await apply_tenant_context(db, context)
+            return {
+                row.event_id.rsplit(":", 1)[1]: row
+                for row in await db.scalars(select(BillingNotificationDelivery).where(
+                    BillingNotificationDelivery.workspace_id == workspace
+                ))
+            }
+
+    async with sessions.begin() as db:
+        await apply_tenant_context(db, context)
+        assert await db.scalar(text("select session_user")) == "twobrain_rec_maintenance"
+        assert await db.scalar(text("select not rolbypassrls from pg_roles where rolname=session_user"))
+        personal = await db.get(Workspace, workspace)
+        personal.kind, personal.owner_user_id = "personal", owner
+        identity = ExternalIdentity(
+            user_id=owner, provider="email", provider_subject=f"trial-{owner}",
+            email="first@example.test", is_verified=True, is_active=True,
+        )
+        activation = TrialActivation(
+            user_id=owner, workspace_id=workspace, starts_at=start, ends_at=end,
+            policy_version="trial-v1",
+        )
+        db.add_all([
+            identity, activation,
+            WorkspaceSubscription(
+                workspace_id=workspace, state="trial", plan_code="trial", trial_ends_at=end
+            ),
+        ])
+        await enqueue_trial_started(db, activation, now=start)
+
+    async with sessions() as db:
+        await apply_tenant_context(db, _request_context(ids, "b"))
+        assert not await db.scalar(select(BillingNotificationDelivery.id).where(
+            BillingNotificationDelivery.workspace_id == workspace
+        ))
+
+    started = (await deliveries())["started"]
+    async with sessions() as db:
+        await apply_tenant_context(db, context)
+        assert await trial_notice_recipient(db, started, now=start) == "first@example.test"
+    clock = start + timedelta(days=1)
+    await dispatch()
+    assert (await deliveries())["started"].state == "suppressed"
+    assert not calls
+
+    await poll(end - timedelta(days=3, microseconds=1))
+    assert set(await deliveries()) == {"started"}
+    clock = end - timedelta(days=3)
+    await asyncio.gather(poll(clock), poll(clock))
+    assert set(await deliveries()) == {"started", "t72"}
+
+    # Change the verified address after the worker's initial selection.
+    recipient = worker.trial_notice_recipient
+    async def replace_address(db, delivery, *, now):
+        async with sessions.begin() as edit:
+            await apply_tenant_context(edit, context)
+            (await edit.get(ExternalIdentity, identity.id)).email = "current@example.test"
+        return await recipient(db, delivery, now=now)
+
+    with monkeypatch.context() as edit:
+        edit.setattr(worker, "trial_notice_recipient", replace_address)
+        failure = "unknown"
+        await dispatch()
+    assert [call["recipient_email"] for call in calls] == ["current@example.test"]
+    assert (await deliveries())["t72"].last_error_code == "postal_outcome_unknown"
+    await dispatch()
+    assert len(calls) == 1
+
+    clock = end - timedelta(days=1)
+    await poll(clock)
+    assert set(await deliveries()) == {"started", "t72", "t24"}
+    failure = "known"
+    await dispatch()
+    assert len(calls) == 2 and (await deliveries())["t24"].state == "retry"
+    clock += timedelta(minutes=1)
+    await dispatch()
+    assert len(calls) == 3 and (await deliveries())["t24"].attempts == 2
+
+    clock = end
+    await poll(clock)
+    async with sessions.begin() as db:
+        await apply_tenant_context(db, context)
+        db.add(BillingNotificationPreference(user_id=owner, optional_email_enabled=False))
+    failure = None
+    await dispatch()
+    notices = await deliveries()
+    assert len(calls) == 4 and calls[-1]["subject"] == "Пробный период закончился"
+    assert calls[-1]["plain_body"].count("https://graf.example.test/billing") == 1
+    assert notices["expired"].state == "delivered"
+    assert (notices["t24"].state, notices["t24"].attempts) == ("suppressed", 2)
+    assert notices["t72"].attempts == 1
+    await poll(end + timedelta(days=1))
+    await dispatch()
+    assert len(await deliveries()) == 4 and len(calls) == 4
+    async with sessions() as db:
+        await apply_tenant_context(db, context)
+        sub = await db.get(WorkspaceSubscription, workspace)
+        assert (sub.state, sub.plan_code, sub.trial_ends_at, sub.paid_through) == (
+            "trial", "trial", end, None
+        )
+
+
+@pytest.mark.strict_rls
+@pytest.mark.asyncio
+async def test_trial_poll_bounds_batch_and_excludes_processed_or_stale_events(trial_maintenance_engine):
+    from datetime import UTC, datetime, timedelta
+    from uuid import uuid4
+
+    from sqlalchemy import select
+
+    from tests.integration.test_rls_postgres_policies import _seed_probe_rows
+    from twobrain_rec_server.billing.trial_notifications import (
+        enqueue_due_trial_notices,
+        trial_notice_recipient,
+    )
+    from twobrain_rec_server.db.models import (
+        BillingNotificationDelivery,
+        BillingNotificationPreference,
+        ExternalIdentity,
+        TrialActivation,
+        UserIdentity,
+        Workspace,
+        WorkspaceMembership,
+        WorkspaceSubscription,
+    )
+    from twobrain_rec_server.db.session import create_sessionmaker
+    from twobrain_rec_server.db.tenant_context import MaintenanceTenantContext, apply_tenant_context
+
+    sessions = create_sessionmaker(trial_maintenance_engine)
+    ids = await _seed_probe_rows(trial_maintenance_engine)
+    context = MaintenanceTenantContext(
+        operation_name="billing_reconciliation",
+        actor_id="test-trial",
+        reason_category="trial-batch",
+        feature_area="billing",
+    )
+    end = datetime(2027, 1, 1, 12, tzinfo=UTC)
+    now = end - timedelta(hours=20)
+    workspaces = [uuid4() for _ in range(107)]
+    async with sessions.begin() as db:
+        await apply_tenant_context(db, context)
+        owners = [uuid4() for _ in workspaces]
+        for user in owners:
+            db.add(UserIdentity(
+                id=user, organization_id=ids["org_a"], external_subject=f"trial-batch-{user}",
+            ))
+        await db.flush()
+        for user, workspace in zip(owners, workspaces, strict=True):
+            db.add(Workspace(
+                id=workspace, organization_id=ids["org_a"], kind="personal",
+                owner_user_id=user, slug=f"trial-batch-{workspace}", name="Trial batch",
+            ))
+        await db.flush()
+        for i, (user, workspace) in enumerate(zip(owners, workspaces, strict=True)):
+            trial_end = now - timedelta(days=1) if i == 106 else end
+            db.add_all([
+                WorkspaceMembership(workspace_id=workspace, user_id=user, role="owner"),
+                TrialActivation(
+                    user_id=user, workspace_id=workspace, starts_at=trial_end - timedelta(days=7),
+                    ends_at=trial_end, policy_version="trial-v1",
+                ),
+                ExternalIdentity(
+                    user_id=user, provider="email", provider_subject=f"trial-{user}",
+                    email="trial-batch@example.test", is_verified=i != 104,
+                ),
+                WorkspaceSubscription(
+                    workspace_id=workspace, state="trial", plan_code="trial",
+                    billing_owner_id=ids["user_b"] if i == 105 else user,
+                    trial_ends_at=trial_end if i != 103 else trial_end + timedelta(hours=1),
+                    paid_through=now + timedelta(hours=1) if i == 102 else None,
+                ),
+            ])
+        (await db.get(Workspace, workspaces[101])).owner_user_id = ids["user_b"]
+
+    async def batch():
+        async with sessions.begin() as db:
+            await apply_tenant_context(db, context)
+            await enqueue_due_trial_notices(db, now=now)
+            return (
+                await db.scalars(select(BillingNotificationDelivery).where(
+                    BillingNotificationDelivery.workspace_id.in_(workspaces)
+                ))
+            ).all()
+
+    first = await batch()
+    assert len(first) == 100
+    async with sessions.begin() as db:
+        await apply_tenant_context(db, context)
+        (await db.get(BillingNotificationDelivery, first[0].id)).state = "suppressed"
+    complete = await batch()
+    assert len(complete) == 101
+    assert {row.workspace_id for row in complete} == set(workspaces[:101])
+    assert {row.event_id.rsplit(":", 1)[1] for row in complete} == {"t24"}
+
+    async with sessions.begin() as db:
+        await apply_tenant_context(db, context)
+        for i, row in enumerate(complete[:6]):
+            if i == 0:
+                (await db.get(Workspace, row.workspace_id)).owner_user_id = ids["user_a"]
+            if i == 1:
+                (await db.get(WorkspaceSubscription, row.workspace_id)).paid_through = end
+            if i == 2:
+                (await db.get(WorkspaceSubscription, row.workspace_id)).trial_ends_at = now
+            if i == 3:
+                identity = await db.scalar(select(ExternalIdentity).where(
+                    ExternalIdentity.user_id == row.recipient_id
+                ))
+                identity.is_active = False
+            if i == 4:
+                db.add(BillingNotificationPreference(
+                    user_id=row.recipient_id, optional_email_enabled=False
+                ))
+            if i < 5:
+                assert await trial_notice_recipient(db, row, now=now) is None
+            else:
+                assert await trial_notice_recipient(db, row, now=now) == "trial-batch@example.test"
 
 
 @pytest.mark.parametrize("mode, expected_calls, expected_state, attempts", [

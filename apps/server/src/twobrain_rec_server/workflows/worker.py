@@ -50,6 +50,11 @@ from twobrain_rec_server.billing.renewal_charge import (
     record_renewal_decline,
 )
 from twobrain_rec_server.billing.storage import lock_storage_workspace
+from twobrain_rec_server.billing.trial_notifications import (
+    TRIAL_NOTIFICATION_KINDS,
+    enqueue_due_trial_notices,
+    trial_notice_recipient,
+)
 from twobrain_rec_server.billing.webhook_reconciliation import (
     apply_confirmed_purchase,
     reconcile_pending_initial_checkout_operations,
@@ -702,7 +707,13 @@ async def run_billing_notification_reconciler(settings: Any) -> None:
                             .where(
                                 BillingNotificationDelivery.channel == "email",
                                 BillingNotificationDelivery.state.in_(("pending", "retry")),
-                                or_(is_referral, verified_email.c.email.is_not(None)),
+                                or_(
+                                    is_referral,
+                                    verified_email.c.email.is_not(None),
+                                    BillingNotificationDelivery.template_key.in_(
+                                        tuple(sorted(TRIAL_NOTIFICATION_KINDS))
+                                    ),
+                                ),
                                 or_(~is_referral, retry_not_before.is_(None),
                                     retry_not_before <= int(datetime.now(UTC).timestamp())),
                             )
@@ -718,8 +729,10 @@ async def run_billing_notification_reconciler(settings: Any) -> None:
                     referral = row.template_key in REFERRAL_NOTICE_KINDS
                     try:
                         kind = BillingNotification(row.template_key)
+                        trial_notice = kind in TRIAL_NOTIFICATION_KINDS
                         if (
-                            not referral
+                            not trial_notice
+                            and not referral
                             and kind not in MANDATORY_NOTIFICATION_KINDS
                             and optional_email_enabled is False
                         ):
@@ -768,6 +781,8 @@ async def run_billing_notification_reconciler(settings: Any) -> None:
                         # replay mail that Postal may already have accepted.
                         async with sessionmaker() as db:
                             await apply_tenant_context(db, context)
+                            if trial_notice:
+                                await lock_storage_workspace(db, row.workspace_id)
                             sending = await db.scalar(
                                 select(BillingNotificationDelivery)
                                 .where(BillingNotificationDelivery.id == row.id)
@@ -775,7 +790,16 @@ async def run_billing_notification_reconciler(settings: Any) -> None:
                             )
                             if sending is None or sending.state not in {"pending", "retry"}:
                                 continue
-                            if referral:
+                            if trial_notice:
+                                recipient_email = await trial_notice_recipient(
+                                    db, sending, now=datetime.now(UTC)
+                                )
+                                if not recipient_email:
+                                    sending.state = "suppressed"
+                                    sending.last_error_code = None
+                                    await db.commit()
+                                    continue
+                            elif referral:
                                 due = (sending.safe_payload or {}).get(_REFERRAL_RETRY_KEY, 0)
                                 if not isinstance(due, int) or due > datetime.now(UTC).timestamp():
                                     continue
@@ -1024,6 +1048,9 @@ async def _run_billing_reconciliation_activity(payload: dict[str, str]) -> dict[
             initial_checkout_counters = await reconcile_pending_initial_checkout_operations(
                 db, settings, commit_each_operation=True
             )
+            await db.commit()
+            await apply_tenant_context(db, context)
+            await enqueue_due_trial_notices(db, now=datetime.now(UTC))
             await db.commit()
         return {
             "run_id": safe_payload["run_id"],

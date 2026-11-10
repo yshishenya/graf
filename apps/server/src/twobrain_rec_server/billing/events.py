@@ -26,6 +26,7 @@ class BillingEvent(StrEnum):
     are reconciliation inputs only and can never become a customer message.
     """
 
+    TRIAL_STARTED = "trial.started"
     TRIAL_ENDING = "trial.ending"
     TRIAL_EXPIRED = "trial.expired"
     PAYMENT_SUCCEEDED = "payment.succeeded"
@@ -45,6 +46,7 @@ class BillingEvent(StrEnum):
 
 
 _EVENT_NOTIFICATION_KIND: dict[BillingEvent, BillingNotification] = {
+    BillingEvent.TRIAL_STARTED: BillingNotification.TRIAL_STARTED,
     BillingEvent.TRIAL_ENDING: BillingNotification.TRIAL_ENDING,
     BillingEvent.TRIAL_EXPIRED: BillingNotification.TRIAL_EXPIRED,
     BillingEvent.PAYMENT_SUCCEEDED: BillingNotification.PAYMENT_SUCCEEDED,
