@@ -131,10 +131,6 @@ public final class LocalRecordingWriter: @unchecked Sendable {
         }
     }
 
-    public func pausePrivacy(startedAt: Date = Date()) throws {
-        try queue.sync { try pausePrivacyOnQueue(startedAt: startedAt) }
-    }
-
     /// Deliberately synchronous: callers can validate their MainActor decision
     /// and commit the same session without a new cancellation suspension.
     public func acceptStart(sessionId: String) throws {
@@ -167,10 +163,6 @@ public final class LocalRecordingWriter: @unchecked Sendable {
                 }
             }
         }
-    }
-
-    public func resumePrivacy(endedAt: Date = Date()) throws {
-        try queue.sync { try resumePrivacyOnQueue(endedAt: endedAt) }
     }
 
     public func resumePrivacyAsync(endedAt: Date = Date()) async throws {

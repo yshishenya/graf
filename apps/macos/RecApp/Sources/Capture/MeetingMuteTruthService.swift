@@ -2,9 +2,6 @@ import Foundation
 import TwoBrainRecShared
 
 public struct MeetingMuteTruthService: Sendable {
-    public static let limitationCopy =
-        SystemAudioStatusLabels.meetingMuteTruthLimitationCopy
-
     public init() {}
 
     public func capability(for targetDisplayName: String?) -> TargetMuteCapability {

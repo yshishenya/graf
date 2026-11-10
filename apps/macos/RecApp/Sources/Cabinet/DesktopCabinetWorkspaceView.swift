@@ -12,6 +12,7 @@ public struct DesktopCabinetWorkspaceView: View {
     private let configuration: DesktopCabinetConfiguration?
     private let initialRoute: URL?
     private let presentation: DesktopCabinetWorkspacePresentation
+    private let reloadToken: UUID?
     private let workspaceZoom: WorkspaceZoomPreference
     private let navigationEventLogger: EmbeddedCabinetWebView.NavigationEventLogger?
     private let showsAppUpdateBadge: Bool
@@ -36,6 +37,7 @@ public struct DesktopCabinetWorkspaceView: View {
         currentRoute: Binding<URL?> = .constant(nil),
         cabinetState: Binding<DesktopCabinetState>? = nil,
         presentation: DesktopCabinetWorkspacePresentation = .card,
+        reloadToken: UUID? = nil,
         workspaceZoom: WorkspaceZoomPreference = .default,
         navigationEventLogger: EmbeddedCabinetWebView.NavigationEventLogger? = nil,
         showsAppUpdateBadge: Bool = false,
@@ -55,6 +57,7 @@ public struct DesktopCabinetWorkspaceView: View {
         self.configuration = configuration
         self.initialRoute = initialRoute
         self.presentation = presentation
+        self.reloadToken = reloadToken
         self.workspaceZoom = workspaceZoom
         self.navigationEventLogger = navigationEventLogger
         self.showsAppUpdateBadge = showsAppUpdateBadge
@@ -97,6 +100,7 @@ public struct DesktopCabinetWorkspaceView: View {
                     )
             case .shell:
                 content
+                    .accessibilitySortPriority(1)
                     .accessibilityElement(children: .contain)
                     .accessibilityLabel(Self.workspaceAccessibilityLabel)
                     .accessibilityIdentifier(DesktopCabinetAccessibilityIdentifier.workspace)
@@ -152,7 +156,8 @@ public struct DesktopCabinetWorkspaceView: View {
                 notificationPresenter: notificationPresenter,
                 navigationController: navigationController
             )
-            .id(navigationController.sessionBoundaryID)
+            .id(reloadToken.map { "\(navigationController.sessionBoundaryID)-\($0.uuidString)" }
+                ?? "\(navigationController.sessionBoundaryID)")
             .accessibilityIdentifier(DesktopCabinetAccessibilityIdentifier.embeddedSurface)
 
             switch presentation {

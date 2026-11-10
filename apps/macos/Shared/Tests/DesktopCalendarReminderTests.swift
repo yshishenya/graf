@@ -978,7 +978,7 @@ final class DesktopCalendarReminderTests: XCTestCase {
             XCTAssertEqual(mute != nil, state == .recording)
             XCTAssertEqual(unmute != nil, state == .paused)
             if let mute {
-                XCTAssertEqual(mute.title, "Mute микрофона")
+                XCTAssertEqual(mute.title, "Выключить микрофон")
                 XCTAssertTrue(mute.toolTip?.contains("Системный звук продолжает записываться") == true)
                 let index = try XCTUnwrap(tray.menu.items.firstIndex(of: mute))
                 tray.menu.performActionForItem(at: index)

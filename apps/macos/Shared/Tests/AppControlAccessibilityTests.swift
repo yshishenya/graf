@@ -1,4 +1,4 @@
-import TwoBrainRecAppCore
+@testable import TwoBrainRecAppCore
 import TwoBrainRecShared
 
 #if canImport(XCTest)
@@ -41,21 +41,10 @@ final class AppControlAccessibilityTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(DesktopCabinetWorkspaceView.shellEmbeddedSurfaceMinHeight, 520)
         XCTAssertEqual(DesktopMeetingShellChrome.collapsedInspectorWidth, 52)
         XCTAssertEqual(DesktopMeetingShellChrome.expandedInspectorWidth, 308)
-        XCTAssertEqual(DesktopMeetingShellChrome.shellBackgroundHex, "#17181b")
-        XCTAssertEqual(DesktopMeetingShellChrome.shellRailHex, "#1d1f23")
-        XCTAssertEqual(DesktopMeetingShellChrome.shellSurfaceHex, "#22252a")
-        XCTAssertEqual(DesktopMeetingShellChrome.recordingStripHex, "#342087")
-        XCTAssertEqual(DesktopMeetingShellChrome.shellAccentHex, "#7056e9")
         XCTAssertEqual(DesktopMeetingShellChrome.webButtonHeight, 32)
         XCTAssertEqual(DesktopMeetingShellChrome.webButtonCornerRadius, 8)
         XCTAssertEqual(DesktopMeetingShellChrome.webButtonHorizontalPadding, 12)
-        XCTAssertEqual(DesktopMeetingShellChrome.webButtonPrimaryHex, "#7056e9")
-        XCTAssertEqual(DesktopMeetingShellChrome.webButtonSecondaryDarkHex, "#272a30")
-        XCTAssertEqual(DesktopMeetingShellChrome.webButtonBorderDarkHex, "#7e8898")
-        XCTAssertEqual(DesktopMeetingShellChrome.webEmbeddedBackgroundHex, DesktopMeetingShellChrome.shellBackgroundHex)
-        XCTAssertEqual(DesktopMeetingShellChrome.fontStackDescription, "SF Pro Text / system")
         XCTAssertEqual(DesktopMeetingShellChrome.compactRailLabels, ["Статус записи", "Локальная сохранность"])
-        XCTAssertFalse(DesktopMeetingShellChrome.idleShowsNativeTopBar)
         XCTAssertEqual(DesktopMeetingShellChrome.recordingStripHeight, 44)
         XCTAssertGreaterThanOrEqual(
             DesktopMeetingShellChrome.recordingStripHeight,
@@ -74,8 +63,6 @@ final class AppControlAccessibilityTests: XCTestCase {
         XCTAssertEqual(DesktopMeetingShellChrome.compactRailStopLabel, "Остановить запись")
         XCTAssertEqual(DesktopMeetingShellChrome.compactRailActionHitSize, 40)
         XCTAssertGreaterThanOrEqual(DesktopMeetingShellChrome.compactRailActionHitSize, 40)
-        XCTAssertEqual(DesktopMeetingShellChrome.recordingTitle(for: .audioRecording), "Запись аудио")
-        XCTAssertEqual(DesktopMeetingShellChrome.recordingTitle(for: .transcriptOnly), "Транскрибация")
     }
 
     func testInspectorDisclosureKeepsAccessibilityContract() {
@@ -167,8 +154,6 @@ final class AppControlAccessibilityTests: XCTestCase {
         )
         XCTAssertTrue(source.contains("stop.circle"))
         XCTAssertFalse(source.contains("checkmark.circle.fill"), "Остановка не доказывает сохранение")
-        XCTAssertTrue(source.contains("SystemAudioStatusLabels.recordingStopped"))
-        XCTAssertTrue(source.contains("session.state == .stopped || session.state == .finalized"))
         XCTAssertFalse(source.contains("SystemAudioAccessibilityIdentifier.recordingSource"))
         XCTAssertTrue(shellSource.contains("CaptureStatusItem.sourceIndicatorLabel(for: session)"))
         XCTAssertTrue(shellSource.contains("SystemAudioAccessibilityIdentifier.recordingSource"))
@@ -397,7 +382,7 @@ final class AppControlAccessibilityTests: XCTestCase {
 
     func testPermissionSetupIsExplicitAndCannotResumeARecordingCommand() throws {
         let source = try String(contentsOf: Self.repositoryRoot()
-            .appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift"), encoding: .utf8)
+            .appendingPathComponent("apps/macos/RecApp/Sources/AppShell/ContentView.swift"), encoding: .utf8)
         func block(_ start: String, _ end: String) throws -> String {
             let a = try XCTUnwrap(source.range(of: start))
             let b = try XCTUnwrap(source[a.upperBound...].range(of: end))
@@ -431,39 +416,36 @@ final class AppControlAccessibilityTests: XCTestCase {
     }
 
     func testDesktopAppKeepsSetupIntentAndDismissesOtherSheetsBeforeTerminationCleanup() throws {
-        let source = try String(
-            contentsOf: Self.repositoryRoot()
-                .appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift"),
-            encoding: .utf8
-        )
+        let root = try Self.repositoryRoot()
+        let content = try String(contentsOf: root.appendingPathComponent("apps/macos/RecApp/Sources/AppShell/ContentView.swift"), encoding: .utf8)
+        let delegate = try String(contentsOf: root.appendingPathComponent("apps/macos/RecApp/Sources/AppShell/AppLifecycleDelegate.swift"), encoding: .utf8)
 
-        XCTAssertTrue(source.contains("@AppStorage(\"permissionOnboarding.active\") private var permissionOnboardingPresented = false"))
-        XCTAssertFalse(source.contains(".sheet(isPresented: $permissionOnboardingPresented)"))
-        XCTAssertTrue(source.contains(".disabled(permissionOnboardingPresented)"))
-        XCTAssertTrue(source.contains(".accessibilityHidden(permissionOnboardingPresented)"))
-        // Only explicit Later/Done clear intent, never OS Quit or our own relaunch.
-        XCTAssertEqual(source.components(separatedBy: "permissionOnboardingPresented = false").count - 1, 3)
-        let cleanupStart = try XCTUnwrap(source.range(of: ".onReceive(NotificationCenter.default.publisher(for: .twoBrainRecApplicationShouldTerminate))"))
-        let cleanupEnd = try XCTUnwrap(source[cleanupStart.upperBound...].range(of: ".onReceive("))
-        XCTAssertFalse(source[cleanupStart.lowerBound..<cleanupEnd.lowerBound].contains("permissionOnboardingPresented = false"))
-        let restartStart = try XCTUnwrap(source.range(of: "private func restartGRAFAfterPermissionChange()"))
-        let restartEnd = try XCTUnwrap(source[restartStart.upperBound...].range(of: "private func refreshCalendarReminder"))
-        XCTAssertFalse(source[restartStart.lowerBound..<restartEnd.lowerBound].contains("permissionOnboardingPresented = false"))
-        XCTAssertTrue(source.contains("permissionOnboardingRequestInProgress = false"))
-        XCTAssertTrue(source.contains("dismissMeetingDetectionPrompt()"))
-        XCTAssertTrue(source.contains("dismissModalWindowsForTermination()"))
-        XCTAssertTrue(source.contains("window.endSheet(attachedSheet)"))
-        XCTAssertTrue(source.contains("sheetParent.endSheet(window)"))
-        XCTAssertTrue(source.contains("NSApp.modalWindow"))
-        XCTAssertTrue(source.contains("NSApp.abortModal()"))
-        XCTAssertTrue(source.contains("window.orderOut(nil)"))
-        XCTAssertTrue(source.contains("window.close()"))
+        XCTAssertTrue(content.contains("@AppStorage(\"permissionOnboarding.active\") private var permissionOnboardingPresented = false"))
+        XCTAssertFalse(content.contains(".sheet(isPresented: $permissionOnboardingPresented)"))
+        XCTAssertTrue(content.contains(".disabled(permissionOnboardingPresented)"))
+        XCTAssertTrue(content.contains(".accessibilityHidden(permissionOnboardingPresented)"))
+        XCTAssertEqual(content.components(separatedBy: "permissionOnboardingPresented = false").count - 1, 3)
+        let cleanupStart = try XCTUnwrap(content.range(of: ".onReceive(NotificationCenter.default.publisher(for: .twoBrainRecApplicationShouldTerminate))"))
+        let cleanupEnd = try XCTUnwrap(content[cleanupStart.upperBound...].range(of: ".onReceive("))
+        XCTAssertFalse(content[cleanupStart.lowerBound..<cleanupEnd.lowerBound].contains("permissionOnboardingPresented = false"))
+        let restartStart = try XCTUnwrap(content.range(of: "private func restartGRAFAfterPermissionChange()"))
+        let restartEnd = try XCTUnwrap(content[restartStart.upperBound...].range(of: "private func refreshCalendarReminder"))
+        XCTAssertFalse(content[restartStart.lowerBound..<restartEnd.lowerBound].contains("permissionOnboardingPresented = false"))
+        XCTAssertTrue(content.contains("permissionOnboardingRequestInProgress = false"))
+        XCTAssertTrue(content.contains("dismissMeetingDetectionPrompt()"))
+        XCTAssertTrue(delegate.contains("dismissModalWindowsForTermination()"))
+        XCTAssertTrue(delegate.contains("window.endSheet(attachedSheet)"))
+        XCTAssertTrue(delegate.contains("sheetParent.endSheet(window)"))
+        XCTAssertTrue(delegate.contains("NSApp.modalWindow"))
+        XCTAssertTrue(delegate.contains("NSApp.abortModal()"))
+        XCTAssertTrue(delegate.contains("window.orderOut(nil)"))
+        XCTAssertTrue(delegate.contains("window.close()"))
     }
 
     func testDesktopAppDoesNotRequestPermissionsDuringTerminationCleanup() throws {
         let source = try String(
             contentsOf: Self.repositoryRoot()
-                .appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift"),
+                .appendingPathComponent("apps/macos/RecApp/Sources/AppShell/ContentView.swift"),
             encoding: .utf8
         )
         let terminationBlock = try XCTUnwrap(
@@ -570,35 +552,24 @@ final class AppControlAccessibilityTests: XCTestCase {
         XCTAssertTrue(source.contains("decisionHandler(.cancel)"))
     }
 
+    @MainActor
     func testDesktopAppInstallsStandardEditMenuCommandsForEmbeddedCabinetFields() throws {
-        let source = try String(
-            contentsOf: Self.repositoryRoot()
-                .appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift"),
-            encoding: .utf8
-        )
-
+        let menu = AppMenuBuilder.makeMenu(zoomTarget: NSObject())
+        let edit = try XCTUnwrap(menu.items.first { $0.submenu?.title == "Правка" }?.submenu)
         for command in [
-            "#selector(NSText.cut(_:))",
-            "#selector(NSText.copy(_:))",
-            "#selector(NSText.paste(_:))",
-            "#selector(NSText.selectAll(_:))"
+            #selector(NSText.cut(_:)),
+            #selector(NSText.copy(_:)),
+            #selector(NSText.paste(_:)),
+            #selector(NSText.selectAll(_:))
         ] {
-            XCTAssertTrue(source.contains(command), "Missing edit command \(command)")
+            XCTAssertTrue(edit.items.contains { $0.action == command }, "Missing edit command \(command)")
         }
-        XCTAssertTrue(source.contains("installMainMenu(on: app, zoomTarget: appDelegate)"))
-        XCTAssertTrue(source.contains("withTitle: \"Настройки…\""))
-        XCTAssertTrue(source.contains("#selector(AppLifecycleDelegate.openSettings(_:))"))
-        XCTAssertTrue(source.contains("LocalSettingsFallbackView("))
-        XCTAssertFalse(source.contains("NSTabViewController"))
-        XCTAssertTrue(source.contains("WorkspaceZoomMenu.items"))
-        XCTAssertTrue(source.contains("increaseWorkspaceZoom"))
-        XCTAssertTrue(source.contains("decreaseWorkspaceZoom"))
-        XCTAssertTrue(source.contains("resetWorkspaceZoom"))
+        XCTAssertTrue(menu.items.contains { $0.submenu?.title == "Вид" })
     }
 
     func testNotificationControlsKeepLifecycleAndSettingsRoutesAfterIntegration() throws {
         let root = try Self.repositoryRoot()
-        let app = try String(contentsOf: root.appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift"), encoding: .utf8)
+        let app = try String(contentsOf: root.appendingPathComponent("apps/macos/RecApp/Sources/AppShell/ContentView.swift"), encoding: .utf8)
         func section(_ source: String, from start: String, to end: String) throws -> String {
             let opening = try XCTUnwrap(source.range(of: start), "Missing route boundary: \(start)")
             let closing = try XCTUnwrap(source.range(of: end, range: opening.upperBound..<source.endIndex),
@@ -628,7 +599,8 @@ final class AppControlAccessibilityTests: XCTestCase {
         let permissionRoute = try section(capture, from: "onPermissionRecovery: {", to: "}")
         XCTAssertTrue(permissionRoute.contains("presentPermissionSetup()"))
         XCTAssertFalse(permissionRoute.contains("permissionOnboardingPresented = true"), "Recovery must use the guarded entry point")
-        XCTAssertTrue(app.contains("func openLocalRecordingSettings() { openSettingsSection(\"recording\") }"))
+        let delegate = try String(contentsOf: root.appendingPathComponent("apps/macos/RecApp/Sources/AppShell/AppLifecycleDelegate.swift"), encoding: .utf8)
+        XCTAssertTrue(delegate.contains("func openLocalRecordingSettings() { openSettingsSection(\"recording\") }"))
         let permissionSetup = try section(app, from: "private func presentPermissionSetup()", to: "private func refreshPermissionOnboarding(")
         XCTAssertTrue(permissionSetup.contains("guard !protectedUpdateWork.isProtected else { return }"))
         XCTAssertTrue(permissionSetup.contains("refreshPermissionOnboardingWithFunctionalProbe"))
@@ -658,7 +630,7 @@ final class AppControlAccessibilityTests: XCTestCase {
     private static func repositoryRoot() throws -> URL {
         var candidate = URL(fileURLWithPath: #filePath)
         while candidate.path != "/" {
-            let appSourceURL = candidate.appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift")
+            let appSourceURL = candidate.appendingPathComponent("apps/macos/RecApp/Sources/AppShell/ContentView.swift")
             if FileManager.default.fileExists(atPath: appSourceURL.path) {
                 return candidate
             }

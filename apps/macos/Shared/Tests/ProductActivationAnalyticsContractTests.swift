@@ -300,7 +300,7 @@ final class ProductActivationAnalyticsContractTests: XCTestCase {
 
     @MainActor
     func testApplicationSourcesCallTheReporterOnRealPaths() throws {
-        let appSource = try Self.readRepositoryFile("apps/macos/RecApp/App/TwoBrainRecApp.swift")
+        let appSource = try Self.readRepositoryFile("apps/macos/RecApp/Sources/AppShell/ContentView.swift")
 
         XCTAssertTrue(appSource.contains("activationReporter.noteFirstLaunch("))
         XCTAssertTrue(appSource.contains("activationReporter.noteAutorecordEnabled("))
@@ -308,7 +308,8 @@ final class ProductActivationAnalyticsContractTests: XCTestCase {
         XCTAssertTrue(appSource.contains("activationReporter.noteFirstResultViewed("))
         XCTAssertTrue(appSource.contains("activationReporter.noteFirstValueSessionCompleted("))
         XCTAssertTrue(appSource.contains("activationReporter.noteAccountConnected()"))
-        XCTAssertTrue(appSource.contains("application(_: NSApplication, open urls: [URL])"))
+        let delegateSource = try Self.readRepositoryFile("apps/macos/RecApp/Sources/AppShell/AppLifecycleDelegate.swift")
+        XCTAssertTrue(delegateSource.contains("application(_: NSApplication, open urls: [URL])"))
 
         // Первый просмотр результата приходит из настоящей навигации кабинета,
         // а не из нажатия кнопки в интерфейсе приложения.

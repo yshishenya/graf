@@ -14,7 +14,7 @@ final class AECProductSurfaceTests: XCTestCase {
         "apps/macos/RecApp/Sources/Capture/CaptureControlViewCore.swift",
         "apps/macos/RecApp/Sources/Capture/RecordingEvidenceService.swift",
         "apps/macos/RecApp/Sources/Diagnostics/DiagnosticBundleCoreService.swift",
-        "apps/macos/RecApp/App/TwoBrainRecApp.swift"
+        "apps/macos/RecApp/Sources/AppShell/ContentView.swift"
     ]
 
     func testActiveV5CaptureSurfaceHasExactlyOneMandatoryAECPathAndNoRetiredFallback() throws {

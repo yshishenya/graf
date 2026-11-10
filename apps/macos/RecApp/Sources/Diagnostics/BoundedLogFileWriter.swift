@@ -7,6 +7,8 @@ public final class BoundedLogFileWriter: @unchecked Sendable {
     private let maximumBytes: Int
     private let fileManager: FileManager
     private let lock = NSLock()
+    private var didCreateDirectory = false
+    private var cachedSize: Int?
 
     public init(
         fileURL: URL,
@@ -22,14 +24,18 @@ public final class BoundedLogFileWriter: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
 
-        try fileManager.createDirectory(
-            at: fileURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
+        if !didCreateDirectory {
+            try fileManager.createDirectory(
+                at: fileURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            didCreateDirectory = true
+        }
         let data = Data(line.utf8.suffix(maximumBytes))
-        let currentBytes = fileSize(at: fileURL)
+        var currentBytes = cachedSize ?? fileSize(at: fileURL)
         if currentBytes + data.count > maximumBytes {
             try rotate()
+            currentBytes = cachedSize ?? fileSize(at: fileURL)
         }
         if fileManager.fileExists(atPath: fileURL.path) {
             let handle = try FileHandle(forWritingTo: fileURL)
@@ -39,6 +45,7 @@ public final class BoundedLogFileWriter: @unchecked Sendable {
         } else {
             try data.write(to: fileURL, options: .atomic)
         }
+        cachedSize = currentBytes + data.count
     }
 
     private func rotate() throws {
@@ -52,6 +59,7 @@ public final class BoundedLogFileWriter: @unchecked Sendable {
             let tail = try Data(contentsOf: backupURL).suffix(maximumBytes)
             try Data(tail).write(to: backupURL, options: .atomic)
         }
+        cachedSize = 0
     }
 
     private func fileSize(at url: URL) -> Int {

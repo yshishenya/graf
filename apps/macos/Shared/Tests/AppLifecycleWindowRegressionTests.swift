@@ -27,7 +27,7 @@ final class AppLifecycleWindowRegressionTests: XCTestCase {
     func testMainWindowReadinessMarkerFollowsVisibilityAttempt() throws {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        let source = try String(contentsOf: root.appendingPathComponent("RecApp/App/TwoBrainRecApp.swift"), encoding: .utf8)
+        let source = try String(contentsOf: root.appendingPathComponent("RecApp/Sources/AppShell/AppLifecycleDelegate.swift"), encoding: .utf8)
         let methodStart = try XCTUnwrap(source.range(of: "    private func presentMainWindow(reason: String)"))
         let methodEnd = try XCTUnwrap(source.range(of: "    private func configureMainWindowCollectionBehavior", range: methodStart.upperBound..<source.endIndex))
         let method = String(source[methodStart.lowerBound..<methodEnd.lowerBound])
@@ -55,7 +55,9 @@ final class AppLifecycleWindowRegressionTests: XCTestCase {
     func testReopenAndActivationPreserveSelectedWindow() throws {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        let source = try String(contentsOf: root.appendingPathComponent("RecApp/App/TwoBrainRecApp.swift"), encoding: .utf8)
+        let delegate = try String(contentsOf: root.appendingPathComponent("RecApp/Sources/AppShell/AppLifecycleDelegate.swift"), encoding: .utf8)
+        let content = try String(contentsOf: root.appendingPathComponent("RecApp/Sources/AppShell/ContentView.swift"), encoding: .utf8)
+        let source = delegate + "\n" + content
         // Compile the actual private executable methods with inert window dependencies.
         // Installed AX acceptance separately verifies AppKit flags and window ordering.
         func method(_ name: String, required: Bool = true) throws -> String {

@@ -53,10 +53,9 @@ public struct WorkspaceZoomMenuItem: Equatable, Sendable {
 
 public enum WorkspaceZoomMenu {
     public static let items: [WorkspaceZoomMenuItem] = [
-        WorkspaceZoomMenuItem(command: .increase, title: "Zoom In", keyEquivalent: "+"),
-        WorkspaceZoomMenuItem(command: .increase, title: "Zoom In", keyEquivalent: "="),
-        WorkspaceZoomMenuItem(command: .decrease, title: "Zoom Out", keyEquivalent: "-"),
-        WorkspaceZoomMenuItem(command: .reset, title: "Actual Size", keyEquivalent: "0")
+        WorkspaceZoomMenuItem(command: .increase, title: "Увеличить масштаб кабинета", keyEquivalent: "="),
+        WorkspaceZoomMenuItem(command: .decrease, title: "Уменьшить масштаб кабинета", keyEquivalent: "-"),
+        WorkspaceZoomMenuItem(command: .reset, title: "Сбросить масштаб кабинета", keyEquivalent: "0")
     ]
 }
 

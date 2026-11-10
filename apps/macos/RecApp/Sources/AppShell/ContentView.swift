@@ -1,0 +1,3199 @@
+import AppKit
+import AVFoundation
+import Combine
+import Network
+import SwiftUI
+import TwoBrainRecShared
+
+@MainActor
+struct ContentView: View {
+    private let meetingDetectionRegistryRefreshIntervalNanoseconds: UInt64 = 3_600_000_000_000
+    // Вопрос о записи показывается той же карточкой, что и остальные полезные
+    // уведомления; отдельного плавающего окна для него нет.
+
+    @ObservedObject private var appUpdateController: AppUpdateController
+    @State private var captureController = CaptureSessionController()
+    @State private var localRecordingWriter = LocalRecordingWriter()
+    @State private var systemAudioCaptureService = SystemAudioCaptureService(
+        runtimeStartFailureLogger: { detail in
+            AppLog.writeRaw(event: "system_audio.runtime_start_failed", detail: detail)
+        },
+        diagnosticLogger: AppLog.writeCaptureTiming
+    )
+    @State private var microphoneCaptureService = MicrophoneCaptureService()
+    @State private var systemAudioPermissionAuthorizer = CoreGraphicsSystemAudioPermissionAuthorizer()
+    @State private var systemAudioPermissionGate = SystemAudioPermissionGate()
+    @State private var captureScopeApprovalService = CaptureScopeApprovalService()
+    @State private var meetingMuteTruthService = MeetingMuteTruthService()
+    @State private var captureSession: CaptureSession?
+    @State private var recordingBlocker: RecordingBlockerPresentation?
+    @State private var recordingEvidenceEvents: [RecordingEvidenceEvent] = []
+    @State private var localRecordingManifest: LocalRecordingManifest?
+    @State private var selectedRecordingMicrophoneDeviceId: String?
+    private let interfacePreferences = InterfacePreferencesStore()
+    @State private var recordingMicrophoneSelection: RecordingMicrophoneSelection?
+    @State private var activeMicrophoneSampleSource: AppOwnedMicrophoneSampleSource?
+    @State private var desktopUploadQueueService = DesktopUploadQueueService()
+    @State private var deletionSyncInProgress = false
+    @State private var recordingDeletionOperations: [RecordingDeletionOperation] = []
+    @State private var uploadQueueItems: [DesktopUploadQueueItem] = []
+    @State private var localRecordingRows: [EmbeddedCabinetLocalRecordingRow] = []
+    @State private var desktopCalendarReminderService = DesktopCalendarReminderService()
+    @State private var desktopCalendarPrompt: DesktopCalendarPrompt?
+    @State private var desktopCalendarJoinInProgress = false
+    @State private var desktopCalendarPendingPromptID: String?
+    @State private var desktopCalendarPendingGeneration: UInt64?
+    @State private var desktopCalendarPendingSince: Date?
+    @State private var desktopCalendarJoinFailedID: String?
+    @State private var desktopCalendarJoinFailedAt: Date?
+    @State private var desktopCalendarJoinFailedGeneration: UInt64?
+    @State private var desktopCalendarRefreshInProgress = false
+    @State private var activeCalendarContextEventId: String?
+    @State private var activeCalendarMatchAttemptId: String?
+    @State private var activeCalendarMatchLocalRecordingId: String?
+    @State private var meetingDetectionSettingsStore = MeetingDetectionSettingsStore()
+    @State private var meetingDetectionSettings = MeetingDetectionSettings()
+    @State private var openingSettings: String?
+    @State private var meetingDetectionRegistryStore: MeetingTargetRegistryStore?
+    @State private var meetingDetectionRegistry: MeetingTargetRegistryDocument?
+    @State private var meetingDetectionRegistryRequiresRemoteRefresh = false
+    @State private var meetingDetectionRegistryAuthRejected = false
+    @State private var meetingDetectionRegistryRefreshRevision = 0
+    @State private var meetingDetectionRegistryRefreshInProgress = false
+    @State private var meetingDetectionRegistryRefreshFollowUpRequested = false
+    @State private var meetingDetectionDetector = MacOSMeetingActivityDetector()
+    @State private var meetingDetectionRollupStore = MeetingDetectionTelemetryRollupStore()
+    @State private var meetingDetectionTelemetryUploader: MeetingDetectionTelemetryUploader?
+    @State private var meetingDetectionLogStream: MacOSAudioOwnershipLogStream?
+    @State private var meetingDetectionTask: Task<Void, Never>?
+    @State private var meetingDetectionAdvanceTask: Task<Void, Never>?
+    @State private var meetingDetectionStatus = MeetingDetectionStatus.notStarted
+    @State private var meetingDetectionPrompt: MeetingDetectionPrompt?
+    @State private var meetingDetectionPromptToken: UUID?
+    @State private var meetingDetectionPromptRememberChoice = false
+    @State private var liveRecordingLevels = LiveRecordingLevels.inactive
+    @State private var localRecordingActive = false
+    @State private var levelsPollInProgress = false
+    @State private var uploadQueueRefreshInProgress = false
+    @State private var uploadQueueRefreshRequested = false
+    @State private var uploadQueueFollowUpScheduled = false
+    @State private var uploadQueueNetworkMonitor: NWPathMonitor?
+    @State private var uploadQueueNetworkWasSatisfied = false
+    @State private var terminationCleanupInProgress = false
+    @State private var appIsActive = true
+    @State private var recordingStartInProgress = false
+    @State private var recordingStopInProgress = false
+    @State private var meetingDetectionTriggerInProgress = false
+    @State private var activeMeetingDetectionBundleID: String?
+    @State private var pendingMeetingDetectionStopBundleID: String?
+    @State private var manuallyStoppedMeetingDetectionBundleID: String?
+    @State private var lastMeetingDetectionEvidenceAt: Date?
+    @State private var desktopCabinetConfiguration = DesktopCabinetConfiguration.configuredFromEnvironment()
+    @State private var desktopCabinetState: DesktopCabinetState = DesktopCabinetConfiguration.configuredFromEnvironment() == nil ? .notConfigured : .loading
+    @State private var selectedCabinetRoute: URL?
+    @State private var cabinetReloadToken = UUID()
+    @State private var activationReporter = ProductActivationAnalyticsReporter.configured()
+    @State private var attributionHandoffs = ProductAttributionHandoffStore()
+    @State private var supportIncidentBridge = EmbeddedCabinetSupportIncidentBridge()
+    @State private var permissionOnboardingStatus = DesktopPermissionOnboardingStatus.unknown
+    @AppStorage("permissionOnboarding.active") private var permissionOnboardingPresented = false
+    @State private var permissionOnboardingRequestInProgress = false
+    @State private var permissionRecoverySuggested = false
+    @AppStorage("permissionOnboarding.microphoneAttempted") private var microphonePermissionAttempted = false
+    @AppStorage("permissionOnboarding.systemAudioAttempted") private var systemAudioPermissionAttempted = false
+    @State private var permissionSettingsError: String?
+    @State private var permissionFunctionalProbeInProgress = false
+
+    let workspaceZoom: WorkspaceZoomPreference
+
+    init(
+        appUpdateController: AppUpdateController,
+        workspaceZoom: WorkspaceZoomPreference
+    ) {
+        _appUpdateController = ObservedObject(wrappedValue: appUpdateController)
+        self.workspaceZoom = workspaceZoom
+    }
+
+    private var cabinetSettingsVisible: Bool {
+        guard let configuration = desktopCabinetConfiguration, let url = selectedCabinetRoute else { return false }
+        let route = DesktopCabinetRoutePolicy(baseURL: configuration.baseURL).decision(for: url)
+        return route.decision == .allow && [.settings, .calendarSettings, .meetingDetectionSettings, .billing].contains(route.route.kind)
+    }
+
+    private var meetingsShell: some View {
+        DesktopMeetingShellView(
+            session: captureSession,
+            uploadQueueItems: uploadQueueItems,
+            cabinetConfigured: desktopCabinetConfiguration != nil,
+            cabinetState: desktopCabinetState,
+            isSettingsSurface: cabinetSettingsVisible,
+            startRecordingAvailable: CaptureControlView.shouldShowDirectRecordButton(
+                for: captureSession,
+                calendarPrompt: desktopCalendarPrompt
+            ) && !recordingStartInProgress && !recordingStopInProgress,
+            recordingTransitionInProgress: recordingStartInProgress || recordingStopInProgress,
+            hasActionableCaptureProblem: CaptureControlView.hasActionableProblem(
+                blockedReason: recordingBlocker
+            ) || !effectivePermissionOnboardingStatus.isReady || desktopCalendarPrompt?.kind == .record,
+            showsAppUpdateBadge: appUpdateController.presentation.showsSidebarBadge,
+            onStartRecording: {
+                Task { await startManualRecording() }
+            },
+            onStopRecording: {
+                Task { await stopManualRecording() }
+            },
+            onPauseRecording: {
+                Task { await pauseManualRecording() }
+            },
+            onResumeRecording: {
+                Task { await resumeManualRecording() }
+            },
+            onOpenSettings: {
+                (NSApp.delegate as? AppLifecycleDelegate)?.openSettings(nil)
+            },
+            onCheckForUpdates: {
+                (NSApp.delegate as? AppLifecycleDelegate)?.checkForUpdates(nil)
+            },
+            onSupportIncidentReport: { itemIds in
+                try await submitSupportIncidentReport(itemIds: itemIds)
+            },
+            onSupportIncidentSync: { itemIds in
+                try await syncSupportIncident(itemIds: itemIds)
+            },
+            onCopySupportIncidentReport: { itemIds in
+                try copySupportIncidentReport(itemIds: itemIds)
+            },
+            onOpenSupportSignIn: {
+                openSupportSignIn()
+            },
+            initialInspectorExpanded: interfacePreferences.inspectorExpanded,
+            onInspectorExpandedChange: { value in
+                interfacePreferences.saveInspectorExpanded(value)
+            }
+        ) {
+            CaptureControlView(
+                session: captureSession,
+                blockedReason: recordingBlocker,
+                localRecordingStatus: localRecordingPresentation,
+                muteTruthWarning: meetingMuteTruthWarningText,
+                recordingMicrophoneSelection: recordingMicrophoneSelection,
+                recordingMicrophoneInputs: microphoneCaptureService.availableRecordingMicrophoneInputs(),
+                selectedRecordingMicrophoneDeviceId: selectedRecordingMicrophoneDeviceId,
+                calendarPrompt: desktopCalendarPrompt,
+                meetingDetectionStatus: meetingDetectionStatus,
+                readinessStatus: effectivePermissionOnboardingStatus,
+                recordingLevels: liveRecordingLevels,
+                recordDisabled: recordingStartInProgress || recordingStopInProgress || (permissionOperationInProgress && effectivePermissionOnboardingStatus.isReady),
+                stopDisabled: recordingStartInProgress || recordingStopInProgress,
+                pauseDisabled: recordingStartInProgress || recordingStopInProgress,
+                onRecord: {
+                    Task { await startManualRecording() }
+                },
+                onStop: {
+                    Task { await stopManualRecording() }
+                },
+                onPause: {
+                    Task { await pauseManualRecording() }
+                },
+                onResume: {
+                    Task { await resumeManualRecording() }
+                },
+                onSelectRecordingMicrophone: { inputDeviceId in
+                    selectedRecordingMicrophoneDeviceId = inputDeviceId
+                    interfacePreferences.saveSelectedMicrophoneDeviceID(inputDeviceId)
+                    let selection = microphoneCaptureService.resolveRecordingMicrophoneSelection(
+                        selectedInputDeviceId: inputDeviceId
+                    )
+                    recordingMicrophoneSelection = selection
+                    if !selection.isAccepted, selection.rejectionReason == .deviceUnavailable {
+                        interfacePreferences.saveSelectedMicrophoneDeviceID(nil)
+                    }
+                },
+                onCalendarPromptPrimary: { prompt in
+                    handleCalendarPromptPrimary(prompt)
+                },
+                onCalendarPromptDismiss: { prompt in
+                    dismissCalendarPrompt(prompt)
+                },
+                onMeetingDetectionSettings: {
+                    (NSApp.delegate as? AppLifecycleDelegate)?.openLocalRecordingSettings()
+                },
+                onPermissionRecovery: {
+                    presentPermissionSetup()
+                }
+            )
+            .accessibilitySortPriority(2)
+            .accessibilityIdentifier(DesktopCabinetAccessibilityIdentifier.captureRegion)
+        } meetingsWorkspace: {
+            DesktopCabinetWorkspaceView(
+                configuration: desktopCabinetConfiguration,
+                initialRoute: selectedCabinetRoute,
+                currentRoute: $selectedCabinetRoute,
+                cabinetState: $desktopCabinetState,
+                presentation: .shell,
+                reloadToken: cabinetReloadToken,
+                workspaceZoom: workspaceZoom,
+                navigationEventLogger: { event, detail in
+                    AppLog.writeRaw(event: event, detail: detail)
+                },
+                showsAppUpdateBadge: appUpdateController.presentation.showsSidebarBadge,
+                onCheckForUpdates: {
+                    (NSApp.delegate as? AppLifecycleDelegate)?.checkForUpdates(nil)
+                },
+                onOpenMeetingDetectionSettings: {
+                    (NSApp.delegate as? AppLifecycleDelegate)?.openLocalRecordingSettings()
+                },
+                supportIncidentBridge: supportIncidentBridge,
+                localRecordingRows: localRecordingRows,
+                deletionOperations: recordingDeletionOperations,
+                recoveryRequired: uploadQueueItems.contains { !$0.lifecycleAccessAvailable },
+                onLocalRecordingAction: { action, itemId in
+                    handleLocalRecordingAction(action, itemId: itemId)
+                },
+                onVisibleRecordings: { ids in desktopUploadQueueService.setVisibleRecordingItemIDs(ids) },
+                onDeleteRecordings: { selection in await deleteRecordingSelection(selection) }
+            )
+        }
+    }
+
+    private var contentBase: some View {
+        meetingsShell
+        .opacity(permissionOnboardingPresented ? 0 : 1)
+        .disabled(permissionOnboardingPresented)
+        .allowsHitTesting(!permissionOnboardingPresented)
+        .accessibilityHidden(permissionOnboardingPresented)
+        .overlay {
+            if permissionOnboardingPresented {
+                DesktopPermissionOnboardingView(
+                    status: effectivePermissionOnboardingStatus,
+                    applicationName: currentApplicationDisplayName,
+                    isRequesting: permissionOperationInProgress,
+                    isChecking: permissionFunctionalProbeInProgress,
+                    recoverySuggested: permissionRecoverySuggested,
+                    restartAvailable: !protectedUpdateWork.isProtected,
+                    microphoneAttempted: microphonePermissionAttempted,
+                    systemAudioAttempted: systemAudioPermissionAttempted,
+                    settingsError: permissionSettingsError,
+                    onRequestMicrophone: {
+                        Task { await requestStartupMicrophonePermission() }
+                    },
+                    onRequestSystemAudio: {
+                        Task { await requestStartupSystemAudioPermission() }
+                    },
+                    onOpenMicrophoneSettings: {
+                        openPermissionSettings(DesktopPermissionOnboardingSettings.microphoneURL)
+                    },
+                    onOpenSystemAudioSettings: {
+                        openPermissionSettings(DesktopPermissionOnboardingSettings.screenAndSystemAudioURL)
+                    },
+                    onRefresh: {
+                        refreshPermissionOnboarding(reason: "permission_settings_recheck")
+                        Task { await refreshPermissionOnboardingWithFunctionalProbe(reason: "permission_settings_recheck") }
+                    },
+                    onDismiss: {
+                        permissionOnboardingPresented = false
+                    },
+                    onFinish: {
+                        guard effectivePermissionOnboardingStatus.isReady else { return }
+                        permissionOnboardingPresented = false
+                    },
+                    onRestart: {
+                        restartGRAFAfterPermissionChange()
+                    }
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color(nsColor: .windowBackgroundColor))
+                .onAppear {
+                    NSApp.keyWindow?.makeFirstResponder(nil)
+                    AppLog.writeRaw(
+                        event: "desktop.permission_setup_presented",
+                        detail: "mode=page modal=\(NSApp.modalWindow != nil) sheets=\(NSApp.windows.filter { $0.isSheet }.count)"
+                    )
+                }
+            }
+        }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            AppUpdateNotice(presentation: appUpdateController.presentation,
+                            isActionEnabled: appUpdateController.isManualCheckActionEnabled) {
+                (NSApp.delegate as? AppLifecycleDelegate)?.checkForUpdates(nil)
+            }
+        }
+    }
+
+    var body: some View {
+        contentBase
+        .onAppear {
+            openPendingSharedMeeting()
+            if selectedRecordingMicrophoneDeviceId == nil {
+                selectedRecordingMicrophoneDeviceId = interfacePreferences.selectedMicrophoneDeviceID
+                if let selectedRecordingMicrophoneDeviceId {
+                    recordingMicrophoneSelection = microphoneCaptureService.resolveRecordingMicrophoneSelection(
+                        selectedInputDeviceId: selectedRecordingMicrophoneDeviceId
+                    )
+                }
+            }
+            AppLog.writeRaw(
+                event: "app_opened",
+                detail: currentApplicationIdentityDetail + " capture=app_owned_system_audio microphone=app_owned"
+            )
+            refreshPermissionOnboarding(reason: "app_appeared")
+            Task { await refreshPermissionOnboardingWithFunctionalProbe(reason: "app_appeared") }
+            refreshUploadQueueAndProcess(reason: "app_appeared")
+            startUploadQueueNetworkMonitorIfNeeded()
+            startMeetingDetectionIfNeeded()
+            appUpdateController.updateProtectedWork(protectedUpdateWork)
+            syncControlPanel()
+            // Первый запуск приложения: веха отправляется из настоящего пути,
+            // когда пользователь уже принял раскрытие о телеметрии (FR-021).
+            Task {
+                await activationReporter.noteFirstLaunch(
+                    appVersion: currentApplicationVersion,
+                    installChannel: currentInstallChannel
+                )
+            }
+        }
+        .onChange(of: trayRecordingState, initial: true) { _, state in
+            (NSApp.delegate as? AppLifecycleDelegate)?.updateTrayRecordingState(state)
+        }
+        .onChange(of: uploadQueueItems) { _, items in
+            refreshLocalRecordingRows(for: items)
+        }
+        .onChange(of: controlPanelSnapshot) { _, _ in syncControlPanel() }
+        .onChange(of: protectedUpdateWork) { _, work in
+            appUpdateController.updateProtectedWork(work)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecMeetingDetectionSettingsDidChange)) { _ in
+            reloadMeetingDetectionSettings()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecDismissMeetingDetectionPrompt)) { _ in
+            dismissMeetingDetectionPrompt()
+        }
+        .task { await synchronizeRecordingDeletionsLoop() }
+        .task { await refreshCalendarReminderLoop() }
+        .task { await refreshMeetingDetectionRegistryLoop() }
+        .task(id: meetingDetectionRegistryRequiresRemoteRefresh) {
+            await retryMeetingDetectionRegistryLoop()
+        }
+        .task(id: localRecordingActive) { await pollRecordingLevelsLoop() }
+        .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecApplicationShouldTerminate)) { _ in
+            // Keep the explicit setup intent across a system-requested quit/reopen.
+            permissionOnboardingRequestInProgress = false
+            permissionRecoverySuggested = false
+            dismissMeetingDetectionPrompt()
+            guard !terminationCleanupInProgress else { return }
+            terminationCleanupInProgress = true
+            localRecordingWriter.preserveRecordingForInterruption()
+            Task {
+                await releaseCaptureResourcesForAppExit()
+                await MainActor.run {
+                    NotificationCenter.default.post(name: .twoBrainRecApplicationTerminationCleanupFinished, object: nil)
+                }
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecDesktopCabinetDidShowMeetingDetail)) { event in
+            reportFirstResultViewed(meetingId: event.userInfo?["meetingId"] as? String)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .grafSharedMeetingHandoffDidArrive)) { _ in
+            openPendingSharedMeeting()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecDesktopAttributionHandoffDidArrive)) { _ in
+            openCabinetSignInWithAttributionHandoff(reason: "attribution_handoff")
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecDesktopAuthSessionDidChange)) { _ in
+            // Аккаунт подключён: саму веху отправляет серверная авторизация,
+            // приложение запоминает связь и передаёт метки кампании во вход.
+            activationReporter.noteAccountConnected()
+            invalidateMeetingDetectionRegistryForAuthChange()
+            applyAccountSwitchReset(AccountSwitchResetPlan.standard)
+            desktopUploadQueueService.setDeletionScope(nil)
+            uploadQueueItems = (try? desktopUploadQueueService.loadItems()) ?? []
+            recordingDeletionOperations = []
+            Task { await synchronizeRecordingDeletions() }
+            refreshUploadQueueAndProcess(reason: "desktop_auth_session_changed")
+            Task { await refreshCalendarReminder(reason: "desktop_auth_session_changed") }
+            Task { await refreshMeetingDetectionRegistry(reason: "desktop_auth_session_changed") }
+        }
+        .onChange(of: desktopCabinetState) { _, state in
+            guard let section = openingSettings, state != .loading else { return }
+            openingSettings = nil
+            if state == .ready {
+                (NSApp.delegate as? AppLifecycleDelegate)?.closeSettingsFallback()
+            } else {
+                (NSApp.delegate as? AppLifecycleDelegate)?.presentSettingsFallback(section: section)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecOpenSettings)) { event in
+            let section = event.userInfo?["section"] as? String ?? "account"
+            guard let configuration = desktopCabinetConfiguration else {
+                (NSApp.delegate as? AppLifecycleDelegate)?.presentSettingsFallback(section: section)
+                return
+            }
+            let retry = event.userInfo?["retry"] as? Bool == true
+            if desktopCabinetState != .ready && desktopCabinetState != .loading && !retry {
+                (NSApp.delegate as? AppLifecycleDelegate)?.presentSettingsFallback(section: section)
+                return
+            }
+            let route = configuration.baseURL.appending(path: "desktop/settings/\(section)")
+            if desktopCabinetState == .ready && selectedCabinetRoute == route {
+                (NSApp.delegate as? AppLifecycleDelegate)?.closeSettingsFallback()
+            } else {
+                openingSettings = section
+                selectedCabinetRoute = route
+                if retry { desktopCabinetState = .loading }
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecOpenMeetingsFromTray)) { _ in
+            guard let configuration = desktopCabinetConfiguration else { return }
+            selectedCabinetRoute = configuration.meetingsURL()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
+            appIsActive = false
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            appIsActive = true
+            refreshPermissionOnboarding(reason: "app_became_active")
+            Task { await refreshPermissionOnboardingWithFunctionalProbe(reason: "app_became_active") }
+            Task { await synchronizeRecordingDeletions() }
+            refreshUploadQueueAndProcess(reason: "app_became_active")
+            Task { await refreshCalendarReminder(reason: "app_became_active") }
+            Task { await refreshMeetingDetectionRegistry(reason: "app_became_active") }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: AVCaptureDevice.wasConnectedNotification)) { _ in
+            microphoneCaptureService.invalidateAvailableRecordingMicrophoneInputs()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: AVCaptureDevice.wasDisconnectedNotification)) { _ in
+            microphoneCaptureService.invalidateAvailableRecordingMicrophoneInputs()
+        }
+        .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)) { _ in
+            Task { await synchronizeRecordingDeletions() }
+            refreshUploadQueueAndProcess(reason: "system_wake")
+            Task { await refreshCalendarReminder(reason: "system_wake") }
+            Task { await refreshMeetingDetectionRegistry(reason: "system_wake") }
+            Task { await uploadMeetingDetectionTelemetry(reason: "system_wake") }
+            restartMeetingDetectionObservation(reason: "system_wake")
+        }
+        // Closing/hiding the cabinet must not end capture. The application
+        // termination notification above owns the awaited resource cleanup.
+    }
+
+    private func synchronizeRecordingDeletionsLoop() async {
+        while !Task.isCancelled {
+            if appIsActive { await synchronizeRecordingDeletions() }
+            try? await Task.sleep(for: .seconds(30))
+        }
+    }
+
+    private func refreshCalendarReminderLoop() async {
+        while !Task.isCancelled {
+            if appIsActive { await refreshCalendarReminder(reason: "calendar_poll") }
+            try? await Task.sleep(for: .seconds(30))
+        }
+    }
+
+    private func refreshMeetingDetectionRegistryLoop() async {
+        while !Task.isCancelled {
+            try? await Task.sleep(for: .seconds(3600))
+            if appIsActive { await refreshMeetingDetectionRegistry(reason: "periodic_registry_refresh") }
+        }
+    }
+
+    private func retryMeetingDetectionRegistryLoop() async {
+        guard meetingDetectionRegistryRequiresRemoteRefresh else { return }
+        var delayNanoseconds: UInt64 = 2_000_000_000
+        while !Task.isCancelled, meetingDetectionRegistryRequiresRemoteRefresh {
+            do {
+                try await Task.sleep(nanoseconds: delayNanoseconds)
+            } catch {
+                return
+            }
+            guard meetingDetectionRegistryRequiresRemoteRefresh else { return }
+            await refreshMeetingDetectionRegistry(reason: "auth_session_refresh_retry")
+            delayNanoseconds = min(delayNanoseconds * 2, 60_000_000_000)
+        }
+    }
+
+    private func pollRecordingLevelsLoop() async {
+        guard localRecordingActive else { return }
+        while !Task.isCancelled {
+            pollRecordingLevelsIfNeeded()
+            try? await Task.sleep(for: .milliseconds(200))
+        }
+    }
+
+    @MainActor
+    private func applyAccountSwitchReset(_ plan: AccountSwitchResetPlan) {
+        if plan.resetCabinetRoute {
+            selectedCabinetRoute = desktopCabinetConfiguration?.meetingsURL()
+            desktopCabinetState = desktopCabinetConfiguration == nil ? .notConfigured : .loading
+        }
+        if plan.clearCalendarPrompt {
+            desktopCalendarPrompt = nil
+            desktopCalendarReminderService = DesktopCalendarReminderService()
+        }
+        if plan.clearPendingCalendarState {
+            desktopCalendarJoinInProgress = false
+            desktopCalendarPendingPromptID = nil
+            desktopCalendarPendingGeneration = nil
+            desktopCalendarPendingSince = nil
+            desktopCalendarJoinFailedID = nil
+            desktopCalendarJoinFailedAt = nil
+            desktopCalendarJoinFailedGeneration = nil
+            activeCalendarContextEventId = nil
+            activeCalendarMatchAttemptId = nil
+            activeCalendarMatchLocalRecordingId = nil
+        }
+        if plan.closeLocalPlayer {
+            LocalRecordingPlayer.shared.close()
+        }
+        if plan.clearSelectedRecording {
+            DesktopControlModel.shared.showRecording(nil)
+        }
+        if plan.reloadCabinet {
+            cabinetReloadToken = UUID()
+        }
+    }
+
+    @MainActor
+    private func refreshLocalRecordingRows(for items: [DesktopUploadQueueItem]) {
+        let root = desktopUploadQueueService.recordingsRootURL
+        let timeZone = DesktopUserTimeContext.shared.timeZone
+        Task {
+            let rows = await Task.detached(priority: .utility) {
+                EmbeddedCabinetLocalRecordingRow.rows(for: items, recordingsRootURL: root, timeZone: timeZone)
+            }.value
+            guard uploadQueueItems == items else { return }
+            localRecordingRows = rows
+        }
+    }
+
+    private var controlPanelSnapshot: DesktopControlSnapshot {
+        var value = DesktopControlSnapshot()
+        value.session = captureSession
+        value.transitioning = recordingStartInProgress || recordingStopInProgress
+        value.stopping = recordingStopInProgress
+        let permissionBlocker = recordingBlocker == nil && !effectivePermissionOnboardingStatus.isReady
+        value.blocker = recordingBlocker?.message ?? (permissionBlocker ? "Разрешите доступ к микрофону и звуку Mac, чтобы начать запись." : nil)
+        value.uploadItems = uploadQueueItems
+        return value
+    }
+
+    private func syncControlPanel() {
+        DesktopControlModel.shared.onAction = { action in
+            AppLog.writeRaw(event: "capture_control.action_received", detail: "action=\(action)")
+            switch action {
+            case .start:
+                Task {
+                    let outcome = await startManualRecording()
+                    if outcome != .accepted && !controlPanelSnapshot.active && !controlPanelSnapshot.transitioning {
+                        (NSApp.delegate as? AppLifecycleDelegate)?.openMeetingsFromTray()
+                    }
+                }
+            case .pause: Task { await pauseManualRecording() }
+            case .resume: Task { await resumeManualRecording() }
+            case .stop: Task { await stopManualRecording() }
+            case .localRecording(let sessionID):
+                guard captureSession?.id == sessionID || uploadQueueItems.contains(where: { $0.sessionId == sessionID }) else { return }
+                DesktopControlModel.shared.showRecording(sessionID)
+                (NSApp.delegate as? AppLifecycleDelegate)?.openMeetingsFromTray()
+            }
+        }
+        DesktopControlModel.shared.update(controlPanelSnapshot)
+    }
+
+    private var trayRecordingState: GrafTrayRecordingState {
+        GrafTrayRecordingState.resolve(sessionState: captureSession?.state,
+                                       writerActive: localRecordingActive,
+                                       stopping: recordingStopInProgress,
+                                       starting: recordingStartInProgress)
+    }
+
+    private var protectedUpdateWork: ProtectedUpdateWork {
+        ProtectedUpdateWork(
+            captureActive: captureSession.map { CaptureStatusItem.showsStopButton(for: $0) } == true || localRecordingActive,
+            captureTransitioning: recordingStartInProgress || recordingStopInProgress,
+            recordingFinalizing: recordingStopInProgress,
+            terminationCleanupPending: terminationCleanupInProgress
+        )
+    }
+
+    private var currentApplicationDisplayName: String {
+        (Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String)
+            ?? (Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String)
+            ?? "GRAF"
+    }
+
+    private var currentApplicationIdentityDetail: String {
+        "appName=\(currentApplicationDisplayName) bundleID=\(Bundle.main.bundleIdentifier ?? "unknown")"
+    }
+
+    private var currentApplicationVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
+    }
+
+    /// Канал установки: сборка из установщика или локальная сборка разработчика.
+    private var currentInstallChannel: String {
+        Bundle.main.bundleURL.path.hasPrefix("/Applications/") ? "developer_id" : "local_build"
+    }
+
+    /// Первый просмотр результата и первая ценность (FR-021).
+    ///
+    /// Событие отправляется тогда, когда пользователь действительно открыл
+    /// результат во встроенном кабинете, а не тогда, когда он нажал кнопку.
+    private func reportFirstResultViewed(meetingId: String?) {
+        guard let meetingId, !meetingId.isEmpty,
+              let item = uploadQueueItems.first(where: {
+                  $0.serverTruth.meetingId == meetingId || $0.meetingId == meetingId
+              })
+        else {
+            return
+        }
+        let projection = DesktopUploadCustodyProjection(item: item)
+        let transcriptAvailable = item.serverTruth.transcriptAvailable == true
+        Task {
+            await activationReporter.noteFirstResultViewed(
+                resultState: projection.reviewAvailable ? "ready" : "processing",
+                surface: "embedded_cabinet_meeting_detail",
+                usefulOutputPresent: transcriptAvailable
+            )
+            guard projection.reviewAvailable, transcriptAvailable else { return }
+            await activationReporter.noteFirstValueSessionCompleted(usefulResultType: "transcript")
+        }
+    }
+
+    /// Открывает вход в кабинете вместе с метками кампании (FR-022).
+    ///
+    /// Этот же путь используют все входы в кабинет: и первый, и повторный вход
+    /// из раздела поддержки. Маршрут собирает `DesktopCabinetWorkspace.signInRoute`,
+    /// поэтому метки не могут потеряться на одном из входов.
+    private func openPendingSharedMeeting() {
+        guard let configuration = desktopCabinetConfiguration,
+              let route = SharedMeetingHandoffInbox.shared.take(
+                  configuration: configuration,
+                  state: &desktopCabinetState
+              ) else { return }
+        selectedCabinetRoute = route
+    }
+
+    private func openCabinetSignInWithAttributionHandoff(reason: String) {
+        guard let configuration = desktopCabinetConfiguration else { return }
+        let handoff = attributionHandoffs.current()
+        if let handoff {
+            AppLog.writeRaw(
+                event: "attribution.handoff_applied",
+                detail: "reason=\(reason) campaignKnown=\(handoff.campaignKnown) bridgePresent=\(handoff.bridgeID != nil)"
+            )
+        }
+        selectedCabinetRoute = DesktopCabinetWorkspace.signInRoute(
+            configuration: configuration,
+            handoff: handoff
+        )
+    }
+
+    /// Грубая длительность записи: точное значение в веху не попадает.
+    static func durationBucket(seconds: TimeInterval) -> String {
+        switch seconds {
+        case ..<60: return "under_1m"
+        case ..<600: return "1m_to_10m"
+        case ..<1_800: return "10m_to_30m"
+        case ..<3_600: return "30m_to_60m"
+        default: return "over_60m"
+        }
+    }
+
+    private var effectivePermissionOnboardingStatus: DesktopPermissionOnboardingStatus {
+        return DesktopPermissionOnboardingStatus(
+            microphone: permissionOnboardingStatus.microphone,
+            systemAudio: effectiveSystemAudioPermissionState(
+                permissionOnboardingStatus.systemAudio
+            )
+        )
+    }
+
+    private func effectiveSystemAudioPermissionState(
+        _ observedState: CapturePermissionState
+    ) -> CapturePermissionState {
+        guard permissionRecoverySuggested,
+              observedState == .granted || observedState == .unknown else {
+            return observedState
+        }
+        return .stale
+    }
+
+    private var permissionOperationInProgress: Bool {
+        permissionOnboardingRequestInProgress || permissionFunctionalProbeInProgress
+    }
+
+    private var permissionSetupBlocksRecording: Bool {
+        permissionOnboardingPresented || permissionOperationInProgress
+    }
+
+    @MainActor
+    private func presentPermissionSetup() {
+        guard !protectedUpdateWork.isProtected else { return }
+        if let prompt = meetingDetectionPrompt {
+            dismissMeetingDetectionPrompt()
+            recordMeetingDetectionConsumerOutcome(
+                bundleID: prompt.bundleID,
+                outcome: .retryable(reason: "permission_setup_in_progress")
+            )
+        }
+        refreshPermissionOnboarding(reason: "permission_setup_opened")
+        permissionSettingsError = nil
+        permissionOnboardingPresented = true
+        Task { await refreshPermissionOnboardingWithFunctionalProbe(reason: "permission_setup_opened") }
+    }
+
+    @MainActor
+    private func refreshPermissionOnboarding(
+        reason: String,
+        systemAudioPermissionOverride: CapturePermissionState? = nil
+    ) {
+        permissionOnboardingStatus = DesktopPermissionOnboardingStatus(
+            microphone: microphoneCaptureService.preflight(
+                sessionId: "startup-permission-onboarding"
+            ).permissionState,
+            systemAudio: systemAudioPermissionOverride ?? systemAudioPermissionAuthorizer.currentPermissionState()
+        )
+        AppLog.writeRaw(
+            event: "desktop.permission_onboarding_checked",
+            detail: "\(currentApplicationIdentityDetail) reason=\(reason) microphone=\(effectivePermissionOnboardingStatus.microphone.rawValue) systemAudio=\(effectivePermissionOnboardingStatus.systemAudio.rawValue) ready=\(effectivePermissionOnboardingStatus.isReady)"
+        )
+    }
+
+    @MainActor
+    private func refreshPermissionOnboardingWithFunctionalProbe(reason: String) async {
+        guard !permissionOperationInProgress, !protectedUpdateWork.isProtected else { return }
+        permissionFunctionalProbeInProgress = true
+        defer { permissionFunctionalProbeInProgress = false }
+        let verifiedState = await systemAudioPermissionAuthorizer.verifyCurrentPermission()
+        permissionRecoverySuggested = verifiedState == .stale
+        refreshPermissionOnboarding(reason: reason, systemAudioPermissionOverride: verifiedState)
+    }
+
+    @MainActor
+    private func requestStartupMicrophonePermission() async {
+        guard !permissionOperationInProgress, !protectedUpdateWork.isProtected else { return }
+        permissionOnboardingRequestInProgress = true
+        defer { permissionOnboardingRequestInProgress = false }
+
+        microphonePermissionAttempted = true
+        let selection = microphoneCaptureService.resolveRecordingMicrophoneSelection(
+            selectedInputDeviceId: selectedRecordingMicrophoneDeviceId
+        )
+        recordingMicrophoneSelection = selection
+        _ = await microphoneCaptureService.requestPermissionAndPreflight(
+            sessionId: "startup-permission-onboarding",
+            inputDeviceId: selection.inputDeviceId,
+            inputDisplayName: selection.inputDisplayName ?? "Default Microphone"
+        )
+        refreshPermissionOnboarding(reason: "microphone_permission_requested")
+    }
+
+    @MainActor
+    private func requestStartupSystemAudioPermission() async {
+        guard !permissionOperationInProgress, !protectedUpdateWork.isProtected else { return }
+        permissionOnboardingRequestInProgress = true
+        defer { permissionOnboardingRequestInProgress = false }
+
+        systemAudioPermissionAttempted = true
+        let permissionState = await systemAudioPermissionAuthorizer.requestPermission()
+        permissionRecoverySuggested = permissionState == .stale
+        refreshPermissionOnboarding(
+            reason: "system_audio_permission_requested",
+            systemAudioPermissionOverride: permissionState
+        )
+    }
+
+    @MainActor
+    private func openPermissionSettings(_ url: URL) {
+        guard !permissionOperationInProgress else { return }
+        permissionSettingsError = NSWorkspace.shared.open(url) ? nil :
+            "Не удалось открыть настройки. Откройте их через меню Apple → Системные настройки → Конфиденциальность и безопасность."
+    }
+
+    @MainActor
+    private func restartGRAFAfterPermissionChange() {
+        guard !protectedUpdateWork.isProtected, !permissionOperationInProgress else { return }
+        guard let appDelegate = NSApp.delegate as? AppLifecycleDelegate else {
+            permissionSettingsError = "Не удалось подготовить перезапуск. Закройте приложение и откройте его снова из папки «Программы»."
+            return
+        }
+        AppLog.writeRaw(
+            event: "desktop.permission_onboarding_restart_requested",
+            detail: "reason=system_audio_permission_recovery"
+        )
+        appDelegate.requestRelaunch()
+    }
+
+    @MainActor
+    private func refreshCalendarReminder(reason: String) async {
+        guard !desktopCalendarRefreshInProgress else { return }
+        guard let client = DesktopUploadClient.configuredFromEnvironment() else {
+            desktopCalendarPrompt = nil
+            return
+        }
+
+        desktopCalendarRefreshInProgress = true
+        let generation = DesktopCabinetSessionBridge.generation
+        defer { desktopCalendarRefreshInProgress = false }
+
+        do {
+            let response = try await client.listDesktopCalendarUpcoming()
+            guard DesktopCabinetSessionBridge.isCurrentSession(generation) else { return }
+            desktopCalendarPrompt = desktopCalendarReminderService.activePrompt(
+                from: response.events,
+                now: Date(),
+                isRecordingActive: calendarPromptRecordingIsActive
+            )
+            if let prompt = desktopCalendarPrompt, prompt.id == desktopCalendarPendingPromptID,
+               desktopCalendarPendingGeneration == generation {
+                desktopCalendarPrompt = DesktopCalendarReminderService.pendingJoinPrompt(prompt)
+            } else if let prompt = desktopCalendarPrompt, prompt.id == desktopCalendarJoinFailedID,
+               desktopCalendarJoinFailedGeneration == generation {
+                showCalendarJoinFailure(prompt, renewRetryWindow: false)
+            }
+        } catch {
+            let keepRetry = DesktopCalendarReminderService.shouldRetainFailedJoin(
+                prompt: desktopCalendarPrompt, failedPromptID: desktopCalendarJoinFailedID,
+                failedAt: desktopCalendarJoinFailedAt,
+                isCurrentSession: DesktopCabinetSessionBridge.isCurrentSession(generation)
+                    && desktopCalendarJoinFailedGeneration == generation,
+                error: error)
+            let keepPending = DesktopCalendarReminderService.shouldRetainFailedJoin(
+                prompt: desktopCalendarPrompt, failedPromptID: desktopCalendarPendingPromptID,
+                failedAt: desktopCalendarPendingSince,
+                isCurrentSession: DesktopCabinetSessionBridge.isCurrentSession(generation)
+                    && desktopCalendarPendingGeneration == generation, error: error)
+            if !keepRetry && !keepPending { desktopCalendarPrompt = nil }
+            AppLog.writeRaw(
+                event: "calendar.prompt_unavailable",
+                detail: "reason=\(reason) error=calendar_unavailable"
+            )
+        }
+    }
+
+    @MainActor
+    private func handleCalendarPromptPrimary(_ prompt: DesktopCalendarPrompt) {
+        guard !desktopCalendarJoinInProgress else { return }
+        desktopCalendarJoinInProgress = true
+        let generation = DesktopCabinetSessionBridge.generation
+        let displayedPrompt = desktopCalendarPrompt
+        if prompt.kind == .join, let displayedPrompt {
+            desktopCalendarPendingPromptID = prompt.id
+            desktopCalendarPendingGeneration = generation
+            desktopCalendarPendingSince = Date()
+            desktopCalendarPrompt = DesktopCalendarReminderService.pendingJoinPrompt(displayedPrompt)
+        }
+        let isCurrent = {
+            DesktopCabinetSessionBridge.isCurrentSession(generation)
+                && desktopCalendarPrompt?.id == displayedPrompt?.id
+                && desktopCalendarPrompt?.eventId == displayedPrompt?.eventId
+                && desktopCalendarPrompt != nil
+        }
+        let actions = DesktopCalendarPromptActions(
+            openURL: { _ in
+                guard isCurrent(), let eventID = prompt.eventId else { return false }
+                return await CalendarMeetingOpener.openEvent(eventID, isCurrent: isCurrent)
+            },
+            startRecording: { decisionIntent, eventId in
+                Task {
+                    await startManualRecording(
+                        calendarContextEventId: eventId,
+                        calendarMatchDecisionIntent: decisionIntent
+                    )
+                }
+            },
+            dismiss: { dismissed in
+                guard isCurrent() else { return }
+                dismissCalendarPrompt(dismissed)
+            }
+        )
+        Task {
+            defer {
+                if !isCurrent(), desktopCalendarPrompt?.id == displayedPrompt?.id,
+                   desktopCalendarPrompt?.primaryActionTitle == "Открываем…" {
+                    desktopCalendarPrompt = nil
+                }
+                desktopCalendarJoinInProgress = false
+                desktopCalendarPendingPromptID = nil
+                desktopCalendarPendingGeneration = nil
+                desktopCalendarPendingSince = nil
+            }
+            if !(await actions.performPrimaryAction(for: prompt)), isCurrent() {
+                showCalendarJoinFailure(prompt)
+            }
+        }
+    }
+
+    @MainActor
+    private func showCalendarJoinFailure(_ prompt: DesktopCalendarPrompt, renewRetryWindow: Bool = true) {
+        guard desktopCalendarPrompt?.id == prompt.id else { return }
+        if renewRetryWindow {
+            desktopCalendarJoinFailedAt = Date()
+        }
+        desktopCalendarJoinFailedID = prompt.id
+        desktopCalendarJoinFailedGeneration = DesktopCabinetSessionBridge.generation
+        desktopCalendarPrompt?.message = "Не удалось открыть встречу. Проверьте подключение и повторите попытку. Если событие изменилось, обновите календарь."
+        desktopCalendarPrompt?.primaryActionTitle = "Повторить подключение"
+        desktopCalendarPrompt?.accessibilityLabel = "Не удалось открыть встречу. Повторить подключение."
+    }
+
+    @MainActor
+    private func dismissCalendarPrompt(_ prompt: DesktopCalendarPrompt) {
+        desktopCalendarJoinFailedID = nil
+        desktopCalendarJoinFailedAt = nil
+        desktopCalendarJoinFailedGeneration = nil
+        desktopCalendarReminderService.dismiss(prompt)
+        if desktopCalendarPrompt?.id == prompt.id {
+            desktopCalendarPrompt = nil
+        }
+    }
+
+    private var calendarPromptRecordingIsActive: Bool {
+        localRecordingActive ||
+            recordingStartInProgress ||
+            recordingStopInProgress ||
+            captureSession.map { CaptureStatusItem.showsStopButton(for: $0) } == true
+    }
+
+    @MainActor
+    private func reloadMeetingDetectionSettings() {
+        do {
+            meetingDetectionSettings = try meetingDetectionSettingsStore.load()
+            startMeetingDetectionIfNeeded()
+            meetingDetectionStatus = meetingDetectionStatusText()
+        } catch {
+            AppLog.writeRaw(event: "meeting_detection.settings_reload_failed", detail: "error=settings_unavailable")
+        }
+    }
+
+    @MainActor
+    private func startMeetingDetectionIfNeeded() {
+        guard meetingDetectionTask == nil else { return }
+        do {
+            meetingDetectionSettings = try meetingDetectionSettingsStore.load()
+        } catch {
+            meetingDetectionStatus = .unavailable
+            AppLog.writeRaw(event: "meeting_detection.start_failed", detail: "error=settings_unavailable")
+            return
+        }
+        meetingDetectionRegistryStore = buildMeetingDetectionRegistryStore()
+        if (try? resolveMeetingDetectionRegistry(remoteData: nil, remoteETag: nil)) == nil {
+            meetingDetectionRegistry = nil
+            AppLog.writeRaw(
+                event: "meeting_detection.registry_cache_unavailable",
+                detail: "awaitingRemote=true"
+            )
+        }
+        configureMeetingDetectionUploaderIfNeeded()
+        meetingDetectionStatus = meetingDetectionStatusText()
+
+        let logStream = MacOSAudioOwnershipLogStream()
+        meetingDetectionLogStream = logStream
+        meetingDetectionTask = Task { @MainActor in
+            for await observation in logStream.observations() {
+                switch observation {
+                case .reconcile(let generation):
+                    AppLog.writeRaw(
+                        event: "meeting_detection.observer_reconcile",
+                        detail: "generation=\(generation)"
+                    )
+                case .snapshot(let events, let isComplete, let generation):
+                    let activeBundleIDs = Set(events.filter { $0.state == .active }.map(\.bundleID))
+                    for event in events {
+                        AppLog.writeRaw(
+                            event: "meeting_detection.source_transition",
+                            detail: "source=\(event.source.rawValue) bundleID=\(event.bundleID) state=\(event.state.rawValue) snapshot=true"
+                        )
+                    }
+                    let observedAt = events.first?.observedAt ?? Date()
+                    meetingDetectionDetector.reconcileSnapshot(activeBundleIDs: activeBundleIDs, observedAt: observedAt, isComplete: isComplete)
+                    reconcileMeetingDetectionRecording(
+                        activeBundleIDs: activeBundleIDs,
+                        observedAt: observedAt
+                    )
+                    AppLog.writeRaw(
+                        event: "meeting_detection.snapshot_reconciled",
+                        detail: "generation=\(generation) activeCount=\(events.count) complete=\(isComplete)"
+                    )
+                    await advanceMeetingDetection(reason: "snapshot_reconciled")
+                case .lifecycle(let phase, let generation):
+                    AppLog.writeRaw(
+                        event: "meeting_detection.observer_lifecycle",
+                        detail: "generation=\(generation) phase=\(phase.rawValue)"
+                    )
+                case .ownership(let event):
+                    await handleMeetingDetectionAudioOwnershipEvent(event)
+                }
+            }
+            if !Task.isCancelled {
+                meetingDetectionTask = nil
+            }
+        }
+        meetingDetectionAdvanceTask = Task {
+            while !Task.isCancelled {
+                await advanceMeetingDetection(reason: "timer")
+                try? await Task.sleep(for: .seconds(1))
+            }
+        }
+        Task {
+            await refreshMeetingDetectionRegistry(reason: "startup")
+            await uploadMeetingDetectionTelemetry(reason: "startup")
+        }
+        AppLog.writeRaw(event: "meeting_detection.started", detail: "mode=local_three_state")
+    }
+
+    @MainActor
+    private func stopMeetingDetection() {
+        meetingDetectionAdvanceTask?.cancel()
+        meetingDetectionAdvanceTask = nil
+        meetingDetectionTask?.cancel()
+        meetingDetectionTask = nil
+        meetingDetectionLogStream?.stop()
+        meetingDetectionLogStream = nil
+        meetingDetectionDetector.reset()
+        AppLog.writeRaw(event: "meeting_detection.stopped", detail: "reason=deliberate_stop")
+    }
+
+    @MainActor
+    private func restartMeetingDetectionObservation(reason: String) {
+        guard let meetingDetectionLogStream else {
+            startMeetingDetectionIfNeeded()
+            return
+        }
+        // Restart only the activity observer. The detector preserves accepted
+        // offers, so the current prompt, token and original deadline must survive.
+        meetingDetectionLogStream.restart()
+        AppLog.writeRaw(
+            event: "meeting_detection.observer_restart_requested",
+            detail: "reason=\(reason)"
+        )
+    }
+
+    private func buildMeetingDetectionRegistryStore() -> MeetingTargetRegistryStore {
+        MeetingTargetRegistryStore(
+            cacheURL: MeetingDetectionAppModule.targetRegistryCacheURL(),
+            bundledRegistryURL: MeetingDetectionAppModule.bundledTargetRegistryURL
+        )
+    }
+
+    @MainActor
+    private func resolveMeetingDetectionRegistry(
+        remoteData: Data?,
+        remoteETag: String?,
+        requireRemote: Bool = false
+    ) throws {
+        let registryWasUnavailable = meetingDetectionRegistry == nil
+        let store: MeetingTargetRegistryStore
+        if let existing = meetingDetectionRegistryStore {
+            store = existing
+        } else {
+            store = buildMeetingDetectionRegistryStore()
+            meetingDetectionRegistryStore = store
+        }
+        let resolution = try store.resolve(remoteData: remoteData, remoteETag: remoteETag)
+        guard !requireRemote || resolution.source == .remote else {
+            throw MeetingTargetRegistryError.noUsableRegistry
+        }
+        meetingDetectionRegistry = resolution.document
+        let defaultTargetIDs = Set(
+            resolution.document.targets
+                .filter(\.isVerifiedNativePromptTarget)
+                .map(\.id)
+        )
+        if let updatedSettings = try meetingDetectionSettingsStore.applyFirstInstallDefaults(
+            targetIDs: defaultTargetIDs
+        ) {
+            meetingDetectionSettings = updatedSettings
+            NotificationCenter.default.post(
+                name: .twoBrainRecMeetingDetectionSettingsDidChange,
+                object: nil
+            )
+            AppLog.writeRaw(
+                event: "meeting_detection.first_install_defaults_applied",
+                detail: "targetCount=\(defaultTargetIDs.count)"
+            )
+        }
+        AppLog.writeRaw(
+            event: "meeting_detection.registry_resolved",
+            detail: "version=\(resolution.document.registryVersion) source=\(resolution.source.rawValue)"
+        )
+        NotificationCenter.default.post(name: .twoBrainRecMeetingTargetRegistryDidChange, object: nil)
+        if registryWasUnavailable, meetingDetectionLogStream != nil {
+            restartMeetingDetectionObservation(reason: "registry_recovered")
+        }
+    }
+
+    @MainActor
+    private func invalidateMeetingDetectionRegistryForAuthChange() {
+        meetingDetectionRegistryRefreshRevision &+= 1
+        meetingDetectionRegistryRequiresRemoteRefresh = true
+        meetingDetectionRegistryAuthRejected = false
+        meetingDetectionRegistry = nil
+        dismissMeetingDetectionPrompt(retryableReason: "registry_unavailable")
+        meetingDetectionStatus = meetingDetectionStatusText()
+        AppLog.writeRaw(
+            event: "meeting_detection.registry_auth_invalidated",
+            detail: "reason=native_auth_session_changed"
+        )
+    }
+
+    @MainActor
+    private func configureMeetingDetectionUploaderIfNeeded() {
+        guard meetingDetectionTelemetryUploader == nil,
+              let client = DesktopUploadClient.configuredFromEnvironment()
+        else {
+            return
+        }
+        meetingDetectionTelemetryUploader = MeetingDetectionTelemetryUploader(
+            rollupStore: meetingDetectionRollupStore,
+            settingsStore: meetingDetectionSettingsStore,
+            transport: client,
+            stateURL: MeetingDetectionAppModule.telemetryUploaderStateURL()
+        )
+    }
+
+    @MainActor
+    private func refreshMeetingDetectionRegistry(reason: String) async {
+        guard !meetingDetectionRegistryRefreshInProgress else {
+            meetingDetectionRegistryRefreshFollowUpRequested = true
+            return
+        }
+        meetingDetectionRegistryRefreshInProgress = true
+        defer {
+            meetingDetectionRegistryRefreshInProgress = false
+            if meetingDetectionRegistryRefreshFollowUpRequested {
+                meetingDetectionRegistryRefreshFollowUpRequested = false
+                Task { await refreshMeetingDetectionRegistry(reason: "coalesced_follow_up") }
+            }
+        }
+        meetingDetectionRegistryRefreshRevision &+= 1
+        let refreshRevision = meetingDetectionRegistryRefreshRevision
+        guard let client = DesktopUploadClient.configuredFromEnvironment() else {
+            meetingDetectionStatus = meetingDetectionStatusText()
+            return
+        }
+        do {
+            let etag = meetingDetectionRegistry?.etag
+            let fetched = try await client.fetchMeetingDetectionTargetRegistry(ifNoneMatch: etag)
+            guard refreshRevision == meetingDetectionRegistryRefreshRevision else {
+                AppLog.writeRaw(
+                    event: "meeting_detection.registry_refresh_ignored",
+                    detail: "reason=stale_request"
+                )
+                return
+            }
+            if let registry = fetched.registry {
+                let data = try MeetingDetectionCoding.encoder().encode(registry)
+                try resolveMeetingDetectionRegistry(
+                    remoteData: data,
+                    remoteETag: fetched.etag,
+                    requireRemote: meetingDetectionRegistryRequiresRemoteRefresh
+                )
+            }
+            meetingDetectionRegistryRequiresRemoteRefresh = false
+            meetingDetectionRegistryAuthRejected = false
+            meetingDetectionStatus = meetingDetectionStatusText()
+        } catch let refreshError {
+            guard refreshRevision == meetingDetectionRegistryRefreshRevision else {
+                AppLog.writeRaw(
+                    event: "meeting_detection.registry_refresh_ignored",
+                    detail: "reason=stale_request"
+                )
+                return
+            }
+            var fallbackErrorCode: String?
+            let authFailure = meetingDetectionRegistryRefreshIsAuthFailure(refreshError)
+            if meetingDetectionRegistryRequiresRemoteRefresh ||
+                meetingDetectionRegistryAuthRejected ||
+                authFailure {
+                meetingDetectionRegistryRequiresRemoteRefresh = !authFailure &&
+                    !meetingDetectionRegistryAuthRejected
+                meetingDetectionRegistryAuthRejected = meetingDetectionRegistryAuthRejected || authFailure
+                meetingDetectionRegistry = nil
+                dismissMeetingDetectionPrompt(retryableReason: "registry_unavailable")
+            } else {
+                do {
+                    try resolveMeetingDetectionRegistry(remoteData: nil, remoteETag: nil)
+                } catch let fallbackError {
+                    fallbackErrorCode = safeMeetingDetectionRegistryRefreshErrorCode(fallbackError)
+                    meetingDetectionRegistry = nil
+                }
+            }
+            meetingDetectionStatus = meetingDetectionStatusText()
+            let fallbackDetail = fallbackErrorCode.map { " fallback=\($0)" } ?? ""
+            AppLog.writeRaw(
+                event: "meeting_detection.registry_refresh_failed",
+                detail: "reason=\(reason) error=\(safeMeetingDetectionRegistryRefreshErrorCode(refreshError))\(fallbackDetail)"
+            )
+        }
+    }
+
+    private func meetingDetectionRegistryRefreshIsAuthFailure(_ error: Error) -> Bool {
+        guard case DesktopUploadClientError.httpStatus(let status, _) = error else { return false }
+        return status == 401 || status == 403
+    }
+
+    private func safeMeetingDetectionRegistryRefreshErrorCode(_ error: Error) -> String {
+        if case DesktopUploadClientError.httpStatus(let status, let code) = error {
+            return "http_status_\(status):\(code)"
+        }
+        if let registryError = error as? MeetingTargetRegistryError {
+            return "registry_\(registryError.description)"
+        }
+        if let decodingError = error as? DecodingError {
+            return safeRegistryDecodingErrorCode(decodingError)
+        }
+        return "registry_unavailable"
+    }
+
+    private func safeRegistryDecodingErrorCode(_ error: DecodingError) -> String {
+        func path(_ context: DecodingError.Context) -> String {
+            let value = context.codingPath.map(\.stringValue).joined(separator: ".")
+            return value.isEmpty ? "root" : value
+        }
+        func detail(_ context: DecodingError.Context) -> String {
+            context.debugDescription
+                .replacingOccurrences(of: " ", with: "_")
+                .replacingOccurrences(of: "\n", with: "_")
+                .prefix(160)
+                .description
+        }
+        switch error {
+        case .dataCorrupted(let context):
+            return "registry_decode_data_corrupted:\(path(context)):\(detail(context))"
+        case .keyNotFound(let key, let context):
+            let parent = path(context)
+            return "registry_decode_key_not_found:\(parent).\(key.stringValue):\(detail(context))"
+        case .typeMismatch(_, let context):
+            return "registry_decode_type_mismatch:\(path(context)):\(detail(context))"
+        case .valueNotFound(_, let context):
+            return "registry_decode_value_not_found:\(path(context)):\(detail(context))"
+        @unknown default:
+            return "registry_decode_failed"
+        }
+    }
+
+    @MainActor
+    private func handleMeetingDetectionAudioOwnershipEvent(_ event: MacOSAudioOwnershipEvent) async {
+        AppLog.writeRaw(
+            event: "meeting_detection.source_transition",
+            detail: "source=\(event.source.rawValue) bundleID=\(event.bundleID) state=\(event.state.rawValue)"
+        )
+        if event.state == .active, event.bundleID == activeMeetingDetectionBundleID {
+            lastMeetingDetectionEvidenceAt = event.observedAt
+        }
+        if let registry = meetingDetectionRegistry {
+            let outputs = meetingDetectionDetector.handle(
+                event: event,
+                registry: registry,
+                settings: meetingDetectionSettings,
+                prerequisites: meetingDetectionPrerequisites()
+            )
+            processMeetingDetectionOutputs(outputs, registry: registry)
+        } else {
+            meetingDetectionDetector.reconcile(event: event)
+        }
+        await advanceMeetingDetection(reason: "mic_event")
+    }
+
+    @MainActor
+    private func advanceMeetingDetection(reason _: String) async {
+        let registry = meetingDetectionRegistry
+        let outputs = meetingDetectionDetector.advance(
+            registry: registry,
+            settings: meetingDetectionSettings,
+            prerequisites: meetingDetectionPrerequisites()
+        )
+        processMeetingDetectionOutputs(outputs, registry: registry)
+        stopStaleMeetingDetectionRecordingIfNeeded(now: Date())
+    }
+
+    @MainActor
+    private func processMeetingDetectionOutputs(
+        _ outputs: [MacOSMeetingActivityDetectorOutput],
+        registry: MeetingTargetRegistryDocument?
+    ) {
+        var didHandleRecordingTrigger = false
+        for output in outputs {
+            switch output {
+            case .promptEligible(let targetID, let bundleID):
+                guard let registry else { continue }
+                AppLog.writeRaw(
+                    event: "meeting_detection.detector_offer",
+                    detail: "kind=prompt targetId=\(targetID) bundleID=\(bundleID)"
+                )
+                guard manuallyStoppedMeetingDetectionBundleID != bundleID else {
+                    recordMeetingDetectionConsumerOutcome(
+                        bundleID: bundleID,
+                        outcome: .terminal(reason: "manually_stopped_current_meeting")
+                    )
+                    continue
+                }
+                guard DesktopNotificationPresenter.shared.isPresentationAvailable,
+                      !permissionSetupBlocksRecording,
+                      !didHandleRecordingTrigger,
+                      meetingDetectionPrompt == nil,
+                      !meetingDetectionTriggerInProgress,
+                      !calendarPromptRecordingIsActive
+                else {
+                    recordMeetingDetectionConsumerOutcome(
+                        bundleID: bundleID,
+                        outcome: .retryable(reason: "consumer_busy")
+                    )
+                    continue
+                }
+                didHandleRecordingTrigger = true
+                let displayName = registry.targets.first { $0.id == targetID }?.displayName ?? bundleID
+                let prompt = MeetingDetectionPrompt(
+                    targetID: targetID,
+                    bundleID: bundleID,
+                    displayName: displayName
+                )
+                meetingDetectionPrompt = prompt
+                presentMeetingDetectionPrompt(prompt)
+                guard meetingDetectionPromptToken != nil else { continue }
+                recordMeetingDetectionConsumerOutcome(bundleID: bundleID, outcome: .accepted)
+                meetingDetectionStatus = .meetingFound(displayName)
+            case .autoRecordEligible(let targetID, let bundleID):
+                guard let registry else { continue }
+                AppLog.writeRaw(
+                    event: "meeting_detection.detector_offer",
+                    detail: "kind=auto_record targetId=\(targetID) bundleID=\(bundleID)"
+                )
+                guard manuallyStoppedMeetingDetectionBundleID != bundleID else {
+                    recordMeetingDetectionConsumerOutcome(
+                        bundleID: bundleID,
+                        outcome: .terminal(reason: "manually_stopped_current_meeting")
+                    )
+                    continue
+                }
+                guard !permissionSetupBlocksRecording,
+                      !didHandleRecordingTrigger,
+                      meetingDetectionPrompt == nil,
+                      !meetingDetectionTriggerInProgress,
+                      !calendarPromptRecordingIsActive
+                else {
+                    recordMeetingDetectionConsumerOutcome(
+                        bundleID: bundleID,
+                        outcome: .retryable(reason: "consumer_busy")
+                    )
+                    continue
+                }
+                didHandleRecordingTrigger = true
+                meetingDetectionTriggerInProgress = true
+                let displayName = registry.targets.first { $0.id == targetID }?.displayName ?? bundleID
+                Task { @MainActor in
+                    defer { meetingDetectionTriggerInProgress = false }
+                    guard let decision = currentMeetingDetectionStartDecision(
+                        targetID: targetID,
+                        bundleID: bundleID,
+                        displayName: displayName,
+                        reason: .savedTargetPolicy
+                    ) else {
+                        meetingDetectionStatus = .blocked
+                        recordMeetingDetectionConsumerOutcome(
+                            bundleID: bundleID,
+                            outcome: .retryable(reason: "current_start_decision_blocked")
+                        )
+                        return
+                    }
+                    let outcome = await startManualRecording(
+                        meetingDetectionTarget: decision
+                    )
+                    recordMeetingDetectionConsumerOutcome(bundleID: bundleID, outcome: outcome)
+                    if outcome == .accepted {
+                        meetingDetectionStatus = .configuredForApp(displayName)
+                    }
+                }
+                meetingDetectionStatus = .detecting(displayName)
+            case .candidateObserved(
+                bundleID: let bundleID,
+                score: let score,
+                observation: let observation,
+                decision: let decision
+            ):
+                guard let registry else { continue }
+                AppLog.writeRaw(
+                    event: "meeting_detection.detector_offer",
+                    detail: "kind=candidate bundleID=\(bundleID) score=\(score)"
+                )
+                do {
+                    _ = try meetingDetectionRollupStore.recordObservation(
+                        observation,
+                        decision: decision,
+                        registryVersion: registry.registryVersion,
+                        settings: meetingDetectionSettings
+                    )
+                    recordMeetingDetectionConsumerOutcome(bundleID: observation.bundleID, outcome: .accepted)
+                    Task { await uploadMeetingDetectionTelemetry(reason: "candidate_observed") }
+                    meetingDetectionStatus = .candidate
+                } catch {
+                    recordMeetingDetectionConsumerOutcome(
+                        bundleID: observation.bundleID,
+                        outcome: .retryable(reason: "local_rollup_unavailable")
+                    )
+                    AppLog.writeRaw(event: "meeting_detection.rollup_failed", detail: "error=local_rollup_unavailable")
+                }
+            case .suppressed(let bundleID, let reason):
+                AppLog.writeRaw(
+                    event: "meeting_detection.detector_offer",
+                    detail: "kind=suppressed bundleID=\(bundleID) reason=\(reason)"
+                )
+                let retryableReasons: Set<String> = [
+                    RecordingStartBlocker.alreadyRecording.rawValue,
+                    RecordingStartBlocker.captureUnavailable.rawValue,
+                    RecordingStartBlocker.indicatorUnavailable.rawValue,
+                    RecordingStartBlocker.permissionDenied.rawValue,
+                    RecordingStartBlocker.policyDisabled.rawValue,
+                    RecordingStartBlocker.storageUnsafe.rawValue,
+                    "one_action_stop_unavailable",
+                    "capture_prerequisite_blocked",
+                ]
+                recordMeetingDetectionConsumerOutcome(
+                    bundleID: bundleID,
+                    outcome: retryableReasons.contains(reason)
+                        ? .retryable(reason: reason)
+                        : .terminal(reason: reason)
+                )
+                meetingDetectionStatus = meetingDetectionStatusText()
+            case .ended(let bundleID):
+                AppLog.writeRaw(
+                    event: "meeting_detection.candidate_ended",
+                    detail: "bundleID=\(bundleID) result=all_sources_inactive"
+                )
+                if meetingDetectionPrompt?.bundleID == bundleID {
+                    dismissMeetingDetectionPrompt()
+                }
+                if manuallyStoppedMeetingDetectionBundleID == bundleID {
+                    manuallyStoppedMeetingDetectionBundleID = nil
+                }
+                stopMeetingDetectionRecordingIfNeeded(bundleID: bundleID)
+                meetingDetectionStatus = meetingDetectionStatusText()
+            }
+        }
+    }
+
+    @MainActor
+    private func recordMeetingDetectionConsumerOutcome(
+        bundleID: String,
+        outcome: MacOSMeetingActivityDetectorConsumerOutcome
+    ) {
+        meetingDetectionDetector.recordConsumerOutcome(bundleID: bundleID, outcome: outcome)
+        let detail: String
+        switch outcome {
+        case .accepted:
+            detail = "bundleID=\(bundleID) result=accepted retryable=false"
+        case .retryable(let reason):
+            detail = "bundleID=\(bundleID) result=rejected reason=\(reason) retryable=true"
+        case .terminal(let reason):
+            detail = "bundleID=\(bundleID) result=rejected reason=\(reason) retryable=false"
+        }
+        AppLog.writeRaw(event: "meeting_detection.consumer_outcome", detail: detail)
+    }
+
+    @MainActor
+    private func stopMeetingDetectionRecordingIfNeeded(bundleID: String) {
+        guard activeMeetingDetectionBundleID == bundleID else { return }
+        if recordingStartInProgress {
+            pendingMeetingDetectionStopBundleID = bundleID
+            AppLog.writeRaw(
+                event: "meeting_detection.recording_stop_deferred",
+                detail: "bundleID=\(bundleID) reason=start_in_progress"
+            )
+            return
+        }
+        guard let session = captureSession,
+              session.triggerEvidence["meetingDetectionBundleId"] == bundleID,
+              CaptureStatusItem.showsStopButton(for: session)
+        else {
+            return
+        }
+        guard pendingMeetingDetectionStopBundleID != bundleID else { return }
+        pendingMeetingDetectionStopBundleID = bundleID
+        AppLog.writeRaw(
+            event: "meeting_detection.recording_stop_requested",
+            detail: "sessionId=\(session.id) bundleID=\(bundleID) reason=meeting_ended"
+        )
+        Task {
+            await stopManualRecording(
+                reason: .meetingEnded,
+                evidenceInitiator: .systemFailClosed,
+                enqueueReason: "meeting_detection_target_ended"
+            )
+        }
+    }
+
+    @MainActor
+    private func reconcileMeetingDetectionRecording(
+        activeBundleIDs: Set<String>,
+        observedAt: Date
+    ) {
+        if let activeMeetingDetectionBundleID, activeBundleIDs.contains(activeMeetingDetectionBundleID) {
+            lastMeetingDetectionEvidenceAt = observedAt
+        }
+        // Absence and manual suppression end together through the detector's 15-second grace.
+    }
+
+    @MainActor
+    private func stopStaleMeetingDetectionRecordingIfNeeded(now: Date) {
+        guard let bundleID = activeMeetingDetectionBundleID,
+              let lastMeetingDetectionEvidenceAt,
+              MacOSMeetingActivityDetector.recordingEvidenceExpired(lastObservedAt: lastMeetingDetectionEvidenceAt, now: now)
+        else { return }
+        AppLog.writeRaw(
+            event: "meeting_detection.recording_stop_requested",
+            detail: "bundleID=\(bundleID) reason=evidence_timeout"
+        )
+        stopMeetingDetectionRecordingIfNeeded(bundleID: bundleID)
+    }
+
+    @MainActor
+    private func uploadMeetingDetectionTelemetry(reason: String) async {
+        configureMeetingDetectionUploaderIfNeeded()
+        guard let uploader = meetingDetectionTelemetryUploader else { return }
+        do {
+            let outcome = try await uploader.uploadPending()
+            AppLog.writeRaw(
+                event: "meeting_detection.telemetry_upload_completed",
+                detail: "reason=\(reason) uploadedCount=\(outcome.uploadedCount) skipped=\(outcome.skippedReason != nil)"
+            )
+        } catch {
+            AppLog.writeRaw(event: "meeting_detection.telemetry_upload_failed", detail: "reason=\(reason) error=upload_unavailable")
+        }
+    }
+
+    @MainActor
+    private func meetingDetectionPrerequisites() -> MeetingDetectionCapturePrerequisites {
+        let currentMicrophone = microphoneCaptureService.preflight(sessionId: "meeting-detection-preflight")
+        let currentSystemAudio = effectiveSystemAudioPermissionState(
+            systemAudioPermissionAuthorizer.currentPermissionState()
+        )
+        let permissionGate = systemAudioPermissionGate.evaluate(
+            microphone: currentMicrophone.permissionState,
+            systemAudio: currentSystemAudio
+        )
+        let prerequisite = evaluatedMeetingDetectionRecordingPrerequisite(
+            permissions: permissionGate.snapshot
+        )
+        return MeetingDetectionCapturePrerequisites(
+            recordingAlreadyActive: calendarPromptRecordingIsActive,
+            visibleRecordingStateAvailable: prerequisite.indicatorAvailable,
+            oneActionStopAvailable: meetingDetectionOneActionStopAvailable,
+            captureRouteReady: DesktopNotificationPresenter.shared.isPresentationAvailable && !permissionSetupBlocksRecording && !recordingStartInProgress && !recordingStopInProgress,
+            recordingPrerequisite: prerequisite
+        )
+    }
+
+    @MainActor
+    private var meetingDetectionOneActionStopAvailable: Bool {
+        !recordingStartInProgress && !recordingStopInProgress
+    }
+
+    @MainActor
+    private var meetingDetectionVisibleIndicatorAvailable: Bool {
+        guard let captureSession else { return true }
+        return captureSession.visibleIndicatorState != .hidden ||
+            CaptureControlView.shouldShowRecordButton(for: captureSession)
+    }
+
+    private func evaluatedMeetingDetectionRecordingPrerequisite(
+        permissions: SystemAudioPermissionSnapshot,
+        sourceAppIsCurrent: Bool = true,
+        storageRisk: LocalBufferRiskState? = nil
+    ) -> RecordingPrerequisiteSnapshot {
+        return RecordingPrerequisiteGate().evaluate(
+            RecordingPrerequisiteSnapshot(
+                policyAllowsRecording: true,
+                microphonePermissionGranted: permissions.microphone == .granted,
+                systemAudioPermissionGranted: permissions.systemAudio == .granted,
+                storageRisk: storageRisk ?? meetingDetectionStorageRisk(),
+                indicatorAvailable: meetingDetectionVisibleIndicatorAvailable,
+                sourceAppEligibility: sourceAppIsCurrent ? .eligible : .ineligible,
+                evaluatedAt: Date()
+            )
+        )
+    }
+
+    @MainActor
+    private func meetingDetectionStorageRisk() -> LocalBufferRiskState {
+        let usedBytes = uploadQueueItems.reduce(Int64(0)) {
+            $0 + $1.artifactProfile.totalUploadBytes
+        }
+        return LocalRecordingStorageProbe(usedBytes: usedBytes).riskState()
+    }
+
+    @MainActor
+    private func meetingDetectionStatusText() -> MeetingDetectionStatus {
+        guard meetingDetectionRegistry != nil else {
+            return .unavailable
+        }
+        return .configured
+    }
+
+    @MainActor
+    private func presentMeetingDetectionPrompt(_ prompt: MeetingDetectionPrompt) {
+        let token = UUID()
+        let authEpoch = DesktopNotificationPresenter.shared.authEpoch
+        meetingDetectionPromptToken = token
+        meetingDetectionPromptRememberChoice = false
+        let shown = DesktopNotificationPresenter.shared.presentRecordingPrompt(
+            displayName: prompt.displayName,
+            rememberChoice: false,
+            onStart: { [self] in
+                guard isCurrentMeetingDetectionPrompt(prompt, token: token) else { return }
+                self.acceptMeetingDetectionPrompt(
+                    prompt,
+                    autoRecordOptIn: self.meetingDetectionPromptRememberChoice,
+                    reason: .promptButton
+                )
+            },
+            onDismiss: { [self] in
+                guard isCurrentMeetingDetectionPrompt(prompt, token: token) else { return }
+                self.dismissMeetingDetectionPrompt(prompt, rememberChoice: false, reason: .userSkipped)
+            },
+            onRememberChoiceChanged: { [self] value in
+                guard isCurrentMeetingDetectionPrompt(prompt, token: token) else { return }
+                self.meetingDetectionPromptRememberChoice = value
+            },
+            isStillCurrent: { [self] in
+                isCurrentMeetingDetectionPrompt(prompt, token: token)
+            },
+            onExpire: { [self] in
+                guard isCurrentMeetingDetectionPrompt(prompt, token: token) else { return }
+                self.acceptMeetingDetectionPrompt(
+                    prompt,
+                    autoRecordOptIn: false,
+                    reason: .promptTimeout
+                )
+            },
+            onSkip: { [self] rememberChoice in
+                guard isCurrentMeetingDetectionPrompt(prompt, token: token) else { return }
+                self.dismissMeetingDetectionPrompt(prompt, rememberChoice: rememberChoice, reason: .userSkipped)
+            },
+            onInvalidated: { [self] in
+                guard isCurrentMeetingDetectionPrompt(prompt, token: token) else { return }
+                if DesktopNotificationPresenter.shared.authEpoch != authEpoch {
+                    self.dismissMeetingDetectionPrompt(retryableReason: "registry_unavailable")
+                } else {
+                    self.dismissMeetingDetectionPrompt(prompt, reason: .invalidated)
+                }
+            }
+        )
+        guard shown else {
+            if isCurrentMeetingDetectionPrompt(prompt, token: token) {
+                dismissMeetingDetectionPrompt(prompt, reason: .presentationUnavailable)
+            }
+            return
+        }
+        AppLog.writeRaw(
+            event: "meeting_detection.prompt_presented",
+            detail: "targetId=\(prompt.targetID) bundleID=\(prompt.bundleID)"
+        )
+    }
+
+    @MainActor
+    private func isCurrentMeetingDetectionPrompt(_ prompt: MeetingDetectionPrompt, token: UUID) -> Bool {
+        meetingDetectionPromptToken == token && meetingDetectionPrompt?.id == prompt.id
+    }
+
+    @MainActor
+    private func dismissMeetingDetectionPrompt(retryableReason: String? = nil) {
+        if let meetingDetectionPrompt {
+            if let retryableReason {
+                recordMeetingDetectionConsumerOutcome(
+                    bundleID: meetingDetectionPrompt.bundleID,
+                    outcome: .retryable(reason: retryableReason)
+                )
+            }
+            AppLog.writeRaw(
+                event: "meeting_detection.prompt_dismissed",
+                detail: "targetId=\(meetingDetectionPrompt.targetID) bundleID=\(meetingDetectionPrompt.bundleID)"
+            )
+        }
+        meetingDetectionPromptToken = nil
+        meetingDetectionPrompt = nil
+        meetingDetectionPromptRememberChoice = false
+        DesktopNotificationPresenter.shared.dismissRecordingPrompt()
+    }
+
+    @MainActor
+    private func dismissMeetingDetectionPrompt(
+        _ prompt: MeetingDetectionPrompt,
+        rememberChoice: Bool = false,
+        reason: MeetingDetectionPromptDismissReason = .userSkipped
+    ) {
+        let shouldPersistChoice = rememberChoice && reason == .userSkipped
+        let decision = MeetingDetectionPromptDecision(action: .skip, rememberChoice: shouldPersistChoice)
+        if let rule = decision.persistedRule {
+            if !saveMeetingDetectionRule(rule, targetID: prompt.targetID) {
+                meetingDetectionStatus = .notSaved
+            }
+        }
+        recordMeetingDetectionConsumerOutcome(
+            bundleID: prompt.bundleID,
+            outcome: .terminal(reason: reason.rawValue)
+        )
+        dismissMeetingDetectionPrompt()
+    }
+
+    @MainActor
+    private func acceptMeetingDetectionPrompt(
+        _ prompt: MeetingDetectionPrompt,
+        autoRecordOptIn: Bool,
+        reason: MeetingDetectionStartReason
+    ) {
+        AppLog.writeRaw(
+            event: "meeting_detection.prompt_accepted",
+            detail: "targetId=\(prompt.targetID) bundleID=\(prompt.bundleID) autoRecordOptIn=\(autoRecordOptIn) reason=\(reason.rawValue)"
+        )
+        let decision = MeetingDetectionPromptDecision(
+            action: reason == .promptButton ? .start : .timeout,
+            rememberChoice: autoRecordOptIn
+        )
+        if let rule = decision.persistedRule {
+            if !saveMeetingDetectionRule(rule, targetID: prompt.targetID) {
+                meetingDetectionStatus = .notSaved
+            }
+        }
+        if decision.persistedRule == .always {
+            // Пользователь включил авто-запись: веха отправляется из этого пути.
+            Task {
+                await activationReporter.noteAutorecordEnabled(
+                    policyState: "enabled",
+                    previousState: "disabled",
+                    source: "prompt_button",
+                    surface: "meeting_detection_prompt"
+                )
+            }
+        }
+        let notificationEpoch = DesktopNotificationPresenter.shared.presentationEpoch
+        let authEpoch = DesktopNotificationPresenter.shared.authEpoch
+        dismissMeetingDetectionPrompt()
+        Task {
+            guard notificationEpoch == DesktopNotificationPresenter.shared.presentationEpoch,
+                  authEpoch == DesktopNotificationPresenter.shared.authEpoch,
+                  DesktopNotificationPresenter.shared.isPresentationAvailable else { return }
+            guard let decision = currentMeetingDetectionStartDecision(
+                targetID: prompt.targetID,
+                bundleID: prompt.bundleID,
+                displayName: prompt.displayName,
+                reason: reason
+            ) else {
+                meetingDetectionStatus = .failed
+                recordMeetingDetectionConsumerOutcome(
+                    bundleID: prompt.bundleID,
+                    outcome: .retryable(reason: "current_prompt_decision_blocked")
+                )
+                DesktopNotificationPresenter.shared.reconcileCard()
+                return
+            }
+            let outcome = await startManualRecording(
+                meetingDetectionTarget: decision
+            )
+            recordMeetingDetectionConsumerOutcome(bundleID: prompt.bundleID, outcome: outcome)
+            if outcome != .accepted {
+                DesktopNotificationPresenter.shared.reconcileCard()
+            }
+        }
+    }
+
+    @MainActor
+    private func currentMeetingDetectionStartDecision(
+        targetID: String,
+        bundleID: String,
+        displayName: String,
+        reason: MeetingDetectionStartReason
+    ) -> MeetingDetectionRecordingTarget? {
+        guard DesktopNotificationPresenter.shared.isPresentationAvailable,
+              !permissionSetupBlocksRecording,
+              meetingDetectionSettings.allowsDetectorAssistedStart(reason: reason, targetID: targetID),
+              meetingDetectionDetector.isActive(bundleID: bundleID),
+              let registry = meetingDetectionRegistry,
+              let target = registry.target(forBundleID: bundleID),
+              target.id == targetID,
+              target.mode == .promptEnabled
+        else {
+            return nil
+        }
+        return MeetingDetectionRecordingTarget(
+            targetID: targetID,
+            bundleID: bundleID,
+            displayName: displayName,
+            reason: reason,
+            authEpoch: DesktopNotificationPresenter.shared.authEpoch,
+            presentationEpoch: DesktopNotificationPresenter.shared.presentationEpoch
+        )
+    }
+
+    @MainActor
+    private func isCurrentMeetingDetectionDecision(_ decision: MeetingDetectionRecordingTarget) -> Bool {
+        let current = currentMeetingDetectionStartDecision(
+            targetID: decision.targetID,
+            bundleID: decision.bundleID,
+            displayName: decision.displayName,
+            reason: decision.reason
+        )
+        return MeetingDetectionAppModule.allowsPendingStart(
+            decisionIsCurrent: current == decision,
+            bundleID: decision.bundleID,
+            pendingStopBundleID: pendingMeetingDetectionStopBundleID
+        )
+    }
+
+    @MainActor
+    @discardableResult
+    private func saveMeetingDetectionRule(_ rule: AutomaticRecordingRule, targetID: String) -> Bool {
+        do {
+            meetingDetectionSettings = try meetingDetectionSettingsStore.update {
+                $0.setRecordingRule(rule, for: targetID)
+            }
+            NotificationCenter.default.post(name: .twoBrainRecMeetingDetectionSettingsDidChange, object: nil)
+            return true
+        } catch {
+            AppLog.writeRaw(event: "meeting_detection.settings_save_failed", detail: "error=settings_unavailable")
+            return false
+        }
+    }
+
+    @MainActor
+    @discardableResult
+    private func startManualRecording(
+        calendarContextEventId: String? = nil,
+        calendarMatchDecisionIntent: DesktopCalendarMatchDecisionIntent = .automatic,
+        meetingDetectionTarget: MeetingDetectionRecordingTarget? = nil
+    ) async -> MacOSMeetingActivityDetectorConsumerOutcome {
+        if let meetingDetectionTarget, !isCurrentMeetingDetectionDecision(meetingDetectionTarget) {
+            recordingBlocker = .init(kind: .capture, message: "Запись не началась: настройка или состояние встречи изменились.")
+            AppLog.writeRaw(
+                event: AuditEventName.recordingStartBlocked.rawValue,
+                detail: "reason=meeting_detection_decision_stale startReason=\(meetingDetectionTarget.reason.rawValue)"
+            )
+            return .retryable(reason: "meeting_detection_decision_stale")
+        }
+        guard !recordingStartInProgress, !recordingStopInProgress else {
+            return .retryable(reason: "recording_transition_in_progress")
+        }
+        if let captureSession, CaptureStatusItem.showsStopButton(for: captureSession) {
+            return .retryable(reason: RecordingStartBlocker.alreadyRecording.rawValue)
+        }
+        guard !permissionSetupBlocksRecording else {
+            return .retryable(reason: "permission_setup_in_progress")
+        }
+        DesktopNotificationPresenter.shared.dismissShortRecording()
+        refreshPermissionOnboarding(reason: "recording_start_preflight")
+        guard effectivePermissionOnboardingStatus.isReady else {
+            if meetingDetectionTarget == nil { presentPermissionSetup() }
+            return .retryable(reason: RecordingStartBlocker.permissionDenied.rawValue)
+        }
+        activeCalendarContextEventId = calendarContextEventId
+        activeCalendarMatchAttemptId = nil
+        activeCalendarMatchLocalRecordingId = nil
+        let detectorBundleID = meetingDetectionTarget?.bundleID
+        if let detectorBundleID {
+            activeMeetingDetectionBundleID = detectorBundleID
+            pendingMeetingDetectionStopBundleID = nil
+            lastMeetingDetectionEvidenceAt = Date()
+        }
+        var detectorRecordingStarted = false
+        recordingStartInProgress = true
+        defer {
+            recordingStartInProgress = false
+            if let detectorBundleID {
+                finishMeetingDetectionStart(
+                    bundleID: detectorBundleID,
+                    succeeded: detectorRecordingStarted
+                )
+            }
+        }
+
+        localRecordingManifest = nil
+        recordingBlocker = nil
+        let scopeApproval: CaptureScopeApproval
+        do {
+            if let meetingDetectionTarget {
+                scopeApproval = try captureScopeApprovalService.approveDetectorAssistedMeetingTarget(
+                    sourceDisplayName: meetingDetectionTarget.displayName,
+                    startReason: meetingDetectionTarget.reason
+                )
+            } else {
+                scopeApproval = try captureScopeApprovalService.approve(
+                    scopeKind: .display,
+                    sourceDisplayName: "Current display/system audio",
+                    approvalMode: .userConfirmedSuggestedScope,
+                    eligibleReason: .manualMeetingScope
+                )
+            }
+        } catch {
+            recordingBlocker = .init(kind: .capture, message: "Запись не началась: не удалось подтвердить область записи.")
+            return .terminal(reason: "scope_approval_failed")
+        }
+        do {
+            let preparing = if let meetingDetectionTarget {
+                try captureController.beginDetectorAssistedPreparing(
+                    targetID: meetingDetectionTarget.targetID,
+                    bundleID: meetingDetectionTarget.bundleID,
+                    displayName: meetingDetectionTarget.displayName,
+                    startReason: meetingDetectionTarget.reason,
+                    policySnapshotRef: meetingDetectionTarget.reason == .promptButton
+                        ? "prompt_button_user_confirmation"
+                        : "local_automatic_recording_rule_v1",
+                    authorizationEvidence: meetingDetectionTarget.authorizationEvidence
+                )
+            } else {
+                try captureController.beginPreparing(
+                    mode: .audioRecording,
+                    sourceAppEligibility: .eligible
+                )
+            }
+            captureSession = preparing
+        } catch {
+            recordingBlocker = .init(kind: .capture, message: "Запись не началась: \(recordingStartFailureMessage(for: error))")
+            return .terminal(reason: "capture_preparing_failed")
+        }
+        let resolvedMicrophoneSelection = microphoneCaptureService.resolveRecordingMicrophoneSelection(
+            selectedInputDeviceId: selectedRecordingMicrophoneDeviceId
+        )
+        recordingMicrophoneSelection = resolvedMicrophoneSelection
+        guard resolvedMicrophoneSelection.isAccepted else {
+            let recoveryCopy = CaptureControlView.recordingMicrophoneRecoveryCopy(
+                for: resolvedMicrophoneSelection
+            ) ?? "Выберите другой микрофон записи."
+            if let blocked = try? captureController.blockStart(
+                reason: .captureFailed,
+                recoveryAction: recoveryCopy
+            ) {
+                captureSession = blocked
+            }
+            recordingBlocker = .init(kind: .source, message: "Запись не началась: \(recoveryCopy)")
+            return resolvedMicrophoneSelection.rejectionReason == .deviceUnavailable
+                ? .retryable(reason: RecordingStartBlocker.captureFailed.rawValue)
+                : .terminal(reason: RecordingStartBlocker.captureFailed.rawValue)
+        }
+        let microphoneSession = microphoneCaptureService.preflight(
+            sessionId: "pending",
+            inputDeviceId: resolvedMicrophoneSelection.inputDeviceId,
+            inputDisplayName: resolvedMicrophoneSelection.inputDisplayName ?? "Default Microphone"
+        )
+        let observedSystemAudioPermissionState = systemAudioPermissionAuthorizer.currentPermissionState()
+        let systemAudioPermissionState = effectiveSystemAudioPermissionState(
+            observedSystemAudioPermissionState
+        )
+        let permissionGate = systemAudioPermissionGate.evaluate(
+            microphone: microphoneSession.permissionState,
+            systemAudio: systemAudioPermissionState
+        )
+        let prerequisite = evaluatedMeetingDetectionRecordingPrerequisite(
+            permissions: permissionGate.snapshot,
+            sourceAppIsCurrent: meetingDetectionTarget.map { isCurrentMeetingDetectionDecision($0) } ?? true,
+            storageRisk: meetingDetectionStorageRisk()
+        )
+
+        do {
+            guard prerequisite.allowsRecording && permissionGate.allowsAcceptedRecording else {
+                let blocked = try captureController.blockStart(
+                    reason: permissionGate.allowsAcceptedRecording ? prerequisite.blockedReason : .permissionDenied,
+                    recoveryAction: permissionGate.presentation?.message ??
+                        prerequisite.recoveryAction ??
+                        "Resolve recording blocker"
+                )
+                captureSession = blocked
+                recordingEvidenceEvents.append(
+                    RecordingEvidenceService().startBlocked(
+                        session: blocked,
+                        prerequisite: prerequisite,
+                        initiator: meetingDetectionTarget?.evidenceInitiator ?? .user
+                    )
+                )
+                if let presentation = permissionGate.presentation {
+                    recordingBlocker = .init(
+                        kind: .permission,
+                        message: "\(presentation.title). \(presentation.message)",
+                        recoveryAction: .openPermissions
+                    )
+                } else {
+                    recordingBlocker = recordingBlockerPresentation(for: prerequisite)
+                }
+                AppLog.writeRaw(
+                    event: AuditEventName.recordingStartBlocked.rawValue,
+                    detail: "reason=\(permissionGate.allowsAcceptedRecording ? prerequisite.blockedReason.rawValue : RecordingStartBlocker.permissionDenied.rawValue) microphonePermission=\(permissionGate.snapshot.microphone.rawValue) systemAudioPermission=\(permissionGate.snapshot.systemAudio.rawValue) action=\(permissionGate.presentation?.recoveryAction.rawValue ?? prerequisite.recoveryAction ?? "none")"
+                )
+                let blocker = permissionGate.allowsAcceptedRecording
+                    ? prerequisite.blockedReason
+                    : RecordingStartBlocker.permissionDenied
+                switch blocker {
+                case .alreadyRecording, .captureUnavailable, .indicatorUnavailable, .policyDisabled, .storageUnsafe:
+                    return .retryable(reason: blocker.rawValue)
+                case .none, .permissionDenied, .sourceAppIneligible, .captureFailed, .unknown:
+                    return .terminal(reason: blocker.rawValue)
+                }
+            }
+
+            _ = try captureController.markReady(triggerEvidence: [
+                "captureSource": "system_audio",
+                "scopeApprovalId": scopeApproval.scopeApprovalId,
+                "scopeKind": scopeApproval.scopeKind.rawValue,
+                "sourceDisplayName": scopeApproval.sourceDisplayName,
+                "microphonePermissionState": permissionGate.snapshot.microphone.rawValue,
+                "systemAudioPermissionState": permissionGate.snapshot.systemAudio.rawValue,
+                "recordingMicrophoneMode": resolvedMicrophoneSelection.mode.rawValue,
+                "recordingMicrophoneSelectionResult": resolvedMicrophoneSelection.selectionResult.rawValue,
+                "recordingMicrophoneInputDeviceId": resolvedMicrophoneSelection.inputDeviceId ?? "none",
+                "recordingMicrophoneInputDisplayName": resolvedMicrophoneSelection.inputDisplayName ?? "unknown",
+                "captureArchitecture": "app_owned_system_audio_and_microphone",
+                "recordingStartKind": meetingDetectionTarget == nil ? "manual" : "meeting_detection",
+                "meetingDetectionTargetId": meetingDetectionTarget?.targetID ?? "none",
+                "meetingDetectionBundleId": meetingDetectionTarget?.bundleID ?? "none",
+                "externalEgressStarted": "false",
+                "transcriptionStarted": "false"
+            ])
+            let starting = try captureController.start()
+            captureSession = starting
+            let targetMuteCapability = meetingMuteTruthService.capability(for: scopeApproval.sourceDisplayName)
+            let targetMuteEvidence = meetingMuteTruthService.evidence(
+                sessionId: starting.id,
+                capability: targetMuteCapability,
+                limitationCopyShown: true,
+                recordedAt: Date()
+            )
+            let limitationCopyShownAt = Date()
+            let recordingStartedAt = Date()
+            _ = try await systemAudioCaptureService.start(
+                sessionId: starting.id,
+                permissionState: permissionGate.snapshot.systemAudio,
+                scopeApproval: scopeApproval,
+                startedAt: recordingStartedAt
+            )
+            if let meetingDetectionTarget, !isCurrentMeetingDetectionDecision(meetingDetectionTarget) {
+                throw MeetingDetectionStartCancellation.staleDecision
+            }
+            let incomingSource = systemAudioCaptureService.incomingSampleSource
+            let microphoneSource = try microphoneCaptureService.startAppOwnedMicrophoneSampleSource(
+                for: resolvedMicrophoneSelection
+            )
+            activeMicrophoneSampleSource = microphoneSource
+            localRecordingWriter = LocalRecordingWriter(
+                microphoneSampleSourceFactory: { microphoneSource },
+                incomingSampleSourceFactory: { incomingSource },
+                recordMicrophone: true,
+                diagnosticLogger: AppLog.writeCaptureTiming
+            )
+            let directory = try await localRecordingWriter.startAsync(
+                sessionId: starting.id,
+                startedAt: recordingStartedAt,
+                scopeApproval: scopeApproval,
+                permissions: permissionGate.snapshot,
+                microphoneSelection: resolvedMicrophoneSelection,
+                targetMuteCapability: targetMuteCapability,
+                meetingMuteTruthEvidence: [targetMuteEvidence],
+                limitationCopyShownAt: limitationCopyShownAt,
+                requiresStartAcceptance: meetingDetectionTarget != nil
+            )
+            if let meetingDetectionTarget, !isCurrentMeetingDetectionDecision(meetingDetectionTarget) {
+                throw MeetingDetectionStartCancellation.staleDecision
+            }
+            let active = try captureController.markCapturing()
+            if meetingDetectionTarget != nil {
+                try localRecordingWriter.acceptStart(sessionId: starting.id)
+            }
+            localRecordingActive = true
+            captureSession = active
+            detectorRecordingStarted = meetingDetectionTarget != nil
+            if let command = DesktopCalendarResolvePolicy.commandAfterCaptureStarted(
+                localRecordingActive: localRecordingActive,
+                localRecordingId: directory.directoryId,
+                recordingStartedAt: recordingStartedAt,
+                decisionIntent: calendarMatchDecisionIntent,
+                eventId: calendarContextEventId
+            ) {
+                activeCalendarMatchLocalRecordingId = command.localRecordingId
+                Task {
+                    await resolveCalendarContextAfterCaptureStarted(
+                        localRecordingId: command.localRecordingId,
+                        recordingStartedAt: command.recordingStartedAt,
+                        decisionIntent: command.decisionIntent,
+                        eventId: command.eventId
+                    )
+                }
+            }
+            recordingEvidenceEvents.append(
+                RecordingEvidenceService().event(
+                    for: active,
+                    type: .started,
+                    initiator: meetingDetectionTarget?.evidenceInitiator ?? .user
+                )
+            )
+            recordingBlocker = nil
+            AppLog.writeRaw(
+                event: AuditEventName.recordingStarted.rawValue,
+                detail: "sessionId=\(active.id) captureSource=system_audio microphoneSource=app_owned scopeApprovalId=\(scopeApproval.scopeApprovalId) indicator=\(active.visibleIndicatorState.rawValue) localRecordingDirectory=\(directory.directoryId)"
+            )
+            return .accepted
+        } catch {
+            localRecordingActive = false
+            liveRecordingLevels = .inactive
+            activeMicrophoneSampleSource?.stop()
+            activeMicrophoneSampleSource = nil
+            let releasedSystemAudioSession = try? await systemAudioCaptureService.stop()
+            var cancellationCleanupFailed = false
+            if error is MeetingDetectionStartCancellation {
+                // The pending checkpoint already prohibits upload. Finalizing
+                // with permissionDenied is best-effort cleanup, not the only
+                // durable barrier. Never enqueue under the next account.
+                if await localRecordingWriter.isRecordingAsync() {
+                    do {
+                        _ = try await localRecordingWriter.stopAsync(failureReason: .permissionDenied)
+                    } catch {
+                        cancellationCleanupFailed = true
+                        AppLog.writeRaw(event: "meeting_detection.cancelled_start_cleanup_failed",
+                                        detail: "result=local_only_no_upload")
+                    }
+                }
+                localRecordingManifest = nil
+            } else {
+                await finalizeLocalRecordingForFailure(
+                    reason: "start_failure_cleanup",
+                    failureReason: releasedSystemAudioSession?.failureReason ?? .none
+                )
+            }
+            clearActiveCalendarMatchState()
+            let failureCategory = recordingStartFailureCategory(for: error)
+            if let failed = try? captureController.fail(stopReason: .failed, failureCategory: failureCategory) {
+                captureSession = failed
+            }
+            Task { await refreshPermissionOnboardingWithFunctionalProbe(reason: "recording_start_failed") }
+            let message: String = error is MeetingDetectionStartCancellation
+                ? (cancellationCleanupFailed
+                    ? "Запуск отменён. Не удалось завершить проверку локального фрагмента; он не отправлен."
+                    : "Запуск записи отменён: состояние встречи или сеанса изменилось.")
+                : "Запись не началась: \(recordingStartFailureMessage(for: error))"
+            recordingBlocker = .init(kind: error is MeetingDetectionStartCancellation ? .capture : .capture, message: message)
+            AppLog.writeRaw(
+                event: AuditEventName.recordingFailed.rawValue,
+                detail: "category=\(failureCategory.rawValue) error=\(error)"
+            )
+            return recordingStartFailureIsRetryable(error)
+                ? .retryable(reason: failureCategory.rawValue)
+                : .terminal(reason: failureCategory.rawValue)
+        }
+    }
+
+    @MainActor
+    private func finishMeetingDetectionStart(bundleID: String, succeeded: Bool) {
+        guard activeMeetingDetectionBundleID == bundleID else { return }
+        guard succeeded else {
+            activeMeetingDetectionBundleID = nil
+            pendingMeetingDetectionStopBundleID = nil
+            lastMeetingDetectionEvidenceAt = nil
+            return
+        }
+        guard pendingMeetingDetectionStopBundleID == bundleID else { return }
+        Task {
+            await stopManualRecording(
+                reason: .meetingEnded,
+                evidenceInitiator: .systemFailClosed,
+                enqueueReason: "meeting_detection_target_ended_during_start"
+            )
+        }
+    }
+
+    @MainActor
+    private func resolveCalendarContextAfterCaptureStarted(
+        localRecordingId: String,
+        recordingStartedAt: Date,
+        decisionIntent: DesktopCalendarMatchDecisionIntent,
+        eventId: String?
+    ) async {
+        defer {
+            let queueHasRecording = (try? desktopUploadQueueService.loadItems().contains {
+                $0.directoryId == localRecordingId
+            }) == true
+            if DesktopCalendarResolvePolicy.shouldProcessQueuedRecording(
+                queueHasRecording: queueHasRecording
+            ) {
+                refreshUploadQueueAndProcess(reason: "calendar_context_resolve_completed")
+            }
+        }
+
+        guard let client = DesktopUploadClient.configuredFromEnvironment() else {
+            AppLog.writeRaw(
+                event: "calendar.context_resolve_unavailable",
+                detail: "localRecordingId=\(localRecordingId) reason=client_not_configured"
+            )
+            return
+        }
+
+        do {
+            let response = try await client.resolveCalendarContext(
+                localRecordingId: localRecordingId,
+                request: DesktopCalendarContextResolveRequest(
+                    recordingStartedAt: recordingStartedAt,
+                    decisionIntent: decisionIntent,
+                    eventId: eventId
+                )
+            )
+            let attemptId = response.attemptId.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !attemptId.isEmpty else { return }
+
+            if activeCalendarMatchLocalRecordingId == localRecordingId {
+                activeCalendarMatchAttemptId = attemptId
+            }
+            _ = try desktopUploadQueueService.persistCalendarMatchAttempt(
+                localRecordingId: localRecordingId,
+                attemptId: attemptId
+            )
+            AppLog.writeRaw(
+                event: "calendar.context_resolved",
+                detail: "localRecordingId=\(localRecordingId) state=\(response.contextState.rawValue)"
+            )
+        } catch {
+            AppLog.writeRaw(
+                event: "calendar.context_resolve_unavailable",
+                detail: "localRecordingId=\(localRecordingId) reason=calendar_unavailable"
+            )
+        }
+    }
+
+    @MainActor
+    private func clearActiveCalendarMatchState() {
+        activeCalendarContextEventId = nil
+        activeCalendarMatchAttemptId = nil
+        activeCalendarMatchLocalRecordingId = nil
+    }
+
+    @MainActor
+    private func finalizeLocalRecordingForFailure(
+        reason: String,
+        failureReason: LocalRecordingFailureReason = .none
+    ) async {
+        guard await localRecordingWriter.isRecordingAsync() else {
+            return
+        }
+        activeMicrophoneSampleSource?.stop()
+        activeMicrophoneSampleSource = nil
+        let recordingDirectory = await localRecordingWriter.currentDirectoryURLAsync()
+        enqueueLocalRecordingAsSaving(directoryURL: recordingDirectory)
+        do {
+            let manifest = try await localRecordingWriter.stopAsync(failureReason: failureReason)
+            localRecordingManifest = manifest
+            enqueueLocalRecordingForUpload(
+                manifest: manifest,
+                directoryURL: recordingDirectory,
+                reason: reason,
+                calendarContextEventId: activeCalendarContextEventId,
+                calendarMatchAttemptId: activeCalendarMatchAttemptId
+            )
+            clearActiveCalendarMatchState()
+            AppLog.writeRaw(
+                event: AuditEventName.localRecordingDegraded.rawValue,
+                detail: "sessionId=\(manifest.sessionId) status=\(manifest.status.rawValue) reason=\(reason) failureReason=\(manifest.failureReason.rawValue)"
+            )
+        } catch {
+            AppLog.writeRaw(
+                event: AuditEventName.recordingFailed.rawValue,
+                detail: "\(reason)_failed error=\(error)"
+            )
+        }
+    }
+
+    private func recordingStartFailureCategory(for error: Error) -> RecordingStartBlocker {
+        if let writerError = error as? LocalRecordingWriterError {
+            switch writerError {
+            case .alreadyRecording:
+                return .alreadyRecording
+            case .directoryUnavailable:
+                return .storageUnsafe
+            case .echoProcessorUnavailable:
+                return .captureFailed
+            case .notRecording:
+                return .unknown
+            }
+        }
+        if let captureError = error as? SystemAudioCaptureServiceError {
+            switch captureError {
+            case .permissionDenied:
+                return .permissionDenied
+            case .alreadyRunning:
+                return .alreadyRecording
+            case .runtimeStartFailed, .scopeNotApproved, .screenCaptureKitUnavailable, .noShareableDisplay:
+                return .captureFailed
+            case .notRunning:
+                return .unknown
+            }
+        }
+        if let microphoneError = error as? RecordingMicrophoneSampleSourceError {
+            switch microphoneError {
+            case .selectionNotAccepted:
+                return .captureFailed
+            case .runtimeUnavailable, .runtimeStartFailed:
+                return .captureFailed
+            }
+        }
+        return .unknown
+    }
+
+    private func recordingStartFailureIsRetryable(_ error: Error) -> Bool {
+        if let writerError = error as? LocalRecordingWriterError {
+            switch writerError {
+            case .alreadyRecording, .directoryUnavailable:
+                return true
+            case .echoProcessorUnavailable, .notRecording:
+                return false
+            }
+        }
+        if let captureError = error as? SystemAudioCaptureServiceError {
+            return captureError == .alreadyRunning ||
+                captureError == .runtimeStartFailed ||
+                captureError == .noShareableDisplay
+        }
+        if let microphoneError = error as? RecordingMicrophoneSampleSourceError {
+            switch microphoneError {
+            case .runtimeUnavailable, .runtimeStartFailed:
+                return true
+            case .selectionNotAccepted:
+                return false
+            }
+        }
+        return false
+    }
+
+    private func recordingStartFailureMessage(for error: Error) -> String {
+        if let writerError = error as? LocalRecordingWriterError {
+            switch writerError {
+            case .alreadyRecording:
+                return "запись уже идет."
+            case .directoryUnavailable:
+                return "локальное хранилище недоступно."
+            case .echoProcessorUnavailable:
+                return "обязательное удаление эха недоступно; перезапустите GRAF."
+            case .notRecording:
+                return "активной записи нет."
+            }
+        }
+        if let captureError = error as? SystemAudioCaptureServiceError {
+            switch captureError {
+            case .permissionDenied:
+                return "нужен доступ к записи системного звука."
+            case .alreadyRunning:
+                return "запись системного звука уже идет."
+            case .scopeNotApproved:
+                return "область записи не подтверждена."
+            case .runtimeStartFailed:
+                return "macOS не запустила запись системного звука."
+            case .screenCaptureKitUnavailable:
+                return "запись системного звука недоступна на этом Mac."
+            case .noShareableDisplay:
+                return "нет доступного экрана для записи системного звука."
+            case .notRunning:
+                return "запись системного звука не была активна."
+            }
+        }
+        if let microphoneError = error as? RecordingMicrophoneSampleSourceError {
+            switch microphoneError {
+            case .selectionNotAccepted:
+                return "выбранный микрофон записи не принят."
+            case .runtimeUnavailable:
+                return "macOS не дала доступ к потоку микрофона."
+            case .runtimeStartFailed:
+                return "macOS не запустила поток микрофона."
+            }
+        }
+        return "нужна повторная попытка."
+    }
+
+    @MainActor
+    private func pauseManualRecording() async {
+        guard !recordingStartInProgress, !recordingStopInProgress else { return }
+        guard captureSession?.state == .active else { return }
+
+        do {
+            let pausedAt = Date()
+            try await localRecordingWriter.pausePrivacyAsync(startedAt: pausedAt)
+            let paused = try captureController.pause()
+            captureSession = paused
+            recordingBlocker = nil
+            AppLog.writeRaw(
+                event: "recording.pause_requested",
+                detail: "sessionId=\(paused.id) localMicTreatment=silenced stopAvailable=\(paused.stopActionAvailable)"
+            )
+        } catch {
+            recordingBlocker = .init(kind: .capture, message: "Не удалось выключить микрофон в записи. Попробуйте еще раз.")
+            AppLog.writeRaw(
+                event: AuditEventName.recordingFailed.rawValue,
+                detail: "pause_failed error=\(error)"
+            )
+        }
+    }
+
+    @MainActor
+    private func resumeManualRecording() async {
+        guard !recordingStartInProgress, !recordingStopInProgress else { return }
+        guard captureSession?.state == .paused else { return }
+
+        do {
+            let resumedAt = Date()
+            try await localRecordingWriter.resumePrivacyAsync(endedAt: resumedAt)
+            let active = try captureController.resume()
+            captureSession = active
+            recordingBlocker = nil
+            AppLog.writeRaw(
+                event: "recording.resume_requested",
+                detail: "sessionId=\(active.id) localMicTreatment=capturing stopAvailable=\(active.stopActionAvailable)"
+            )
+        } catch {
+            recordingBlocker = .init(kind: .capture, message: "Не удалось включить микрофон в записи. Системный звук продолжает записываться; попробуйте еще раз или остановите запись.")
+            AppLog.writeRaw(
+                event: AuditEventName.recordingFailed.rawValue,
+                detail: "resume_failed error=\(error)"
+            )
+        }
+    }
+
+    @MainActor
+    private func stopManualRecording(
+        reason: RecordingStopReason = .userRequested,
+        evidenceInitiator: RecordingEvidenceInitiator = .user,
+        enqueueReason: String = "manual_stop_finalized"
+    ) async {
+        guard !recordingStartInProgress, !recordingStopInProgress else { return }
+        let detectorBundleID = activeMeetingDetectionBundleID
+        if reason == .userRequested, let detectorBundleID {
+            manuallyStoppedMeetingDetectionBundleID = detectorBundleID
+        }
+        recordingStopInProgress = true
+        localRecordingActive = false
+        liveRecordingLevels = .inactive
+        let recordingDirectory = await localRecordingWriter.currentDirectoryURLAsync()
+        defer {
+            recordingStopInProgress = false
+            if activeMeetingDetectionBundleID == detectorBundleID {
+                activeMeetingDetectionBundleID = nil
+                pendingMeetingDetectionStopBundleID = nil
+                lastMeetingDetectionEvidenceAt = nil
+            }
+        }
+
+        do {
+            captureSession = try captureController.requestStop(reason: reason)
+            enqueueLocalRecordingAsSaving(directoryURL: recordingDirectory)
+            let systemAudioSession = try await systemAudioCaptureService.stop()
+            activeMicrophoneSampleSource?.stop()
+            activeMicrophoneSampleSource = nil
+            let manifest = try await localRecordingWriter.stopAsync(
+                failureReason: systemAudioSession.failureReason,
+                stopReason: terminationCleanupInProgress ? nil : reason
+            )
+            let stopped = try captureController.completeStop()
+            captureSession = stopped
+            localRecordingManifest = manifest
+            recordingEvidenceEvents.append(
+                RecordingEvidenceService().event(
+                    for: stopped,
+                    type: .stopped,
+                    initiator: evidenceInitiator
+                )
+            )
+            recordingBlocker = nil
+            if manifest.shortRecordingDiscarded == true {
+                localRecordingManifest = nil
+                uploadQueueItems.removeAll { $0.sessionId == manifest.sessionId && $0.directoryId == manifest.directoryId }
+                clearActiveCalendarMatchState()
+                DesktopNotificationPresenter.shared.presentShortRecording()
+                AppLog.writeRaw(event: "recording.short_discarded", detail: "reason=short_recording_threshold")
+                refreshUploadQueueAndProcess(reason: "short_recording_discarded")
+                return
+            }
+            let localEvent: AuditEventName = switch manifest.status {
+            case .saved:
+                .localRecordingSaved
+            case .degraded:
+                .localRecordingDegraded
+            case .blocked, .failed, .active:
+                .localRecordingFailed
+            }
+            AppLog.writeRaw(
+                event: localEvent.rawValue,
+                detail: "sessionId=\(stopped.id) status=\(manifest.status.rawValue) directoryId=\(manifest.directoryId)"
+            )
+            enqueueLocalRecordingForUpload(
+                manifest: manifest,
+                directoryURL: recordingDirectory,
+                reason: enqueueReason,
+                calendarContextEventId: activeCalendarContextEventId,
+                calendarMatchAttemptId: activeCalendarMatchAttemptId
+            )
+            clearActiveCalendarMatchState()
+            AppLog.writeRaw(
+                event: AuditEventName.recordingStopped.rawValue,
+                detail: "sessionId=\(stopped.id) reason=\(stopped.stopReason?.rawValue ?? "none") localRecordingStatus=\(manifest.status.rawValue)"
+            )
+            // Первая завершённая запись: веха отправляется из этого пути.
+            let recordingSeconds: TimeInterval = {
+                guard let startedAt = stopped.startedAt, let stoppedAt = stopped.stoppedAt else { return 0 }
+                return stoppedAt.timeIntervalSince(startedAt)
+            }()
+            let manifestStatus = manifest.status.rawValue
+            Task {
+                await activationReporter.noteFirstRecordingCompleted(
+                    durationBucket: Self.durationBucket(seconds: recordingSeconds),
+                    captureMode: "system_audio_and_microphone",
+                    completionState: manifestStatus,
+                    resultPendingState: manifest.status == .saved ? "upload_pending" : "degraded"
+                )
+            }
+        } catch {
+            let failureCategory = recordingStopFailureCategory(for: error)
+            if let failed = try? captureController.fail(stopReason: .failed, failureCategory: failureCategory) {
+                captureSession = failed
+            }
+            let releasedSystemAudioSession = await systemAudioCaptureService.releaseForTermination()
+            activeMicrophoneSampleSource?.stop()
+            activeMicrophoneSampleSource = nil
+            let finalizedManifest = recordingDirectory.flatMap { directoryURL in
+                try? LocalRecordingManifestService().read(
+                    from: directoryURL.appendingPathComponent("manifest.json")
+                )
+            }
+            if let finalizedManifest,
+               finalizedManifest.status != .active {
+                localRecordingManifest = finalizedManifest
+                enqueueLocalRecordingForUpload(
+                    manifest: finalizedManifest,
+                    directoryURL: recordingDirectory,
+                    reason: "stop_failure_cleanup",
+                    calendarContextEventId: activeCalendarContextEventId,
+                    calendarMatchAttemptId: activeCalendarMatchAttemptId
+                )
+            } else {
+                await finalizeLocalRecordingForFailure(
+                    reason: "stop_failure_cleanup",
+                    failureReason: releasedSystemAudioSession?.failureReason ?? .none
+                )
+            }
+            clearActiveCalendarMatchState()
+            localRecordingActive = false
+            liveRecordingLevels = .inactive
+            recordingBlocker = .init(kind: .storage, message: "Не удалось завершить запись. Проверьте локальную копию в списке записей.")
+            AppLog.writeRaw(
+                event: AuditEventName.recordingFailed.rawValue,
+                detail: "category=\(failureCategory.rawValue) error=\(error)"
+            )
+        }
+    }
+
+    private func recordingStopFailureCategory(for error: Error) -> RecordingStartBlocker {
+        if error is LocalRecordingWriterError {
+            return .storageUnsafe
+        }
+        if error is SystemAudioCaptureServiceError || error is CaptureSessionControllerError {
+            return .captureFailed
+        }
+        return .unknown
+    }
+
+    @MainActor
+    private func releaseCaptureResourcesForAppExit() async {
+        stopMeetingDetection()
+        let releasedSystemAudioSession = await systemAudioCaptureService.releaseForTermination()
+        await finalizeLocalRecordingForAppExit(
+            failureReason: releasedSystemAudioSession?.failureReason ?? .none
+        )
+    }
+
+    @MainActor
+    private func finalizeLocalRecordingForAppExit(
+        failureReason: LocalRecordingFailureReason = .none
+    ) async {
+        guard await localRecordingWriter.isRecordingAsync() else {
+            return
+        }
+        let recordingDirectory = await localRecordingWriter.currentDirectoryURLAsync()
+        enqueueLocalRecordingAsSaving(directoryURL: recordingDirectory)
+        localRecordingActive = false
+        liveRecordingLevels = .inactive
+        activeMicrophoneSampleSource?.stop()
+        activeMicrophoneSampleSource = nil
+        do {
+            let manifest = try await localRecordingWriter.stopAsync(failureReason: failureReason)
+            localRecordingManifest = manifest
+            enqueueLocalRecordingForUpload(
+                manifest: manifest,
+                directoryURL: recordingDirectory,
+                reason: "app_exit_resource_release",
+                calendarContextEventId: activeCalendarContextEventId,
+                calendarMatchAttemptId: activeCalendarMatchAttemptId
+            )
+            clearActiveCalendarMatchState()
+            AppLog.writeRaw(
+                event: AuditEventName.localRecordingDegraded.rawValue,
+                detail: "sessionId=\(manifest.sessionId) status=\(manifest.status.rawValue) reason=app_exit_resource_release failureReason=\(manifest.failureReason.rawValue)"
+            )
+        } catch {
+            AppLog.writeRaw(
+                event: AuditEventName.recordingFailed.rawValue,
+                detail: "app_exit_resource_release_failed error=\(error)"
+            )
+        }
+    }
+
+    @MainActor
+    private func refreshUploadQueueAndProcess(reason: String) {
+        guard !uploadQueueRefreshInProgress else {
+            uploadQueueRefreshRequested = true
+            return
+        }
+        uploadQueueRefreshInProgress = true
+        let service = desktopUploadQueueService
+        Task {
+            do {
+                if !(await localRecordingWriter.isRecordingAsync()) {
+                    let recoveryRoot = LocalRecordingStore().rootURL
+                    _ = await Task.detached(priority: .utility) {
+                        CaptureRecoveryService().recoverIncompleteRecordings(in: recoveryRoot)
+                    }.value
+                }
+                try? await service.refreshDeletionScope()
+                try? await Task.detached(priority: .utility) { try service.finishLocalOnlyDeletions() }.value
+                _ = try await Task.detached(priority: .utility) { try service.scanAndEnqueueCompletedRecordings() }.value
+                _ = try await Task.detached(priority: .utility) { try service.applyRetentionExpiry() }.value
+                var items = try await service.processDueItems { progressItems in
+                    await MainActor.run {
+                        uploadQueueItems = progressItems
+                    }
+                }
+                var shouldRetryLocalPurgeAcknowledgement = false
+                do {
+                    _ = try await service.acknowledgePendingLocalPurgeTasks { ids in
+                        await MainActor.run { LocalRecordingPlayer.shared.revoke(itemIDs: ids) }
+                    }
+                    items = try await Task.detached(priority: .utility) { try service.loadItems() }.value
+                } catch {
+                    shouldRetryLocalPurgeAcknowledgement = true
+                    items = (try? await Task.detached(priority: .utility) { try service.loadItems() }.value) ?? items
+                    AppLog.writeRaw(
+                        event: AuditEventName.localPurgeAcknowledged.rawValue,
+                        detail: "reason=\(reason) failed=true error=\(error)"
+                    )
+                }
+                let deletionOperations = (try? await Task.detached(priority: .utility) {
+                    try service.currentDeletionOperations()
+                }.value) ?? []
+                await MainActor.run {
+                    uploadQueueItems = items
+                    recordingDeletionOperations = deletionOperations
+                    LocalRecordingPlayer.shared.reconcile(items: items)
+                    uploadQueueRefreshInProgress = false
+                    let refreshAgain = uploadQueueRefreshRequested
+                    uploadQueueRefreshRequested = false
+                    scheduleUploadQueueFollowUpIfNeeded(
+                        items: items,
+                        reason: reason,
+                        shouldRetryLocalPurgeAcknowledgement: shouldRetryLocalPurgeAcknowledgement
+                    )
+                    AppLog.writeRaw(
+                        event: "upload.queue_refreshed",
+                        detail: "reason=\(reason) total=\(items.count) pending=\(items.filter { !$0.state.isTerminal }.count)"
+                    )
+                    if refreshAgain {
+                        refreshUploadQueueAndProcess(reason: "coalesced_\(reason)")
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    uploadQueueRefreshInProgress = false
+                    let refreshAgain = uploadQueueRefreshRequested
+                    uploadQueueRefreshRequested = false
+                    AppLog.writeRaw(
+                        event: AuditEventName.uploadFailed.rawValue,
+                        detail: "reason=\(reason) error=\(error)"
+                    )
+                    if refreshAgain {
+                        refreshUploadQueueAndProcess(reason: "coalesced_\(reason)")
+                    }
+                }
+            }
+        }
+    }
+
+    @MainActor
+    private func submitSupportIncidentReport(itemIds: [String]) async throws -> DesktopSupportIncidentResponse {
+        let service = desktopUploadQueueService
+        do {
+            let response = try await service.submitSupportIncident(
+                itemIds: itemIds,
+                using: supportIncidentBridge
+            )
+            uploadQueueItems = try service.loadItems()
+            AppLog.writeRaw(
+                event: "support_incident.submitted",
+                detail: "incident=\(response.incidentId) status=\(response.incidentStatus)"
+            )
+            return response
+        } catch {
+            uploadQueueItems = (try? service.loadItems()) ?? uploadQueueItems
+            AppLog.writeRaw(
+                event: "support_incident.failed",
+                detail: "code=\(safeSupportIncidentErrorCode(error))"
+            )
+            throw error
+        }
+    }
+
+    @MainActor
+    private func syncSupportIncident(itemIds: [String]) async throws -> DesktopSupportIncidentResponse {
+        let service = desktopUploadQueueService
+        do {
+            let response = try await service.syncSupportIncident(
+                itemIds: itemIds,
+                using: supportIncidentBridge
+            )
+            uploadQueueItems = try service.loadItems()
+            AppLog.writeRaw(
+                event: "support_incident.sync_checked",
+                detail: "incident=\(response.incidentId) status=\(response.incidentStatus)"
+            )
+            return response
+        } catch {
+            uploadQueueItems = (try? service.loadItems()) ?? uploadQueueItems
+            AppLog.writeRaw(
+                event: "support_incident.sync_failed",
+                detail: "code=\(safeSupportIncidentErrorCode(error))"
+            )
+            throw error
+        }
+    }
+
+    private func copySupportIncidentReport(itemIds: [String]) throws -> String? {
+        try desktopUploadQueueService.supportIncidentReportText(itemIds: itemIds)
+    }
+
+    @MainActor
+    private func openSupportSignIn() {
+        guard desktopCabinetConfiguration != nil else { return }
+        // Повторный вход открывает тот же маршрут с метками, что и первый
+        // (FR-022): иначе кампания теряется ровно на том входе, которым
+        // приложение связывает аккаунт.
+        openCabinetSignInWithAttributionHandoff(reason: "support_sign_in")
+        desktopCabinetState = .loading
+    }
+
+    private func safeSupportIncidentErrorCode(_ error: Error) -> String {
+        if case DesktopUploadClientError.httpStatus(_, let code) = error {
+            return code
+        }
+        if error is DesktopUploadQueueServiceError {
+            return "support_incident.local_queue_unavailable"
+        }
+        return "support_incident.unavailable"
+    }
+
+    @MainActor
+    private func scheduleUploadQueueFollowUpIfNeeded(
+        items: [DesktopUploadQueueItem],
+        reason: String,
+        shouldRetryLocalPurgeAcknowledgement: Bool = false
+    ) {
+        guard !uploadQueueFollowUpScheduled else { return }
+        let now = Date()
+        let needsProcessingFollowUp = items.contains(where: { DesktopUploadQueueService.needsProcessingFollowUp($0, now: now) })
+        let nextRetryDate = DesktopUploadQueueService.nextScheduledRetryDate(for: items, now: now)
+        guard needsProcessingFollowUp || nextRetryDate != nil || shouldRetryLocalPurgeAcknowledgement else { return }
+        uploadQueueFollowUpScheduled = true
+        let followUpReason: String
+        let delay: TimeInterval
+        if shouldRetryLocalPurgeAcknowledgement {
+            followUpReason = DesktopUploadFollowUpReason.localPurgeAcknowledgementRetry
+            delay = 60
+        } else if needsProcessingFollowUp {
+            followUpReason = DesktopUploadFollowUpReason.processing(after: reason)
+            delay = 10
+        } else {
+            followUpReason = DesktopUploadFollowUpReason.scheduledRetry
+            delay = max(1, min(nextRetryDate?.timeIntervalSince(now) ?? 10, 60 * 60))
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            uploadQueueFollowUpScheduled = false
+            refreshUploadQueueAndProcess(reason: followUpReason)
+        }
+    }
+
+    @MainActor
+    private func startUploadQueueNetworkMonitorIfNeeded() {
+        guard uploadQueueNetworkMonitor == nil else { return }
+        let monitor = NWPathMonitor()
+        let queue = DispatchQueue(label: "pro.2brain.graf.upload-network-monitor", qos: .utility)
+        monitor.pathUpdateHandler = { path in
+            Task { @MainActor in
+                let isSatisfied = path.status == .satisfied
+                defer { uploadQueueNetworkWasSatisfied = isSatisfied }
+                guard isSatisfied, !uploadQueueNetworkWasSatisfied else { return }
+                await synchronizeRecordingDeletions()
+                refreshUploadQueueAndProcess(reason: "network_recovered")
+            }
+        }
+        uploadQueueNetworkMonitor = monitor
+        monitor.start(queue: queue)
+    }
+
+    @MainActor
+    private func enqueueLocalRecordingForUpload(
+        manifest: LocalRecordingManifest,
+        directoryURL: URL?,
+        reason: String,
+        calendarContextEventId: String? = nil,
+        calendarMatchAttemptId: String? = nil
+    ) {
+        guard let directoryURL else { return }
+        do {
+            let item = try desktopUploadQueueService.enqueue(
+                manifest: manifest,
+                directoryURL: directoryURL,
+                reason: reason,
+                calendarContextEventId: calendarContextEventId,
+                calendarMatchAttemptId: calendarMatchAttemptId
+            )
+            uploadQueueItems = try desktopUploadQueueService.loadItems()
+            let event: AuditEventName = switch item.state {
+            case .saving, .queued, .uploading:
+                .uploadQueued
+            case .retrying:
+                .uploadRetrying
+            case .uploaded:
+                .uploadUploaded
+            case .degraded, .blocked:
+                .uploadBlocked
+            case .failed, .terminalDeleted:
+                .uploadFailed
+            }
+            AppLog.writeRaw(
+                event: event.rawValue,
+                detail: "queueId=\(item.id) directoryId=\(item.directoryId) state=\(item.state.rawValue) retryMode=\(item.retryMode.rawValue) failureCategory=\(item.failureCategory.rawValue)"
+            )
+            refreshUploadQueueAndProcess(reason: "enqueue_\(reason)")
+        } catch {
+            AppLog.writeRaw(
+                event: AuditEventName.uploadFailed.rawValue,
+                detail: "reason=enqueue_\(reason) sessionId=\(manifest.sessionId) directoryId=\(manifest.directoryId) error=\(error)"
+            )
+        }
+    }
+
+    @MainActor
+    private func enqueueLocalRecordingAsSaving(directoryURL: URL?) {
+        guard let directoryURL,
+              let manifest = try? LocalRecordingManifestService().read(
+                from: directoryURL.appendingPathComponent("manifest.json")
+              )
+        else {
+            return
+        }
+        do {
+            _ = try desktopUploadQueueService.enqueueSaving(
+                manifest: manifest,
+                directoryURL: directoryURL,
+                calendarContextEventId: activeCalendarContextEventId,
+                calendarMatchAttemptId: activeCalendarMatchAttemptId
+            )
+            uploadQueueItems = try desktopUploadQueueService.loadItems()
+        } catch {
+            AppLog.writeRaw(
+                event: AuditEventName.uploadFailed.rawValue,
+                detail: "reason=enqueue_saving sessionId=\(manifest.sessionId) directoryId=\(manifest.directoryId) error=\(error)"
+            )
+        }
+    }
+
+    @MainActor
+    private func synchronizeRecordingDeletions() async {
+        guard !deletionSyncInProgress else { return }
+        deletionSyncInProgress = true
+        defer { deletionSyncInProgress = false }
+        let service = desktopUploadQueueService
+        try? await service.synchronizeRecordingLifecycle(priorityItemIDs: [LocalRecordingPlayer.shared.itemID].compactMap { $0 })
+        uploadQueueItems = (try? service.loadItems()) ?? uploadQueueItems
+        recordingDeletionOperations = (try? service.currentDeletionOperations()) ?? recordingDeletionOperations
+        LocalRecordingPlayer.shared.reconcile(items: uploadQueueItems)
+        try? await Task.detached(priority: .utility) { try service.finishLocalOnlyDeletions() }.value
+        try? await executeRecordingDeletionRequests()
+        _ = try? await service.acknowledgePendingLocalPurgeTasks { ids in
+            await MainActor.run { LocalRecordingPlayer.shared.revoke(itemIDs: ids) }
+        }
+        uploadQueueItems = (try? service.loadItems()) ?? uploadQueueItems
+        recordingDeletionOperations = (try? service.currentDeletionOperations()) ?? recordingDeletionOperations
+        LocalRecordingPlayer.shared.reconcile(items: uploadQueueItems)
+    }
+
+    @MainActor
+    private func executeRecordingDeletionRequests() async throws {
+        let service = desktopUploadQueueService
+        try await service.processDeletionRequests { items in
+            await MainActor.run {
+                uploadQueueItems = items
+                recordingDeletionOperations = (try? service.currentDeletionOperations()) ?? []
+                LocalRecordingPlayer.shared.reconcile(items: items)
+            }
+        }
+    }
+
+    @MainActor
+    private func deleteRecordingSelection(_ selection: EmbeddedCabinetDeletionSelection) async -> EmbeddedCabinetDeletionResult {
+        let service = desktopUploadQueueService
+        let requested: [RecordingDeletionOperation]
+        do {
+            requested = try await Task.detached(priority: .utility) {
+                try service.requestDeletion(itemIDs: selection.localIDs, meetingIDs: selection.meetingIDs)
+            }.value
+        } catch { return .failed }
+        uploadQueueItems = (try? service.loadItems()) ?? uploadQueueItems
+        recordingDeletionOperations = (try? service.currentDeletionOperations()) ?? recordingDeletionOperations
+        LocalRecordingPlayer.shared.reconcile(items: uploadQueueItems)
+        // The batch is already durable. Failure of one executor must not suppress the other.
+        try? await Task.detached(priority: .utility) { try service.finishLocalOnlyDeletions() }.value
+        try? await executeRecordingDeletionRequests()
+        uploadQueueItems = (try? service.loadItems()) ?? uploadQueueItems
+        recordingDeletionOperations = (try? service.currentDeletionOperations()) ?? recordingDeletionOperations
+        refreshUploadQueueAndProcess(reason: "recording_deletion")
+        var result = EmbeddedCabinetDeletionResult()
+        let current = requested.first.flatMap { try? service.loadDeletionOperations(scope: $0.scope) }
+        for operation in Dictionary(requested.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first }).values {
+            let phase = current?.first(where: { $0.id == operation.id })?.phase ?? operation.phase
+            if phase.isAccepted { result.accepted += 1 }
+            else if phase == .rejected { result.rejected += 1 }
+            else { result.pending += 1 }
+        }
+        for id in selection.localIDs {
+            guard let item = uploadQueueItems.first(where: { $0.id == id }),
+                  item.state == .terminalDeleted, item.serverCreationAttempted == false,
+                  item.retentionDecision.reason == "local_copy_deleted_by_user" else { continue }
+            if item.retentionDecision.localArtifactsRetained { result.pending += 1 }
+            else { result.accepted += 1 }
+        }
+        return result
+    }
+
+    @MainActor
+    private func handleLocalRecordingAction(_ action: String, itemId: String) {
+        do {
+            switch action {
+            case EmbeddedCabinetLocalRecordingBridge.openAction:
+                Task { @MainActor in
+                    let service = desktopUploadQueueService
+                    do {
+                        guard let item = try service.loadItems().first(where: { $0.id == itemId }), !item.lifecycleBlocksContent else { return }
+                        if item.serverCreationAttempted == true || item.meetingId != nil {
+                            try await service.synchronizeRecordingLifecycle(priorityItemIDs: [itemId])
+                        }
+                        let url = try await Task.detached(priority: .utility) { try service.localPlaybackURL(itemId: itemId) }.value
+                        guard let current = try service.loadItems().first(where: { $0.id == itemId }), !current.lifecycleBlocksContent else { return }
+                        LocalRecordingPlayer.shared.open(url: url, itemID: itemId)
+                    } catch {
+                        uploadQueueItems = (try? service.loadItems()) ?? uploadQueueItems
+                    }
+                }
+            case EmbeddedCabinetLocalRecordingBridge.sendAction:
+                _ = try desktopUploadQueueService.retry(itemId: itemId)
+                uploadQueueItems = try desktopUploadQueueService.loadItems()
+                refreshUploadQueueAndProcess(reason: "manual_send")
+            case EmbeddedCabinetLocalRecordingBridge.deleteAction:
+                _ = try desktopUploadQueueService.requestDeletion(itemIDs: [itemId])
+                uploadQueueItems = try desktopUploadQueueService.loadItems()
+                LocalRecordingPlayer.shared.reconcile(items: uploadQueueItems)
+                Task { await synchronizeRecordingDeletions() }
+            default:
+                return
+            }
+        } catch {
+            AppLog.writeRaw(
+                event: AuditEventName.uploadFailed.rawValue,
+                detail: "reason=local_recording_action action=\(action) itemId=\(itemId) error=\(error)"
+            )
+        }
+    }
+
+    private func localCaptureFailureCopy(failureCode: String, sessionID: String?) -> String {
+        guard let sessionID,
+              let items = try? desktopUploadQueueService.loadItems(),
+              let item = items.first(where: { $0.sessionId == sessionID }),
+              (try? desktopUploadQueueService.localPlaybackURL(itemId: item.id)) != nil
+        else {
+            return SystemAudioStatusLabels.captureFailureDetail(failureCode: failureCode, hasPlayableFragment: false)
+        }
+        return SystemAudioStatusLabels.captureFailureDetail(failureCode: failureCode, hasPlayableFragment: true)
+    }
+
+    private func recordingBlockerPresentation(
+        for snapshot: RecordingPrerequisiteSnapshot
+    ) -> RecordingBlockerPresentation? {
+        let action = snapshot.recoveryAction.map { recoveryActionText($0) } ?? "Проверьте состояние перед записью"
+        switch snapshot.blockedReason {
+        case .none:
+            return nil
+        case .captureUnavailable:
+            return .init(kind: .capture, message: "Запись не началась: источник записи занят или недоступен. \(action).", recoveryAction: .retry)
+        case .policyDisabled:
+            return .init(kind: .policy, message: "Запись отключена политикой. \(action).", recoveryAction: .none, isRetryable: false)
+        case .permissionDenied:
+            return .init(kind: .permission, message: "Запись не началась: нужен доступ к микрофону или системному звуку. \(action).", recoveryAction: .openPermissions)
+        case .storageUnsafe:
+            return .init(kind: .storage, message: "Запись не началась: недостаточно безопасного места для локальной копии. \(action).", recoveryAction: .openStorage)
+        case .indicatorUnavailable:
+            return .init(kind: .indicator, message: "Запись не началась: локальный индикатор недоступен. \(action).", recoveryAction: .retry)
+        case .sourceAppIneligible:
+            return .init(kind: .source, message: "Запись не началась: источник не подтвержден. \(action).", recoveryAction: .chooseMicrophone)
+        case .alreadyRecording:
+            return .init(kind: .alreadyRecording, message: "Запись уже идет.", recoveryAction: .none)
+        case .captureFailed:
+            return .init(kind: .capture, message: "Запись не началась: системный звук не запустился. \(action).", recoveryAction: .retry)
+        case .unknown:
+            return .init(kind: .unknown, message: "Запись не началась: нужна повторная проверка. \(action).", recoveryAction: .retry)
+        }
+    }
+
+    private func recoveryActionText(_ action: String) -> String {
+        switch action {
+        case "refresh_local_audio_status":
+            return "Обновите состояние звука"
+        case "select_physical_microphone":
+            return "Выберите физический микрофон"
+        case "select_physical_speaker":
+            return "Выберите физические динамики"
+        case "grant_microphone":
+            return "Разрешите доступ к микрофону"
+        case "grant_system_audio":
+            return "Разрешите запись системного звука"
+        case "Review workspace recording policy":
+            return "Проверьте политику записи рабочего пространства"
+        case "Use an approved meeting target":
+            return "Откройте поддерживаемое приложение встречи"
+        case "Enable recording policy before starting":
+            return "Разрешите запись в настройках рабочего пространства"
+        case "Grant microphone permission in System Settings":
+            return "Разрешите доступ к микрофону в Системных настройках"
+        case "Grant Screen & System Audio permission in System Settings":
+            return "Разрешите запись экрана и системного звука в Системных настройках"
+        case "Free local storage or reduce retention before recording":
+            return "Освободите место на Mac"
+        case "Restore visible capture indicator before recording":
+            return "Перезапустите GRAF и повторите попытку"
+        default:
+            return "Проверьте настройки записи"
+        }
+    }
+
+    private var localRecordingPresentation: LocalRecordingPresentation? {
+        guard let manifest = localRecordingManifest else {
+            guard localRecordingActive else { return nil }
+            return .active(paused: captureSession?.state == .paused)
+        }
+        return .from(manifest.status)
+    }
+
+    private var meetingMuteTruthWarningText: String? {
+        guard localRecordingActive || recordingStopInProgress else {
+            return nil
+        }
+        return SystemAudioStatusLabels.meetingMuteTruthLimitationCopy
+    }
+
+    @MainActor
+    private func pollRecordingLevelsIfNeeded() {
+        guard localRecordingActive, !recordingStartInProgress, !recordingStopInProgress else {
+            if liveRecordingLevels != .inactive {
+                liveRecordingLevels = .inactive
+            }
+            return
+        }
+        guard !levelsPollInProgress else { return }
+
+        levelsPollInProgress = true
+        let writer = localRecordingWriter
+        Task {
+            let recordingLevels = await writer.currentLevelsAsync()
+            await MainActor.run {
+                levelsPollInProgress = false
+                guard writer === localRecordingWriter,
+                      localRecordingActive,
+                      !recordingStartInProgress,
+                      !recordingStopInProgress else {
+                    if liveRecordingLevels != .inactive {
+                        liveRecordingLevels = .inactive
+                    }
+                    return
+                }
+                if recordingLevels != liveRecordingLevels {
+                    liveRecordingLevels = recordingLevels
+                }
+                if let failureCode = recordingLevels.integrityFailureCode,
+                   captureSession?.state == .active || captureSession?.state == .paused,
+                   let degraded = try? captureController.markDegraded(
+                       source: "echo_processing",
+                       recoveryAction: "Остановите запись и начните новую после проверки аудиоустройств."
+                   ) {
+                    let sessionID = captureSession?.id
+                    captureSession = degraded
+                    Task { @MainActor in
+                        await stopManualRecording(
+                            reason: .failed,
+                            evidenceInitiator: .systemFailClosed,
+                            enqueueReason: "capture_integrity_failure"
+                        )
+                        recordingBlocker = .init(
+                            kind: .capture,
+                            message: localCaptureFailureCopy(
+                                failureCode: failureCode,
+                                sessionID: sessionID
+                            )
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+private enum MeetingDetectionStartCancellation: Error { case staleDecision }
+
+private struct MeetingDetectionRecordingTarget: Equatable, Sendable {
+    let targetID: String
+    let bundleID: String
+    let displayName: String
+    let reason: MeetingDetectionStartReason
+    let authEpoch: Int
+    let presentationEpoch: UInt64
+
+    var evidenceInitiator: RecordingEvidenceInitiator {
+        reason == .promptButton ? .user : .assistedAutomation
+    }
+
+    var authorizationEvidence: [String: String] {
+        [
+            "meetingDetectionPreferenceSource": "local_three_state",
+            "meetingDetectionConfirmationState": reason == .promptButton
+                ? "prompt_button_confirmed"
+                : (reason == .promptTimeout ? "prompt_timeout" : "saved_target_rule"),
+        ]
+    }
+}
+
+private struct MeetingDetectionPrompt: Identifiable, Equatable {
+    let id: String
+    let targetID: String
+    let bundleID: String
+    let displayName: String
+    init(
+        targetID: String,
+        bundleID: String,
+        displayName: String
+    ) {
+        self.targetID = targetID
+        self.bundleID = bundleID
+        self.displayName = displayName
+        id = "\(targetID):\(bundleID)"
+    }
+}
+
+private enum MeetingDetectionPromptDismissReason: String, Sendable {
+    case userSkipped = "user_skipped"
+    case invalidated = "invalidated"
+    case presentationUnavailable = "presentation_unavailable"
+}

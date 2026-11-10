@@ -431,7 +431,7 @@ final class MeetingTargetRegistryTests: XCTestCase {
     private static func repositoryRoot() throws -> URL {
         var candidate = URL(fileURLWithPath: #filePath)
         while candidate.path != "/" {
-            let appSourceURL = candidate.appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift")
+            let appSourceURL = candidate.appendingPathComponent("apps/macos/RecApp/Sources/AppShell/ContentView.swift")
             if FileManager.default.fileExists(atPath: appSourceURL.path) {
                 return candidate
             }
@@ -447,7 +447,7 @@ final class MeetingTargetRegistryTests: XCTestCase {
     private static func desktopAppSource() throws -> String {
         try String(
             contentsOf: repositoryRoot()
-                .appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift"),
+                .appendingPathComponent("apps/macos/RecApp/Sources/AppShell/ContentView.swift"),
             encoding: .utf8
         )
     }

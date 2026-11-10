@@ -356,7 +356,7 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject {
             && now < cardDeadline(for: event, offsetMinutes: offsetMinutes)
     }
     static func meetingCardContent(event: DesktopCalendarPromptEvent, preferences: DesktopNotificationPreferences,
-                                   timeZone: TimeZone = .current, joinState: DesktopNotificationJoinState = .idle) -> DesktopNotificationCardContent {
+                                   timeZone: TimeZone = .autoupdatingCurrent, joinState: DesktopNotificationJoinState = .idle) -> DesktopNotificationCardContent {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "ru_RU"); formatter.timeZone = timeZone; formatter.dateFormat = "HH:mm"
         return .meeting(title: preferences.showTitles ? event.safeDisplayTitle() : "Встреча в календаре",
@@ -404,7 +404,7 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject {
             else if current.kind == .meeting, let event = calendarEvents.first(where: {
                 Self.reminderID($0, context: context) == current.identity
             }) {
-                let content = Self.meetingCardContent(event: event, preferences: preferences, joinState: current.joinState)
+                let content = Self.meetingCardContent(event: event, preferences: preferences, timeZone: DesktopUserTimeContext.shared.timeZone, joinState: current.joinState)
                 current.content = content
                 if !card.update(content) { invalidateEnvelope(current) }
             }
@@ -440,7 +440,7 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject {
         }) else { return }
         let envelope = Envelope(epoch: authEpoch, identity: Self.reminderID(event, context: context), kind: .meeting,
             deadline: Self.cardDeadline(for: event, offsetMinutes: preferences.offsetMinutes),
-            content: Self.meetingCardContent(event: event, preferences: preferences))
+            content: Self.meetingCardContent(event: event, preferences: preferences, timeZone: DesktopUserTimeContext.shared.timeZone))
         envelope.event = event
         _ = show(envelope)
     }

@@ -293,7 +293,7 @@ public final class CalendarTrayController: NSObject, NSMenuDelegate {
         case .recording, .paused:
             addItem(SystemAudioStatusLabels.stopButtonTitle, action: #selector(stopRecording), id: "graf.menu.stop")
             let muted = model.recordingState == .paused
-            let item = addItem(muted ? SystemAudioStatusLabels.resumeButtonTitle : "Mute микрофона",
+            let item = addItem(muted ? SystemAudioStatusLabels.resumeButtonTitle : "Выключить микрофон",
                                action: muted ? #selector(unmuteMicrophone) : #selector(muteMicrophone),
                                id: muted ? "graf.menu.unmute" : "graf.menu.mute")
             item.toolTip = muted ? SystemAudioStatusLabels.resumeButtonAccessibilityLabel

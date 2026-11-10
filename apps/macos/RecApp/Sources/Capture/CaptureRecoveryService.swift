@@ -142,19 +142,6 @@ public final class CaptureRecoveryService {
         }
     }
 
-    public func failClosedForIndicatorLoss(_ session: CaptureSession) -> CaptureSession {
-        var updated = session
-        if isRecoverable(session.state) || session.state == .active || session.state == .stopping {
-            updated.state = .failed
-            updated.stoppedAt = clock()
-            updated.visibleIndicatorState = .error
-            updated.stopActionAvailable = false
-            updated.stopReason = .indicatorLost
-            updated.failureCategory = .indicatorUnavailable
-        }
-        return updated
-    }
-
     private func recoverIncompleteRecording(
         _ activeManifest: LocalRecordingManifest,
         directoryURL: URL,
