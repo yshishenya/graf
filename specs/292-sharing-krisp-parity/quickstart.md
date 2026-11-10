@@ -23,6 +23,10 @@ python3 scripts/check_spec_kit_governance.py
 
 Проверить стабильную ссылку/409, legacy summary-only, null summary full, narrow projection, чужой workspace/result, revoke/expire/rotate/scope/deletion и каждый Range, 200/206/416/буфер4MiB, headers и отсутствие секретов, безопасный cookie/redirect, parser scheme/query/position/cold pending и сохранение route после входа.
 
+### T002 — общая аудитория
+
+В PostgreSQL запустить `tests/integration/test_meeting_sharing_parity.py` вместе с `tests/contract/test_cabinet_csrf_contract.py`. Два цикла покрывают шесть переходов между «Только приглашённые», «Участники пространства» и «Любой со ссылкой». После каждого перехода проверить единственную выбранную общую выдачу (или её отсутствие), прежние адресное право и ожидающее приглашение. Устаревший отпечаток даёт 409 и не меняет состояние. Проверка зависимостей подтверждает, что оба маршрута требуют контекст пространства, а изменение — CSRF-защиту; отдельный HTTP-сценарий проверяет отказ без CSRF в сеансе браузера, успех с корректным токеном и отказ чтения и записи из другого пространства. Отказы не меняют аудиторию.
+
 ## Живая матрица
 
 1. Владелец в браузере и GRAF Dev: открыть без публикации, invitation/roles/revoke, workspace audience, scope, expiry, stable copy, export и F286 delivery unknown/retry без дублей. Внешние письма заменять локальным тестовым транспортом.
