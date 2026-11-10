@@ -349,14 +349,27 @@ def merge_receipt_observation_snapshot(
         if not isinstance(raw_records, Mapping):
             raise ProviderObservationError("receipt observation projection is invalid")
         for key, value in raw_records.items():
-            if isinstance(key, str) and isinstance(value, Mapping):
-                records[key] = dict(value)
+            if (
+                not isinstance(key, str)
+                or not isinstance(value, Mapping)
+                or value.get("parent_kind") not in ("payment", "refund")
+            ):
+                return merged, "conflict"
+            records[key] = dict(value)
 
     scope_key = _receipt_observation_key(observation)
     current = records.get(scope_key)
     legacy_status = merged.get("receipt_registration")
     if legacy_status is not None and legacy_status not in {"pending", "succeeded", "canceled"}:
         raise ProviderObservationError("invoice receipt status is invalid")
+    if observation.parent_kind == "payment" and (
+        any(
+            key != scope_key and record["parent_kind"] == "payment"
+            for key, record in records.items()
+        )
+        or not _receipt_state_advances(legacy_status, observation.status)
+    ):
+        return merged, "conflict"
     if current is None and len(records) >= _MAX_RECEIPT_OBSERVATIONS:
         return merged, "conflict"
     if current is not None:
@@ -376,17 +389,6 @@ def merge_receipt_observation_snapshot(
         if previous_status == observation.status:
             return merged, "duplicate"
 
-    # Legacy snapshots can have a status but no provider receipt identity.  Do
-    # not let a late weaker signal regress the user-visible state while the
-    # identity is being backfilled.
-    if (
-        observation.parent_kind == "payment"
-        and current is None
-        and isinstance(legacy_status, str)
-        and not _receipt_state_advances(legacy_status, observation.status)
-    ):
-        return merged, "conflict"
-
     records[scope_key] = {
         "provider_receipt_id": observation.provider_receipt_id,
         "parent_kind": observation.parent_kind,
@@ -402,9 +404,7 @@ def merge_receipt_observation_snapshot(
     }
     merged["receipt_observations"] = records
     # Keep the existing UI projection, but only move it forward.
-    if observation.parent_kind == "payment" and (
-        legacy_status is None or _receipt_state_advances(legacy_status, observation.status)
-    ):
+    if observation.parent_kind == "payment":
         merged["receipt_registration"] = observation.status
     return merged, "inserted" if current is None else "updated"
 

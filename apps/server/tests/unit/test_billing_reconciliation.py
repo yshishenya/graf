@@ -283,12 +283,47 @@ def test_receipt_snapshot_is_scoped_bounded_and_monotonic() -> None:
         {
             "id": "receipt-refund-2",
             "type": "refund",
-            "refund_id": "refund-2",
+            "refund_id": "refund-1",
             "status": "canceled",
         },
         scope=SCOPE,
     )
-    _, result = merge_receipt_observation_snapshot(
+    snapshot, result = merge_receipt_observation_snapshot(
         snapshot, canceled_refund_receipt, source="registry", observed_at=NOW
     )
     assert result == "inserted"
+    assert snapshot["receipt_observations"]["test:shop-1:receipt-refund-1"]["status"] == "succeeded"
+    assert snapshot["receipt_observations"]["test:shop-1:receipt-refund-2"]["status"] == "canceled"
+
+
+@pytest.mark.parametrize(
+    ("receipt_id", "status", "legacy_status", "extra_record"),
+    [
+        ("receipt-2", "succeeded", "pending", None),
+        ("receipt-1", "succeeded", "canceled", None),
+        ("receipt-1", "succeeded", "pending", {"parent_kind": "payment"}),
+        ("receipt-1", "succeeded", "pending", "invalid"),
+    ],
+)
+def test_payment_receipt_conflicts_preserve_snapshot(
+    receipt_id, status, legacy_status, extra_record
+) -> None:
+    pending = extract_receipt_observation(
+        {"id": "receipt-1", "type": "payment", "payment_id": "pay-1", "status": "pending"},
+        scope=SCOPE,
+    )
+    snapshot, _ = merge_receipt_observation_snapshot(
+        {}, pending, source="webhook", observed_at=NOW
+    )
+    snapshot["receipt_registration"] = legacy_status
+    if extra_record is not None:
+        snapshot["receipt_observations"]["test:shop-1:receipt-old"] = extra_record
+    incoming = extract_receipt_observation(
+        {"id": receipt_id, "type": "payment", "payment_id": "pay-1", "status": status},
+        scope=SCOPE,
+    )
+    merged, result = merge_receipt_observation_snapshot(
+        snapshot, incoming, source="poll", observed_at=NOW
+    )
+    assert result == "conflict"
+    assert merged == snapshot
