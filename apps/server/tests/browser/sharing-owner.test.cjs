@@ -214,6 +214,8 @@ const assets = path.join(__dirname, '../../src/twobrain_rec_server/cabinet/stati
       if(width>=480)assert(await panel.evaluate(el=>el.scrollHeight<=el.clientHeight+1),'Full-meeting sharing must fit the default desktop size');
       assert((await page.locator('[data-sharing-audience-description]').innerText()).includes('Вход не нужен'));
       await page.addStyleTag({content:'.summary-share-dialog {font-size:200%;}'});
+      await page.getByText('Дополнительные настройки',{exact:true}).click();
+      assert(await page.locator('.summary-share-tabs button').evaluateAll(buttons=>buttons.every(el=>el.scrollWidth<=el.clientWidth+1)),'Advanced tabs must not overlap at 200% text');
       await page.getByRole('button',{name:'Скопировать ссылку',exact:true}).focus();
       await page.getByRole('button',{name:'Скопировать ссылку',exact:true}).scrollIntoViewIfNeeded();
       const copyBox=await page.locator('[data-summary-share-copy]').boundingBox();
