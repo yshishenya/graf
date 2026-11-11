@@ -31,7 +31,7 @@ class GuideParser(HTMLParser):
             self.meta[attributes.get("name") or attributes.get("property")] = attributes.get("content", "")
         if tag == "h1":
             self.h1_count += 1
-        if tag == "script":
+        if tag == "script" and (attributes.get("src") or attributes.get("type") != "application/ld+json"):
             self.scripts.append(attributes.get("src", "inline"))
 
 

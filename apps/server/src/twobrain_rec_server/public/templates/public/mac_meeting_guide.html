@@ -11,6 +11,27 @@
   <link rel="stylesheet" href="{{ public_static_asset_url('content.css') }}">
   <link rel="stylesheet" href="{{ public_static_asset_url('article.css') }}">
   <link rel="stylesheet" href="{{ public_static_asset_url('content-header.css') }}">
+  <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@graph": [
+        {
+          "@type": "Article",
+          "headline": "Как записать встречу на Mac без бота и получить итоги",
+          "mainEntityOfPage": {{ canonical_url | tojson }},
+          "inLanguage": "ru",
+          "author": {"@type": "Organization", "name": "Редакция ГРАФ"}
+        },
+        {
+          "@type": "BreadcrumbList",
+          "itemListElement": [
+            {"@type": "ListItem", "position": 1, "name": "Руководства", "item": {{ canonical_url.rsplit('/', 1)[0] | tojson }}},
+            {"@type": "ListItem", "position": 2, "name": "Как записать встречу на Mac без бота и получить итоги", "item": {{ canonical_url | tojson }}}
+          ]
+        }
+      ]
+    }
+  </script>
 </head>
 <body class="guides-page quality-page article-page">
   <a class="skip-link" href="#main">К содержанию</a>
