@@ -36,7 +36,7 @@ const {chromium} = require(require.resolve('playwright',{paths:[process.env.GRAF
     await page.getByRole('combobox',{name:'Общий доступ',exact:true}).selectOption('link');
     await page.getByText('Общий доступ сохранён',{exact:true}).waitFor();
     if(await page.locator('[data-sharing-scope]').inputValue()!=='full_meeting'){
-      await page.getByRole('combobox',{name:'Что доступно получателю'}).selectOption('full_meeting');
+      await page.getByRole('combobox',{name:'Материалы общего доступа'}).selectOption('full_meeting');
       await page.getByText('Состав материалов изменён',{exact:true}).waitFor();
     }
     await page.getByRole('button',{name:'Скопировать ссылку',exact:true}).click();
@@ -94,7 +94,7 @@ const {chromium} = require(require.resolve('playwright',{paths:[process.env.GRAF
     assert.equal(new URL(reader.url()).hash,'#recording?position_ms=15000');
     await reader.getByRole('link',{name:'Мои встречи',exact:true}).waitFor();
     facts.push('login_returns_to_tab_and_position');
-    await page.getByRole('combobox',{name:'Что доступно получателю'}).selectOption('summary_only');
+    await page.getByRole('combobox',{name:'Материалы общего доступа'}).selectOption('summary_only');
     await page.getByText('Состав материалов изменён',{exact:true}).waitFor();
     await reader.reload();
     assert.equal(await reader.locator('[data-public-transcript]').count(),0);

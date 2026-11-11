@@ -60,13 +60,13 @@ const assets = path.join(__dirname, '../../src/twobrain_rec_server/cabinet/stati
       assert.equal(await page.locator('[data-sharing-audience-description]').isVisible(),true);
       assert.equal(await page.locator('[data-sharing-audience]').evaluate(el=>getComputedStyle(el).appearance),'none');
       assert(await page.locator('.sharing-audience-control').evaluate(el=>{const field=el.getBoundingClientRect();return field.height>=40&&Array.from(el.querySelectorAll('svg')).every(icon=>{const r=icon.getBoundingClientRect();return r.left>=field.left&&r.right<=field.right&&Math.abs(r.top+r.height/2-field.top-field.height/2)<1;});}),'Audience icons must be centered inside the field');
-      assert.equal(await page.locator('[data-sharing-scope]').isVisible(),false);
+      assert.equal(await page.locator('[data-sharing-scope]').isVisible(),true);
       assert.equal(await page.locator('[data-summary-share-expiry]').isVisible(),false);
       await page.locator('[data-summary-share-copy]').click({trial:true});
       assert.equal(mutations.length,0,'Opening must not grant access');
       assert.equal(await page.locator('[data-summary-share-copy]').textContent(),'Скопировать ссылку','Closed audience must not promise renewal or rotation');
       await page.getByText('Дополнительные настройки',{exact:true}).click();
-      await page.locator('[data-sharing-scope]').selectOption('full_meeting',{force:true});
+      await page.locator('[data-sharing-scope]').selectOption('full_meeting');
       assert.equal(mutations.length,0,'Selecting unpublished scope must not publish');
       await page.getByRole('button',{name:'Скопировать ссылку',exact:true}).click();
       await page.getByText('Ссылка скопирована',{exact:true}).waitFor();
@@ -88,7 +88,7 @@ const assets = path.join(__dirname, '../../src/twobrain_rec_server/cabinet/stati
       await page.getByRole('button',{name:'Скопировать ссылку',exact:true}).click();
       await page.getByText('Ссылка скопирована',{exact:true}).waitFor();
       assert.equal(version,savedVersion,'Copy must preserve link version');
-      await page.getByRole('combobox',{name:'Что доступно получателю'}).selectOption('summary_only');
+      await page.getByRole('combobox',{name:'Материалы общего доступа'}).selectOption('summary_only');
       await page.getByText('Состав материалов изменён',{exact:true}).waitFor();
       assert.equal(scope,'summary_only');
       const external = 'external@example.test';
@@ -226,6 +226,28 @@ const assets = path.join(__dirname, '../../src/twobrain_rec_server/cabinet/stati
       await page.keyboard.press('Escape');
       assert.equal(await page.evaluate(()=>document.activeElement?.hasAttribute('data-share-dialog-open')),true);
       assert.deepEqual(errors,[]);
+      for(const target of ['workspace','link']){
+        audience='invite_only';scope='summary_only';grants=[];savedLink=false;mutations.length=0;
+        await page.reload();
+        await page.addScriptTag({path:path.join(assets,'summary-sharing.js')});
+        await page.locator('[data-sharing-scope]:enabled').waitFor();
+        assert.equal(await page.locator('[data-sharing-scope]').isVisible(),true);
+        assert.equal(await page.locator('[data-sharing-scope]').inputValue(),'full_meeting');
+        await page.locator('[data-sharing-scope]').selectOption('summary_only');
+        assert.equal(mutations.length,0,'Choosing materials before publication must only change the draft');
+        page.removeAllListeners('dialog');page.on('dialog',dialog=>dialog.dismiss());
+        await page.locator('[data-sharing-audience]').selectOption(target);
+        await page.locator('[data-summary-share-dialog][aria-busy=false]').waitFor();
+        assert.equal(audience,'invite_only');assert.equal(mutations.length,0);
+        assert.equal(await page.locator('[data-sharing-scope]').inputValue(),'summary_only','Cancelled publication must retain the chosen materials');
+        page.removeAllListeners('dialog');page.on('dialog',dialog=>dialog.accept());
+        await page.locator('[data-sharing-audience]').selectOption(target);
+        await page.getByText('Общий доступ сохранён',{exact:true}).waitFor();
+        assert.equal(mutations.length,1,'Summary sharing must not require a temporary full-meeting grant');
+        assert.equal(mutations[0].body.audience,target);
+        assert.equal(mutations[0].body.content_scope,'summary_only');
+        assert.equal(scope,'summary_only');
+      }
       await page.close();
     }
     console.log('Owner sharing: explicit publication, stable copy, narrowed scope/roles, revoke, export restore, Escape/focus 320/1440 PASS');
