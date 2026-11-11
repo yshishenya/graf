@@ -15,8 +15,9 @@ Plan «Источники и минимальный состав» и Quickstart
 
 Решение: вычислять один логический учитываемый primary на встречу в общем
 `billing/storage.py:project_active_playback_storage`. Это производная SQL
-проекция существующих строк, без нового указателя, инвентаря, миграции,
-фонового процесса или записи в canonical/job/source metadata.
+проекция существующих строк, без нового указателя, инвентаря, таблицы,
+фонового процесса или записи в canonical/job/source metadata. Существующая
+новая миграция0112 дополняется узкой SELECT policy для этой проекции.
 
 Отклонённые варианты: сумма всех ревизий сохраняет дефект; глобальный
 supersede разрушает старое чтение/восстановление; выбор по последнему времени
@@ -32,7 +33,9 @@ worker допускает вытеснение новой записи стар�
 2. Кандидаты — только опубликованные `TrackArtifact`: track_role=playback,
    status=stored, профиль `review_m4a_aac_lc_48k_mono_64k_v1`, конечный сегмент
    ключа ровно `meeting-review.m4a`. Временные/невалидные/удалённые/superseded
-   строки и исходные WAV не кандидаты. Новая queued/failed ревизия без такого
+   строки и исходные WAV не кандидаты. Узкое исключение после transient purge
+   описано ниже: оно сохраняет первенство опубликованного no-archive, не байты.
+   Новая queued/failed ревизия без такого
    опубликованного canonical не освобождает прежний primary.
 3. В каждой встрече выбрать наибольший неизменяемый
    `MediaRevision.revision_number`. Детерминированный порядок при равенстве:
@@ -48,6 +51,26 @@ worker допускает вытеснение новой записи стар�
    опубликованного canonical не делает старый архив no-archive primary.
    Временный canonical для обработки остаётся lifecycle-учтённым, не даёт
    права на пользовательское воспроизведение и подчиняется FR-106.
+   После штатного transient purge тот же artifact со status=purged сохраняет
+   место в ranking только при finalized no-archive сессии и долговечном
+   PlaybackNormalizationJob с ready_at и canonical_track_artifact_id,
+   совпадающими workspace/meeting/revision и точным canonical profile.
+   Это включает preserve_valid, который не создаёт опубликованную Attempt.
+   Снятый purge профиль не отменяет историческую публикацию; unpublished,
+   чужая lineage и purged архивная ревизия этим исключением не допускаются.
+   Более новая действительно опубликованная архивная ревизия снова побеждает.
+   Сам marker не восстанавливает объект, доступ или job и не меняет сроки purge.
+   READY recovery под существующей Meeting/job/artifact блокировкой отказывает
+   для явно purged/deleted canonical без снятия исторических ready_at/указателя.
+   Это не мешает восстановлению действительно отсутствующего stored объекта.
+
+   Для этой проверки в новой миграции0112 разрешён только SELECT опубликованных
+   no-archive jobs точной maintenance billing identity/operation/feature_area
+   с row_security=on. Request/worker остаются в прежнем tenant scope; другим
+   maintenance контекстам новых прав нет. INSERT/UPDATE/DELETE не добавляются,
+   FORCE RLS сохраняется. Bootstrap уже выдаёт SELECT как table privilege;
+   новая политика ограничивает видимые строки, не обходит RLS. Тестовая роль
+   мониторинга включает jobs в SELECT inventory и проверку отсутствия записей.
 5. `used` — сумма точных byte_length выбранных учитываемых строк. Замена
    после commit видна как `old used − old bytes + new bytes`; до commit
    прежний snapshot, после rollback прежний primary. Промежуточный двойной
@@ -93,7 +116,7 @@ commit reservation; он не может решать межревизионно
 | Рабочая публикация | Существующий RED24→33 на80/95 становится точным old−24+33, rollback не меняет used; по100 сохраняется полный admission отказ. Observer→commit→outbox→один stub не подменяется ручным enqueue. |
 | Выбор | Уменьшение, queued/failed/invalid новая ревизия, поздняя старая публикация/recovery, независимые встречи и чужая lineage; порядок по revision_number, а не времени/размеру. |
 | Атомарность | Новые сеансы до/после commit и rollback, сериализованные конкурентные публикации/попытки; итог один, все роли RLS остаются ограниченными. |
-| No-archive/удаление | Выбор до no-archive исключения, исходные WAV/temporary не учитываются; logical delete освобождает primary, purge не возвращает старую ревизию. |
+| No-archive/удаление | Выбор до no-archive исключения, исходные WAV/temporary не учитываются; logical delete освобождает primary; настоящий transient purge новой no-archive ревизии не возвращает старый архив, unpublished/чужой marker не освобождает его. |
 | Чтение | Старый outcome продолжает читать свой canonical; текущая публичная версия даёт новое аудио, старый media_version409; summary_only неизменен. |
 | Допуск | Полный резерв, exact-boundary и недопустимое превышение, уменьшение не даёт недоказанного credit; original commit stat и local custody. |
 

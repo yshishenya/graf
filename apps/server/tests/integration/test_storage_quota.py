@@ -446,3 +446,131 @@ async def test_storage_primary_commit_rollback_and_delete_preserve_lifecycle(rls
         assert [row.status for row in retained] == ["deleted", "deleted"]
         assert [row.storage_object_key for row in retained] == keys
     assert await used() == 0  # Physical purge of either retained object cannot revive the other.
+
+
+@pytest.mark.strict_rls
+@pytest.mark.asyncio
+@pytest.mark.parametrize("case,expected", [
+    ("preserve_valid", 0), ("ready", 0), ("unpublished", 24),
+    ("wrong_artifact", 24), ("wrong_revision", 24), ("archive", 24),
+    ("deleted", 24), ("newer_archive", 9),
+    ("wrong_profile", None), ("wrong_key", 24),
+])
+async def test_purged_no_archive_primary_requires_matching_published_job(
+    rls_engine, postgres_isolated_cluster_database_url, case, expected,
+):
+    from sqlalchemy import delete, text, update
+    from sqlalchemy.exc import IntegrityError
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    from tests.integration.test_rls_postgres_policies import _request_context, _seed_probe_rows
+    from twobrain_rec_server.billing.storage import project_active_playback_storage
+    from twobrain_rec_server.db.models import (
+        MediaRevision,
+        PlaybackNormalizationAttempt,
+        PlaybackNormalizationJob,
+        TrackArtifact,
+        UploadSession,
+    )
+    from twobrain_rec_server.db.session import create_sessionmaker
+    from twobrain_rec_server.db.tenant_context import MaintenanceTenantContext, apply_tenant_context
+    from twobrain_rec_server.normalization.service import recover_missing_ready_normalization_job
+
+    ids = await _seed_probe_rows(rls_engine)
+    sessions = create_sessionmaker(rls_engine)
+    workspace, meeting = ids["workspace_a"], ids["meeting_a"]
+    now = datetime.now(UTC)
+    billing = MaintenanceTenantContext(operation_name="billing_reconciliation", actor_id="test-purged-primary",
+                                       reason_category="synthetic-history", feature_area="billing")
+
+    async def canonical(db, number, size, *, purged=False):
+        revision = MediaRevision(id=uuid4(), workspace_id=workspace, meeting_id=meeting,
+                                 local_media_revision_id=f"purge-primary-{number}", revision_number=number,
+                                 status="accepted")
+        db.add(revision)
+        await db.flush()
+        artifact = TrackArtifact(id=uuid4(), workspace_id=workspace, meeting_id=meeting,
+            media_revision_id=revision.id, track_role="playback", codec="aac", sample_rate_hz=48000,
+            channel_count=1, duration_seconds=60, byte_length=size, sha256="a" * 64,
+            storage_object_key=f"synthetic/{revision.id}/meeting-review.m4a",
+            status=("deleted" if case == "deleted" else "purged") if purged else "stored",
+            normalization_profile_version=None if purged else CANONICAL_PLAYBACK_PROFILE,
+            validated_at=None if purged else now, derivation_kind=None if purged else "uploaded_candidate",
+            source_fingerprint_sha256=None if purged else "b" * 64,
+            validation_version=None if purged else "playback_validator_v1")
+        db.add(artifact)
+        await db.flush()
+        return revision, artifact
+
+    async with sessions.begin() as db:
+        await apply_tenant_context(db, _request_context(ids, "a", context_kind="worker"))
+        old_revision, old = await canonical(db, 1, 24)
+        revision, artifact = await canonical(db, 2, 33, purged=True)
+        if case == "wrong_key":
+            artifact.storage_object_key += ".tmp"
+        db.add(UploadSession(workspace_id=workspace, meeting_id=meeting, media_revision_id=revision.id,
+            device_id=ids["device_a"], created_by_user_id=ids["user_a"], status="finalized",
+            archive_audio=case == "archive", max_package_bytes_snapshot=1000,
+            max_track_bytes_snapshot=1000, expires_at=now + timedelta(hours=1)))
+        job = PlaybackNormalizationJob(id=uuid4(), organization_id=ids["org_a"], workspace_id=workspace,
+            requested_by_user_id=ids["user_a"], source_device_id=ids["device_a"], meeting_id=meeting,
+            media_revision_id=old_revision.id if case == "wrong_revision" else revision.id,
+            trigger_kind="finalize", priority_class="new_ingest", source_kind="initial_recording",
+            source_fingerprint_sha256="b" * 64, planned_action="preserve_valid",
+            workflow_id=f"synthetic/{uuid4()}", state="queued" if case == "unpublished" else "ready",
+            canonical_track_artifact_id=None if case == "unpublished" else old.id if case == "wrong_artifact" else artifact.id,
+            ready_at=None if case == "unpublished" else now)
+        if case == "wrong_profile":
+            job.profile_version = "unrecognized-profile"
+            # The schema prevents this marker from existing at all.
+            with pytest.raises(IntegrityError, match="violates check constraint"):
+                async with db.begin_nested():
+                    db.add(job)
+                    await db.flush()
+            return
+        db.add(job)
+        # PRESERVE_VALID has no published Attempt. These retained Job facts
+        # must suffice even when transient cleanup already cancelled the job.
+        if case == "preserve_valid":
+            job.state, job.reason_code, job.cancelled_at = "cancelled", "audio_purged", now
+        if case == "newer_archive":
+            await canonical(db, 3, 9)
+        job_id, artifact_id = job.id, artifact.id
+
+    for context in (billing, _request_context(ids, "a"), _request_context(ids, "a", context_kind="worker")):
+        async with sessions() as db:
+            await apply_tenant_context(db, context)
+            assert (await project_active_playback_storage(db, workspace_id=workspace, capacity_bytes=1000)).used_bytes == expected
+    async with sessions() as db:
+        await apply_tenant_context(db, _request_context(ids, "a", context_kind="worker"))
+        assert await db.scalar(select(PlaybackNormalizationAttempt.id).where(
+            PlaybackNormalizationAttempt.media_revision_id == revision.id)) is None
+        if case in {"ready", "deleted"}:
+            assert await recover_missing_ready_normalization_job(db, job_id=job_id) is False
+            await apply_tenant_context(db, _request_context(ids, "a", context_kind="worker"))
+            retained = await db.get(PlaybackNormalizationJob, job_id)
+            assert retained.canonical_track_artifact_id == artifact_id and retained.ready_at == now
+
+    async with sessions() as db:
+        await apply_tenant_context(db, billing)
+        visible = await db.scalar(select(PlaybackNormalizationJob.id).where(PlaybackNormalizationJob.id == job_id))
+        assert (visible is not None) == (case not in {"archive", "unpublished", "wrong_revision"})
+        assert (await db.execute(update(PlaybackNormalizationJob).where(
+            PlaybackNormalizationJob.id == job_id).values(ready_at=now))).rowcount == 0
+        assert (await db.execute(delete(PlaybackNormalizationJob).where(
+            PlaybackNormalizationJob.id == job_id))).rowcount == 0
+        await db.rollback()
+    wrong = MaintenanceTenantContext(operation_name="billing_reconciliation", actor_id="test-purged-primary",
+                                     reason_category="synthetic-history", feature_area="account")
+    for context in (wrong, _request_context(ids, "b")):
+        async with sessions() as db:
+            await apply_tenant_context(db, context)
+            assert await db.scalar(select(PlaybackNormalizationJob.id).where(PlaybackNormalizationJob.id == job_id)) is None
+    owner_engine = create_async_engine(postgres_isolated_cluster_database_url)
+    try:
+        async with create_sessionmaker(owner_engine)() as db:
+            await db.execute(text("SET LOCAL ROLE twobrain_rec_maintenance"))
+            await apply_tenant_context(db, billing)
+            assert await db.scalar(select(PlaybackNormalizationJob.id).where(PlaybackNormalizationJob.id == job_id)) is None
+    finally:
+        await owner_engine.dispose()

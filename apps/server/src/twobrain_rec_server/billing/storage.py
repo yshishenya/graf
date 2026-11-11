@@ -8,7 +8,13 @@ from sqlalchemy import exists, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.billing.catalog import classify_storage_threshold
-from twobrain_rec_server.db.models import MediaRevision, Meeting, TrackArtifact, UploadSession
+from twobrain_rec_server.db.models import (
+    MediaRevision,
+    Meeting,
+    PlaybackNormalizationJob,
+    TrackArtifact,
+    UploadSession,
+)
 from twobrain_rec_server.db.models import StorageReservation as StorageReservationRow
 
 CANONICAL_PLAYBACK_PROFILE = "review_m4a_aac_lc_48k_mono_64k_v1"
@@ -92,6 +98,21 @@ async def project_active_playback_storage(
         raise ValueError("reserved bytes cannot be negative")
     # Retained canonical revisions remain readable; only the latest published
     # revision is the logical billing primary, even after older job recovery.
+    no_archive = exists(select(1).where(
+        UploadSession.workspace_id == TrackArtifact.workspace_id,
+        UploadSession.meeting_id == TrackArtifact.meeting_id,
+        UploadSession.media_revision_id == TrackArtifact.media_revision_id,
+        UploadSession.status == "finalized",
+        UploadSession.archive_audio.is_(False),
+    ))
+    published_before_purge = exists(select(1).where(
+        PlaybackNormalizationJob.workspace_id == TrackArtifact.workspace_id,
+        PlaybackNormalizationJob.meeting_id == TrackArtifact.meeting_id,
+        PlaybackNormalizationJob.media_revision_id == TrackArtifact.media_revision_id,
+        PlaybackNormalizationJob.canonical_track_artifact_id == TrackArtifact.id,
+        PlaybackNormalizationJob.profile_version == CANONICAL_PLAYBACK_PROFILE,
+        PlaybackNormalizationJob.ready_at.is_not(None),
+    ))
     primary = (
         select(
             TrackArtifact.byte_length,
@@ -115,8 +136,13 @@ async def project_active_playback_storage(
         .where(
             TrackArtifact.workspace_id == workspace_id,
             TrackArtifact.track_role == "playback",
-            TrackArtifact.status == "stored",
-            TrackArtifact.normalization_profile_version == CANONICAL_PLAYBACK_PROFILE,
+            (
+                ((TrackArtifact.status == "stored")
+                 & (TrackArtifact.normalization_profile_version == CANONICAL_PLAYBACK_PROFILE))
+                # Purge clears the validation bundle, but not the published
+                # no-archive revision's precedence over an older archive.
+                | ((TrackArtifact.status == "purged") & no_archive & published_before_purge)
+            ),
             TrackArtifact.storage_object_key.endswith("/meeting-review.m4a"),
         )
         .subquery()

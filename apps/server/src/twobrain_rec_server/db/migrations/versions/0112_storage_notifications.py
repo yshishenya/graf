@@ -74,6 +74,14 @@ def upgrade():
     predicate = """session_user = 'twobrain_rec_maintenance' AND current_user = 'twobrain_rec_maintenance'
         AND current_setting('row_security') = 'on' AND rec_context_kind() = 'maintenance'
         AND rec_maintenance_allowed() AND rec_setting('app.maintenance_operation') = 'billing_reconciliation'"""
+    op.execute(f"""CREATE POLICY storage_published_no_archive_select ON playback_normalization_jobs
+        FOR SELECT USING ({predicate} AND rec_setting('app.maintenance_feature_area') = 'billing'
+        AND ready_at IS NOT NULL AND canonical_track_artifact_id IS NOT NULL
+        AND EXISTS (SELECT 1 FROM upload_sessions AS storage_upload
+            WHERE storage_upload.workspace_id = playback_normalization_jobs.workspace_id
+            AND storage_upload.meeting_id = playback_normalization_jobs.meeting_id
+            AND storage_upload.media_revision_id = playback_normalization_jobs.media_revision_id
+            AND storage_upload.status = 'finalized' AND storage_upload.archive_audio = false))""")
     for table in ("storage_notification_states", "storage_notification_scan"):
         op.execute(f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY")
         op.execute(f"ALTER TABLE {table} FORCE ROW LEVEL SECURITY")
@@ -98,6 +106,7 @@ def downgrade():
     op.execute("""DO $$ BEGIN IF EXISTS (SELECT 1 FROM storage_notification_scan)
         OR EXISTS (SELECT 1 FROM storage_notification_states)
         THEN RAISE EXCEPTION '0112 downgrade blocked: storage notification state exists'; END IF; END $$""")
+    op.execute("DROP POLICY storage_published_no_archive_select ON playback_normalization_jobs")
     op.drop_table("storage_notification_scan")
     op.drop_table("storage_notification_states")
     op.execute("DROP FUNCTION rec_storage_scan_summary_valid(jsonb)")

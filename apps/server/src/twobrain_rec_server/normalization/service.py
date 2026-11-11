@@ -2410,7 +2410,11 @@ async def recover_missing_ready_normalization_job(
             .with_for_update()
             .execution_options(populate_existing=True)
         )
-    if canonical is not None and canonical.status not in {"purged", "deleted"}:
+    if canonical is not None and canonical.status in {"purged", "deleted"}:
+        # A late missing-object verifier cannot undo an explicit lifecycle purge.
+        await db.rollback()
+        return False
+    if canonical is not None:
         _supersede_playback_artifact(canonical)
     ensure_job_transition(
         JobState.READY,

@@ -49,6 +49,7 @@ from twobrain_rec_server.db.models import (
     MeetingDeletionRequest,
     ObservedProviderRefund,
     Organization,
+    PlaybackNormalizationJob,
     RegisteredDevice,
     StorageReservation,
     TimeCreditLedgerEntry,
@@ -72,7 +73,7 @@ TABLES = (BillingAuditEvent, BillingOperation, BillingInvoice, BillingWebhookEve
           BillingRegistryImport, BillingRegistryGap, TimeCreditLedgerEntry, ObservedProviderRefund, FairUseReviewRecord,
           MeetingDeletionRequest)
 STORAGE_TABLES = (Workspace, WorkspaceSubscription, StorageReservation, BillingEntitlementGrant,
-                  BillingStorageEntitlementGrant, TrackArtifact, UploadSession, MediaRevision, Meeting)
+                  BillingStorageEntitlementGrant, TrackArtifact, UploadSession, MediaRevision, Meeting, PlaybackNormalizationJob)
 
 
 def test_observation_source_probe_partial_counts_roles_and_no_writes(database, caplog):
