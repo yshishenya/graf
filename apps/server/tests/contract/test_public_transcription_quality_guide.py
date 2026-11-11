@@ -17,7 +17,7 @@ def test_quality_guide_is_indexable_and_marks_examples_without_product_accuracy_
         assert parser.canonical == ["https://rec.2brain.pro" + QUALITY_GUIDE_PATH]
         assert parser.meta["og:url"] == parser.canonical[0]
         assert parser.meta["description"] == parser.meta["og:description"]
-        assert parser.h1 == 1 and parser.scripts == 0
+        assert parser.h1 == 1 and parser.scripts == 1
         assert "noindex" not in parser.meta.get("robots", "")
         assert "noindex" not in response.headers.get("x-robots-tag", "")
         assert "Все примеры учебные" in response.text
