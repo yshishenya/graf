@@ -270,7 +270,6 @@
           ?'<circle cx="9" cy="7" r="3"/><path d="M3 21v-2a6 6 0 0 1 12 0v2M16 4a3 3 0 0 1 0 6m2 4a5 5 0 0 1 3 5v2"/>'
           :'<circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18"/>';
       scope.value=data.audience==='invite_only'&&data.link?.state==='absent'?'full_meeting':data.content_scope;
-      find('[data-sharing-materials]').hidden=data.audience==='invite_only';
       for(const value of ['workspace','link']) {
         const option=audience.querySelector(`[value="${value}"]`);
         if(option)option.disabled=data.capabilities?.[value]===false;
