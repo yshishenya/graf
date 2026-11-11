@@ -6444,7 +6444,7 @@ select:focus, .settings-page select:focus, .calendar-settings select:focus {
 .summary-share-dialog select { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 .summary-share-dialog .share-recipient-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
 .summary-share-tabs { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px; border-radius: var(--radius-card); background: var(--surface-2); }
-.summary-share-tabs button { flex: 1; min-height: 40px; border: 0; background: transparent; }
+.summary-share-tabs button { flex: 1 1 auto; white-space: normal; overflow-wrap: anywhere; min-height: 40px; border: 0; background: transparent; }
 .summary-share-tabs button[aria-selected="true"] { background: var(--panel); color: var(--text); box-shadow: var(--shadow-card); }
 .summary-share-document { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
 .summary-share-expiry { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; }
