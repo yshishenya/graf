@@ -84,7 +84,7 @@
     const setStatus=(text,error=false)=>{status.textContent=text;status.dataset.tone=error?'error':'neutral';};
     const rememberKey=value=>{sendKey=value;if(!value)frozenPayload=null;try{value?sessionStorage.setItem(storageKey,value):sessionStorage.removeItem(storageKey);}catch(_){}};
     function close() {
-      restoreExport();closed=true;clearTimeout(pollTimer);dialog.close();opener?.setAttribute('aria-expanded','false');opener?.focus({preventScroll:true});
+      restoreExport();dismissPeople();closed=true;clearTimeout(pollTimer);dialog.close();opener?.setAttribute('aria-expanded','false');opener?.focus({preventScroll:true});
     }
     function tab(mode,focus=false) {
       dialog.querySelectorAll('[data-summary-share-tab]').forEach(button=>{
@@ -105,6 +105,9 @@
     function setBusy(value) {
       busy=value;copy.disabled=value||!general||(general.audience==='link'&&general.capabilities?.link===false);send.disabled=value;
       dialog.querySelectorAll('[data-sharing-audience],[data-sharing-scope],[data-summary-share-expiry]').forEach(control=>{control.disabled=value||!general;});
+      find('[data-sharing-invite-form] button[type=submit]').disabled=value;
+      find('[data-sharing-invite-role]').disabled=value;
+      find('[data-sharing-invite-export]').disabled=value||find('[data-sharing-invite-role]').value==='summary';
       dialog.setAttribute('aria-busy',String(value));
     }
     async function action(fn) {
@@ -256,26 +259,31 @@
     const audience=find('[data-sharing-audience]'), scope=find('[data-sharing-scope]');
     const audienceDescription=find('[data-sharing-audience-description]');
     function describeAudience(value) {
-      if(value==='invite_only')return 'Доступ есть только у приглашённых людей.';
-      const materials=scope.selectedOptions[0].textContent.toLowerCase();
-      return value==='workspace'?`Всем в пространстве доступны: ${materials}.`:`Любому со ссылкой доступны: ${materials}.`;
+      if(value==='invite_only')return 'Доступ по приглашению. Для просмотра нужен вход.';
+      return value==='workspace'?'Доступ участникам вашего пространства после входа.':'Вход не нужен. Ссылку можно пересылать.';
     }
     function renderGeneral(data) {
-      general=data;audience.value=data.audience;scope.value=data.content_scope;
+      general=data;audience.value=data.audience;
+      find('[data-sharing-audience-icon]').innerHTML=data.audience==='invite_only'
+        ?'<rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3m-4 5v2"/>'
+        :data.audience==='workspace'
+          ?'<circle cx="9" cy="7" r="3"/><path d="M3 21v-2a6 6 0 0 1 12 0v2M16 4a3 3 0 0 1 0 6m2 4a5 5 0 0 1 3 5v2"/>'
+          :'<circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18"/>';
+      scope.value=data.audience==='invite_only'&&data.link?.state==='absent'?'full_meeting':data.content_scope;
+      find('[data-sharing-materials]').hidden=data.audience==='invite_only';
       for(const value of ['workspace','link']) {
         const option=audience.querySelector(`[value="${value}"]`);
         if(option)option.disabled=data.capabilities?.[value]===false;
       }
       copy.disabled=busy||(data.audience==='link'&&data.capabilities?.link===false);
       audienceDescription.textContent=describeAudience(data.audience);
-      audienceDescription.classList.toggle('sr-only',data.audience==='invite_only');
       if(data.link)renderLink(data.link);
     }
     async function loadGeneral(){renderGeneral(await meetingAPI('/sharing/general-access'));}
     audience.addEventListener('change',()=>action(async()=>{
       const value=audience.value;
       if(!general)return;
-      if(value!==general.audience&&!window.confirm(describeAudience(value)+' Сохранить общий доступ?')){audience.value=general.audience;return;}
+      if(value!==general.audience&&!window.confirm(describeAudience(value)+' Материалы: '+scope.selectedOptions[0].textContent+'. Сохранить общий доступ?')){audience.value=general.audience;return;}
       renderGeneral(await meetingAPI('/sharing/general-access',{method:'POST',body:{audience:value,expected_fingerprint:general.fingerprint,content_scope:scope.value,template_key:templateKey(),expires_in_days:Number(find('[data-summary-share-expiry]').value)}}));
       setStatus('Общий доступ сохранён');
     }));
@@ -306,18 +314,24 @@
       if(restoreFocus)title.focus({preventScroll:true});
     }
     const person=find('[data-sharing-person]'), people=find('[data-sharing-people]');let chosen=null,peopleRevision=0,peopleTimer;
-    person.addEventListener('input',()=>{chosen=null;clearTimeout(peopleTimer);const revision=++peopleRevision;peopleTimer=setTimeout(async()=>{
+    function dismissPeople(){clearTimeout(peopleTimer);peopleRevision++;people.hidden=true;person.setAttribute('aria-expanded','false');}
+    person.addEventListener('input',()=>{chosen=null;dismissPeople();if(!person.value.trim())return;const revision=peopleRevision;peopleTimer=setTimeout(async()=>{
       try{const data=await api(`/recipients?query=${encodeURIComponent(person.value)}`);if(revision!==peopleRevision)return;
-        people.replaceChildren();for(const candidate of data.recipients||[]){const button=node('button',candidate.display_label===candidate.email?candidate.email:`${candidate.display_label} · ${candidate.email}`);button.type='button';button.setAttribute('role','option');button.addEventListener('click',()=>{chosen=candidate;person.value=candidate.email;people.hidden=true;person.setAttribute('aria-expanded','false');person.focus();});people.append(button);}
+        people.replaceChildren();for(const candidate of data.recipients||[]){const button=node('button',candidate.display_label===candidate.email?candidate.email:`${candidate.display_label} · ${candidate.email}`);button.type='button';button.setAttribute('role','option');button.addEventListener('click',()=>{chosen=candidate;person.value=candidate.email;dismissPeople();person.focus();});people.append(button);}
         people.hidden=!people.children.length;person.setAttribute('aria-expanded',String(!people.hidden));
-      }catch(error){setStatus(errorText(error),true);}
+      }catch(error){if(revision===peopleRevision)setStatus(errorText(error),true);}
     },250);});
-    person.addEventListener('keydown',event=>{if(event.key==='ArrowDown'&&!people.hidden){event.preventDefault();people.querySelector('button')?.focus();}if(event.key==='Escape'&&!people.hidden){event.preventDefault();event.stopPropagation();people.hidden=true;person.setAttribute('aria-expanded','false');}});
-    people.addEventListener('keydown',event=>{const buttons=[...people.querySelectorAll('button')], index=buttons.indexOf(document.activeElement);if(['ArrowDown','ArrowUp'].includes(event.key)){event.preventDefault();buttons[(index+(event.key==='ArrowDown'?1:buttons.length-1))%buttons.length]?.focus();}if(event.key==='Escape'){event.preventDefault();event.stopPropagation();people.hidden=true;person.setAttribute('aria-expanded','false');person.focus();}});
+    person.addEventListener('keydown',event=>{if(event.key==='ArrowDown'&&!people.hidden){event.preventDefault();people.querySelector('button')?.focus();}if(event.key==='Escape'&&!people.hidden){event.preventDefault();event.stopPropagation();dismissPeople();}});
+    people.addEventListener('keydown',event=>{const buttons=[...people.querySelectorAll('button')], index=buttons.indexOf(document.activeElement);if(['ArrowDown','ArrowUp'].includes(event.key)){event.preventDefault();buttons[(index+(event.key==='ArrowDown'?1:buttons.length-1))%buttons.length]?.focus();}if(event.key==='Escape'){event.preventDefault();event.stopPropagation();dismissPeople();person.focus();}});
     const inviteRole=find('[data-sharing-invite-role]'),exportCheck=find('[data-sharing-invite-export]');
-    inviteRole.addEventListener('change',()=>{exportCheck.disabled=inviteRole.value==='summary';if(exportCheck.disabled)exportCheck.checked=false;});exportCheck.disabled=true;
+    function renderInviteRole(){
+      const summary=inviteRole.value==='summary';exportCheck.disabled=summary;if(summary)exportCheck.checked=false;
+      find('[data-sharing-invite-description]').textContent=(summary?'Только итоги, без расшифровки и записи. ':'Итоги, расшифровка и доступная запись. ')+'Вход по почте.';
+    }
+    inviteRole.addEventListener('change',renderInviteRole);renderInviteRole();
     find('[data-sharing-invite-form]').addEventListener('submit',event=>{event.preventDefault();action(async()=>{
       if(!emailValid(person.value.trim())){setStatus('Введите почту или выберите человека из списка.',true);return;}
+      dismissPeople();
       const role=inviteRole.value,body={content_scope:role==='summary'?'summary_only':'full_meeting',can_comment:role==='commenter'||role==='editor',can_edit:role==='editor',can_download:exportCheck.checked,can_export:exportCheck.checked};
       if(chosen?.user_id){await meetingAPI('/shares',{method:'POST',body:{...body,audience_type:'user',audience_id:chosen.user_id}});setStatus('Доступ предоставлен');}
       else {try{await meetingAPI('/share-invitations',{method:'POST',body:{...body,address:person.value.trim()}});setStatus('Приглашение отправлено');}catch(error){await loadAccess();throw error;}}

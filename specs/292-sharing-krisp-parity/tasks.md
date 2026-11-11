@@ -134,3 +134,7 @@ T015 после T012/T013; подготовка подписанного macOS-�
 ### Повторная доводка T006, T008 и T030
 
 Прежние отметки относятся к ранее принятому объему. [Независимая проверка требований](review-t008-t030-polish-requirements.md) сверила тот же набор задач: #7905, #7907 и #7942. Новые подтверждения для интерфейса и проигрывателя — в [проверках](validation.md); выпуск и установленное приложение принимаются отдельно.
+
+## Phase 21 — Компоновка и исходные параметры по скриншоту 2026-11-11
+
+- [ ] T033 Доработать настоящее окно владельца в `templates/cabinet/fragments/meeting_share.html` и `static/cabinet/{cabinet.css,summary-sharing.js}`: выровненные select/значки, отдельные details/footer, видимые права и материалы, viewer/full только для новых действий, закрытая аудитория и файлы off, неизменные старые ссылки. До кода requirements review/analyze/issue sync; RED→GREEN в `tests/browser/sharing-owner.test.cjs` и новом предметном browser-default scenario через `tests/contract/test_meeting_sharing_parity_ui.py`, оба движка/темы/200%/узкие окна, прежние public/auth/playback/privacy проверки. Затем чистый Dev harness, настоящее визуальное подтверждение, свежие PR/release gates и metadata-only evidence. [FR-033/034/035, FR-003/006/013/026/027] (Issue #8016)

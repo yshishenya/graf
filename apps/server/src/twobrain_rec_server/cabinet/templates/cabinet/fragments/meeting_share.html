@@ -8,7 +8,9 @@
     <section id="meeting-sharing-export-panel" role="tabpanel" aria-labelledby="meeting-sharing-export-tab" data-meeting-sharing-panel="export" hidden><div data-sharing-export-host></div><p data-sharing-export-empty>Файлы для экспорта пока не готовы.</p>{% for artifact in artifacts|default([]) %}{% if artifact.artifact_class == 'audio' %}<div class="share-viewer-row"><span>Аудиозапись</span>{% if artifact.action == 'download' and artifact.state == 'available' %}<a href="/api/v1/cabinet/meetings/{{ meeting_id }}/downloads/audio{% if share_workspace_id %}?workspace_id={{ share_workspace_id }}{% endif %}">Скачать запись</a>{% else %}<span class="muted">Пока недоступна</span>{% endif %}</div>{% endif %}{% endfor %}</section>
     <section id="meeting-sharing-panel" role="tabpanel" aria-labelledby="meeting-sharing-tab" data-meeting-sharing-panel="share">
     <form data-sharing-invite-form class="sharing-invitation-form">
-      <div class="share-recipient-row"><input id="sharing-person-{{ meeting_id }}" type="text" autocomplete="off" placeholder="Email или имя" aria-label="Кого пригласить" role="combobox" aria-expanded="false" aria-autocomplete="list" aria-controls="sharing-people-{{ meeting_id }}" data-sharing-person><button class="sharing-add-person-button" type="submit">Пригласить</button></div>
+      <div class="share-recipient-row"><input id="sharing-person-{{ meeting_id }}" type="text" name="invitee" autocomplete="off" spellcheck="false" placeholder="Email или имя…" aria-label="Кого пригласить" role="combobox" aria-expanded="false" aria-autocomplete="list" aria-controls="sharing-people-{{ meeting_id }}" data-sharing-person><button class="sharing-add-person-button" type="submit">Пригласить</button></div>
+      <label class="sharing-invite-role">Права при приглашении<select data-sharing-invite-role aria-describedby="sharing-invite-description-{{ meeting_id }}"><option value="viewer" selected>Просмотр встречи</option><option value="summary">Только итоги</option><option value="commenter">Комментирование</option><option value="editor">Редактирование</option></select></label>
+      <p class="muted sharing-description" id="sharing-invite-description-{{ meeting_id }}" data-sharing-invite-description>Итоги, расшифровка и доступная запись. Вход по почте.</p>
       <div id="sharing-people-{{ meeting_id }}" role="listbox" data-sharing-people hidden></div>
     </form>
     <div class="sharing-access-list" aria-label="У кого есть доступ">
@@ -18,19 +20,19 @@
     <div class="sharing-general">
       <label for="sharing-audience-{{ meeting_id }}">Общий доступ</label>
       <div class="sharing-audience-control">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3m-4 5v2"/></svg>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" data-sharing-audience-icon><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3m-4 5v2"/></svg>
         <select id="sharing-audience-{{ meeting_id }}" aria-describedby="sharing-audience-description-{{ meeting_id }}" data-sharing-audience><option value="invite_only">Только приглашенные</option><option value="workspace">Все в пространстве</option><option value="link">Любой со ссылкой</option></select>
+        <svg class="sharing-audience-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
       </div>
-      <p class="muted sr-only" id="sharing-audience-description-{{ meeting_id }}" data-sharing-audience-description>Доступ есть только у приглашенных людей.</p>
+      <p class="muted sharing-description" id="sharing-audience-description-{{ meeting_id }}" data-sharing-audience-description>Доступ по приглашению. Для просмотра нужен вход.</p>
+      <label class="sharing-general-materials" data-sharing-materials hidden>Что доступно получателю<select data-sharing-scope><option value="full_meeting">Итоги, расшифровка и запись</option><option value="summary_only">Только итоги</option></select></label>
     </div>
     <div data-summary-share-editor>
       <details class="sharing-options" data-sharing-options>
         <summary>Дополнительные настройки</summary>
         <div class="sharing-options__body">
-          <label>Права при приглашении<select data-sharing-invite-role><option value="summary">Только итоги</option><option value="viewer">Просмотр встречи</option><option value="commenter">Комментирование</option><option value="editor">Редактирование</option></select></label>
           <label class="sharing-options__check"><input type="checkbox" data-sharing-invite-export> Разрешить скачивание и экспорт</label>
-          <p class="muted">Адресат войдет со своей почтой. Приглашение не добавляет его в ваше пространство.</p>
-          <label>Что доступно получателю<select data-sharing-scope><option value="summary_only">Только итоги</option><option value="full_meeting">Итоги, расшифровка и запись</option></select></label>
+          <p class="muted sharing-description">Прослушивание доступно без скачивания. Приглашение не добавляет человека в ваше пространство.</p>
       <div class="summary-share-tabs" role="tablist" aria-label="Как поделиться">
         <button type="button" role="tab" id="summary-link-tab" aria-controls="summary-link-panel" aria-selected="true" data-summary-share-tab="link">По ссылке</button>
         <button type="button" role="tab" id="summary-email-tab" aria-controls="summary-email-panel" aria-selected="false" tabindex="-1" data-summary-share-tab="email">По почте</button>
