@@ -8,7 +8,8 @@ from math import ceil
 from typing import Any
 from uuid import NAMESPACE_URL, UUID, uuid5
 
-from sqlalchemy import BigInteger, cast, func, or_, select
+from sqlalchemy import Numeric, and_, case, cast, func, or_, select
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.exc import SQLAlchemyError
 
 from twobrain_rec_server.auth.account_closure import (
@@ -51,6 +52,10 @@ from twobrain_rec_server.billing.renewal_charge import (
     record_renewal_decline,
 )
 from twobrain_rec_server.billing.storage import lock_storage_workspace
+from twobrain_rec_server.billing.storage_notifications import (
+    reconcile_storage_notifications,
+    storage_notice_owner,
+)
 from twobrain_rec_server.billing.trial_notifications import (
     TRIAL_NOTIFICATION_KINDS,
     enqueue_due_trial_notices,
@@ -642,15 +647,15 @@ async def run_billing_reconciliation_reconciler(settings: Any, temporal_client: 
         raise
 
 
-_REFERRAL_RETRY_KEY = "_retry_not_before"
-_REFERRAL_RETRY_DELAY = 60
+_BILLING_NOTICE_RETRY_KEY = "_retry_not_before"
+_BILLING_NOTICE_RETRY_DELAY = 60
 
 
-def _schedule_referral_notice_retry(row: BillingNotificationDelivery) -> None:
+def _schedule_billing_notice_retry(row: BillingNotificationDelivery) -> None:
     # Queue-only metadata; build_notification strips it before rendering.
     row.safe_payload = {
         **(row.safe_payload or {}),
-        _REFERRAL_RETRY_KEY: ceil(datetime.now(UTC).timestamp() + _REFERRAL_RETRY_DELAY),
+        _BILLING_NOTICE_RETRY_KEY: ceil(datetime.now(UTC).timestamp() + _BILLING_NOTICE_RETRY_DELAY),
     }
 
 
@@ -684,9 +689,17 @@ async def run_billing_notification_reconciler(settings: Any) -> None:
                         .group_by(ExternalIdentity.user_id)
                         .subquery()
                     )
-                    is_referral = BillingNotificationDelivery.template_key.in_(REFERRAL_NOTICE_KINDS)
-                    retry_not_before = cast(
-                        BillingNotificationDelivery.safe_payload[_REFERRAL_RETRY_KEY].as_string(), BigInteger,
+                    is_bounded_notice = BillingNotificationDelivery.template_key.in_(
+                        (*REFERRAL_NOTICE_KINDS, BillingNotification.STORAGE_THRESHOLD)
+                    )
+                    retry_text = BillingNotificationDelivery.safe_payload[_BILLING_NOTICE_RETRY_KEY].as_string()
+                    # Invalid queue metadata must reach the guarded claim, not abort the whole poll.
+                    retry_not_before = case(
+                        (and_(
+                            func.jsonb_typeof(cast(BillingNotificationDelivery.safe_payload[_BILLING_NOTICE_RETRY_KEY], JSONB)) == "number",
+                            retry_text.op("~")(r"^(0|[1-9][0-9]{0,18})$"),
+                        ), cast(retry_text, Numeric)),
+                        else_=None,
                     )
                     rows = (
                         await db.execute(
@@ -709,13 +722,14 @@ async def run_billing_notification_reconciler(settings: Any) -> None:
                                 BillingNotificationDelivery.channel == "email",
                                 BillingNotificationDelivery.state.in_(("pending", "retry")),
                                 or_(
-                                    is_referral,
+                                    is_bounded_notice,
                                     verified_email.c.email.is_not(None),
                                     BillingNotificationDelivery.template_key.in_(
                                         tuple(sorted(TRIAL_NOTIFICATION_KINDS))
                                     ),
                                 ),
-                                or_(~is_referral, retry_not_before.is_(None),
+                                or_(~is_bounded_notice, retry_not_before.is_(None),
+                                    retry_not_before > 9223372036854775807,
                                     retry_not_before <= int(datetime.now(UTC).timestamp())),
                             )
                             .order_by(
@@ -728,12 +742,14 @@ async def run_billing_notification_reconciler(settings: Any) -> None:
                 for row, recipient_email, optional_email_enabled in rows:
                     claimed = False
                     referral = row.template_key in REFERRAL_NOTICE_KINDS
+                    storage = row.template_key == BillingNotification.STORAGE_THRESHOLD
                     try:
                         kind = BillingNotification(row.template_key)
                         trial_notice = kind in TRIAL_NOTIFICATION_KINDS
                         if (
                             not trial_notice
                             and not referral
+                            and not storage
                             and kind not in MANDATORY_NOTIFICATION_KINDS
                             and optional_email_enabled is False
                         ):
@@ -753,7 +769,7 @@ async def run_billing_notification_reconciler(settings: Any) -> None:
                             continue
                         event = (
                             build_notification(event_id=row.event_id, kind=kind, payload=row.safe_payload or {})
-                            if referral else NotificationEvent(row.event_id, kind, row.safe_payload or {})
+                            if referral or storage else NotificationEvent(row.event_id, kind, row.safe_payload or {})
                         )
                         title, body = notification_copy(event, support_email=settings.billing_support_email)
                         action_path = event.safe_payload.get("action_path")
@@ -782,8 +798,10 @@ async def run_billing_notification_reconciler(settings: Any) -> None:
                         # replay mail that Postal may already have accepted.
                         async with sessionmaker() as db:
                             await apply_tenant_context(db, context)
-                            if trial_notice:
+                            if trial_notice or storage:
                                 await lock_storage_workspace(db, row.workspace_id)
+                            if storage:
+                                await db.scalar(select(Workspace).where(Workspace.id == row.workspace_id).with_for_update())
                             sending = await db.scalar(
                                 select(BillingNotificationDelivery)
                                 .where(BillingNotificationDelivery.id == row.id)
@@ -791,7 +809,40 @@ async def run_billing_notification_reconciler(settings: Any) -> None:
                             )
                             if sending is None or sending.state not in {"pending", "retry"}:
                                 continue
-                            if trial_notice:
+                            if storage:
+                                due = (sending.safe_payload or {}).get(_BILLING_NOTICE_RETRY_KEY, 0)
+                                if not event.safe_payload or type(due) is not int or not 0 <= due <= 9223372036854775807:
+                                    sending.state = "suppressed"
+                                    sending.last_error_code = "storage_snapshot_invalid"
+                                    await db.commit()
+                                    continue
+                                if due > datetime.now(UTC).timestamp():
+                                    continue
+                                if sending.attempts >= 5:
+                                    sending.state = "failed"
+                                    await db.commit()
+                                    continue
+                                try:
+                                    async with db.begin_nested():
+                                        recipient = await storage_notice_owner(
+                                            db, workspace_id=sending.workspace_id,
+                                            expected_recipient=sending.recipient_id,
+                                        )
+                                except SQLAlchemyError:
+                                    sending.attempts += 1
+                                    sending.last_error_code = "storage_authorization_unavailable"
+                                    sending.state = "retry" if sending.attempts < 5 else "failed"
+                                    if sending.state == "retry":
+                                        _schedule_billing_notice_retry(sending)
+                                    await db.commit()
+                                    continue
+                                if recipient is None or recipient[1] is None:
+                                    sending.state = "suppressed"
+                                    sending.last_error_code = None
+                                    await db.commit()
+                                    continue
+                                recipient_email = recipient[1]
+                            elif trial_notice:
                                 recipient_email = await trial_notice_recipient(
                                     db, sending, now=datetime.now(UTC)
                                 )
@@ -801,7 +852,7 @@ async def run_billing_notification_reconciler(settings: Any) -> None:
                                     await db.commit()
                                     continue
                             elif referral:
-                                due = (sending.safe_payload or {}).get(_REFERRAL_RETRY_KEY, 0)
+                                due = (sending.safe_payload or {}).get(_BILLING_NOTICE_RETRY_KEY, 0)
                                 if not isinstance(due, int) or due > datetime.now(UTC).timestamp():
                                     continue
                                 event_type, _, reference = sending.event_id.partition(":")
@@ -825,7 +876,7 @@ async def run_billing_notification_reconciler(settings: Any) -> None:
                                     sending.last_error_code = "referral_authorization_unavailable"
                                     sending.state = "retry" if sending.attempts < 5 else "failed"
                                     if sending.state == "retry":
-                                        _schedule_referral_notice_retry(sending)
+                                        _schedule_billing_notice_retry(sending)
                                     await db.commit()
                                     continue
                                 if recipient is None:
@@ -850,6 +901,23 @@ async def run_billing_notification_reconciler(settings: Any) -> None:
                     except asyncio.CancelledError:
                         raise
                     except Exception as exc:
+                        if storage and not claimed:
+                            async with sessionmaker() as db:
+                                await apply_tenant_context(db, context)
+                                failed = await db.scalar(select(BillingNotificationDelivery).where(
+                                    BillingNotificationDelivery.id == row.id,
+                                ).with_for_update())
+                                if failed is not None and failed.state in {"pending", "retry"}:
+                                    due = (failed.safe_payload or {}).get(_BILLING_NOTICE_RETRY_KEY, 0)
+                                    if type(due) is int and due <= datetime.now(UTC).timestamp():
+                                        failed.attempts = min(failed.attempts + 1, 5)
+                                        failed.last_error_code = "storage_authorization_unavailable"
+                                        failed.state = "retry" if failed.attempts < 5 else "failed"
+                                        if failed.state == "retry":
+                                            _schedule_billing_notice_retry(failed)
+                                await db.commit()
+                            logger.warning("storage notification claim failed")
+                            continue
                         if referral and not claimed:
                             # The claim transaction did not commit; leave the row for the next poll.
                             logger.warning("referral notification claim failed")
@@ -876,8 +944,8 @@ async def run_billing_notification_reconciler(settings: Any) -> None:
                                 failed.state = "retry" if (
                                     known and exc.retryable and failed.attempts < 5
                                 ) else "failed"
-                                if referral and failed.state == "retry":
-                                    _schedule_referral_notice_retry(failed)
+                                if (referral or storage) and failed.state == "retry":
+                                    _schedule_billing_notice_retry(failed)
                             await db.commit()
                         logger.warning("billing notification delivery failed")
                     else:
@@ -1055,8 +1123,10 @@ async def _run_billing_reconciliation_activity(payload: dict[str, str]) -> dict[
             await apply_tenant_context(db, context)
             await enqueue_due_trial_notices(db, now=datetime.now(UTC))
             await db.commit()
+        storage_counters = await reconcile_storage_notifications(sessionmaker, context)
         return {
             "run_id": safe_payload["run_id"],
+            **storage_counters,
             **receipt_counters,
             **counters,
             **{f"webhook_{k}": v for k, v in webhook_counters.items()},

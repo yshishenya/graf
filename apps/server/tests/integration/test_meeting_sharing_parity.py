@@ -181,6 +181,16 @@ def test_public_playback_uses_the_versioned_revision_before_outcomes(client, tmp
     playback = path.replace("?", "/playback?") + "&media_version="
     assert client.get(playback + version_a).content == original_bytes
 
+    async def storage_used():
+        from twobrain_rec_server.billing.storage import project_active_playback_storage
+        async with client.app_state["sessionmaker"]() as db:
+            return (await project_active_playback_storage(
+                db, workspace_id=WORKSPACE_ID, capacity_bytes=250_000_000,
+            )).used_bytes
+
+    used_before = asyncio.run(storage_used())
+    owner_playback = f"/api/v1/cabinet/meetings/{meeting}/playback"
+
     def assert_blocked(version, code):
         for headers in ({}, {"Range": "bytes=0-7"}):
             response = client.get(playback + version, headers=headers)
@@ -273,6 +283,10 @@ def test_public_playback_uses_the_versioned_revision_before_outcomes(client, tmp
     assert ready["media_version"] == version_b and ready["playback_available"]
     assert not ready["transcript"] and not ready["speakers"]
     assert_playback(version_b, replacement_bytes)
+    # Quota switches to B while the accepted outcome reader still needs A.
+    assert asyncio.run(storage_used()) == used_before - len(original_bytes) + len(replacement_bytes)
+    owner_audio = client.get(owner_playback, headers=auth_headers())
+    assert owner_audio.status_code == 200 and owner_audio.content == original_bytes
 
     async def seed_result_and_outcomes():
         # This fixture defines the state after publication; it does not test publication writers.
@@ -349,6 +363,9 @@ def test_public_playback_uses_the_versioned_revision_before_outcomes(client, tmp
         path, headers={"Accept": "text/html"},
     ).text
     assert_playback(version_result_b, replacement_bytes)
+    owner_audio = client.get(owner_playback, headers=auth_headers())
+    assert owner_audio.status_code == 200 and owner_audio.content == replacement_bytes
+    assert asyncio.run(storage_used()) == used_before - len(original_bytes) + len(replacement_bytes)
 
 
 @pytest.mark.parametrize(("first", "second"), [("workspace", "link"), ("link", "workspace")])

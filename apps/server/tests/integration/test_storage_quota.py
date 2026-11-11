@@ -7,6 +7,10 @@ import pytest
 from sqlalchemy import select
 
 from tests.fakes.auth_contexts import WORKSPACE_ID
+from tests.integration.test_billing_notification_flow import (
+    billing_maintenance_probe_url as billing_maintenance_probe_url,
+)
+from tests.integration.test_billing_notification_flow import rls_engine as rls_engine
 from twobrain_rec_server.billing.catalog import (
     ADDON_CAPACITY_BYTES,
     PERSONAL_STORAGE_BYTES,
@@ -288,3 +292,157 @@ def test_storage_commit_accepts_only_exact_verified_playback_bytes() -> None:
     assert reservation.committed_bytes == 73
     assert reservation.artifact_id == artifact_id
     assert reservation.state == "committed"
+
+
+@pytest.mark.strict_rls
+@pytest.mark.asyncio
+@pytest.mark.parametrize("case,expected", [
+    ("larger", 33), ("smaller", 9), ("late_old", 33),
+    ("queued", 24), ("failed", 24), ("candidate", 24),
+    ("temporary", 24), ("no_archive", 0), ("foreign_revision", 24),
+    ("foreign_meeting", 24), ("other_meeting", 57),
+])
+async def test_storage_primary_is_latest_published_revision(rls_engine, case, expected):
+    from tests.integration.test_rls_postgres_policies import _seed_probe_rows
+    from twobrain_rec_server.billing.storage import project_active_playback_storage
+    from twobrain_rec_server.db.models import MediaRevision, Meeting, TrackArtifact, UploadSession
+    from twobrain_rec_server.db.session import create_sessionmaker
+    from twobrain_rec_server.db.tenant_context import MaintenanceTenantContext, apply_tenant_context
+
+    ids = await _seed_probe_rows(rls_engine)
+    sessions = create_sessionmaker(rls_engine)
+    workspace, meeting = ids["workspace_a"], ids["meeting_a"]
+    context = MaintenanceTenantContext(operation_name="migration_verification", actor_id="test-storage-primary",
+                                       reason_category="synthetic-selection", feature_area="billing")
+    now = datetime.now(UTC)
+
+    def artifact(revision, size, **changes):
+        values = dict(workspace_id=workspace, meeting_id=meeting, media_revision_id=revision.id,
+                      track_role="playback", codec="aac", sample_rate_hz=48000, channel_count=1,
+                      duration_seconds=60, byte_length=size, sha256="a" * 64,
+                      storage_object_key=f"synthetic/{revision.id}/meeting-review.m4a", status="stored",
+                      normalization_profile_version=CANONICAL_PLAYBACK_PROFILE, validated_at=now,
+                      derivation_kind="uploaded_candidate", source_fingerprint_sha256="b" * 64,
+                      validation_version="playback_validator_v1")
+        values.update(changes)
+        return TrackArtifact(**values)
+
+    async with sessions.begin() as db:
+        await apply_tenant_context(db, context)
+        old = MediaRevision(id=uuid4(), workspace_id=workspace, meeting_id=meeting,
+                            local_media_revision_id="old", revision_number=1, status="accepted")
+        next_meeting = meeting
+        if case == "other_meeting":
+            other = Meeting(id=uuid4(), workspace_id=workspace, created_by_user_id=ids["user_a"],
+                            device_id=ids["device_a"], local_recording_id="independent", duration_seconds=60)
+            db.add(other)
+            await db.flush()
+            next_meeting = other.id
+        new = MediaRevision(id=uuid4(), workspace_id=workspace, meeting_id=next_meeting,
+                            local_media_revision_id="new", revision_number=2,
+                            status="failed" if case == "failed" else "accepted")
+        if case == "foreign_revision":
+            new.workspace_id, new.meeting_id = ids["workspace_b"], ids["meeting_b"]
+        db.add_all([old, new])
+        await db.flush()
+        old_artifact = artifact(old, 24)
+        db.add(old_artifact)
+        await db.flush()
+        if case not in {"queued", "failed"}:
+            changes = {}
+            if case == "candidate":
+                changes = dict(status="candidate", normalization_profile_version=None,
+                               validated_at=None, source_fingerprint_sha256=None, validation_version=None)
+            elif case == "temporary":
+                changes = dict(storage_object_key="synthetic/meeting-review.m4a.tmp")
+            elif case == "foreign_meeting":
+                changes = dict(meeting_id=ids["meeting_b"])
+            elif case == "other_meeting":
+                changes = dict(meeting_id=next_meeting)
+            # A later verification and larger old artifact cannot determine
+            # the billable primary. Actual recovery is covered separately.
+            if case == "late_old":
+                old_artifact.validated_at = now + timedelta(hours=1)
+                old_artifact.byte_length = 99
+            db.add(artifact(new, 9 if case == "smaller" else 33, **changes))
+        if case == "no_archive":
+            db.add(UploadSession(workspace_id=workspace, meeting_id=meeting, media_revision_id=new.id,
+                                 device_id=ids["device_a"], created_by_user_id=ids["user_a"],
+                                 status="finalized", archive_audio=False,
+                                 max_package_bytes_snapshot=1000, max_track_bytes_snapshot=1000,
+                                 expires_at=now + timedelta(hours=1)))
+
+    async with sessions() as db:
+        await apply_tenant_context(db, context)
+        projection = await project_active_playback_storage(db, workspace_id=workspace,
+                                                           capacity_bytes=1000, reserved_bytes=7)
+        assert (projection.used_bytes, projection.reserved_bytes) == (expected, 7)
+        # A quota read must not rewrite retained canonical/lifecycle metadata.
+        assert (await db.get(TrackArtifact, old_artifact.id)).status == "stored"
+
+
+@pytest.mark.strict_rls
+@pytest.mark.asyncio
+async def test_storage_primary_commit_rollback_and_delete_preserve_lifecycle(rls_engine):
+    from tests.integration.test_rls_postgres_policies import _seed_probe_rows
+    from twobrain_rec_server.billing.storage import (
+        logically_release_playback_quota,
+        project_active_playback_storage,
+    )
+    from twobrain_rec_server.db.models import MediaRevision, TrackArtifact
+    from twobrain_rec_server.db.session import create_sessionmaker
+    from twobrain_rec_server.db.tenant_context import MaintenanceTenantContext, apply_tenant_context
+
+    ids = await _seed_probe_rows(rls_engine)
+    sessions = create_sessionmaker(rls_engine)
+    workspace, meeting = ids["workspace_a"], ids["meeting_a"]
+    write_context = MaintenanceTenantContext(operation_name="migration_verification", actor_id="test-storage-primary",
+                                             reason_category="synthetic-atomicity", feature_area="billing")
+    read_context = MaintenanceTenantContext(operation_name="billing_reconciliation", actor_id="test-storage-primary",
+                                            reason_category="synthetic-atomicity", feature_area="billing")
+
+    async def publish(db, number, size):
+        revision = MediaRevision(id=uuid4(), workspace_id=workspace, meeting_id=meeting,
+                                 local_media_revision_id=f"revision-{number}", revision_number=number,
+                                 status="accepted")
+        db.add(revision)
+        await db.flush()
+        artifact = TrackArtifact(workspace_id=workspace, meeting_id=meeting, media_revision_id=revision.id,
+                                 track_role="playback", codec="aac", sample_rate_hz=48000, channel_count=1,
+                                 duration_seconds=60, byte_length=size, sha256="a" * 64,
+                                 storage_object_key=f"synthetic/{revision.id}/meeting-review.m4a", status="stored",
+                                 normalization_profile_version=CANONICAL_PLAYBACK_PROFILE, validated_at=datetime.now(UTC),
+                                 derivation_kind="uploaded_candidate", source_fingerprint_sha256="b" * 64,
+                                 validation_version="playback_validator_v1")
+        db.add(artifact)
+        await db.flush()
+        return artifact.id
+
+    async def used():
+        async with sessions() as db:
+            await apply_tenant_context(db, read_context)
+            return (await project_active_playback_storage(db, workspace_id=workspace, capacity_bytes=1000)).used_bytes
+
+    async with sessions.begin() as db:
+        await apply_tenant_context(db, write_context)
+        old = await publish(db, 1, 24)
+    async with sessions.begin() as db:
+        await apply_tenant_context(db, write_context)
+        new = await publish(db, 2, 33)
+        assert await used() == 24  # Independent reader cannot see uncommitted replacement.
+    assert await used() == 33
+    async with sessions() as db:
+        await apply_tenant_context(db, write_context)
+        await publish(db, 3, 9)
+        assert await used() == 33
+        await db.rollback()
+    assert await used() == 33
+    async with sessions.begin() as db:
+        await apply_tenant_context(db, write_context)
+        retained = [(await db.get(TrackArtifact, key)) for key in (old, new)]
+        assert [row.status for row in retained] == ["stored", "stored"]
+        keys = [row.storage_object_key for row in retained]
+        await logically_release_playback_quota(db, workspace_id=workspace, meeting_id=meeting)
+        assert [row.status for row in retained] == ["deleted", "deleted"]
+        assert [row.storage_object_key for row in retained] == keys
+    assert await used() == 0  # Physical purge of either retained object cannot revive the other.

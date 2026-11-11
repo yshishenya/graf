@@ -743,3 +743,43 @@ MAX времени/ID не покрывает поздний commit. Вызов 
 Недостаток: append-таблица растёт по числу фактических изменений с новым
 основанием. Запрос должен укладываться в существующий предел probe;
 превышение сигнализирует неполноту, не возвращает частичный count.
+
+
+## T070/T068: выбор производителя storage-писем — 10.11.2026
+
+- Decision: существующие projection/classifier/effective capacity, периодический
+  storage шаг в прежнем billing reconciliation; без producer из просмотра UI.
+  Rationale: публикация меняет bytes, но expiry/grants меняют capacity без неё;
+  Free может не иметь subscription. O15 missing-subscription unknown — правило
+  другого операторского отчёта, не правило клиентского Free.
+- Decision: одна state таблица и один singleton cursor полного обхода с
+  finite cycle cutoff/upper UUID. Rationale: независимое движение сохраняется
+  после ошибки snapshot; новые обычные workspace идут в следующий цикл.
+  Alternatives: первые100 subscription теряют Free/дальние UUID; order by
+  last_observed без last_attempt застревает на ошибке; last_attempt с fallback
+  created_at без фиксированного цикла усложняет доказательство новых вставок
+  и поздних commit. Стабильная когорта даёт измеримый предел вызовов; формула
+  five-minute delivery отвергнута как недоказанное продуктовое обещание.
+- Decision: исторический снимок без TTL/supersede по новому уровню.
+  Rationale: после commit подъём нельзя молча потерять. Alternatives:
+  latest-only/подавление старого поколения могут потерять единственное письмо.
+  Отсутствие fixed TTL не отменяет действующие privacy/account-close правила.
+- Decision: существующий account_closure finalizer очищает state явно по
+  frozen content_workspace_ids в begin-finalization. Rationale: он закрывает identity и memberships,
+  но физически Workspace не удаляет. FK CASCADE одного state не выполняет
+  требование удаления. Нового finalizer/движка удаления не создавать.
+- Decision: расширить guarded sender только storage и сохранить оригинальный
+  recipient. Missing verified address должен попасть в terminal suppression.
+  Alternatives: inner email join теряет строки; текущая неподтверждённая
+  переадресация/достройка старого payload нарушает историческую правду.
+
+- Decision: cursor lock до savepoint; ошибка сохраняет только cursor aggregates,
+  не пишет workspace-state после rollback. Rationale: rollback снимает
+  Workspace row lock и иначе может воскресить state после finalizer.
+  Успешный state/snapshot/outbox требуют Workspace row lock и свежий as_of;
+  account-close блокирует эту строку до identity=closed. Не добавлять
+  обратную блокировку closure request. Последний итог прохода сохраняется
+  в той же singleton строке, attempted не называется успешным охватом.
+
+Это проект до независимого checklist/analyze, не работающая реализация.
+Необходимые product questions: 0; технические проверки и измерения — Quickstart.

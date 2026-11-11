@@ -143,6 +143,8 @@ RLS_BILLING_TABLES = frozenset(
         "usage_reservations",
         "usage_ledger_entries",
         "storage_reservations",
+        "storage_notification_states",
+        "storage_notification_scan",
         "time_credit_ledger_entries",
         "billing_audit_events",
         "billing_notification_deliveries",

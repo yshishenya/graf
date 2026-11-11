@@ -231,6 +231,21 @@ The deployment-global GEPA optimizer uses the separate
 `twobrain_rec_maintenance` role and the exact transaction-local maintenance
 context; ordinary recording workers never mount that role's password.
 
+## Storage Notification Maintenance
+
+`storage_notification_states` belongs to its workspace with ON DELETE CASCADE;
+account finalization also deletes it explicitly before fanout. FORCE RLS requires
+exact session_user=current_user=twobrain_rec_maintenance, row_security=on,
+maintenance context, rec_maintenance_allowed and billing_reconciliation.
+SELECT/INSERT/UPDATE require feature_area=billing; SELECT/DELETE are also
+available in the existing feature_area=account finalizer. Billing cannot DELETE,
+account cannot INSERT/UPDATE. `storage_notification_scan` is one system-owned
+cursor with the same billing predicate and SELECT/INSERT/UPDATE only.
+Request, ordinary worker, app/media, missing/wrong context and SET ROLE from
+another login are denied. Repeated runtime bootstrap preserves minimal grants.
+Only safe counts/error classes/timestamps enter the cursor summary. Nonempty
+tables block downgrade to preserve generations and outbox deduplication.
+
 ## Inherited Workspace Tables
 
 Policy shape:

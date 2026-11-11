@@ -162,3 +162,12 @@ def test_refund_mailto_contains_only_safe_reference() -> None:
     assert "card" not in mailto.lower()
     with pytest.raises(ValueError):
         build_refund_mailto(support_email="billing@example.test\nBcc:x", safe_invoice_number="INV-123")
+
+
+@pytest.mark.parametrize("capacity", [250_000_000, 5_000_000_000, 9223372036854775807])
+@pytest.mark.parametrize("percent,before,at", [(80, "normal", "80%"), (95, "80%", "95%"), (100, "95%", "full")])
+def test_storage_threshold_has_exact_integer_byte_boundaries(capacity, percent, before, at):
+    boundary = (capacity * percent + 99) // 100
+    assert classify_storage_threshold(used_bytes=boundary - 1, capacity_bytes=capacity) == before
+    assert classify_storage_threshold(used_bytes=boundary, capacity_bytes=capacity) == at
+    assert classify_storage_threshold(used_bytes=boundary + 1, capacity_bytes=capacity) == at

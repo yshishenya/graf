@@ -72,7 +72,7 @@ TABLES = (BillingAuditEvent, BillingOperation, BillingInvoice, BillingWebhookEve
           BillingRegistryImport, BillingRegistryGap, TimeCreditLedgerEntry, ObservedProviderRefund, FairUseReviewRecord,
           MeetingDeletionRequest)
 STORAGE_TABLES = (Workspace, WorkspaceSubscription, StorageReservation, BillingEntitlementGrant,
-                  BillingStorageEntitlementGrant, TrackArtifact, UploadSession)
+                  BillingStorageEntitlementGrant, TrackArtifact, UploadSession, MediaRevision, Meeting)
 
 
 def test_observation_source_probe_partial_counts_roles_and_no_writes(database, caplog):

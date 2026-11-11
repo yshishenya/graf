@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from twobrain_rec_server.billing.catalog import classify_storage_threshold
 from twobrain_rec_server.db.models import BillingInvoice, BillingNotificationDelivery
 
 
@@ -283,6 +284,17 @@ def notification_copy(
 ) -> tuple[str, str]:
     """Russian-first copy built only from allowlisted event fields."""
     payload = event.safe_payload
+    if event.kind == BillingNotification.STORAGE_THRESHOLD:
+        snapshot = build_notification(event_id=event.event_id, kind=event.kind, payload=payload).safe_payload
+        if not snapshot:
+            return "Использование хранилища", "Актуальное использование указано в кабинете."
+        return (
+            f"Хранилище: достигнут порог {snapshot['storage_level']}%",
+            f"По состоянию на {snapshot['storage_observed_at']} МСК было занято "
+            f"{snapshot['storage_used_bytes']} из {snapshot['storage_capacity_bytes']} байт. "
+            "Посмотрите актуальное использование и способы освободить или восстановить объём в кабинете. "
+            "Если пространств несколько, выберите нужное пространство штатным переключателем.",
+        )
     amount = payload.get("amount_minor")
     if amount and payload.get("currency") == "RUB":
         rubles, kopecks = divmod(int(amount), 100)
@@ -450,6 +462,28 @@ def notification_copy(
 def build_notification(
     *, event_id: str, kind: BillingNotification, payload: dict[str, object]
 ) -> NotificationEvent:
+    if kind == BillingNotification.STORAGE_THRESHOLD:
+        safe = {}
+        for key in ("storage_used_bytes", "storage_capacity_bytes"):
+            value = payload.get(key)
+            if not isinstance(value, str) or not re.fullmatch(r"0|[1-9][0-9]{0,18}", value):
+                return NotificationEvent(event_id, kind, {})
+            if int(value) > 9223372036854775807 or (key == "storage_capacity_bytes" and int(value) == 0):
+                return NotificationEvent(event_id, kind, {})
+            safe[key] = value
+        observed = payload.get("storage_observed_at")
+        if not isinstance(observed, str) or not re.fullmatch(r"[0-9]{2}\.[0-9]{2}\.[0-9]{4} [0-9]{2}:[0-9]{2}", observed):
+            return NotificationEvent(event_id, kind, {})
+        try:
+            datetime.strptime(observed, "%d.%m.%Y %H:%M")
+        except ValueError:
+            return NotificationEvent(event_id, kind, {})
+        band = classify_storage_threshold(used_bytes=int(safe["storage_used_bytes"]), capacity_bytes=int(safe["storage_capacity_bytes"]))
+        level = {"80%": "80", "95%": "95", "full": "100"}.get(band)
+        if level is None or payload.get("storage_level") != level:
+            return NotificationEvent(event_id, kind, {})
+        safe.update(storage_level=level, storage_observed_at=observed, action_path="/billing/usage")
+        return NotificationEvent(event_id, kind, safe)
     allowed_keys = {
         BillingNotification.AUTORENEWAL_DISABLED: set(),
         BillingNotification.AUTORENEWAL_ENABLED: {"amount_minor", "currency", "next_attempt_label"},

@@ -1312,3 +1312,65 @@ PostgreSQL с FORCE RLS защищает проверку всей очеред�
   текст. При неподтверждённом результате, непредоставленной услуге и откате
   подтверждения выданного срока нет. Связь с чеком не подменяет его отдельный
   источник. Реальные письма, платежи, данные и приёмка #7524 исключены.
+
+
+## T070/T068: storage 80/95/100 — будущая приёмка
+
+High-risk-product, S1–S9; до кода независимый storage-notices checklist,
+Analyze и существующие #4926/#4922. Использовать owned серверный Python,
+проверить __file__, свободное место и изолированный PostgreSQL runner с полным
+migration head, настоящей maintenance ролью без BYPASSRLS/FORCE RLS. Сеть к
+реальным провайдерам запрещена; только подставной Postal. Это сценарии,
+ещё не результаты; команды выполняются после появления соответствующих tests.
+
+1. В `tests/integration/test_billing_notification_flow.py` seed начальную
+   синтетическую историю ниже порога и пересечь 80/95/100 штатной публикацией
+   маленького M4A через upload/finalize/нормализацию. Переиспользовать
+   FakeNormalizationPipeline и _accept_first_party_recording. Не создавать
+   причинный переход прямой записью TrackArtifact либо enqueue.
+   Точные bytes до/на/после каждой границы, резерв сам по себе не событие,
+   Free без subscription, успешная замена без промежуточного двойного учёта.
+2. Отдельно первое высокое, normal→100, 80→95→100, повтор, снижение и
+   наблюдённый повторный подъём. Изменение capacity без публикации — настоящий
+   expiry trial/paid или существующий подтверждённый entitlement transition,
+   не ручная правка capacity cache. No-archive/deleted/WAV не меняют used.
+3. До commit sender не видит outbox; новая session после commit видит одно
+   pending/0 с неизменным recipient и snapshot. Подставной sender открывает
+   отдельную session и видит прежний durable unknown claim до вызова; один
+   успех → delivered/1, повтор observer+sender не даёт второго вызова.
+   Rollback, неизвестный commit, новый процесс и конкуренция не удваивают event.
+4. Verified address/preference/owner/member/billing owner/merged/closed:
+   до постановки отсутствие не накапливает старые события; ошибка не
+   поглощает подъём. Потеря каждого права после постановки и после первой
+   sender выборки подавляет старую строку, включая потерю адреса. Новый
+   owner не получает старое письмо; новое собственное наблюдение допускается.
+   Cooling/cancel сохраняют право; начало finalizing и blocked после него
+   исключают письмо. Begin-finalization чистит state всех frozen content_workspace_ids
+   атомарно с identity=closed до fanout;
+   следующий observer не воскрешает его. Workspace DELETE также cascade.
+5. N=0/1/100/101/201, равные времена/разные UUID, новая вставка впереди и
+   позади cursor, новые created_at после cutoff и поздний commit старого
+   created_at; restart после каждого сохранения и конкурентные проходы.
+   Каждый исходный кандидат конечной стабильной когорты пройден за
+   ceil(N/100)+1 вызовов при полном успешном бюджете; измерить время партий.
+   Ошибка одного кандидата/lock timeout не удерживает первый UUID навечно;
+   прежний band сохранён, следующий цикл пробует снова. Savepoint failure
+   одновременно с begin-finalization не воскрешает state; проверка блокировок
+   различает Workspace row и advisory lock. Итог неполноты переживает новый цикл. Deadline/cancel/DB
+   отказ дают явную неполноту без ложного нуля или продвижения commit.
+6. Настоящие app/media/request/worker/неправильный operation/area/SET ROLE/
+   superuser/row_security off denied; разрешён только точный контекст.
+   Проверить schema CHECK, bootstrap повторно и очистку account context.
+   Empty migration downgrade/upgrade; nonempty downgrade отказывает до потери
+   состояния; backup/restore synthetic state/outbox/cursor сохраняет поколения.
+   Удалить временные container/dump finally, сохранить logs/XML/SHA/выход.
+7. Template/unit tests: точные historical used/capacity/МСК/путь; malformed
+   payload/unknown level/несоответствующий процент не выдумывают снимок.
+   Retry guard после ошибки >=60с и предел пяти сохраняется после restart;
+   unknown Postal не повторяется. Большая задержка/новый уровень не стирают
+   историческое событие и не создают текущих утверждений.
+
+После реализации: профильные notification/связанные publication/account-close
+наборы и RLS migration, independent code review, Converge, fragment/процесс,
+три штатных PR gates точного SHA и актуальной основы. T068/T070 остаются [ ];
+#7524, Dev/production/выпуск и остальные семейства сохраняют свою приёмку.

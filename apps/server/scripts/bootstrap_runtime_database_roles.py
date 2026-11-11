@@ -417,6 +417,14 @@ async def _bootstrap() -> None:
                 f"public.rec_playback_normalization_cleanup_page(integer) to {MEDIA_ROLE}",
             ):
                 await connection.execute(statement)
+            for table in ("storage_notification_states", "storage_notification_scan"):
+                if await connection.fetchval("select to_regclass($1)", f"public.{table}"):
+                    await connection.execute(
+                        f"revoke all privileges on public.{table} "
+                        f"from public, {APP_ROLE}, {MAINTENANCE_ROLE}, {MEDIA_ROLE}"
+                    )
+                    grants = "select, insert, update, delete" if table.endswith("states") else "select, insert, update"
+                    await connection.execute(f"grant {grants} on public.{table} to {MAINTENANCE_ROLE}")
             receipt_identities = "public.billing_receipt_identities"
             if await connection.fetchval("select to_regclass($1)", receipt_identities):
                 await connection.execute(
