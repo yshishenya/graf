@@ -8,8 +8,14 @@ from sqlalchemy import exists, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.billing.catalog import classify_storage_threshold
+from twobrain_rec_server.db.models import (
+    MediaRevision,
+    Meeting,
+    PlaybackNormalizationJob,
+    TrackArtifact,
+    UploadSession,
+)
 from twobrain_rec_server.db.models import StorageReservation as StorageReservationRow
-from twobrain_rec_server.db.models import TrackArtifact, UploadSession
 
 CANONICAL_PLAYBACK_PROFILE = "review_m4a_aac_lc_48k_mono_64k_v1"
 CANONICAL_PLAYBACK_FILENAME = "meeting-review.m4a"
@@ -90,18 +96,67 @@ async def project_active_playback_storage(
         raise ValueError("storage capacity must be positive")
     if reserved_bytes < 0:
         raise ValueError("reserved bytes cannot be negative")
-    used = await db.scalar(
-        select(func.coalesce(func.sum(TrackArtifact.byte_length), 0)).where(
+    # Retained canonical revisions remain readable; only the latest published
+    # revision is the logical billing primary, even after older job recovery.
+    no_archive = exists(select(1).where(
+        UploadSession.workspace_id == TrackArtifact.workspace_id,
+        UploadSession.meeting_id == TrackArtifact.meeting_id,
+        UploadSession.media_revision_id == TrackArtifact.media_revision_id,
+        UploadSession.status == "finalized",
+        UploadSession.archive_audio.is_(False),
+    ))
+    published_before_purge = exists(select(1).where(
+        PlaybackNormalizationJob.workspace_id == TrackArtifact.workspace_id,
+        PlaybackNormalizationJob.meeting_id == TrackArtifact.meeting_id,
+        PlaybackNormalizationJob.media_revision_id == TrackArtifact.media_revision_id,
+        PlaybackNormalizationJob.canonical_track_artifact_id == TrackArtifact.id,
+        PlaybackNormalizationJob.profile_version == CANONICAL_PLAYBACK_PROFILE,
+        PlaybackNormalizationJob.ready_at.is_not(None),
+    ))
+    primary = (
+        select(
+            TrackArtifact.byte_length,
+            TrackArtifact.workspace_id,
+            TrackArtifact.meeting_id,
+            TrackArtifact.media_revision_id,
+            func.row_number().over(
+                partition_by=(TrackArtifact.workspace_id, TrackArtifact.meeting_id),
+                order_by=(MediaRevision.revision_number.desc(), MediaRevision.id.desc(), TrackArtifact.id.desc()),
+            ).label("rank"),
+        )
+        .join(MediaRevision, (
+            (MediaRevision.id == TrackArtifact.media_revision_id)
+            & (MediaRevision.workspace_id == TrackArtifact.workspace_id)
+            & (MediaRevision.meeting_id == TrackArtifact.meeting_id)
+        ))
+        .join(Meeting, (
+            (Meeting.id == TrackArtifact.meeting_id)
+            & (Meeting.workspace_id == TrackArtifact.workspace_id)
+        ))
+        .where(
             TrackArtifact.workspace_id == workspace_id,
             TrackArtifact.track_role == "playback",
-            TrackArtifact.status == "stored",
-            TrackArtifact.normalization_profile_version == CANONICAL_PLAYBACK_PROFILE,
+            (
+                ((TrackArtifact.status == "stored")
+                 & (TrackArtifact.normalization_profile_version == CANONICAL_PLAYBACK_PROFILE))
+                # Purge clears the validation bundle, but not the published
+                # no-archive revision's precedence over an older archive.
+                | ((TrackArtifact.status == "purged") & no_archive & published_before_purge)
+            ),
             TrackArtifact.storage_object_key.endswith("/meeting-review.m4a"),
+        )
+        .subquery()
+    )
+    used = await db.scalar(
+        select(func.coalesce(func.sum(primary.c.byte_length), 0)).where(
+            primary.c.rank == 1,
+            # Filter after ranking so a newer no-archive primary cannot revive
+            # an older retained archive in quota.
             ~exists(
                 select(1).where(
-                    UploadSession.workspace_id == TrackArtifact.workspace_id,
-                    UploadSession.meeting_id == TrackArtifact.meeting_id,
-                    UploadSession.media_revision_id == TrackArtifact.media_revision_id,
+                    UploadSession.workspace_id == primary.c.workspace_id,
+                    UploadSession.meeting_id == primary.c.meeting_id,
+                    UploadSession.media_revision_id == primary.c.media_revision_id,
                     UploadSession.status == "finalized",
                     UploadSession.archive_audio.is_(False),
                 )

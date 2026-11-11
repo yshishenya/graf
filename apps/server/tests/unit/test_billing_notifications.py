@@ -286,3 +286,44 @@ def test_trial_copy_uses_both_dates_and_no_private_fields(kind):
     )
     assert not invalid.safe_payload
     assert "provider" not in notification_copy(invalid)[1]
+
+
+@pytest.mark.parametrize("level,used", [("80", "200000000"), ("95", "237500000"), ("100", "250000000")])
+def test_storage_notice_preserves_a_historical_exact_snapshot(level, used):
+    payload = {
+        "storage_level": level, "storage_used_bytes": used,
+        "storage_capacity_bytes": "250000000", "storage_observed_at": "11.11.2026 03:00",
+        "action_path": "/billing/usage",
+    }
+    event = build_notification(
+        event_id="storage:synthetic:1", kind=BillingNotification.STORAGE_THRESHOLD,
+        payload={**payload, "email": "private@example.test", "provider_id": "private-provider"},
+    )
+    assert event.safe_payload == payload
+    title, body = notification_copy(event)
+    assert level + "%" in title + body
+    assert f"По состоянию на 11.11.2026 03:00 МСК было занято {used} из 250000000 байт" in body
+    assert "выберите нужное пространство" in body.lower()
+    assert "private" not in body and "увеличьте" not in body.lower()
+    assert NotificationOutbox().enqueue(event, recipient_id="owner", marketing_allowed=False) is None
+    mandatory = build_notification(
+        event_id="storage:selection:1", kind=BillingNotification.STORAGE_SELECTION_CHANGED, payload={},
+    )
+    assert NotificationOutbox().enqueue(mandatory, recipient_id="owner", marketing_allowed=False)
+
+
+@pytest.mark.parametrize("key,value", [
+    ("storage_used_bytes", v) for v in [None, True, -1, "-1", "1.5", "01", "9" * 20, "9223372036854775808", "200000000\n"]
+] + [
+    ("storage_capacity_bytes", v) for v in [None, True, "0", "-1", "250000000\n"]
+] + [
+    ("storage_level", v) for v in [None, 80, "normal", "95", "100", "80%"]
+] + [
+    ("storage_observed_at", v) for v in [None, "soon", "31.02.2026 12:00", "01.11.2026 25:00", "01.11.2026 12:00\n"]
+])
+def test_storage_snapshot_rejects_malformed_or_inconsistent_history(key, value):
+    payload = {"storage_used_bytes": "200000000", "storage_capacity_bytes": "250000000",
+               "storage_level": "80", "storage_observed_at": "01.11.2026 12:00"}
+    payload[key] = value
+    event = build_notification(event_id="storage:diagnostic", kind=BillingNotification.STORAGE_THRESHOLD, payload=payload)
+    assert event.safe_payload == {}

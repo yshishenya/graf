@@ -124,12 +124,18 @@ def test_notification_outbox_is_idempotent_and_keeps_finance_notices() -> None:
 
 def test_notification_preferences_retry_and_safe_action_path() -> None:
     outbox = NotificationOutbox()
+    snapshot = {"storage_level": "80", "storage_used_bytes": "80", "storage_capacity_bytes": "100",
+                "storage_observed_at": "11.11.2026 04:00", "action_path": "/billing/usage"}
     optional = build_notification(
         event_id="evt-storage",
         kind=BillingNotification.STORAGE_THRESHOLD,
-        payload={"action_path": "/billing/usage", "storage": "private"},
+        payload={**snapshot, "action_path": "https://untrusted.example.test", "storage": "private"},
     )
-    assert optional.safe_payload == {"action_path": "/billing/usage"}
+    assert optional.safe_payload == snapshot
+    assert build_notification(
+        event_id="evt-storage-incomplete", kind=BillingNotification.STORAGE_THRESHOLD,
+        payload={"action_path": "/billing/usage", "storage": "private"},
+    ).safe_payload == {}
     assert outbox.enqueue(optional, recipient_id="user-1", marketing_allowed=False) is None
     mandatory = build_notification(
         event_id="evt-late",

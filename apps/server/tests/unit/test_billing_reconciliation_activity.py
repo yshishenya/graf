@@ -240,6 +240,7 @@ async def test_observation_preserves_original_errors_before_between_and_after_fi
     monkeypatch.setattr(worker, "reconcile_billing_maintenance", lambda *a: step("maintenance"))
     monkeypatch.setattr(worker, "reconcile_pending_webhook_events", lambda *a: step("webhooks"))
     monkeypatch.setattr(worker, "reconcile_pending_initial_checkout_operations", lambda *a, **k: step("initial"))
+    monkeypatch.setattr(worker, "reconcile_storage_notifications", lambda *a: step("storage"))
     with pytest.raises(RuntimeError) as exc:
         await observation_environment().run(worker.run_billing_reconciliation_activity, {
             "run_id": "10000000-0000-4000-8000-000000000001"})
@@ -293,6 +294,7 @@ def test_billing_reconciliation_releases_maintenance_locks_before_webhooks(monke
             return db
 
         async def __aexit__(self, *_args):
+            events.append("exit")
             return None
 
     class Engine:
@@ -324,6 +326,11 @@ def test_billing_reconciliation_releases_maintenance_locks_before_webhooks(monke
         if trial_fails:
             raise RuntimeError("synthetic trial enqueue failure")
 
+    async def storage_notices(_sessions, _context):
+        assert events[-1] == "exit"
+        events.append("storage_notices")
+        return {"storage_attempted": 1, "storage_observed": 1}
+
     async def receipts(_db, _settings):
         events.append("receipts")
         return {"receipt_gets": 1}
@@ -338,6 +345,7 @@ def test_billing_reconciliation_releases_maintenance_locks_before_webhooks(monke
     monkeypatch.setattr(worker, "reconcile_pending_initial_checkout_operations", initial)
     monkeypatch.setattr(worker, "enqueue_due_trial_notices", trial_notices)
     monkeypatch.setattr(worker, "reconcile_pending_receipts", receipts)
+    monkeypatch.setattr(worker, "reconcile_storage_notifications", storage_notices)
 
     payload = {"run_id": str(UUID("10000000-0000-4000-8000-000000000001"))}
     expected_events = [
@@ -347,17 +355,19 @@ def test_billing_reconciliation_releases_maintenance_locks_before_webhooks(monke
     if trial_fails:
         with pytest.raises(RuntimeError, match="synthetic trial enqueue failure"):
             asyncio.run(worker.run_billing_reconciliation_activity(payload))
-        assert events == [*expected_events, "dispose"]
+        assert events == [*expected_events, "exit", "dispose"]
         return
 
     result = asyncio.run(worker.run_billing_reconciliation_activity(payload))
-    assert events == [*expected_events, "commit", "dispose"]
+    assert events == [*expected_events, "commit", "exit", "storage_notices", "dispose"]
     assert result == {
         "run_id": "10000000-0000-4000-8000-000000000001",
         "maintenance": 1,
         "webhook_reconciled": 1,
         "initial_checkout_processed": 1,
         "receipt_gets": 1,
+        "storage_attempted": 1,
+        "storage_observed": 1,
     }
 
 

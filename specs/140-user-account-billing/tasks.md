@@ -594,3 +594,131 @@ scoped analyze ROC1–ROC4 → сверка существующей #4932.
 отдельного получения. Старый тест, требующий Free только из-за отзыва,
 не принимается как свидетельство F278 FR-041; решение по неиспользуемому
 помощнику и его потребителям отдельно от добавления фразы в письмо.
+
+## Исполнение US9/P2, T070/#4926 и T068/#4922 — пороги архива
+
+Уточнение существующих задач от 11.11.2026, полоса high-risk-product.
+Все 87 исходных строк, ID, описания и отметки сохранены; T070/T068 `[ ]`.
+Только S1–S9 Session 2026-11-10, US9/AC4–5, FR-017–019/070–072/093–099
+и действующий F278 FR-019/026/028. Новых задач или issues нет.
+Независимый `checklists/storage-notices.md`: 14 отмечены / 0 открыты,
+основания — `review-storage-notices-requirements.md`. Это качество требований;
+перед исходниками ещё обязательны scoped Analyze и синхронизация этих issues.
+
+1. **T068, RED до реализации.** Добавить причинные случаи S9 в
+   `apps/server/tests/integration/test_billing_notification_flow.py`,
+   единичные проверки текста в `apps/server/tests/unit/test_billing_notifications.py`
+   и проверки state/cursor/RLS/конкуренции в
+   `apps/server/tests/integration/test_billing_storage_notifications.py`.
+   Использовать существующий одноразовый PostgreSQL runner с полным Alembic
+   head, настоящими ограниченными ролями и подставным транспортом.
+   Начальную синтетическую историю можно подготовить отдельно; сам подъём
+   вызвать рабочими upload/finalize/normalization через
+   `_accept_first_party_recording`/`FakeNormalizationPipeline` либо настоящим
+   expiry/entitlement transition. Прямой enqueue/ручная правка TrackArtifact
+   или cache не заменяют причинный переход. До кода зафиксировать ожидаемый RED.
+2. **T070, схема и права после RED.** Новая миграция от фактического head в
+   `apps/server/src/twobrain_rec_server/db/migrations/versions/`, модели в
+   `apps/server/src/twobrain_rec_server/db/models/billing.py`, exports в
+   `apps/server/src/twobrain_rec_server/db/models/__init__.py`.
+   Две таблицы из `data-model.md` §«Состояние наблюдения архива»:
+   `storage_notification_states`: «workspace_id PK/FK workspaces ON DELETE CASCADE»;
+   «owner_user_id nullable UUID»; «band normal/80/95/100»;
+   «generation bigint >=0»; «observed_at finite UTC». Ошибка не создаёт state,
+   generation не сбрасывается при смене владельца A→B→A.
+   `storage_notification_scan`: одна system-owned строка; nullable cycle/upper/after,
+   все null на границе; finite cycle с upper, after nullable либо <=upper;
+   «attempted/observed/skipped/failed — неотрицательные bigint»;
+   «attempted=observed+skipped+failed». Закрытый nullable last_error_code;
+   last_finished_summary nullable, только started_at/finished_at/четыре
+   счётчика/incomplete, finite UTC, finished_at>=started_at, unknown keys denied.
+   Summary сохраняется при новом цикле; cursor UUID не FK.
+   ENABLE/FORCE RLS, exact maintenance session_user=current_user,
+   row_security=on, без superuser/BYPASSRLS. State SELECT/INSERT/UPDATE только
+   billing_reconciliation/billing; SELECT/DELETE также для
+   billing_reconciliation/account. Cursor SELECT/INSERT/UPDATE только billing.
+   Обновить `apps/server/scripts/bootstrap_runtime_database_roles.py`,
+   `apps/server/src/twobrain_rec_server/db/rls_validation.py` и
+   `specs/031-rls-hardening/contracts/rls-policy-matrix.md`; повтор bootstrap
+   не возвращает широкие grants. Непустая таблица запрещает downgrade,
+   исторического backfill и сброса поколений нет.
+3. **T070, наблюдение.** В
+   `apps/server/src/twobrain_rec_server/billing/storage_notifications.py`
+   переиспользовать playback projection из `billing/storage.py`, classifier
+   из `billing/catalog.py` и effective capacity из `billing/purchases.py`/
+   `billing/entitlements.py` по действующим правилам кабинета и допуска.
+   При необходимом общем helper обновить всех callers, включая
+   `apps/server/src/twobrain_rec_server/cabinet/web_routes/billing.py` и
+   `apps/server/src/twobrain_rec_server/normalization/service.py`;
+   не создавать второй расчёт или неиспользуемую абстракцию.
+   Один fresh as_of после locks; Free без subscription включён, резервы
+   исключены. S1/S2: first/highest-only, отдельные 80→95→100, снижение без
+   письма, новый подъём и generation; отсутствие права/почты/согласия
+   продвигает band без backlog, ошибка его не поглощает. Closed/merged
+   owner не создаёт state. Один helper eligibility для observer и claim.
+4. **T070, обход и стык.** В том же модуле cursor lock до savepoint →
+   workspace advisory → Workspace row → subscription/state → snapshot/outbox
+   → advance → commit. Cycle cutoff/upper фиксируют конечный UUID диапазон
+   personal workspaces; created_at после cutoff и поздний commit позади cursor
+   идут в следующий цикл. До100 кандидатов/вызов, budget60с/query2с/lock1с;
+   условная граница ceil((N+L)/100)+1 вызовов по Plan, не календарный SLA
+   или единый MVCC. Savepoint failure сохраняет только cursor aggregate/error/
+   advance, не пишет state после освобождения Workspace lock; общий DB/commit
+   failure не объявляет продвижение. Сохранять cancellation и видимую неполноту.
+   В `apps/server/src/twobrain_rec_server/workflows/worker.py` подключить отдельную
+   storage транзакцию после предыдущего commit существующей activity,
+   guard `require_billing_maintenance_database`; новый workflow не создавать.
+5. **T070, доставка.** Тот же `workflows/worker.py` и
+   `apps/server/src/twobrain_rec_server/billing/notifications.py`:
+   storage включён в выборку без verified address; advisory → Workspace row
+   → queue lock, eligibility исходного recipient/marker/member/billing owner/
+   active unmerged identity/current address/preference проверяется перед
+   committed unknown claim. Подтверждённая потеря → terminal suppressed,
+   ошибка → durable retry>=60с/max5; unknown Postal автоматически не повторять.
+   Locks не держать через HTTP. Optional STORAGE_THRESHOLD отделить от
+   mandatory STORAGE_SELECTION_CHANGED. Payload только storage_level,
+   storage_used_bytes, storage_capacity_bytes, storage_observed_at,
+   action_path=/billing/usage; «целые used>=0, capacity>0», band соответствует
+   классификации. Исторические точные байты/дата МСК; старый malformed snapshot
+   подавить, не дополнить текущим. Нет TTL/supersede, текущих обещаний лимита,
+   покупки или доступности удалённых данных; один безопасный переход.
+6. **T070, жизненный цикл.** В
+   `apps/server/src/twobrain_rec_server/auth/account_closure.py` удалить state
+   по frozen content_workspace_ids в существующем begin-finalization, атомарно
+   с identity=closed до fanout. Workspace сохраняется, одного FK недостаточно.
+   Observer/sender не берут closure request после Workspace; после rollback
+   savepoint нет даже error-state. Cooling не новый запрет; blocked/retry после
+   begin и физический cascade не воскрешают state. Нового finalizer нет.
+7. **T068, окончательная матрица до closeout среза.** Полный Quickstart
+   §«Storage 80/95/100», пункты1–7: bytes до/на/после, первый/скачок/снижение/
+   повторный подъём, Free без subscription, рабочая замена M4A и capacity-only;
+   commit/new sessions/rollback/unknown commit/restart/concurrency и один
+   сохранённый claim перед одним stub. Отрицательные owner/member/merge/closed/
+   email/preference после enqueue и после выборки. N=0/1/100/101/201, новые
+   вставки с обеих сторон cursor, поздние commit, lock/query/deadline/cancel/
+   DB failures, savepoint-finalizer race и сохранённый summary. Настоящие
+   RLS/SET ROLE/ошибочные contexts, повтор bootstrap, CHECK, пустой downgrade/
+   upgrade и отказ непустого, synthetic backup/restore с поколениями.
+   Проверить template allowlist/исторический текст, retry и unknown no replay.
+   Дополнить только затронутые
+   `apps/server/tests/unit/test_account_closure.py`,
+   `apps/server/tests/unit/test_account_close_fanout.py`,
+   `apps/server/tests/integration/test_account_lifecycle.py`,
+   `apps/server/tests/unit/test_billing_reconciliation_activity.py`,
+   `apps/server/tests/integration/test_storage_quota.py` и проверки ролей
+   по фактическим callers; неизменные положительные наборы не повторять.
+8. **Общие ворота.** Независимое ревью кода → `$speckit-converge` → профильные
+   PostgreSQL/notification/publication/account-close/RLS и Ruff/процесс/diff;
+   owned `changes/unreleased/F140.yaml`; обязательные governance-fast,
+   macos-pr и pr-metadata на точном source SHA/текущей базе, штатный common
+   до/после merge и readback parent/tree. Synthetic container/dump удалить
+   finally, сохранить только logs/XML/versions/hashes/results.
+
+Зависимости: review14/0 → Analyze → existing issues → T068 RED → T070
+schema/roles → observer → activity/sender/finalizer → T068 причинная матрица
+→ code review/converge/PR. Независимые файлы unit renderer и PG observer
+могут готовиться параллельно после допуска; общие worker/finalizer последовательно.
+Минимальный результат US9 — одна сохраняемая наблюдаемая цепочка всех трёх
+уровней без нового сервиса/зависимости. Широкие T070/T068, остальные семейства,
+реальное получение #7524, GRAF Dev, выпуск/сервер имеют собственную приёмку.
+Этот порядок не меняет исходный `[P]` T068 в обещание независимости от T070.

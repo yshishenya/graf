@@ -704,3 +704,53 @@ class BillingAcceptanceReservation(Base):
     operation_id: Mapped[UUID] = mapped_column(nullable=False)
     amount_minor: Mapped[int] = mapped_column(Integer, nullable=False)
     state: Mapped[str] = mapped_column(String(16), nullable=False, default="reserved")
+
+
+class StorageNotificationState(Base):
+    __tablename__ = "storage_notification_states"
+    __table_args__ = (
+        CheckConstraint("band IN ('normal','80','95','100')", name="storage_notice_band"),
+        CheckConstraint("generation >= 0", name="storage_notice_generation"),
+        CheckConstraint("isfinite(observed_at)", name="storage_notice_observed_at"),
+    )
+    workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), primary_key=True)
+    owner_user_id: Mapped[UUID | None] = mapped_column()
+    band: Mapped[str] = mapped_column(String(8), nullable=False)
+    generation: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class StorageNotificationScan(Base):
+    __tablename__ = "storage_notification_scan"
+    __table_args__ = (
+        CheckConstraint("id = 1", name="storage_scan_singleton"),
+        CheckConstraint(
+            "(cycle_started_at IS NULL AND upper_workspace_id IS NULL AND after_workspace_id IS NULL) OR "
+            "(cycle_started_at IS NOT NULL AND upper_workspace_id IS NOT NULL AND "
+            "(after_workspace_id IS NULL OR after_workspace_id <= upper_workspace_id))",
+            name="storage_scan_position",
+        ),
+        CheckConstraint("cycle_started_at IS NULL OR isfinite(cycle_started_at)", name="storage_scan_started_at"),
+        CheckConstraint(
+            "attempted >= 0 AND observed >= 0 AND skipped >= 0 AND failed >= 0 AND "
+            "attempted = observed + skipped + failed", name="storage_scan_counts",
+        ),
+        CheckConstraint(
+            "last_error_code IN ('snapshot_unavailable','lock_timeout','query_timeout','database_error')",
+            name="storage_scan_error",
+        ),
+        CheckConstraint(
+            "last_finished_summary IS NULL OR rec_storage_scan_summary_valid(last_finished_summary::jsonb)",
+            name="storage_scan_summary",
+        ),
+    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    cycle_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    upper_workspace_id: Mapped[UUID | None] = mapped_column()
+    after_workspace_id: Mapped[UUID | None] = mapped_column()
+    attempted: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default="0")
+    observed: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default="0")
+    skipped: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default="0")
+    failed: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default="0")
+    last_error_code: Mapped[str | None] = mapped_column(String(32))
+    last_finished_summary: Mapped[dict | None] = mapped_column(JSON(none_as_null=True))

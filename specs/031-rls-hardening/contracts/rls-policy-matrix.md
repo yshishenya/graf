@@ -224,12 +224,28 @@ maintenance predicate. `playback_normalization_inventory` and
 `playback_normalization_dispatch` receive normalization-specific `FOR SELECT`
 policies only on `playback_normalization_jobs` and `playback_backfill_runs`.
 `playback_normalization_attempts`, scheduler DML, and every content/artifact
-operation require the exact request/worker workspace predicate.
+operation require the exact request/worker workspace predicate, apart from
+the narrow F140 published no-archive SELECT policy documented below.
 
 The deployment-global GEPA optimizer uses the separate
 `prompt_optimization` maintenance operation. It is accepted only through the
 `twobrain_rec_maintenance` role and the exact transaction-local maintenance
 context; ordinary recording workers never mount that role's password.
+
+## Storage Notification Maintenance
+
+`storage_notification_states` belongs to its workspace with ON DELETE CASCADE;
+account finalization also deletes it explicitly before fanout. FORCE RLS requires
+exact session_user=current_user=twobrain_rec_maintenance, row_security=on,
+maintenance context, rec_maintenance_allowed and billing_reconciliation.
+SELECT/INSERT/UPDATE require feature_area=billing; SELECT/DELETE are also
+available in the existing feature_area=account finalizer. Billing cannot DELETE,
+account cannot INSERT/UPDATE. `storage_notification_scan` is one system-owned
+cursor with the same billing predicate and SELECT/INSERT/UPDATE only.
+Request, ordinary worker, app/media, missing/wrong context and SET ROLE from
+another login are denied. Repeated runtime bootstrap preserves minimal grants.
+Only safe counts/error classes/timestamps enter the cursor summary. Nonempty
+tables block downgrade to preserve generations and outbox deduplication.
 
 ## Inherited Workspace Tables
 
@@ -284,3 +300,14 @@ tenant-owned table and one of:
 - explicitly not tenant-owned with rationale.
 
 No current tenant-owned backend table may be left unclassified.
+
+## F140: опубликованный no-archive после очистки
+
+Миграция0112 добавляет только SELECT policy для `playback_normalization_jobs`:
+точные session_user=current_user=`twobrain_rec_maintenance`, row_security=on,
+maintenance operation=`billing_reconciliation`, feature_area=`billing`,
+rec_maintenance_allowed; ready_at и canonical_track_artifact_id непусты,
+есть finalized UploadSession archive_audio=false в той же workspace/meeting/revision.
+Это историческое подтверждение для quota ranking; новых INSERT/UPDATE/DELETE,
+прав другого maintenance context или доступа вне прежнего tenant scope нет.
+FORCE RLS сохраняется; downgrade0112 удаляет только добавленную policy.

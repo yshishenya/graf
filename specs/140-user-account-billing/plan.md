@@ -1146,3 +1146,129 @@ hold; не обещать приёмку по status v1. Наличие accepted
 предметный PostgreSQL и обязательные проверки точного PR. Исходные T048 и
 T068 остаются открытыми, без новых issues. Реальная доставка, выпуск и
 развёртывание имеют отдельные ворота.
+
+
+## T070/T068 — наблюдение порогов архива, 10.11.2026
+
+**Полоса:** high-risk-product, существующий F140/US9, S1–S9 в Clarifications.
+Constitution Check до исследования и после проекта: III — только технические
+байты и служебные ключи в существующей PostgreSQL; IV — явная очистка при
+финализации плюс FK cascade при физическом удалении; VI — независимый
+checklist/analyze до кода. Нет изменения коммерческих прав, денег, согласия,
+хранения встреч, capture, внешнего маршрута или принципов конституции.
+
+### Источники и минимальный состав
+
+`billing/storage.py:project_active_playback_storage` и общий
+`billing/catalog.py:classify_storage_threshold` определяют занятое и уровень.
+Вместимость: Free без подписки — FREE_STORAGE_BYTES; действующие Trial/Personal
+по effective_plan_code/effective_paid_storage и тому же as_of, как /billing/usage
+и _reserve_playback_storage. Перенести совпадающую проекцию capacity в общий
+непубличный helper только если это необходимо для одного правила; все callers
+и отрицательные состояния сохранить. Не выбирать capacity из одного cache.
+
+`billing/storage_notifications.py` содержит наблюдение, eligibility и claim
+проверку; новая миграция от фактического Alembic head, модели/exports, bootstrap
+и RLS inventory. Две небольшие таблицы: состояние по workspace и один курсор
+полного обхода (точная модель ниже). Не создавать инвентарь объектов, службу,
+новый workflow, настройку либо транспорт. Места вызова: отдельный storage шаг
+в _run_billing_reconciliation_activity после предыдущего commit; существующий
+run_billing_notification_reconciler; существующий account_closure finalizer.
+
+### Конечный обход и транзакции
+
+Курсор хранит cycle_started_at, upper_workspace_id и after_workspace_id,
+агрегаты attempted/observed/skipped/failed и ограниченный last_error_code.
+При завершении last_finished_summary сохраняет начало/конец, эти четыре
+счётчика и признак неполноты; новый цикл не стирает последний результат.
+Attempted не означает успешное наблюдение, проход не является общим MVCC-снимком.
+При начале цикла зафиксировать серверный UTC момент и наибольший UUID
+личного пространства с created_at <= cycle_started_at. Дальше выбирать
+личные пространства с этим ограничением времени и
+`after < id <= upper`, по UUID. Новые пространства с датой позже начала
+входят в следующий цикл; поздно закоммиченная более старая строка позади
+курсора также входит в следующий цикл. После конца диапазона сбросить цикл
+и закончить текущий вызов, без нового наблюдения в этом же вызове.
+
+Один вызов: до 100 разных кандидатов и общий бюджет 60 секунд; запросу
+не более 2 секунд, ожиданию блокировки не более 1 секунды, отмена сохраняется.
+При неизменном конечном наборе N, исправной работе и полном исполнении
+партий весь набор обходится за не более ceil(N/100)+1 вызовов; +1 учитывает
+завершение диапазона. Это предел вызовов, не обещание календарного времени.
+Превышение бюджета/ошибка означает неполноту; фактические завершённые партии
+и время измеряются. Пять минут — существующее расписание запуска.
+Поздние commit, вошедшие впереди курсора, учитываются отдельно как L:
+предел относится к N+L; новые обычные вставки не оттесняют начальную когорту.
+При бесконечной задержке БД/планировщика срок не обещается.
+
+Каждый кандидат — отдельная транзакция: lock курсора → штатная advisory
+блокировка workspace → Workspace row lock → subscription/state →
+вычисление/очередь → cursor advance → commit. Свежий as_of брать после
+ожидания блокировок, не из начала длинной партии. Нет обратного запроса курсора из publication/sender/finalizer.
+Блокировка курсора сериализует конкурентные проходы; не держать её между
+кандидатами или во время сети. После получения lock повторно сверять cursor.
+Cursor lock брать до savepoint. Ошибку кандидата откатить savepoint:
+прежние owner/band/generation/observed_at и очередь не меняются; записать
+только агрегаты/закрытый error class и продвинуть cursor в той же внешней
+транзакции. Не писать даже ошибку в workspace-state после rollback savepoint:
+его Workspace lock мог быть снят и finalizer мог уже удалить state. Следующий цикл повторяет кандидата. Ошибка всей
+БД/commit откатывает всю транзакцию и не объявляет продвижение; повтор
+безопасен по состоянию и unique
+outbox. Начальные неизвестные/несогласованные даты — incomplete, не normal.
+
+### Получатель, отправщик и удаление
+
+Один helper проверяет S4 при observation и claim. Активная исходная личность,
+owner marker, membership и billing_owner должны согласоваться; нужен текущий
+verified email и preference. При действительном отсутствии обновить band,
+не ставить письмо; при ошибке не поглощать подъём. Если owner изменился,
+первое наблюдение нового owner отдельно, sequence не сбрасывать.
+
+Sender включает storage в выборку даже без verified email, чтобы terminal
+suppressed не выпадал навсегда. Для storage сначала workspace advisory lock,
+Workspace row lock, потом queue row lock, затем новая проверка
+eligibility/preference/address
+в этой транзакции и прежний durable unknown claim до транспорта. Изменение
+права после сохранённого claim не превращает его в гарантию отзыва уже
+отправленного письма. Старые payload без достаточного исторического снимка
+подавляются закрытой причиной, не дополняются текущим состоянием.
+
+Перечитанный begin_account_close_finalization уже закрывает identity до fanout;
+finalize_account_close оставляет Workspace физически. Поэтому явное удаление
+storage state по frozen content_workspace_ids сделать в существующем
+begin_account_close_finalization, в одном commit с identity=closed до fanout; FK CASCADE — дополнительная защита фактического удаления, не замена.
+Observer создаёт/меняет state только под Workspace row lock после повторной
+проверки active/unmerged owner; для закрытого/объединённого владельца state
+не создаётся. Не брать closure request после Workspace: begin-finalization
+берёт request раньше Workspace; повтор с frozen scope уже видит identity=closed.
+Подавление старой очереди сохраняет её существующую политику жизненного цикла.
+
+Retry storage guard использует прежние правила referral: сохраняемые attempts
+и deadline не менее 60 секунд, максимум пять попыток. Known retryable Postal
+rejection повторяется в этих границах, unknown автоматически не повторяется.
+Не менять остальные виды уведомлений или держать блокировки через HTTP.
+
+### Права, совместимость и ворота
+
+Новые таблицы ENABLE/FORCE RLS. Только точная session_user=current_user
+maintenance без superuser/BYPASSRLS, row_security=on и allowlisted context.
+State: billing_reconciliation/billing SELECT/INSERT/UPDATE; SELECT/DELETE для
+существующей account-close billing_reconciliation/account, без чтения/записи
+другими request/worker/media contexts. Курсор — system-owned, только billing
+reconciliation SELECT/INSERT/UPDATE. PUBLIC/app/media отозвать; повторный
+bootstrap не восстанавливает широкие grants. `rec_maintenance_allowed` не
+расширять глобально; использовать require_billing_maintenance_database,
+не normalization-specific require_database_context. F031 policy matrix,
+RLS_BILLING_TABLES и RLS_COVERED_TABLES отразить явно.
+
+Миграция не создаёт исторические письма или снимки: первое наблюдение после
+установки следует S2. Непустые state/cursor блокируют downgrade, чтобы откат
+не сбросил дедупликацию и не повторил первое высокое письмо. При откате нужен
+совместимый reader с сохранением состояния; исправление вперёд вместо удаления
+истории. Нового legacy path нет, Legacy Impact — untouched.
+
+До исходников: независимый checklists/storage-notices.md, scoped analyze и
+сверка существующих #4926/#4922; затем RED/миграция/RLS/рабочая publication
+и sender, независимое code review/converge, предметный PostgreSQL и три
+обязательных проверки точного SHA/актуальной основы. Полные T070/T068 и #7524
+не завершаются. Выпуск, сервер, реальная почта и Dev отдельно.

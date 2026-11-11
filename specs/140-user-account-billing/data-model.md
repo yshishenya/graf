@@ -784,3 +784,53 @@ maintenance-роль получает только SELECT по прежней п
 Перед destructive downgrade непустой источник блокирует удаление; рабочий
 откат сохраняет миграцию и использует совместимые image/reader. Суммы
 приростов считываются без cursor по ID или времени, с SQL timeout.
+
+
+## T070/T068: состояние наблюдения архива
+
+Нефинансовая рабочая проекция, не источник bytes/capacity и не реестр встреч.
+`storage_notification_states`: workspace_id PK/FK workspaces ON DELETE CASCADE;
+owner_user_id nullable UUID исходного наблюдаемого owner; band normal/80/95/100;
+generation bigint >=0; observed_at finite UTC. State существует только после
+достоверного снимка: error не создаёт строку и не стирает последний снимок.
+При смене owner band считается первым наблюдением, generation монотонно
+возрастает только при новом высоком событии и не сбрасывается (в том числе
+A→B→A). Отсутствие права/согласия не ставит очередь, но сохраняет достоверный
+band. State закрытого/объединённого владельца не воссоздаётся; существующий
+begin-finalization явно удаляет его по frozen content_workspace_ids в одном
+commit с identity=closed. Физическое удаление Workspace также даёт cascade.
+
+`storage_notification_scan`: единственная system-owned строка с постоянным
+ключом; cycle_started_at, upper_workspace_id, after_workspace_id nullable.
+Все null означают границу цикла. Активный цикл имеет finite cycle_started_at
+и upper UUID; after nullable до первого кандидата, далее <= upper.
+UUID здесь — положение обхода, не FK: удаление workspace не уничтожает курсор.
+Агрегаты attempted/observed/skipped/failed — неотрицательные bigint;
+attempted=observed+skipped+failed, last_error_code nullable из закрытого набора.
+last_finished_summary — nullable закрытый JSON-снимок последнего завершённого
+прохода: started_at/finished_at, четыре счётчика и incomplete (failed>0).
+Даты finite UTC, finished_at>=started_at, unknown keys не допускаются.
+Он сохраняется при начале нового цикла; нет идентификаторов кандидата/owner
+или текстов исключений. Новый сервис/история проходов не создаются.
+До 100 отдельных committed кандидатов/вызов; бюджет и fairness в Plan.
+
+Atomic successful observation под cursor/advisory/Workspace row locks: state
+owner/band/observed_at и при подъёме новый generation + outbox + cursor advance.
+Ошибка savepoint откатывает snapshot/state/outbox; во внешней транзакции
+фиксируются только cursor aggregates/error/advance. После освобождения
+Workspace lock не создавать даже error state. Общая ошибка DB/commit не
+считается продвижением. Unique event_id использует workspace, монотонный
+generation и уровень; recipient неизменен, channel=email.
+
+Allowlist payload: storage_level, storage_used_bytes, storage_capacity_bytes,
+storage_observed_at (безопасная дата/МСК), action_path=/billing/usage.
+Целые used>=0, capacity>0; уровень обязан соответствовать целочисленной
+классификации. Служебный retry deadline не показывается. Адрес берётся заново
+у того же recipient; сумма, email, provider refs и материалы встреч не хранятся.
+
+Обе таблицы относятся к точной maintenance identity с FORCE RLS; state имеет
+workspace parent и cleanup по account finalizer, scan — системная позиция.
+Права SELECT/INSERT/UPDATE только billing reconciliation/billing; state SELECT/DELETE
+также в account-close context billing_reconciliation/account. Нет request,
+worker или media доступа. Migration и повторный bootstrap сохраняют минимум.
+Непустое состояние запрещает downgrade; сброс поколений не является rollback.

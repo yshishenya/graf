@@ -42,7 +42,10 @@ def test_every_allowlisted_lifecycle_event_has_bounded_russian_copy(event_type: 
     assert title and body
     assert "synthetic" not in title.lower()
     assert "provider" not in body.lower()
-    assert event.safe_payload.get("action_path") == ("/referrals" if kind in REFERRAL_NOTICE_KINDS else "/billing")
+    if kind == BillingNotification.STORAGE_THRESHOLD:
+        assert event.safe_payload == {}  # Incomplete historical snapshots are suppressed by the sender.
+    else:
+        assert event.safe_payload.get("action_path") == ("/referrals" if kind in REFERRAL_NOTICE_KINDS else "/billing")
 
 
 def test_refund_and_unknown_provider_events_are_not_customer_notifications() -> None:
@@ -1214,3 +1217,426 @@ async def test_receipt_poll_checks_provider_before_overdue_and_keeps_payment(ref
         assert notice["delivered_at"] is not None
     else:
         assert result == []
+
+
+@pytest.mark.strict_rls
+@pytest.mark.asyncio
+@pytest.mark.parametrize("used,level", [(200_000_000, "80"), (237_500_000, "95"), (250_000_000, "100")])
+async def test_trial_capacity_expiry_causes_one_storage_notice(rls_engine, monkeypatch, used, level):
+    import sys
+    from datetime import UTC, datetime
+    from uuid import UUID, uuid4
+
+    import httpx
+    from sqlalchemy import text
+
+    from tests.integration.test_rls_postgres_policies import _seed_probe_rows
+    from twobrain_rec_server.billing.purchases import effective_paid_storage
+    from twobrain_rec_server.billing.storage import (
+        CANONICAL_PLAYBACK_PROFILE,
+        project_active_playback_storage,
+    )
+    from twobrain_rec_server.config import Settings
+    from twobrain_rec_server.db.models import (
+        ExternalIdentity,
+        MediaRevision,
+        TrackArtifact,
+        Workspace,
+    )
+    from twobrain_rec_server.db.session import create_sessionmaker
+    from twobrain_rec_server.db.tenant_context import MaintenanceTenantContext, apply_tenant_context
+
+    ids = await _seed_probe_rows(rls_engine)
+    workspace, owner = ids["workspace_a"], ids["user_a"]
+    sessions = create_sessionmaker(rls_engine)
+    context = MaintenanceTenantContext(
+        operation_name="billing_reconciliation", actor_id="test-storage",
+        reason_category="storage-causal-expiry", feature_area="billing",
+    )
+    clock = datetime.now(UTC)
+    cutoff = clock + timedelta(hours=1)
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return clock.astimezone(tz) if tz else clock.replace(tzinfo=None)
+
+    monkeypatch.setattr(worker, "datetime", Clock)
+    for name, module in tuple(sys.modules.items()):
+        if name.startswith("twobrain_rec_server.billing.") and getattr(module, "datetime", None) is datetime:
+            monkeypatch.setattr(module, "datetime", Clock)
+    settings = Settings(_env_file=None, env="test", billing_checkout_enabled=False,
+                        billing_provider_observation_enabled=False)
+
+    def forbid_http(*_args, **_kwargs):
+        raise AssertionError("storage regression must not contact a real provider")
+
+    monkeypatch.setattr(httpx.AsyncClient, "send", forbid_http)
+    monkeypatch.setattr(httpx.Client, "send", forbid_http)
+    monkeypatch.setattr(worker, "get_settings", lambda: settings)
+    monkeypatch.setattr(worker, "create_engine", lambda _: rls_engine)
+    monkeypatch.setattr(worker, "create_sessionmaker", lambda _: sessions)
+    # Seed history once; then advance only the synthetic clock across expiry.
+    async with sessions.begin() as db:
+        await apply_tenant_context(db, context)
+        assert (await db.execute(text(
+            "select session_user, current_user, rolsuper, rolbypassrls "
+            "from pg_roles where rolname=current_user"
+        ))).one() == ("twobrain_rec_maintenance", "twobrain_rec_maintenance", False, False)
+        personal = await db.get(Workspace, workspace)
+        personal.kind, personal.owner_user_id = "personal", owner
+        subscription = WorkspaceSubscription(
+            workspace_id=workspace, billing_owner_id=owner, plan_code="trial", state="trial",
+            trial_ends_at=cutoff, capacity_bytes=500_000_000,
+        )
+        revision = MediaRevision(
+            id=uuid4(), workspace_id=workspace, meeting_id=ids["meeting_a"],
+            local_media_revision_id="synthetic-storage-history", status="accepted",
+        )
+        db.add_all([subscription, revision, ExternalIdentity(
+            user_id=owner, provider="email", provider_subject=f"storage-{owner}",
+            email="storage@example.test", is_active=True, is_verified=True,
+        )])
+        await db.flush()
+        db.add(TrackArtifact(
+            workspace_id=workspace, meeting_id=ids["meeting_a"], media_revision_id=revision.id,
+            track_role="playback", codec="aac", sample_rate_hz=48000, channel_count=1,
+            duration_seconds=60, byte_length=used, sha256="a" * 64,
+            storage_object_key="synthetic/history/meeting-review.m4a", status="stored",
+            normalization_profile_version=CANONICAL_PLAYBACK_PROFILE, validated_at=cutoff,
+            derivation_kind="uploaded_candidate", source_fingerprint_sha256="b" * 64,
+            validation_version="playback_validator_v1",
+        ))
+        await db.flush()
+        for at, capacity, band in [(cutoff - timedelta(microseconds=1), 500_000_000, "normal"),
+                                   (cutoff, 250_000_000, level)]:
+            actual = await effective_paid_storage(db, subscription=subscription, now=at)
+            projection = await project_active_playback_storage(db, workspace_id=workspace, capacity_bytes=actual)
+            assert (projection.capacity_bytes, projection.threshold) == (
+                capacity, {"80": "80%", "95": "95%", "100": "full"}.get(band, band),
+            )
+
+    async def notices():
+        async with sessions() as db:
+            await apply_tenant_context(db, context)
+            return list(await db.scalars(select(BillingNotificationDelivery).where(
+                BillingNotificationDelivery.workspace_id == workspace,
+                BillingNotificationDelivery.template_key == "storage_threshold",
+            )))
+
+    assert await notices() == []
+    await worker._run_billing_reconciliation_activity({"run_id": str(uuid4())})
+    assert await notices() == []
+    clock = cutoff
+    await worker._run_billing_reconciliation_activity({"run_id": str(uuid4())})
+    queued = await notices()
+    assert len(queued) == 1, "capacity expiry must reach the durable storage outbox"
+    notice = queued[0]
+    assert (notice.recipient_id, notice.state, notice.attempts) == (owner, "pending", 0)
+    assert {k: notice.safe_payload[k] for k in (
+        "storage_level", "storage_used_bytes", "storage_capacity_bytes", "action_path",
+    )} == {"storage_level": level, "storage_used_bytes": str(used),
+          "storage_capacity_bytes": "250000000", "action_path": "/billing/usage"}
+    calls = []
+
+    async def transport(**kwargs):
+        async with sessions() as db:
+            await apply_tenant_context(db, context)
+            claimed = await db.get(BillingNotificationDelivery, UUID(kwargs["delivery_key"].partition(":")[2]))
+            assert (claimed.state, claimed.attempts, claimed.last_error_code) == ("failed", 1, "postal_outcome_unknown")
+        assert kwargs["recipient_email"] == "storage@example.test"
+        assert f"{used} из 250000000 байт" in kwargs["plain_body"]
+        calls.append(kwargs["delivery_key"])
+
+    async def stop(_seconds):
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(worker, "send_billing_notification", transport)
+    monkeypatch.setattr(worker, "asyncio", SimpleNamespace(CancelledError=asyncio.CancelledError, sleep=stop))
+    for _ in range(2):
+        with pytest.raises(asyncio.CancelledError):
+            await worker.run_billing_notification_reconciler(settings)
+        await worker._run_billing_reconciliation_activity({"run_id": str(uuid4())})
+    assert calls == [f"billing:{notice.id}"]
+    final = await notices()
+    assert len(final) == 1 and (final[0].state, final[0].attempts) == ("delivered", 1)
+
+
+@pytest.fixture
+def storage_publication_client(postgres_isolated_cluster_database_url, monkeypatch):
+    from uuid import uuid4
+
+    from scripts import bootstrap_runtime_database_roles as bootstrap
+    from tests.conftest import _seed_database, _SessionScopedApplication
+    from tests.fakes.auth_contexts import AUTH_BOOTSTRAP_WORKSPACE_ID
+    from twobrain_rec_server.config import Settings
+
+    url = postgres_isolated_cluster_database_url
+    asyncio.run(_seed_database(url))
+    parsed = make_url(url)
+    passwords = {"TWOBRAIN_DB_OWNER_PASSWORD_FILE": parsed.password,
+                 "TWOBRAIN_DB_APP_PASSWORD_FILE": uuid4().hex,
+                 "TWOBRAIN_DB_MAINTENANCE_PASSWORD_FILE": uuid4().hex,
+                 "TWOBRAIN_DB_MEDIA_PASSWORD_FILE": uuid4().hex}
+    monkeypatch.setattr(bootstrap, "_read_secret", passwords.__getitem__)
+    for key, value in {"HOST": parsed.host, "PORT": str(parsed.port), "NAME": parsed.database}.items():
+        monkeypatch.setenv(f"TWOBRAIN_DB_{key}", value)
+    asyncio.run(bootstrap._bootstrap())
+    media_url = parsed.set(username="twobrain_rec_media", password=passwords["TWOBRAIN_DB_MEDIA_PASSWORD_FILE"]).render_as_string(hide_password=False)
+    app_url = parsed.set(username="twobrain_rec_app", password=passwords["TWOBRAIN_DB_APP_PASSWORD_FILE"]).render_as_string(hide_password=False)
+    maintenance_url = parsed.set(username="twobrain_rec_maintenance", password=passwords["TWOBRAIN_DB_MAINTENANCE_PASSWORD_FILE"]).render_as_string(hide_password=False)
+    settings = Settings(_env_file=None, env="test", database_url=url,
+                        minio_endpoint="localhost:9000", minio_access_key="test", minio_secret_key="test",
+                        minio_bucket="test-bucket", web_login_workspace_id=AUTH_BOOTSTRAP_WORKSPACE_ID,
+                        billing_checkout_enabled=False, billing_provider_observation_enabled=False)
+    application = _SessionScopedApplication(settings, media_url)
+    try:
+        yield application.client(), maintenance_url, app_url
+    finally:
+        application.close()
+
+
+@pytest.mark.strict_rls
+@pytest.mark.parametrize("level,target,archive_audio", [
+    ("80", 200_000_000, True), ("95", 237_500_000, True), ("100", 250_000_000, True),
+    ("80", 200_000_000, False),
+])
+def test_working_publication_and_replacement_cause_storage_notice(
+    storage_publication_client, tmp_path, monkeypatch, level, target, archive_audio,
+):
+    from datetime import UTC, datetime
+    from uuid import UUID, uuid4
+
+    from tests.contract.test_ingest_openapi_contract import auth_headers
+    from tests.fakes.auth_contexts import PERSONAL_WORKSPACE_ID, USER_ID, WORKSPACE_ID
+    from tests.fixtures.artifacts import track_descriptor
+    from tests.fixtures.processing import apply_job_worker_scope, deterministic_canonical_wav_bytes
+    from tests.integration.test_playback_normalization_finalize import _accept_first_party_recording
+    from tests.integration.test_playback_normalization_workflow import FakeNormalizationPipeline
+    from twobrain_rec_server.billing.storage import (
+        CANONICAL_PLAYBACK_PROFILE,
+        project_active_playback_storage,
+    )
+    from twobrain_rec_server.db.models import (
+        ExternalIdentity,
+        PlaybackNormalizationJob,
+        TrackArtifact,
+        Workspace,
+    )
+    from twobrain_rec_server.db.session import create_sessionmaker
+    from twobrain_rec_server.db.tenant_context import MaintenanceTenantContext, apply_tenant_context
+    from twobrain_rec_server.normalization.service import run_normalization_job
+
+    client, maintenance_url, app_url = storage_publication_client
+    if not archive_audio:
+        from tests.fakes.fake_temporal import FakeTemporalClient
+        client.app.state.settings.processing_enabled = True
+        client.app.state.temporal_client = FakeTemporalClient()
+    from sqlalchemy.pool import NullPool
+    engine = create_async_engine(maintenance_url, poolclass=NullPool)
+    sessions = create_sessionmaker(engine)
+    context = MaintenanceTenantContext(operation_name="billing_reconciliation", actor_id="test-storage-publication",
+                                       reason_category="causal-publication", feature_area="billing")
+    original_body = b"canonical-candidate-copy"
+    meeting, _ = _accept_first_party_recording(client, local_recording_id="storage-new-causal", include_playback=True)
+    # A distinct accepted history meeting stays below the desired threshold.
+    history, _ = _accept_first_party_recording(client, local_recording_id="storage-seeded-history", include_playback=True)
+
+    async def seed_history():
+        async with sessions.begin() as db:
+            await apply_tenant_context(db, context)
+            (await db.get(Workspace, PERSONAL_WORKSPACE_ID)).kind = "corporate"
+            workspace = await db.get(Workspace, WORKSPACE_ID)
+            workspace.kind, workspace.owner_user_id = "personal", USER_ID
+            db.add(ExternalIdentity(user_id=USER_ID, provider="email", provider_subject="storage-publication",
+                                    email="publication@example.test", is_active=True, is_verified=True))
+            db.add(TrackArtifact(workspace_id=WORKSPACE_ID, meeting_id=UUID(history["meeting_id"]),
+                media_revision_id=UUID(history["media_revision"]["media_revision_id"]),
+                track_role="playback", codec="aac", sample_rate_hz=48000, channel_count=1, duration_seconds=60,
+                byte_length=target-len(original_body), sha256="a"*64, storage_object_key="synthetic/history/meeting-review.m4a",
+                status="stored", normalization_profile_version=CANONICAL_PLAYBACK_PROFILE, validated_at=datetime.now(UTC),
+                derivation_kind="uploaded_candidate", source_fingerprint_sha256="b"*64, validation_version="playback_validator_v1"))
+    asyncio.run(seed_history())
+    monkeypatch.setattr(worker, "get_settings", lambda: client.app.state.settings)
+    monkeypatch.setattr(worker, "create_engine", lambda _: engine)
+    monkeypatch.setattr(worker, "create_sessionmaker", lambda _: sessions)
+
+    async def poll():
+        await worker._run_billing_reconciliation_activity({"run_id": str(uuid4())})
+
+    async def notices_and_bytes():
+        async with sessions() as db:
+            await apply_tenant_context(db, context)
+            projection = await project_active_playback_storage(db, workspace_id=WORKSPACE_ID, capacity_bytes=250_000_000)
+            notices = list(await db.scalars(select(BillingNotificationDelivery).where(
+                BillingNotificationDelivery.template_key == "storage_threshold")))
+            return notices, projection.used_bytes
+
+    async def normalize(revision_id, *, recover_missing=False):
+        async with client.app_state["media_sessionmaker"]() as db:
+            # Worker context comes from the finalized job, not maintenance access.
+            from tests.fakes.auth_contexts import DEVICE_ID, ORG_ID
+            from twobrain_rec_server.auth.context import TenantScope
+            from twobrain_rec_server.db.tenant_context import apply_tenant_scope
+            await apply_tenant_scope(db, TenantScope(organization_id=ORG_ID, workspace_id=WORKSPACE_ID,
+                                                   user_id=USER_ID, device_id=DEVICE_ID))
+            job = await db.scalar(select(PlaybackNormalizationJob).where(PlaybackNormalizationJob.media_revision_id == revision_id))
+            assert job is not None
+            await apply_job_worker_scope(db, job)
+            if recover_missing:
+                from twobrain_rec_server.normalization.service import (
+                    recover_missing_ready_normalization_job,
+                )
+                canonical = await db.get(TrackArtifact, job.canonical_track_artifact_id)
+                assert canonical.status == "stored"
+                client.app_state["storage"].delete_object(canonical.storage_object_key)
+                assert await recover_missing_ready_normalization_job(db, job_id=job.id)
+                await apply_job_worker_scope(db, job)
+            return await run_normalization_job(db=db, storage=client.app_state["storage"], job_id=job.id,
+                                              work_directory=tmp_path, pipeline=FakeNormalizationPipeline("copy"))
+
+    try:
+        asyncio.run(poll())
+        before, used_before = asyncio.run(notices_and_bytes())
+        # At 95/100 the seeded history already has a lower-band notice.
+        assert used_before == target-len(original_body)
+        first = asyncio.run(normalize(UUID(meeting["media_revision"]["media_revision_id"])))
+        assert first.reused is False
+        assert asyncio.run(notices_and_bytes())[1] == target
+        asyncio.run(poll())
+        queued, _ = asyncio.run(notices_and_bytes())
+        added = [n for n in queued if n.id not in {old.id for old in before}]
+        assert len(added) == 1 and added[0].safe_payload["storage_level"] == level
+        assert added[0].safe_payload["storage_used_bytes"] == str(target)
+        calls = []
+
+        async def transport(**kwargs):
+            async with sessions() as db:
+                await apply_tenant_context(db, context)
+                notice = await db.get(BillingNotificationDelivery, UUID(kwargs["delivery_key"].partition(":")[2]))
+                assert notice.state == "failed" and notice.last_error_code == "postal_outcome_unknown"
+            calls.append(kwargs["delivery_key"])
+
+        async def dispatch():
+            async def stop(_seconds):
+                raise asyncio.CancelledError
+            with monkeypatch.context() as patch:
+                patch.setattr(worker, "send_billing_notification", transport)
+                patch.setattr(worker, "asyncio", SimpleNamespace(CancelledError=asyncio.CancelledError, sleep=stop))
+                with pytest.raises(asyncio.CancelledError):
+                    await worker.run_billing_notification_reconciler(client.app.state.settings)
+        asyncio.run(dispatch())
+        assert calls.count(f"billing:{added[0].id}") == 1
+
+        # Replace via the real upload/finalize path; normalization publishes the
+        # new revision and switches the logical billing primary atomically.
+        from hashlib import sha256
+        endpoint = f"/api/v1/meetings/{meeting['meeting_id']}/media-revisions/upload-sessions"
+        response = client.post(endpoint, headers=auth_headers(), json={
+            "local_media_revision_id": "storage-replacement", "source_kind": "replace", "duration_seconds": 60,
+            "expected_tracks": ["manifest", "media"],
+        })
+        assert response.status_code == 202
+        revision_id = UUID(response.json()["media_revision"]["media_revision_id"])
+        session_url = f"/api/v1/upload-sessions/{response.json()['upload_session']['session_id']}"
+        tracks = []
+        for track, data in {"manifest": b"{}", "media": deterministic_canonical_wav_bytes()}.items():
+            assert client.put(f"{session_url}/tracks/{track}/parts/0", headers=auth_headers() | {
+                "X-Byte-Offset": "0", "X-Content-SHA256": sha256(data).hexdigest()}, content=data).status_code == 200
+            tracks.append(track_descriptor(track, data=data))
+        assert client.post(f"{session_url}/finalize", headers=auth_headers(), json={
+            "manifest_sha256": tracks[0]["sha256"], "tracks": tracks, "archive_audio": archive_audio,
+        }).status_code == 200
+        if level == "100":
+            # A larger replacement at full capacity must be refused, without
+            # consuming a generation or pretending a publication occurred.
+            from twobrain_rec_server.normalization.service import NormalizationExecutionFailure
+            with pytest.raises(NormalizationExecutionFailure):
+                asyncio.run(normalize(revision_id))
+        elif not archive_audio:
+            from datetime import timedelta
+
+            from twobrain_rec_server.db.models import ProcessingWorkflow
+            from twobrain_rec_server.deletion.service import reconcile_transient_media_purges
+
+            replacement = asyncio.run(normalize(revision_id))
+            expected = target - len(original_body)
+            assert asyncio.run(notices_and_bytes())[1] == expected
+            asyncio.run(poll())  # Observe the real decrease before cleanup.
+
+            async def purge_replacement():
+                now = datetime.now(UTC)
+                async with client.app_state["sessionmaker"]() as db:
+                    workflow = await db.scalar(select(ProcessingWorkflow).where(
+                        ProcessingWorkflow.media_revision_id == revision_id))
+                    assert workflow is not None and workflow.archive_audio is False
+                    workflow.status, workflow.transient_state = "failed_terminal", "terminal"
+                    workflow.transient_terminal_at = now - timedelta(minutes=20)
+                    workflow.transient_purge_due_at = now - timedelta(minutes=5)
+                    await db.commit()
+                async with sessions() as db:
+                    await apply_tenant_context(db, MaintenanceTenantContext(
+                        operation_name="deletion_purge_reconciliation", actor_id="test-storage-purge",
+                        reason_category="synthetic-transient", feature_area="deletion"))
+                    assert await reconcile_transient_media_purges(
+                        db, storage=client.app_state["storage"], now=now, object_limit=1) == 0
+                assert (await notices_and_bytes())[1] == expected
+                async with sessions() as db:
+                    await apply_tenant_context(db, MaintenanceTenantContext(
+                        operation_name="deletion_purge_reconciliation", actor_id="test-storage-purge",
+                        reason_category="synthetic-transient", feature_area="deletion"))
+                    assert await reconcile_transient_media_purges(
+                        db, storage=client.app_state["storage"], now=now) == 1
+                    assert await reconcile_transient_media_purges(
+                        db, storage=client.app_state["storage"], now=now) == 0
+                async with sessions() as db:
+                    await apply_tenant_context(db, context)
+                    purged = await db.get(TrackArtifact, replacement.canonical_track_artifact_id)
+                    assert purged.status == "purged" and purged.normalization_profile_version is None
+                    assert not client.app_state["storage"].object_exists(purged.storage_object_key)
+                    old = await db.get(TrackArtifact, first.canonical_track_artifact_id)
+                    assert old.status == "stored"
+                from sqlalchemy import text
+
+                from tests.fakes.auth_contexts import DEVICE_ID, ORG_ID
+                from twobrain_rec_server.auth.context import TenantScope
+                from twobrain_rec_server.db.tenant_context import apply_tenant_scope
+
+                app_engine = create_async_engine(app_url, poolclass=NullPool)
+                try:
+                    for factory, role, kind in (
+                        (create_sessionmaker(app_engine), "twobrain_rec_app", "request"),
+                        (client.app_state["media_sessionmaker"], "twobrain_rec_media", "worker"),
+                    ):
+                        async with factory() as db:
+                            await apply_tenant_scope(db, TenantScope(organization_id=ORG_ID,
+                                workspace_id=WORKSPACE_ID, user_id=USER_ID, device_id=DEVICE_ID), context_kind=kind)
+                            assert await db.scalar(text("SELECT current_user")) == role
+                            assert (await project_active_playback_storage(db,
+                                workspace_id=WORKSPACE_ID, capacity_bytes=250_000_000)).used_bytes == expected
+                finally:
+                    await app_engine.dispose()
+            asyncio.run(purge_replacement())
+            assert asyncio.run(notices_and_bytes())[1] == expected
+        else:
+            async def replace_and_recover():
+                return await asyncio.gather(
+                    normalize(revision_id),
+                    normalize(UUID(meeting["media_revision"]["media_revision_id"]), recover_missing=True),
+                )
+
+            # Competing new publication and old-job recovery must leave the
+            # newest revision primary regardless of their commit order.
+            replacement, recovered = asyncio.run(replace_and_recover())
+            assert replacement.reused is False
+            expected = target-len(original_body)+len(b"canonical-single-source-transcode")
+            assert asyncio.run(notices_and_bytes())[1] == expected
+            assert recovered.canonical_track_artifact_id != first.canonical_track_artifact_id
+            assert asyncio.run(notices_and_bytes())[1] == expected
+        asyncio.run(poll())
+        asyncio.run(dispatch())
+        final, _ = asyncio.run(notices_and_bytes())
+        assert len(final) == len(queued)
+        assert calls.count(f"billing:{added[0].id}") == 1
+    finally:
+        asyncio.run(engine.dispose())

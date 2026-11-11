@@ -184,12 +184,11 @@ def storage_capacity_bytes(plan: PlanCode, addon_capacity_bytes: int | None = No
 def classify_storage_threshold(*, used_bytes: int, capacity_bytes: int) -> str:
     if capacity_bytes <= 0:
         raise ValueError("capacity must be positive")
-    ratio = used_bytes / capacity_bytes
-    if ratio >= 1:
+    if used_bytes >= capacity_bytes:
         return "full"
-    if ratio >= 0.95:
+    if used_bytes * 100 >= capacity_bytes * 95:
         return "95%"
-    if ratio >= 0.80:
+    if used_bytes * 100 >= capacity_bytes * 80:
         return "80%"
     return "normal"
 
