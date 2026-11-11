@@ -6440,8 +6440,10 @@ select:focus, .settings-page select:focus, .calendar-settings select:focus {
 .summary-share-dialog form,
 .summary-share-dialog [data-summary-share-editor] { display: grid; gap: 14px; }
 .summary-share-dialog p { margin: 0; overflow-wrap: anywhere; }
+.summary-share-dialog label { overflow-wrap: anywhere; }
+.summary-share-dialog select { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 .summary-share-dialog .share-recipient-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
-.summary-share-tabs { display: flex; gap: 4px; padding: 4px; border-radius: var(--radius-card); background: var(--surface-2); }
+.summary-share-tabs { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px; border-radius: var(--radius-card); background: var(--surface-2); }
 .summary-share-tabs button { flex: 1; min-height: 40px; border: 0; background: transparent; }
 .summary-share-tabs button[aria-selected="true"] { background: var(--panel); color: var(--text); box-shadow: var(--shadow-card); }
 .summary-share-document { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
@@ -6473,14 +6475,15 @@ select:focus, .settings-page select:focus, .calendar-settings select:focus {
 }
 
 /* The meeting panel shows the common sharing path before the advanced controls. */
-.summary-share-dialog .share-dialog__surface { gap: 14px; }
+.summary-share-dialog .share-dialog__surface { gap: 8px; padding: 18px 20px; }
 .sharing-dialog-heading { display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--line-soft); }
-.sharing-dialog-tabs { display: flex; flex: 1; flex-wrap: wrap; gap: 4px; }
+.sharing-dialog-tabs { display: flex; flex: 1; min-width: 0; flex-wrap: wrap; gap: 4px; }
 .sharing-dialog-tabs button {
-  min-height: 40px; padding: 0 12px; border: 0; border-radius: 0;
+  white-space: normal; overflow-wrap: anywhere; min-width: 0; min-height: 40px; padding: 0 12px; border: 0; border-radius: 0;
   border-bottom: 2px solid transparent; background: transparent;
 }
 .sharing-dialog-tabs button[aria-selected="true"] { color: var(--accent); border-bottom-color: currentColor; }
+.summary-share-dialog .sharing-invitation-form { gap: 6px; }
 .summary-share-dialog .sharing-invitation-form .share-recipient-row { grid-template-columns: minmax(0, 1fr) auto; }
 .sharing-invitation-form .share-recipient-row input, .sharing-add-person-button { min-height: 40px; }
 .sharing-add-person-button { background: var(--text); border-color: var(--text); color: var(--panel); }
@@ -6488,29 +6491,34 @@ select:focus, .settings-page select:focus, .calendar-settings select:focus {
 .sharing-owner__avatar { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; background: var(--surface-2); color: var(--accent); font-weight: 700; }
 .sharing-general { display: grid; gap: 6px; }
 .sharing-general > label { color: var(--muted); }
-.sharing-audience-control { position: relative; width: min(280px, 100%); }
-.sharing-audience-control svg { position: absolute; inset: 11px auto auto 10px; pointer-events: none; }
-.sharing-audience-control select { width: 100%; min-height: 40px; padding-inline-start: 36px; }
-.sharing-audience-control:has(option:is([value="workspace"], [value="link"]):checked) svg { display: none; }
-.sharing-audience-control:has(option:is([value="workspace"], [value="link"]):checked) select { padding-inline-start: 12px; }
+.sharing-audience-control { display: grid; grid-template-columns: 18px minmax(0, 1fr) 16px; align-items: center; column-gap: 10px; min-height: 44px; }
+.sharing-audience-control > svg { grid-row: 1; grid-column: 1; margin-left: 12px; pointer-events: none; z-index: 1; }
+.sharing-audience-control > .sharing-audience-chevron { grid-column: 3; margin: 0 12px 0 -12px; }
+.summary-share-dialog .sharing-audience-control select { grid-column: 1 / -1; grid-row: 1; appearance: none; -webkit-appearance: none; width: 100%; min-height: 44px; padding: 10px 36px 10px 40px; line-height: 1.4; }
+.summary-share-dialog .sharing-invite-role { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; color: var(--muted); }
+.summary-share-dialog .sharing-invite-role select { width: auto; max-width: 100%; min-height: 36px; }
+.summary-share-dialog .sharing-description { font-size: var(--font-size-helper); line-height: 1.5; color: var(--muted); }
+.sharing-general-materials { display: grid; gap: 6px; margin-top: 4px; color: var(--muted); }
+.summary-share-dialog .sharing-general-materials select { min-height: 40px; }
+.summary-share-dialog .sharing-invite-role select, .summary-share-dialog .sharing-general-materials select { appearance: none; -webkit-appearance: none; padding: 8px 32px 8px 12px; line-height: 1.3; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%238c8c98' stroke-width='1.8'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 10px center; }
 [data-summary-share-result-title] { margin: 0 0 12px; }
 .sharing-options > summary { width: fit-content; min-height: 32px; padding-block: 6px; cursor: pointer; color: var(--muted); }
 .sharing-options > summary:hover { color: var(--text); }
-@media (min-width: 391px) {
-  .summary-share-dialog [data-summary-share-editor]:not(:has(.sharing-options[open], [data-summary-share-url-label]:not([hidden]))) {
-    grid-template-columns: minmax(0, 1fr) auto; align-items: center;
-  }
-}
 .sharing-options { min-width: 0; }
-.sharing-options > summary { max-width: 100%; }
-.sharing-options__body { display: grid; gap: 12px; margin-top: 12px; }
+.sharing-options > summary { max-width: 100%; font-size: var(--font-size-helper); }
+.sharing-options__body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; margin-top: 12px; }
 .sharing-options__body > label { display: grid; gap: 6px; }
 .sharing-options__body > .sharing-options__check { display: flex; align-items: center; gap: 8px; }
-.sharing-dialog-actions { display: flex; justify-content: flex-end; }
-.sharing-dialog-actions button { display: inline-flex; align-items: center; gap: 8px; min-height: 40px; text-align: start; border-color: transparent; background: var(--accent-soft); color: var(--accent); }
+.summary-share-dialog [data-summary-share-editor] { gap: 8px; }
+.sharing-dialog-actions { min-width: 0; display: flex; justify-content: flex-end; border-top: 1px solid var(--line-soft); padding-top: 10px; }
+.sharing-dialog-actions button { white-space: normal; display: inline-flex; align-items: center; gap: 8px; min-height: 44px; text-align: start; border-color: var(--accent-solid); background: var(--accent-solid); color: var(--accent-foreground); }
 .summary-share-dialog .share-dialog__status:empty { display: none; }
 @media (max-width: 390px) {
   .summary-share-dialog .sharing-invitation-form .share-recipient-row button { min-width: 0; }
+  .summary-share-dialog .sharing-invitation-form .share-recipient-row { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .sharing-invite-role { align-items: flex-start; }
+  .summary-share-dialog .sharing-invite-role select { width: 100%; }
+  .sharing-dialog-actions button { width: 100%; }
   .sharing-dialog-tabs button { padding-inline: 8px; }
 }
 
@@ -6634,7 +6642,7 @@ select:focus, .settings-page select:focus, .calendar-settings select:focus {
 .summary-share-dialog[open] { max-height:calc(100dvh - 24px); z-index:40; }
 .meeting-detail-header:has(.summary-share-dialog[open]) { z-index:40; }
 .summary-share-dialog::backdrop { background:transparent; }
-.sharing-invitation-form { display:grid; gap:10px; }
+.sharing-invitation-form { display:grid; gap:6px; }
 .sharing-invitation-form > label,.summary-share-dialog [data-meeting-sharing-panel=share] > label { display:grid; gap:6px; }
 .sharing-access-list { padding: 4px 0 10px; border-bottom: 1px solid var(--line-soft); }
 .sharing-access-list .share-viewer-row { padding:8px 0; flex-wrap:wrap; }
@@ -6642,7 +6650,7 @@ select:focus, .settings-page select:focus, .calendar-settings select:focus {
 .sharing-access-list small { display:block; }
 .summary-share-dialog [data-sharing-people] { display:grid; max-height:200px; overflow:auto; }
 .summary-share-dialog [data-sharing-people] button { padding:10px; text-align:left; overflow-wrap:anywhere; }
-.summary-share-dialog [data-meeting-sharing-panel=share] { display:grid; gap:14px; }
+.summary-share-dialog [data-meeting-sharing-panel=share] { display:grid; gap:8px; }
 .summary-share-dialog [data-sharing-export-host] .content-export-form { padding:0; }
 .public-reader { --reader-line:var(--line-soft); color:var(--text); }
 .public-reader__player,.public-reader__more > div,.public-reader__welcome { background:var(--panel); }
