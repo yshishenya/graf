@@ -9,7 +9,7 @@
     <section id="meeting-sharing-panel" role="tabpanel" aria-labelledby="meeting-sharing-tab" data-meeting-sharing-panel="share">
     <form data-sharing-invite-form class="sharing-invitation-form">
       <div class="share-recipient-row"><input id="sharing-person-{{ meeting_id }}" type="text" name="invitee" autocomplete="off" spellcheck="false" placeholder="Email или имя…" aria-label="Кого пригласить" role="combobox" aria-expanded="false" aria-autocomplete="list" aria-controls="sharing-people-{{ meeting_id }}" data-sharing-person><button class="sharing-add-person-button" type="submit">Пригласить</button></div>
-      <label class="sharing-invite-role">Права при приглашении<select data-sharing-invite-role aria-describedby="sharing-invite-description-{{ meeting_id }}"><option value="viewer" selected>Просмотр встречи</option><option value="summary">Только итоги</option><option value="commenter">Комментирование</option><option value="editor">Редактирование</option></select></label>
+      <label class="sharing-invitation-role">Права при приглашении<select data-sharing-invite-role aria-describedby="sharing-invite-description-{{ meeting_id }}"><option value="viewer" selected>Просмотр встречи</option><option value="summary">Только итоги</option><option value="commenter">Комментирование</option><option value="editor">Редактирование</option></select></label>
       <p class="muted sharing-description" id="sharing-invite-description-{{ meeting_id }}" data-sharing-invite-description>Итоги, расшифровка и доступная запись. Вход по почте.</p>
       <div id="sharing-people-{{ meeting_id }}" role="listbox" data-sharing-people hidden></div>
     </form>

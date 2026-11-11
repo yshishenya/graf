@@ -28,8 +28,6 @@ const {chromium} = require(require.resolve('playwright',{paths:[process.env.GRAF
     await page.locator('[data-summary-share-dialog][open]').waitFor();
     await page.getByText('Дополнительные настройки', {exact:true}).click();
     await page.locator('[data-sharing-scope]:enabled').waitFor();
-    await page.getByRole('combobox',{name:'Что доступно получателю'}).selectOption('full_meeting');
-    await page.locator('[data-summary-share-dialog][aria-busy=false]').waitFor();
     await page.getByRole('button',{name:'Скопировать ссылку',exact:true}).click();
     await page.getByText('Ссылка скопирована',{exact:true}).waitFor();
     assert.equal(await page.locator('[data-sharing-audience]').inputValue(),'invite_only');
@@ -37,6 +35,10 @@ const {chromium} = require(require.resolve('playwright',{paths:[process.env.GRAF
     assert.equal(new URL(restricted).pathname,'/shared-meetings/'+meeting);
     await page.getByRole('combobox',{name:'Общий доступ',exact:true}).selectOption('link');
     await page.getByText('Общий доступ сохранён',{exact:true}).waitFor();
+    if(await page.locator('[data-sharing-scope]').inputValue()!=='full_meeting'){
+      await page.getByRole('combobox',{name:'Что доступно получателю'}).selectOption('full_meeting');
+      await page.getByText('Состав материалов изменён',{exact:true}).waitFor();
+    }
     await page.getByRole('button',{name:'Скопировать ссылку',exact:true}).click();
     await page.getByText('Ссылка скопирована',{exact:true}).waitFor();
     const share=await page.locator('[data-summary-share-url]').inputValue();
