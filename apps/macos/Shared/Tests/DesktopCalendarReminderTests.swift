@@ -950,6 +950,18 @@ final class DesktopCalendarReminderTests: XCTestCase {
         XCTAssertEqual(stops, 0)
     }
 
+    func testDegradedTraySessionOffersStopWithoutMute() throws {
+        let model = CalendarTrayModel { DesktopCalendarPromptResponse(events: []) }
+        let tray = CalendarTrayController(model: model, onOpenSettings: {}, onOpenMeetings: {},
+                                          onStartRecording: {}, onStopRecording: {},
+                                          onMuteMicrophone: {}, onUnmuteMicrophone: {}, onQuit: {})
+        tray.showRecordingState(.degraded)
+        tray.rebuildMenu()
+        XCTAssertNotNil(tray.menu.items.first { $0.identifier?.rawValue == "graf.menu.stop" })
+        XCTAssertNil(tray.menu.items.first { $0.identifier?.rawValue == "graf.menu.mute" })
+        XCTAssertNil(tray.menu.items.first { $0.identifier?.rawValue == "graf.menu.unmute" })
+    }
+
     func testNativeTrayMenuCommandsFollowCaptureStateAndRejectStaleActions() throws {
         let model = CalendarTrayModel { DesktopCalendarPromptResponse(events: []) }
         var starts = 0
