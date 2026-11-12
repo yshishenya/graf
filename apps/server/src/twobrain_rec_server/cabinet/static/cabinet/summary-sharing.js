@@ -295,11 +295,15 @@
       else {renderGeneral(await meetingAPI('/sharing/general-access',{method:'POST',body:{audience:general.audience,expected_fingerprint:general.fingerprint,content_scope:value,template_key:templateKey()}}));}
       setStatus('Состав материалов изменён');
     }));
-    const accessList=find('[data-sharing-access-list]');
+    const accessList=find('[data-sharing-access-list]'),accessSummary=find('[data-sharing-access-summary]');
     async function loadAccess(){
-      const data=await meetingAPI('/access');
+      let data;
+      try {data=await meetingAPI('/access');}
+      catch(error){accessSummary.textContent='Не удалось загрузить';throw error;}
+      const grants=data.share.active_grants||[],invitations=data.share.active_invitations||[];
+      accessSummary.textContent=grants.length||invitations.length?`Вы · Доступ: ${grants.length} · Приглашения: ${invitations.length}`:'Только вы';
       const restoreFocus=accessList.contains(document.activeElement);accessList.replaceChildren();
-      for(const grant of data.share.active_grants||[]){
+      for(const grant of grants){
         const row=node('div',null,'share-viewer-row'), identity=node('span');identity.append(node('strong',grant.display_name),node('small',grant.content_scope==='full_meeting'?'Вся встреча':'Только итоги','muted'));row.append(identity);
         const role=node('select');role.setAttribute('aria-label',`Права ${grant.display_name}`);
         for(const [value,label] of [['summary','Только итоги'],['viewer','Просмотр встречи'],['commenter','Комментирование'],['editor','Редактирование']]){const option=node('option',label);option.value=value;role.append(option);}
@@ -308,7 +312,7 @@
         identity.append(role);
         const revoke=node('button','Отозвать');revoke.type='button';revoke.setAttribute('aria-label',`Отозвать доступ у ${grant.display_name}`);revoke.addEventListener('click',()=>action(async()=>{await meetingAPI(`/shares/${grant.grant_id}?expected_version=${grant.version}`,{method:'DELETE'});await loadAccess();setStatus('Доступ отозван');}));row.append(revoke);accessList.append(row);
       }
-      for(const invitation of data.share.active_invitations||[]){
+      for(const invitation of invitations){
         const row=node('div',null,'share-viewer-row'),identity=node('span');
         const role=invitation.content_scope==='summary_only'?'Только итоги':invitation.can_edit?'Редактирование':invitation.can_comment?'Комментирование':'Просмотр встречи';
         identity.append(node('span',invitation.display_label),node('small',role+' · '+(invitation.status==='outcome_unknown'?'Отправка не подтверждена':'Приглашение отправлено'),'muted'));row.append(identity);
@@ -365,7 +369,7 @@
     dialog.addEventListener('close',()=>placement.disconnect(),{once:true});
     eventSignal.addEventListener('abort',()=>placement.disconnect(),{once:true});
     async function open(mode='link') {
-      closed=false;options.open=mode==='email';tab(mode);setBusy(true);if(!dialog.open)dialog.show();place();title.focus({preventScroll:true});try{await loadGeneral();await loadAccess();}catch(error){setStatus(errorText(error),true);}finally{setBusy(false);}await loadAuto();place();
+      closed=false;find('[data-sharing-access-details]').open=false;accessSummary.textContent='Загрузка…';options.open=mode==='email';tab(mode);setBusy(true);if(!dialog.open)dialog.show();place();title.focus({preventScroll:true});try{await loadGeneral();await loadAccess();}catch(error){if(accessSummary.textContent==='Загрузка…')accessSummary.textContent='Не удалось загрузить';setStatus(errorText(error),true);}finally{setBusy(false);}await loadAuto();place();
       if(sendKey)try{await checkBatch();}catch(error){setStatus(errorText(error),true);}
     }
     const requestedMode=opener?.dataset.summaryShareMode||'link';

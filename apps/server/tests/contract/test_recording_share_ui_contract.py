@@ -13,7 +13,7 @@ def test_share_fragment_exposes_explicit_materials_and_personal_roles_accessibly
         "cabinet/fragments/meeting_share.html", meeting_id="synthetic-meeting",
         share_workspace_id=None, share=SimpleNamespace(),
     )
-    for text in ("Поделиться встречей", "Экспорт", "Кого пригласить", "По ссылке", "По почте", "Скопировать ссылку", "Отправить"):
+    for text in ("Поделиться встречей", "Экспорт", "Кого пригласить", "Настройки ссылки", "Отправить итоги", "Скопировать ссылку", "Отправить"):
         assert text in html
     assert 'aria-modal="false"' in html
     assert 'role="combobox"' in html
