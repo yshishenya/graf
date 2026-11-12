@@ -56,6 +56,7 @@ const assets = path.join(__dirname, '../../src/twobrain_rec_server/cabinet/stati
       releaseGeneral();
       await page.locator('[data-sharing-audience] option[value=workspace]:disabled').waitFor({state:'attached'});
       await page.locator('[data-sharing-scope]:enabled').waitFor({state:'attached'});
+      await page.getByText('Владелец: вы',{exact:true}).waitFor();
       const inviteButton=page.getByRole('button',{name:'Пригласить',exact:true});
       await inviteButton.hover();
       assert(await inviteButton.evaluate(el=>{
@@ -159,7 +160,7 @@ const assets = path.join(__dirname, '../../src/twobrain_rec_server/cabinet/stati
       await page.getByRole('button',{name:/^Отозвать/}).focus();
       await page.getByRole('button',{name:/^Отозвать/}).press('Enter');
       await page.getByText('Доступ отозван',{exact:true}).waitFor();assert.equal(grants.length,0);
-      assert.equal(await page.locator('[data-sharing-access-summary]').textContent(),'Только вы');
+      assert.equal(await page.locator('[data-sharing-access-summary]').textContent(),'Владелец: вы');
       assert.equal(await page.locator('[data-summary-share-title]').evaluate(el=>el===document.activeElement),true,'Revoking the focused row must preserve dialog keyboard focus');
       await page.keyboard.press('Escape');assert.equal(await panel.isVisible(),false);
       await panel.evaluate(el=>el.show());
@@ -170,6 +171,7 @@ const assets = path.join(__dirname, '../../src/twobrain_rec_server/cabinet/stati
       await page.getByRole('button',{name:'Скопировать ссылку',exact:true}).click();
       await page.getByText('Ссылка скопирована',{exact:true}).waitFor();
       assert.equal(audience,'workspace');assert.equal(mutations.length,beforeWorkspaceCopy,'Copying workspace link must preserve access');
+      assert.equal(await page.locator('[data-sharing-access-summary]').textContent(),'Владелец: вы','Empty personal access must not deny workspace access');
       assert.equal(await page.evaluate(()=>window.copied),'https://graf.test/shared-meetings/synthetic-meeting?workspace_id=workspace');
       await page.evaluate(()=>{navigator.clipboard.writeText=async()=>{throw new Error('Clipboard denied');};});
       await page.getByRole('button',{name:'Скопировать ссылку',exact:true}).click();

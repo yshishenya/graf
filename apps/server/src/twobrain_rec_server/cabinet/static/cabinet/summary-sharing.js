@@ -301,7 +301,7 @@
       try {data=await meetingAPI('/access');}
       catch(error){accessSummary.textContent='Не удалось загрузить';throw error;}
       const grants=data.share.active_grants||[],invitations=data.share.active_invitations||[];
-      accessSummary.textContent=grants.length||invitations.length?`Вы · Доступ: ${grants.length} · Приглашения: ${invitations.length}`:'Только вы';
+      accessSummary.textContent=grants.length||invitations.length?`Вы · Доступ: ${grants.length} · Приглашения: ${invitations.length}`:'Владелец: вы';
       const restoreFocus=accessList.contains(document.activeElement);accessList.replaceChildren();
       for(const grant of grants){
         const row=node('div',null,'share-viewer-row'), identity=node('span');identity.append(node('strong',grant.display_name),node('small',grant.content_scope==='full_meeting'?'Вся встреча':'Только итоги','muted'));row.append(identity);
