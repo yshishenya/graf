@@ -929,6 +929,27 @@ final class DesktopCalendarReminderTests: XCTestCase {
         XCTAssertTrue(tray.statusItemLabel.contains(update.bannerTitle))
     }
 
+    func testFailedTraySessionOffersRetryWithoutStopOrMute() throws {
+        let model = CalendarTrayModel { DesktopCalendarPromptResponse(events: []) }
+        var starts = 0
+        var stops = 0
+        let tray = CalendarTrayController(model: model, onOpenSettings: {}, onOpenMeetings: {},
+                                          onStartRecording: { starts += 1 }, onStopRecording: { stops += 1 },
+                                          onMuteMicrophone: {}, onUnmuteMicrophone: {}, onQuit: {})
+        tray.showRecordingState(.failed)
+        tray.rebuildMenu()
+        let first = try XCTUnwrap(tray.menu.items.first)
+        XCTAssertEqual(first.title, "Повторить запись")
+        XCTAssertNotNil(first.action)
+        XCTAssertNil(tray.menu.items.first { $0.identifier?.rawValue == "graf.menu.stop" })
+        XCTAssertNil(tray.menu.items.first { $0.identifier?.rawValue == "graf.menu.mute" })
+        XCTAssertNil(tray.menu.items.first { $0.identifier?.rawValue == "graf.menu.unmute" })
+        tray.startRecording()
+        XCTAssertEqual(starts, 1)
+        tray.stopRecording()
+        XCTAssertEqual(stops, 0)
+    }
+
     func testNativeTrayMenuCommandsFollowCaptureStateAndRejectStaleActions() throws {
         let model = CalendarTrayModel { DesktopCalendarPromptResponse(events: []) }
         var starts = 0

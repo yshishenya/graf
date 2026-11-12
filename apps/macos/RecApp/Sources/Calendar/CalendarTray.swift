@@ -295,9 +295,12 @@ public final class CalendarTrayController: NSObject, NSMenuDelegate {
         switch model.recordingState {
         case .idle:
             addItem("Начать запись", action: #selector(startRecording), id: "graf.menu.start")
+        case .failed:
+            addItem("Повторить запись", action: #selector(startRecording), id: "graf.menu.retry")
+            addItem("Нужна помощь", id: "graf.menu.failed", informational: true)
         case .starting:
             addItem(GrafTrayRecordingState.starting.label ?? "Начинаем запись…", id: "graf.menu.starting", informational: true)
-        case .recording, .paused, .degraded, .failed:
+        case .recording, .paused, .degraded:
             addItem(SystemAudioStatusLabels.stopButtonTitle, action: #selector(stopRecording), id: "graf.menu.stop")
             let muted = model.recordingState == .paused
             let item = addItem(muted ? SystemAudioStatusLabels.resumeButtonTitle : "Выключить микрофон",
@@ -309,7 +312,7 @@ public final class CalendarTrayController: NSObject, NSMenuDelegate {
             addItem(GrafTrayRecordingState.stopping.label ?? "Сохраняем запись…", id: "graf.menu.stopping", informational: true)
         }
         if model.recordingState == .recording || model.recordingState == .paused ||
-            model.recordingState == .degraded || model.recordingState == .failed {
+            model.recordingState == .degraded {
             addItem(CaptureStatusPresentation.title(for: .active) + " · " + DesktopControlModel.shared.elapsed(),
                     id: "graf.menu.elapsed", informational: true)
         }
@@ -438,7 +441,7 @@ public final class CalendarTrayController: NSObject, NSMenuDelegate {
                 NSBezierPath(roundedRect: rect, xRadius: 0.7, yRadius: 0.7).fill()
             }
             let capturing = recordingState == .recording || recordingState == .paused ||
-                recordingState == .degraded || recordingState == .failed || recordingState == .stopping
+                recordingState == .degraded || recordingState == .stopping
             let bars = capturing ? [] : [NSRect(x: 7, y: 8, width: 1.8, height: 5),
                    NSRect(x: 10.1, y: 8, width: 1.8, height: 7),
                    NSRect(x: 13.2, y: 8, width: 1.8, height: 4)]
@@ -507,13 +510,13 @@ public final class CalendarTrayController: NSObject, NSMenuDelegate {
     }
 
     @objc func startRecording() {
-        guard model.recordingState == .idle else { return }
+        guard model.recordingState == .idle || model.recordingState == .failed else { return }
         onStartRecording()
     }
 
     @objc func stopRecording() {
         guard model.recordingState == .recording || model.recordingState == .paused ||
-            model.recordingState == .degraded || model.recordingState == .failed else { return }
+            model.recordingState == .degraded else { return }
         onStopRecording()
     }
 
