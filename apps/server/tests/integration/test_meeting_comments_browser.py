@@ -99,7 +99,7 @@ const { chromium, webkit } = require(path.join(process.env.GRAF_NODE_MODULES, 'p
     await share.waitFor();
     await share.getByText('Дополнительные настройки', { exact: true }).click();
     await share.locator('[data-sharing-scope]:enabled').waitFor();
-    await share.getByRole('combobox', { name: 'Что доступно получателю', exact: true }).selectOption('summary_only');
+    await share.getByRole('combobox', { name: 'Материалы общего доступа', exact: true }).selectOption('summary_only');
     assert.equal(await share.locator('[data-share-existing-role], [data-share-comment-role]').count(), 0);
     assert.equal(await share.locator('audio, [data-playback-comment], [data-detail-tab="recording"]').count(), 0);
     await share.getByRole('tab', { name: 'По почте', exact: true }).click();

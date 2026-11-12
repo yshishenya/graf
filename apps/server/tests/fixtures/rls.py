@@ -100,6 +100,8 @@ RLS_OPERATOR_TABLES = {
     "billing_reconciliation_observations",
     "billing_receipt_identities",
     "billing_receipt_observation_deltas",
+    "storage_notification_scan",
+    "storage_notification_states",
 }
 
 RLS_BILLING_TABLES = {

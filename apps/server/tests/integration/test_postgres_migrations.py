@@ -259,7 +259,7 @@ def test_production_share_head_upgrades_to_regeneration_merge(
         promotion_counter_function,
         promotion_counter_config,
     ) = asyncio.run(inspect_schema())
-    assert versions == ["0111_receipt_observation_deltas"]
+    assert versions == ["0113_fair_use_operator_history"]
     assert "public.promotion_campaigns" in promotion_counter_function
     assert "search_path=pg_catalog, pg_temp" in promotion_counter_config
     assert {
@@ -843,7 +843,7 @@ def test_alembic_revision_ids_fit_default_version_table_length() -> None:
 
     for migration_path in versions.glob("*.py"):
         migration = migration_path.read_text(encoding="utf-8")
-        match = re.search(r'^revision: str = "([^"]+)"', migration, re.MULTILINE)
+        match = re.search(r'^revision(?:: str)? = "([^"]+)"', migration, re.MULTILINE)
 
         assert match is not None, migration_path.name
         revision = match.group(1)

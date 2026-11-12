@@ -660,6 +660,7 @@ def test_account_close_commit_cancels_queued_attempt_before_fanout(
             await db.execute(text(f"CREATE ROLE twobrain_rec_maintenance LOGIN PASSWORD '{password}' NOSUPERUSER NOBYPASSRLS"))
             await db.execute(text("GRANT USAGE ON SCHEMA public TO twobrain_rec_maintenance"))
             await db.execute(text("GRANT SELECT,UPDATE ON ALL TABLES IN SCHEMA public TO twobrain_rec_maintenance"))
+            await db.execute(text("GRANT DELETE ON storage_notification_states TO twobrain_rec_maintenance"))
             await db.commit()
     run(url, setup)
     role_url = make_url(url).set(username="twobrain_rec_maintenance", password=password).render_as_string(hide_password=False)
