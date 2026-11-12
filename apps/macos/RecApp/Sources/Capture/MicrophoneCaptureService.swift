@@ -494,7 +494,9 @@ public final class MicrophoneCaptureService: @unchecked Sendable {
     ) -> RecordingMicrophoneSelection {
         let selectedInputDeviceId = selectedInputDeviceId?.trimmingCharacters(in: .whitespacesAndNewlines)
         if let selectedInputDeviceId, !selectedInputDeviceId.isEmpty {
-            guard let selected = inputProvider.inputDevice(id: selectedInputDeviceId) else {
+            guard let selected = availableRecordingMicrophoneInputs().first(where: {
+                $0.id == selectedInputDeviceId
+            }) else {
                 return RecordingMicrophoneSelection(
                     selectionId: "recording-microphone-user-selected-\(selectedInputDeviceId)",
                     mode: .userSelected,

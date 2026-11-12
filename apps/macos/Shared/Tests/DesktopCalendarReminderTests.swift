@@ -903,9 +903,10 @@ final class DesktopCalendarReminderTests: XCTestCase {
                                           onMuteMicrophone: {}, onUnmuteMicrophone: {}, onQuit: {})
         let transitions: [(CaptureSessionState?, Bool, Bool, GrafTrayRecordingState)] = [
             (nil, false, false, .idle), (.starting, false, false, .idle),
-            (.failed, false, false, .idle), (.active, true, false, .recording),
+            (.failed, false, false, .failed), (.active, true, false, .recording),
             (.paused, true, false, .paused), (.active, true, false, .recording),
-            (.degraded, true, false, .recording), (.active, false, true, .stopping),
+            (.degraded, true, false, .degraded),
+            (.failed, true, false, .failed), (.active, false, true, .stopping),
             (.stopped, false, false, .idle), (.finalized, false, false, .idle)
         ]
         for (session, active, stopping, expected) in transitions {
@@ -926,6 +927,39 @@ final class DesktopCalendarReminderTests: XCTestCase {
         tray.showRecordingState(.idle)
         XCTAssertFalse(tray.statusItemLabel.contains("Идет запись"))
         XCTAssertTrue(tray.statusItemLabel.contains(update.bannerTitle))
+    }
+
+    func testFailedTraySessionOffersRetryWithoutStopOrMute() throws {
+        let model = CalendarTrayModel { DesktopCalendarPromptResponse(events: []) }
+        var starts = 0
+        var stops = 0
+        let tray = CalendarTrayController(model: model, onOpenSettings: {}, onOpenMeetings: {},
+                                          onStartRecording: { starts += 1 }, onStopRecording: { stops += 1 },
+                                          onMuteMicrophone: {}, onUnmuteMicrophone: {}, onQuit: {})
+        tray.showRecordingState(.failed)
+        tray.rebuildMenu()
+        let first = try XCTUnwrap(tray.menu.items.first)
+        XCTAssertEqual(first.title, "Повторить запись")
+        XCTAssertNotNil(first.action)
+        XCTAssertNil(tray.menu.items.first { $0.identifier?.rawValue == "graf.menu.stop" })
+        XCTAssertNil(tray.menu.items.first { $0.identifier?.rawValue == "graf.menu.mute" })
+        XCTAssertNil(tray.menu.items.first { $0.identifier?.rawValue == "graf.menu.unmute" })
+        tray.startRecording()
+        XCTAssertEqual(starts, 1)
+        tray.stopRecording()
+        XCTAssertEqual(stops, 0)
+    }
+
+    func testDegradedTraySessionOffersStopWithoutMute() throws {
+        let model = CalendarTrayModel { DesktopCalendarPromptResponse(events: []) }
+        let tray = CalendarTrayController(model: model, onOpenSettings: {}, onOpenMeetings: {},
+                                          onStartRecording: {}, onStopRecording: {},
+                                          onMuteMicrophone: {}, onUnmuteMicrophone: {}, onQuit: {})
+        tray.showRecordingState(.degraded)
+        tray.rebuildMenu()
+        XCTAssertNotNil(tray.menu.items.first { $0.identifier?.rawValue == "graf.menu.stop" })
+        XCTAssertNil(tray.menu.items.first { $0.identifier?.rawValue == "graf.menu.mute" })
+        XCTAssertNil(tray.menu.items.first { $0.identifier?.rawValue == "graf.menu.unmute" })
     }
 
     func testNativeTrayMenuCommandsFollowCaptureStateAndRejectStaleActions() throws {

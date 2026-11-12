@@ -5,7 +5,6 @@ import XCTest
 
 final class SystemAudioLocalizationTests: XCTestCase {
     func testStateLabelsComeFromSharedLabelModel() {
-        XCTAssertEqual(SystemAudioStatusLabels.recordingIdle, "Запись не идет")
         XCTAssertEqual(SystemAudioStatusLabels.recordButtonTitle, "Начать запись")
         XCTAssertEqual(SystemAudioStatusLabels.stopButtonTitle, "Остановить запись")
         XCTAssertEqual(SystemAudioStatusLabels.pauseButtonTitle, "Выключить микрофон")

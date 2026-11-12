@@ -208,6 +208,7 @@ final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMenuItemVal
     }
 
     func applicationWillTerminate(_: Notification) {
+        AppLog.flush()
         if relaunchAfterTermination {
             relaunchAfterTermination = false
             let configuration = NSWorkspace.OpenConfiguration()
@@ -300,8 +301,9 @@ final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMenuItemVal
                 appUpdateController: appUpdateController
             )
         )
-        if let frame = interfacePreferences.windowFrame {
-            window.setFrame(frame, display: false)
+        if let frame = interfacePreferences.windowFrame,
+           let screen = NSScreen.screens.first(where: { $0.visibleFrame.intersects(frame) }) ?? NSScreen.main {
+            window.setFrame(InterfacePreferencesStore.clampedFrame(frame, to: screen.visibleFrame), display: false)
         } else {
             window.center()
         }
@@ -377,7 +379,7 @@ final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMenuItemVal
 
     @objc func stopRecordingFromMenu(_: Any?) {
         let snapshot = DesktopControlModel.shared.snapshot
-        guard snapshot.active || snapshot.transitioning else { return }
+        guard !snapshot.stopping, snapshot.active || snapshot.transitioning else { return }
         AppLog.writeRaw(event: "capture_control.action_dispatched", detail: "source=application_menu action=stop")
         _ = DesktopControlModel.shared.send(.stop)
     }
@@ -436,7 +438,7 @@ final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMenuItemVal
         }
         if menuItem.action == #selector(stopRecordingFromMenu(_:)) {
             let snapshot = DesktopControlModel.shared.snapshot
-            return snapshot.active || snapshot.transitioning
+            return !snapshot.stopping && (snapshot.active || snapshot.transitioning)
         }
         guard menuItem.action == #selector(checkForUpdates(_:)) else { return true }
         menuItem.title = appUpdateController.presentation.menuItemTitle
@@ -447,7 +449,7 @@ final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMenuItemVal
         Task { await DesktopNotificationPresenter.shared.refreshContext() }
         if let settingsWindow {
             let frame = settingsWindow.frame
-            settingsWindow.contentViewController = NSHostingController(rootView: LocalSettingsFallbackView(section: section, onOpenAll: { [weak self] in self?.openSettingsSection(section, retry: true) }))
+            settingsWindow.contentViewController = NSHostingController(rootView: LocalSettingsFallbackView(section: section, onOpenAll: { [weak self] in self?.openSettingsSection("account", retry: true) }))
             settingsWindow.setFrame(frame, display: false)
             if settingsWindow.isMiniaturized {
                 settingsWindow.deminiaturize(nil)
@@ -474,7 +476,7 @@ final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMenuItemVal
         window.isRestorable = false
         window.identifier = NSUserInterfaceItemIdentifier("graf-settings-window")
         window.contentViewController = NSHostingController(rootView: LocalSettingsFallbackView(
-            section: section, onOpenAll: { [weak self] in self?.openSettingsSection(section, retry: true) }
+            section: section, onOpenAll: { [weak self] in self?.openSettingsSection("account", retry: true) }
         ))
         window.setContentSize(MeetingDetectionSettingsView.windowSize)
         window.center()

@@ -79,6 +79,11 @@ final class CaptureControlTests: XCTestCase {
         XCTAssertTrue(stopping.stopActionAvailable)
         XCTAssertTrue(CaptureStatusItem.showsStopButton(for: stopping))
         XCTAssertFalse(CaptureStatusItem.showsStopAction(for: stopping))
+        XCTAssertFalse(CaptureStatusItem.shouldEnableStopButton(for: stopping, stopDisabled: false))
+        XCTAssertEqual(
+            CaptureStatusItem.accessibilityLabel(for: stopping),
+            "Сохраняем запись… Запись завершается."
+        )
         XCTAssertEqual(stopped.state, .stopped)
         XCTAssertEqual(stopped.stopReason, .userRequested)
         XCTAssertFalse(stopped.stopActionAvailable)
@@ -240,7 +245,6 @@ final class CaptureControlTests: XCTestCase {
     func testCapturePresentationCoversReadyPermissionDetectedRecordingAndSavedStates() {
         let ready = CaptureStatusPresentation.resolve(session: nil)
         XCTAssertEqual(ready.title, "Готово к записи")
-        XCTAssertFalse(ready.showsStop)
 
         let permissionBlocker = RecordingBlockerPresentation(
             kind: .permission,
@@ -407,10 +411,10 @@ final class CaptureControlTests: XCTestCase {
     }
 
     func testLocalRecordingLabelsPreserveOtherResults() {
-        XCTAssertEqual(SystemAudioStatusLabels.localRecordingStatus(.active), "Локальная запись идет")
-        XCTAssertEqual(SystemAudioStatusLabels.localRecordingStatus(.saved), "Локальная запись сохранена")
-        XCTAssertEqual(SystemAudioStatusLabels.localRecordingStatus(.degraded), "Локальная запись сохранена с ограничениями")
-        XCTAssertEqual(SystemAudioStatusLabels.localRecordingStatus(.blocked), "Локальная запись заблокирована")
+        XCTAssertEqual(LocalRecordingPresentation.from(.active).title, "Идет запись")
+        XCTAssertEqual(LocalRecordingPresentation.from(.saved).title, "Сохранено на Mac")
+        XCTAssertEqual(LocalRecordingPresentation.from(.degraded).title, "Сохранено с ограничением")
+        XCTAssertEqual(LocalRecordingPresentation.from(.blocked).title, "Нужна помощь")
     }
 
     func testCaptureMetersAreVisibleOnlyWhileRecordingLevelsAreActive() throws {

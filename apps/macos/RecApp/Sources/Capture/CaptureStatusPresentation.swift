@@ -27,31 +27,19 @@ public struct CaptureStatusPresentation: Equatable, Sendable {
     public let detail: String?
     public let systemImage: String
     public let tone: StatusTone
-    public let showsStop: Bool
-    public let showsPause: Bool
-    public let showsResume: Bool
-    public let isActionable: Bool
 
     public init(
         kind: CaptureStatusKind,
         title: String,
         detail: String? = nil,
         systemImage: String,
-        tone: StatusTone,
-        showsStop: Bool = false,
-        showsPause: Bool = false,
-        showsResume: Bool = false,
-        isActionable: Bool = false
+        tone: StatusTone
     ) {
         self.kind = kind
         self.title = title
         self.detail = detail
         self.systemImage = systemImage
         self.tone = tone
-        self.showsStop = showsStop
-        self.showsPause = showsPause
-        self.showsResume = showsResume
-        self.isActionable = isActionable
     }
 
     public static func title(for kind: CaptureStatusKind) -> String {
@@ -96,42 +84,35 @@ public struct CaptureStatusPresentation: Equatable, Sendable {
                 kind: .starting,
                 title: title(for: .starting),
                 systemImage: "clock",
-                tone: .success,
-                showsStop: true
+                tone: .success
             )
         case .active:
             return .init(
                 kind: .active,
                 title: title(for: .active),
                 systemImage: "dot.radiowaves.left.and.right",
-                tone: .success,
-                showsStop: true,
-                showsPause: true
+                tone: .success
             )
         case .paused:
             return .init(
                 kind: .paused,
                 title: title(for: .paused),
                 systemImage: "mic.slash",
-                tone: .warning,
-                showsStop: true,
-                showsResume: true
+                tone: .warning
             )
         case .degraded:
             return .init(
                 kind: .degraded,
                 title: title(for: .degraded),
                 systemImage: "exclamationmark.triangle.fill",
-                tone: .warning,
-                showsStop: true
+                tone: .warning
             )
         case .stopping:
             return .init(
                 kind: .stopping,
                 title: title(for: .stopping),
                 systemImage: "stop.circle",
-                tone: .warning,
-                showsStop: true
+                tone: .warning
             )
         case .stopped, .finalized:
             return .init(
@@ -145,8 +126,7 @@ public struct CaptureStatusPresentation: Equatable, Sendable {
                 kind: .failed,
                 title: title(for: .failed),
                 systemImage: "xmark.octagon.fill",
-                tone: .danger,
-                isActionable: true
+                tone: .danger
             )
         }
     }

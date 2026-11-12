@@ -1416,20 +1416,23 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
         XCTAssertEqual(DesktopCabinetAccessibilityIdentifier.navigationHome, "desktop-cabinet-navigation-home")
     }
 
-    func testNativeNavigationHintsShowHumanReadableShortcutCombinations() throws {
-        XCTAssertEqual(DesktopCabinetNavigationShortcut.hint(for: KeyEquivalent("0")), "⌘0")
-        XCTAssertEqual(DesktopCabinetNavigationShortcut.hint(for: KeyEquivalent("[")), "⌘[")
-        XCTAssertEqual(DesktopCabinetNavigationShortcut.hint(for: KeyEquivalent("]")), "⌘]")
-        XCTAssertEqual(DesktopCabinetNavigationShortcut.hint(for: KeyEquivalent("r")), "⌘R")
-        XCTAssertFalse(DesktopCabinetNavigationShortcut.hint(for: KeyEquivalent("r")).contains("KeyEquivalent"))
-
-        let source = try String(
-            contentsOf: Self.repositoryRoot().appendingPathComponent(
-                "apps/macos/RecApp/Sources/Cabinet/DesktopCabinetWorkspaceView.swift"
-            ),
-            encoding: .utf8
+    func testNativeNavigationShortcutsAreHumanReadableAndUnique() {
+        XCTAssertEqual(
+            DesktopCabinetNavigationShortcut.allCases.map(\.hint),
+            ["⇧⌘H", "⌘[", "⌘]", "⌘R"]
         )
-        XCTAssertFalse(source.contains("String(describing: shortcut)"), "No service text in user-facing hints")
+        let combinations = DesktopCabinetNavigationShortcut.allCases.map {
+            "\($0.key.character)|\($0.modifiers.rawValue)"
+        }
+        XCTAssertEqual(Set(combinations).count, combinations.count)
+        for item in WorkspaceZoomMenu.items {
+            XCTAssertFalse(
+                DesktopCabinetNavigationShortcut.allCases.contains {
+                    $0.key.character == Character(item.keyEquivalent) && $0.modifiers == .command
+                },
+                "navigation shortcut conflicts with zoom shortcut \(item.title)"
+            )
+        }
     }
 
     func testSharedNavigationContractCoversEveryCabinetSection() throws {

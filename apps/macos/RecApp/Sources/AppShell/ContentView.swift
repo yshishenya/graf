@@ -31,6 +31,7 @@ struct ContentView: View {
     @State private var localRecordingManifest: LocalRecordingManifest?
     @State private var selectedRecordingMicrophoneDeviceId: String?
     @State private var recordingMicrophoneInputs: [PhysicalAudioDevice] = []
+    @State private var microphoneInputsGeneration = 0
     private let interfacePreferences = InterfacePreferencesStore()
     @State private var recordingMicrophoneSelection: RecordingMicrophoneSelection?
     @State private var activeMicrophoneSampleSource: AppOwnedMicrophoneSampleSource?
@@ -38,6 +39,7 @@ struct ContentView: View {
     @State private var deletionSyncInProgress = false
     @State private var recordingDeletionOperations: [RecordingDeletionOperation] = []
     @State private var uploadQueueItems: [DesktopUploadQueueItem] = []
+    @ObservedObject private var userTimeContext = DesktopUserTimeContext.shared
     @State private var localRecordingRows: [EmbeddedCabinetLocalRecordingRow] = []
     @State private var desktopCalendarReminderService = DesktopCalendarReminderService()
     @State private var desktopCalendarPrompt: DesktopCalendarPrompt?
@@ -322,17 +324,105 @@ struct ContentView: View {
     }
 
     var body: some View {
+        activationLifecycleView
+    }
+
+    private var activationLifecycleView: some View {
+        backgroundLifecycleView
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
+            appIsActive = false
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            appIsActive = true
+            microphoneCaptureService.invalidateAvailableRecordingMicrophoneInputs()
+            Task { await refreshRecordingMicrophoneInputs() }
+            refreshPermissionOnboarding(reason: "app_became_active")
+            Task { await refreshPermissionOnboardingWithFunctionalProbe(reason: "app_became_active") }
+            Task { await synchronizeRecordingDeletions() }
+            refreshUploadQueueAndProcess(reason: "app_became_active")
+            Task { await refreshCalendarReminder(reason: "app_became_active") }
+            Task { await refreshMeetingDetectionRegistry(reason: "app_became_active") }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: AVCaptureDevice.wasConnectedNotification)) { _ in
+            microphoneCaptureService.invalidateAvailableRecordingMicrophoneInputs()
+            Task { await refreshRecordingMicrophoneInputs() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: AVCaptureDevice.wasDisconnectedNotification)) { notification in
+            microphoneCaptureService.invalidateAvailableRecordingMicrophoneInputs()
+            Task { await refreshRecordingMicrophoneInputs() }
+            handleRecordingMicrophoneDisconnect(notification.object as? AVCaptureDevice)
+        }
+        .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)) { _ in
+            Task { await synchronizeRecordingDeletions() }
+            refreshUploadQueueAndProcess(reason: "system_wake")
+            Task { await refreshCalendarReminder(reason: "system_wake") }
+            Task { await refreshMeetingDetectionRegistry(reason: "system_wake") }
+            Task { await uploadMeetingDetectionTelemetry(reason: "system_wake") }
+            restartMeetingDetectionObservation(reason: "system_wake")
+        }
+        // Closing/hiding the cabinet must not end capture. The application
+        // termination notification above owns the awaited resource cleanup.
+    }
+
+    private var backgroundLifecycleView: some View {
+        appearanceLifecycleView
+        .task { await synchronizeRecordingDeletionsLoop() }
+        .task { await refreshCalendarReminderLoop() }
+        .task { await refreshMeetingDetectionRegistryLoop() }
+        .task(id: meetingDetectionRegistryRequiresRemoteRefresh) {
+            await retryMeetingDetectionRegistryLoop()
+        }
+        .task(id: localRecordingActive) { await pollRecordingLevelsLoop() }
+        .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecApplicationShouldTerminate)) { _ in
+            beginApplicationTerminationCleanup()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecDesktopCabinetDidShowMeetingDetail)) { event in
+            reportFirstResultViewed(meetingId: event.userInfo?["meetingId"] as? String)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .grafSharedMeetingHandoffDidArrive)) { _ in
+            openPendingSharedMeeting()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecDesktopAttributionHandoffDidArrive)) { _ in
+            openCabinetSignInWithAttributionHandoff(reason: "attribution_handoff")
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecDesktopAuthSessionDidChange)) { _ in
+            // Аккаунт подключён: саму веху отправляет серверная авторизация,
+            // приложение запоминает связь и передаёт метки кампании во вход.
+            activationReporter.noteAccountConnected()
+            invalidateMeetingDetectionRegistryForAuthChange()
+            applyAccountSwitchReset()
+            desktopUploadQueueService.setDeletionScope(nil)
+            uploadQueueItems = (try? desktopUploadQueueService.loadItems()) ?? []
+            recordingDeletionOperations = []
+            Task { await synchronizeRecordingDeletions() }
+            refreshUploadQueueAndProcess(reason: "desktop_auth_session_changed")
+            Task { await refreshCalendarReminder(reason: "desktop_auth_session_changed") }
+            Task { await refreshMeetingDetectionRegistry(reason: "desktop_auth_session_changed") }
+        }
+        .onChange(of: desktopCabinetState) { _, state in
+            guard let section = openingSettings, state != .loading else { return }
+            openingSettings = nil
+            if state == .ready {
+                (NSApp.delegate as? AppLifecycleDelegate)?.closeSettingsFallback()
+            } else {
+                (NSApp.delegate as? AppLifecycleDelegate)?.presentSettingsFallback(section: section)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecOpenSettings)) { event in
+            handleOpenSettings(event)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecOpenMeetingsFromTray)) { _ in
+            openMeetingsFromTray()
+        }
+    }
+
+    private var appearanceLifecycleView: some View {
         contentBase
         .onAppear {
             openPendingSharedMeeting()
-            refreshRecordingMicrophoneInputs()
-            if selectedRecordingMicrophoneDeviceId == nil {
-                selectedRecordingMicrophoneDeviceId = interfacePreferences.selectedMicrophoneDeviceID
-                if let selectedRecordingMicrophoneDeviceId {
-                    recordingMicrophoneSelection = microphoneCaptureService.resolveRecordingMicrophoneSelection(
-                        selectedInputDeviceId: selectedRecordingMicrophoneDeviceId
-                    )
-                }
+            Task {
+                await refreshRecordingMicrophoneInputs()
+                restoreSavedMicrophoneSelectionIfNeeded()
             }
             AppLog.writeRaw(
                 event: "app_opened",
@@ -360,6 +450,12 @@ struct ContentView: View {
         .onChange(of: uploadQueueItems) { _, items in
             refreshLocalRecordingRows(for: items)
         }
+        .onChange(of: userTimeContext.timeZone) { _, _ in
+            refreshLocalRecordingRows(for: uploadQueueItems)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name.NSSystemTimeZoneDidChange)) { _ in
+            refreshLocalRecordingRows(for: uploadQueueItems)
+        }
         .onChange(of: controlPanelSnapshot) { _, _ in syncControlPanel() }
         .onChange(of: protectedUpdateWork) { _, work in
             appUpdateController.updateProtectedWork(work)
@@ -370,85 +466,6 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecDismissMeetingDetectionPrompt)) { _ in
             dismissMeetingDetectionPrompt()
         }
-        .task { await synchronizeRecordingDeletionsLoop() }
-        .task { await refreshCalendarReminderLoop() }
-        .task { await refreshMeetingDetectionRegistryLoop() }
-        .task(id: meetingDetectionRegistryRequiresRemoteRefresh) {
-            await retryMeetingDetectionRegistryLoop()
-        }
-        .task(id: localRecordingActive) { await pollRecordingLevelsLoop() }
-        .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecApplicationShouldTerminate)) { _ in
-            beginApplicationTerminationCleanup()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecDesktopCabinetDidShowMeetingDetail)) { event in
-            reportFirstResultViewed(meetingId: event.userInfo?["meetingId"] as? String)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .grafSharedMeetingHandoffDidArrive)) { _ in
-            openPendingSharedMeeting()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecDesktopAttributionHandoffDidArrive)) { _ in
-            openCabinetSignInWithAttributionHandoff(reason: "attribution_handoff")
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecDesktopAuthSessionDidChange)) { _ in
-            // Аккаунт подключён: саму веху отправляет серверная авторизация,
-            // приложение запоминает связь и передаёт метки кампании во вход.
-            activationReporter.noteAccountConnected()
-            invalidateMeetingDetectionRegistryForAuthChange()
-            applyAccountSwitchReset(AccountSwitchResetPlan.standard)
-            desktopUploadQueueService.setDeletionScope(nil)
-            uploadQueueItems = (try? desktopUploadQueueService.loadItems()) ?? []
-            recordingDeletionOperations = []
-            Task { await synchronizeRecordingDeletions() }
-            refreshUploadQueueAndProcess(reason: "desktop_auth_session_changed")
-            Task { await refreshCalendarReminder(reason: "desktop_auth_session_changed") }
-            Task { await refreshMeetingDetectionRegistry(reason: "desktop_auth_session_changed") }
-        }
-        .onChange(of: desktopCabinetState) { _, state in
-            guard let section = openingSettings, state != .loading else { return }
-            openingSettings = nil
-            if state == .ready {
-                (NSApp.delegate as? AppLifecycleDelegate)?.closeSettingsFallback()
-            } else {
-                (NSApp.delegate as? AppLifecycleDelegate)?.presentSettingsFallback(section: section)
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecOpenSettings)) { event in
-            handleOpenSettings(event)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecOpenMeetingsFromTray)) { _ in
-            openMeetingsFromTray()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
-            appIsActive = false
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            appIsActive = true
-            refreshPermissionOnboarding(reason: "app_became_active")
-            Task { await refreshPermissionOnboardingWithFunctionalProbe(reason: "app_became_active") }
-            Task { await synchronizeRecordingDeletions() }
-            refreshUploadQueueAndProcess(reason: "app_became_active")
-            Task { await refreshCalendarReminder(reason: "app_became_active") }
-            Task { await refreshMeetingDetectionRegistry(reason: "app_became_active") }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: AVCaptureDevice.wasConnectedNotification)) { _ in
-            microphoneCaptureService.invalidateAvailableRecordingMicrophoneInputs()
-            refreshRecordingMicrophoneInputs()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: AVCaptureDevice.wasDisconnectedNotification)) { notification in
-            microphoneCaptureService.invalidateAvailableRecordingMicrophoneInputs()
-            refreshRecordingMicrophoneInputs()
-            handleRecordingMicrophoneDisconnect(notification.object as? AVCaptureDevice)
-        }
-        .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)) { _ in
-            Task { await synchronizeRecordingDeletions() }
-            refreshUploadQueueAndProcess(reason: "system_wake")
-            Task { await refreshCalendarReminder(reason: "system_wake") }
-            Task { await refreshMeetingDetectionRegistry(reason: "system_wake") }
-            Task { await uploadMeetingDetectionTelemetry(reason: "system_wake") }
-            restartMeetingDetectionObservation(reason: "system_wake")
-        }
-        // Closing/hiding the cabinet must not end capture. The application
-        // termination notification above owns the awaited resource cleanup.
     }
 
     @MainActor
@@ -480,15 +497,48 @@ struct ContentView: View {
     }
 
     @MainActor
-    private func refreshRecordingMicrophoneInputs() {
-        recordingMicrophoneInputs = microphoneCaptureService.availableRecordingMicrophoneInputs()
+    private func restoreSavedMicrophoneSelectionIfNeeded() {
+        guard selectedRecordingMicrophoneDeviceId == nil,
+              let savedDeviceID = interfacePreferences.selectedMicrophoneDeviceID else {
+            return
+        }
+        let savedSelection = microphoneCaptureService.resolveRecordingMicrophoneSelection(
+            selectedInputDeviceId: savedDeviceID
+        )
+        if savedSelection.isAccepted {
+            selectedRecordingMicrophoneDeviceId = savedDeviceID
+            recordingMicrophoneSelection = savedSelection
+            return
+        }
+        guard savedSelection.rejectionReason == .deviceUnavailable else {
+            selectedRecordingMicrophoneDeviceId = savedDeviceID
+            recordingMicrophoneSelection = savedSelection
+            return
+        }
+        interfacePreferences.saveSelectedMicrophoneDeviceID(nil)
+        selectedRecordingMicrophoneDeviceId = nil
+        recordingMicrophoneSelection = microphoneCaptureService.resolveRecordingMicrophoneSelection(
+            selectedInputDeviceId: nil
+        )
+    }
+
+    @MainActor
+    private func refreshRecordingMicrophoneInputs() async {
+        microphoneInputsGeneration += 1
+        let generation = microphoneInputsGeneration
+        let service = microphoneCaptureService
+        let inputs = await Task.detached(priority: .userInitiated) {
+            service.availableRecordingMicrophoneInputs()
+        }.value
+        guard generation == microphoneInputsGeneration else { return }
+        recordingMicrophoneInputs = inputs
     }
 
     @MainActor
     private func handleRecordingMicrophoneDisconnect(_ device: AVCaptureDevice?) {
         guard RecordingMicrophoneDisconnectPolicy.shouldMarkDegraded(
             disconnectedDeviceID: device?.uniqueID,
-            selectedDeviceID: selectedRecordingMicrophoneDeviceId,
+            selectedDeviceID: selectedRecordingMicrophoneDeviceId ?? recordingMicrophoneSelection?.inputDeviceId,
             sessionState: captureSession?.state
         ),
         let degraded = try? captureController.markDegraded(
@@ -568,42 +618,30 @@ struct ContentView: View {
     }
 
     @MainActor
-    private func applyAccountSwitchReset(_ plan: AccountSwitchResetPlan) {
-        if plan.resetCabinetRoute {
-            selectedCabinetRoute = desktopCabinetConfiguration?.meetingsURL()
-            desktopCabinetState = desktopCabinetConfiguration == nil ? .notConfigured : .loading
-        }
-        if plan.clearCalendarPrompt {
-            desktopCalendarPrompt = nil
-            desktopCalendarReminderService = DesktopCalendarReminderService()
-        }
-        if plan.clearPendingCalendarState {
-            desktopCalendarJoinInProgress = false
-            desktopCalendarPendingPromptID = nil
-            desktopCalendarPendingGeneration = nil
-            desktopCalendarPendingSince = nil
-            desktopCalendarJoinFailedID = nil
-            desktopCalendarJoinFailedAt = nil
-            desktopCalendarJoinFailedGeneration = nil
-            activeCalendarContextEventId = nil
-            activeCalendarMatchAttemptId = nil
-            activeCalendarMatchLocalRecordingId = nil
-        }
-        if plan.closeLocalPlayer {
-            LocalRecordingPlayer.shared.close()
-        }
-        if plan.clearSelectedRecording {
-            DesktopControlModel.shared.showRecording(nil)
-        }
-        if plan.reloadCabinet {
-            cabinetReloadToken = UUID()
-        }
+    private func applyAccountSwitchReset() {
+        selectedCabinetRoute = desktopCabinetConfiguration?.meetingsURL()
+        desktopCabinetState = desktopCabinetConfiguration == nil ? .notConfigured : .loading
+        desktopCalendarPrompt = nil
+        desktopCalendarReminderService = DesktopCalendarReminderService()
+        desktopCalendarJoinInProgress = false
+        desktopCalendarPendingPromptID = nil
+        desktopCalendarPendingGeneration = nil
+        desktopCalendarPendingSince = nil
+        desktopCalendarJoinFailedID = nil
+        desktopCalendarJoinFailedAt = nil
+        desktopCalendarJoinFailedGeneration = nil
+        activeCalendarContextEventId = nil
+        activeCalendarMatchAttemptId = nil
+        activeCalendarMatchLocalRecordingId = nil
+        LocalRecordingPlayer.shared.close()
+        DesktopControlModel.shared.showRecording(nil)
+        cabinetReloadToken = UUID()
     }
 
     @MainActor
     private func refreshLocalRecordingRows(for items: [DesktopUploadQueueItem]) {
         let root = desktopUploadQueueService.recordingsRootURL
-        let timeZone = DesktopUserTimeContext.shared.timeZone
+        let timeZone = userTimeContext.timeZone
         Task {
             let rows = await Task.detached(priority: .utility) {
                 EmbeddedCabinetLocalRecordingRow.rows(for: items, recordingsRootURL: root, timeZone: timeZone)
@@ -833,6 +871,8 @@ struct ContentView: View {
             inputDeviceId: selection.inputDeviceId,
             inputDisplayName: selection.inputDisplayName ?? "Default Microphone"
         )
+        microphoneCaptureService.invalidateAvailableRecordingMicrophoneInputs()
+        await refreshRecordingMicrophoneInputs()
         refreshPermissionOnboarding(reason: "microphone_permission_requested")
     }
 
@@ -2055,8 +2095,7 @@ struct ContentView: View {
                 if let presentation = permissionGate.presentation {
                     recordingBlocker = .init(
                         kind: .permission,
-                        message: "\(presentation.title). \(presentation.message)",
-                        recoveryAction: .openPermissions
+                        message: "\(presentation.title). \(presentation.message)"
                     )
                 } else {
                     recordingBlocker = recordingBlockerPresentation(for: prerequisite)
@@ -3076,23 +3115,23 @@ struct ContentView: View {
         case .none:
             return nil
         case .captureUnavailable:
-            return .init(kind: .capture, message: "Запись не началась: источник записи занят или недоступен. \(action).", recoveryAction: .retry)
+            return .init(kind: .capture, message: "Запись не началась: источник записи занят или недоступен. \(action).")
         case .policyDisabled:
-            return .init(kind: .policy, message: "Запись отключена политикой. \(action).", recoveryAction: .none, isRetryable: false)
+            return .init(kind: .policy, message: "Запись отключена политикой. \(action).")
         case .permissionDenied:
-            return .init(kind: .permission, message: "Запись не началась: нужен доступ к микрофону или системному звуку. \(action).", recoveryAction: .openPermissions)
+            return .init(kind: .permission, message: "Запись не началась: нужен доступ к микрофону или системному звуку. \(action).")
         case .storageUnsafe:
-            return .init(kind: .storage, message: "Запись не началась: недостаточно безопасного места для локальной копии. \(action).", recoveryAction: .openStorage)
+            return .init(kind: .storage, message: "Запись не началась: недостаточно безопасного места для локальной копии. \(action).")
         case .indicatorUnavailable:
-            return .init(kind: .indicator, message: "Запись не началась: локальный индикатор недоступен. \(action).", recoveryAction: .retry)
+            return .init(kind: .indicator, message: "Запись не началась: локальный индикатор недоступен. \(action).")
         case .sourceAppIneligible:
-            return .init(kind: .source, message: "Запись не началась: источник не подтвержден. \(action).", recoveryAction: .chooseMicrophone)
+            return .init(kind: .source, message: "Запись не началась: источник не подтвержден. \(action).")
         case .alreadyRecording:
-            return .init(kind: .alreadyRecording, message: "Запись уже идет.", recoveryAction: .none)
+            return .init(kind: .alreadyRecording, message: "Запись уже идет.")
         case .captureFailed:
-            return .init(kind: .capture, message: "Запись не началась: системный звук не запустился. \(action).", recoveryAction: .retry)
+            return .init(kind: .capture, message: "Запись не началась: системный звук не запустился. \(action).")
         case .unknown:
-            return .init(kind: .unknown, message: "Запись не началась: нужна повторная проверка. \(action).", recoveryAction: .retry)
+            return .init(kind: .unknown, message: "Запись не началась: нужна повторная проверка. \(action).")
         }
     }
 

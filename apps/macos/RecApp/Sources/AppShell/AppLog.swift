@@ -29,6 +29,10 @@ enum AppLog {
         writeRaw(event: event, detail: detail)
     }
 
+    static func flush() {
+        queue.sync {}
+    }
+
     private static func sanitize(_ detail: String) -> String {
         String(detail.prefix(4_096))
             .replacingOccurrences(of: "\n", with: " ")
