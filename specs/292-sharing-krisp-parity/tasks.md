@@ -161,3 +161,7 @@ Spec Kit, только тестовые материалы; focused PostgreSQL/�
 ## Phase 23: Convergence
 
 - [ ] T036 Устранить подтверждённое прерывание обязательной полной проверки по 30-минутному бюджету `server-phases` в `.github/workflows/release-full.yml` и его `scripts/validate-full-ci-workflow.py`: измерить длительность строгих тестов, дать конечный достаточный бюджет без исключения тестов, ослабления проверок или повторного Full того же кандидата. Сохранить strict/performance/RLS и все независимые компоненты; до кода независимый checklist/analyze/issue sync, после — контракт workflow и новый exact-SHA PR, затем новый frozen candidate и одна полная проверка. [FR-027; T016/T017 prerequisite; partial, HIGH; run43226719865 timed_out] (Issue #8036)
+
+## Phase 24: Convergence
+
+- [ ] T037 Исправить подготовку и завершающую очистку строгих тестов в `apps/server/tests/integration/test_billing_rls.py` и `test_provider_refund_observation.py`: транзакционные декларации оператора по0113, точный отказ PostgreSQL для неверной capability, удаление только собственных синтетических событий очереди после успеха и ошибки. Сохранить межпространственную обработку, все финансовые/RLS утверждения, триггеры и состав тестов. До кода независимый `checklists/strict-fixtures.md`, analyze и issue sync; RED исходного порядка, затем совместный focused обоих модулей и отрицательные operator tests. Новый exact-SHA PR и новый frozen candidate с одной полной проверкой; failed run43242236185 не переиспользовать. [FR-027; T016/T017 prerequisite; partial, HIGH] (Issue #8039)

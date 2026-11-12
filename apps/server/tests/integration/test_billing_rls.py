@@ -4,10 +4,11 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import func, select, text, update
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import delete, func, select, text, update
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from tests.integration.test_billing_fair_use_operator import declare_operator
 from tests.integration.test_rls_postgres_policies import (
     _exact_app_role_engine,
     _request_context,
@@ -110,6 +111,7 @@ async def test_fair_use_review_is_user_visible_but_cross_tenant_isolated(rls_eng
                 feature_area="billing",
             ),
         )
+        await declare_operator(conn)
         await conn.execute(
             text(
                 "insert into fair_use_reviews "
@@ -143,7 +145,8 @@ async def test_fair_use_capability_prefix_is_enforced_by_postgres(rls_engine) ->
                 feature_area="billing",
             ),
         )
-        with pytest.raises(IntegrityError):
+        await declare_operator(conn)
+        with pytest.raises(DBAPIError) as rejected:
             async with conn.begin_nested():
                 await conn.execute(
                     text(
@@ -159,6 +162,12 @@ async def test_fair_use_capability_prefix_is_enforced_by_postgres(rls_engine) ->
                         "subject_user_id": ids["user_a"],
                     },
                 )
+        assert rejected.value.orig.sqlstate == "P0001"
+        assert "fair_use_transition_rejected" in str(rejected.value.orig)
+        assert await conn.scalar(
+            text("select count(*) from fair_use_reviews where workspace_id=:workspace_id"),
+            {"workspace_id": ids["workspace_a"]},
+        ) == 0
 
 
 @pytest.mark.asyncio
@@ -723,6 +732,20 @@ async def _seed_reconciliation_probe(engine):
             "event_id": event_id, "payment": payment}
 
 
+@pytest.fixture
+async def reconciliation_probe(rls_engine):
+    probe = await _seed_reconciliation_probe(rls_engine)
+    try:
+        yield probe
+    finally:
+        async with async_sessionmaker(rls_engine, expire_on_commit=False)() as db:
+            await apply_tenant_context(db, _reconciliation_probe_context())
+            await db.execute(delete(BillingWebhookEvent).where(
+                BillingWebhookEvent.id == probe["event_id"],
+            ))
+            await db.commit()
+
+
 def _install_synthetic_reconciliation_provider(monkeypatch, payment):
     calls = {"get": 0, "create": 0}
 
@@ -766,11 +789,11 @@ def _reconciliation_probe_settings(tmp_path: Path) -> Settings:
 
 @pytest.mark.asyncio
 async def test_reconciliation_activity_rejects_real_app_role_before_empty_success(
-    monkeypatch, rls_engine, migrated_postgres_urls, tmp_path,
+    monkeypatch, rls_engine, migrated_postgres_urls, tmp_path, reconciliation_probe,
 ) -> None:
     from twobrain_rec_server.workflows import worker
 
-    probe = await _seed_reconciliation_probe(rls_engine)
+    probe = reconciliation_probe
     calls = _install_synthetic_reconciliation_provider(monkeypatch, probe["payment"])
     settings = _reconciliation_probe_settings(tmp_path)
     monkeypatch.setattr(worker, "get_settings", lambda: settings)
@@ -801,11 +824,11 @@ async def test_reconciliation_activity_rejects_real_app_role_before_empty_succes
 
 @pytest.mark.asyncio
 async def test_reconciliation_activity_real_maintenance_role_grants_once_on_replay(
-    monkeypatch, rls_engine, tmp_path,
+    monkeypatch, rls_engine, tmp_path, reconciliation_probe,
 ) -> None:
     from twobrain_rec_server.workflows import worker
 
-    probe = await _seed_reconciliation_probe(rls_engine)
+    probe = reconciliation_probe
     calls = _install_synthetic_reconciliation_provider(monkeypatch, probe["payment"])
     settings = _reconciliation_probe_settings(tmp_path)
     monkeypatch.setattr(worker, "get_settings", lambda: settings)

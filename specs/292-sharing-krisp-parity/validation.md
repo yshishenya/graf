@@ -463,3 +463,22 @@ analysisC0/H0; issue canon267PASS до кода. Единственное вып
 пороги, восемь shard, macOS, агрегация и immutable candidate guards сохранены.
 Независимый code review, exact-SHA PR, новый frozen Full и публикация ещё обязательны.
 T036/T016/T017 и прочие выпускные задачи остаются открытыми до evidence.
+
+## T037 — строгие тесты после failed Full43242236185
+
+2026-11-12; база c8de0b01ca5de106694186aac48efd34b8f61b4b, ветка
+`codex/f292-strict-followup`, issue#8039. Active Spec Kit slice/high-risk-product.
+Независимый checklist3/0PASS; analyzeC0/H0. Canon ensure и validate268PASS.
+До кода исходный порядок activity→refund1.00→refund10.00→queue воспроизвёл
+pending2/3 и неизвестный receipt:3failed/1passed. Обе fair-use проверки
+отдельно воспроизвели отказ декларации:2failed.
+После кода два полных модуля совместно:51passed за18.75с; отдельно
+отрицательные operator declarations/context/spoofed app tests:6passed за24.82с.
+Disposable PostgreSQL-контейнеры штатно удалены. Runtime/RLS/миграции и
+финансовые asserts не менялись.
+
+Исходный кандидат .4 остаётся NO_GO: strict13failed/668passed; performance
+и следующие последовательные стадии не приняты. Новый PR, frozen candidate
+и один новый Full обязательны. Native/production приёмка этим не закрывается.
+
+Дополнительная временная проверка обеих завершающих fixtures на настоящем PostgreSQL: после искусственного RuntimeError собственное событие удалено, чужое осталось;2passed за3.25с. Проверочный файл после выполнения удалён из рабочей копии, сохранён только в приватном временном каталоге. Ruff и governancePASS.

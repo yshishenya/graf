@@ -136,6 +136,32 @@ def test_provider_refund_observation_is_idempotently_bound_without_refund_mutati
 pytest_plugins = ("tests.integration.test_rls_postgres_policies",)
 
 
+@pytest.fixture
+async def refund_http_ids(rls_engine):
+    from sqlalchemy import delete
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    from tests.integration.test_rls_postgres_policies import _seed_probe_rows
+    from twobrain_rec_server.db.models import BillingWebhookEvent
+    from twobrain_rec_server.db.tenant_context import MaintenanceTenantContext, apply_tenant_context
+
+    ids = await _seed_probe_rows(rls_engine)
+    try:
+        yield ids
+    finally:
+        async with async_sessionmaker(rls_engine, expire_on_commit=False)() as db:
+            await apply_tenant_context(db, MaintenanceTenantContext(
+                operation_name="billing_reconciliation",
+                actor_id="test_provider_refund_observation",
+                reason_category="refund_probe",
+                feature_area="billing",
+            ))
+            await db.execute(delete(BillingWebhookEvent).where(
+                BillingWebhookEvent.workspace_id == ids["workspace_a"],
+            ))
+            await db.commit()
+
+
 @pytest.mark.strict_rls
 @pytest.mark.asyncio
 @pytest.mark.parametrize("refund_amount", ["1.00", "10.00"])
@@ -145,6 +171,7 @@ async def test_metadata_less_refund_receipt_http_rls_and_financial_invariants(
     tmp_path,
     monkeypatch,
     refund_amount,
+    refund_http_ids,
 ):
     from copy import deepcopy
     from datetime import timedelta
@@ -157,7 +184,6 @@ async def test_metadata_less_refund_receipt_http_rls_and_financial_invariants(
 
     from tests.integration.test_rls_postgres_policies import (
         _exact_app_role_engine,
-        _seed_probe_rows,
     )
     from twobrain_rec_server.api.billing import router
     from twobrain_rec_server.billing import provider_scope
@@ -180,7 +206,7 @@ async def test_metadata_less_refund_receipt_http_rls_and_financial_invariants(
         apply_tenant_context,
     )
 
-    ids = await _seed_probe_rows(rls_engine)
+    ids = refund_http_ids
     workspace_id, user_id = ids["workspace_a"], ids["user_a"]
     operation_id, invoice_id = uuid4(), uuid4()
     payment_id = f"payment-{uuid4().hex}"
