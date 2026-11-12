@@ -335,7 +335,7 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             appIsActive = true
             microphoneCaptureService.invalidateAvailableRecordingMicrophoneInputs()
-            refreshRecordingMicrophoneInputs()
+            Task { await refreshRecordingMicrophoneInputs() }
             refreshPermissionOnboarding(reason: "app_became_active")
             Task { await refreshPermissionOnboardingWithFunctionalProbe(reason: "app_became_active") }
             Task { await synchronizeRecordingDeletions() }
@@ -345,11 +345,11 @@ struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: AVCaptureDevice.wasConnectedNotification)) { _ in
             microphoneCaptureService.invalidateAvailableRecordingMicrophoneInputs()
-            refreshRecordingMicrophoneInputs()
+            Task { await refreshRecordingMicrophoneInputs() }
         }
         .onReceive(NotificationCenter.default.publisher(for: AVCaptureDevice.wasDisconnectedNotification)) { notification in
             microphoneCaptureService.invalidateAvailableRecordingMicrophoneInputs()
-            refreshRecordingMicrophoneInputs()
+            Task { await refreshRecordingMicrophoneInputs() }
             handleRecordingMicrophoneDisconnect(notification.object as? AVCaptureDevice)
         }
         .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)) { _ in
@@ -420,8 +420,10 @@ struct ContentView: View {
         contentBase
         .onAppear {
             openPendingSharedMeeting()
-            refreshRecordingMicrophoneInputs()
-            restoreSavedMicrophoneSelectionIfNeeded()
+            Task {
+                await refreshRecordingMicrophoneInputs()
+                restoreSavedMicrophoneSelectionIfNeeded()
+            }
             AppLog.writeRaw(
                 event: "app_opened",
                 detail: currentApplicationIdentityDetail + " capture=app_owned_system_audio microphone=app_owned"
@@ -449,6 +451,9 @@ struct ContentView: View {
             refreshLocalRecordingRows(for: items)
         }
         .onChange(of: userTimeContext.timeZone) { _, _ in
+            refreshLocalRecordingRows(for: uploadQueueItems)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name.NSSystemTimeZoneDidChange)) { _ in
             refreshLocalRecordingRows(for: uploadQueueItems)
         }
         .onChange(of: controlPanelSnapshot) { _, _ in syncControlPanel() }
@@ -505,6 +510,11 @@ struct ContentView: View {
             recordingMicrophoneSelection = savedSelection
             return
         }
+        guard savedSelection.rejectionReason == .deviceUnavailable else {
+            selectedRecordingMicrophoneDeviceId = savedDeviceID
+            recordingMicrophoneSelection = savedSelection
+            return
+        }
         interfacePreferences.saveSelectedMicrophoneDeviceID(nil)
         selectedRecordingMicrophoneDeviceId = nil
         recordingMicrophoneSelection = microphoneCaptureService.resolveRecordingMicrophoneSelection(
@@ -513,17 +523,15 @@ struct ContentView: View {
     }
 
     @MainActor
-    private func refreshRecordingMicrophoneInputs() {
+    private func refreshRecordingMicrophoneInputs() async {
         microphoneInputsGeneration += 1
         let generation = microphoneInputsGeneration
         let service = microphoneCaptureService
-        Task {
-            let inputs = await Task.detached(priority: .userInitiated) {
-                service.availableRecordingMicrophoneInputs()
-            }.value
-            guard generation == microphoneInputsGeneration else { return }
-            recordingMicrophoneInputs = inputs
-        }
+        let inputs = await Task.detached(priority: .userInitiated) {
+            service.availableRecordingMicrophoneInputs()
+        }.value
+        guard generation == microphoneInputsGeneration else { return }
+        recordingMicrophoneInputs = inputs
     }
 
     @MainActor
@@ -864,7 +872,7 @@ struct ContentView: View {
             inputDisplayName: selection.inputDisplayName ?? "Default Microphone"
         )
         microphoneCaptureService.invalidateAvailableRecordingMicrophoneInputs()
-        refreshRecordingMicrophoneInputs()
+        await refreshRecordingMicrophoneInputs()
         refreshPermissionOnboarding(reason: "microphone_permission_requested")
     }
 

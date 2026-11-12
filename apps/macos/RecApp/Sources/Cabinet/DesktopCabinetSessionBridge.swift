@@ -132,6 +132,7 @@ public enum DesktopCabinetSessionBridge {
                 }
                 if plan.authenticationChanged {
                     sessionState.lock.withLock { sessionState.generation &+= 1 }
+                    let expectedGeneration = generation
                     DesktopUserTimeContext.shared.reset()
                     await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
                         WKWebsiteDataStore.default().removeData(
@@ -140,6 +141,10 @@ public enum DesktopCabinetSessionBridge {
                         ) {
                             continuation.resume()
                         }
+                    }
+                    guard isCurrentDocument(), generation == expectedGeneration else {
+                        completion()
+                        return
                     }
                 }
                 for cookie in plan.cookiesToDelete {

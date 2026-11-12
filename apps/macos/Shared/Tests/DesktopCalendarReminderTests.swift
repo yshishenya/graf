@@ -903,7 +903,7 @@ final class DesktopCalendarReminderTests: XCTestCase {
                                           onMuteMicrophone: {}, onUnmuteMicrophone: {}, onQuit: {})
         let transitions: [(CaptureSessionState?, Bool, Bool, GrafTrayRecordingState)] = [
             (nil, false, false, .idle), (.starting, false, false, .idle),
-            (.failed, false, false, .idle), (.active, true, false, .recording),
+            (.failed, false, false, .failed), (.active, true, false, .recording),
             (.paused, true, false, .paused), (.active, true, false, .recording),
             (.degraded, true, false, .degraded),
             (.failed, true, false, .failed), (.active, false, true, .stopping),

@@ -7,12 +7,12 @@ public enum GrafTrayRecordingState: Equatable, Sendable {
 
     public static func resolve(sessionState: CaptureSessionState?, writerActive: Bool, stopping: Bool, starting: Bool = false) -> Self {
         if stopping { return .stopping }
+        if sessionState == .failed { return .failed }
         if starting { return .starting }
         guard writerActive else { return .idle }
         switch sessionState {
         case .paused: return .paused
         case .degraded: return .degraded
-        case .failed: return .failed
         default: return .recording
         }
     }

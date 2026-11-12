@@ -2162,7 +2162,7 @@ final class DesktopUploadQueueTests: XCTestCase {
             try service.localPlaybackURL(itemId: item.id).standardizedFileURL.resolvingSymlinksInPath(),
             package.reviewURL.standardizedFileURL.resolvingSymlinksInPath()
         )
-        XCTAssertEqual("Запись завершилась с ошибкой", "Запись завершилась с ошибкой")
+        XCTAssertEqual(LocalRecordingPresentation.from(.blocked).detail, "Локальная запись заблокирована")
         XCTAssertEqual(SystemAudioStatusLabels.captureFailureDetail(
             failureCode: "aec_capture_failed",
             hasPlayableFragment: (try? service.localPlaybackURL(itemId: item.id)) != nil),
@@ -2224,7 +2224,7 @@ final class DesktopUploadQueueTests: XCTestCase {
         XCTAssertFalse(row.canOpen)
         XCTAssertFalse(row.showsPartialDuration)
         XCTAssertThrowsError(try service.localPlaybackURL(itemId: item.id))
-        XCTAssertEqual("Запись завершилась с ошибкой", "Запись завершилась с ошибкой")
+        XCTAssertEqual(LocalRecordingPresentation.from(.failed).detail, "Запись завершилась с ошибкой")
         XCTAssertEqual(SystemAudioStatusLabels.captureFailureDetail(
             failureCode: "aec_capture_failed",
             hasPlayableFragment: (try? service.localPlaybackURL(itemId: item.id)) != nil),
