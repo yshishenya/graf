@@ -10,6 +10,7 @@ from sqlalchemy import and_, delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.problems import ProblemDetail
+from twobrain_rec_server.auth.account_closure_notifications import enqueue_account_close_notice
 from twobrain_rec_server.billing.storage import lock_storage_workspace
 from twobrain_rec_server.db.models import (
     AccountClosureRequest,
@@ -339,6 +340,7 @@ async def schedule_account_close(
     )
     db.add(request)
     await db.flush()
+    await enqueue_account_close_notice(db, request, phase="scheduled")
     return close_view(request, now=now_utc)
 
 
@@ -372,6 +374,8 @@ async def cancel_account_close(
         )
     request.state = "canceled"
     request.canceled_at = now_utc
+    await db.flush()
+    await enqueue_account_close_notice(db, request, phase="canceled")
     return close_view(request, now=now_utc)
 
 

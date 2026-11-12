@@ -373,3 +373,67 @@ def test_fair_use_payload_rejects_untrusted_phase_link_and_deadline(key, value):
     assert key not in event.safe_payload
     assert event.safe_payload["action_path"] == "/account/fair-use"
     assert "private" not in notification_copy(event)[1]
+
+
+def _account_close_payload(phase="scheduled"):
+    payload = {
+        "phase": phase,
+        "account_close_request_id": "abcdef0123456789abcdef0123456789",
+        "account_close_requested_at": "2026-11-12T09:10:11.123456+00:00",
+        "account_close_finalize_at": "2026-11-19T09:10:11.123456+00:00",
+        "action_path": "/untrusted?token=secret",
+        "email": "private@example.test", "invoice": "INV-SECRET",
+    }
+    if phase == "canceled":
+        payload["account_close_canceled_at"] = "2026-11-12T10:11:12.123456+00:00"
+    return payload
+
+
+@pytest.mark.parametrize("phase", ["scheduled", "canceled"])
+def test_account_close_notice_is_historical_mandatory_and_has_one_safe_action(phase):
+    payload = _account_close_payload(phase)
+    event = build_notification(event_id="account.close:synthetic", kind=BillingNotification.ACCOUNT_CLOSE, payload=payload)
+    expected = {key: value for key, value in payload.items() if key not in {"action_path", "email", "invoice"}}
+    assert event.safe_payload == expected | {"action_path": "/settings/account"}
+    title, body = notification_copy(event)
+    assert "12.11.2026 12:10:11 МСК" in body
+    assert "19.11.2026 12:10:11 МСК" in body
+    assert "Проверьте текущий статус" in body
+    if phase == "canceled":
+        assert "Вы отменили закрытие аккаунта 12.11.2026 13:11:12 МСК" in body
+    else:
+        assert "Вы запланировали закрытие аккаунта" in body
+    for private in (payload["account_close_request_id"], "private@example.test", "INV-SECRET", "token=", "списания", "удалены"):
+        assert private not in title + body
+    assert NotificationOutbox().enqueue(event, recipient_id="owner", marketing_allowed=False) is not None
+
+
+@pytest.mark.parametrize("key,value", [
+    ("phase", None), ("phase", "completed"), ("phase", []),
+    ("account_close_request_id", 1), ("account_close_request_id", "A" * 32),
+    ("account_close_request_id", "a" * 31), ("account_close_request_id", "a" * 32 + "\n"),
+    ("account_close_requested_at", None), ("account_close_requested_at", True),
+    ("account_close_requested_at", "2026-11-12"),
+    ("account_close_requested_at", "2026-11-12T09:10:11"),
+    ("account_close_requested_at", "2026-11-12T09:10:11Z"),
+    ("account_close_requested_at", "2026-11-12T12:10:11+03:00"),
+    ("account_close_requested_at", "2026-11-12T09:10:11.1+00:00"),
+    ("account_close_requested_at", "0001-01-01T00:00:00+01:00"),
+    ("account_close_finalize_at", "9999-12-31T23:59:59+00:00"),
+    ("account_close_finalize_at", "not-a-date"),
+    ("account_close_canceled_at", None),
+])
+def test_account_close_builder_rejects_incomplete_noncanonical_or_unrenderable_dates(key, value):
+    payload = _account_close_payload("canceled") | {key: value}
+    event = build_notification(event_id="account.close:synthetic", kind=BillingNotification.ACCOUNT_CLOSE, payload=payload)
+    assert event.safe_payload == {}
+    assert notification_copy(event) == ("Закрытие аккаунта", "Проверьте текущий статус в настройках аккаунта.")
+
+
+def test_account_close_scheduled_snapshot_discards_cancel_date_and_accepts_whole_seconds():
+    payload = _account_close_payload() | {"account_close_canceled_at": "invalid"}
+    for key in ("account_close_requested_at", "account_close_finalize_at"):
+        payload[key] = payload[key].replace(".123456", "")
+    event = build_notification(event_id="account.close:synthetic", kind=BillingNotification.ACCOUNT_CLOSE, payload=payload)
+    assert "account_close_canceled_at" not in event.safe_payload
+    assert "12.11.2026 12:10:11 МСК" in notification_copy(event)[1]

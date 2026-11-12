@@ -42,8 +42,10 @@ def test_every_allowlisted_lifecycle_event_has_bounded_russian_copy(event_type: 
     assert title and body
     assert "synthetic" not in title.lower()
     assert "provider" not in body.lower()
-    if kind == BillingNotification.STORAGE_THRESHOLD:
+    if kind in {BillingNotification.STORAGE_THRESHOLD, BillingNotification.ACCOUNT_CLOSE}:
         assert event.safe_payload == {}  # Incomplete historical snapshots are suppressed by the sender.
+    elif kind == BillingNotification.FAIR_USE_REVIEW:
+        assert event.safe_payload.get("action_path") == "/account/fair-use"
     else:
         assert event.safe_payload.get("action_path") == ("/referrals" if kind in REFERRAL_NOTICE_KINDS else "/billing")
 
@@ -1640,3 +1642,885 @@ def test_working_publication_and_replacement_cause_storage_notice(
         assert calls.count(f"billing:{added[0].id}") == 1
     finally:
         asyncio.run(engine.dispose())
+@pytest.mark.strict_rls
+def test_account_close_browser_source_commits_three_historical_notices(
+    storage_publication_client, monkeypatch,
+):
+    from sqlalchemy import text
+    from sqlalchemy.pool import NullPool
+
+    from tests.fakes.auth_contexts import USER_ID
+    from tests.unit.test_billing_money_path_e2e import _prepare_owner_session
+    from twobrain_rec_server.db.models import AccountClosureRequest
+    from twobrain_rec_server.db.session import create_sessionmaker
+    from twobrain_rec_server.db.tenant_context import MaintenanceTenantContext, apply_tenant_context
+
+    client, maintenance_url, app_url = storage_publication_client
+    workspace_id, headers = _prepare_owner_session(client)
+    app_engine = create_async_engine(app_url, poolclass=NullPool)
+    maintenance_engine = create_async_engine(maintenance_url, poolclass=NullPool)
+    app_sessions = create_sessionmaker(app_engine)
+    sessions = create_sessionmaker(maintenance_engine)
+    context = MaintenanceTenantContext(
+        operation_name="billing_reconciliation", actor_id="test-account-close",
+        reason_category="causal-account-close", feature_area="billing",
+    )
+    monkeypatch.setattr(client.app.state, "db_sessionmaker", app_sessions)
+    monkeypatch.setattr(client.app.state.settings, "legacy_header_auth_enabled", False)
+    monkeypatch.setattr(client.app.state.settings, "env", "production")
+
+    async def seed():
+        async with app_sessions() as db:
+            assert await db.scalar(text("select session_user")) == "twobrain_rec_app"
+            assert await db.scalar(text(
+                "select not rolsuper and not rolbypassrls from pg_roles where rolname=session_user"
+            ))
+        async with sessions.begin() as db:
+            await apply_tenant_context(db, context)
+            assert await db.scalar(text("select session_user")) == "twobrain_rec_maintenance"
+            assert await db.scalar(text(
+                "select not rolsuper and not rolbypassrls from pg_roles where rolname=session_user"
+            ))
+            db.add_all([
+                BillingNotificationPreference(user_id=USER_ID, optional_email_enabled=False),
+                WorkspaceSubscription(
+                    workspace_id=workspace_id, billing_owner_id=USER_ID,
+                    recurring_allowed=True, recurring_authority_version=41,
+                ),
+            ])
+
+    async def saved():
+        # Every observation uses a new transaction after the real HTTP commit.
+        async with sessions() as db:
+            await apply_tenant_context(db, context)
+            requests = list(await db.scalars(select(AccountClosureRequest).where(
+                AccountClosureRequest.workspace_id == workspace_id,
+            ).order_by(AccountClosureRequest.requested_at, AccountClosureRequest.id)))
+            notices = list(await db.scalars(select(BillingNotificationDelivery).where(
+                BillingNotificationDelivery.workspace_id == workspace_id,
+            )))
+            sub = await db.get(WorkspaceSubscription, workspace_id)
+            return requests, notices, (sub.recurring_allowed, sub.recurring_authority_version)
+
+    def post(path, data=None):
+        response = client.post(path, headers=headers, data=data, follow_redirects=False)
+        assert response.status_code == 303
+        return response
+
+    try:
+        asyncio.run(seed())
+        response = post("/settings/account/close", {"confirm_close": "Закрыть аккаунт"})
+        assert response.headers["location"].endswith("account_close=scheduled")
+        first, _, recurring = asyncio.run(saved())
+        assert len(first) == 1 and first[0].state == "scheduled"
+        assert recurring == (False, 42)
+        post("/settings/account/close", {"confirm_close": "Закрыть аккаунт"})
+        repeated, _, recurring = asyncio.run(saved())
+        assert len(repeated) == 1 and repeated[0].id == first[0].id
+        assert repeated[0].requested_at == first[0].requested_at
+        assert recurring == (False, 42)
+        response = post("/settings/account/close/cancel")
+        assert response.headers["location"].endswith("account_close=canceled")
+        post("/settings/account/close", {"confirm_close": "Закрыть аккаунт"})
+        requests, notices, recurring = asyncio.run(saved())
+        assert len(requests) == 2 and requests[0].state == "canceled" and requests[1].state == "scheduled"
+        assert recurring == (False, 42)
+        assert len(notices) == 3
+        by_event = {row.event_id: row for row in notices}
+        for request, phases in ((requests[0], ("scheduled", "canceled")), (requests[1], ("scheduled",))):
+            for phase in phases:
+                row = by_event[f"account.close:{request.id.hex}:{phase}"]
+                assert row.recipient_id == USER_ID and row.template_key == "account_close"
+                assert row.channel == "email" and row.state == "pending" and row.attempts == 0
+                expected = {
+                    "phase": phase, "account_close_request_id": request.id.hex,
+                    "account_close_requested_at": request.requested_at.isoformat(),
+                    "account_close_finalize_at": request.finalize_at.isoformat(),
+                    "action_path": "/settings/account",
+                }
+                if phase == "canceled":
+                    expected["account_close_canceled_at"] = request.canceled_at.isoformat()
+                assert row.safe_payload == expected
+
+        calls = []
+        from uuid import UUID
+
+        from twobrain_rec_server.db.models import (
+            ExternalIdentity,
+            UserIdentity,
+            Workspace,
+            WorkspaceMembership,
+        )
+
+        async def send(**kwargs):
+            notice_id = UUID(kwargs["delivery_key"].removeprefix("billing:"))
+            async with sessions() as db:
+                await apply_tenant_context(db, context)
+                saved_row = await db.scalar(select(BillingNotificationDelivery).where(
+                    BillingNotificationDelivery.id == notice_id,
+                ).with_for_update(nowait=True))
+                assert (saved_row.state, saved_row.attempts, saved_row.last_error_code) == (
+                    "failed", 1, "postal_outcome_unknown",
+                )
+                request = await db.scalar(select(AccountClosureRequest).where(
+                    AccountClosureRequest.id == UUID(saved_row.safe_payload["account_close_request_id"]),
+                ).with_for_update(nowait=True))
+                assert request is not None
+                for model, predicate in (
+                    (Workspace, Workspace.id == workspace_id),
+                    (UserIdentity, UserIdentity.id == USER_ID),
+                    (WorkspaceMembership, (WorkspaceMembership.workspace_id == workspace_id) & (WorkspaceMembership.user_id == USER_ID)),
+                    (ExternalIdentity, ExternalIdentity.user_id == USER_ID),
+                ):
+                    assert list(await db.scalars(select(model).where(predicate).with_for_update(nowait=True)))
+            assert kwargs["recipient_email"] == "verified-owner@example.test"
+            assert kwargs["plain_body"].count(str(client.app.state.settings.public_base_url).rstrip("/") + "/settings/account") == 1
+            assert kwargs["html_body"].count("href=") == 1
+            assert "МСК" in kwargs["plain_body"] and "Проверьте текущий статус" in kwargs["plain_body"]
+            for private in (str(USER_ID), str(workspace_id), request.id.hex, "token=", "provider"):
+                assert private not in kwargs["plain_body"] + kwargs["html_body"]
+            calls.append(kwargs)
+
+        async def stop(_seconds):
+            raise asyncio.CancelledError
+
+        async def dispatch():
+            with pytest.raises(asyncio.CancelledError):
+                await worker.run_billing_notification_reconciler(client.app.state.settings)
+
+        monkeypatch.setattr(worker, "create_engine", lambda _: maintenance_engine)
+        monkeypatch.setattr(worker, "send_billing_notification", send)
+        monkeypatch.setattr(worker, "asyncio", SimpleNamespace(CancelledError=asyncio.CancelledError, sleep=stop))
+        asyncio.run(dispatch())
+        _, delivered, recurring = asyncio.run(saved())
+        assert len(calls) == 3 and len({call["delivery_key"] for call in calls}) == 3
+        assert all((row.state, row.attempts, row.last_error_code) == ("delivered", 1, None) for row in delivered)
+        assert recurring == (False, 42)
+        assert sum("Вы запланировали" in call["plain_body"] for call in calls) == 2
+        assert sum("Вы отменили" in call["plain_body"] for call in calls) == 1
+        asyncio.run(dispatch())
+        assert len(calls) == 3
+    finally:
+        asyncio.run(app_engine.dispose())
+        asyncio.run(maintenance_engine.dispose())
+
+
+
+@pytest.fixture
+def account_close_case(storage_publication_client, monkeypatch, request):
+    from datetime import UTC, datetime
+
+    from sqlalchemy import text
+    from sqlalchemy.pool import NullPool
+
+    from tests.fakes.auth_contexts import USER_ID
+    from tests.unit.test_billing_money_path_e2e import _prepare_owner_session
+    from twobrain_rec_server.db.models import AccountClosureRequest
+    from twobrain_rec_server.db.session import create_sessionmaker
+    from twobrain_rec_server.db.tenant_context import MaintenanceTenantContext, apply_tenant_context
+
+    client, maintenance_url, app_url = storage_publication_client
+    workspace, headers = _prepare_owner_session(client)
+    app = create_async_engine(app_url, poolclass=NullPool)
+    maintenance = create_async_engine(maintenance_url, poolclass=NullPool)
+    sessions = create_sessionmaker(maintenance)
+    context = MaintenanceTenantContext(operation_name="billing_reconciliation", actor_id="test-account-close",
+        reason_category="account-close-matrix", feature_area="billing")
+    x = SimpleNamespace(client=client, workspace=workspace, user=USER_ID, headers=headers,
+        app=app, maintenance=maintenance, sessions=sessions, context=context,
+        owner=client.app_state["sessionmaker"], calls=[], failure=None, now=datetime.now(UTC))
+    monkeypatch.setattr(client.app.state, "db_sessionmaker", create_sessionmaker(app))
+    monkeypatch.setattr(client.app.state.settings, "legacy_header_auth_enabled", False)
+    monkeypatch.setattr(client.app.state.settings, "env", "production")
+
+    async def seed():
+        async with sessions.begin() as db:
+            await apply_tenant_context(db, context)
+            assert (await db.execute(text("SELECT session_user,rolsuper,rolbypassrls FROM pg_roles WHERE rolname=session_user"))).one() == ("twobrain_rec_maintenance", False, False)
+            db.add_all([BillingNotificationPreference(user_id=USER_ID, optional_email_enabled=False),
+                WorkspaceSubscription(workspace_id=workspace, billing_owner_id=USER_ID,
+                    recurring_allowed=True, recurring_authority_version=41)])
+
+    def post(path="/settings/account/close", **kwargs):
+        return client.post(path, headers=headers, data={"confirm_close": "Закрыть аккаунт"}, follow_redirects=False, **kwargs)
+
+    async def snapshot():
+        async with sessions() as db:
+            await apply_tenant_context(db, context)
+            sources = list(await db.scalars(select(AccountClosureRequest).where(AccountClosureRequest.workspace_id == workspace).order_by(AccountClosureRequest.requested_at)))
+            notices = list(await db.scalars(select(BillingNotificationDelivery).where(BillingNotificationDelivery.workspace_id == workspace).order_by(BillingNotificationDelivery.created_at)))
+            sub = await db.get(WorkspaceSubscription, workspace)
+            return sources, notices, (sub.recurring_allowed, sub.recurring_authority_version)
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return x.now.astimezone(tz) if tz else x.now.replace(tzinfo=None)
+
+    async def send(**kwargs):
+        x.calls.append(kwargs)
+        if x.failure is not None:
+            raise x.failure
+
+    async def stop(_seconds):
+        raise asyncio.CancelledError
+
+    async def dispatch():
+        with pytest.raises(asyncio.CancelledError):
+            await worker.run_billing_notification_reconciler(client.app.state.settings)
+
+    # Separate synthetic tenant is seeded only by the fixture owner.
+    from uuid import uuid4
+
+    from twobrain_rec_server.db.models import (
+        Organization,
+        UserIdentity,
+        Workspace,
+        WorkspaceMembership,
+    )
+
+    x.foreign_org, x.foreign_user, x.foreign_workspace = uuid4(), uuid4(), uuid4()
+
+    async def foreign_tenant():
+        async with x.owner() as db:
+            db.add(Organization(id=x.foreign_org, slug=f"acn-foreign-{x.foreign_org.hex}", name="Synthetic foreign"))
+            await db.flush()
+            db.add(UserIdentity(id=x.foreign_user, organization_id=x.foreign_org, external_subject=x.foreign_user.hex))
+            await db.flush()
+            db.add(Workspace(id=x.foreign_workspace, organization_id=x.foreign_org, owner_user_id=x.foreign_user,
+                slug="foreign-personal", name="Synthetic foreign personal", kind="personal"))
+            await db.flush()
+            db.add(WorkspaceMembership(workspace_id=x.foreign_workspace, user_id=x.foreign_user, role="owner", status="active"))
+            await db.commit()
+
+    x.post, x.snapshot, x.dispatch = post, snapshot, dispatch
+    monkeypatch.setattr(worker, "create_engine", lambda _: maintenance)
+    monkeypatch.setattr(worker, "send_billing_notification", send)
+    monkeypatch.setattr(worker, "datetime", Clock)
+    monkeypatch.setattr(worker, "asyncio", SimpleNamespace(CancelledError=asyncio.CancelledError, sleep=stop))
+    try:
+        asyncio.run(seed())
+        asyncio.run(foreign_tenant())
+        if getattr(request, "param", "scheduled") != "empty":
+            assert post().status_code == 303
+            sources, notices, _ = asyncio.run(snapshot())
+            assert len(sources) == len(notices) == 1
+            x.request_id, x.notice_id = sources[0].id, notices[0].id
+        yield x
+    finally:
+        asyncio.run(app.dispose())
+        asyncio.run(maintenance.dispose())
+
+
+@pytest.mark.strict_rls
+@pytest.mark.asyncio
+@pytest.mark.parametrize("damage", [
+    "workspace_owner", "workspace_kind", "identity_closed", "identity_merged", "membership_role",
+    "membership_inactive", "email_unverified", "email_inactive", "email_empty", "email_missing",
+    "source_missing", "policy", "interval", "completed", "finalizing", "finalized_at", "frozen_content", "started",
+    "cancel_phase", "cancel_date_missing", "cancel_date_early", "cancel_date_late",
+])
+async def test_account_close_sender_suppresses_lost_source_or_original_rights(account_close_case, damage):
+    from datetime import UTC, datetime
+
+    from twobrain_rec_server.db.models import (
+        AccountClosureRequest,
+        ExternalIdentity,
+        UserIdentity,
+        Workspace,
+        WorkspaceMembership,
+    )
+
+    x = account_close_case
+    async with x.owner() as db:
+        source = await db.get(AccountClosureRequest, x.request_id)
+        if damage == "workspace_owner":
+            (await db.get(Workspace, x.workspace)).owner_user_id = None
+        elif damage == "workspace_kind":
+            (await db.get(Workspace, x.workspace)).kind = "linked"
+        elif damage in {"identity_closed", "identity_merged"}:
+            identity = await db.get(UserIdentity, x.user)
+            if damage == "identity_closed":
+                identity.status = "closed"
+            else:
+                identity.merged_into_user_id = x.foreign_user
+        elif damage.startswith("membership"):
+            membership = await db.scalar(select(WorkspaceMembership).where(WorkspaceMembership.workspace_id == x.workspace, WorkspaceMembership.user_id == x.user))
+            if damage == "membership_role":
+                membership.role = "member"
+            else:
+                membership.status = "inactive"
+        elif damage.startswith("email"):
+            emails = list(await db.scalars(select(ExternalIdentity).where(ExternalIdentity.user_id == x.user)))
+            for email in emails:
+                if damage == "email_missing":
+                    await db.delete(email)
+                elif damage == "email_unverified":
+                    email.is_verified = False
+                elif damage == "email_inactive":
+                    email.is_active = False
+                else:
+                    email.email = ""
+        elif damage == "source_missing":
+            await db.delete(source)
+        elif damage == "policy":
+            source.policy_version = "account-close-v2"
+        elif damage == "interval":
+            source.finalize_at += timedelta(seconds=1)
+        elif damage in {"completed", "finalizing"}:
+            source.state = damage
+        elif damage == "finalized_at":
+            source.finalized_at = datetime.now(UTC)
+        elif damage == "frozen_content":
+            source.metadata_json = {"content_workspace_ids": []}
+        elif damage == "started":
+            source.metadata_json = {"finalization_started_at": "synthetic"}
+        elif damage.startswith("cancel"):
+            source.state = "canceled" if damage != "cancel_phase" else "scheduled"
+            source.canceled_at = (None if damage == "cancel_date_missing" else
+                source.requested_at - timedelta(seconds=1) if damage == "cancel_date_early" else source.finalize_at)
+            notice = await db.get(BillingNotificationDelivery, x.notice_id)
+            notice.event_id = f"account.close:{source.id.hex}:canceled"
+            notice.safe_payload = {**notice.safe_payload, "phase": "canceled", "account_close_canceled_at": source.requested_at.isoformat()}
+        await db.commit()
+    await x.dispatch()
+    _, notices, recurring = await x.snapshot()
+    assert [(row.state, row.attempts) for row in notices] == [("suppressed", 0)]
+    assert x.calls == [] and recurring == (False, 42)
+    await x.dispatch()
+    assert x.calls == []
+
+
+@pytest.mark.strict_rls
+@pytest.mark.asyncio
+@pytest.mark.parametrize("damage", ["empty", "list", "phase", "request", "requested", "event", "recipient", "workspace", "cancel", "retry_null", "retry_bool", "retry_string", "retry_float", "retry_negative", "retry_overflow", "retry_dict", "retry_list"])
+async def test_account_close_sender_suppresses_legacy_or_tampered_snapshot(account_close_case, damage):
+    from tests.fakes.auth_contexts import WORKSPACE_ID
+
+    x = account_close_case
+    async with x.owner() as db:
+        row = await db.get(BillingNotificationDelivery, x.notice_id)
+        payload = dict(row.safe_payload)
+        if damage in {"empty", "list"}:
+            row.safe_payload = {} if damage == "empty" else []
+        elif damage == "event":
+            row.event_id = "account.close:foreign:scheduled"
+        elif damage == "recipient":
+            row.recipient_id = x.foreign_user
+        elif damage == "workspace":
+            row.workspace_id = WORKSPACE_ID
+        else:
+            changes = {"phase": ("phase", "unknown"), "request": ("account_close_request_id", "f" * 32),
+                "requested": ("account_close_requested_at", "2026-01-01T00:00:00+00:00"),
+                "cancel": ("phase", "canceled"),
+                "retry_null": ("_retry_not_before", None), "retry_bool": ("_retry_not_before", True),
+                "retry_string": ("_retry_not_before", "0"), "retry_float": ("_retry_not_before", 0.5),
+                "retry_negative": ("_retry_not_before", -1), "retry_overflow": ("_retry_not_before", 9223372036854775808),
+                "retry_dict": ("_retry_not_before", {}), "retry_list": ("_retry_not_before", [])}
+            key, value = changes[damage]
+            row.safe_payload = payload | {key: value}
+        await db.commit()
+    await x.dispatch()
+    async with x.owner() as db:
+        row = await db.get(BillingNotificationDelivery, x.notice_id)
+        assert (row.state, row.attempts) == ("suppressed", 0)
+    assert x.calls == []
+    await x.dispatch()
+    assert x.calls == []
+
+
+@pytest.mark.strict_rls
+@pytest.mark.asyncio
+@pytest.mark.parametrize("outcome", ["known_retry", "unknown", "crash", "read_error"])
+async def test_account_close_sender_bounds_retry_and_never_repeats_unknown(account_close_case, monkeypatch, outcome):
+    from datetime import UTC, datetime
+
+    from sqlalchemy import text
+
+    from twobrain_rec_server.auth.email_delivery import EmailLoginDeliveryError
+
+    x, reads = account_close_case, []
+    original = worker.account_close_notice_recipient
+
+    async def unavailable(db, row):
+        await original(db, row)
+        reads.append(True)
+        await db.execute(text("SELECT 1/0"))
+
+    if outcome == "read_error":
+        monkeypatch.setattr(worker, "account_close_notice_recipient", unavailable)
+    elif outcome == "crash":
+        x.failure = asyncio.CancelledError()
+    else:
+        x.failure = EmailLoginDeliveryError("synthetic", retryable=True, outcome_unknown=outcome == "unknown")
+    await x.dispatch()
+    first = (await x.snapshot())[1][0]
+    assert first.attempts == 1
+    if outcome in {"unknown", "crash"}:
+        assert (first.state, first.last_error_code) == ("failed", "postal_outcome_unknown")
+        x.now += timedelta(days=1)
+        await x.dispatch()
+        assert len(x.calls) == 1
+        assert (await x.snapshot())[1][0].attempts == 1
+        return
+    assert first.state == "retry"
+    due = first.safe_payload["_retry_not_before"]
+    assert type(due) is int and due >= x.now.timestamp() + 60
+    await x.dispatch()
+    x.now = datetime.fromtimestamp(due - 1, UTC)
+    await x.dispatch()
+    assert len(reads) == (1 if outcome == "read_error" else 0)
+    assert len(x.calls) == (1 if outcome == "known_retry" else 0)
+    for attempt in range(2, 6):
+        x.now = datetime.fromtimestamp(due, UTC)
+        await x.dispatch()
+        row = (await x.snapshot())[1][0]
+        assert row.attempts == attempt and row.state == ("retry" if attempt < 5 else "failed")
+        due = row.safe_payload["_retry_not_before"]
+        if attempt < 5:
+            assert due >= x.now.timestamp() + 60
+    x.now += timedelta(days=1)
+    await x.dispatch()
+    assert len(reads) == (5 if outcome == "read_error" else 0)
+    assert len(x.calls) == (5 if outcome == "known_retry" else 0)
+    assert (await x.snapshot())[2] == (False, 42)
+
+
+@pytest.mark.strict_rls
+@pytest.mark.asyncio
+@pytest.mark.parametrize("held", ["request", "workspace", "identity", "membership", "email"])
+async def test_account_close_sender_nowait_source_lock_retries_after_release(account_close_case, held):
+    from datetime import UTC, datetime
+
+    from sqlalchemy import text
+
+    from twobrain_rec_server.db.tenant_context import apply_tenant_context
+
+    x = account_close_case
+    statement = {
+        "request": "SELECT id FROM account_closure_requests WHERE id=:request FOR UPDATE",
+        "workspace": "SELECT id FROM workspaces WHERE id=:workspace FOR UPDATE",
+        "identity": "SELECT id FROM user_identities WHERE id=:user FOR UPDATE",
+        "membership": "SELECT user_id FROM workspace_memberships WHERE workspace_id=:workspace AND user_id=:user FOR UPDATE",
+        "email": "SELECT id FROM external_identities WHERE user_id=:user AND is_active AND is_verified FOR UPDATE",
+    }[held]
+    async with x.sessions() as db:
+        await apply_tenant_context(db, x.context)
+        assert list(await db.execute(text(statement), {"request": x.request_id, "workspace": x.workspace, "user": x.user}))
+        await asyncio.wait_for(x.dispatch(), timeout=3)
+        row = (await x.snapshot())[1][0]
+        assert (row.state, row.attempts, row.last_error_code) == ("retry", 1, "account_close_authorization_unavailable")
+        due = row.safe_payload["_retry_not_before"]
+        assert due >= x.now.timestamp() + 60 and x.calls == []
+    await x.dispatch()
+    assert x.calls == []
+    x.now = datetime.fromtimestamp(due, UTC)
+    await x.dispatch()
+    row = (await x.snapshot())[1][0]
+    assert (row.state, row.attempts) == ("delivered", 2) and len(x.calls) == 1
+    await x.dispatch()
+    assert len(x.calls) == 1
+
+
+@pytest.mark.strict_rls
+@pytest.mark.parametrize("account_close_case", ["empty"], indirect=True)
+@pytest.mark.parametrize("phase,failure", [("scheduled", "read"), ("scheduled", "enqueue"), ("canceled", "read"), ("canceled", "enqueue")])
+def test_account_close_source_errors_roll_back_transition_renewal_and_queue(account_close_case, monkeypatch, phase, failure):
+    from sqlalchemy import text
+    from sqlalchemy.exc import DBAPIError
+
+    from twobrain_rec_server.auth import account_closure_notifications as notices
+
+    x = account_close_case
+    if phase == "canceled":
+        assert x.post().status_code == 303
+    before = asyncio.run(x.snapshot())
+    original = notices._recipient if failure == "read" else notices.enqueue_billing_event
+
+    async def fail(db, *args, **kwargs):
+        await original(db, *args, **kwargs)
+        if failure == "read":
+            await db.execute(text("SELECT 1/0"))
+        raise RuntimeError("synthetic_account_close_enqueue_error")
+
+    monkeypatch.setattr(notices, "_recipient" if failure == "read" else "enqueue_billing_event", fail)
+    with pytest.raises(DBAPIError if failure == "read" else RuntimeError):
+        x.post("/settings/account/close/cancel" if phase == "canceled" else "/settings/account/close")
+    after = asyncio.run(x.snapshot())
+    assert [(r.id, r.state, r.canceled_at) for r in after[0]] == [(r.id, r.state, r.canceled_at) for r in before[0]]
+    assert [(r.id, r.safe_payload) for r in after[1]] == [(r.id, r.safe_payload) for r in before[1]]
+    assert after[2] == before[2] and x.calls == []
+
+
+@pytest.mark.strict_rls
+@pytest.mark.parametrize("account_close_case", ["empty"], indirect=True)
+def test_account_close_missing_address_does_not_backfill_and_service_rollback_is_atomic(account_close_case):
+    from datetime import UTC, datetime
+
+    from tests.fakes.auth_contexts import DEVICE_ID, ORG_ID
+    from twobrain_rec_server.auth.account_closure import schedule_account_close
+    from twobrain_rec_server.auth.context import TenantScope
+    from twobrain_rec_server.db.models import ExternalIdentity
+    from twobrain_rec_server.db.session import create_sessionmaker
+    from twobrain_rec_server.db.tenant_context import apply_tenant_scope
+
+    x = account_close_case
+
+    async def rolled_back():
+        async with create_sessionmaker(x.app)() as db:
+            await apply_tenant_scope(db, TenantScope(organization_id=ORG_ID, workspace_id=x.workspace, user_id=x.user, device_id=DEVICE_ID))
+            await schedule_account_close(db, workspace_id=x.workspace, user_id=x.user, now=datetime.now(UTC))
+            assert len(list(await db.scalars(select(BillingNotificationDelivery)))) == 1
+            await db.rollback()
+    asyncio.run(rolled_back())
+    assert asyncio.run(x.snapshot()) == ([], [], (True, 41))
+
+    async def address(active):
+        async with x.owner() as db:
+            for row in await db.scalars(select(ExternalIdentity).where(ExternalIdentity.user_id == x.user)):
+                row.is_verified = active
+            await db.commit()
+    asyncio.run(address(False))
+    assert x.post().status_code == 303
+    requests, notices, recurring = asyncio.run(x.snapshot())
+    assert len(requests) == 1 and notices == [] and recurring == (False, 42)
+    asyncio.run(address(True))
+    assert x.post().status_code == 303
+    asyncio.run(x.dispatch())
+    assert asyncio.run(x.snapshot())[1] == [] and x.calls == []
+    assert x.post("/settings/account/close/cancel").status_code == 303
+    assert len(asyncio.run(x.snapshot())[1]) == 1
+
+
+@pytest.mark.strict_rls
+@pytest.mark.parametrize("account_close_case", ["empty"], indirect=True)
+@pytest.mark.parametrize("missing", ["confirmation", "csrf", "session", "owner"])
+def test_account_close_browser_refuses_missing_authority_without_queue(account_close_case, missing):
+    from twobrain_rec_server.db.models import WorkspaceMembership
+
+    x = account_close_case
+    headers, data = x.headers, {"confirm_close": "Закрыть аккаунт"}
+    if missing == "confirmation":
+        data = {}
+    elif missing == "csrf":
+        headers = {}
+    elif missing == "session":
+        x.client.cookies.clear()
+    else:
+        async def demote():
+            async with x.owner() as db:
+                row = await db.scalar(select(WorkspaceMembership).where(WorkspaceMembership.workspace_id == x.workspace, WorkspaceMembership.user_id == x.user))
+                row.role = "member"
+                await db.commit()
+        asyncio.run(demote())
+    response = x.client.post("/settings/account/close", headers=headers, data=data, follow_redirects=False)
+    assert response.status_code in {302, 303, 401, 403, 422}
+    assert "account_close=scheduled" not in response.headers.get("location", "")
+    assert asyncio.run(x.snapshot()) == ([], [], (True, 41))
+
+
+@pytest.mark.strict_rls
+@pytest.mark.asyncio
+@pytest.mark.parametrize("change", ["payload", "template", "channel", "due", "email", "closed"])
+async def test_account_close_claim_rechecks_changes_between_poll_and_claim(account_close_case, monkeypatch, change):
+    from twobrain_rec_server.db.models import ExternalIdentity, UserIdentity
+
+    x, changed = account_close_case, []
+    original = worker.account_close_notice_recipient
+
+    async def mutate(db, row):
+        if not changed:
+            changed.append(True)
+            async with x.owner() as other:
+                notice = await other.get(BillingNotificationDelivery, x.notice_id)
+                if change == "payload":
+                    notice.safe_payload = {**notice.safe_payload, "account_close_requested_at": "2026-01-01T00:00:00+00:00"}
+                elif change == "template":
+                    notice.template_key = "payment_succeeded"
+                elif change == "channel":
+                    notice.channel = "in_app"
+                elif change == "due":
+                    notice.safe_payload = {**notice.safe_payload, "_retry_not_before": int(x.now.timestamp()) + 300}
+                elif change == "email":
+                    for email in await other.scalars(select(ExternalIdentity).where(ExternalIdentity.user_id == x.user)):
+                        email.email = "changed-owner@example.test"
+                else:
+                    (await other.get(UserIdentity, x.user)).status = "closed"
+                await other.commit()
+        return await original(db, row)
+
+    monkeypatch.setattr(worker, "account_close_notice_recipient", mutate)
+    await x.dispatch()
+    row = (await x.snapshot())[1][0]
+    if change == "email":
+        assert row.state == "delivered" and len(x.calls) == 1
+        assert x.calls[0]["recipient_email"] == "changed-owner@example.test"
+    elif change == "closed":
+        assert row.state == "suppressed" and row.attempts == 0 and x.calls == []
+    else:
+        assert row.state == "pending" and row.attempts == 0 and x.calls == []
+        if change == "payload":
+            await x.dispatch()
+            assert (await x.snapshot())[1][0].state == "suppressed" and x.calls == []
+
+
+@pytest.mark.strict_rls
+@pytest.mark.asyncio
+@pytest.mark.parametrize("outcome", ["rejected", "ack_lost"])
+async def test_account_close_claim_commit_failure_never_calls_transport(account_close_case, monkeypatch, outcome):
+    from sqlalchemy import text
+    from sqlalchemy.exc import DBAPIError
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+    x, faults = account_close_case, []
+    if outcome == "rejected":
+        async with x.owner() as db:
+            await db.execute(text("""CREATE FUNCTION public.test_only_acn_claim_failure() RETURNS trigger LANGUAGE plpgsql AS $$
+                BEGIN
+                    IF NEW.template_key='account_close' AND NEW.state='failed' AND NEW.last_error_code='postal_outcome_unknown' THEN
+                        RAISE EXCEPTION 'synthetic_acn_claim_failure';
+                    END IF;
+                    RETURN NEW;
+                END $$"""))
+            await db.execute(text("""CREATE CONSTRAINT TRIGGER zz_test_acn_claim_failure AFTER UPDATE
+                ON public.billing_notification_deliveries DEFERRABLE INITIALLY DEFERRED
+                FOR EACH ROW EXECUTE FUNCTION public.test_only_acn_claim_failure()"""))
+            await db.commit()
+    else:
+        class MissingAckSession(AsyncSession):
+            async def commit(self):
+                claim = any(isinstance(row, BillingNotificationDelivery) and row.state == "failed" and row.last_error_code == "postal_outcome_unknown" for row in self.dirty)
+                await super().commit()
+                if claim and not faults:
+                    faults.append(True)
+                    raise DBAPIError(None, None, Exception("synthetic_commit_ack_lost"), connection_invalidated=True)
+        monkeypatch.setattr(worker, "create_sessionmaker", lambda engine: async_sessionmaker(engine, class_=MissingAckSession, expire_on_commit=False))
+    try:
+        await x.dispatch()
+    finally:
+        if outcome == "rejected":
+            async with x.owner() as db:
+                await db.execute(text("DROP TRIGGER zz_test_acn_claim_failure ON public.billing_notification_deliveries"))
+                await db.execute(text("DROP FUNCTION public.test_only_acn_claim_failure()"))
+                await db.commit()
+    row = (await x.snapshot())[1][0]
+    assert row.attempts == 1 and x.calls == []
+    if outcome == "ack_lost":
+        assert row.state == "failed" and row.last_error_code == "postal_outcome_unknown" and faults == [True]
+        await x.dispatch()
+        assert x.calls == []
+    else:
+        from datetime import UTC, datetime
+
+        assert row.state == "retry"
+        x.now = datetime.fromtimestamp(row.safe_payload["_retry_not_before"], UTC)
+        await x.dispatch()
+        row = (await x.snapshot())[1][0]
+        assert row.state == "delivered" and row.attempts == 2 and len(x.calls) == 1
+
+
+@pytest.mark.strict_rls
+@pytest.mark.asyncio
+async def test_account_close_concurrent_senders_share_one_durable_claim(account_close_case, monkeypatch):
+    x = account_close_case
+    entered, release = asyncio.Event(), asyncio.Event()
+    original = worker.send_billing_notification
+
+    async def paused(**kwargs):
+        entered.set()
+        await release.wait()
+        await original(**kwargs)
+
+    monkeypatch.setattr(worker, "send_billing_notification", paused)
+    first = asyncio.create_task(x.dispatch())
+    try:
+        await asyncio.wait_for(entered.wait(), timeout=3)
+        await asyncio.wait_for(x.dispatch(), timeout=3)
+    finally:
+        release.set()
+    await asyncio.wait_for(first, timeout=3)
+    assert len(x.calls) == 1
+    row = (await x.snapshot())[1][0]
+    assert (row.state, row.attempts) == ("delivered", 1)
+    await x.dispatch()
+    assert len(x.calls) == 1
+
+
+@pytest.mark.strict_rls
+@pytest.mark.asyncio
+async def test_account_close_claim_selects_minimum_current_verified_email(account_close_case):
+    from uuid import uuid4
+
+    from twobrain_rec_server.db.models import ExternalIdentity
+
+    x = account_close_case
+    async with x.owner() as db:
+        db.add_all([
+            ExternalIdentity(user_id=x.user, provider="email", provider_subject=uuid4().hex,
+                email="aaa-current@example.test", is_verified=True, is_active=True),
+            ExternalIdentity(user_id=x.user, provider="email", provider_subject=uuid4().hex,
+                email="000-unverified@example.test", is_verified=False, is_active=True),
+            ExternalIdentity(user_id=x.user, provider="email", provider_subject=uuid4().hex,
+                email="000-inactive@example.test", is_verified=True, is_active=False),
+        ])
+        await db.commit()
+    await x.dispatch()
+    assert len(x.calls) == 1 and x.calls[0]["recipient_email"] == "aaa-current@example.test"
+    row = (await x.snapshot())[1][0]
+    assert row.recipient_id == x.user and "email" not in row.safe_payload
+
+
+@pytest.mark.strict_rls
+@pytest.mark.asyncio
+@pytest.mark.parametrize("first", ["merge", "closure"])
+async def test_account_close_sender_nowait_under_real_reverse_order_boundary(account_close_case, first):
+    from datetime import UTC, datetime
+
+    from twobrain_rec_server.auth.account_closure import begin_account_close_finalization
+    from twobrain_rec_server.auth.account_merge import _lock_merge_domain_rows
+    from twobrain_rec_server.db.models import AccountClosureRequest, UserIdentity
+    from twobrain_rec_server.db.tenant_context import apply_tenant_context
+
+    x = account_close_case
+    async with x.sessions() as db:
+        await apply_tenant_context(db, x.context)
+        if first == "merge":
+            assert await db.get(UserIdentity, x.user, with_for_update=True)
+            await _lock_merge_domain_rows(db, survivor_user_id=x.user, source_user_id=x.foreign_user)
+        else:
+            source = await db.get(AccountClosureRequest, x.request_id)
+            await begin_account_close_finalization(db, request_id=x.request_id, now=source.finalize_at)
+        await asyncio.wait_for(x.dispatch(), timeout=3)
+        row = (await x.snapshot())[1][0]
+        assert row.state == "retry" and row.attempts == 1 and x.calls == []
+        due = row.safe_payload["_retry_not_before"]
+        await db.rollback()
+    x.now = datetime.fromtimestamp(due, UTC)
+    await x.dispatch()
+    assert (await x.snapshot())[1][0].state == "delivered" and len(x.calls) == 1
+
+
+@pytest.mark.strict_rls
+@pytest.mark.asyncio
+async def test_account_close_runtime_scope_cannot_read_foreign_source_or_claim_without_context(account_close_case):
+    from tests.fakes.auth_contexts import DEVICE_ID
+    from twobrain_rec_server.auth.account_closure_notifications import (
+        account_close_notice_recipient,
+    )
+    from twobrain_rec_server.auth.context import TenantScope
+    from twobrain_rec_server.db.models import AccountClosureRequest
+    from twobrain_rec_server.db.session import create_sessionmaker
+    from twobrain_rec_server.db.tenant_context import apply_tenant_scope
+
+    x = account_close_case
+    original = (await x.snapshot())[1][0]
+    async with create_sessionmaker(x.app)() as db:
+        await apply_tenant_scope(db, TenantScope(organization_id=x.foreign_org, workspace_id=x.foreign_workspace,
+            user_id=x.foreign_user, device_id=DEVICE_ID))
+        assert await db.get(AccountClosureRequest, x.request_id) is None
+        assert await db.get(BillingNotificationDelivery, x.notice_id) is None
+    async with x.sessions() as db:
+        assert await account_close_notice_recipient(db, original) is None
+    await x.dispatch()
+    assert (await x.snapshot())[1][0].state == "delivered" and len(x.calls) == 1
+
+
+@pytest.mark.strict_rls
+@pytest.mark.asyncio
+@pytest.mark.parametrize("due", [True, -1])
+async def test_account_close_invalid_retry_is_suppressed_even_when_source_read_fails(account_close_case, monkeypatch, due):
+    from sqlalchemy import text
+
+    x = account_close_case
+    async with x.owner() as db:
+        notice = await db.get(BillingNotificationDelivery, x.notice_id)
+        notice.safe_payload = {**notice.safe_payload, "_retry_not_before": due}
+        await db.commit()
+    original = worker.account_close_notice_recipient
+
+    async def unavailable(db, row):
+        await original(db, row)
+        await db.execute(text("SELECT 1/0"))
+
+    monkeypatch.setattr(worker, "account_close_notice_recipient", unavailable)
+    await x.dispatch()
+    row = (await x.snapshot())[1][0]
+    assert (row.state, row.attempts, row.last_error_code) == ("suppressed", 0, "account_close_snapshot_invalid")
+    assert x.calls == []
+
+
+@pytest.mark.strict_rls
+@pytest.mark.asyncio
+@pytest.mark.parametrize("claimed_first", [False, True])
+async def test_account_close_real_finalization_stops_new_claim_but_cannot_revoke_saved_claim(account_close_case, monkeypatch, claimed_first):
+    from twobrain_rec_server.auth.account_closure import begin_account_close_finalization
+    from twobrain_rec_server.db.models import AccountClosureRequest
+    from twobrain_rec_server.db.tenant_context import MaintenanceTenantContext, apply_tenant_context
+
+    x = account_close_case
+
+    async def finalize():
+        async with x.sessions() as db:
+            await apply_tenant_context(db, MaintenanceTenantContext(operation_name="billing_reconciliation",
+                actor_id="test-account-close", reason_category="account_close_finalization", feature_area="account"))
+            source = await db.get(AccountClosureRequest, x.request_id)
+            result, _ = await begin_account_close_finalization(db, request_id=x.request_id, now=source.finalize_at)
+            assert result.state == "finalizing"
+            await db.commit()
+
+    if claimed_first:
+        original = worker.send_billing_notification
+
+        async def late(**kwargs):
+            row = (await x.snapshot())[1][0]
+            assert (row.state, row.attempts, row.last_error_code) == ("failed", 1, "postal_outcome_unknown")
+            await finalize()
+            await original(**kwargs)
+        monkeypatch.setattr(worker, "send_billing_notification", late)
+    else:
+        await finalize()
+    await x.dispatch()
+    row = (await x.snapshot())[1][0]
+    assert (row.state, row.attempts) == (("delivered", 1) if claimed_first else ("suppressed", 0))
+    assert len(x.calls) == int(claimed_first)
+    await x.dispatch()
+    assert len(x.calls) == int(claimed_first)
+
+
+@pytest.mark.strict_rls
+@pytest.mark.asyncio
+async def test_account_close_pre_finalization_blocked_request_remains_historical(account_close_case):
+    from twobrain_rec_server.db.models import AccountClosureRequest
+
+    x = account_close_case
+    async with x.owner() as db:
+        (await db.get(AccountClosureRequest, x.request_id)).state = "blocked"
+        await db.commit()
+    await x.dispatch()
+    assert (await x.snapshot())[1][0].state == "delivered" and len(x.calls) == 1
+
+
+@pytest.mark.strict_rls
+@pytest.mark.asyncio
+async def test_account_close_known_transport_refusal_recovers_at_saved_due_once(account_close_case):
+    from datetime import UTC, datetime
+
+    from twobrain_rec_server.auth.email_delivery import EmailLoginDeliveryError
+
+    x = account_close_case
+    x.failure = EmailLoginDeliveryError("synthetic", retryable=True, outcome_unknown=False)
+    await x.dispatch()
+    row = (await x.snapshot())[1][0]
+    assert (row.state, row.attempts) == ("retry", 1)
+    due = row.safe_payload["_retry_not_before"]
+    assert due >= x.now.timestamp() + 60
+    x.failure = None
+    await x.dispatch()
+    assert len(x.calls) == 1
+    x.now = datetime.fromtimestamp(due, UTC)
+    await x.dispatch()
+    row = (await x.snapshot())[1][0]
+    assert (row.state, row.attempts, row.last_error_code) == ("delivered", 2, None)
+    assert len(x.calls) == 2
+    await x.dispatch()
+    assert len(x.calls) == 2

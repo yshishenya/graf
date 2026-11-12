@@ -177,3 +177,47 @@ Postal известный временный отказ повторяется �
 автоматически не повторяется. Состояние claim сохраняется до транспорта,
 блокировки не держатся через HTTP. Более новый снимок сам по себе не отменяет
 исторический. Принятие Postal не доказывает inbox/read; #7524 отдельно.
+
+
+## ACN: планирование и отмена закрытия аккаунта
+
+ACN1–ACN6 в spec.md уточняют строку Security/account close для T070/T068.
+Новые письма только из сохраняемого schedule/cancel, без рассылки старой истории.
+Письмо scheduled исторически сообщает «Вы запланировали закрытие аккаунта
+{requested, МСК}. Крайний срок отмены: {finalize, МСК}.
+Проверьте текущий статус и последствия в настройках аккаунта»; future/current
+утверждение допускается только после отдельной source-проверки и здесь не нужно.
+Письмо canceled: «Вы отменили закрытие аккаунта {canceled, МСК}.
+Планирование было сохранено {requested, МСК}, крайний срок отмены —
+{finalize, МСК}. Проверьте текущий статус в настройках аккаунта».
+Состояние автопродления/очистки/сессий не выводится из отмены.
+Одно действие — /settings/account на настроенном публичном origin GRAF.
+
+Allowlist: phase=scheduled|canceled, account_close_request_id (канонический
+request UUID hex, внутренний, не текст письма), account_close_requested_at,
+account_close_finalize_at и только для canceled — account_close_canceled_at.
+Даты — канонические timezone-aware UTC ISO8601 из исходной записи, включая
+секунды/доли; вывод в Europe/Moscow с секундами и явной МСК.
+Build отбрасывает неизвестные поля; неполный/некорректный snapshot даёт пустой
+снимок для terminal suppression. Sender сверяет все разрешённые поля с
+источником; неизвестный phase, event id/recipient/workspace mismatch, не v1,
+не семь суток, недопустимые даты/состояние, finalized_at либо признаки начала
+финализации запрещают отправку. Допустимые дофинализационные состояния:
+scheduled, canceled, blocked без frozen content_workspace_ids и
+finalization_started_at. scheduled допускает историческое canceled;
+canceled требует сохранённого state=canceled и requested<=canceled<finalize.
+
+На постановке и при сохранённом claim тот же active/unmerged requester
+остаётся Owner исходного personal workspace с active membership и active
+verified nonempty email. Для нескольких адресов выбирается минимальный из
+действующих; адрес не сохраняется в outbox. Preference не отключает письмо.
+Нет разрешения → no enqueue / terminal suppressed; read/lock error → rollback
+источника или bounded retry claim ≥60s/≤5. Источник и delivery блокируются
+только до фиксации claim, HTTP без блокировок; unknown не повторяется.
+Смена snapshot между poll и claim не отправляет прежний текст, следующий poll
+читает заново. Порядок locks и старые строки определены в plan.md.
+
+Ссылка только открывает настройки после штатной авторизации; она сама не
+отменяет закрытие, не восстанавливает доступ и не даёт сессию. Отправка уже
+claimed до финализации может дойти позднее; не обещать отзыв у Postal.
+Реальная получательская приёмка #7524 и остальная матрица отдельно.

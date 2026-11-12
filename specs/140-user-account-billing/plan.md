@@ -1396,3 +1396,60 @@ retry≤5/≥60сек учитывается в selector и под lock. Это 
 ограниченными LOGIN/FORCE RLS и отдельным соединением после commit → code
 review/Converge/fragment → точный commit/push/PR и проверки. Tasks87 строк,
 T068/T070 `[ ]`, #7524 и остальные gaps сохраняются. Допуск пока не выдан.
+
+
+## T070/T068: account-close notice — ACN1–ACN6, 12.11.2026
+
+Lane high-risk-product, существующая F140; Legacy Impact: untouched.
+До и после проектирования Constitution Check PASS: видимый Record/Stop не
+меняется, нет meeting content/secrets, честное удаление, прежние auth/CSRF/RLS,
+обязательное независимое ревью требований и точные SHA/base/CI. Активный
+reviewer-owned checklist: checklists/account-close-notices.md. Прежнее
+fair-use review не разрешает этот новый срез; полного PASS нового чеклиста,
+Analyze и проверки существующих issues ждать до кода. Нового Feature ID нет.
+
+Источники: settings.py:_account_close_action → auth/account_closure.py
+schedule_account_close/cancel_account_close → commit. После flush нового
+запроса/сохранения отмены подключить небольшую auth/account_closure_notifications.py;
+сервис не коммитит сам. Использовать BillingEvent.ACCOUNT_CLOSE, существующий
+DB-backed outbox и delivery key, без новой таблицы/миграции/очереди/транспорта.
+Повтор существующего запроса идёт прежним ранним return. Данные/снимок
+определены в contracts/notifications-support.md (§ACN).
+
+Получатель проверяется через исходный request, personal Workspace/Owner
+membership, active UserIdentity без merged_into_user_id и active+verified
+ExternalIdentity с непустым email. Billing owner и paid состояние не нужны
+защитному account-письму. Сравниваются исходные event/recipient/workspace,
+полный allowlisted snapshot и policy v1/семь суток, а не только parseable UUID.
+Отмена доказана canceled_at между requested_at и finalize_at. Историческое
+планирование допустимо после отмены, но не после начала финализации.
+
+Sender использует прежний billing_reconciliation maintenance context без
+расширения grants/RLS. В отдельной короткой claim-транзакции сначала исходный
+request, затем workspace, identity, membership и verified identities с shared
+NOWAIT locks; затем delivery FOR UPDATE. NOWAIT на каждой исходной строке
+не допускает обратного блокирующего ожидания относительно schedule/finalize
+или F178 merge. Перед claim сравнить весь poll snapshot с сохранённым delivery;
+при изменении не отправлять старый текст, оставить следующий проход перечитать.
+Временная ошибка источника сохраняет bounded retry обычным путём без SQL
+или личных данных в журналах. Payload retry metadata проверяется типом/границами.
+Сохранённый claim остаётся failed/postal_outcome_unknown до подтверждения
+обычного транспорта; никакие DB locks через HTTP не сохраняются.
+
+Файлы реализации: auth/account_closure.py и новая
+ auth/account_closure_notifications.py; billing/notifications.py (строгий
+allowlist/даты/русский текст/фиксированный путь), workflows/worker.py (семейство
+bounded notice и source gate). Callers settings.py, модель account_closure.py,
+таксономия events.py, RLS и финализатор меняются только при отдельном доказанном
+дефекте; текущий план не включает такие изменения. Тесты: существующий
+integration/test_billing_notification_flow.py, профильные unit уведомлений;
+регрессии unit/test_account_closure.py, integration/test_account_lifecycle.py,
+unit/test_account_close_fanout.py и F178/closure concurrency в применимой части.
+Точные пути сценариев/порядок — tasks.md после независимого допуска.
+
+Validation: одна собственная disposable PostgreSQL17, реальные LOGIN/NOBYPASSRLS,
+RLS и production sender, только синтетические данные и transport stub; профильный
+Ruff/process/diff. До крупных сборок disk check, весь локальный CI автоматически
+не запускать. Затем Converge, собственный F140 fragment, commit/push/PR с Refs
+4922/4926, governance-fast/macos-pr/pr-metadata и common validator на точном
+head/currentbase. release-full и развёртывание отдельно; #7524 stub не закрывает.

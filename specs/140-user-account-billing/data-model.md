@@ -886,3 +886,14 @@ WITH CHECK/guard не дают мутировать review этим context. Э�
 ошибка чтения останавливает очистку с safe code, без DELETE review/bypass.
 Новое действие не создаёт commercial balance
 или storage ledger entry и не изменяет существующую merge state semantics.
+
+
+## T070/T068: account-close notification snapshot — 12.11.2026
+
+Новых таблиц/полей/миграций нет. AccountClosureRequest остаётся источником
+requested_by_user_id/workspace/policy/state/requested_at/finalize_at/canceled_at;
+семантика его состояний не меняется. В существующем delivery event_id равен
+`account.close:<request.id.hex>:scheduled|canceled`, исходный recipient неизменен.
+Safe snapshot и запреты — §ACN contracts/notifications-support.md. Обновление
+phase в исходной записи не переписывает прежний delivery. Retry использует
+прежний внутренний not-before ключ; он не часть текста или источника времени.

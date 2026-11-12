@@ -872,3 +872,120 @@ fair_use.py/worker.py/migration/bootstrap менять последовател�
 не одна прямая запись очереди. Это не новый automatic abuse detector,
 capability enforcement, urgent containment, реальный SLA/оператор/получатель
 #7524, выпуск/сервер/Dev и не полные T068/T070. Новых зависимостей/служб нет.
+
+
+## Детализация существующих T070/T068: account-close notices ACN1–ACN6 — 12.11.2026
+
+Это последовательные шаги исходных T070/#4926 и T068/#4922 (US9/P2),
+а не новые task IDs или самостоятельные issues. Все87 исходных task rows/marks
+сохраняются. Lane high-risk-product; Legacy Impact: untouched. Независимый
+checklist account-close-notices.md:14/0, report requirements PASS; далее
+Analyze и существующие issues обязательны до первого теста/кода.
+Цель: обязательное историческое письмо нового schedule/cancel от browser
+источника через commit/outbox до штатного sender без изменения закрытия.
+
+### Подготовка и причинный RED (T068, US9; источник US1)
+
+1. В `apps/server/tests/integration/test_billing_notification_flow.py`
+   добавить browser session+CSRF+explicit confirmation путь существующего
+   `cabinet/web_routes/settings.py:_account_close_action`: schedule→commit,
+   повтор→тот же request без письма, cancel→commit, новый schedule→новый
+   request/event. Проверить из отдельного соединения три исходных snapshots
+   вместо нынешних0, не отсутствие нового модуля/collection error. Только
+   disposable PostgreSQL17, настоящие app/maintenance LOGIN/NOBYPASSRLS,
+   неизменённые policies. RED сохранить прежде минимальной реализации.
+   В том же файле проверить rollback до commit, read/enqueue error rollback
+   перехода/recurring version/очереди; no permission/address допускает переход
+   без письма и без будущего backfill. Отсутствие подтверждения/CSRF/session,
+   foreign workspace и неOwner сохраняют отказ без перехода/очереди.
+
+### Источник и историческое письмо (T070, US9)
+
+2. В `apps/server/src/twobrain_rec_server/auth/account_closure.py`
+   подключить producer после flush нового schedule и сохранённого cancel,
+   сохранив прежний early return. Новый небольшой
+   `apps/server/src/twobrain_rec_server/auth/account_closure_notifications.py`
+   использует существующие ACCOUNT_CLOSE/outbox и исходного requester:
+   active/unmerged identity, personal workspace с исходным Owner marker,
+   active Owner membership, active verified nonempty email; выбор адреса —
+   минимальный действующий, без хранения в очереди. Mandatory preference bypass,
+   отсутствие→no enqueue, ошибка→rollback у caller, без внутреннего commit.
+   Event `account.close:<request.id.hex>:scheduled|canceled`, уникальность по
+   прежнему delivery key, no replay/backfill/переприсвоение получателя.
+3. В `apps/server/src/twobrain_rec_server/billing/notifications.py` и
+   `apps/server/tests/unit/test_billing_notifications.py` выполнить строгие
+   snapshot builder/renderer по §ACN договора: phase scheduled|canceled,
+   canonical UUID hex, aware UTC ISO8601 исходных requested/finalize/canceled
+   включая секунды/доли; canceled field только canceled. Неизвестные поля
+   отбрасываются; неполный/некорректный снимок пустой для suppression.
+   Исторический русский текст с секундами/МСК, одно `/settings/account` на
+   configured public origin, без UUID/token/PII/financial/meeting content.
+   Поздний scheduled после cancel не обещает текущего закрытия/списаний/очистки.
+   Адаптировать только затронутый generic allowlisted-copy integration case,
+   не ослаблять отсутствие доказуемого snapshot ради старого ожидания.
+
+### Сохранённый claim и настоящий sender (T070, US9)
+
+4. В новом `auth/account_closure_notifications.py` source/recipient gate
+   сверяет event/request/recipient/workspace и весь allowlisted snapshot с
+   исходной записью, policy `account-close-v1`, интервал «ровно семь суток»,
+   requested<=canceled<finalize. До финализации разрешены scheduled/canceled/
+   blocked; canceled notice требует state=canceled. finalized_at,
+   content_workspace_ids, finalization_started_at или closed/merged запрещают
+   новую отправку. Source locks shared NOWAIT: request→workspace→identity→
+   membership→verified identities, затем delivery FOR UPDATE в worker.
+   Не следовать merge/new owner/payer; grants/RLS/schema не менять.
+5. В `apps/server/src/twobrain_rec_server/workflows/worker.py` включить
+   ACCOUNT_CLOSE в bounded notice selector/claim с missing email обработкой;
+   strict malformed retry metadata и future not-before gate под lock.
+   После source locks сравнить весь poll snapshot с сохранённым delivery;
+   mutation→следующий проход без старого body. Terminal отсутствие→suppressed;
+   pretransport read/lock error и known retryable Postal failure→сохраняемый
+   retry «не раньше60секунд, максимум пять суммарных попыток»; исчерпание→failed.
+   Сохранить claim/attempt=failed/postal_outcome_unknown до HTTP, release locks,
+   ошибка сохранения→0HTTP, unknown/crash→без автоматического повтора.
+   Другие семейства sender сохраняют поведение.
+
+### Независимая приёмка цепочки и общие ворота (T068, US9)
+
+6. В `apps/server/tests/integration/test_billing_notification_flow.py`
+   prove actual browser source→separate committed read→ordinary sender с
+   test-local transport stub. Mandatory при optional email=false; точные
+   snapshots/text, historical scheduled после cancel; old incomplete/tampered/
+   foreign/event/recipient/workspace/policy/dates/phase mismatches→0transport.
+   Утрата Owner marker/membership/active identity/verified address, merged,
+   closed и finalization boundary→terminal suppression. Wrong worker context
+   и cross-tenant read не расширяют доступ; другой tenant неизменен.
+7. В том же integration файле independent connections проверяют источник
+   NOWAIT при hold request/workspace/identity/membership/email и обратный F178/
+   closure порядок, rollback/no partial, concurrent senders и poll→claim
+   mutation. В callback отдельное соединение видит saved claim+attempt ДО
+   HTTP и может взять source/delivery locks. Restart/known failure/due boundary/
+   future delay/max5/unknown/crash/claim commit failure покрывают ACN5 без сна
+   или реального транспорта. Неверные retry JSON types/ranges не исполняются.
+8. Профильные регрессии:
+   `apps/server/tests/unit/test_account_closure.py`,
+   `apps/server/tests/unit/test_account_close_fanout.py`,
+   `apps/server/tests/integration/test_account_lifecycle.py`,
+   `apps/server/tests/unit/test_billing_notifications.py`, затронутые cases
+   `apps/server/tests/integration/test_account_merge.py` и соседних sender
+   families в `test_billing_notification_flow.py`. Запускать выбранные случаи
+   штатным `apps/server/scripts/run_local_postgres_tests.sh --focused`;
+   не суммировать отдельные прогоны в фиктивную общую проверку.
+9. Независимое code review→$speckit-converge ACN1–ACN6→профильный Ruff/
+   process/diff→собственный `changes/unreleased/F140.yaml`→commit/push/PR с
+   Refs#4926/#4922. Exact head/currentbase, governance-fast/macos-pr/pr-metadata,
+   `scripts/validate-pr-checks.py`, открытые замечания, штатный merge и проверка
+   результата/parent/tree. Временные синтетические БД/containers убрать штатно;
+   hashes/log/results оставить во внешнем каталоге. Dev/release-full/deploy и
+   настоящая получательская #7524 отдельно, исходные T068/T070 остаются `[ ]`.
+
+Зависимости: requirements14/0→tasks→Analyze→existing issue canon/sync→RED1
+→producer2→copy3→source gate4→sender5→acceptance6/7→regression8→review/converge9.
+Реализация общих auth/worker стыков последовательна; независимые renderer unit
+cases можно подготовить после RED отдельно от producer при непересекающихся
+файлах. Новых агентов-исполнителей/зависимостей/таблиц/служб не требуется.
+Минимальный законченный результат — обе исторические фазы с настоящим source
+и claim, а не ручная постановка готового delivery. Полный T068/T070, другие
+состояния чеков/уведомления, эксплуатационный FR107 и исходные launch gates
+этой детализацией не принимаются и не отменяются.
