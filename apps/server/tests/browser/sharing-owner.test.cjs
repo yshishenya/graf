@@ -56,6 +56,16 @@ const assets = path.join(__dirname, '../../src/twobrain_rec_server/cabinet/stati
       releaseGeneral();
       await page.locator('[data-sharing-audience] option[value=workspace]:disabled').waitFor({state:'attached'});
       await page.locator('[data-sharing-scope]:enabled').waitFor({state:'attached'});
+      const inviteButton=page.getByRole('button',{name:'Пригласить',exact:true});
+      await inviteButton.hover();
+      assert(await inviteButton.evaluate(el=>{
+        const luminance=color=>{
+          const channels=color.match(/[\d.]+/g).slice(0,3).map(value=>Number(value)/255).map(value=>value<=0.04045?value/12.92:((value+0.055)/1.055)**2.4);
+          return channels[0]*0.2126+channels[1]*0.7152+channels[2]*0.0722;
+        };
+        const style=getComputedStyle(el),foreground=luminance(style.color),background=luminance(style.backgroundColor);
+        return (Math.max(foreground,background)+0.05)/(Math.min(foreground,background)+0.05)>=4.5;
+      }),'Invite hover text must keep readable contrast in both themes');
       const panel = page.locator('[data-summary-share-dialog]');
       const panelBox = await panel.boundingBox(), cabinetBox = await page.locator('main').boundingBox();
       assert(panelBox.y + panelBox.height <= cabinetBox.y + cabinetBox.height, 'Sharing panel must fit above the player');

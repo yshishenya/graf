@@ -6659,7 +6659,7 @@ select:focus, .settings-page select:focus, .calendar-settings select:focus {
 .sharing-access-list[open] > .sharing-owner { padding-top:12px; }
 .summary-share-dialog .summary-share-expiry select { width:100%; min-height:40px; }
 .summary-share-dialog .sharing-dialog-actions button:hover { background:var(--surface-2); }
-.summary-share-dialog .sharing-add-person-button:hover { filter:brightness(1.1); }
+.summary-share-dialog .sharing-add-person-button:hover { background:var(--accent-hover); border-color:var(--accent-hover); }
 .summary-share-dialog .sharing-access-list .share-viewer-row { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:12px; padding:12px 0; }
 .sharing-access-list .share-viewer-row > span:first-child { grid-template-columns:minmax(0,1fr); min-width:0; overflow-wrap:anywhere; gap:4px; }
 .summary-share-dialog .sharing-access-list .share-viewer-row:last-child { border-bottom:0; }
