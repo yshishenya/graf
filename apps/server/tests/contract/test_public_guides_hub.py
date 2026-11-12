@@ -107,7 +107,10 @@ def test_hub_and_recording_guide_preserve_existing_measurement(
     response = client.get(
         path + "?utm_source=example&utm_medium=organic&utm_campaign=protocol&token=synthetic-secret"
     )
-    assert response.status_code == 200 and "<script" not in response.text
+    assert response.status_code == 200
+    parser = Parser()
+    parser.feed(response.text)
+    assert parser.scripts == response.text.count('<script type="application/ld+json">') == (0 if path == GUIDES_PATH else 1)
     assert PUBLIC_VISIT_ATTRIBUTION_COOKIE in response.cookies
     assert client.get(path).status_code == 200
     buckets = asyncio.run(read_rows("anonymous_page_aggregate_buckets"))

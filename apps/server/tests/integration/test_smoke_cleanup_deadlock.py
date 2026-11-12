@@ -7,6 +7,7 @@ import importlib.util
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from pathlib import Path
+from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
@@ -24,6 +25,8 @@ def _helper():
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
+    # Minimal FK graphs test authorized cleanup; real principal/history refusals are covered in test_billing_fair_use_operator.py.
+    module._preflight_fair_use_history = AsyncMock()
     return module
 
 
