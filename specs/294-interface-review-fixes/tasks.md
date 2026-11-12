@@ -32,10 +32,10 @@
 - [X] T014 Update `InterfacePreferencesStore` frame validation for minimum size and visible-screen intersection; add tests.
 - [X] T015 Move microphone discovery off MainActor and make `resolveRecordingMicrophoneSelection` use the cached input list; add performance-contract tests.
 - [X] T016 Run build, focused tests, full Swift suite, ContractValidation and `ci-local.sh --fast`; record evidence.
-- [ ] T017 Create PR, run `governance-fast`, `macos-pr`, `pr-metadata` and `validate-pr-checks.py`.
-- [ ] T018 Prepare CalVer release, freeze candidate, run `release-full`, build/notarize/staple/Gatekeeper/Sparkle.
-- [ ] T019 Run `cd-remote.sh --dry-run`, deploy production, verify public health/runtime SHA, publish GitHub Release and appcast.
-- [ ] T020 Close task issues/umbrella with Russian evidence comments.
+- [X] T017 Create PR, run `governance-fast`, `macos-pr`, `pr-metadata` and `validate-pr-checks.py`.
+- [X] T018 Prepare CalVer release, freeze candidate, run `release-full`, build/notarize/staple/Gatekeeper/Sparkle.
+- [X] T019 Run `cd-remote.sh --dry-run`, deploy production, verify public health/runtime SHA, publish GitHub Release and appcast.
+- [X] T020 Close task issues/umbrella with Russian evidence comments.
 
 ## Dependencies
 
