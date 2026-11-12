@@ -324,50 +324,48 @@ struct ContentView: View {
     }
 
     var body: some View {
-        contentBase
-        .onAppear {
-            openPendingSharedMeeting()
+        activationLifecycleView
+    }
+
+    private var activationLifecycleView: some View {
+        backgroundLifecycleView
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
+            appIsActive = false
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            appIsActive = true
+            microphoneCaptureService.invalidateAvailableRecordingMicrophoneInputs()
             refreshRecordingMicrophoneInputs()
-            restoreSavedMicrophoneSelectionIfNeeded()
-            AppLog.writeRaw(
-                event: "app_opened",
-                detail: currentApplicationIdentityDetail + " capture=app_owned_system_audio microphone=app_owned"
-            )
-            refreshPermissionOnboarding(reason: "app_appeared")
-            Task { await refreshPermissionOnboardingWithFunctionalProbe(reason: "app_appeared") }
-            refreshUploadQueueAndProcess(reason: "app_appeared")
-            startUploadQueueNetworkMonitorIfNeeded()
-            startMeetingDetectionIfNeeded()
-            appUpdateController.updateProtectedWork(protectedUpdateWork)
-            syncControlPanel()
-            // Первый запуск приложения: веха отправляется из настоящего пути,
-            // когда пользователь уже принял раскрытие о телеметрии (FR-021).
-            Task {
-                await activationReporter.noteFirstLaunch(
-                    appVersion: currentApplicationVersion,
-                    installChannel: currentInstallChannel
-                )
-            }
+            refreshPermissionOnboarding(reason: "app_became_active")
+            Task { await refreshPermissionOnboardingWithFunctionalProbe(reason: "app_became_active") }
+            Task { await synchronizeRecordingDeletions() }
+            refreshUploadQueueAndProcess(reason: "app_became_active")
+            Task { await refreshCalendarReminder(reason: "app_became_active") }
+            Task { await refreshMeetingDetectionRegistry(reason: "app_became_active") }
         }
-        .onChange(of: trayRecordingState, initial: true) { _, state in
-            (NSApp.delegate as? AppLifecycleDelegate)?.updateTrayRecordingState(state)
+        .onReceive(NotificationCenter.default.publisher(for: AVCaptureDevice.wasConnectedNotification)) { _ in
+            microphoneCaptureService.invalidateAvailableRecordingMicrophoneInputs()
+            refreshRecordingMicrophoneInputs()
         }
-        .onChange(of: uploadQueueItems) { _, items in
-            refreshLocalRecordingRows(for: items)
+        .onReceive(NotificationCenter.default.publisher(for: AVCaptureDevice.wasDisconnectedNotification)) { notification in
+            microphoneCaptureService.invalidateAvailableRecordingMicrophoneInputs()
+            refreshRecordingMicrophoneInputs()
+            handleRecordingMicrophoneDisconnect(notification.object as? AVCaptureDevice)
         }
-        .onChange(of: userTimeContext.timeZone) { _, _ in
-            refreshLocalRecordingRows(for: uploadQueueItems)
+        .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)) { _ in
+            Task { await synchronizeRecordingDeletions() }
+            refreshUploadQueueAndProcess(reason: "system_wake")
+            Task { await refreshCalendarReminder(reason: "system_wake") }
+            Task { await refreshMeetingDetectionRegistry(reason: "system_wake") }
+            Task { await uploadMeetingDetectionTelemetry(reason: "system_wake") }
+            restartMeetingDetectionObservation(reason: "system_wake")
         }
-        .onChange(of: controlPanelSnapshot) { _, _ in syncControlPanel() }
-        .onChange(of: protectedUpdateWork) { _, work in
-            appUpdateController.updateProtectedWork(work)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecMeetingDetectionSettingsDidChange)) { _ in
-            reloadMeetingDetectionSettings()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecDismissMeetingDetectionPrompt)) { _ in
-            dismissMeetingDetectionPrompt()
-        }
+        // Closing/hiding the cabinet must not end capture. The application
+        // termination notification above owns the awaited resource cleanup.
+    }
+
+    private var backgroundLifecycleView: some View {
+        appearanceLifecycleView
         .task { await synchronizeRecordingDeletionsLoop() }
         .task { await refreshCalendarReminderLoop() }
         .task { await refreshMeetingDetectionRegistryLoop() }
@@ -416,39 +414,53 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecOpenMeetingsFromTray)) { _ in
             openMeetingsFromTray()
         }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
-            appIsActive = false
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            appIsActive = true
-            microphoneCaptureService.invalidateAvailableRecordingMicrophoneInputs()
+    }
+
+    private var appearanceLifecycleView: some View {
+        contentBase
+        .onAppear {
+            openPendingSharedMeeting()
             refreshRecordingMicrophoneInputs()
-            refreshPermissionOnboarding(reason: "app_became_active")
-            Task { await refreshPermissionOnboardingWithFunctionalProbe(reason: "app_became_active") }
-            Task { await synchronizeRecordingDeletions() }
-            refreshUploadQueueAndProcess(reason: "app_became_active")
-            Task { await refreshCalendarReminder(reason: "app_became_active") }
-            Task { await refreshMeetingDetectionRegistry(reason: "app_became_active") }
+            restoreSavedMicrophoneSelectionIfNeeded()
+            AppLog.writeRaw(
+                event: "app_opened",
+                detail: currentApplicationIdentityDetail + " capture=app_owned_system_audio microphone=app_owned"
+            )
+            refreshPermissionOnboarding(reason: "app_appeared")
+            Task { await refreshPermissionOnboardingWithFunctionalProbe(reason: "app_appeared") }
+            refreshUploadQueueAndProcess(reason: "app_appeared")
+            startUploadQueueNetworkMonitorIfNeeded()
+            startMeetingDetectionIfNeeded()
+            appUpdateController.updateProtectedWork(protectedUpdateWork)
+            syncControlPanel()
+            // Первый запуск приложения: веха отправляется из настоящего пути,
+            // когда пользователь уже принял раскрытие о телеметрии (FR-021).
+            Task {
+                await activationReporter.noteFirstLaunch(
+                    appVersion: currentApplicationVersion,
+                    installChannel: currentInstallChannel
+                )
+            }
         }
-        .onReceive(NotificationCenter.default.publisher(for: AVCaptureDevice.wasConnectedNotification)) { _ in
-            microphoneCaptureService.invalidateAvailableRecordingMicrophoneInputs()
-            refreshRecordingMicrophoneInputs()
+        .onChange(of: trayRecordingState, initial: true) { _, state in
+            (NSApp.delegate as? AppLifecycleDelegate)?.updateTrayRecordingState(state)
         }
-        .onReceive(NotificationCenter.default.publisher(for: AVCaptureDevice.wasDisconnectedNotification)) { notification in
-            microphoneCaptureService.invalidateAvailableRecordingMicrophoneInputs()
-            refreshRecordingMicrophoneInputs()
-            handleRecordingMicrophoneDisconnect(notification.object as? AVCaptureDevice)
+        .onChange(of: uploadQueueItems) { _, items in
+            refreshLocalRecordingRows(for: items)
         }
-        .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)) { _ in
-            Task { await synchronizeRecordingDeletions() }
-            refreshUploadQueueAndProcess(reason: "system_wake")
-            Task { await refreshCalendarReminder(reason: "system_wake") }
-            Task { await refreshMeetingDetectionRegistry(reason: "system_wake") }
-            Task { await uploadMeetingDetectionTelemetry(reason: "system_wake") }
-            restartMeetingDetectionObservation(reason: "system_wake")
+        .onChange(of: userTimeContext.timeZone) { _, _ in
+            refreshLocalRecordingRows(for: uploadQueueItems)
         }
-        // Closing/hiding the cabinet must not end capture. The application
-        // termination notification above owns the awaited resource cleanup.
+        .onChange(of: controlPanelSnapshot) { _, _ in syncControlPanel() }
+        .onChange(of: protectedUpdateWork) { _, work in
+            appUpdateController.updateProtectedWork(work)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecMeetingDetectionSettingsDidChange)) { _ in
+            reloadMeetingDetectionSettings()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecDismissMeetingDetectionPrompt)) { _ in
+            dismissMeetingDetectionPrompt()
+        }
     }
 
     @MainActor
