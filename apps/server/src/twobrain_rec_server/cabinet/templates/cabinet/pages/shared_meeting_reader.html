@@ -8,7 +8,7 @@
   <main id="cabinet-main" class="public-reader__main" tabindex="-1">
     <p class="eyebrow">С вами поделились встречей</p>
     <h1>{{ meeting.meeting_label }}</h1>
-    <p class="muted">{{ user_time_element(meeting.occurred_at, show_zone=True) }} · {{ meeting_duration }}</p>
+    <p class="muted">{% if meeting.time_is_upload|default(false) %}Загружено {% endif %}{{ user_time_element(meeting.occurred_at, show_zone=True) }} · {{ meeting_duration }}</p>
     <div class="public-reader__toolbar">
       <div class="public-reader__tabs" aria-label="Материалы встречи">
         <a href="#outcomes" data-public-tab="outcomes">Итоги</a>

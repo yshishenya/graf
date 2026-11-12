@@ -835,7 +835,7 @@ async def list_cabinet_meetings(
 
 
 async def shared_meeting_display_metadata(
-    db: AsyncSession, *, meeting: Meeting
+    db: AsyncSession, *, meeting: Meeting, published_projection: dict | None = None
 ) -> tuple[str, datetime | None, bool]:
     """HTML metadata only; shared transport projections keep their existing contract."""
     revision = await _latest_media_revision(db, workspace_id=meeting.workspace_id, meeting_id=meeting.id)
@@ -844,6 +844,10 @@ async def shared_meeting_display_metadata(
     instant = meeting.started_at or (meeting.created_at if uploaded else None)
     # The separate semantic timestamp owns localization, including first visits to share links.
     title = meeting_list_title(meeting, source=source, include_recording_time=False)
+    if published_projection is not None:
+        title = str(published_projection["meeting_label"])
+        if instant is not None:
+            instant = datetime.fromisoformat(str(published_projection["occurred_at"]))
     return title[:160], instant, uploaded
 
 

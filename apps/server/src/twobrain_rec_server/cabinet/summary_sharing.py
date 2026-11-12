@@ -202,7 +202,7 @@ async def preview_summary(db, *, meeting, template_key):
     return outcome, reader_projection(
         {
             "meeting_label": label,
-            "occurred_at": occurred.isoformat(),
+            "occurred_at": (occurred or meeting.created_at).isoformat(),
             "duration_seconds": meeting.duration_seconds,
             "summary_sections": [{"category": item.category, "text": item.text} for item in items],
             "protocol": outcome.protocol_json,
