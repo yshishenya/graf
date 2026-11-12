@@ -288,6 +288,16 @@ public enum LocalSettingsSection: String, CaseIterable, Equatable, Sendable {
         }
     }
 
+    public var systemImage: String {
+        switch self {
+        case .account: "person.crop.circle"
+        case .recording: "record.circle"
+        case .notifications: "bell"
+        case .calendar: "calendar"
+        case .billing: "creditcard"
+        }
+    }
+
     public var isAvailableLocally: Bool {
         self == .recording || self == .notifications
     }
@@ -316,10 +326,6 @@ public struct LocalSettingsFallbackView: View {
         self.onOpenAll = onOpenAll
     }
 
-    public init(notifications: Bool, onOpenAll: @escaping () -> Void) {
-        self.init(section: notifications ? "notifications" : "recording", onOpenAll: onOpenAll)
-    }
-
     public var body: some View {
         HStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 12) {
@@ -334,11 +340,11 @@ public struct LocalSettingsFallbackView: View {
                     .foregroundStyle(.secondary)
                     .padding(.top, 16)
 
-                ForEach([LocalSettingsSection.recording, .notifications], id: \.rawValue) { section in
+                ForEach(LocalSettingsSection.allCases, id: \.rawValue) { section in
                     Button {
                         selected = section
                     } label: {
-                        Label(section.title, systemImage: section == .notifications ? "bell" : "record.circle")
+                        Label(section.title, systemImage: section.systemImage)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(10)
                             .background(

@@ -12,29 +12,12 @@ public struct RecordingBlockerPresentation: Equatable, Sendable {
         case unknown
     }
 
-    public enum RecoveryAction: String, Equatable, Sendable {
-        case openPermissions
-        case openStorage
-        case retry
-        case chooseMicrophone
-        case none
-    }
-
     public let kind: Kind
     public let message: String
-    public let recoveryAction: RecoveryAction
-    public let isRetryable: Bool
 
-    public init(
-        kind: Kind,
-        message: String,
-        recoveryAction: RecoveryAction? = nil,
-        isRetryable: Bool? = nil
-    ) {
+    public init(kind: Kind, message: String) {
         self.kind = kind
         self.message = message
-        self.recoveryAction = recoveryAction ?? Self.defaultRecovery(for: kind)
-        self.isRetryable = isRetryable ?? Self.defaultRetryable(for: kind)
     }
 
     public var title: String {
@@ -90,29 +73,5 @@ public struct RecordingBlockerPresentation: Equatable, Sendable {
 
     public var isActionable: Bool {
         kind != .alreadyRecording
-    }
-
-    private static func defaultRecovery(for kind: Kind) -> RecoveryAction {
-        switch kind {
-        case .permission:
-            return .openPermissions
-        case .storage:
-            return .openStorage
-        case .capture, .indicator, .unknown:
-            return .retry
-        case .policy, .alreadyRecording:
-            return .none
-        case .source:
-            return .chooseMicrophone
-        }
-    }
-
-    private static func defaultRetryable(for kind: Kind) -> Bool {
-        switch kind {
-        case .policy:
-            return false
-        case .permission, .storage, .capture, .indicator, .source, .alreadyRecording, .unknown:
-            return true
-        }
     }
 }

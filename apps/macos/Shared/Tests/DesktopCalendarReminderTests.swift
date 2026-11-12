@@ -905,7 +905,8 @@ final class DesktopCalendarReminderTests: XCTestCase {
             (nil, false, false, .idle), (.starting, false, false, .idle),
             (.failed, false, false, .idle), (.active, true, false, .recording),
             (.paused, true, false, .paused), (.active, true, false, .recording),
-            (.degraded, true, false, .recording), (.active, false, true, .stopping),
+            (.degraded, true, false, .degraded),
+            (.failed, true, false, .failed), (.active, false, true, .stopping),
             (.stopped, false, false, .idle), (.finalized, false, false, .idle)
         ]
         for (session, active, stopping, expected) in transitions {

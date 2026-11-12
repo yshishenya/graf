@@ -3,13 +3,18 @@ import QuartzCore
 import TwoBrainRecShared
 
 public enum GrafTrayRecordingState: Equatable, Sendable {
-    case idle, starting, recording, paused, stopping
+    case idle, starting, recording, paused, degraded, failed, stopping
 
     public static func resolve(sessionState: CaptureSessionState?, writerActive: Bool, stopping: Bool, starting: Bool = false) -> Self {
         if stopping { return .stopping }
         if starting { return .starting }
         guard writerActive else { return .idle }
-        return sessionState == .paused ? .paused : .recording
+        switch sessionState {
+        case .paused: return .paused
+        case .degraded: return .degraded
+        case .failed: return .failed
+        default: return .recording
+        }
     }
 
     var label: String? {
@@ -18,6 +23,8 @@ public enum GrafTrayRecordingState: Equatable, Sendable {
         case .starting: CaptureStatusPresentation.title(for: .starting)
         case .recording: CaptureStatusPresentation.title(for: .active)
         case .paused: CaptureStatusPresentation.title(for: .paused)
+        case .degraded: CaptureStatusPresentation.title(for: .degraded)
+        case .failed: CaptureStatusPresentation.title(for: .failed)
         case .stopping: CaptureStatusPresentation.title(for: .stopping)
         }
     }
@@ -290,7 +297,7 @@ public final class CalendarTrayController: NSObject, NSMenuDelegate {
             addItem("Начать запись", action: #selector(startRecording), id: "graf.menu.start")
         case .starting:
             addItem(GrafTrayRecordingState.starting.label ?? "Начинаем запись…", id: "graf.menu.starting", informational: true)
-        case .recording, .paused:
+        case .recording, .paused, .degraded, .failed:
             addItem(SystemAudioStatusLabels.stopButtonTitle, action: #selector(stopRecording), id: "graf.menu.stop")
             let muted = model.recordingState == .paused
             let item = addItem(muted ? SystemAudioStatusLabels.resumeButtonTitle : "Выключить микрофон",
@@ -301,7 +308,8 @@ public final class CalendarTrayController: NSObject, NSMenuDelegate {
         case .stopping:
             addItem(GrafTrayRecordingState.stopping.label ?? "Сохраняем запись…", id: "graf.menu.stopping", informational: true)
         }
-        if model.recordingState == .recording || model.recordingState == .paused {
+        if model.recordingState == .recording || model.recordingState == .paused ||
+            model.recordingState == .degraded || model.recordingState == .failed {
             addItem(CaptureStatusPresentation.title(for: .active) + " · " + DesktopControlModel.shared.elapsed(),
                     id: "graf.menu.elapsed", informational: true)
         }
@@ -429,7 +437,8 @@ public final class CalendarTrayController: NSObject, NSMenuDelegate {
                          NSRect(x: 10, y: 18, width: 2, height: 3.5)] {
                 NSBezierPath(roundedRect: rect, xRadius: 0.7, yRadius: 0.7).fill()
             }
-            let capturing = recordingState == .recording || recordingState == .paused || recordingState == .stopping
+            let capturing = recordingState == .recording || recordingState == .paused ||
+                recordingState == .degraded || recordingState == .failed || recordingState == .stopping
             let bars = capturing ? [] : [NSRect(x: 7, y: 8, width: 1.8, height: 5),
                    NSRect(x: 10.1, y: 8, width: 1.8, height: 7),
                    NSRect(x: 13.2, y: 8, width: 1.8, height: 4)]
@@ -503,7 +512,8 @@ public final class CalendarTrayController: NSObject, NSMenuDelegate {
     }
 
     @objc func stopRecording() {
-        guard model.recordingState == .recording || model.recordingState == .paused else { return }
+        guard model.recordingState == .recording || model.recordingState == .paused ||
+            model.recordingState == .degraded || model.recordingState == .failed else { return }
         onStopRecording()
     }
 
@@ -560,7 +570,7 @@ final class GrafRecordingLightView: NSView {
         microphoneMuted = state == .paused
         needsDisplay = true
         isHidden = state == .idle || state == .starting
-        let animate = !reduceMotion && (state == .recording || state == .paused)
+        let animate = !reduceMotion && (state == .recording || state == .paused || state == .degraded)
         if animate {
             guard layer?.animation(forKey: "recordingPulse") == nil else { return }
             let pulse = CABasicAnimation(keyPath: "opacity")
