@@ -282,7 +282,8 @@
     audience.addEventListener('change',()=>action(async()=>{
       const value=audience.value;
       if(!general)return;
-      if(value!==general.audience&&!window.confirm(describeAudience(value)+' Материалы: '+scope.selectedOptions[0].textContent+'. Сохранить общий доступ?')){audience.value=general.audience;return;}
+      const renewal=value==='link'&&general.link?.state==='expired'?' Ссылка снова будет действовать '+find('[data-summary-share-expiry]').value+' дней.':'';
+      if(value!==general.audience&&!window.confirm(describeAudience(value)+' Материалы: '+scope.selectedOptions[0].textContent+'.'+renewal+' Сохранить общий доступ?')){audience.value=general.audience;return;}
       renderGeneral(await meetingAPI('/sharing/general-access',{method:'POST',body:{audience:value,expected_fingerprint:general.fingerprint,content_scope:scope.value,template_key:templateKey(),expires_in_days:Number(find('[data-summary-share-expiry]').value)}}));
       setStatus('Общий доступ сохранён');
     }));
@@ -304,11 +305,14 @@
         for(const [value,label] of [['summary','Только итоги'],['viewer','Просмотр встречи'],['commenter','Комментирование'],['editor','Редактирование']]){const option=node('option',label);option.value=value;role.append(option);}
         role.value=grant.content_scope==='summary_only'?'summary':grant.can_edit?'editor':grant.can_comment?'commenter':'viewer';role.disabled=!data.share.can_manage_roles;
         role.addEventListener('change',()=>action(async()=>{await meetingAPI(`/shares/${grant.grant_id}/permissions`,{method:'PATCH',body:{expected_version:grant.version,content_scope:role.value==='summary'?'summary_only':'full_meeting',can_comment:['commenter','editor'].includes(role.value),can_edit:role.value==='editor'}});await loadAccess();setStatus('Права изменены');}));
-        const revoke=node('button','Отозвать');revoke.type='button';revoke.addEventListener('click',()=>action(async()=>{await meetingAPI(`/shares/${grant.grant_id}?expected_version=${grant.version}`,{method:'DELETE'});await loadAccess();setStatus('Доступ отозван');}));row.append(role,revoke);accessList.append(row);
+        identity.append(role);
+        const revoke=node('button','Отозвать');revoke.type='button';revoke.setAttribute('aria-label',`Отозвать доступ у ${grant.display_name}`);revoke.addEventListener('click',()=>action(async()=>{await meetingAPI(`/shares/${grant.grant_id}?expected_version=${grant.version}`,{method:'DELETE'});await loadAccess();setStatus('Доступ отозван');}));row.append(revoke);accessList.append(row);
       }
       for(const invitation of data.share.active_invitations||[]){
-        const row=node('div',null,'share-viewer-row');row.append(node('span',invitation.display_label),node('small',invitation.status==='outcome_unknown'?'Отправка не подтверждена':'Приглашение отправлено','muted'));
-        const revoke=node('button','Отменить');revoke.type='button';revoke.addEventListener('click',()=>action(async()=>{await meetingAPI(`/share-invitations/${invitation.invitation_id}`,{method:'DELETE'});await loadAccess();setStatus('Приглашение отменено');}));row.append(revoke);accessList.append(row);
+        const row=node('div',null,'share-viewer-row'),identity=node('span');
+        const role=invitation.content_scope==='summary_only'?'Только итоги':invitation.can_edit?'Редактирование':invitation.can_comment?'Комментирование':'Просмотр встречи';
+        identity.append(node('span',invitation.display_label),node('small',role+' · '+(invitation.status==='outcome_unknown'?'Отправка не подтверждена':'Приглашение отправлено'),'muted'));row.append(identity);
+        const revoke=node('button','Отменить');revoke.type='button';revoke.setAttribute('aria-label',`Отменить приглашение для ${invitation.display_label}`);revoke.addEventListener('click',()=>action(async()=>{await meetingAPI(`/share-invitations/${invitation.invitation_id}`,{method:'DELETE'});await loadAccess();setStatus('Приглашение отменено');}));row.append(revoke);accessList.append(row);
       }
       if(restoreFocus)title.focus({preventScroll:true});
     }

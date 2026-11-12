@@ -824,9 +824,28 @@ async def change_general_access(db, *, settings, workspace_id, meeting_id, actor
             grant.publication_version += 1
     await db.flush()
     if audience == "link":
-        await create_link(db, settings=settings, workspace_id=workspace_id, meeting_id=meeting_id,
-                          actor_user_id=actor_user_id, device_id=device_id, template_key=template_key,
-                          expires_in_days=expires_in_days, content_scope=content_scope)
+        if state["link"]["state"] == "expired":
+            if content_scope not in ("summary_only", "full_meeting"):
+                fail("public_share_scope_invalid", 422)
+            if expires_in_days not in (7, 30, 90):
+                fail("invalid_share_expiry", 422)
+            if state["link"]["content_scope"] == "summary_only" and content_scope == "full_meeting":
+                fail("summary_link_changed")
+            grant = await current_link(db, workspace_id=workspace_id, meeting_id=meeting_id)
+            if grant.content_scope != content_scope:
+                await change_link(db, settings=settings, workspace_id=workspace_id, meeting_id=meeting_id,
+                    actor_user_id=actor_user_id, device_id=device_id, grant_id=grant.id,
+                    expected_version=grant.publication_version, operation="scope",
+                    content_scope=content_scope, template_key=template_key)
+            renewed = await change_link(db, settings=settings, workspace_id=workspace_id, meeting_id=meeting_id,
+                actor_user_id=actor_user_id, device_id=device_id, grant_id=grant.id,
+                expected_version=grant.publication_version, operation="expiry", expires_in_days=expires_in_days)
+            if renewed["state"] != "active":
+                fail("summary_link_changed")
+        else:
+            await create_link(db, settings=settings, workspace_id=workspace_id, meeting_id=meeting_id,
+                              actor_user_id=actor_user_id, device_id=device_id, template_key=template_key,
+                              expires_in_days=expires_in_days, content_scope=content_scope)
     elif audience == "workspace":
         await create_scoped_share_grant(db, workspace_id=workspace_id, meeting=meeting,
              actor_user_id=actor_user_id, device_id=device_id, audience_type="workspace",

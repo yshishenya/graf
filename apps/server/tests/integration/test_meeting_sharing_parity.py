@@ -1034,3 +1034,62 @@ def test_public_signup_returns_to_original_recording_with_personal_session(clien
                 assert await db.get(WorkspaceMembership, (foreign_workspace, identity.user_id)) is None
 
     client.portal.call(check_workspace)
+
+
+@pytest.mark.parametrize(("before", "after", "days", "status", "missing"), [
+    ("full_meeting", "full_meeting", 7, 200, None),
+    ("summary_only", "summary_only", 30, 200, None),
+    ("full_meeting", "summary_only", 90, 200, None),
+    ("summary_only", "full_meeting", 30, 409, None),
+    ("full_meeting", "summary_only", 8, 422, None),
+    ("full_meeting", "full_meeting", 30, 409, "token"),
+    ("summary_only", "summary_only", 30, 409, "snapshot"),
+])
+def test_general_access_resumes_expired_link_without_widening(client, tmp_path, before, after, days, status, missing):
+    meeting, template = prepare(client, tmp_path)
+    link, public_path = publish(client, meeting, template, before)
+    base = f"/api/v1/cabinet/meetings/{meeting}"
+    expired_at = datetime.now(UTC) - timedelta(days=1)
+
+    async def expire():
+        async with client.app.state.db_sessionmaker() as db:
+            grant = await db.get(MeetingShareGrant, UUID(link["grant_id"]))
+            grant.expires_at = expired_at
+            if missing == "token":
+                grant.share_token_ciphertext = None
+            elif missing == "snapshot":
+                grant.published_summary_id = None
+            await db.commit()
+
+    asyncio.run(expire())
+    state = client.get(base + "/sharing/general-access", headers=auth_headers()).json()
+    assert state["audience"] == "invite_only" and state["link"]["state"] == "expired"
+    repeated = client.post(base + "/summary-sharing/link", headers=auth_headers(),
+        json={"template_key": template, "content_scope": before}).json()
+    assert repeated["state"] == "expired" and repeated["share_url"] is None
+    assert repeated["expires_at"] == expired_at.isoformat()
+    assert client.get(public_path).status_code == 404
+    started = datetime.now(UTC)
+    response = client.post(base + "/sharing/general-access", headers=auth_headers(), json={
+        "audience": "link", "content_scope": after, "template_key": template,
+        "expected_fingerprint": state["fingerprint"], "expires_in_days": days,
+    })
+    assert response.status_code == status, response.text
+    current = client.get(base + "/sharing/general-access", headers=auth_headers()).json()
+    if status != 200:
+        assert current == state
+        assert client.get(public_path).status_code == 404
+        return
+    assert current["audience"] == "link" and current["link"]["state"] == "active"
+    assert current["link"]["share_url"] == link["share_url"]
+    assert current["content_scope"] == after
+    deadline = datetime.fromisoformat(current["link"]["expires_at"])
+    assert started + timedelta(days=days) <= deadline <= datetime.now(UTC) + timedelta(days=days)
+    projection = client.get(public_path)
+    assert projection.status_code == 200, projection.text
+    assert ("transcript" in projection.json()) == (after == "full_meeting")
+    stale = client.post(base + "/sharing/general-access", headers=auth_headers(), json={
+        "audience": "link", "expected_fingerprint": state["fingerprint"],
+    })
+    assert stale.status_code == 409
+    assert client.get(base + "/sharing/general-access", headers=auth_headers()).json() == current
