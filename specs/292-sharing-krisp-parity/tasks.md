@@ -156,3 +156,8 @@ Spec Kit, только тестовые материалы; focused PostgreSQL/�
 ## Phase 22: Convergence
 
 - [ ] T035 Упростить композицию окна в `templates/cabinet/fragments/meeting_share.html` и `static/cabinet/{summary-sharing.js,cabinet.css}`: нативная сводка доступа отдельно от приглашений после аудитории/материалов; прежние строки и обработчики внутри, корректные загрузка/ошибка/обновление/повтор открытия, единое поле срока и понятная отправка итогов. До кода reviewer-owned checklist/analyze/issue sync; RED→GREEN существующего `tests/browser/sharing-owner.test.cjs` с3/15 адресатами, оба движка/темы/320–1440/200%, старые public/auth/export/defaults и реальная Dev приёмка на чистом SHA. После — свежие PR/release gates и metadata-only evidence. [FR-017/033/037/038; US1/AC1; partial, HIGH] (Issue #8025)
+
+
+## Phase 23: Convergence
+
+- [ ] T036 Устранить подтверждённое прерывание обязательной полной проверки по 30-минутному бюджету `server-phases` в `.github/workflows/release-full.yml` и его `scripts/validate-full-ci-workflow.py`: измерить длительность строгих тестов, дать конечный достаточный бюджет без исключения тестов, ослабления проверок или повторного Full того же кандидата. Сохранить strict/performance/RLS и все независимые компоненты; до кода независимый checklist/analyze/issue sync, после — контракт workflow и новый exact-SHA PR, затем новый frozen candidate и одна полная проверка. [FR-027; T016/T017 prerequisite; partial, HIGH; run43226719865 timed_out] (Issue #8036)

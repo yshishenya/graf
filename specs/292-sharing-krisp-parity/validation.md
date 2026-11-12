@@ -442,3 +442,24 @@ RED существующего browser owner на настоящем шабло�
 Полная проверка43215250845 кандидатаrc-20261112T120847Z-5e2f6b6f84b0 выявила два конкретных отказа: новая подпись приглашённых нарушает принятую копирайт-конвенцию е/ё; список миграций номинального RLS-контракта заканчивается0111 и не включает storage_notification_scan из0112 (также должна входить существующая0113). В shard5:1FAIL/1023PASS, shard7:1FAIL; защита таблиц не меняется. Продуктовый фикс — один символ в подписи, контракт включает прежние миграции без ослабления assert для каждой таблицы. Права, политики, данные и схема не меняются. Это продолжение существующих T017/T035, без новых требований; active Spec Kit slice. Новая правка требует своего PR и нового полного кандидата. Проверка установленного приложения и живого Krisp всё ещё отдельно не подтверждена.
 
 Предметные проверки доводки: copy-convention + RLS-policy-matrix — 88 PASS; настоящие шаблоны owner/public/auth/embedded — Chromium 4 PASS и WebKit 4 PASS. Governance и Ruff PASS, git diff --check PASS. Независимый обзор текущего diff: открытых замечаний P0–P3 нет. Результаты локальные; новая полная проверка кандидата остается обязательной.
+
+
+## T036 — прерывание полного кандидата и конечный бюджет, 2026-11-12
+
+Кандидатrc-20261112T132243Z-1608dc93380c на da64bdd2f5e00cc5ad706b6c8689e5d0dedff45a
+не допущен: Full43226719865 canceled, server-phases131212115584 annotation
+`The job has exceeded the maximum execution time of 30m0s`, aggregate failed.
+Восемь parallel shard и macOS успешны; strict329 завершённых случаев passed,
+но остальной strict,performance и итоговый RLS не доказаны. Оба Apple jobs
+Accepted и trust checks относятся к старому исходнику; публикация не выполнялась.
+
+Converge добавилT036/#8036 поFR027. Независимый full-budget checklist3/0,
+analysisC0/H0; issue canon267PASS до кода. Единственное выполнение workflow
+меняет конечный бюджет server-phases30→90мин; validator разрешает1..90
+только этому job, другим1..60. Self-test RED на90 до изменения validator;
+после — PASS90, отказ91 и отказ61 для server-static. Обычный validatorPASS,
+шесть существующих контрактов release-fullPASS,122не выбраны.
+Права, данные, fixtures, тестовый состав, strict/performance последовательность,
+пороги, восемь shard, macOS, агрегация и immutable candidate guards сохранены.
+Независимый code review, exact-SHA PR, новый frozen Full и публикация ещё обязательны.
+T036/T016/T017 и прочие выпускные задачи остаются открытыми до evidence.
