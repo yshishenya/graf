@@ -327,3 +327,49 @@ def test_storage_snapshot_rejects_malformed_or_inconsistent_history(key, value):
     payload[key] = value
     event = build_notification(event_id="storage:diagnostic", kind=BillingNotification.STORAGE_THRESHOLD, payload=payload)
     assert event.safe_payload == {}
+
+
+@pytest.mark.parametrize("phase,title,result", [
+    ("notice", "Проверка использования принята", "Сохранено начало проверки."),
+    ("appealed", "Апелляция принята", "Сохранена первая апелляция."),
+    ("cleared", "Результат проверки сохранён", "Основание не подтверждено или больше не применяется."),
+    ("confirmed", "Результат проверки сохранён", "Основание подтверждено по результатам рассмотрения."),
+])
+def test_fair_use_phase_copy_keeps_source_link_private_and_deadline_historical(phase, title, result):
+    review_id = "01234567-89ab-cdef-0123-456789abcdef"
+    event = build_notification(
+        event_id=f"fair_use.review:synthetic:{phase}", kind=BillingNotification.FAIR_USE_REVIEW,
+        payload={"phase": phase, "fair_use_review_id": review_id,
+                 "capability": "server_processing", "reason": "resale",
+                 "review_by": "11.11.2026 12:00", "action_path": "/billing/unsafe",
+                 "evidence_ref": "incident:private", "operator_ref": "op-" + "a" * 32,
+                 "email": "private@example.test"},
+    )
+    assert event.safe_payload == {"phase": phase, "fair_use_review_id": review_id,
+                                  "capability": "server_processing", "reason": "resale",
+                                  "review_by": "11.11.2026 12:00", "action_path": "/account/fair-use"}
+    actual_title, body = notification_copy(event)
+    assert actual_title == title and result in body
+    assert "Первоначальный срок рассмотрения: 11.11.2026 12:00 МСК" in body
+    assert "Действующее состояние и доступные действия указаны в кабинете" in body
+    assert "не подтверждает фактическое включение или снятие ограничения" in body
+    assert review_id not in body and "incident:private" not in body and "op-" + "a" * 32 not in body
+    assert "private@example.test" not in body
+    assert NotificationOutbox().enqueue(event, recipient_id="synthetic", marketing_allowed=False)
+
+
+@pytest.mark.parametrize("key,value", [
+    ("phase", value) for value in ["restricted", "NOTICE", "notice\n", True]
+] + [
+    ("fair_use_review_id", value) for value in ["0123456789abcdef0123456789abcdef",
+        "01234567-89AB-CDEF-0123-456789ABCDEF", "private@example.test", None]
+] + [
+    ("review_by", value) for value in ["31.02.2026 12:00", "11.11.2026 25:00",
+        "１１.１１.２０２６ １２:００", "11.11.2026 12:00\n", None]
+])
+def test_fair_use_payload_rejects_untrusted_phase_link_and_deadline(key, value):
+    event = build_notification(event_id="fair_use.review:synthetic", kind=BillingNotification.FAIR_USE_REVIEW,
+                               payload={key: value})
+    assert key not in event.safe_payload
+    assert event.safe_payload["action_path"] == "/account/fair-use"
+    assert "private" not in notification_copy(event)[1]

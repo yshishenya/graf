@@ -3,7 +3,9 @@ from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import select, text
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from tests.conftest import _seed_database
 from tests.fakes.auth_contexts import (
     DEVICE_ID,
     ORG_ID,
@@ -11,6 +13,12 @@ from tests.fakes.auth_contexts import (
     USER_ID,
     WORKSPACE_ID,
     duplicate_account_fixture,
+)
+from tests.integration.test_billing_fair_use_operator import (
+    CONTEXT,
+    create_source,
+    declare_operator,
+    operator_case,  # noqa: F401 — isolated actual-role fixture
 )
 from twobrain_rec_server.auth.account_merge import (
     AccountMergeError,
@@ -25,6 +33,7 @@ from twobrain_rec_server.auth.csrf import issue_csrf_token
 from twobrain_rec_server.auth.dependencies import AUTH_SESSION_COOKIE_NAME
 from twobrain_rec_server.auth.provider_links import confirm_provider_link
 from twobrain_rec_server.auth.sessions import hash_token, issue_auth_session
+from twobrain_rec_server.billing.fair_use import appeal_persisted_review
 from twobrain_rec_server.db.models import (
     AccountMergeIntent,
     AccountMergeJournal,
@@ -54,6 +63,11 @@ from twobrain_rec_server.db.models import (
     WorkspaceMembership,
     WorkspaceProviderLinkState,
     WorkspaceSubscription,
+)
+from twobrain_rec_server.db.tenant_context import (
+    TenantDatabaseContext,
+    apply_tenant_context,
+    apply_tenant_context_to_connection,
 )
 
 SOURCE_USER_ID = UUID("30000000-0000-0000-0000-000000000099")
@@ -1667,65 +1681,77 @@ def test_in_progress_upload_and_requested_export_block_merge(client) -> None:
     client.portal.call(exercise)
 
 
-def test_active_source_fair_use_review_blocks_merge_until_resolved(client) -> None:
+@pytest.mark.asyncio
+async def test_active_source_fair_use_review_blocks_merge_until_resolved(operator_case) -> None:  # noqa: F811
+    case = operator_case
     source = duplicate_account_fixture(90, email="fair-use-source@example.test")
+    await _seed_database(case.owner.url.render_as_string(hide_password=False))
+    owner_sessions = async_sessionmaker(case.owner, expire_on_commit=False)
+    async with owner_sessions() as db:
+        await _seed_empty_source(
+            db, user_id=source.user_id, workspace_id=source.workspace_id, email=source.email,
+        )
+        await db.commit()
 
-    async def exercise() -> None:
-        async with client.app_state["sessionmaker"]() as db:
-            await _seed_empty_source(
+        case.values.update(workspace=source.workspace_id, subject=source.user_id,
+                           evidence="fu-merge-lineage-90")
+        notice = await create_source(case)
+        review_id = notice["id"]
+        assert notice["state"] == "notice"
+        async with async_sessionmaker(case.app, expire_on_commit=False)() as subject_db:
+            assert (await subject_db.execute(text("SELECT session_user,current_user,rolsuper,rolbypassrls,current_setting('row_security') FROM pg_roles WHERE rolname=current_user"))).one() == ("twobrain_rec_app", "twobrain_rec_app", False, False, "on")
+            await apply_tenant_context(subject_db, TenantDatabaseContext(
+                organization_id=ORG_ID, workspace_id=source.workspace_id, user_id=source.user_id,
+                context_kind="request",
+            ))
+            appealed, changed = await appeal_persisted_review(
+                subject_db, review_id=review_id, subject_user_id=source.user_id,
+            )
+            assert changed and appealed is not None and appealed.state == "appealed"
+            await subject_db.commit()
+
+        review = await db.get(FairUseReviewRecord, review_id)
+        assert review is not None and review.state == "appealed"
+        first_deadline, first_appeal = review.review_by, review.appealed_at
+        blocked_intent, blocked_preview = await _create_ready_merge(
+            db, source_user_id=source.user_id
+        )
+        assert blocked_preview.blocker_codes == ("fair_use_conflict",)
+        blocked_intent_id = blocked_intent.id
+        await db.commit()
+        with pytest.raises(AccountMergeError, match="blocked"):
+            await confirm_merge_intent(
                 db,
-                user_id=source.user_id,
-                workspace_id=source.workspace_id,
-                email=source.email,
+                intent_id=blocked_intent.id,
+                preview_fingerprint=blocked_preview.fingerprint,
+                idempotency_key="fair-use-blocked",
             )
-            now = datetime.now(UTC)
-            review = FairUseReviewRecord(
-                workspace_id=source.workspace_id,
-                subject_user_id=source.user_id,
-                capability="server_processing",
-                reason_code="resale",
-                evidence_ref="fu-merge-lineage-90",
-                starts_at=now,
-                review_by=now + timedelta(hours=24),
-                state="restricted",
-            )
-            db.add(review)
-            await db.commit()
-            review_id = review.id
+        await db.rollback()
 
-            blocked_intent, blocked_preview = await _create_ready_merge(
-                db, source_user_id=source.user_id
-            )
-            assert blocked_preview.blocker_codes == ("fair_use_conflict",)
-            blocked_intent_id = blocked_intent.id
-            await db.commit()
-            with pytest.raises(AccountMergeError, match="blocked"):
-                await confirm_merge_intent(
-                    db,
-                    intent_id=blocked_intent.id,
-                    preview_fingerprint=blocked_preview.fingerprint,
-                    idempotency_key="fair-use-blocked",
-                )
-            await db.rollback()
+        async with case.maintenance.begin() as conn:
+            assert (await conn.execute(text("SELECT session_user,current_user,rolsuper,rolbypassrls,current_setting('row_security') FROM pg_roles WHERE rolname=current_user"))).one() == ("twobrain_rec_maintenance", "twobrain_rec_maintenance", False, False, "on")
+            await apply_tenant_context_to_connection(conn, CONTEXT)
+            await declare_operator(conn)
+            await conn.execute(text("UPDATE public.fair_use_reviews SET state='cleared',resolution_code='not_substantiated' WHERE id=:id"), {"id": review_id})
+        with pytest.raises(AccountMergeError, match="merge_restart_required"):
+            await preview_merge_intent(db, intent_id=blocked_intent_id)
+        ready_intent, ready_preview = await _create_ready_merge(
+            db, source_user_id=source.user_id
+        )
+        assert ready_intent.id != blocked_intent_id
+        assert ready_intent.status == "preview_ready"
+        assert "fair_use_conflict" not in ready_preview.blocker_codes
+        assert (await db.get(AccountMergeIntent, blocked_intent_id)).status == "blocked"
+        await db.commit()
+        confirmed_preview = await preview_merge_intent(db, intent_id=ready_intent.id)
+        assert "fair_use_conflict" not in confirmed_preview.blocker_codes
 
-            review = await db.get(FairUseReviewRecord, review_id)
-            assert review is not None
-            review.state = "cleared"
-            await db.commit()
-            with pytest.raises(AccountMergeError, match="merge_restart_required"):
-                await preview_merge_intent(db, intent_id=blocked_intent_id)
-            ready_intent, ready_preview = await _create_ready_merge(
-                db, source_user_id=source.user_id
-            )
-            assert ready_intent.id != blocked_intent_id
-            assert ready_intent.status == "preview_ready"
-            assert "fair_use_conflict" not in ready_preview.blocker_codes
-            assert (await db.get(AccountMergeIntent, blocked_intent_id)).status == "blocked"
-            await db.commit()
-            confirmed_preview = await preview_merge_intent(db, intent_id=ready_intent.id)
-            assert "fair_use_conflict" not in confirmed_preview.blocker_codes
-
-    client.portal.call(exercise)
+    async with case.owner.connect() as conn:
+        final = (await conn.execute(text("SELECT state,review_by,appealed_at,resolved_at FROM public.fair_use_reviews WHERE id=:id"), {"id": review_id})).one()
+        assert final.state == "cleared" and final.review_by == first_deadline
+        assert final.appealed_at == first_appeal and final.resolved_at is not None
+        events = (await conn.execute(text("SELECT action FROM public.billing_audit_events WHERE target_ref=:target ORDER BY created_at"), {"target": str(review_id)})).scalars().all()
+        assert events == ["fair_use.review.created", "fair_use.review.appealed", "fair_use.review.resolved"]
 
 
 def test_terminal_upload_and_ready_export_remain_historical(client) -> None:

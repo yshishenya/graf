@@ -22,6 +22,54 @@ class _CleanupTransactionDeadlock(RuntimeError):
     """Only an uncommitted cleanup transaction may enter the bounded retry."""
 
 
+class _ProtectedFairUseHistory(RuntimeError):
+    """Abort before mutations when the synthetic scope is not safe to remove."""
+
+
+async def _preflight_fair_use_history(conn: Any, smoke_identity: dict[str, str]) -> None:
+    try:
+        if conn.dialect.name != "postgresql":
+            raise _ProtectedFairUseHistory
+        role = (await conn.execute(text("""
+            SELECT session_user, current_user, current_setting('row_security'),
+                   rolsuper, rolbypassrls, public.rec_maintenance_allowed(),
+                   current_setting('app.context_kind', true),
+                   current_setting('app.maintenance_operation', true),
+                   current_setting('app.maintenance_actor', true),
+                   current_setting('app.maintenance_reason', true),
+                   current_setting('app.maintenance_feature_area', true),
+                   current_setting('transaction_isolation')
+            FROM pg_roles WHERE rolname=current_user
+        """))).one()
+        if tuple(role) != ("twobrain_rec_maintenance", "twobrain_rec_maintenance", "on",
+                           False, False, True, "maintenance", "production_smoke_cleanup",
+                           "cleanup_smoke_artifacts.py", "smoke_cleanup", "ingest", "read committed"):
+            raise _ProtectedFairUseHistory
+        # The same root serializes source creation and cleanup through its FK.
+        await conn.execute(
+            text("select id from workspaces where id=:workspace_id for update"),
+            {"workspace_id": smoke_identity["workspace_id"]},
+        )
+        # Foreign-workspace history can retain this subject through its user FK.
+        await conn.execute(
+            text("SELECT id FROM user_identities WHERE id=:user_id FOR UPDATE NOWAIT"),
+            {"user_id": smoke_identity["user_id"]},
+        )
+        if await conn.scalar(text("""
+            SELECT EXISTS (SELECT 1 FROM public.fair_use_reviews
+                           WHERE workspace_id=:workspace_id OR subject_user_id=:user_id)
+        """), smoke_identity):
+            raise _ProtectedFairUseHistory
+        if await conn.scalar(text("""
+            SELECT EXISTS (SELECT 1 FROM public.billing_audit_events
+                           WHERE (workspace_id=:workspace_id OR actor_user_id=:user_id)
+                             AND (left(action,9)='fair_use.' OR target_kind='fair_use_review'))
+        """), smoke_identity):
+            raise _ProtectedFairUseHistory
+    except DBAPIError:
+        raise _ProtectedFairUseHistory from None
+
+
 async def _table_exists(conn, table_name: str) -> bool:
     result = await conn.execute(
         text("select to_regclass(:table_name) is not null"),
@@ -532,14 +580,7 @@ async def _cleanup_smoke_artifacts_once(
     try:
         async with engine.begin() as conn:
             await apply_tenant_context_to_connection(conn, _maintenance_context())
-            # Lock the synthetic parent before discovery/deletion. PostgreSQL
-            # FK inserts take a key-share lock on this row, so a concurrent
-            # playback worker cannot create a new workspace child between the
-            # ordered deletes and workspace removal.
-            await conn.execute(
-                text("select id from workspaces where id=:workspace_id for update"),
-                {"workspace_id": smoke_identity["workspace_id"]},
-            )
+            await _preflight_fair_use_history(conn, smoke_identity)
             meeting_ids = await _discover_smoke_meetings(conn, smoke_identity)
             sessions_by_meeting = await _discover_upload_sessions(conn, meeting_ids)
             if meeting_id in sessions_by_meeting and session_id:
@@ -673,10 +714,6 @@ async def _cleanup_smoke_artifacts_once(
                     "delete from generation_calls where workspace_id=:workspace_id",
                 ),
                 (
-                    "fair_use_reviews",
-                    "delete from fair_use_reviews where workspace_id=:workspace_id",
-                ),
-                (
                     "ingest_audit_events",
                     "delete from ingest_audit_events where workspace_id=:workspace_id",
                 ),
@@ -773,6 +810,8 @@ async def _cleanup_smoke_artifacts_once(
         async with engine.begin() as conn:
             await apply_tenant_context_to_connection(conn, _maintenance_context())
             residue.extend(await _database_residue(conn, smoke_identity))
+    except _ProtectedFairUseHistory:
+        return 0, 0, ["protected_fair_use_history"]
     except DBAPIError as error:
         # engine.begin() has rolled back before this handler; no SQL is retried
         # inside an aborted transaction. Never repeat deletion after commit.

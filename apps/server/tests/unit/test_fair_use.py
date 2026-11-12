@@ -8,7 +8,6 @@ import pytest
 
 from twobrain_rec_server.billing.events import BillingEvent, event_id_for, notification_kind_for
 from twobrain_rec_server.billing.fair_use import (
-    appeal_persisted_review,
     appeal_review,
     create_review,
     enqueue_review_notification,
@@ -18,6 +17,7 @@ from twobrain_rec_server.billing.fair_use import (
     review_subject_ref,
 )
 from twobrain_rec_server.billing.notifications import BillingNotification
+from twobrain_rec_server.db.models import FairUseReviewRecord
 
 
 def test_fair_use_review_is_bounded_and_appealable() -> None:
@@ -124,11 +124,13 @@ def test_fair_use_notification_subject_is_bounded_metadata() -> None:
 
 
 def test_fair_use_notification_never_sends_evidence_payload() -> None:
-    review = create_review(
+    review = FairUseReviewRecord(
+        id=uuid4(), state="notice",
         capability="server_processing",
-        reason="security_abuse",
+        reason_code="security_abuse",
         evidence_ref="incident:123",
         starts_at=datetime(2026, 8, 7, 10, tzinfo=UTC),
+        review_by=datetime(2026, 8, 8, 10, tzinfo=UTC),
     )
     enqueue = AsyncMock(return_value=True)
     with patch("twobrain_rec_server.billing.fair_use.enqueue_billing_event", enqueue):
@@ -143,6 +145,7 @@ def test_fair_use_notification_never_sends_evidence_payload() -> None:
     assert result is True
     payload = enqueue.call_args.kwargs["payload"]
     assert payload == {
+        "phase": "notice", "fair_use_review_id": str(review.id),
         "action_path": "/account/fair-use",
         "capability": "server_processing",
         "reason": "security_abuse",
@@ -151,21 +154,27 @@ def test_fair_use_notification_never_sends_evidence_payload() -> None:
     assert review.evidence_ref not in str(enqueue.call_args.kwargs)
 
 
-def test_persisted_review_is_idempotent_and_appeal_is_repeatable() -> None:
+def test_persisted_review_is_idempotent() -> None:
     class FakeDB:
         def __init__(self, row=None) -> None:
             self.row = row
             self.added = None
 
         async def scalar(self, _statement):
+            if getattr(_statement, "is_insert", False):
+                self.row = self.added = FairUseReviewRecord(**{**_statement.compile().params, "id": uuid4()})
             return self.row
 
         def add(self, row) -> None:
+            row.id = uuid4()
             self.added = row
             self.row = row
 
         async def flush(self) -> None:
             return None
+
+        async def refresh(self, row) -> None:
+            assert row is self.row
 
     workspace_id = uuid4()
     subject_id = uuid4()
@@ -195,7 +204,7 @@ def test_persisted_review_is_idempotent_and_appeal_is_repeatable() -> None:
     with patch(
         "twobrain_rec_server.billing.fair_use.enqueue_review_notification",
         AsyncMock(return_value=True),
-    ):
+    ) as enqueue:
         same_row = asyncio.run(
             persist_review(
                 db,
@@ -205,28 +214,8 @@ def test_persisted_review_is_idempotent_and_appeal_is_repeatable() -> None:
             )
         )
     assert same_row is row
+    enqueue.assert_not_awaited()
 
-    appealed = asyncio.run(
-        appeal_persisted_review(
-            db,
-            review_id=row.id,
-            subject_user_id=subject_id,
-            at=datetime(2026, 8, 7, 12, tzinfo=UTC),
-        )
-    )
-    assert appealed is row
-    assert row.state == "appealed"
-    assert row.appealed_at == datetime(2026, 8, 7, 12, tzinfo=UTC)
-    appealed_again = asyncio.run(
-        appeal_persisted_review(
-            db,
-            review_id=row.id,
-            subject_user_id=subject_id,
-            at=datetime(2026, 8, 7, 13, tzinfo=UTC),
-        )
-    )
-    assert appealed_again is row
-    assert row.appealed_at == datetime(2026, 8, 7, 12, tzinfo=UTC)
 
 
 def test_persisted_review_notifies_distinct_workspace_owner() -> None:
@@ -238,12 +227,17 @@ def test_persisted_review_notifies_distinct_workspace_owner() -> None:
             self.values = [None, owner_id]
 
         async def scalar(self, _statement):
+            if getattr(_statement, "is_insert", False):
+                return FairUseReviewRecord(**{**_statement.compile().params, "id": uuid4()})
             return self.values.pop(0)
 
         def add(self, _row) -> None:
-            return None
+            _row.id = uuid4()
 
         async def flush(self) -> None:
+            return None
+
+        async def refresh(self, _row) -> None:
             return None
 
     review = create_review(

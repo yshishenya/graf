@@ -9,11 +9,11 @@
       {% if unavailable %}
       <section class="settings-section settings-boundary-card" role="status" aria-live="polite">
         <h2>Данные временно недоступны</h2>
-        <p class="muted">Мы не показываем неподтвержденные ограничения. Обновите страницу позже.</p>
+        <p class="muted">Данные о проверках сейчас недоступны. Обновите страницу позже.</p>
       </section>
       {% elif not reviews %}
       <section class="settings-section settings-boundary-card" role="status">
-        <h2>Ограничений нет</h2>
+        <h2>Проверок нет</h2>
         <p class="muted">Обычный личный объем встреч не является нарушением. Если появится проверка, здесь будут причина, срок и безопасное действие.</p>
       </section>
       {% else %}
@@ -22,18 +22,18 @@
         <h2 id="fair-use-review-{{ review.id }}">{{ review.state_label }}</h2>
         <p>Затронутая возможность: <strong>{{ review.capability }}</strong>.</p>
         <p>Причина проверки: {{ review.reason_label }}.</p>
-        <p>Что это означает: часть этой возможности может быть временно ограничена до завершения проверки; минуты платного тарифа не превращаются в скрытый лимит.</p>
-        <p>Срок проверки: <strong>{{ review.review_by_label }}</strong>{% if review.review_overdue %}; срок уже прошел, обращение требует внимания поддержки{% endif %}.</p>
+        <p>Сохраненный результат проверки не подтверждает применение или снятие ограничения. О действующих ограничениях сообщается отдельно; минуты платного тарифа не превращаются в скрытый лимит.</p>
+        <p>{{ 'Первоначальный срок проверки' if review.review_completed else 'Срок проверки' }}: <strong>{{ review.review_by_label }}</strong>{% if review.review_overdue %}; срок уже прошел, обращение требует внимания поддержки{% endif %}.</p>
         <p>Номер для поддержки: <code id="fair-use-support-{{ review.id }}">{{ review.support_reference }}</code>
           <button class="button quiet" type="button" hidden data-copy-target="fair-use-support-{{ review.id }}">Скопировать номер для поддержки</button>
         </p>
         {% if review.can_appeal %}
         <form method="post" action="{{ appeal_base_path }}/{{ review.id }}/appeal">
           {{ sections.csrf_field(csrf_token) }}
-          <button class="button" type="submit">Обжаловать ограничение</button>
+          <button class="button" type="submit">Обжаловать проверку</button>
         </form>
         {% elif review.appealed %}
-        <p class="settings-status" role="status">Апелляция уже отправлена. Мы не принимаем содержимое встреч или данные карты через эту форму.</p>
+        <p class="settings-status" role="status">Апелляция принята. Мы не принимаем содержимое встреч или данные карты через эту форму.</p>
         {% endif %}
       </section>
       {% endfor %}

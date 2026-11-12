@@ -4,6 +4,10 @@
 
 ## Summary
 
+Текущий проект11.11.2026 — T070/T068, операторский источник fair-use;
+канонический scoped проект и условия допуска в заключительном разделе
+«T070/T068: операторский источник fair-use». Ниже — прежние датированные срезы.
+
 Активный срез03.11.2026 — T077/O16 J5/J6 после принятого PR7914/J1–J4.
 Ответы владельца приняты. Ниже подготовлен дизайн регулярной проверки,
 почтовых тревог и сохраняемой реакции для независимых checklist/analyze;
@@ -1272,3 +1276,123 @@ RLS_BILLING_TABLES и RLS_COVERED_TABLES отразить явно.
 и sender, независимое code review/converge, предметный PostgreSQL и три
 обязательных проверки точного SHA/актуальной основы. Полные T070/T068 и #7524
 не завершаются. Выпуск, сервер, реальная почта и Dev отдельно.
+
+## T070/T068: операторский источник fair-use — 11.11.2026
+
+Проект FU1–FU8, high-risk-product. Применить существующий F140, не создавать
+дубликат фичи или задачи. Scope — внутренний ввод уже проверенного человеком
+основания, атомарные review/audit/outbox, апелляция и сохраняемое решение,
+проверяемая единственная подставная отправка. Полный enforcement и реальная
+операционная реакция≤24ч остаются в исходной T070. Рабочий договор:
+[fair-use-operator](contracts/fair-use-operator.md).
+
+### Constitution Check до и после проекта
+
+I/II: нет изменения capture/Record/Stop; III: нет нового внешнего направления,
+только непрозрачные ссылки и закрытые метаданные; IV: нет хранения материалов
+основания, сроков удаления или обхода закрытия аккаунта; VI: до кода нужны
+независимый checklist, tasks, Analyze и существующие issues, затем реальная
+PostgreSQL/RLS, code review/Converge и три PR gate точного SHA/основы.
+Новая операторская обработка не является выпуском/продакшеном и не вводит
+новое платное ограничение. Legacy Impact: untouched; старые строки не получают
+выдуманную историю или массовую повторную рассылку. Принципы не меняются.
+
+### Phase 0 и неизвестные до реализации
+
+Повторно использовать `cli/billing_registry.py` и identity gate
+`billing/database.py`, существующие FairUseReviewRecord.resolved_at/
+resolution_code, BillingAuditEvent и outbox. Поля решения уже есть, но
+исследование текущих RLS/grants опровергло гипотезу отсутствия миграции:
+0074 разрешает app DML своей/lineage строки,0044 и bootstrap не защищают
+audit от переписывания. До допуска требуется узкая миграция, SQL guard
+переходов/защищённого audit и сохранение прав при повторном bootstrap.
+Операторский ввод — ручной классифицированный источник, не выдуманный
+автоматический детектор объёма. Независимое исследование обязано проверить
+достаточность существующих ролей, порядок блокировок, реальные потребители
+state, права кабинета/lineage и источник истины получателя. Найденные
+зависимости должны попасть в договор и Quickstart до допуска к коду.
+Отчёт Phase0 от11.11 — `f140-t070-fair-use-operator-research-20261111.md`
+во внешнем каталоге доказательств; это исследование, не reviewer PASS.
+Дополнительный Phase0 `f140-t070-fair-use-db-design-20261111.md` выбирает
+существующие таблицы, INVOKER guards перехода/namespace и автоматический
+DEFINER audit writer минимальной NOLOGIN роли по принципу0111. Root проверяет
+оригиналы и принимает технический выбор отдельно от checklist/реализации.
+Контракт содержит полные ACL/role/trigger/legacy/cleanup границы. Phase1
+подготовлен ниже; checklist/tasks/analyze/допуск ещё не завершены.
+
+Существенный уже найденный эффект: account_merge передаёт
+include_confirmed=False. restricted/appealed блокируют merge,
+notice/cleared/confirmed — нет. Новое создание и решение делают эту
+существующую ветку достижимой из реального источника; не называть весь срез
+инертным и не исправлять merge policy без отдельного согласованного проекта.
+
+### Phase 1: минимальные стыки
+
+1. В новом `cli/billing_fair_use.py` защищённые create/resolve и READ ONLY
+   dry-run по умолчанию; закрытые ошибки, без значений аргументов/секретов.
+2. В `billing/fair_use.py` общий атомарный путь, неизменный первый срок,
+   idempotent/конфликт решения и уведомление первой апелляции. Workspace
+   lock → review lock → audit/outbox; повтор и откат покрыть до исправления.
+3. В `billing/events.py` и `notifications.py` прежняя family плюс закрытая
+   phase, стабильная identity по исходному review/переходу, безопасная copy.
+   Никакого прямого enqueue в положительном причинном тесте.
+4. В `workflows/worker.py` источник/первоначальный адресат проверяются при
+   захвате по существующему шаблону; обязательная почта не зависит от marketing.
+   Unknown после POST не повторяется. Ошибку чтения не смешивать с утратой права.
+5. `cabinet/web_routes/fair_use.py` сохраняет текущие CSRF/lineage и commit;
+   положительный тест проходит настоящий маршрут, а не вызывает helper вместо
+   пользовательского действия. Изначальная строка возникает через CLI.
+6. Следующая свободная миграция в `db/migrations/versions/` защищает
+   create/resolve от прямого app SQL и историю новых audit, сохраняя
+   допустимую апелляцию и lineage чтение. Стыки: `db/rls_validation.py`,
+   `apps/server/scripts/bootstrap_runtime_database_roles.py`, профильные
+   migration/role fixtures и tests. Существующих review/audit полей достаточно;
+   новую таблицу/сервис/обход RLS не добавлять. Роль
+   `twobrain_rec_fair_use_audit_writer` NOLOGIN/NOINHERIT/NOBYPASSRLS только
+   вставляет audit через установленный AFTER DEFINER trigger. BEFORE INVOKER
+   guard review проверяет реальные роли и разрешённые переходы; BEFORE
+   INVOKER audit guard запрещает прямой reserved INSERT app/maintenance и
+   UPDATE/DELETE по OLD ИЛИ NEW namespace. Canonical audit больше не вставляет
+   Python. fixed search_path/qualified refs/row_security, REVOKE EXECUTE и
+   ENABLE ALWAYS; никаких runtime role memberships/SET parameter обходов.
+   Разделить SELECT/INSERT/UPDATE review policies, удалить старый FOR ALL.
+   UPDATE USING обязан сохранить validated account_merge row-lock ветку:
+   F178 SELECT FOR UPDATE применяет UPDATE policy. WITH CHECK/guard не дают
+   этой ветке фактический UPDATE. Общий rec_maintenance_allowed недостаточен
+   для operator authority. Проверить повтор bootstrap,
+   старые строки и блокирующий destructive downgrade без backfill/рассылки.
+7. `cabinet/templates/cabinet/pages/fair_use_content.html` и route projection
+   должны различать review/appeal/result и исторический срок. Старое confirmed
+   не объявляется снятым ограничением; новый confirmed не доказывает
+   применение санкции. Сохранить keyboard/CSRF/status announcements, safe
+   support action и прежнюю структуру страницы, без новых assets/редизайна.
+8. В `cleanup_smoke_artifacts.py` проверить реальную maintenance identity и
+   прежний cleanup context; после Workspace root lock, ДО любого DML/Minio,
+   preflight exact synthetic scope на любые review/зарезервированный audit.
+   Наличие/ошибка чтения → safe protected_fair_use_history,0 изменений.
+   Удалить выполнение DELETE fair_use_reviews, даже при пустой таблице,
+   поскольку право DELETE отозвано. Обычный smoke без истории чистится как
+   прежде; с историей безопасно отказывает. Не давать исключения по cleanup
+   GUC или depth. Проверить race preflight/source insert; account-close
+   retained metadata остаются, физического DELETE/bypass не добавлять.
+9. Дополнить профильные роли/миграционные fixtures, tests
+   `test_fair_use.py`, `test_fair_use_ui.py`, billing notification flow,
+   настоящий CLI/roleSQL и account-merge/cleanup tests. Существующие callers
+   `persist_review` и direct FairUseReviewRecord fixtures переводятся на
+   новую настоящую разрешённую роль либо trusted setup только для старой
+   истории; нельзя вернуть широкие app grants ради прежнего теста.
+   Доказать триггер при REVOKE EXECUTE, прямой audit spoof app/maintenance,
+   UPDATE laundering, rollback при audit error и repeat bootstrap на PG17.
+
+Workspace → review → audit/outbox остаётся локальным порядком. При пересечении
+с UserIdentity/membership/account merge не добавлять обратное ожидание:
+использовать NOWAIT и полный rollback/bounded retry, сохранять проверку
+актуальности до commit/claim. Sender для fair-use должен выбирать и строки
+без текущего адреса, различать terminal suppression и временную ошибку;
+retry≤5/≥60сек учитывается в selector и под lock. Это не распространение
+новой политики на остальные семейства.
+
+Профильный RED от входа → минимальная реализация → PostgreSQL с настоящими
+ограниченными LOGIN/FORCE RLS и отдельным соединением после commit → code
+review/Converge/fragment → точный commit/push/PR и проверки. Tasks87 строк,
+T068/T070 `[ ]`, #7524 и остальные gaps сохраняются. Допуск пока не выдан.

@@ -1374,3 +1374,118 @@ migration head, настоящей maintenance ролью без BYPASSRLS/FORCE
 наборы и RLS migration, independent code review, Converge, fragment/процесс,
 три штатных PR gates точного SHA и актуальной основы. T068/T070 остаются [ ];
 #7524, Dev/production/выпуск и остальные семейства сохраняют свою приёмку.
+
+## T070/T068: будущая приёмка операторского источника fair-use
+
+FU1–FU8 и [договор](contracts/fair-use-operator.md). Это план проверки,
+не выполненные тесты. Сначала независимый checklist/Analyze/issue sync.
+Только изолированная PostgreSQL, реальные bootstrap/FORCE RLS/LOGIN,
+синтетические субъекты/непрозрачные основания и подставной транспорт.
+Рабочая БД, настоящий операторский intake и реальная почта не используются.
+
+1. Вызвать настоящий CLI create в READ ONLY по умолчанию: ни review, ни
+   audit, ни outbox не записаны. Без evidence-reviewed, с неизвестной
+   capability/reason, чужим субъектом, отсутствующей областью и закрытым
+   аккаунтом — безопасный отказ без записи/echo. App/media/owner SET ROLE,
+   неверный operation/feature, row_security=off также не полномочия.
+2. Execute create → commit → новое соединение: notice и audit/queue видны
+   вместе, срок ровно starts_at+24ч. Повтор/два конкурентных ввода сохраняют
+   одну review и одно письмо на исходного адресата. Несовместимый повтор
+   отклоняется. Принудительный rollback не оставляет следов нового действия.
+3. Штатный sender → один подставной вызов; повтор процесса не дублирует.
+   Необязательная почта отключена — обязательное письмо всё равно идёт.
+   Письмо не содержит evidence/operator/UUID/встречи/контакты; ссылка только
+   на /account/fair-use. После постановки unlink/смена owner/закрытие аккаунта
+   не перенаправляют письмо и дают доказуемое подавление. Ошибка чтения
+   даёт retry, не suppressed; неизвестный транспорт не повторяется.
+4. Настоящий cabinet POST с session/CSRF и своей lineage → первая апелляция
+   сохраняется и даёт отдельную очередь/одну отправку, повтор — без дубля.
+   Чужой пользователь и неправильный CSRF не меняют строку. Deadline
+   исходный; state appealed сохраняет существующий account-merge конфликт.
+5. Execute resolve cleared/confirmed → commit → новое соединение видит
+   state/resolved_at/resolution_code и audit/outbox. Повтор того же решения
+   не меняет время или письмо; другое решение/код даёт конфликт. Откат
+   сохраняет прежнее состояние. Позднее решение не стирает факт просрочки.
+   Проверить существующий include_confirmed=False: restricted/appealed
+   блокируют merge, notice/cleared/confirmed — нет. Не выдавать это за
+   проверку всех операций объединения или фактического применения санкции.
+6. Статически и предметно сохранить оплаченный срок/коммерческий баланс,
+   local Record/Stop, existing read/export/delete; CLI не принимает urgent
+   и protected capabilities. Нет provider/refund calls, новой службы,
+   таблицы квот или самостоятельного почтового повтора.
+7. После узкой миграции проверить прямым SQL под настоящими LOGIN, отдельно
+   от Python helper: app/media не создают review, не разрешают её, не меняют
+   исходные поля/первую дату; app сохраняет только допустимую subject/lineage
+   апелляцию. Нельзя сфабриковать операторский audit, изменить/удалить новую
+   историю или вывести её из защищённого action. Проверить bootstrap повторно,
+   table/column grants, FORCE RLS, неправильные operation/feature, SET ROLE,
+   row_security=off. Владелец миграций не является положительной runtime ролью.
+8. Миграция со старыми notice/restricted/appealed/cleared/confirmed не меняет
+   строки и не создаёт доказательство/письмо задним числом. Непроверяемое
+   старое final решение не получает выдуманного actor. Destructive downgrade
+   с новой историей отказывает. Существующий smoke cleanup не получает право
+   стирать защищённый audit; штатное закрытие сохраняет retained metadata.
+   При конфликте схемы — атомарный отказ, без частичной миграции.
+9. Cabinet GET/POST сохраняет доступность/клавиатуру/CSRF/объявление результата,
+   различает notice/appeal/сохранённый результат, показывает срок final как
+   исторический. Старое confirmed не выдаётся за снятие ограничения, cleared
+   не обещает снятие всех санкций. Notice→appeal→fair_use_conflict→resolution,
+   lineage, stale preview и повтор нового intent проверяются по прежней F178.
+   Необходимые NOWAIT/rollback не оставляют частичного audit/queue. Для retry
+   проверить обе стороны delay: poll и claim до/после60сек, предел5 и unknown.
+10. Автоматический audit: настоящий create/appeal/resolve через DB trigger
+    даёт один canonical event, Python не делает reserved INSERT. App И
+    maintenance не могут INSERT/COPY/UPSERT поддельный event, даже с правильным
+    writer GUC/actor/depth/metadata; нельзя UPDATE reserved→ordinary или
+    ordinary→reserved, actor/time/payload, DELETE/TRUNCATE. Ошибка audit
+    trigger/INSERT/unique/commit откатывает source и outbox; no-op ничего не
+    добавляет. Writer NOLOGIN имеет только INSERT нужных столбцов,0 SELECT/
+    UPDATE/DELETE/membership; current_user внутри DEFINER — writer, исходный
+    session_user сохранён отдельно. PUBLIC/runtime не могут EXECUTE/attach/
+    REPLACE/disable функции/триггеры, shadow temp/public объекты или SET
+    session_replication_role. Два bootstrap и новая login сессия сохраняют
+    exact effective ACL/definitions/owner/ALWAYS/FORCE RLS; failed bootstrap
+    не оставляет широких grants. Прежние nonreserved audit writers не ломаются.
+    По точному контракту audit v1 проверить каждый required key/столбец,
+    unknown-key, wrong-type/boolean-as-number, missing-key, forbidden SQL/JSON
+    null, неверные enum/версию/UUID/time и межполевые несоответствия. Operator-ref
+    `^op-[0-9a-f]{32}$` одинаково отклоняет empty/null/overlong/short/control/
+    whitespace/Unicode/uppercase в CLI dry-run/execute и настоящем DB guard
+    перехода, без записей/echo. Отсутствующий/не true evidence-reviewed
+    также запрещает maintenance переход. App appeal с подставными operator
+    GUC всё равно получает source=request и null заявления в audit.
+    Невалидный автоматический envelope проверять отдельной trusted test
+    setup транзакцией в изолированной БД, вызывая реальный INVOKER audit guard
+    под настоящей минимальной NOLOGIN writer ролью; это отрицательная проверка
+    функции, не положительный операторский путь. Положительные create/appeal/
+    resolve выполняются только настоящими runtime LOGIN/рабочими входами;
+    роль владельца не заменяет их. После каждого отказа source/audit/outbox
+    сохраняют прежний снимок.
+11. Под настоящим validated AccountMergeTenantContext SELECT FOR UPDATE
+    должен действительно удерживать review до конца транзакции: второе
+    соединение resolve/appeal ожидает либо безопасно перезапускается. При
+    тех же merge proofs фактический UPDATE state/original/terminal запрещён.
+    Не подменять доказательство обычным SELECT: UPDATE USING применяется и
+    к блокирующему чтению. Include_confirmed=False и F178 stale preview прежние.
+12. Cleanup без fair-use истории полностью удаляет прежний synthetic scope.
+    С любой review/защищённым audit или ошибкой preflight возвращается
+    protected_fair_use_history ДО DML/objects,0partial changes; DELETE review
+    не выполняется даже для пустой таблицы. Принудительно проверить источник,
+    конкурирующий с root preflight, без потери истории/объектов. Ни существующий
+    cleanup context, ни actor/depth не открывают исключение. Временную БД
+    целиком удаляет администратор тестового стенда после сохранения логов,
+    а не продуктовая maintenance роль через снятие защиты.
+
+Профильный запуск после реализации:
+
+```sh
+bash apps/server/scripts/run_local_postgres_tests.sh --focused \
+  tests/integration/test_billing_notification_flow.py \
+  tests/unit/test_fair_use.py tests/contract/test_fair_use_ui.py
+```
+
+Добавить в тот же scoped набор точные новые CLI/identity/merge-regression
+случаи после их определения в tasks. Не называть отсутствие этих случаев
+PASS и не запускать весь прежний набор без причины. После проверки сохранить
+хеши/логи/cleanup, code review/Converge/fragment и три PR gate. T070/T068 `[ ]`,
+полный FR-107, фактическое #7524, Dev, выпуск и сервер — отдельные условия.

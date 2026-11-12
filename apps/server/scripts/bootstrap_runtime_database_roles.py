@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 import re
+from importlib import import_module
 from pathlib import Path
 
 import asyncpg
@@ -342,6 +343,151 @@ async def _restrict_receipt_observation_source(connection: asyncpg.Connection) -
             raise RuntimeError("receipt observation runtime privileges are unsafe")
 
 
+async def _verify_fair_use_definitions(connection: asyncpg.Connection, schema) -> None:
+    # Parse the expected SQL with this PostgreSQL version, rather than comparing formatting.
+    policy_query = """
+        select polname,polcmd,polpermissive,polroles,
+            pg_get_expr(polqual,polrelid) as using_expression,
+            pg_get_expr(polwithcheck,polrelid) as check_expression
+        from pg_policy where polrelid=to_regclass($1) order by polname
+    """
+    for table, policies in schema.POLICIES.items():
+        await connection.execute(f"CREATE TEMP TABLE {table} (LIKE public.{table}) ON COMMIT DROP")
+        for name, definition in policies.items():
+            await connection.execute(f"CREATE POLICY {name} ON pg_temp.{table} {definition}")
+        actual = await connection.fetch(policy_query, f"public.{table}")
+        expected = await connection.fetch(policy_query, f"pg_temp.{table}")
+        if actual != expected:
+            raise RuntimeError("fair-use policy definition is unsafe")
+    await connection.execute(
+        f"CREATE UNIQUE INDEX {schema.INDEX} ON pg_temp.billing_audit_events {schema.INDEX_DEFINITION}"
+    )
+    index_query = """
+        select i.indisunique,i.indisvalid,i.indisready,i.indislive,i.indisprimary,
+            i.indisexclusion,i.indnullsnotdistinct,i.indnkeyatts,i.indnatts,
+            i.indkey,i.indclass,i.indcollation,i.indoption,c.relam,
+            pg_get_expr(i.indexprs,i.indrelid) as expressions,
+            pg_get_expr(i.indpred,i.indrelid) as predicate
+        from pg_index i join pg_class c on c.oid=i.indexrelid
+        where i.indexrelid=to_regclass($1) and i.indrelid=to_regclass($2)
+    """
+    actual = await connection.fetchrow(index_query, f"public.{schema.INDEX}", "public.billing_audit_events")
+    expected = await connection.fetchrow(index_query, f"pg_temp.{schema.INDEX}", "pg_temp.billing_audit_events")
+    if actual != expected:
+        raise RuntimeError("fair-use history index is unsafe")
+    for table in schema.POLICIES:
+        await connection.execute(f"DROP TABLE pg_temp.{table}")
+
+
+async def _restrict_fair_use_history(connection: asyncpg.Connection) -> None:
+    """Keep migration-owned transition/audit protection after broad runtime grants."""
+    names = ("rec_guard_fair_use_review", "rec_append_fair_use_audit",
+             "rec_guard_fair_use_audit", "rec_guard_fair_use_truncate")
+    functions = await connection.fetch(
+        "select p.proname from pg_proc p join pg_namespace n on n.oid=p.pronamespace "
+        "where n.nspname='public' and p.proname=any($1::text[])", list(names),
+    )
+    if not functions:
+        partial = await connection.fetchval("""
+            select to_regclass('public.uq_fair_use_audit_transition') is not null
+                or exists(select from pg_policy where polrelid='public.fair_use_reviews'::regclass
+                          and polname='fair_use_review_read')
+                or exists(select from public.alembic_version where version_num='0113_fair_use_operator_history')
+        """)
+        if partial:
+            raise RuntimeError("fair-use history schema is incomplete")
+        return  # Bootstrap also runs before 0113 is installed.
+    if len(functions) != len(names):
+        raise RuntimeError("fair-use history schema is incomplete")
+    schema = import_module("twobrain_rec_server.db.migrations.versions.0113_fair_use_operator_history")
+    for role in ("PUBLIC", *schema.RUNTIME):
+        for statement in schema.runtime_grants(role):
+            await connection.execute(statement)
+    owner = await connection.fetchval("select relowner from pg_class where oid='public.fair_use_reviews'::regclass")
+    writer = await connection.fetchval("select oid from pg_roles where rolname=$1", schema.WRITER)
+    if not writer:
+        raise RuntimeError("fair-use audit writer is missing")
+    for signature, (returns, body) in schema.CONTEXT_HELPERS.items():
+        valid = await connection.fetchval("""
+            select prosrc=$2 and proowner=$3 and not prosecdef and provolatile='s'
+                and prorettype=$4::regtype and prolang=(select oid from pg_language where lanname='sql')
+                and proconfig is null
+            from pg_proc where oid=to_regprocedure($1)
+        """, f"public.{signature.replace('(name text)', '(text)')}", body, owner, returns)
+        if not valid:
+            raise RuntimeError("fair-use context helper is unsafe")
+    for name, body in schema.FUNCTIONS.items():
+        row = await connection.fetchrow("""
+            select prosrc,proowner,prosecdef,proconfig,prorettype='trigger'::regtype as is_trigger,
+                prolang=(select oid from pg_language where lanname='plpgsql') as plpgsql
+            from pg_proc where oid=to_regprocedure($1)
+        """, f"public.{name}()")
+        definer = name == "rec_append_fair_use_audit"
+        if not row or (row["prosrc"] != body or row["proowner"] != (writer if definer else owner)
+                       or row["prosecdef"] != definer or not row["is_trigger"] or not row["plpgsql"]
+                       or set(row["proconfig"] or ()) != {"search_path=pg_catalog, pg_temp", "row_security=on"}):
+            raise RuntimeError("fair-use protection function is unsafe")
+    for table, name, function, _events, flags in schema.TRIGGERS:
+        valid = await connection.fetchval("""
+            select count(*)=1 and bool_and(tgtype=$4 and tgenabled='A' and not tgisinternal
+                and tgnargs=0 and tgqual is null and tgfoid=to_regprocedure($3))
+            from pg_trigger where tgrelid=to_regclass($1) and tgname=$2
+        """, f"public.{table}", name, f"public.{function}()", flags)
+        if not valid:
+            raise RuntimeError("fair-use protection trigger is unsafe")
+    safe = await connection.fetchval("""
+        select not (r.rolcanlogin or r.rolinherit or r.rolsuper or r.rolbypassrls
+            or r.rolcreatedb or r.rolcreaterole or r.rolreplication)
+            and not exists(select from pg_auth_members m where r.oid in (m.roleid,m.member))
+            and has_schema_privilege(r.oid,'public','USAGE')
+            and not has_schema_privilege(r.oid,'public','CREATE')
+            and not has_table_privilege(r.oid,'public.billing_audit_events','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+            and not has_any_column_privilege(r.oid,'public.billing_audit_events','SELECT,UPDATE,REFERENCES')
+            and not exists(select from information_schema.columns c
+                where c.table_schema='public' and c.table_name='billing_audit_events'
+                and not has_column_privilege(r.oid,'public.billing_audit_events',c.column_name,'INSERT'))
+            and not exists(select from pg_proc p where p.proowner=r.oid
+                and p.oid <> 'public.rec_append_fair_use_audit()'::regprocedure)
+            and not exists(select from pg_class c join pg_namespace n on n.oid=c.relnamespace
+                where n.nspname !~ '^pg_' and n.nspname <> 'information_schema' and (
+                    c.relowner=r.oid or case when c.relkind='S' then has_sequence_privilege(r.oid,c.oid,'USAGE,SELECT,UPDATE')
+                    when c.relkind in ('r','p','v','m','f') and c.oid <> 'public.billing_audit_events'::regclass then
+                        has_table_privilege(r.oid,c.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+                        or has_any_column_privilege(r.oid,c.oid,'SELECT,INSERT,UPDATE,REFERENCES') else false end))
+        from pg_roles r where r.oid=$1
+    """, writer)
+    if not safe:
+        raise RuntimeError("fair-use audit writer is unsafe")
+    tables = await connection.fetchval("""
+        select count(*)=2 and bool_and(relrowsecurity and relforcerowsecurity and relowner=$1)
+        from pg_class where oid in ('public.fair_use_reviews'::regclass,'public.billing_audit_events'::regclass)
+    """, owner)
+    if not tables:
+        raise RuntimeError("fair-use row protection is unsafe")
+    await _verify_fair_use_definitions(connection, schema)
+    for role in schema.RUNTIME:
+        for name in schema.FUNCTIONS:
+            if await connection.fetchval("select has_function_privilege($1::name,$2,'EXECUTE')", role, f"public.{name}()"):
+                raise RuntimeError("fair-use runtime function privilege is unsafe")
+        if await connection.fetchval("select has_parameter_privilege($1::name,'session_replication_role','SET')", role):
+            raise RuntimeError("fair-use runtime parameter privilege is unsafe")
+        rights = await connection.fetchval("""
+            select has_table_privilege($1::name,'public.fair_use_reviews','SELECT')=$2
+                and not has_table_privilege($1::name,'public.fair_use_reviews','INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+                and not has_any_column_privilege($1::name,'public.fair_use_reviews','REFERENCES')
+        """, role, role != MEDIA_ROLE)
+        if not rights:
+            raise RuntimeError("fair-use runtime table privilege is unsafe")
+        columns = await connection.fetch("select attname from pg_attribute where attrelid='public.fair_use_reviews'::regclass and attnum>0 and not attisdropped")
+        inserts = set(schema.REVIEW_INSERT.split(",")) if role == MAINTENANCE_ROLE else set()
+        updates = set((schema.APP_UPDATE if role == APP_ROLE else schema.OPERATOR_UPDATE).split(",")) if role != MEDIA_ROLE else set()
+        for column in columns:
+            for privilege, expected in [("INSERT", inserts), ("UPDATE", updates)]:
+                granted = await connection.fetchval("select has_column_privilege($1::name,'public.fair_use_reviews',$2,$3)", role, column["attname"], privilege)
+                if granted != (column["attname"] in expected):
+                    raise RuntimeError("fair-use runtime column privilege is unsafe")
+
+
 async def _bootstrap() -> None:
     owner_password = _read_secret("TWOBRAIN_DB_OWNER_PASSWORD_FILE")
     app_password = _read_secret("TWOBRAIN_DB_APP_PASSWORD_FILE")
@@ -449,6 +595,7 @@ async def _bootstrap() -> None:
                     f"grant select ({', '.join(columns)}) on public.{table} to {MEDIA_ROLE}"
                 )
             await _restrict_receipt_observation_source(connection)
+            await _restrict_fair_use_history(connection)
             await _verify_runtime_roles(connection, database_name=database_name)
     finally:
         await connection.close()
