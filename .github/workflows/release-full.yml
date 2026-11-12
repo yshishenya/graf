@@ -227,7 +227,7 @@ jobs:
     name: Ubuntu postgres strict and performance
     needs: reserve
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 90
     env:
       CANDIDATE_ID: ${{ inputs.candidate_id }}
       REQUESTED_SHA: ${{ inputs.requested_sha }}

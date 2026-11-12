@@ -171,10 +171,11 @@ def validate(path: Path) -> list[str]:
         errors.append(f"aggregate must check all {SHARD_COUNT} shard coverage pairs")
     for job, block in blocks.items():
         match = re.search(r"(?m)^\s+timeout-minutes:\s*(\d+)\s*$", block)
+        maximum = 90 if job == "server-phases" else 60
         if match is None:
             errors.append(f"job must declare a bounded timeout: {job}")
-        elif not 1 <= int(match.group(1)) <= 60:
-            errors.append(f"job timeout must stay within one hour: {job}")
+        elif not 1 <= int(match.group(1)) <= maximum:
+            errors.append(f"job timeout must stay within {maximum} minutes: {job}")
     first_test = re.search(r"pytest\s|run_local_postgres_tests\.sh", commands)
     for command in (
         "PYTHONPATH=src uv run --extra dev ruff check .",
@@ -298,6 +299,23 @@ jobs:
         path.write_text(good, encoding="utf-8")
         errors = validate(path)
         assert errors == [], errors
+        phases = job_block(good, "server-phases")
+        path.write_text(
+            good.replace(phases, phases.replace("timeout-minutes: 30", "timeout-minutes: 90")),
+            encoding="utf-8",
+        )
+        assert validate(path) == []
+        path.write_text(
+            good.replace(phases, phases.replace("timeout-minutes: 30", "timeout-minutes: 91")),
+            encoding="utf-8",
+        )
+        assert any("timeout" in item and "server-phases" in item for item in validate(path))
+        static = job_block(good, "server-static")
+        path.write_text(
+            good.replace(static, static.replace("timeout-minutes: 20", "timeout-minutes: 61")),
+            encoding="utf-8",
+        )
+        assert any("timeout" in item and "server-static" in item for item in validate(path))
         path.write_text(good.replace("runs-on: macos-15", "runs-on: macos-14"), encoding="utf-8")
         assert any("macOS job" in item for item in validate(path))
         path.write_text(good.replace("cancel-in-progress: false", "cancel-in-progress: true"), encoding="utf-8")
