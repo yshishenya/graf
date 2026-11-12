@@ -6483,10 +6483,10 @@ select:focus, .settings-page select:focus, .calendar-settings select:focus {
   border-bottom: 2px solid transparent; background: transparent;
 }
 .sharing-dialog-tabs button[aria-selected="true"] { color: var(--accent); border-bottom-color: currentColor; }
-.summary-share-dialog .sharing-invitation-form { gap: 6px; }
+.summary-share-dialog .sharing-invitation-form { gap: 6px; margin:0; }
 .summary-share-dialog .sharing-invitation-form .share-recipient-row { grid-template-columns: minmax(0, 1fr) auto; }
 .sharing-invitation-form .share-recipient-row input, .sharing-add-person-button { min-height: 40px; }
-.sharing-add-person-button { background: var(--text); border-color: var(--text); color: var(--panel); }
+.sharing-add-person-button { background: var(--accent-solid); border-color: var(--accent-solid); color: var(--accent-foreground); }
 .sharing-owner { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; }
 .sharing-owner__avatar { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; background: var(--surface-2); color: var(--accent); font-weight: 700; }
 .sharing-general { display: grid; gap: 6px; }
@@ -6500,7 +6500,7 @@ select:focus, .settings-page select:focus, .calendar-settings select:focus {
 .summary-share-dialog .sharing-description { font-size: var(--font-size-helper); line-height: 1.5; color: var(--muted); }
 .sharing-general-materials { display: grid; gap: 6px; margin-top: 4px; color: var(--muted); }
 .summary-share-dialog .sharing-general-materials select { min-height: 40px; }
-.summary-share-dialog .sharing-invitation-role select, .summary-share-dialog .sharing-general-materials select, .summary-share-dialog .sharing-access-list select { appearance: none; -webkit-appearance: none; padding: 8px 32px 8px 12px; line-height: 1.3; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%238c8c98' stroke-width='1.8'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 10px center; }
+.summary-share-dialog .sharing-invitation-role select, .summary-share-dialog .sharing-general-materials select, .summary-share-dialog .sharing-access-list select, .summary-share-dialog .summary-share-expiry select { appearance: none; -webkit-appearance: none; padding: 8px 32px 8px 12px; line-height: 1.3; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%238c8c98' stroke-width='1.8'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 10px center; }
 [data-summary-share-result-title] { margin: 0 0 12px; }
 .sharing-options > summary { width: fit-content; min-height: 32px; padding-block: 6px; cursor: pointer; color: var(--muted); }
 .sharing-options > summary:hover { color: var(--text); }
@@ -6514,7 +6514,7 @@ select:focus, .settings-page select:focus, .calendar-settings select:focus {
 .summary-share-dialog .sharing-dialog-actions { position:sticky; bottom:0; z-index:2; background:var(--panel); padding-block:10px 0; }
 .summary-share-dialog [data-meeting-sharing-panel=share]:has([data-summary-share-editor][hidden]) > .sharing-dialog-actions { display:none; }
 
-.sharing-dialog-actions button { white-space: normal; display: inline-flex; align-items: center; gap: 8px; min-height: 44px; text-align: start; border-color: var(--accent-solid); background: var(--accent-solid); color: var(--accent-foreground); }
+.sharing-dialog-actions button { white-space: normal; display: inline-flex; align-items: center; gap: 8px; min-height: 44px; text-align: start; border-color: transparent; background: transparent; color: var(--text); }
 .summary-share-dialog .share-dialog__status:empty { display: none; }
 @media (max-width: 390px) {
   .summary-share-dialog .sharing-invitation-form .share-recipient-row button { min-width: 0; }
@@ -6647,7 +6647,19 @@ select:focus, .settings-page select:focus, .calendar-settings select:focus {
 .summary-share-dialog::backdrop { background:transparent; }
 .sharing-invitation-form { display:grid; gap:6px; }
 .sharing-invitation-form > label,.summary-share-dialog [data-meeting-sharing-panel=share] > label { display:grid; gap:6px; }
-.sharing-access-list { padding: 4px 0 10px; border-bottom: 1px solid var(--line-soft); }
+.sharing-access-list { min-width:0; padding:8px 0; border-block:1px solid var(--line-soft); }
+.sharing-access-list > summary { display:flex; align-items:center; gap:12px; min-height:44px; cursor:pointer; list-style:none; }
+.sharing-access-list > summary::-webkit-details-marker { display:none; }
+.sharing-access-list > summary > span { flex:1; min-width:0; overflow-wrap:anywhere; }
+.sharing-access-list > summary > svg { flex:none; color:var(--muted); }
+.sharing-access-list > summary strong { font-weight:500; }
+.sharing-access-list > summary:hover { color:var(--accent); }
+.sharing-access-list > summary:focus-visible { outline:2px solid var(--focus-ring); outline-offset:2px; border-radius:6px; }
+.sharing-access-list[open] > summary .sharing-access-chevron { transform:rotate(90deg); }
+.sharing-access-list[open] > .sharing-owner { padding-top:12px; }
+.summary-share-dialog .summary-share-expiry select { width:100%; min-height:40px; }
+.summary-share-dialog .sharing-dialog-actions button:hover { background:var(--surface-2); }
+.summary-share-dialog .sharing-add-person-button:hover { background:var(--accent-hover); border-color:var(--accent-hover); }
 .summary-share-dialog .sharing-access-list .share-viewer-row { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:12px; padding:12px 0; }
 .sharing-access-list .share-viewer-row > span:first-child { grid-template-columns:minmax(0,1fr); min-width:0; overflow-wrap:anywhere; gap:4px; }
 .summary-share-dialog .sharing-access-list .share-viewer-row:last-child { border-bottom:0; }

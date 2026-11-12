@@ -102,7 +102,7 @@ const { chromium, webkit } = require(path.join(process.env.GRAF_NODE_MODULES, 'p
     await share.getByRole('combobox', { name: 'Материалы общего доступа', exact: true }).selectOption('summary_only');
     assert.equal(await share.locator('[data-share-existing-role], [data-share-comment-role]').count(), 0);
     assert.equal(await share.locator('audio, [data-playback-comment], [data-detail-tab="recording"]').count(), 0);
-    await share.getByRole('tab', { name: 'По почте', exact: true }).click();
+    await share.getByRole('tab', { name: 'Отправить итоги', exact: true }).click();
     await share.getByText('Получатели увидят только выбранные итоги. Чтобы открыть их, нужно войти с указанной почтой.', { exact: true }).waitFor();
     const previewResponse = page.waitForResponse(res => res.request().method() === 'GET' && res.url().includes('/summary-sharing/preview'));
     await share.locator('[data-summary-share-preview]').click();

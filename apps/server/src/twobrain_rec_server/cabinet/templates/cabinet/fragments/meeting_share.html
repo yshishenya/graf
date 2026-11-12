@@ -13,10 +13,6 @@
       <p class="muted sharing-description" id="sharing-invite-description-{{ meeting_id }}" data-sharing-invite-description>Итоги, расшифровка и доступная запись. Вход по почте.</p>
       <div id="sharing-people-{{ meeting_id }}" role="listbox" data-sharing-people hidden></div>
     </form>
-    <div class="sharing-access-list" aria-label="У кого есть доступ">
-      <div class="sharing-owner"><span class="sharing-owner__avatar" aria-hidden="true">В</span><strong>Вы</strong><span class="muted">Владелец</span></div>
-      <div data-sharing-access-list></div>
-    </div>
     <div class="sharing-general">
       <label for="sharing-audience-{{ meeting_id }}">Общий доступ</label>
       <div class="sharing-audience-control">
@@ -27,15 +23,20 @@
       <p class="muted sharing-description" id="sharing-audience-description-{{ meeting_id }}" data-sharing-audience-description>Доступ по приглашению. Для просмотра нужен вход.</p>
       <label class="sharing-general-materials" data-sharing-materials>Материалы общего доступа<select data-sharing-scope><option value="full_meeting">Итоги, расшифровка и запись</option><option value="summary_only">Только итоги</option></select></label>
     </div>
+    <details class="sharing-access-list" data-sharing-access-details>
+      <summary><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="9" cy="7" r="3"/><path d="M3 21v-2a6 6 0 0 1 12 0v2M16 4a3 3 0 0 1 0 6m2 4a5 5 0 0 1 3 5v2"/></svg><span><strong>Доступ и приглашения</strong><small class="muted" data-sharing-access-summary>Загрузка…</small></span><svg class="sharing-access-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></summary>
+      <div class="sharing-owner"><span class="sharing-owner__avatar" aria-hidden="true">В</span><strong>Вы</strong><span class="muted">Владелец</span></div>
+      <div data-sharing-access-list></div>
+    </details>
     <div data-summary-share-editor>
       <details class="sharing-options" data-sharing-options>
         <summary>Дополнительные настройки</summary>
         <div class="sharing-options__body">
-          <label class="sharing-options__check"><input type="checkbox" data-sharing-invite-export> Разрешить скачивание и экспорт</label>
+          <label class="sharing-options__check"><input type="checkbox" data-sharing-invite-export> Разрешить приглашённым скачивание и экспорт</label>
           <p class="muted sharing-description">Прослушивание доступно без скачивания. Приглашение не добавляет человека в ваше пространство.</p>
       <div class="summary-share-tabs" role="tablist" aria-label="Как поделиться">
-        <button type="button" role="tab" id="summary-link-tab" aria-controls="summary-link-panel" aria-selected="true" data-summary-share-tab="link">По ссылке</button>
-        <button type="button" role="tab" id="summary-email-tab" aria-controls="summary-email-panel" aria-selected="false" tabindex="-1" data-summary-share-tab="email">По почте</button>
+        <button type="button" role="tab" id="summary-link-tab" aria-controls="summary-link-panel" aria-selected="true" data-summary-share-tab="link">Настройки ссылки</button>
+        <button type="button" role="tab" id="summary-email-tab" aria-controls="summary-email-panel" aria-selected="false" tabindex="-1" data-summary-share-tab="email">Отправить итоги</button>
       </div>
       <p class="summary-share-document"><span data-summary-share-format>Выбранные итоги</span> <button type="button" class="button quiet" data-summary-share-preview>Посмотреть</button></p>
       <div class="summary-share-preview" data-summary-share-preview-content hidden tabindex="-1" aria-label="Итоги для получателя"></div>

@@ -151,3 +151,8 @@ T015 после T012/T013; подготовка подписанного macOS-�
 Продуктовые права, миграции и защитные условия не ослаблять. Активный срез
 Spec Kit, только тестовые материалы; focused PostgreSQL/браузер до нового PR,
 затем свежие PR-проверки и новый неизменный кандидат с одной полной проверкой.
+
+
+## Phase 22: Convergence
+
+- [ ] T035 Упростить композицию окна в `templates/cabinet/fragments/meeting_share.html` и `static/cabinet/{summary-sharing.js,cabinet.css}`: нативная сводка доступа отдельно от приглашений после аудитории/материалов; прежние строки и обработчики внутри, корректные загрузка/ошибка/обновление/повтор открытия, единое поле срока и понятная отправка итогов. До кода reviewer-owned checklist/analyze/issue sync; RED→GREEN существующего `tests/browser/sharing-owner.test.cjs` с3/15 адресатами, оба движка/темы/320–1440/200%, старые public/auth/export/defaults и реальная Dev приёмка на чистом SHA. После — свежие PR/release gates и metadata-only evidence. [FR-017/033/037/038; US1/AC1; partial, HIGH] (Issue #8025)

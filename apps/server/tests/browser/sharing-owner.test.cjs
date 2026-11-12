@@ -10,7 +10,7 @@ const assets = path.join(__dirname, '../../src/twobrain_rec_server/cabinet/stati
       const page = await browser.newPage({viewport:{width,height:800},colorScheme});
       page.setDefaultTimeout(5000);
       const mutations=[], errors=[];
-      let version=1, audience='invite_only', scope='summary_only', grants=[], invitations=[], savedLink=true, workspaceEnabled=false, linkEnabled=true, holdAccess=null, holdPeople=null;
+      let version=1, audience='invite_only', scope='summary_only', grants=[], invitations=[], savedLink=true, workspaceEnabled=false, linkEnabled=true, holdAccess=null, holdPeople=null, accessFailed=false, generalFailed=false, revokeFailed=false;
       let releaseGeneral;const generalGate=new Promise(resolve=>{releaseGeneral=resolve;});
       const fingerprint=()=>version.toString(16).padStart(64,'0');
       const link=()=>!savedLink?{state:'absent',grant_id:null,version:0,content_scope:'summary_only'}:audience==='link'?{state:'active',grant_id:'synthetic-link',version,content_scope:scope,share_url:'https://graf.test/synthetic-reader',expires_at:'2026-12-01T00:00:00Z'}:{state:width===320?'expired':'replacement_required',grant_id:'old-link',version,content_scope:'summary_only'};
@@ -24,13 +24,14 @@ const assets = path.join(__dirname, '../../src/twobrain_rec_server/cabinet/stati
         const base='/api/v1/cabinet/meetings/synthetic-meeting';
         if(request.method()!=='GET')mutations.push({path:url.pathname,method:request.method(),body:request.postDataJSON()});
         if(url.pathname===base+'/sharing/general-access'){
+          if(generalFailed)return route.fulfill({status:503,json:{detail:'unavailable'}});
           if(request.method()==='GET')await generalGate;
           if(request.method()==='POST'){
             const body=request.postDataJSON();assert.equal(body.expected_fingerprint,fingerprint());audience=body.audience;scope=body.content_scope;version++;
           }
           return route.fulfill({json:general()});
         }
-        if(url.pathname===base+'/access'){if(holdAccess)await holdAccess;return route.fulfill({json:{share:{active_grants:grants,active_invitations:invitations,can_manage_roles:true}}});}
+        if(url.pathname===base+'/access'){if(holdAccess)await holdAccess;if(accessFailed)return route.fulfill({status:503,json:{detail:'unavailable'}});return route.fulfill({json:{share:{active_grants:grants,active_invitations:invitations,can_manage_roles:true}}});}
         if(url.pathname===base+'/summary-sharing/batches'&&request.method()==='POST')return route.fulfill({json:{batch_id:'synthetic-batch',recipients:[{email:'recipient@example.test',state:'accepted'}],can_cancel:false}});
         if(url.pathname.endsWith('/auto-send'))return route.fulfill({json:{state:'off',rules:{},roster:[]}});
         if(url.pathname.endsWith('/recipients')){if(holdPeople)await holdPeople;return route.fulfill({json:{recipients:[{user_id:'synthetic-person',email:'person@example.test',display_label:'Учебный получатель'}]}});}
@@ -40,7 +41,7 @@ const assets = path.join(__dirname, '../../src/twobrain_rec_server/cabinet/stati
           const body=request.postDataJSON();grants=[{...body,grant_id:'synthetic-grant',version:1,display_name:'Учебный получатель'}];return route.fulfill({json:{grant:grants[0]}});
         }
         if(url.pathname.endsWith('/synthetic-grant/permissions')){assert.equal(request.postDataJSON().expected_version,grants[0].version);Object.assign(grants[0],request.postDataJSON());grants[0].version++;return route.fulfill({json:grants[0]});}
-        if(url.pathname.endsWith('/synthetic-grant')&&request.method()==='DELETE'){assert.equal(Number(url.searchParams.get('expected_version')),grants[0].version);grants=[];return route.fulfill({status:204});}
+        if(url.pathname.endsWith('/synthetic-grant')&&request.method()==='DELETE'){if(revokeFailed)return route.fulfill({status:503,json:{detail:'unavailable'}});assert.equal(Number(url.searchParams.get('expected_version')),grants[0].version);grants=[];return route.fulfill({status:204});}
         if(url.pathname.endsWith('/link/scope')){assert.equal(request.postDataJSON().expected_version,version);scope=request.postDataJSON().content_scope;version++;return route.fulfill({json:link()});}
         if(url.pathname.endsWith('/link'))return route.fulfill({json:link()});
         return route.abort();
@@ -48,11 +49,24 @@ const assets = path.join(__dirname, '../../src/twobrain_rec_server/cabinet/stati
       await page.goto('https://graf.test/share');
       await page.evaluate(()=>Object.defineProperty(navigator,'clipboard',{value:{writeText:async text=>{window.copied=text;}}}));
       await page.addScriptTag({path:path.join(assets,'summary-sharing.js')});
+      assert.equal(await page.locator('[data-sharing-access-summary]').textContent(),'Загрузка…');
+      assert.equal(await page.locator('[data-sharing-access-details]').evaluate(el=>el.open),false);
       assert.equal(await page.locator('[data-sharing-scope]').isDisabled(),true);
       assert.equal(await page.locator('[data-summary-share-copy]').isDisabled(),true);
       releaseGeneral();
       await page.locator('[data-sharing-audience] option[value=workspace]:disabled').waitFor({state:'attached'});
       await page.locator('[data-sharing-scope]:enabled').waitFor({state:'attached'});
+      await page.getByText('Владелец: вы',{exact:true}).waitFor();
+      const inviteButton=page.getByRole('button',{name:'Пригласить',exact:true});
+      await inviteButton.hover();
+      assert(await inviteButton.evaluate(el=>{
+        const luminance=color=>{
+          const channels=color.match(/[\d.]+/g).slice(0,3).map(value=>Number(value)/255).map(value=>value<=0.04045?value/12.92:((value+0.055)/1.055)**2.4);
+          return channels[0]*0.2126+channels[1]*0.7152+channels[2]*0.0722;
+        };
+        const style=getComputedStyle(el),foreground=luminance(style.color),background=luminance(style.backgroundColor);
+        return (Math.max(foreground,background)+0.05)/(Math.min(foreground,background)+0.05)>=4.5;
+      }),'Invite hover text must keep readable contrast in both themes');
       const panel = page.locator('[data-summary-share-dialog]');
       const panelBox = await panel.boundingBox(), cabinetBox = await page.locator('main').boundingBox();
       assert(panelBox.y + panelBox.height <= cabinetBox.y + cabinetBox.height, 'Sharing panel must fit above the player');
@@ -115,12 +129,15 @@ const assets = path.join(__dirname, '../../src/twobrain_rec_server/cabinet/stati
       await page.getByRole('option',{name:/Учебный получатель/}).click();
       await page.locator('[data-sharing-invite-role]').selectOption('commenter');
       await page.getByRole('button',{name:'Пригласить',exact:true}).click();
+      await page.locator('[data-sharing-access-details] > summary').click();
       await page.getByRole('combobox',{name:'Права Учебный получатель',exact:true}).waitFor();
       const invitation=mutations.find(x=>x.path.endsWith('/shares'));
       assert.equal(invitation.body.can_comment,true);assert.equal(invitation.body.can_edit,false);assert.equal(invitation.body.can_download,false);
       await page.getByRole('combobox',{name:'Права Учебный получатель',exact:true}).focus();
       await page.getByRole('combobox',{name:'Права Учебный получатель',exact:true}).selectOption('summary');
       await page.getByText('Права изменены',{exact:true}).waitFor();
+      assert.equal(await page.locator('[data-sharing-access-details]').evaluate(el=>el.open),true);
+      assert.equal(await page.locator('[data-sharing-access-summary]').textContent(),'Вы · Доступ: 1 · Приглашения: 0');
       assert.equal(grants[0].content_scope,'summary_only');assert.equal(grants[0].can_comment,false);
       assert.equal(await page.locator('[data-summary-share-title]').evaluate(el=>el===document.activeElement),true,'Replacing a focused role must preserve dialog keyboard focus');
       await page.keyboard.press('Escape');assert.equal(await panel.isVisible(),false);
@@ -133,9 +150,17 @@ const assets = path.join(__dirname, '../../src/twobrain_rec_server/cabinet/stati
       await page.locator('[data-sharing-person]').focus();releaseAccess();holdAccess=null;
       await page.getByText('Права изменены',{exact:true}).waitFor();
       assert.equal(await page.locator('[data-sharing-person]').evaluate(el=>el===document.activeElement),true,'A delayed access response must not steal focus moved outside the list');
+      revokeFailed=true;
+      await page.getByRole('button',{name:/^Отозвать/}).click();
+      await page.locator('[data-share-status][data-tone=error]').waitFor();
+      assert.equal(grants.length,1,'Failed revocation must preserve access');
+      assert.equal(await page.locator('[data-sharing-access-summary]').textContent(),'Вы · Доступ: 1 · Приглашения: 0');
+      assert.equal(await page.locator('[data-sharing-access-details]').evaluate(el=>el.open),true);
+      revokeFailed=false;
       await page.getByRole('button',{name:/^Отозвать/}).focus();
       await page.getByRole('button',{name:/^Отозвать/}).press('Enter');
       await page.getByText('Доступ отозван',{exact:true}).waitFor();assert.equal(grants.length,0);
+      assert.equal(await page.locator('[data-sharing-access-summary]').textContent(),'Владелец: вы');
       assert.equal(await page.locator('[data-summary-share-title]').evaluate(el=>el===document.activeElement),true,'Revoking the focused row must preserve dialog keyboard focus');
       await page.keyboard.press('Escape');assert.equal(await panel.isVisible(),false);
       await panel.evaluate(el=>el.show());
@@ -146,6 +171,7 @@ const assets = path.join(__dirname, '../../src/twobrain_rec_server/cabinet/stati
       await page.getByRole('button',{name:'Скопировать ссылку',exact:true}).click();
       await page.getByText('Ссылка скопирована',{exact:true}).waitFor();
       assert.equal(audience,'workspace');assert.equal(mutations.length,beforeWorkspaceCopy,'Copying workspace link must preserve access');
+      assert.equal(await page.locator('[data-sharing-access-summary]').textContent(),'Владелец: вы','Empty personal access must not deny workspace access');
       assert.equal(await page.evaluate(()=>window.copied),'https://graf.test/shared-meetings/synthetic-meeting?workspace_id=workspace');
       await page.evaluate(()=>{navigator.clipboard.writeText=async()=>{throw new Error('Clipboard denied');};});
       await page.getByRole('button',{name:'Скопировать ссылку',exact:true}).click();
@@ -213,7 +239,7 @@ const assets = path.join(__dirname, '../../src/twobrain_rec_server/cabinet/stati
       await page.getByText('Общий доступ сохранён',{exact:true}).waitFor();
       assert.equal(mutations.at(-1).body.content_scope,'full_meeting');
       assert(await page.locator('[data-sharing-scope]').isVisible());
-      if(width>=480)assert(await panel.evaluate(el=>el.scrollHeight<=el.clientHeight+1),'Full-meeting sharing must fit the default desktop size');
+      if(width>=480){if(process.env.GRAF_SHARING_SCREENSHOTS)await panel.screenshot({path:path.join(process.env.GRAF_SHARING_SCREENSHOTS,`full-${width}-${colorScheme}.png`)});assert(await panel.evaluate(el=>el.scrollHeight<=el.clientHeight+1),'Full-meeting sharing must fit the default desktop size '+JSON.stringify(await panel.evaluate(el=>({height:el.clientHeight,scroll:el.scrollHeight}))));}
       assert((await page.locator('[data-sharing-audience-description]').innerText()).includes('Вход не нужен'));
       await page.addStyleTag({content:'.summary-share-dialog {font-size:200%;}'});
       await page.getByText('Дополнительные настройки',{exact:true}).click();
@@ -267,7 +293,9 @@ const assets = path.join(__dirname, '../../src/twobrain_rec_server/cabinet/stati
           content_scope:index===1?'summary_only':'full_meeting',status:index===2?'outcome_unknown':'pending'}));
         await page.reload();
         await page.addScriptTag({path:path.join(assets,'summary-sharing.js')});
-        await page.locator('[data-sharing-access-list] .share-viewer-row').nth(pendingCount).waitFor();
+        await page.locator('[data-sharing-access-list] .share-viewer-row').nth(pendingCount).waitFor({state:'attached'});
+        assert.equal(await page.locator('[data-sharing-access-details]').evaluate(el=>el.open),false);
+        assert.equal(await page.locator('[data-sharing-access-summary]').textContent(),`Вы · Доступ: 1 · Приглашения: ${pendingCount}`);
         await panel.evaluate(el=>el.scrollTop=0);
         const initialCopy=await page.locator('[data-summary-share-copy]').boundingBox();
         const initialPanel=await panel.boundingBox();
@@ -277,6 +305,22 @@ const assets = path.join(__dirname, '../../src/twobrain_rec_server/cabinet/stati
           await page.screenshot({path:path.join(process.env.GRAF_SHARING_SCREENSHOTS,`owner-${width}-${colorScheme}-${pendingCount}.png`)});
         }
         const beforeList=mutations.length;
+        if(width===1440){
+          for(const selector of ['[data-sharing-person]','[data-sharing-invite-role]','[data-sharing-audience]','[data-sharing-scope]','[data-sharing-access-details] > summary']){
+            const box=await page.locator(selector).boundingBox();
+            assert(box.y>=initialPanel.y&&box.y+box.height<=initialCopy.y+1,selector+' must be visible before copy on the first screen');
+          }
+          assert(await panel.evaluate(el=>el.scrollHeight<=el.clientHeight+1),'Collapsed populated panel must fit without scrolling on desktop');
+        }
+        const disclosure=page.locator('[data-sharing-access-details] > summary');
+        await disclosure.focus();await disclosure.press('Space');
+        assert.equal(await page.locator('[data-sharing-access-details]').evaluate(el=>el.open),true);
+        await disclosure.press('Space');
+        assert.equal(await page.locator('[data-sharing-access-details]').evaluate(el=>el.open),false);
+        await disclosure.press('Enter');
+        assert.equal(mutations.length,beforeList,'Expanding the list must not change access');
+        assert.equal(await page.locator('[data-sharing-access-details]').evaluate(el=>el.open),true);
+        if(process.env.GRAF_SHARING_SCREENSHOTS)await panel.screenshot({path:path.join(process.env.GRAF_SHARING_SCREENSHOTS,`owner-expanded-${width}-${colorScheme}-${pendingCount}.png`)});
         assert(await page.locator('[data-sharing-access-list] .share-viewer-row').evaluateAll(rows=>rows.every(row=>{
           const bounds=row.getBoundingClientRect();
           return [...row.children].every(child=>{const r=child.getBoundingClientRect();return r.left>=bounds.left-1&&r.right<=bounds.right+1&&child.scrollWidth<=child.clientWidth+1;});
@@ -296,6 +340,8 @@ const assets = path.join(__dirname, '../../src/twobrain_rec_server/cabinet/stati
         await cancel.focus();await cancel.press('Enter');
         await page.getByText('Приглашение отменено',{exact:true}).waitFor();
         assert.equal(invitations.length,pendingCount-1);
+        assert.equal(await page.locator('[data-sharing-access-summary]').textContent(),`Вы · Доступ: 1 · Приглашения: ${pendingCount-1}`);
+        assert.equal(await page.locator('[data-sharing-access-details]').evaluate(el=>el.open),true);
         assert.equal(mutations.length,beforeList+1);
         assert.equal(await page.locator('[data-summary-share-title]').evaluate(el=>el===document.activeElement),true);
         await page.locator('[data-summary-share-copy]').scrollIntoViewIfNeeded();
@@ -311,8 +357,22 @@ const assets = path.join(__dirname, '../../src/twobrain_rec_server/cabinet/stati
         assert(shortCopy.y>=0&&shortCopy.y+shortCopy.height<=shortMain.y+shortMain.height+1,'Copy remains reachable in a short window at 200% text');
         await page.setViewportSize({width,height:800});
       }
+      accessFailed=true;
+      await page.reload();await page.addScriptTag({path:path.join(assets,'summary-sharing.js')});
+      await page.getByText('Не удалось загрузить',{exact:true}).waitFor();
+      assert.equal(await page.locator('[data-sharing-access-summary]').textContent(),'Не удалось загрузить');
+      assert.equal(await page.locator('[data-share-status]').getAttribute('data-tone'),'error');
+      accessFailed=false;generalFailed=true;
+      await page.reload();await page.addScriptTag({path:path.join(assets,'summary-sharing.js')});
+      await page.getByText('Не удалось загрузить',{exact:true}).waitFor();
+      assert.equal(await page.locator('[data-sharing-access-summary]').textContent(),'Не удалось загрузить','General-access failure must also end loading');
+      assert.equal(await page.locator('[data-share-status]').getAttribute('data-tone'),'error');
+      generalFailed=false;
+      await page.reload();await page.addScriptTag({path:path.join(assets,'summary-sharing.js')});
+      await page.locator('[data-sharing-access-list] .share-viewer-row').first().waitFor({state:'attached'});
+      assert.equal(await page.locator('[data-sharing-access-details]').evaluate(el=>el.open),false,'Opening afresh must collapse access management');
       await page.getByText('Дополнительные настройки',{exact:true}).click();
-      await page.getByRole('tab',{name:'По почте',exact:true}).click();
+      await page.getByRole('tab',{name:'Отправить итоги',exact:true}).click();
       await page.locator('[data-share-recipient-input]').fill('recipient@example.test');
       await page.locator('[data-summary-share-send]').click();
       await page.locator('[data-summary-share-result-title]').getByText('Итоги отправлены',{exact:true}).waitFor();
