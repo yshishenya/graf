@@ -504,6 +504,7 @@ async def received_summary(
     )
     from twobrain_rec_server.auth.dependencies import get_web_owner_tenant_scope
     from twobrain_rec_server.cabinet.access import lock_shareable_meeting
+    from twobrain_rec_server.cabinet.queries import shared_meeting_display_metadata
     from twobrain_rec_server.cabinet.rendering import render_shared_meeting_summary_page
     from twobrain_rec_server.db.models.summary_sharing import (
         PublishedMeetingSummary,
@@ -615,12 +616,17 @@ async def received_summary(
         if snapshot is None or snapshot.schema_version != 1:
             sharing.fail("share_not_found", 404)
         projection = sharing.reader_projection(snapshot.projection_json)
+        if "text/html" in request.headers.get("accept", "").lower():
+            title, instant, uploaded = await shared_meeting_display_metadata(
+                db, meeting=meeting, published_projection=projection
+            )
     if "text/html" not in request.headers.get("accept", "").lower():
         return private_response(projection)
     return HTMLResponse(
         render_shared_meeting_summary_page(
-            meeting_title=projection["meeting_label"],
-            occurred_at=datetime.fromisoformat(str(projection["occurred_at"])),
+            meeting_title=title,
+            occurred_at=instant,
+            time_is_upload=uploaded,
             duration_seconds=projection["duration_seconds"],
             summary_sections=projection["summary_sections"],
             protocol=projection["protocol"],

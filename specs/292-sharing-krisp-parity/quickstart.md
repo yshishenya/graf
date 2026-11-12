@@ -149,3 +149,10 @@ T033, раскрытые настройки: прокрутить к сроку 
 После PR нужен новый frozen candidate и один release-full. Старый canceled
 run43226719865 не заменяет полный PASS. Длительности строгих тестов и performance
 проверить в metadata-only artifact; запуск не ослабляет изоляцию или пороги.
+
+
+## T038 — снимок итогов без времени начала
+
+В настоящем PostgreSQL выполнить test_meeting_sharing_parity.py с новыми случаями started_at=None для summary_only и expired full→summary. До правки оба должны воспроизвести AttributeError; после — 200, прежний URL, выбранный срок и состав, JSON occurred_at равен created_at, HTML не содержит data-user-datetime неизвестного начала, transcript/speakers/media_version отсутствуют, audio404. Повторить существующие full JSON date, scope/expired, stale и permissions. Production acceptance — только после выпуска нового источника; не менять рабочие встречи или рассылать письма.
+
+T038: все пять HTML входов снимка (public, адресный API, принятие приглашения, shared-meetings/ограниченная страница в browser.py, delivery) используют общий semantic metadata helper. Проверить отсутствие известного начала, известное начало и manual_upload с меткой загрузки; снимок сохраняет опубликованный заголовок/известную дату, JSON неизменен.

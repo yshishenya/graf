@@ -142,8 +142,11 @@ async def _render_shared_summary_for_grant(
         )
     saved = await load_shared_summary_projection(session, workspace_id=workspace_id, meeting=meeting, grant=grant)
     if saved is not None:
-        return render_shared_meeting_summary_page(meeting_title=saved["meeting_label"],
-            occurred_at=datetime.fromisoformat(str(saved["occurred_at"])), duration_seconds=saved["duration_seconds"],
+        title, instant, uploaded = await shared_meeting_display_metadata(
+            session, meeting=meeting, published_projection=saved
+        )
+        return render_shared_meeting_summary_page(meeting_title=title,
+            occurred_at=instant, time_is_upload=uploaded, duration_seconds=saved["duration_seconds"],
             summary_sections=saved["summary_sections"], protocol=saved["protocol"], authenticated=True, embedded=embedded)
     metadata = grant.metadata_json if grant is not None and isinstance(grant.metadata_json, dict) else {}
     pin = metadata.get("summary_revision")

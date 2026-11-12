@@ -2703,10 +2703,9 @@ async def resolve_login_required_share_link_route(
         projection = (await load_shared_summary_projection(db, workspace_id=meeting.workspace_id, meeting=meeting, grant=grant)) or projection
         if "text/html" in request.headers.get("accept", "").lower():
             display_title, display_time, uploaded = await shared_meeting_display_metadata(
-                db, meeting=meeting
+                db, meeting=meeting,
+                published_projection=projection if grant and (grant.published_summary_id or getattr(grant, "_shared_publication_override", None)) else None,
             )
-        if grant and (grant.published_summary_id or getattr(grant, "_shared_publication_override", None)):
-            display_title, display_time, uploaded = projection["meeting_label"], datetime.fromisoformat(str(projection["occurred_at"])), False
         await db.commit()
         if "text/html" in request.headers.get("accept", "").lower():
             response = cabinet_html_response(
@@ -2800,6 +2799,11 @@ async def resolve_public_meeting_share_route(
                 source_changed=bool(request.query_params.get("media_version") and request.query_params["media_version"] != projection["media_version"])))
         _mark_share_secret_response(response)
         return response
+    if "text/html" in request.headers.get("accept", "").lower():
+        title, instant, uploaded = await shared_meeting_display_metadata(
+            db, meeting=meeting, published_projection=projection
+        )
+        projection = {**projection, "meeting_label": title, "occurred_at": instant, "time_is_upload": uploaded}
     await db.commit()
     if "text/html" in request.headers.get("accept", "").lower():
         from urllib.parse import urlencode, urlsplit
@@ -2894,10 +2898,9 @@ async def accept_meeting_share_invitation_route(
         )
         projection = (await load_shared_summary_projection(db, workspace_id=meeting.workspace_id, meeting=meeting, grant=grant)) or projection
         display_title, display_time, uploaded = await shared_meeting_display_metadata(
-            db, meeting=meeting
+            db, meeting=meeting,
+            published_projection=projection if grant.published_summary_id or getattr(grant, "_shared_publication_override", None) else None,
         )
-        if grant.published_summary_id or getattr(grant, "_shared_publication_override", None):
-            display_title, display_time, uploaded = projection["meeting_label"], datetime.fromisoformat(str(projection["occurred_at"])), False
         await db.commit()
         html_response = cabinet_html_response(
             render_shared_meeting_summary_page(
