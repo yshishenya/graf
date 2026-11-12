@@ -374,9 +374,32 @@ public enum DesktopCabinetWorkspacePresentation: Equatable, Sendable {
     case shell
 }
 
-public enum DesktopCabinetNavigationShortcut {
-    public static func hint(for shortcut: KeyEquivalent) -> String {
-        "⌘" + String(shortcut.character).uppercased()
+public enum DesktopCabinetNavigationShortcut: String, CaseIterable, Equatable, Sendable {
+    case home
+    case back
+    case forward
+    case reload
+
+    public var key: KeyEquivalent {
+        switch self {
+        case .home: "h"
+        case .back: "["
+        case .forward: "]"
+        case .reload: "r"
+        }
+    }
+
+    public var modifiers: EventModifiers {
+        self == .home ? [.command, .shift] : .command
+    }
+
+    public var hint: String {
+        switch self {
+        case .home: "⇧⌘H"
+        case .back: "⌘["
+        case .forward: "⌘]"
+        case .reload: "⌘R"
+        }
     }
 }
 
@@ -477,7 +500,7 @@ private struct DesktopCabinetNavigationControls: View {
                 hint: "Открыть канонический список встреч",
                 symbol: "house",
                 enabled: controller.canGoHome && !controller.isLoading,
-                shortcut: "0",
+                shortcut: .home,
                 action: controller.goHome
             )
             navigationButton(
@@ -485,7 +508,7 @@ private struct DesktopCabinetNavigationControls: View {
                 hint: "Вернуться к предыдущему экрану",
                 symbol: "chevron.left",
                 enabled: controller.canGoBack && !controller.isLoading,
-                shortcut: "[",
+                shortcut: .back,
                 action: controller.goBack
             )
             navigationButton(
@@ -493,7 +516,7 @@ private struct DesktopCabinetNavigationControls: View {
                 hint: "Перейти к следующему экрану",
                 symbol: "chevron.right",
                 enabled: controller.canGoForward && !controller.isLoading,
-                shortcut: "]",
+                shortcut: .forward,
                 action: controller.goForward
             )
             navigationButton(
@@ -501,7 +524,7 @@ private struct DesktopCabinetNavigationControls: View {
                 hint: "Обновить текущий экран",
                 symbol: "arrow.clockwise",
                 enabled: controller.canReload && !controller.isLoading,
-                shortcut: "r",
+                shortcut: .reload,
                 action: controller.reload
             )
         }
@@ -516,7 +539,7 @@ private struct DesktopCabinetNavigationControls: View {
         hint: String,
         symbol: String,
         enabled: Bool,
-        shortcut: KeyEquivalent,
+        shortcut: DesktopCabinetNavigationShortcut,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
@@ -531,11 +554,11 @@ private struct DesktopCabinetNavigationControls: View {
         .buttonStyle(.plain)
         .foregroundStyle(enabled ? DesktopDesignTokens.text : DesktopDesignTokens.muted.opacity(0.35))
         .disabled(!enabled)
-        .keyboardShortcut(shortcut, modifiers: .command)
+        .keyboardShortcut(shortcut.key, modifiers: shortcut.modifiers)
         .help(
             controller.isLoading
                 ? "Загрузка…"
-                : "\(title) (\(DesktopCabinetNavigationShortcut.hint(for: shortcut)))"
+                : "\(title) (\(shortcut.hint))"
         )
         .accessibilityLabel(title)
         .accessibilityHint(controller.isLoading ? "Загрузка выполняется" : hint)

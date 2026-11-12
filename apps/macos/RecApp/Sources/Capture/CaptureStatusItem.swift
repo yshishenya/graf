@@ -223,7 +223,7 @@ public struct CaptureStatusItem: View {
         for session: CaptureSession,
         stopDisabled: Bool
     ) -> Bool {
-        showsStopButton(for: session) && session.stopActionAvailable && !stopDisabled
+        showsStopAction(for: session) && session.stopActionAvailable && !stopDisabled
     }
 
     public static func showsPauseButton(for session: CaptureSession) -> Bool {
@@ -250,8 +250,11 @@ public struct CaptureStatusItem: View {
 
     public static func accessibilityLabel(for session: CaptureSession) -> String {
         let prefix = statusLabel(for: session)
-        if session.stopActionAvailable {
+        if showsStopAction(for: session), session.stopActionAvailable {
             return "\(prefix). Кнопка остановки доступна."
+        }
+        if session.state == .stopping {
+            return "\(prefix) Запись завершается."
         }
         if session.state == .idle || session.state == .detecting || session.state == .ready {
             return "\(prefix). Активной записи нет."

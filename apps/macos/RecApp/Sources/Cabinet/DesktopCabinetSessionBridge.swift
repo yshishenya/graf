@@ -132,11 +132,20 @@ public enum DesktopCabinetSessionBridge {
                 }
                 if plan.authenticationChanged {
                     sessionState.lock.withLock { sessionState.generation &+= 1 }
+                    let expectedGeneration = generation
                     DesktopUserTimeContext.shared.reset()
-                    WKWebsiteDataStore.default().removeData(
-                        ofTypes: [WKWebsiteDataTypeLocalStorage, WKWebsiteDataTypeSessionStorage],
-                        modifiedSince: .distantPast
-                    ) {}
+                    await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                        WKWebsiteDataStore.default().removeData(
+                            ofTypes: [WKWebsiteDataTypeLocalStorage, WKWebsiteDataTypeSessionStorage],
+                            modifiedSince: .distantPast
+                        ) {
+                            continuation.resume()
+                        }
+                    }
+                    guard isCurrentDocument(), generation == expectedGeneration else {
+                        completion()
+                        return
+                    }
                 }
                 for cookie in plan.cookiesToDelete {
                     storage.deleteCookie(cookie)

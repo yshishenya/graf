@@ -367,8 +367,7 @@ public struct CaptureControlView: View {
                 title: blockedReason.title,
                 detail: blockedReason.message,
                 systemImage: blockedReason.systemImage,
-                tone: blockedReason.tone,
-                isActionable: true
+                tone: blockedReason.tone
             )
         }
         if let localRecordingStatus {
@@ -377,8 +376,7 @@ public struct CaptureControlView: View {
                 title: localRecordingStatus.title,
                 detail: localRecordingStatus.detail,
                 systemImage: localRecordingStatus.systemImage,
-                tone: localRecordingStatus.tone,
-                isActionable: localRecordingStatus.requiresAttention
+                tone: localRecordingStatus.tone
             )
         }
         return .resolve(session: nil)

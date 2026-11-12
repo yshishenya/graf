@@ -7,19 +7,35 @@ final class InterfacePerformanceContractTests: XCTestCase {
     private final class CountingInputProvider: RecordingMicrophoneInputProviding, @unchecked Sendable {
         private let lock = NSLock()
         private var count = 0
+        private var inputDeviceCalls = 0
+        private let device = PhysicalAudioDevice(
+            id: "mic-1",
+            displayName: "Mic",
+            direction: .input,
+            deviceClass: .builtIn,
+            availabilityState: .available
+        )
 
         var callCount: Int {
             lock.lock(); defer { lock.unlock() }
             return count
         }
 
-        func availableInputs() -> [PhysicalAudioDevice] {
-            lock.lock(); count += 1; lock.unlock()
-            return []
+        var inputDeviceCallCount: Int {
+            lock.lock(); defer { lock.unlock() }
+            return inputDeviceCalls
         }
 
-        func defaultInputDevice() -> PhysicalAudioDevice? { nil }
-        func inputDevice(id _: String) -> PhysicalAudioDevice? { nil }
+        func availableInputs() -> [PhysicalAudioDevice] {
+            lock.lock(); count += 1; lock.unlock()
+            return [device]
+        }
+
+        func defaultInputDevice() -> PhysicalAudioDevice? { device }
+        func inputDevice(id: String) -> PhysicalAudioDevice? {
+            lock.lock(); inputDeviceCalls += 1; lock.unlock()
+            return id == device.id ? device : nil
+        }
     }
 
     func testMicrophoneInputsAreCachedUntilInvalidated() {
@@ -31,6 +47,16 @@ final class InterfacePerformanceContractTests: XCTestCase {
         service.invalidateAvailableRecordingMicrophoneInputs()
         _ = service.availableRecordingMicrophoneInputs()
         XCTAssertEqual(provider.callCount, 2)
+    }
+
+    func testMicrophoneResolutionUsesTheCachedInputList() {
+        let provider = CountingInputProvider()
+        let service = MicrophoneCaptureService(inputProvider: provider)
+        _ = service.availableRecordingMicrophoneInputs()
+        let selection = service.resolveRecordingMicrophoneSelection(selectedInputDeviceId: "mic-1")
+        XCTAssertTrue(selection.isAccepted)
+        XCTAssertEqual(provider.callCount, 1)
+        XCTAssertEqual(provider.inputDeviceCallCount, 0)
     }
 
     func testContentViewDoesNotComputeLocalRowsInTheViewBuilder() throws {
