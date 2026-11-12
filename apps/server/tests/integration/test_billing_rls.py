@@ -4,8 +4,8 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import func, select, text, update
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import delete, func, select, text, update
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from tests.integration.test_rls_postgres_policies import (
@@ -111,6 +111,13 @@ async def test_fair_use_review_is_user_visible_but_cross_tenant_isolated(rls_eng
             ),
         )
         await conn.execute(
+            text("SELECT set_config('app.fair_use_operator_ref', :value, true)"),
+            {"value": "op-" + "a" * 32},
+        )
+        await conn.execute(
+            text("SELECT set_config('app.fair_use_evidence_reviewed', 'true', true)")
+        )
+        await conn.execute(
             text(
                 "insert into fair_use_reviews "
                 "(id, workspace_id, subject_user_id, capability, reason_code, evidence_ref, starts_at, review_by, state) "
@@ -143,7 +150,16 @@ async def test_fair_use_capability_prefix_is_enforced_by_postgres(rls_engine) ->
                 feature_area="billing",
             ),
         )
-        with pytest.raises(IntegrityError):
+        await conn.execute(
+            text("SELECT set_config('app.fair_use_operator_ref', :value, true)"),
+            {"value": "op-" + "a" * 32},
+        )
+        await conn.execute(
+            text("SELECT set_config('app.fair_use_evidence_reviewed', 'true', true)")
+        )
+        # The migration guard rejects the invalid capability before the
+        # table check constraint can turn it into an integrity error.
+        with pytest.raises(DBAPIError) as rejected:
             async with conn.begin_nested():
                 await conn.execute(
                     text(
@@ -159,6 +175,7 @@ async def test_fair_use_capability_prefix_is_enforced_by_postgres(rls_engine) ->
                         "subject_user_id": ids["user_a"],
                     },
                 )
+        assert "fair_use_transition_rejected" in str(rejected.value.orig)
 
 
 @pytest.mark.asyncio
@@ -797,6 +814,15 @@ async def test_reconciliation_activity_rejects_real_app_role_before_empty_succes
                 BillingEntitlementGrant.invoice_id == probe["invoice_id"],
             )
         ) == 0
+    # This synthetic signal must stay pending for the proof above, but the
+    # strict suite shares one database across tests; remove it so a later
+    # global reconciliation does not count it as real work.
+    async with async_sessionmaker(rls_engine, expire_on_commit=False)() as db:
+        await apply_tenant_context(db, _reconciliation_probe_context())
+        await db.execute(
+            delete(BillingWebhookEvent).where(BillingWebhookEvent.id == probe["event_id"])
+        )
+        await db.commit()
 
 
 @pytest.mark.asyncio
