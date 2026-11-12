@@ -6476,7 +6476,7 @@ select:focus, .settings-page select:focus, .calendar-settings select:focus {
 
 /* The meeting panel shows the common sharing path before the advanced controls. */
 .summary-share-dialog .share-dialog__surface { gap: 8px; padding: 16px 20px; }
-.sharing-dialog-heading { display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--line-soft); }
+.sharing-dialog-heading { position: sticky; top: 0; z-index: 3; background: var(--panel); display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--line-soft); }
 .sharing-dialog-tabs { display: flex; flex: 1; min-width: 0; flex-wrap: wrap; gap: 4px; }
 .sharing-dialog-tabs button {
   white-space: normal; overflow-wrap: anywhere; min-width: 0; min-height: 40px; padding: 0 12px; border: 0; border-radius: 0;
@@ -6642,7 +6642,7 @@ select:focus, .settings-page select:focus, .calendar-settings select:focus {
   .public-reader__toolbar > button { grid-column:2; }
   .public-reader__more { grid-column:3; }
 }
-.summary-share-dialog[open] { max-height:calc(100dvh - 24px); z-index:40; scroll-padding-bottom:calc(5em + 32px); }
+.summary-share-dialog[open] { max-height:calc(100dvh - 24px); z-index:40; scroll-padding-top:calc(3em + 24px); scroll-padding-bottom:calc(5em + 32px); }
 .meeting-detail-header:has(.summary-share-dialog[open]) { z-index:40; }
 .summary-share-dialog::backdrop { background:transparent; }
 .sharing-invitation-form { display:grid; gap:6px; }

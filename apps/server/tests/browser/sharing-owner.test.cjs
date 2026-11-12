@@ -222,7 +222,15 @@ const assets = path.join(__dirname, '../../src/twobrain_rec_server/cabinet/stati
       await page.getByRole('button',{name:'Скопировать ссылку',exact:true}).scrollIntoViewIfNeeded();
       const copyBox=await page.locator('[data-summary-share-copy]').boundingBox();
       const mainBox=await page.locator('main').boundingBox();
+      const pinnedHeading=await page.locator('.sharing-dialog-heading').boundingBox();
+      const scrolledPanel=await panel.boundingBox();
+      assert(pinnedHeading.y>=scrolledPanel.y&&pinnedHeading.y+pinnedHeading.height<=scrolledPanel.y+scrolledPanel.height,'Sharing tabs and close must stay visible while scrolling advanced controls');
       assert(copyBox.y>=0&&copyBox.y+copyBox.height<=mainBox.y+mainBox.height+1,'Footer must remain reachable at 200% text');
+      await page.locator('[data-summary-share-expiry]').focus();
+      const expiryFocus=await page.locator('[data-summary-share-expiry]').boundingBox();
+      const focusHeading=await page.locator('.sharing-dialog-heading').boundingBox();
+      const focusFooter=await page.locator('.sharing-dialog-actions').boundingBox();
+      assert(expiryFocus.y>=focusHeading.y+focusHeading.height-1&&expiryFocus.y+expiryFocus.height<=focusFooter.y+1,'Pinned edges must not hide a focused advanced field at 200% text');
       assert(await page.locator('[data-summary-share-dialog]').evaluate(el=>el.scrollWidth<=el.clientWidth+1),'Text enlargement must not create horizontal overflow');
       assert(await page.locator('[data-sharing-audience]').evaluate(el=>{const field=el.getBoundingClientRect();const icon=el.parentElement.querySelector('svg').getBoundingClientRect();return Math.abs(field.top+field.height/2-icon.top-icon.height/2)<1;}));
       await page.keyboard.press('Escape');
@@ -279,6 +287,8 @@ const assets = path.join(__dirname, '../../src/twobrain_rec_server/cabinet/stati
         const focusedAction=await lastAction.boundingBox();
         const fixedCopy=await page.locator('.sharing-dialog-actions').boundingBox();
         assert(focusedAction.y+focusedAction.height<=fixedCopy.y+1,'Pinned footer must not hide the focused invitation action');
+        const fixedHeading=await page.locator('.sharing-dialog-heading').boundingBox();
+        assert(focusedAction.y>=fixedHeading.y+fixedHeading.height-1,'Pinned heading must not hide the focused invitation action');
         const firstPending=page.locator('[data-sharing-access-list] .share-viewer-row').nth(1);
         assert((await firstPending.innerText()).includes('Просмотр встречи'));
         assert((await page.locator('[data-sharing-access-list]').innerText()).includes('Только итоги'));
