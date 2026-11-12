@@ -1,5 +1,57 @@
 # Quickstart and validation matrix
 
+## MRC: ложное отсутствие карты и незавершённый результат — 12.11.2026
+
+До реализации: scoped checklist независимого reviewer полностью PASS,
+tasks/analyze и sync существующих #4922/#4926. Диагностические семь случаев
+от 12.11 не повторять вместо причинной регрессии. Lane high-risk-product;
+дальше только synthetic fixtures и изолированная disposable PostgreSQL,
+без .env/рабочей БД/реальных provider API/почты. Сеть provider запрещена,
+разрешён только локальный MockTransport. Перед крупной сборкой проверить диск.
+
+1. **Causal RED → GREEN** в `tests/integration/test_billing_renewal_planner_postgres.py`:
+   настоящий planner создаёт одну операцию/счёт, commit, новая AsyncSession,
+   настоящий charge получает ValueError до POST (неверная валюта/ключ/authority)
+   и после единственного синтетического POST (невалидный строковый provider ID).
+   После commit ещё одна session видит manual_resolution и pending, исходные
+   деньги/права/согласие/key неизменны. Повтор charge сохраняет результат,
+   число POST=0 до отправки либо 1 после отправки; старый handler должен
+   причинно провалить ожидание pending. TypeError отдельно покрывается unit.
+2. **Planner**: сохранённые manual_resolution/unknown/sent и старый
+   method_required при отсутствующем методе, новой цене/неподтверждённом
+   каталоге и адресе чека. В новом окне не возникает operation/invoice/POST;
+   resolution=pending. Rollback не сохраняет новую проекцию. Другой период,
+   canceled/succeeded и scheduled без provider_id не считаются незавершёнными;
+   нормальный метод и три окна не теряют прежнее поведение.
+3. **Обе настоящие страницы** через page handlers с сохранёнными PG строками:
+   manual_resolution без ID после POST, старый method_required, каждый blocker,
+   recurring_allowed true/false, result=method_required. Основной статус и
+   баннер показывают проверку, нет совета о карте/новой оплате, nominal-first
+   и ложного обещания отсутствия списания. История/помощь и cancel доступны;
+   resume quote/новый платеж не создаются. Query reuse не меняет tuple2/string
+   контракт projection/wrapper и storage preview/resume callers.
+4. **Fail closed и границы**: SQL/read error не становится пустой историей;
+   same/cross workspace, другой период/kind, scheduled с ID, confirmed fail,
+   success, unsent scheduled и без paid_through. Проверять снимки настоящих
+   исходных invoice/operation/subscription/grants/method/authority и audit,
+   разрешая только ожидаемые state/status/resolution и прежний audit перехода.
+
+Адресные команды из `apps/server` после настройки disposable PG штатным
+`scripts/run_local_postgres_tests.sh --help` (не использовать рабочую DSN):
+
+```sh
+uv run pytest tests/unit/test_renewal_charge.py tests/unit/test_billing_purchases.py -q
+uv run pytest tests/contract/test_billing_ui.py tests/contract/test_billing_accessibility.py -q
+uv run pytest tests/integration/test_billing_renewal_planner_postgres.py -q
+```
+
+Сохранить exact pre/post source hashes, команды/exit/logs и отличить unit,
+PG/handlers, CI и ручную приёмку. GRAF Dev проверять только после доказанной
+свободности и по local-development.md; темы/клавиатура/VoiceOver/200%/360px
+не считаются пройденными из Jinja или автоматических assertions. Их отсутствие
+сохранять явно. Выпуск/развёртывание, настоящее получение #7524 и полный
+T068/T070 этим срезом не принимаются; #7899 последняя.
+
 ## T077/O16 J5/J6: независимое наблюдение и почта — 03.11.2026
 
 Дизайн A1–A7 [контракта](contracts/operator-observation.md), ещё не результаты.
