@@ -6,12 +6,16 @@ import signal
 import subprocess
 import sys
 from datetime import UTC, date, datetime, timedelta
+from importlib import import_module
+from pathlib import Path
 from types import SimpleNamespace
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 import httpx
 import pytest
+from alembic import command
+from alembic.config import Config
 from sqlalchemy import (
     JSON,
     BigInteger,
@@ -33,6 +37,7 @@ from twobrain_rec_server.billing import monitoring
 from twobrain_rec_server.billing.database import BillingMaintenanceDatabaseError
 from twobrain_rec_server.billing.registry import canonical_hash
 from twobrain_rec_server.cli import billing_monitoring as cli
+from twobrain_rec_server.config import get_settings
 from twobrain_rec_server.db.models import (
     BillingAuditEvent,
     BillingEntitlementGrant,
@@ -868,9 +873,12 @@ def database(registry_database):  # noqa: F811 — imported pytest fixture
         engine = create_async_engine(registry_database)
         try:
             async with engine.begin() as conn:
-                names = ",".join(model.__tablename__ for model in TABLES)
+                names = ",".join(model.__tablename__ for model in TABLES if model is not FairUseReviewRecord)
                 for role in ("twobrain_rec_app", "twobrain_rec_maintenance", "registry_worker"):
                     await conn.execute(text(f"GRANT SELECT,INSERT,UPDATE,DELETE ON {names} TO {role}"))
+                    migration = import_module("twobrain_rec_server.db.migrations.versions.0113_fair_use_operator_history")
+                    for statement in migration.runtime_grants(role):
+                        await conn.execute(text(statement))
                 # Roles are created by registry_database after migrations; grant
                 # the same two privileges as0109, without any history mutation.
                 await conn.execute(text("GRANT SELECT,INSERT ON billing_reconciliation_observations TO twobrain_rec_maintenance"))
@@ -889,6 +897,44 @@ def database(registry_database):  # noqa: F811 — imported pytest fixture
             await engine.dispose()
     asyncio.run(setup())
     return registry_database
+
+
+@pytest.fixture
+def legacy_fair_use_rows(database, monkeypatch):
+    """Seed historical schedules before0113, then restore protection before reading."""
+    root = Path(__file__).resolve().parents[2]
+    config = Config(str(root / "alembic.ini"))
+    config.set_main_option("script_location", str(root / "src/twobrain_rec_server/db/migrations"))
+    monkeypatch.setenv("TWOBRAIN_DATABASE_URL", database)
+    get_settings.cache_clear()
+
+    def populate_legacy(populate):
+        command.downgrade(config, "0112_storage_notifications")
+        try:
+            asyncio.run(populate())
+            before = asyncio.run(fingerprint(database))
+        finally:
+            command.upgrade(config, "head")
+            get_settings.cache_clear()
+        assert asyncio.run(fingerprint(database)) == before
+
+        async def protected():
+            engine = create_async_engine(database)
+            try:
+                async with engine.connect() as conn:
+                    assert await conn.scalar(text("SELECT version_num FROM alembic_version")) == "0113_fair_use_operator_history"
+                    assert (await conn.execute(text("SELECT relrowsecurity,relforcerowsecurity FROM pg_class WHERE oid='public.fair_use_reviews'::regclass"))).one() == (True, True)
+                    assert (await conn.execute(text("SELECT tgname,tgenabled::text FROM pg_trigger WHERE tgrelid='public.fair_use_reviews'::regclass AND NOT tgisinternal ORDER BY tgname"))).all() == [
+                        ("fair_use_audit_append", "A"), ("fair_use_review_guard", "A"), ("fair_use_review_truncate_guard", "A"),
+                    ]
+            finally:
+                await engine.dispose()
+        asyncio.run(protected())
+
+    try:
+        yield populate_legacy
+    finally:
+        get_settings.cache_clear()
 
 
 def invoke(url, role="twobrain_rec_maintenance"):
@@ -2055,7 +2101,7 @@ def test_receipt_inventory_repeatable_snapshot_and_new_process(database):
     assert code == 0 and restarted["families"]["refunds_and_receipts"]["values"]["receipts"]["values"]["count"] == 1
 
 
-def test_fair_use_inventory_empty_constraints_and_schema_failure(database):
+def test_fair_use_inventory_empty_constraints_and_schema_failure(database, legacy_fair_use_rows):
     result, code = process(database)
     assert code == 0
     assert result["families"]["deletion_and_fair_use"] == {
@@ -2073,7 +2119,7 @@ def test_fair_use_inventory_empty_constraints_and_schema_failure(database):
     workspace = asyncio.run(seed(database))
     now = datetime(2026, 11, 1, tzinfo=UTC)
 
-    async def schema():
+    async def constraints():
         engine = create_async_engine(database)
         try:
             async with engine.begin() as conn:
@@ -2089,6 +2135,14 @@ def test_fair_use_inventory_empty_constraints_and_schema_failure(database):
                     with pytest.raises(IntegrityError):
                         async with conn.begin_nested():
                             await conn.execute(insert(FairUseReviewRecord).values(**row))
+        finally:
+            await engine.dispose()
+    legacy_fair_use_rows(constraints)
+
+    async def schema():
+        engine = create_async_engine(database)
+        try:
+            async with engine.begin() as conn:
                 await conn.execute(text("alter table fair_use_reviews rename column review_by to synthetic_missing_deadline"))
             try:
                 assert await asyncio.to_thread(process, database) == (cli.failure("report_unavailable"), 1)
@@ -2101,7 +2155,7 @@ def test_fair_use_inventory_empty_constraints_and_schema_failure(database):
     assert process(database)[0]["families"]["deletion_and_fair_use"]["values"]["count"] == 0
 
 
-def test_fair_use_inventory_boundaries_infinity_privacy_and_restart(database, monkeypatch):
+def test_fair_use_inventory_boundaries_infinity_privacy_and_restart(database, monkeypatch, legacy_fair_use_rows):
     workspace = asyncio.run(seed(database))
     now = datetime(2026, 11, 1, tzinfo=UTC)
     us, day = timedelta(microseconds=1), timedelta(days=1)
@@ -2130,7 +2184,7 @@ def test_fair_use_inventory_boundaries_infinity_privacy_and_restart(database, mo
                 } for i, (state, start, deadline) in enumerate(schedules)]))
         finally:
             await engine.dispose()
-    asyncio.run(populate())
+    legacy_fair_use_rows(populate)
     before = asyncio.run(fingerprint(database))
     actual, sql = cli.create_async_engine, []
 
@@ -2225,10 +2279,9 @@ def test_fair_use_inventory_synthetic_defenses_and_dst(database, monkeypatch):
 
 def test_fair_use_inventory_repeatable_snapshot_and_new_process(database):
     workspace = asyncio.run(seed(database))
-    as_of = datetime(2026, 11, 1, tzinfo=UTC)
 
     async def scenario():
-        writer = create_async_engine(database)
+        writer = create_async_engine(settings(database).database_url)
         reader = create_async_engine(settings(database).database_url, execution_options={
             "isolation_level": "REPEATABLE READ", "postgresql_readonly": True,
         })
@@ -2244,13 +2297,21 @@ def test_fair_use_inventory_repeatable_snapshot_and_new_process(database):
             return db
         try:
             async with session() as db:
-                old = await monitoring.collect_billing_report(db, scope=scope, as_of=as_of)
-                assert old["families"]["deletion_and_fair_use"]["values"]["count"] == 0
                 async with writer.begin() as conn:
+                    await apply_tenant_context_to_connection(conn, MaintenanceTenantContext(
+                        operation_name="billing_reconciliation", actor_id="synthetic-operator",
+                        reason_category="fair_use_review", feature_area="billing",
+                    ))
+                    assert (await conn.execute(text("SELECT session_user,current_user,rolsuper,rolbypassrls,rolinherit,current_setting('row_security') FROM pg_roles WHERE rolname=current_user"))).one() == ("twobrain_rec_maintenance", "twobrain_rec_maintenance", False, False, False, "on")
+                    await conn.execute(text("SELECT set_config('app.fair_use_operator_ref', :operator, true),set_config('app.fair_use_evidence_reviewed','true',true)"), {"operator": "op-" + "a" * 32})
+                    # One DB clock anchors both snapshots after the generated deadline.
+                    as_of = await conn.scalar(text("SELECT transaction_timestamp() + interval '25 hours'"))
+                    old = await monitoring.collect_billing_report(db, scope=scope, as_of=as_of)
+                    assert old["families"]["deletion_and_fair_use"]["values"]["count"] == 0
                     subject = (await conn.execute(text("select owner_user_id from workspaces where id=:id"),
                                                   {"id": workspace})).scalar_one()
                     await conn.execute(insert(FairUseReviewRecord).values(
-                        workspace_id=workspace, subject_user_id=subject, capability="private-capability",
+                        workspace_id=workspace, subject_user_id=subject, capability="server_processing",
                         reason_code="security_abuse", evidence_ref="private-new-review", state="notice",
                         starts_at=as_of, review_by=as_of,
                     ))
@@ -2324,7 +2385,7 @@ def test_deletion_inventory_empty_notnull_and_schema_failure(database):
     assert process(database)[0]["families"]["deletion_and_fair_use"]["values"]["deletion"]["values"]["count"] == 0
 
 
-def test_deletion_inventory_states_dates_defenses_privacy_and_restart(database, monkeypatch):
+def test_deletion_inventory_states_dates_defenses_privacy_and_restart(database, monkeypatch, legacy_fair_use_rows):
     workspace = asyncio.run(seed(database))
     states = ["requested", "deleting", "active_purge_complete", "retryable_failed",
               "complete", "terminal_failed", "none", "private-state"]
@@ -2348,7 +2409,7 @@ def test_deletion_inventory_states_dates_defenses_privacy_and_restart(database, 
                 ))
         finally:
             await engine.dispose()
-    asyncio.run(populate())
+    legacy_fair_use_rows(populate)
     before = asyncio.run(fingerprint(database))
     actual, sql = cli.create_async_engine, []
 

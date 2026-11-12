@@ -327,6 +327,19 @@ def notification_copy(
         "security_abuse": "подозрение на злоупотребление безопасностью",
     }.get(event.safe_payload.get("reason", ""), "доказуемая неперсональная эксплуатация")
     fair_use_deadline = event.safe_payload.get("review_by", "в течение 24 часов")
+    if event.kind == BillingNotification.FAIR_USE_REVIEW and payload.get("phase") in {"notice", "appealed", "cleared", "confirmed"}:
+        title, result = {
+            "notice": ("Проверка использования принята", "Сохранено начало проверки."),
+            "appealed": ("Апелляция принята", "Сохранена первая апелляция."),
+            "cleared": ("Результат проверки сохранён", "Основание не подтверждено или больше не применяется."),
+            "confirmed": ("Результат проверки сохранён", "Основание подтверждено по результатам рассмотрения."),
+        }[payload["phase"]]
+        return title, (
+            f"{result} Функция: {fair_use_capability}. Причина: {fair_use_reason}. "
+            f"Первоначальный срок рассмотрения: {fair_use_deadline} МСК. "
+            "Действующее состояние и доступные действия указаны в кабинете. "
+            "Сохранённый результат не подтверждает фактическое включение или снятие ограничения."
+        )
     renewal_access_until = event.safe_payload.get("access_until", "в конце оплаченного периода")
     ended_at = f" {event.safe_payload['access_until']} МСК" if "access_until" in event.safe_payload else ""
     support_instruction = (
@@ -510,13 +523,13 @@ def build_notification(
         BillingNotification.REFERRAL_AVAILABLE: {"referral_expiry"},
         BillingNotification.REFERRAL_APPLIED: {"referral_days", "referral_start", "referral_end"},
         BillingNotification.REFERRAL_REVERSED: {"referral_reversed"},
-        BillingNotification.FAIR_USE_REVIEW: {"capability", "reason", "review_by"},
+        BillingNotification.FAIR_USE_REVIEW: {"capability", "reason", "review_by", "phase", "fair_use_review_id"},
         BillingNotification.ACCOUNT_CLOSE: set(),
     }[kind]
     safe: dict[str, str] = {}
     for key in allowed_keys:
         value = payload.get(key)
-        if key in {"trial_starts_at", "trial_ends_at"}:
+        if key in {"trial_starts_at", "trial_ends_at"} or (kind == BillingNotification.FAIR_USE_REVIEW and key == "review_by"):
             if isinstance(value, str) and re.fullmatch(
                 r"[0-9]{2}\.[0-9]{2}\.[0-9]{4} [0-9]{2}:[0-9]{2}", value
             ):
@@ -564,6 +577,8 @@ def build_notification(
             "last4": r"[0-9]{4}",
             "referral_days": r"[1-9][0-9]{0,2}",
             "renewal_timing": r"after_cutoff",
+            "phase": r"notice|appealed|cleared|confirmed",
+            "fair_use_review_id": r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
         }.get(key) or (
             r"\d{2}\.\d{2}\.\d{4} \d{2}:\d{2}"
             if key in {"review_by", "access_until", "scheduled_at", "referral_expiry",
@@ -573,7 +588,9 @@ def build_notification(
         if isinstance(value, str) and re.fullmatch(pattern, value):
             safe[key] = value
     action_path = payload.get("action_path")
-    if kind in REFERRAL_NOTICE_KINDS:
+    if kind == BillingNotification.FAIR_USE_REVIEW:
+        safe["action_path"] = "/account/fair-use"
+    elif kind in REFERRAL_NOTICE_KINDS:
         safe["action_path"] = "/referrals"
     elif isinstance(action_path, str) and re.fullmatch(
         r"/(?:account|settings|billing|meetings)(?:/[A-Za-z0-9_-]+){0,8}",

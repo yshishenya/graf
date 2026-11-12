@@ -4,9 +4,10 @@ import asyncio
 import os
 import stat
 from collections.abc import AsyncIterator, Iterator
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from importlib import import_module
 from pathlib import Path
 from types import SimpleNamespace
 from uuid import UUID, uuid4
@@ -1622,11 +1623,31 @@ async def test_worker_context_and_maintenance_context_are_explicit(rls_engine: A
     assert maintenance_count >= 2
 
 
+@pytest.fixture
+async def legacy_billing_lineage_database(postgres_isolated_cluster_database_url, monkeypatch):
+    # The historical restricted row must not downgrade the shared RLS database.
+    url = postgres_isolated_cluster_database_url
+    async with AsyncExitStack() as cleanup:
+        cleanup.callback(get_settings.cache_clear)
+        monkeypatch.setenv("TWOBRAIN_DATABASE_URL", url)
+        get_settings.cache_clear()
+        config = Config(str(REPO_ROOT / "apps/server/alembic.ini"))
+        config.set_main_option("script_location", str(REPO_ROOT / "apps/server/src/twobrain_rec_server/db/migrations"))
+        await asyncio.to_thread(command.downgrade, config, "0112_storage_notifications")
+        role, password = await _create_probe_role(url, role_name="twobrain_rec_maintenance")
+        maintenance = create_async_engine(make_url(url).set(username=role, password=password))
+        cleanup.push_async_callback(maintenance.dispose)
+        owner = create_async_engine(url)
+        cleanup.push_async_callback(owner.dispose)
+        yield SimpleNamespace(maintenance=maintenance, owner=owner, url=url, config=config)
+
+
 @pytest.mark.asyncio
 async def test_merged_billing_lineage_remains_visible_and_appealable_under_forced_rls(
-    rls_engine: AsyncEngine,
-    migrated_postgres_urls: MigratedPostgresUrls,
+    legacy_billing_lineage_database,
 ) -> None:
+    case = legacy_billing_lineage_database
+    rls_engine = case.maintenance
     ids = await _seed_probe_rows(rls_engine)
     trial_id = uuid4()
     referral_link_id = uuid4()
@@ -1763,19 +1784,44 @@ async def test_merged_billing_lineage_remains_visible_and_appealable_under_force
             },
         )
 
-    async with _exact_app_role_engine(migrated_postgres_urls.migration_url) as app_engine:
+    async def historical_snapshot():
+        async with case.owner.connect() as conn:
+            return [
+                (await conn.execute(text(f"SELECT to_jsonb(t) FROM public.{table} t ORDER BY id"))).scalars().all()
+                for table in ("fair_use_reviews", "trial_activations", "referral_links", "referral_attributions",
+                              "billing_audit_events", "billing_notification_deliveries")
+            ]
+
+    before = await historical_snapshot()
+    assert before[0][0]["state"] == "restricted" and before[4:] == [[], []]
+    await asyncio.to_thread(command.upgrade, case.config, "head")
+    get_settings.cache_clear()
+    assert await historical_snapshot() == before
+    migration = import_module("twobrain_rec_server.db.migrations.versions.0113_fair_use_operator_history")
+    async with case.owner.connect() as conn:
+        assert await conn.scalar(text("SELECT version_num FROM alembic_version")) == "0113_fair_use_operator_history"
+        assert (await conn.execute(text("SELECT relrowsecurity,relforcerowsecurity FROM pg_class WHERE oid='public.fair_use_reviews'::regclass"))).one() == (True, True)
+        assert (await conn.execute(text("SELECT tgname,tgenabled::text FROM pg_trigger WHERE tgrelid='public.fair_use_reviews'::regclass AND NOT tgisinternal ORDER BY tgname"))).all() == [
+            ("fair_use_audit_append", "A"), ("fair_use_review_guard", "A"), ("fair_use_review_truncate_guard", "A"),
+        ]
+
+    async with _exact_app_role_engine(case.url) as app_engine:
+        async with case.owner.begin() as conn:
+            for statement in migration.runtime_grants("twobrain_rec_app"):
+                await conn.execute(text(statement))
         sessionmaker = async_sessionmaker(app_engine, expire_on_commit=False)
         async with sessionmaker() as db:
+            assert (await db.execute(text("SELECT session_user,current_user,rolsuper,rolbypassrls,rolinherit,current_setting('row_security') FROM pg_roles WHERE rolname=current_user"))).one() == ("twobrain_rec_app", "twobrain_rec_app", False, False, False, "on")
+            assert not await db.scalar(text("SELECT has_table_privilege(current_user,'public.fair_use_reviews','INSERT,UPDATE,DELETE,TRUNCATE')"))
             await apply_tenant_context(db, _request_context(ids, "a"))
             assert await trial_used_by_lineage(db, user_id=ids["user_a"])
             assert await fair_use_restricted_for_lineage(db, user_id=ids["user_a"])
-            appealed = await appeal_persisted_review(
+            appealed, changed = await appeal_persisted_review(
                 db,
                 review_id=fair_use_id,
                 subject_user_id=ids["user_a"],
-                at=datetime.now(UTC),
             )
-            assert appealed is not None and appealed.state == "appealed"
+            assert changed and appealed is not None and appealed.state == "appealed"
 
             await apply_tenant_context(
                 db,
@@ -1812,9 +1858,13 @@ async def test_merged_billing_lineage_remains_visible_and_appealable_under_force
             },
         )
 
-    async with _exact_app_role_engine(migrated_postgres_urls.migration_url) as app_engine:
+    async with _exact_app_role_engine(case.url) as app_engine:
+        async with case.owner.begin() as conn:
+            for statement in migration.runtime_grants("twobrain_rec_app"):
+                await conn.execute(text(statement))
         sessionmaker = async_sessionmaker(app_engine, expire_on_commit=False)
         async with sessionmaker() as db:
+            assert (await db.execute(text("SELECT session_user,current_user,rolsuper,rolbypassrls,rolinherit,current_setting('row_security') FROM pg_roles WHERE rolname=current_user"))).one() == ("twobrain_rec_app", "twobrain_rec_app", False, False, False, "on")
             await apply_tenant_context(db, _request_context(ids, "a"))
             assert await trial_used_by_lineage(db, user_id=ids["user_a"])
 

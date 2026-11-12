@@ -722,3 +722,153 @@ schema/roles → observer → activity/sender/finalizer → T068 причинн�
 уровней без нового сервиса/зависимости. Широкие T070/T068, остальные семейства,
 реальное получение #7524, GRAF Dev, выпуск/сервер имеют собственную приёмку.
 Этот порядок не меняет исходный `[P]` T068 в обещание независимости от T070.
+
+## Исполнение US9/P2, T070/#4926 и T068/#4922 — операторский fair-use, 11.11.2026
+
+Это порядок исполнения двух существующих task rows, не новые task IDs/issues.
+Все87 исходных строк/ID/описаний/отметок сохраняются. T068/T070 остаются `[ ]`:
+полный FR107, другие события и реальная приёмка не выполнены. Lane
+high-risk-product; Spec FU1–FU8, Plan Phase0/1, data-model и единственный
+normative contracts/fair-use-operator.md, включая audit v1. Независимый
+review-fair-use-operator-requirements.md:19checked/0unchecked после R1;
+это качество требований, не приёмка кода. До выполнения ниже нужны scoped
+Analyze и сверка существующих issues по канону, без дубликатов.
+
+**Цель US9 этого среза:** уполномоченная служба вручную принимает проверенное
+внешнее основание, субъект подаёт апелляцию, служба сохраняет решение;
+каждый первый переход атомарно даёт audit/outbox и одну подставную отправку.
+**Независимая проверка:** настоящий CLI create → commit → отдельный LOGIN
+сеанс → cabinet POST/CSRF → resolve cleared/confirmed → отдельные commit →
+обычный sender/committed claim → один stub на событие/исходного адресата;
+повтор и rollback не создают дубликатов, SQL app/maintenance не подделывает
+audit. Очередь напрямую в положительном причинном сценарии не заполнять.
+
+### Подготовка и фундамент: T068 RED → T070 PostgreSQL
+
+1. **T068, причинный RED.** В
+   `apps/server/tests/integration/test_billing_notification_flow.py` добавить
+   рабочий CLI/кабинет→commit→sender сценарий; DB/роль отрицательные случаи
+   выделить в `apps/server/tests/integration/test_billing_fair_use_operator.py`,
+   CLI format/dry-run в `apps/server/tests/unit/test_billing_fair_use_cli.py`.
+   Зафиксировать точные nodeids и ожидаемый предметный отказ до продукта,
+   затем исполнять только новые и действительно затронутые прежние случаи.
+   Проверить весь контракт Quickstart §операторского источника1–12,
+   реальные PostgreSQL17 LOGIN/FORCE RLS и отдельные sessions, без внешней сети.
+2. **T070, защита фактических переходов.** От проверенного head0112 добавить
+   `apps/server/src/twobrain_rec_server/db/migrations/versions/0113_fair_use_operator_history.py`:
+   BEFORE INVOKER review guard, AFTER DEFINER automatic audit и BEFORE INVOKER
+   audit namespace guard по выбранному контракту; новая таблица не нужна.
+   Физические10столбцов/8metadata keys/типы/null/enum audit v1 — только из
+   contracts/fair-use-operator.md, без второй схемы. Operator-ref
+   «ASCII `^op-[0-9a-f]{32}$`, ровно35символов», без trim/casefold/coercion;
+   maintenance declarations transaction-local и отдельно от actual authority.
+   DB задаёт первый starts_at/review_by ровно+24ч, appealed_at/ref, resolved_at;
+   original/first/terminal metadata и no-op updated_at неизменны. Resolve
+   допустим только при canonical created audit; legacy без backfill/рассылки.
+   RLS split SELECT/INSERT/UPDATE убирает старый FOR ALL/DELETE; UPDATE USING
+   сохраняет validated F178 SELECT FOR UPDATE/FOR SHARE, WITH CHECK+guard
+   запрещают actual merge UPDATE. rec_maintenance_allowed один не authority.
+3. **T070, права и совместимость.** В
+   `apps/server/scripts/bootstrap_runtime_database_roles.py` и
+   `apps/server/src/twobrain_rec_server/db/rls_validation.py` поддержать exact
+   роли/схему. NOLOGIN NOINHERIT NOSUPERUSER NOBYPASSRLS NOCREATEDB
+   NOCREATEROLE NOREPLICATION writer имеет только schema USAGE и INSERT10
+   audit столбцов, без SELECT/UPDATE/DELETE/sequence/membership/ownership
+   таблиц/чужих функций. fixed search_path=pg_catalog,pg_temp, qualified public
+   refs, row_security=on, REVOKE PUBLIC/runtime EXECUTE, ENABLE ALWAYS и
+   TRUNCATE guard; запрет runtime SET session_replication_role/attach/disable.
+   Table+column REVOKE после broad bootstrap grants до того же commit;
+   проверять definitions/owner/effective ACL/memberships/parameter ACL после
+   двух bootstrap и в новой LOGIN session. Частичная схема/небезопасная роль
+   отказывает атомарно. Непустая новая история блокирует destructive downgrade;
+   старые строки сохраняются без поддельного actor/time/audit.
+
+### Рабочая история US9: T070 create → appeal → resolve → sender
+
+4. **T070, единый операторский путь.** Создать
+   `apps/server/src/twobrain_rec_server/cli/billing_fair_use.py` по прежнему
+   billing_registry/SafeParser и require_billing_maintenance_database;
+   в `apps/server/src/twobrain_rec_server/billing/fair_use.py` использовать
+   общие create_review/persist_review и сохраняемое resolve. Default READ ONLY,
+   --execute, no backdate/urgent/protected capability; только
+   server_processing|storage, четыре прежних reason, непрозрачный evidence-ref,
+   точный operator-ref/evidence-reviewed. Конечные поля решения
+   «cleared: not_substantiated|no_longer_applicable; confirmed: basis_confirmed».
+   Workspace→review→audit/outbox; membership/identity NOWAIT/rollback без
+   обратного ожидания с F178/closure. Проверять активную связь/owner/closed/
+   finalizing, совместимость replay, неизменные даты и конфликт решения.
+   SQL-generated audit Python не вставляет. Вывод только result_code/dry_run/
+   status, без аргументов/DSN/SQL/traceback. Повтор после terminal не ставит
+   старое notice и не добавляет нового адресата.
+5. **T070, апелляция и честный кабинет.** Обновить только нужные стыки
+   `apps/server/src/twobrain_rec_server/cabinet/web_routes/fair_use.py`,
+   `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/fair_use_content.html`
+   и общего billing/fair_use.py. Сохранить session/CSRF/subject/lineage,
+   first appeal→один audit/outbox, повтор/terminal→no-op. DB timestamp не должен
+   ломать прежний первый result=appealed против already_appealed: не сравнивать
+   его с app timestamp как доказательство первого перехода. UI/mail различают
+   notice/appeal/result и исторический deadline, не обещают enforcement,
+   снятие всех санкций или реальную доставку. Restricted/appealed остаются
+   F178 blockers, notice/cleared/confirmed исключены include_confirmed=False.
+   Сохранить keyboard/focus/status/CSRF и структуру страницы без новых assets.
+6. **T070, очередь и sender.** В
+   `apps/server/src/twobrain_rec_server/billing/events.py`,
+   `apps/server/src/twobrain_rec_server/billing/notifications.py` и
+   `apps/server/src/twobrain_rec_server/workflows/worker.py` сохранить family
+   fair_use.review, разные стабильные review/phase keys и неизменного subject/
+   отличного owner на момент перехода. Payload только phase/capability/reason/
+   исторический review_by МСК/action_path=/account/fair-use; служебная связь
+   с review не отображается. До claim вновь проверять источник/исходного
+   получателя/active identity/current право/verified email; не следовать merge
+   или новому owner. Missing-address строки выбираются для terminal suppression.
+   Подтверждённая утрата→suppressed; read error→durable retry «не более пяти
+   суммарных попыток и не раньше чем через60секунд» в selector И claim.
+   Mandatory mail игнорирует marketing preference, claim commit до HTTP,
+   locks не держать через HTTP, unknown после POST не повторять.
+7. **T070, безопасная совместимость очистки.** В
+   `apps/server/scripts/cleanup_smoke_artifacts.py` actual maintenance+exact
+   cleanup context→прежний Workspace root lock→preflight exact scope на любую
+   review/reserved audit ДО DML/objects. История/read error даёт только
+   protected_fair_use_history/rollback/0changes. Удалить выполнение DELETE
+   fair_use_reviews даже пустого. Нет cleanup GUC/depth исключения;
+   account-close сохраняет retained metadata. Обычный smoke без истории
+   очищается, concurrent source/preflight сериализуется с FK/root lock.
+
+### Проверки T068 и общие ворота
+
+8. **T068, законченная матрица этого среза.** Названные integration файлы,
+   `apps/server/tests/unit/test_fair_use.py`,
+   `apps/server/tests/contract/test_fair_use_ui.py` и
+   `apps/server/tests/unit/test_billing_notifications.py`: create/appeal/оба
+   решения, отдельный commit/new session, replay/concurrency/rollback/audit
+   error/unknown commit/queue error и исходный recipient. Actual SQL app,
+   maintenance spoof/COPY/UPSERT, reserved↔ordinary UPDATE laundering,
+   DELETE/TRUNCATE/role/GUC/depth bypass, row_security off/wrong context.
+   Operator empty/null/short/overlong/control/whitespace/Unicode/uppercase,
+   missing attestation; audit unknown/missing key, wrong type/bool-as-number,
+   null/enum/version/UUID/time/interfield mismatch по v1. Trusted setup только
+   для старой истории и отрицательной формы guard под NOLOGIN writer;
+   положительные пути идут настоящими runtime LOGIN, не schema owner.
+   Regression actual F178 row-lock hold и forbidden UPDATE, lineage/stale
+   preview; cleanup preflight/source race/0partial/обычная очистка; legacy
+   migration/no backfill, bootstrap twice, empty downgrade/upgrade и отказ
+   nonempty. Адаптировать только реально затронутые role fixtures/callers
+   persist_review/direct FairUseReviewRecord и profile merge/cleanup tests;
+   не возвращать app grants ради старого теста. Прежние SQL/платёжные/
+   storage положительные наборы повторять лишь при затронутой зависимости.
+9. **Общие ворота.** Независимое code review → $speckit-converge FU1–FU8 →
+   профильный PG17/RLS/CLI/UI/sender/cleanup/F178 и Ruff/process/diff → owned
+   `changes/unreleased/F140.yaml` → commit/push/PR с Refs#4926/#4922,
+   governance-fast/macos-pr/pr-metadata точного SHA/текущей базы,
+   common до/после merge и readback parent/tree. Временные synthetic БД/
+   container/dump убрать finally, оставить версии/hashes/log/XML/results.
+
+Зависимости: checklist19/0→Analyze→existing issues→T068 RED→T070 schema/roles
+→CLI/shared transitions→cabinet/outbox/sender→cleanup→T068 actual-role матрица
+→independent code review/converge/точные PR gates. После schema/roles renderer
+unit cases и отдельный CLI parser test могут готовиться независимо;
+fair_use.py/worker.py/migration/bootstrap менять последовательно из-за общих
+стыков. Минимальный законченный результат — вся цепочка create/appeal/resolve,
+не одна прямая запись очереди. Это не новый automatic abuse detector,
+capability enforcement, urgent containment, реальный SLA/оператор/получатель
+#7524, выпуск/сервер/Dev и не полные T068/T070. Новых зависимостей/служб нет.

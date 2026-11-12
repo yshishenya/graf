@@ -427,7 +427,7 @@ def test_billing_keyboard_focus_and_error_recovery_in_browser(tmp_path):
             "id": "synthetic", "support_reference": "FU-SYNTHETIC",
             "state_label": "Проверка", "capability": "Обработка",
             "reason_label": "Требуется проверка", "review_by_label": "29.10.2026",
-            "review_overdue": False, "can_appeal": False, "appealed": False,
+            "review_overdue": False, "review_completed": False, "can_appeal": False, "appealed": False,
         }],
     )
     pages["plans"] = render_template(

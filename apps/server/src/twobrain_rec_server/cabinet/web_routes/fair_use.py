@@ -6,6 +6,7 @@ from uuid import UUID
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import exists, or_, select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal, TenantScope
@@ -43,11 +44,11 @@ _CAPABILITY_LABELS = {
     "exports": "экспорт данных",
 }
 _STATE_LABELS = {
-    "notice": "Уведомление",
+    "notice": "Проверка принята",
     "restricted": "Ограничение на проверке",
-    "appealed": "Апелляция отправлена",
-    "cleared": "Ограничение снято",
-    "confirmed": "Ограничение подтверждено",
+    "appealed": "Апелляция принята",
+    "cleared": "Проверка завершена",
+    "confirmed": "Основание подтверждено",
 }
 
 
@@ -57,13 +58,15 @@ def _date_label(value: datetime) -> str:
 
 def _review_view(row: FairUseReviewRecord, *, now: datetime, can_appeal: bool) -> dict[str, object]:
     review_by = row.review_by.astimezone(UTC)
+    completed = row.state in {"cleared", "confirmed"}
     return {
         "id": str(row.id),
         "capability": _CAPABILITY_LABELS.get(row.capability, "одна из функций продукта"),
         "reason_label": _REASON_LABELS.get(row.reason_code, "доказуемая неперсональная эксплуатация"),
         "state_label": _STATE_LABELS.get(row.state, "Статус уточняется"),
         "review_by_label": _date_label(review_by),
-        "review_overdue": review_by <= now,
+        "review_completed": completed,
+        "review_overdue": not completed and review_by <= now,
         "support_reference": f"FU-{row.id.hex[:12].upper()}",
         "can_appeal": can_appeal and row.state in {"notice", "restricted"},
         "appealed": row.state == "appealed",
@@ -125,8 +128,8 @@ async def _render_fair_use_page(
         reviews=reviews,
         unavailable=unavailable,
         fair_use_result={
-            "appealed": "Апелляция отправлена. Мы сохранили только технический статус обращения.",
-            "already_appealed": "Апелляция уже отправлена и находится на проверке.",
+            "appealed": "Апелляция принята. Она сохранена вместе с исходным сроком проверки.",
+            "already_appealed": "Апелляция уже принята и находится на проверке.",
             "unavailable": "Проверка сейчас недоступна. Попробуйте позже.",
         }.get(result),
         support_email=normalize_support_email(request.app.state.settings.billing_support_email),
@@ -182,21 +185,20 @@ async def fair_use_appeal(
             parsed_review_id = UUID(review_id)
         except ValueError:
             parsed_review_id = None
-        appealed_at = datetime.now(UTC)
-        existing = (
-            await appeal_persisted_review(
-                db,
-                review_id=parsed_review_id,
-                subject_user_id=principal.user_id,
-                at=appealed_at,
+        try:
+            existing, changed = (
+                await appeal_persisted_review(
+                    db, review_id=parsed_review_id, subject_user_id=principal.user_id,
+                )
+                if parsed_review_id is not None else (None, False)
             )
-            if parsed_review_id is not None
-            else None
-        )
-        if existing is None or existing.state in {"cleared", "confirmed"}:
-            result = "unavailable"
-        else:
-            result = "appealed" if existing.appealed_at == appealed_at else "already_appealed"
+            if existing is None or existing.state in {"cleared", "confirmed"}:
+                result = "unavailable"
+            else:
+                result = "appealed" if changed else "already_appealed"
             await db.commit()
+        except (SQLAlchemyError, ValueError):
+            await db.rollback()
+            result = "unavailable"
     base = "/desktop/account/fair-use" if request.url.path.startswith("/desktop/") else "/account/fair-use"
     return RedirectResponse(f"{base}?result={result}", status_code=303)

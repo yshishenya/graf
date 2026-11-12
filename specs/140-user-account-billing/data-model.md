@@ -834,3 +834,55 @@ workspace parent и cleanup по account finalizer, scan — системная 
 также в account-close context billing_reconciliation/account. Нет request,
 worker или media доступа. Migration и повторный bootstrap сохраняют минимум.
 Непустое состояние запрещает downgrade; сброс поколений не является rollback.
+
+## T070/T068: сохранённое операторское рассмотрение fair-use
+
+FU1–FU8 используют существующую fair_use_reviews: первоначальные
+workspace/subject/capability/reason/evidence_ref/starts_at/review_by неизменны;
+appealed_at/appeal_ref сохраняют первый переход; resolved_at/resolution_code
+фиксируют единственное окончательное решение cleared или confirmed.
+Совпавший повтор не меняет даты/аудит/очередь; противоположное решение
+возвращает конфликт. Оператор не передаёт произвольную дату или urgent.
+
+Существующий billing_audit_events должен связывать внутренний review
+со временем, ограниченным operator-ref, переходом и закрытым result code.
+Broad audit не содержит evidence_ref, переписку, контакты, материалы встреч
+или финансовые поля. CLI выводит только закрытый result code/dry_run/status.
+Строка от прежнего helper сама не доказывает правоту классификации или SLA.
+
+В существующей очереди отдельная служебная связь review/phase нужна для
+проверки происхождения; она не попадает в отображаемые поля. Фазы
+notice/appealed/cleared/confirmed имеют разные логические event keys.
+Recipient неизменен после постановки; текущие права и подтверждённый адрес
+проверяются до claim. Прежний принцип unknown-before-POST сохраняется.
+Полей достаточно, но существующий audit не доказан append-only:0044/0074
+и bootstrap выдают более широкую DML-возможность. Проект требует узкую
+миграцию защиты переходов/истории в этих таблицах; новую сущность заранее
+не добавлять. Защищённые action created/appealed/resolved связываются с
+workspace/review, уникальны для перехода, не допускают подмены source/actor,
+UPDATE/DELETE или переноса в другое семейство. App сохраняет только
+разрешённую апелляцию, maintenance — create/resolve с реальной identity;
+права сохраняются после повторного bootstrap. Audit атомарно создаёт AFTER
+DEFINER trigger фактического review перехода; минимальная NOLOGIN роль имеет
+только INSERT нужных audit столбцов, без SELECT/UPDATE/DELETE или role memberships.
+BEFORE INVOKER guard review разрешает create/resolve только реальному
+maintenance, app — только прежнюю апелляцию; guard audit запрещает прямую
+подделку reserved namespace также maintenance, а OLD ИЛИ NEW проверка не даёт
+переименовать/стереть историю. UUID/server time/db_login/db_writer и закрытый
+versioned envelope задаёт DB; declared_operator не аутентифицирует человека.
+Единственный полный формат v1 — contracts/fair-use-operator.md, раздел
+«Точный формат operator-ref и audit v1»: operator-ref ровно35ASCIIсимволов
+`^op-[0-9a-f]{32}$`,10явных audit столбцов и ровно8обязательных JSON keys
+с указанными типами/NULL/enum, без unknown keys/coercion. Новых столбцов
+review/audit для этого не нужно; CLI и DB guard используют тот же договор.
+Python не пишет reserved audit. Ошибка trigger откатывает source/outbox.
+UPDATE USING сохраняет valid account_merge SELECT FOR UPDATE, но
+WITH CHECK/guard не дают мутировать review этим context. Это новая узкая
+миграция защиты, не новый журнал/table и не уже установленная гарантия.
+Старые строки не получают source/operator/time задним числом. Существующие
+метаданные закрытого аккаунта не стираются; destructive downgrade с новой
+историей запрещён. Smoke cleanup под прежним корневым lock делает preflight
+до любого изменения/удаления объектов; любая review/защищённый audit или
+ошибка чтения останавливает очистку с safe code, без DELETE review/bypass.
+Новое действие не создаёт commercial balance
+или storage ledger entry и не изменяет существующую merge state semantics.

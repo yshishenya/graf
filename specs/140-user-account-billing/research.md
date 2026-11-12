@@ -783,3 +783,103 @@ MAX времени/ID не покрывает поздний commit. Вызов 
 
 Это проект до независимого checklist/analyze, не работающая реализация.
 Необходимые product questions: 0; технические проверки и измерения — Quickstart.
+
+## T070/T068: ручной источник fair-use — 11.11.2026
+
+Решение проекта: существующий непрозрачный operator evidence reference
+передаётся через защищённый внутренний CLI, как уже принятый импорт реестра.
+Не добавлять автоматический классификатор по объёму/IP/device: это не
+подтверждённые основания FR-107. Человек проверяет основание вне GRAF;
+продукт хранит закрытый класс, ссылку и оператора, а не материалы проверки.
+Это решение исполнителя, не новая цитата или ответ владельца.
+
+Альтернативы: публичная/admin HTTP форма расширяет auth/CSRF/UI без нужды;
+ручная SQL/прямой enqueue не образуют проверяемый рабочий источник;
+периодический автоматический detector без утверждённых сигналов вводит
+запрещённую скрытую квоту. Поэтому использовать существующий защищённый CLI
+образец с READ ONLY по умолчанию и отдельным execute, без новых зависимостей.
+
+В текущей схеме уже есть resolved_at/resolution_code, review unique по
+workspace/evidence_ref, BillingAuditEvent и сохраняемый outbox. Это позволяет
+спроектировать атомарный intake/decision без новых business columns.
+Это не доказывает неизменяемость:0074 содержит FOR ALL policy,0044 — обычный
+tenant audit, bootstrap возвращает SELECT/INSERT/UPDATE/DELETE app/maintenance.
+Гипотеза «миграция не нужна» отвергнута независимым исследованием.
+Решение проекта — узкая миграция SQL-защиты review/нового audit семейства
+и постоянное ограничение grants в bootstrap; не новая таблица/служба.
+Почему: Python guard проверяет программный вход, но не отвергает прямое
+SQL создание/подмену решения и UPDATE/DELETE истории. FR-079 нельзя ослабить
+до честного описания этого отсутствующего барьера.
+Альтернатива «только helper» поэтому недостаточна; глобальная переработка
+всех financial audit families выходит за этот срез. Конкретный SQL-механизм
+атомарной связи перехода/audit и совместимость smoke cleanup вынесены в
+дополнительное техническое исследование ниже. Полная защита остальных
+семейств не доказана этим проектом. Фактические права и конкурентный повтор требуется
+подтвердить в PostgreSQL; совпадение имён ролей в URL недостаточно.
+
+Независимое Phase0 исследование выявило активного потребителя: апелляция
+notice→appealed приводит к конфликту account merge через
+fair_use_restricted_for_lineage(include_confirmed=False). confirmed, наоборот,
+исключён этим конкретным потребителем. Существующая семантика сохраняется;
+новый intake не является полностью не влияющим на продукт. Нужна отдельная
+регрессия именно merge dependency, без мнимого доказательства полного
+server capability enforcement. Окончательные выводы Phase0 и reviewer gate
+остаются обязательными до кода.
+
+Дополнительные выводы того же исследования: shared maintenance login не
+аутентифицирует человека; operator-ref связывает заявление с существующим
+закрытым операционным журналом. Sender сейчас не перепроверяет fair-use
+recipient под claim и пропускает missing email на poll: это стык реализации,
+не готовая гарантия. Нужны защищённое чтение источника/прав/адреса,
+suppressed при подтверждённой утрате и bounded retry≤5/≥60сек при временном
+отказе; selector и claim оба соблюдают delay. Старое confirmed могло
+сопровождаться ограничением, поэтому новые copy/terminal deadline не должны
+переписывать историю. Отчёт Phase0 сохранён вне git как
+`f140-t070-fair-use-operator-research-20261111.md`; сам по себе это не PASS.
+
+### Phase0: выбранная SQL-граница после исследования
+
+- Decision: сохранить review и billing_audit_events; BEFORE SECURITY INVOKER
+  guard review проверяет реальные session/current identities, mutable fields
+  и переходы. AFTER SECURITY DEFINER trigger на review автоматически пишет
+  canonical created/appealed/resolved, по принципу0111, от отдельной NOLOGIN
+  роли с одним INSERT grant. BEFORE INVOKER guard audit резервирует namespace
+  fair_use./target_kind и запрещает прямой INSERT даже maintenance, а также
+  UPDATE/DELETE по OLD или NEW. UUID/time/db_login/db_writer задаёт DB;
+  operator-ref остаётся объявленной человеком меткой, не authenticated identity.
+- Rationale: обычный helper audit допускает подделку direct SQL; автоматическая
+  запись не оставляет review transition без audit при ошибке. Одна дополнительная
+  insert-only роль не требует нового секрета/таблицы/сервиса. Writer не читает
+  источники: переход передан OLD/NEW, полномочие проверил BEFORE INVOKER.
+  fixed search_path=pg_catalog,pg_temp, qualified public refs, row_security=on,
+  no PUBLIC/runtime EXECUTE/ownership/role membership и bootstrap catalog/ACL
+  verification закрывают способ подменить писателя. Runtime TRUNCATE/SET
+  session_replication_role/trigger alteration не разрешены.
+- Alternatives considered: новая типизированная event table всё равно требует
+  guards/writer/ACL/cleanup, а новых бизнес-полей не нужно. Только Python guard
+  не обеспечивает FR079, прямой audit INSERT maintenance допускает подделку,
+  pg_trigger_depth/GUC не являются полномочием. Старую permissive FOR ALL
+  нельзя сузить добавлением второй permissive policy.
+- Dependency: PG17 UPDATE policy действует на SELECT FOR UPDATE/FOR SHARE.
+  F178 `_lock_merge_domain_rows` блокирует review под AccountMergeTenantContext,
+  поэтому split UPDATE USING сохраняет exact validated merge lock scope;
+  WITH CHECK/INVOKER guard отвергают фактическую мутацию этим context.
+  rec_maintenance_allowed включает valid app merge, поэтому alone недостаточен
+  для operator create/resolve. SELECT legacy/Owner/subject/lineage сохраняется.
+- Cleanup decision: actual maintenance+cleanup context → Workspace root lock →
+  preflight exact synthetic scope на любые review/reserved audit до всех DML/
+  objects. При истории/ошибке safe protected_fair_use_history,0 изменений.
+  DELETE review удаляется из script, обычный smoke без истории сохраняется;
+  GUC/depth исключений нет. Closure retained metadata не удаляет, destructive
+  downgrade с новой историей не допускается; source/preflight race тестируется.
+- Limits: audit автоматически доказывает фактический DB transition, не личность
+  человека при полном захвате общей app роли, не подлинность внешнего основания,
+  не полноту outbox при произвольной ручной SQL мутации. Рабочие CLI/кабинет
+  ставят outbox атомарно, T068 доказывается только этим путём. Остальные audit
+  families и trusted schema/cluster owner вне новой runtime гарантии.
+
+Источник выбора: внешний `f140-t070-fair-use-db-design-20261111.md`,50373байта,
+SHA256 `5cac358eea8109081951b15eaf0b28277bf6f1ff3696519c4011015bdcfcbee4`.
+Root отдельно восстановил0111/receipt bootstrap, current maintenance helper,
+valid merge proof/lock и cleanup transaction originals. Это технический
+Phase1 проект, не checklist PASS/выполненная миграция/PostgreSQL приёмка.
