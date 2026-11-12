@@ -166,6 +166,11 @@ RECEIPT_IDENTITIES_MIGRATION = (
     / "apps/server/src/twobrain_rec_server/db/migrations/versions/0110_billing_receipt_identities.py"
 )
 
+STORAGE_NOTIFICATIONS_MIGRATION = (
+    REPO_ROOT
+    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0112_storage_notifications.py"
+)
+
 
 def test_rls_migration_covers_every_current_tenant_table() -> None:
     migration_text = (
@@ -204,6 +209,7 @@ def test_rls_migration_covers_every_current_tenant_table() -> None:
         + RECONCILIATION_OBSERVATIONS_MIGRATION.read_text(encoding="utf-8")
         + RECEIPT_IDENTITIES_MIGRATION.read_text(encoding="utf-8")
         + RECEIPT_IDENTITIES_MIGRATION.with_name("0111_receipt_observation_deltas.py").read_text(encoding="utf-8")
+        + STORAGE_NOTIFICATIONS_MIGRATION.read_text(encoding="utf-8")
     )
 
     for table_name in sorted(RLS_COVERED_TABLES):
