@@ -42,7 +42,8 @@ def test_every_allowlisted_lifecycle_event_has_bounded_russian_copy(event_type: 
     assert title and body
     assert "synthetic" not in title.lower()
     assert "provider" not in body.lower()
-    if kind in {BillingNotification.STORAGE_THRESHOLD, BillingNotification.ACCOUNT_CLOSE}:
+    if kind in {BillingNotification.STORAGE_THRESHOLD, BillingNotification.ACCOUNT_CLOSE,
+                BillingNotification.STORAGE_SELECTION_CHANGED}:
         assert event.safe_payload == {}  # Incomplete historical snapshots are suppressed by the sender.
     elif kind == BillingNotification.FAIR_USE_REVIEW:
         assert event.safe_payload.get("action_path") == "/account/fair-use"
@@ -1398,6 +1399,215 @@ def storage_publication_client(postgres_isolated_cluster_database_url, monkeypat
         application.close()
 
 
+@pytest.fixture
+def storage_selection_case(storage_publication_client, tmp_path, monkeypatch, request):
+    from datetime import UTC, datetime
+    from uuid import uuid4
+
+    from sqlalchemy import text
+    from sqlalchemy.pool import NullPool
+
+    from tests.fakes.auth_contexts import ORG_ID, USER_ID
+    from tests.unit.test_billing_money_path_e2e import (
+        _approved_month_catalog,
+        _configure_billing,
+        _prepare_owner_session,
+    )
+    from twobrain_rec_server.db.models import BillingPurchaseQuote, UserIdentity
+    from twobrain_rec_server.db.session import create_sessionmaker
+    from twobrain_rec_server.db.tenant_context import MaintenanceTenantContext, apply_tenant_context
+
+    client, maintenance_url, app_url = storage_publication_client
+    _configure_billing(client, tmp_path)
+    workspace, headers = _prepare_owner_session(client)
+    _approved_month_catalog(client)
+    app_engine = create_async_engine(app_url, poolclass=NullPool)
+    engine = create_async_engine(maintenance_url, poolclass=NullPool)
+    app_sessions = create_sessionmaker(app_engine)
+    sessions = create_sessionmaker(engine)
+    context = MaintenanceTenantContext(
+        operation_name="billing_reconciliation", actor_id="test-storage-selection",
+        reason_category="causal-storage-selection", feature_area="billing",
+    )
+    monkeypatch.setattr(client.app.state, "db_sessionmaker", app_sessions)
+    monkeypatch.setattr(client.app.state.settings, "legacy_header_auth_enabled", False)
+    monkeypatch.setattr(client.app.state.settings, "env", "production")
+    now = datetime.now(UTC)
+    options = getattr(request, "param", {})
+    case = SimpleNamespace(client=client, workspace=workspace, user=USER_ID, headers=headers,
+                           engine=engine, sessions=sessions, context=context,
+                           owner=client.app_state["sessionmaker"], calls=[], failure=None, now=now)
+    case.foreign_user = uuid4()
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return case.now.astimezone(tz) if tz else case.now.replace(tzinfo=None)
+
+    async def seed():
+        async with case.owner() as db:
+            db.add(UserIdentity(id=case.foreign_user, organization_id=ORG_ID, external_subject=case.foreign_user.hex))
+            await db.commit()
+        for factory, login in ((app_sessions, "twobrain_rec_app"), (sessions, "twobrain_rec_maintenance")):
+            async with factory() as db:
+                assert await db.scalar(text("select session_user")) == login
+                assert await db.scalar(text(
+                    "select not rolsuper and not rolbypassrls from pg_roles where rolname=session_user"
+                ))
+        async with sessions.begin() as db:
+            await apply_tenant_context(db, context)
+            for table in ("billing_operations", "billing_purchase_quotes", "billing_notification_deliveries"):
+                assert await db.scalar(text(
+                    "select relrowsecurity and relforcerowsecurity from pg_class where oid=to_regclass(:name)"
+                ), {"name": table})
+            db.add_all([
+                WorkspaceSubscription(
+                    workspace_id=workspace, billing_owner_id=USER_ID, state="active",
+                    plan_code="personal", cycle=options.get("cycle", "month"),
+                    capacity_bytes=options.get("capacity", 10_000_000_000),
+                    paid_through=now + timedelta(days=20), billing_anchor=now,
+                    recurring_allowed=False, recurring_authority_version=19,
+                ),
+                BillingNotificationPreference(user_id=USER_ID, optional_email_enabled=False),
+            ])
+
+    async def saved():
+        async with sessions() as db:
+            await apply_tenant_context(db, context)
+            sub = await db.get(WorkspaceSubscription, workspace)
+            rows = {}
+            for name, model in (("operations", BillingOperation), ("quotes", BillingPurchaseQuote),
+                                ("notices", BillingNotificationDelivery), ("invoices", BillingInvoice)):
+                rows[name] = list(await db.scalars(select(model).where(model.workspace_id == workspace)))
+            return sub, rows
+
+    async def stop(_seconds):
+        raise asyncio.CancelledError
+
+    async def dispatch():
+        with pytest.raises(asyncio.CancelledError):
+            await worker.run_billing_notification_reconciler(client.app.state.settings)
+
+    async def send(**kwargs):
+        case.calls.append(kwargs)
+        if case.failure is not None:
+            raise case.failure
+
+    monkeypatch.setattr(worker, "create_engine", lambda _: engine)
+    monkeypatch.setattr(worker, "asyncio", SimpleNamespace(CancelledError=asyncio.CancelledError, sleep=stop))
+    monkeypatch.setattr(worker, "datetime", Clock)
+    monkeypatch.setattr(worker, "send_billing_notification", send)
+    asyncio.run(seed())
+    try:
+        case.saved, case.dispatch = saved, dispatch
+        yield case
+    finally:
+        asyncio.run(app_engine.dispose())
+        asyncio.run(engine.dispose())
+
+
+def _schedule_storage_selection(case, packages=0):
+    from tests.integration.test_billing_purchase_journey import quote_id
+
+    preview = case.client.post("/billing/storage/preview", headers=case.headers, data={"package_count": str(packages)})
+    bound_id = quote_id(preview)
+    response = case.client.post("/billing/purchases/confirm", headers=case.headers,
+                                data={"quote_id": bound_id, "purchase_consent": "true"}, follow_redirects=False)
+    assert response.status_code == 303 and "scheduled" in response.headers["location"]
+    return bound_id
+
+
+@pytest.mark.strict_rls
+def test_storage_selection_browser_source_commits_historical_notices(storage_selection_case, monkeypatch):
+    from uuid import UUID
+
+    from tests.integration.test_billing_purchase_journey import quote_id
+    from twobrain_rec_server.db.tenant_context import apply_tenant_context
+
+    case = storage_selection_case
+    client = case.client
+    preview = client.post("/billing/storage/preview", headers=case.headers, data={"package_count": "0"})
+    bound_id = quote_id(preview)
+    response = client.post("/billing/purchases/confirm", headers=case.headers,
+                           data={"quote_id": bound_id, "purchase_consent": "true"}, follow_redirects=False)
+    assert response.status_code == 303
+    subscription, rows = asyncio.run(case.saved())
+    assert len(rows["operations"]) == len(rows["quotes"]) == len(rows["notices"]) == 1
+    operation, quote, notice = rows["operations"][0], rows["quotes"][0], rows["notices"][0]
+    assert operation.kind == "storage_schedule" and operation.state == "succeeded"
+    assert operation.provider_id is None and operation.request_snapshot == quote.snapshot
+    assert quote.consumed_operation_id == operation.id and quote.purpose == "storage_schedule"
+    assert notice.safe_payload == {
+        "storage_selection_phase": "scheduled", "storage_selection_operation_id": operation.id.hex,
+        "storage_selection_version": "1", "storage_selection_saved_at": operation.created_at.isoformat(),
+        "storage_target_capacity_bytes": "5000000000", "storage_current_capacity_bytes": "10000000000",
+        "storage_cycle": "month", "storage_next_amount_minor": "100000",
+        "storage_effective_at": quote.snapshot["ends_at"], "action_path": "/billing/storage",
+    }
+    assert quote.created_at <= operation.created_at < quote.expires_at
+    repeated = client.post("/billing/purchases/confirm", headers=case.headers,
+                           data={"quote_id": bound_id, "purchase_consent": "true"}, follow_redirects=False)
+    assert repeated.status_code == 303
+    canceled = client.post("/billing/storage/cancel-selection", headers=case.headers,
+                           data={"selection_version": "1"}, follow_redirects=False)
+    assert canceled.status_code == 303
+    sub, rows = asyncio.run(case.saved())
+    assert sub.next_capacity_bytes is None and sub.next_capacity_version == 2
+    assert len(rows["operations"]) == len(rows["notices"]) == 2 and not rows["invoices"]
+    noop = client.post("/billing/storage/cancel-selection", headers=case.headers,
+                      data={"selection_version": "2"}, follow_redirects=False)
+    assert noop.status_code == 303
+    again, after = asyncio.run(case.saved())
+    assert again.next_capacity_version == 2 and again.application_version == sub.application_version
+    assert len(after["operations"]) == len(after["notices"]) == 2
+    assert (again.capacity_bytes, again.paid_through, again.recurring_allowed, again.recurring_authority_version) == (
+        10_000_000_000, subscription.paid_through, False, 19,
+    )
+    calls = []
+
+    async def send(**kwargs):
+        async with case.sessions() as db:
+            await apply_tenant_context(db, case.context)
+            claimed = await db.scalar(select(BillingNotificationDelivery).where(
+                BillingNotificationDelivery.id == UUID(kwargs["delivery_key"].removeprefix("billing:")),
+            ).with_for_update(nowait=True))
+            assert (claimed.state, claimed.attempts, claimed.last_error_code) == ("failed", 1, "postal_outcome_unknown")
+            source = await db.scalar(select(BillingOperation).where(
+                BillingOperation.id == UUID(claimed.safe_payload["storage_selection_operation_id"]),
+            ).with_for_update(nowait=True))
+            assert source is not None
+            from sqlalchemy import text
+            for statement in (
+                "SELECT id FROM billing_purchase_quotes WHERE consumed_operation_id=:operation FOR UPDATE NOWAIT",
+                "SELECT id FROM workspaces WHERE id=:workspace FOR UPDATE NOWAIT",
+                "SELECT workspace_id FROM workspace_subscriptions WHERE workspace_id=:workspace FOR UPDATE NOWAIT",
+                "SELECT id FROM user_identities WHERE id=:user FOR UPDATE NOWAIT",
+                "SELECT user_id FROM workspace_memberships WHERE workspace_id=:workspace AND user_id=:user FOR UPDATE NOWAIT",
+                "SELECT id FROM external_identities WHERE user_id=:user AND is_active AND is_verified FOR UPDATE NOWAIT",
+                "SELECT id FROM account_closure_requests WHERE requested_by_user_id=:user FOR UPDATE NOWAIT",
+            ):
+                await db.execute(text(statement), {"operation": source.id, "workspace": case.workspace, "user": case.user})
+        assert kwargs["recipient_email"] == "verified-owner@example.test"
+        assert kwargs["plain_body"].count("https://rec.2brain.pro/billing/storage") == 1
+        assert kwargs["html_body"].count("href=") == 1
+        assert "МСК" in kwargs["plain_body"] and "5000000000 байт" in kwargs["plain_body"]
+        assert "Актуальные условия" in kwargs["plain_body"]
+        for private in (str(case.user), str(case.workspace), source.id.hex, "provider", "token="):
+            assert private not in kwargs["plain_body"] + kwargs["html_body"]
+        calls.append(kwargs)
+
+    monkeypatch.setattr(worker, "send_billing_notification", send)
+    asyncio.run(case.dispatch())
+    _, final = asyncio.run(case.saved())
+    assert len(calls) == 2
+    assert all((row.state, row.attempts) == ("delivered", 1) for row in final["notices"])
+    assert sum("Вы сохранили выбор" in call["plain_body"] for call in calls) == 1
+    assert sum("Вы отменили сохранённый выбор" in call["plain_body"] for call in calls) == 1
+    assert "10000000000 байт" in calls[0]["plain_body"] and "1 000,00 ₽" in calls[0]["plain_body"]
+    asyncio.run(case.dispatch())
+    assert len(calls) == 2
+
+
 @pytest.mark.strict_rls
 @pytest.mark.parametrize("level,target,archive_audio", [
     ("80", 200_000_000, True), ("95", 237_500_000, True), ("100", 250_000_000, True),
@@ -2524,3 +2734,929 @@ async def test_account_close_known_transport_refusal_recovers_at_saved_due_once(
     assert len(x.calls) == 2
     await x.dispatch()
     assert len(x.calls) == 2
+
+
+@pytest.mark.strict_rls
+@pytest.mark.asyncio
+@pytest.mark.parametrize("damage", [
+    "owner_marker", "workspace_kind", "billing_owner", "identity_closed", "identity_merged",
+    "membership_role", "membership_inactive", "email_unverified", "email_inactive", "email_empty", "email_missing",
+    "kind", "state", "provider", "key", "quote_missing", "quote_purpose", "quote_owner", "quote_window",
+    "quote_version", "snapshot_version_bool", "snapshot_current_bool", "snapshot_base_price", "snapshot_total",
+    "snapshot_cycle", "snapshot_date", "operation_early", "operation_expired", "finalized", "finalizing", "frozen_content",
+])
+async def test_storage_selection_sender_suppresses_lost_source_or_rights(storage_selection_case, damage):
+    from datetime import UTC, datetime
+
+    from twobrain_rec_server.db.models import (
+        AccountClosureRequest,
+        ExternalIdentity,
+        UserIdentity,
+        Workspace,
+        WorkspaceMembership,
+    )
+
+    x = storage_selection_case
+    _schedule_storage_selection(x)
+    _, before = await x.saved()
+    operation_id = before["operations"][0].id
+    async with x.owner() as db:
+        op = await db.get(BillingOperation, operation_id)
+        from twobrain_rec_server.db.models import BillingPurchaseQuote
+        quote = await db.get(BillingPurchaseQuote, before["quotes"][0].id)
+        if damage.startswith("snapshot") or damage in {"quote_purpose", "quote_owner", "quote_window", "quote_version"}:
+            # Replace only synthetic corrupted history; preserve the production immutable-update trigger.
+            from sqlalchemy.orm import make_transient
+            await db.delete(quote)
+            await db.flush()
+            make_transient(quote)
+            db.add(quote)
+        if damage in {"owner_marker", "workspace_kind"}:
+            ws = await db.get(Workspace, x.workspace)
+            if damage == "owner_marker":
+                ws.owner_user_id = None
+            else:
+                ws.kind = "linked"
+        elif damage == "billing_owner":
+            (await db.get(WorkspaceSubscription, x.workspace)).billing_owner_id = None
+        elif damage.startswith("identity"):
+            identity = await db.get(UserIdentity, x.user)
+            if damage == "identity_closed":
+                identity.status = "closed"
+            else:
+                identity.merged_into_user_id = x.foreign_user
+        elif damage.startswith("membership"):
+            member = await db.scalar(select(WorkspaceMembership).where(
+                WorkspaceMembership.workspace_id == x.workspace, WorkspaceMembership.user_id == x.user))
+            if damage == "membership_role":
+                member.role = "member"
+            else:
+                member.status = "inactive"
+        elif damage.startswith("email"):
+            for email in list(await db.scalars(select(ExternalIdentity).where(ExternalIdentity.user_id == x.user))):
+                if damage == "email_missing":
+                    await db.delete(email)
+                elif damage == "email_unverified":
+                    email.is_verified = False
+                elif damage == "email_inactive":
+                    email.is_active = False
+                else:
+                    email.email = " "
+        elif damage in {"kind", "state", "provider", "key"}:
+            setattr(op, {"kind": "kind", "state": "state", "provider": "provider_id", "key": "idempotency_key"}[damage],
+                    {"kind": "renewal", "state": "failed", "provider": "synthetic-provider", "key": "synthetic-key"}[damage])
+        elif damage == "quote_missing":
+            await db.delete(quote)
+        elif damage == "quote_purpose":
+            quote.purpose = "storage_upgrade"
+        elif damage == "quote_owner":
+            # A valid FK alone does not prove original source ownership.
+            quote.owner_user_id = x.foreign_user
+        elif damage == "quote_window":
+            quote.created_at = op.created_at + timedelta(seconds=1)
+        elif damage == "quote_version":
+            quote.selection_version += 1
+        elif damage.startswith("snapshot"):
+            snapshot = dict(op.request_snapshot)
+            if damage == "snapshot_version_bool":
+                snapshot["selection_version"] = False
+            elif damage == "snapshot_current_bool":
+                snapshot["current_capacity_bytes"] = True
+            elif damage == "snapshot_base_price":
+                snapshot["base_catalog_snapshot"] = {**snapshot["base_catalog_snapshot"], "amount_minor": 1}
+            elif damage == "snapshot_total":
+                snapshot["next_amount_minor"] += 1
+            elif damage == "snapshot_cycle":
+                snapshot["cycle"] = "none"
+            else:
+                snapshot["ends_at"] = op.created_at.isoformat()
+            # Matching damaged copies still must satisfy the semantic source contract.
+            op.request_snapshot = snapshot
+            from sqlalchemy.orm.attributes import flag_modified
+            flag_modified(op, "request_snapshot")
+            quote.snapshot = snapshot
+        elif damage.startswith("operation"):
+            op.created_at = quote.created_at - timedelta(microseconds=1) if damage == "operation_early" else quote.expires_at
+        else:
+            db.add(AccountClosureRequest(workspace_id=x.workspace, requested_by_user_id=x.user,
+                request_key="synthetic-ssn-finalization", state="scheduled", policy_version="account-close-v1", requested_at=datetime.now(UTC),
+                finalize_at=datetime.now(UTC) + timedelta(days=7),
+                finalized_at=datetime.now(UTC) if damage == "finalized" else None,
+                metadata_json={"finalization_started_at": "synthetic"} if damage == "finalizing" else
+                              {"content_workspace_ids": []} if damage == "frozen_content" else {}))
+        await db.commit()
+    await x.dispatch()
+    _, rows = await x.saved()
+    assert [(r.state, r.attempts) for r in rows["notices"]] == [("suppressed", 0)]
+    assert x.calls == []
+    await x.dispatch()
+    assert x.calls == []
+
+
+@pytest.mark.strict_rls
+@pytest.mark.asyncio
+@pytest.mark.parametrize("damage", ["empty", "list", "event", "source", "recipient", "workspace", "phase",
+    "retry_null", "retry_bool", "retry_string", "retry_float", "retry_negative", "retry_overflow", "retry_dict", "retry_list"])
+async def test_storage_selection_sender_suppresses_tampered_queue(storage_selection_case, damage):
+    from uuid import uuid4
+
+    from tests.fakes.auth_contexts import WORKSPACE_ID
+
+    x = storage_selection_case
+    _schedule_storage_selection(x)
+    _, before = await x.saved()
+    notice_id = before["notices"][0].id
+    async with x.owner() as db:
+        row = await db.get(BillingNotificationDelivery, notice_id)
+        if damage in {"empty", "list"}:
+            row.safe_payload = {} if damage == "empty" else []
+        elif damage == "event":
+            row.event_id = "storage:unrelated:selection:1"
+        elif damage == "recipient":
+            row.recipient_id = x.foreign_user
+        elif damage == "workspace":
+            row.workspace_id = WORKSPACE_ID
+        else:
+            values = {"source": ("storage_selection_operation_id", uuid4().hex),
+                "phase": ("storage_selection_phase", "canceled"),
+                "retry_null": ("_retry_not_before", None), "retry_bool": ("_retry_not_before", True),
+                "retry_string": ("_retry_not_before", "0"), "retry_float": ("_retry_not_before", 0.5),
+                "retry_negative": ("_retry_not_before", -1), "retry_overflow": ("_retry_not_before", 9223372036854775808),
+                "retry_dict": ("_retry_not_before", {}), "retry_list": ("_retry_not_before", [])}
+            key, value = values[damage]
+            row.safe_payload = {**row.safe_payload, key: value}
+        await db.commit()
+    await x.dispatch()
+    async with x.owner() as db:
+        row = await db.get(BillingNotificationDelivery, notice_id)
+        assert (row.state, row.attempts) == ("suppressed", 0)
+    assert x.calls == []
+
+
+@pytest.mark.strict_rls
+@pytest.mark.asyncio
+@pytest.mark.parametrize("outcome", ["known_retry", "unknown", "crash", "read_error"])
+async def test_storage_selection_sender_bounds_retry_and_unknown(storage_selection_case, monkeypatch, outcome):
+    from datetime import UTC, datetime
+
+    from sqlalchemy import text
+
+    from twobrain_rec_server.auth.email_delivery import EmailLoginDeliveryError
+
+    x, reads = storage_selection_case, []
+    _schedule_storage_selection(x)
+    original = worker.storage_selection_notice_recipient
+
+    async def unavailable(db, row):
+        await original(db, row)
+        reads.append(True)
+        await db.execute(text("SELECT 1/0"))
+
+    if outcome == "read_error":
+        monkeypatch.setattr(worker, "storage_selection_notice_recipient", unavailable)
+    elif outcome == "crash":
+        x.failure = asyncio.CancelledError()
+    else:
+        x.failure = EmailLoginDeliveryError("synthetic", retryable=True, outcome_unknown=outcome == "unknown")
+    await x.dispatch()
+    first = (await x.saved())[1]["notices"][0]
+    assert first.attempts == 1
+    if outcome in {"unknown", "crash"}:
+        assert (first.state, first.last_error_code) == ("failed", "postal_outcome_unknown")
+        x.now += timedelta(days=1)
+        await x.dispatch()
+        assert len(x.calls) == 1
+        return
+    due = first.safe_payload["_retry_not_before"]
+    assert first.state == "retry" and type(due) is int and due >= x.now.timestamp() + 60
+    for stamp in (x.now, datetime.fromtimestamp(due - 1, UTC)):
+        x.now = stamp
+        await x.dispatch()
+    assert len(x.calls) == (1 if outcome == "known_retry" else 0)
+    assert len(reads) == (1 if outcome == "read_error" else 0)
+    for attempt in range(2, 6):
+        x.now = datetime.fromtimestamp(due, UTC)
+        await x.dispatch()
+        row = (await x.saved())[1]["notices"][0]
+        assert row.attempts == attempt and row.state == ("retry" if attempt < 5 else "failed")
+        due = row.safe_payload["_retry_not_before"]
+        if attempt < 5:
+            assert due >= x.now.timestamp() + 60
+    x.now += timedelta(days=1)
+    await x.dispatch()
+    assert len(reads) == (5 if outcome == "read_error" else 0)
+    assert len(x.calls) == (5 if outcome == "known_retry" else 0)
+
+
+@pytest.mark.strict_rls
+@pytest.mark.asyncio
+@pytest.mark.parametrize("change", ["payload", "template", "channel", "due", "email", "closed", "workspace", "recipient", "event"])
+async def test_storage_selection_claim_rechecks_changes_between_poll_and_claim(storage_selection_case, monkeypatch, change):
+    from twobrain_rec_server.db.models import ExternalIdentity, UserIdentity
+
+    x, changed = storage_selection_case, []
+    _schedule_storage_selection(x)
+    x.notice_id = (await x.saved())[1]["notices"][0].id
+    original = worker.storage_selection_notice_recipient
+
+    async def mutate(db, row):
+        if not changed:
+            changed.append(True)
+            async with x.owner() as other:
+                notice = await other.get(BillingNotificationDelivery, x.notice_id)
+                if change == "payload":
+                    notice.safe_payload = {**notice.safe_payload, "storage_effective_at": "2026-01-01T00:00:00+00:00"}
+                elif change == "template":
+                    notice.template_key = "payment_succeeded"
+                elif change == "channel":
+                    notice.channel = "in_app"
+                elif change == "due":
+                    notice.safe_payload = {**notice.safe_payload, "_retry_not_before": int(x.now.timestamp()) + 300}
+                elif change == "email":
+                    for email in await other.scalars(select(ExternalIdentity).where(ExternalIdentity.user_id == x.user)):
+                        email.email = "changed-owner@example.test"
+                elif change == "workspace":
+                    from tests.fakes.auth_contexts import WORKSPACE_ID
+                    notice.workspace_id = WORKSPACE_ID
+                elif change == "recipient":
+                    notice.recipient_id = x.foreign_user
+                elif change == "event":
+                    notice.event_id = "storage:foreign:selection:1"
+                else:
+                    (await other.get(UserIdentity, x.user)).status = "closed"
+                await other.commit()
+        return await original(db, row)
+
+    monkeypatch.setattr(worker, "storage_selection_notice_recipient", mutate)
+    await x.dispatch()
+    async with x.owner() as db:
+        row = await db.get(BillingNotificationDelivery, x.notice_id)
+    if change == "email":
+        assert row.state == "delivered" and len(x.calls) == 1
+        assert x.calls[0]["recipient_email"] == "changed-owner@example.test"
+    elif change == "closed":
+        assert row.state == "suppressed" and row.attempts == 0 and x.calls == []
+    else:
+        assert row.state == "pending" and row.attempts == 0 and x.calls == []
+        if change == "payload":
+            await x.dispatch()
+            assert (await x.saved())[1]["notices"][0].state == "suppressed" and x.calls == []
+
+
+@pytest.mark.strict_rls
+@pytest.mark.asyncio
+@pytest.mark.parametrize("outcome", ["rejected", "ack_lost"])
+async def test_storage_selection_claim_commit_failure_never_calls_transport(storage_selection_case, monkeypatch, outcome):
+    from sqlalchemy import text
+    from sqlalchemy.exc import DBAPIError
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+    x, faults = storage_selection_case, []
+    _schedule_storage_selection(x)
+    if outcome == "rejected":
+        async with x.owner() as db:
+            await db.execute(text("""CREATE FUNCTION public.test_only_ssn_claim_failure() RETURNS trigger LANGUAGE plpgsql AS $$
+                BEGIN
+                    IF NEW.template_key='storage_selection_changed' AND NEW.state='failed' AND NEW.last_error_code='postal_outcome_unknown' THEN
+                        RAISE EXCEPTION 'synthetic_ssn_claim_failure';
+                    END IF;
+                    RETURN NEW;
+                END $$"""))
+            await db.execute(text("""CREATE CONSTRAINT TRIGGER zz_test_ssn_claim_failure AFTER UPDATE
+                ON public.billing_notification_deliveries DEFERRABLE INITIALLY DEFERRED
+                FOR EACH ROW EXECUTE FUNCTION public.test_only_ssn_claim_failure()"""))
+            await db.commit()
+    else:
+        class MissingAckSession(AsyncSession):
+            async def commit(self):
+                claim = any(isinstance(row, BillingNotificationDelivery) and row.state == "failed" and row.last_error_code == "postal_outcome_unknown" for row in self.dirty)
+                await super().commit()
+                if claim and not faults:
+                    faults.append(True)
+                    raise DBAPIError(None, None, Exception("synthetic_commit_ack_lost"), connection_invalidated=True)
+        monkeypatch.setattr(worker, "create_sessionmaker", lambda engine: async_sessionmaker(engine, class_=MissingAckSession, expire_on_commit=False))
+    try:
+        await x.dispatch()
+    finally:
+        if outcome == "rejected":
+            async with x.owner() as db:
+                await db.execute(text("DROP TRIGGER zz_test_ssn_claim_failure ON public.billing_notification_deliveries"))
+                await db.execute(text("DROP FUNCTION public.test_only_ssn_claim_failure()"))
+                await db.commit()
+    row = (await x.saved())[1]["notices"][0]
+    assert row.attempts == 1 and x.calls == []
+    if outcome == "ack_lost":
+        assert row.state == "failed" and row.last_error_code == "postal_outcome_unknown" and faults == [True]
+        await x.dispatch()
+        assert x.calls == []
+    else:
+        from datetime import UTC, datetime
+
+        assert row.state == "retry"
+        x.now = datetime.fromtimestamp(row.safe_payload["_retry_not_before"], UTC)
+        await x.dispatch()
+        row = (await x.saved())[1]["notices"][0]
+        assert row.state == "delivered" and row.attempts == 2 and len(x.calls) == 1
+
+
+@pytest.mark.strict_rls
+@pytest.mark.asyncio
+async def test_storage_selection_concurrent_senders_share_one_durable_claim(storage_selection_case, monkeypatch):
+    x = storage_selection_case
+    _schedule_storage_selection(x)
+    x.notice_id = (await x.saved())[1]["notices"][0].id
+    entered, release = asyncio.Event(), asyncio.Event()
+    original = worker.send_billing_notification
+
+    async def paused(**kwargs):
+        entered.set()
+        await release.wait()
+        await original(**kwargs)
+
+    monkeypatch.setattr(worker, "send_billing_notification", paused)
+    first = asyncio.create_task(x.dispatch())
+    try:
+        await asyncio.wait_for(entered.wait(), timeout=3)
+        await asyncio.wait_for(x.dispatch(), timeout=3)
+    finally:
+        release.set()
+    await asyncio.wait_for(first, timeout=3)
+    assert len(x.calls) == 1
+    row = (await x.saved())[1]["notices"][0]
+    assert (row.state, row.attempts) == ("delivered", 1)
+    await x.dispatch()
+    assert len(x.calls) == 1
+
+
+@pytest.mark.strict_rls
+@pytest.mark.parametrize("phase,failure", [(p, f) for p in ("scheduled", "canceled") for f in ("read", "enqueue")])
+def test_storage_selection_source_failure_rolls_back_action_and_outbox(storage_selection_case, monkeypatch, phase, failure):
+    from sqlalchemy import text
+    from sqlalchemy.exc import DBAPIError
+
+    from twobrain_rec_server.billing import storage_selection_notifications as notices
+
+    x = storage_selection_case
+    if phase == "canceled":
+        _schedule_storage_selection(x)
+    def snapshot():
+        sub, rows = asyncio.run(x.saved())
+        return ((sub.next_capacity_bytes, sub.next_capacity_version, sub.application_version,
+                 sub.capacity_bytes, sub.paid_through, sub.recurring_allowed, sub.recurring_authority_version,
+                 sub.storage_price_consents),
+                {key: [(r.id, getattr(r, "safe_payload", None)) for r in values] for key, values in rows.items()})
+    before = snapshot()
+    original = notices._recipient if failure == "read" else notices.enqueue_billing_notification
+    async def fail(db, *args, **kwargs):
+        await original(db, *args, **kwargs)
+        if failure == "read":
+            await db.execute(text("SELECT 1/0"))
+        raise RuntimeError("synthetic_ssn_enqueue_error")
+    monkeypatch.setattr(notices, "_recipient" if failure == "read" else "enqueue_billing_notification", fail)
+    with pytest.raises(DBAPIError if failure == "read" else RuntimeError):
+        if phase == "scheduled":
+            _schedule_storage_selection(x)
+        else:
+            x.client.post("/billing/storage/cancel-selection", headers=x.headers,
+                          data={"selection_version": "1"}, follow_redirects=False)
+    after = snapshot()
+    # The preview persists its unconsumed quote before the confirmation transaction.
+    if phase == "scheduled":
+        assert len(after[1]["quotes"]) == 1
+        after[1]["quotes"] = []
+    assert after == before and x.calls == []
+
+
+@pytest.mark.strict_rls
+@pytest.mark.parametrize("phase", ["scheduled", "canceled"])
+def test_storage_selection_missing_email_skips_enqueue_without_backfill(storage_selection_case, phase):
+    from twobrain_rec_server.db.models import ExternalIdentity
+    x = storage_selection_case
+    if phase == "canceled":
+        _schedule_storage_selection(x)
+    async def email(active):
+        async with x.owner() as db:
+            for row in await db.scalars(select(ExternalIdentity).where(ExternalIdentity.user_id == x.user)):
+                row.is_verified = active
+            await db.commit()
+    asyncio.run(email(False))
+    if phase == "scheduled":
+        _schedule_storage_selection(x)
+    else:
+        assert x.client.post("/billing/storage/cancel-selection", headers=x.headers,
+                             data={"selection_version": "1"}, follow_redirects=False).status_code == 303
+    sub, rows = asyncio.run(x.saved())
+    assert len(rows["operations"]) == (1 if phase == "scheduled" else 2)
+    assert len(rows["notices"]) == (0 if phase == "scheduled" else 1)
+    assert sub.next_capacity_version == (1 if phase == "scheduled" else 2)
+    asyncio.run(email(True))
+    asyncio.run(x.dispatch())
+    assert len((asyncio.run(x.saved()))[1]["notices"]) == len(rows["notices"])
+    assert len(x.calls) == len(rows["notices"])
+
+
+@pytest.mark.strict_rls
+@pytest.mark.asyncio
+@pytest.mark.parametrize("held", ["operation", "quote", "workspace", "subscription", "identity", "membership", "email", "closure"])
+async def test_storage_selection_nowait_locks_retry_without_deadlock(storage_selection_case, held):
+    from datetime import UTC, datetime
+
+    from sqlalchemy import text
+
+    from twobrain_rec_server.db.models import AccountClosureRequest
+    from twobrain_rec_server.db.tenant_context import apply_tenant_context
+    x = storage_selection_case
+    _schedule_storage_selection(x)
+    _, rows = await x.saved()
+    async with x.owner() as db:
+        closure = AccountClosureRequest(workspace_id=x.workspace, requested_by_user_id=x.user,
+            request_key="synthetic-ssn-lock", state="scheduled", policy_version="account-close-v1", requested_at=x.now,
+            finalize_at=x.now + timedelta(days=7), metadata_json={})
+        db.add(closure)
+        await db.commit()
+        closure_id = closure.id
+    statement = {
+        "operation": "SELECT id FROM billing_operations WHERE id=:operation FOR UPDATE",
+        "quote": "SELECT id FROM billing_purchase_quotes WHERE id=:quote FOR UPDATE",
+        "workspace": "SELECT id FROM workspaces WHERE id=:workspace FOR UPDATE",
+        "subscription": "SELECT workspace_id FROM workspace_subscriptions WHERE workspace_id=:workspace FOR UPDATE",
+        "identity": "SELECT id FROM user_identities WHERE id=:user FOR UPDATE",
+        "membership": "SELECT user_id FROM workspace_memberships WHERE workspace_id=:workspace AND user_id=:user FOR UPDATE",
+        "email": "SELECT id FROM external_identities WHERE user_id=:user AND is_active AND is_verified FOR UPDATE",
+        "closure": "SELECT id FROM account_closure_requests WHERE id=:closure FOR UPDATE",
+    }[held]
+    async with x.sessions() as db:
+        await apply_tenant_context(db, x.context)
+        assert list(await db.execute(text(statement), {"workspace": x.workspace, "user": x.user,
+            "operation": rows["operations"][0].id, "quote": rows["quotes"][0].id, "closure": closure_id}))
+        await asyncio.wait_for(x.dispatch(), timeout=3)
+        notice = (await x.saved())[1]["notices"][0]
+        assert (notice.state, notice.attempts, notice.last_error_code) == ("retry", 1, "storage_selection_authorization_unavailable")
+        due = notice.safe_payload["_retry_not_before"]
+        assert due >= x.now.timestamp() + 60 and x.calls == []
+    await x.dispatch()
+    assert x.calls == []
+    x.now = datetime.fromtimestamp(due, UTC)
+    await x.dispatch()
+    notice = (await x.saved())[1]["notices"][0]
+    assert (notice.state, notice.attempts) == ("delivered", 2) and len(x.calls) == 1
+
+
+@pytest.mark.strict_rls
+@pytest.mark.parametrize("storage_selection_case,packages", [
+    ({"cycle": "month", "capacity": 20_000_000_000}, 1),
+    ({"cycle": "year", "capacity": 20_000_000_000}, 0),
+    ({"cycle": "year", "capacity": 500_000_000_000}, 99),
+], indirect=["storage_selection_case"])
+def test_storage_selection_historical_price_and_stale_cancel(storage_selection_case, packages):
+    from twobrain_rec_server.db.models import BillingPlanVersion, BillingStoragePriceVersion
+    x = storage_selection_case
+    _schedule_storage_selection(x, packages)
+    sub, rows = asyncio.run(x.saved())
+    original = rows["notices"][0].safe_payload.copy()
+    _schedule_storage_selection(x, 0)
+    stale = x.client.post("/billing/storage/cancel-selection", headers=x.headers,
+        data={"selection_version": "1"}, follow_redirects=False)
+    assert stale.status_code == 409
+    assert (asyncio.run(x.saved()))[0].next_capacity_version == 2
+    async def retire_catalog():
+        async with x.owner() as db:
+            for model in (BillingPlanVersion, BillingStoragePriceVersion):
+                for row in await db.scalars(select(model)):
+                    row.enabled_for_checkout = False
+            await db.commit()
+    asyncio.run(retire_catalog())
+    canceled = x.client.post("/billing/storage/cancel-selection", headers=x.headers,
+        data={"selection_version": "2"}, follow_redirects=False)
+    assert canceled.status_code == 303
+    asyncio.run(x.dispatch())
+    final, after = asyncio.run(x.saved())
+    assert (final.capacity_bytes, final.paid_through) == (sub.capacity_bytes, sub.paid_through)
+    assert len(x.calls) == 3 and len(after["operations"]) == 3 and not after["invoices"]
+    assert all(row.state == "delivered" for row in after["notices"])
+    assert next(row for row in after["notices"] if row.safe_payload["storage_selection_version"] == "1").safe_payload == original
+    assert original["storage_target_capacity_bytes"] == str(5_000_000_000 * (packages + 1))
+    expected = (100000 if sub.cycle == "month" else 1000000) + packages * (25000 if sub.cycle == "month" else 250000)
+    assert original["storage_next_amount_minor"] == str(expected)
+
+@pytest.mark.strict_rls
+@pytest.mark.asyncio
+@pytest.mark.parametrize("damage", ["schema_bool", "owner", "missing", "extra", "version_bool", "version_float",
+    "version_zero", "version_overflow", "capacity_bool", "capacity_float", "capacity_zero", "key", "provider", "quote", "invoice"])
+async def test_storage_selection_canceled_source_is_closed_and_no_money(storage_selection_case, damage):
+    from uuid import uuid4
+
+    from sqlalchemy.orm import make_transient
+
+    from twobrain_rec_server.db.models import BillingPurchaseQuote
+    x = storage_selection_case
+    _schedule_storage_selection(x)
+    await x.dispatch()
+    x.calls.clear()
+    assert x.client.post("/billing/storage/cancel-selection", headers=x.headers,
+        data={"selection_version": "1"}, follow_redirects=False).status_code == 303
+    _, rows = await x.saved()
+    canceled = next(r for r in rows["operations"] if r.kind == "storage_selection_cancel")
+    async with x.owner() as db:
+        op = await db.get(BillingOperation, canceled.id)
+        payload = dict(op.request_snapshot)
+        if damage == "key":
+            op.idempotency_key = "synthetic-wrong"
+        elif damage == "provider":
+            op.provider_id = "synthetic-provider"
+        elif damage == "quote":
+            quote = await db.get(BillingPurchaseQuote, rows["quotes"][0].id)
+            await db.delete(quote)
+            await db.flush()
+            make_transient(quote)
+            quote.consumed_operation_id = op.id
+            db.add(quote)
+        elif damage == "invoice":
+            db.add(BillingInvoice(workspace_id=x.workspace, operation_id=op.id,
+                safe_number=f"INV-SSN-{uuid4().hex}", amount_minor=100, currency="RUB", status="succeeded", plan_snapshot={}))
+        else:
+            fields = {"schema_bool": ("storage_selection_schema", True), "owner": ("owner_user_id", x.foreign_user.hex),
+                "extra": ("unknown", "synthetic"), "version_bool": ("selection_version", True),
+                "version_float": ("selection_version", 2.0), "version_zero": ("selection_version", 0),
+                "version_overflow": ("selection_version", 2147483648), "capacity_bool": ("canceled_capacity_bytes", True),
+                "capacity_float": ("canceled_capacity_bytes", 5000000000.0), "capacity_zero": ("canceled_capacity_bytes", 0)}
+            if damage == "missing":
+                payload.pop("owner_user_id")
+            else:
+                key, value = fields[damage]
+                payload[key] = value
+            op.request_snapshot = payload
+            from sqlalchemy.orm.attributes import flag_modified
+            flag_modified(op, "request_snapshot")
+        await db.commit()
+    await x.dispatch()
+    _, rows = await x.saved()
+    notice = next(r for r in rows["notices"] if r.safe_payload["storage_selection_phase"] == "canceled")
+    assert (notice.state, notice.attempts) == ("suppressed", 0) and x.calls == []
+
+
+@pytest.mark.strict_rls
+@pytest.mark.asyncio
+@pytest.mark.parametrize("damage", ["retry", "snapshot"])
+async def test_storage_selection_invalid_snapshot_with_source_sql_error_is_suppressed(storage_selection_case, monkeypatch, damage):
+    from sqlalchemy import text
+    x = storage_selection_case
+    _schedule_storage_selection(x)
+    notice_id = (await x.saved())[1]["notices"][0].id
+    async with x.owner() as db:
+        row = await db.get(BillingNotificationDelivery, notice_id)
+        row.safe_payload = {**row.safe_payload, "_retry_not_before": None} if damage == "retry" else {}
+        await db.commit()
+    async def unavailable(db, row):
+        await db.execute(text("SELECT 1/0"))
+    monkeypatch.setattr(worker, "storage_selection_notice_recipient", unavailable)
+    await x.dispatch()
+    row = (await x.saved())[1]["notices"][0]
+    assert (row.state, row.attempts, row.last_error_code) == ("suppressed", 0, "storage_selection_snapshot_invalid")
+    assert x.calls == []
+
+
+@pytest.mark.strict_rls
+@pytest.mark.asyncio
+async def test_storage_selection_known_refusal_recovers_once_at_due(storage_selection_case):
+    from datetime import UTC, datetime
+
+    from twobrain_rec_server.auth.email_delivery import EmailLoginDeliveryError
+    x = storage_selection_case
+    _schedule_storage_selection(x)
+    x.failure = EmailLoginDeliveryError("synthetic", retryable=True, outcome_unknown=False)
+    await x.dispatch()
+    first = (await x.saved())[1]["notices"][0]
+    assert (first.state, first.attempts) == ("retry", 1)
+    x.failure = None
+    await x.dispatch()
+    assert len(x.calls) == 1
+    x.now = datetime.fromtimestamp(first.safe_payload["_retry_not_before"], UTC)
+    await x.dispatch()
+    row = (await x.saved())[1]["notices"][0]
+    assert (row.state, row.attempts, row.last_error_code) == ("delivered", 2, None)
+    await x.dispatch()
+    assert len(x.calls) == 2
+
+
+@pytest.mark.strict_rls
+@pytest.mark.asyncio
+@pytest.mark.parametrize("claimed_first", [False, True])
+async def test_storage_selection_real_finalization_fences_only_new_claim(storage_selection_case, monkeypatch, claimed_first):
+    from twobrain_rec_server.auth.account_closure import begin_account_close_finalization
+    from twobrain_rec_server.db.models import AccountClosureRequest
+    from twobrain_rec_server.db.tenant_context import MaintenanceTenantContext, apply_tenant_context
+    x = storage_selection_case
+    _schedule_storage_selection(x)
+    async with x.owner() as db:
+        request = AccountClosureRequest(workspace_id=x.workspace, requested_by_user_id=x.user,
+            request_key="synthetic-ssn-finalize", state="scheduled", policy_version="account-close-v1",
+            requested_at=x.now, finalize_at=x.now+timedelta(days=7), metadata_json={})
+        db.add(request)
+        await db.commit()
+        request_id, finalize_at = request.id, request.finalize_at
+    async def finalize():
+        async with x.sessions() as db:
+            await apply_tenant_context(db, MaintenanceTenantContext(operation_name="billing_reconciliation",
+                actor_id="test-storage-selection", reason_category="account_close_finalization", feature_area="account"))
+            result, _ = await begin_account_close_finalization(db, request_id=request_id, now=finalize_at)
+            assert result.state == "finalizing"
+            await db.commit()
+    if claimed_first:
+        original = worker.send_billing_notification
+        async def late(**kwargs):
+            notice = (await x.saved())[1]["notices"][0]
+            assert (notice.state, notice.attempts, notice.last_error_code) == ("failed", 1, "postal_outcome_unknown")
+            await finalize()
+            await original(**kwargs)
+        monkeypatch.setattr(worker, "send_billing_notification", late)
+    else:
+        await finalize()
+    await x.dispatch()
+    row = (await x.saved())[1]["notices"][0]
+    assert (row.state, row.attempts) == (("delivered", 1) if claimed_first else ("suppressed", 0))
+    assert len(x.calls) == int(claimed_first)
+    await x.dispatch()
+    assert len(x.calls) == int(claimed_first)
+
+@pytest.mark.strict_rls
+@pytest.mark.parametrize("mode", ["bonus", "prepaid", "below_floor"])
+def test_storage_selection_browser_preserves_paid_periods_when_deferred(storage_selection_case, mode):
+    from datetime import UTC, datetime
+    from uuid import uuid4
+
+    from tests.integration.test_billing_review_regressions import seed_periods
+    from twobrain_rec_server.db.models import BillingEntitlementGrant, TimeCreditLedgerEntry
+    x = storage_selection_case
+    if mode != "below_floor":
+        seed_periods(x.client, x.workspace, bonus=mode == "bonus")
+    else:
+        async def seed_short_period():
+            async with x.owner() as db:
+                now = datetime.now(UTC)
+                sub = await db.get(WorkspaceSubscription, x.workspace)
+                sub.capacity_bytes = 5_000_000_000
+                sub.paid_through = now + timedelta(seconds=60)
+                op = BillingOperation(workspace_id=x.workspace, kind="renewal", state="succeeded",
+                    idempotency_key=uuid4().hex, request_snapshot={})
+                db.add(op)
+                await db.flush()
+                invoice = BillingInvoice(workspace_id=x.workspace, operation_id=op.id,
+                    safe_number=f"INV-SSN-{uuid4().hex}", amount_minor=100000, currency="RUB", status="succeeded",
+                    plan_snapshot={"catalog_snapshot": {"storage_bytes": 5_000_000_000}})
+                db.add(invoice)
+                await db.flush()
+                db.add(BillingEntitlementGrant(workspace_id=x.workspace, invoice_id=invoice.id,
+                    provider_payment_id=uuid4().hex, plan_code="personal", cycle="month",
+                    starts_at=now-timedelta(days=30), ends_at=sub.paid_through, amount_minor=100000, currency="RUB"))
+                await db.commit()
+        asyncio.run(seed_short_period())
+    async def rights():
+        async with x.owner() as db:
+            sub = await db.get(WorkspaceSubscription, x.workspace)
+            grants = list(await db.scalars(select(BillingEntitlementGrant).where(BillingEntitlementGrant.workspace_id == x.workspace)))
+            credits = list(await db.scalars(select(TimeCreditLedgerEntry).where(TimeCreditLedgerEntry.workspace_id == x.workspace)))
+            return ((sub.capacity_bytes, sub.paid_through, sub.recurring_allowed, sub.recurring_authority_version),
+                sorted((r.id, r.starts_at, r.ends_at) for r in grants),
+                sorted((r.id, r.applied_start, r.applied_end, r.capacity_snapshot_bytes) for r in credits))
+    before = asyncio.run(rights())
+    initial_rows = asyncio.run(x.saved())[1]
+    _schedule_storage_selection(x, 0 if mode == "prepaid" else 1)
+    sub, rows = asyncio.run(x.saved())
+    assert asyncio.run(rights()) == before
+    assert len(rows["operations"]) == len(initial_rows["operations"]) + 1
+    assert len(rows["invoices"]) == len(initial_rows["invoices"])
+    operation = next(row for row in rows["operations"] if row.kind == "storage_schedule")
+    quote = rows["quotes"][0]
+    assert operation.request_snapshot == quote.snapshot
+    assert quote.snapshot["payable_amount_minor"] == 0 and quote.snapshot["storage_segments"] == []
+    assert rows["notices"][0].safe_payload["storage_effective_at"] == before[0][1].isoformat()
+    assert sub.next_capacity_bytes == (5_000_000_000 if mode == "prepaid" else 10_000_000_000)
+    asyncio.run(x.dispatch())
+    assert len(x.calls) == 1 and (asyncio.run(x.saved()))[1]["notices"][0].state == "delivered"
+
+
+@pytest.mark.strict_rls
+@pytest.mark.asyncio
+async def test_storage_selection_runtime_scope_and_monitoring_keep_boundaries(storage_selection_case):
+    from datetime import UTC, datetime
+
+    from sqlalchemy import func
+
+    from tests.fakes.auth_contexts import DEVICE_ID, ORG_ID, WORKSPACE_ID
+    from twobrain_rec_server.auth.context import TenantScope
+    from twobrain_rec_server.billing.monitoring import (
+        OPERATION_KINDS,
+        OPERATION_STATES,
+        _groups,
+        _reason,
+    )
+    from twobrain_rec_server.billing.storage_selection_notifications import (
+        storage_selection_notice_recipient,
+    )
+    from twobrain_rec_server.db.tenant_context import apply_tenant_context, apply_tenant_scope
+    x = storage_selection_case
+    _schedule_storage_selection(x)
+    assert x.client.post("/billing/storage/cancel-selection", headers=x.headers,
+        data={"selection_version": "1"}, follow_redirects=False).status_code == 303
+    _, rows = await x.saved()
+    original = rows["notices"][0]
+    async with x.client.app.state.db_sessionmaker() as db:
+        await apply_tenant_scope(db, TenantScope(organization_id=ORG_ID, workspace_id=WORKSPACE_ID,
+            user_id=x.user, device_id=DEVICE_ID))
+        assert await db.get(BillingOperation, rows["operations"][0].id) is None
+        assert await db.get(BillingNotificationDelivery, original.id) is None
+        assert await storage_selection_notice_recipient(db, original) is None
+    async with x.sessions() as db:
+        assert await storage_selection_notice_recipient(db, original) is None
+    async with x.sessions() as db:
+        await apply_tenant_context(db, x.context)
+        groups = await _groups(db, BillingOperation, OPERATION_STATES, datetime.now(UTC), kinds=OPERATION_KINDS)
+        assert _reason(groups) == "observed"
+        assert {(row["kind"], row["state"], row["count"]) for row in groups} == {
+            ("storage_schedule", "succeeded", 1), ("storage_selection_cancel", "succeeded", 1)}
+        assert await db.scalar(select(func.count()).select_from(BillingInvoice)) == 0
+    await x.dispatch()
+    assert len(x.calls) == 2 and all(r.state == "delivered" for r in (await x.saved())[1]["notices"])
+
+@pytest.mark.strict_rls
+@pytest.mark.parametrize("phase", ["scheduled", "canceled"])
+def test_storage_selection_browser_commit_rejection_rolls_back_everything(storage_selection_case, phase):
+    from sqlalchemy import text
+    from sqlalchemy.exc import DBAPIError
+
+    from twobrain_rec_server.db.models import BillingPurchaseQuote
+    x = storage_selection_case
+    if phase == "canceled":
+        _schedule_storage_selection(x)
+    sub, rows = asyncio.run(x.saved())
+    before = (sub.next_capacity_bytes, sub.next_capacity_version, sub.application_version, sub.storage_price_consents)
+    async def trigger(create):
+        async with x.owner() as db:
+            if create:
+                await db.execute(text("""CREATE FUNCTION public.test_only_ssn_browser_commit_failure() RETURNS trigger LANGUAGE plpgsql AS $$
+                    BEGIN IF NEW.template_key='storage_selection_changed' THEN RAISE EXCEPTION 'synthetic_ssn_browser_commit_failure'; END IF;
+                    RETURN NEW; END $$"""))
+                await db.execute(text("""CREATE CONSTRAINT TRIGGER zz_test_ssn_browser_commit_failure AFTER INSERT
+                    ON public.billing_notification_deliveries DEFERRABLE INITIALLY DEFERRED
+                    FOR EACH ROW EXECUTE FUNCTION public.test_only_ssn_browser_commit_failure()"""))
+            else:
+                await db.execute(text("DROP TRIGGER zz_test_ssn_browser_commit_failure ON public.billing_notification_deliveries"))
+                await db.execute(text("DROP FUNCTION public.test_only_ssn_browser_commit_failure()"))
+            await db.commit()
+    asyncio.run(trigger(True))
+    try:
+        with pytest.raises(DBAPIError):
+            if phase == "scheduled":
+                _schedule_storage_selection(x)
+            else:
+                x.client.post("/billing/storage/cancel-selection", headers=x.headers,
+                    data={"selection_version": "1"}, follow_redirects=False)
+    finally:
+        asyncio.run(trigger(False))
+    sub, after = asyncio.run(x.saved())
+    assert (sub.next_capacity_bytes, sub.next_capacity_version, sub.application_version, sub.storage_price_consents) == before
+    for key in ("operations", "notices", "invoices"):
+        assert [r.id for r in after[key]] == [r.id for r in rows[key]]
+    if phase == "scheduled":
+        async def unconsumed():
+            async with x.owner() as db:
+                return (await db.get(BillingPurchaseQuote, after["quotes"][0].id)).consumed_operation_id
+        assert asyncio.run(unconsumed()) is None
+    assert x.calls == []
+
+
+@pytest.mark.strict_rls
+@pytest.mark.asyncio
+async def test_storage_selection_uses_minimum_current_verified_address_and_reverse_merge_lock(storage_selection_case):
+    from datetime import UTC, datetime
+    from uuid import uuid4
+
+    from twobrain_rec_server.auth.account_merge import _lock_merge_domain_rows
+    from twobrain_rec_server.db.models import ExternalIdentity, UserIdentity
+    from twobrain_rec_server.db.tenant_context import apply_tenant_context
+    x = storage_selection_case
+    _schedule_storage_selection(x)
+    async with x.owner() as db:
+        db.add_all([
+            ExternalIdentity(user_id=x.user, provider="email", provider_subject=uuid4().hex,
+                email="aaa-current@example.test", is_verified=True, is_active=True),
+            ExternalIdentity(user_id=x.user, provider="email", provider_subject=uuid4().hex,
+                email="000-unverified@example.test", is_verified=False, is_active=True),
+            ExternalIdentity(user_id=x.user, provider="email", provider_subject=uuid4().hex,
+                email="000-inactive@example.test", is_verified=True, is_active=False),
+        ])
+        await db.commit()
+    async with x.sessions() as db:
+        await apply_tenant_context(db, x.context)
+        assert await db.get(UserIdentity, x.user, with_for_update=True)
+        await _lock_merge_domain_rows(db, survivor_user_id=x.user, source_user_id=x.foreign_user)
+        await asyncio.wait_for(x.dispatch(), timeout=3)
+        notice = (await x.saved())[1]["notices"][0]
+        assert (notice.state, notice.attempts) == ("retry", 1) and x.calls == []
+        due = notice.safe_payload["_retry_not_before"]
+        await db.rollback()
+    x.now = datetime.fromtimestamp(due, UTC)
+    await x.dispatch()
+    row = (await x.saved())[1]["notices"][0]
+    assert (row.state, row.attempts) == ("delivered", 2)
+    assert len(x.calls) == 1 and x.calls[0]["recipient_email"] == "aaa-current@example.test"
+    assert row.recipient_id == x.user and "email" not in row.safe_payload
+
+
+@pytest.mark.strict_rls
+@pytest.mark.asyncio
+async def test_storage_selection_historical_notice_survives_actual_period_application(storage_selection_case):
+    from datetime import UTC, datetime
+    from uuid import uuid4
+
+    from twobrain_rec_server.billing.entitlements import grant_confirmed_renewal
+    from twobrain_rec_server.db.models import BillingEntitlementGrant
+    from twobrain_rec_server.db.tenant_context import apply_tenant_context
+    x = storage_selection_case
+    _schedule_storage_selection(x)
+    sub, rows = await x.saved()
+    original = rows["notices"][0].safe_payload.copy()
+    # Synthetic confirmed provider truth enters the existing entitlement boundary, never a live provider.
+    async with x.sessions() as db:
+        await apply_tenant_context(db, x.context)
+        snapshot = {"purchase_schema": 2, "plan_code": "personal", "cycle": "month",
+            "selection_version": 1, "billing_actor_user_id": str(x.user), "recurring_authority_version": 19,
+            "paid_through_at": sub.paid_through.isoformat(),
+            "catalog_snapshot": rows["quotes"][0].snapshot["base_catalog_snapshot"],
+            "storage_price_snapshot": None}
+        operation = BillingOperation(workspace_id=x.workspace, kind="renewal", state="pending",
+            provider_id=uuid4().hex, idempotency_key=uuid4().hex, request_snapshot=snapshot)
+        db.add(operation)
+        await db.flush()
+        invoice = BillingInvoice(workspace_id=x.workspace, operation_id=operation.id,
+            safe_number=f"INV-SSN-{uuid4().hex}", amount_minor=100000, currency="RUB", plan_snapshot=snapshot)
+        db.add(invoice)
+        await db.flush()
+        assert await grant_confirmed_renewal(db, workspace_id=x.workspace, provider_payment_id=operation.provider_id,
+            amount_minor=100000, currency="RUB", grant_starts_at=sub.paid_through) == "granted"
+        await asyncio.wait_for(x.dispatch(), timeout=3)
+        notice = (await x.saved())[1]["notices"][0]
+        assert (notice.state, notice.attempts) == ("retry", 1)
+        assert x.calls == []
+        due = notice.safe_payload["_retry_not_before"]
+        await db.commit()
+    applied, after = await x.saved()
+    assert applied.next_capacity_bytes is None and applied.next_capacity_version == 2
+    assert applied.paid_through > sub.paid_through and applied.recurring_allowed is False
+    async with x.sessions() as db:
+        await apply_tenant_context(db, x.context)
+        assert await db.scalar(select(BillingEntitlementGrant.id).where(BillingEntitlementGrant.workspace_id == x.workspace))
+    x.now = datetime.fromtimestamp(due, UTC)
+    await x.dispatch()
+    delivered = next(row for row in (await x.saved())[1]["notices"] if row.template_key == "storage_selection_changed")
+    assert delivered.safe_payload == original | {"_retry_not_before": due}
+    assert (delivered.state, delivered.attempts) == ("delivered", 2)
+    assert sum("Вы сохранили выбор" in call["plain_body"] for call in x.calls) == 1
+
+
+@pytest.mark.strict_rls
+@pytest.mark.asyncio
+async def test_storage_selection_new_choice_after_noop_preserves_legacy_cancellation(storage_selection_case):
+    x = storage_selection_case
+    _schedule_storage_selection(x)
+    assert x.client.post("/billing/storage/cancel-selection", headers=x.headers,
+        data={"selection_version": "1"}, follow_redirects=False).status_code == 303
+    assert x.client.post("/billing/storage/cancel-selection", headers=x.headers,
+        data={"selection_version": "2"}, follow_redirects=False).status_code == 303
+    _schedule_storage_selection(x)
+    async with x.owner() as db:
+        # An old future choice may predate today's package ladder.
+        (await db.get(WorkspaceSubscription, x.workspace)).next_capacity_bytes = 123
+        await db.commit()
+    assert x.client.post("/billing/storage/cancel-selection", headers=x.headers,
+        data={"selection_version": "3"}, follow_redirects=False).status_code == 303
+    sub, rows = await x.saved()
+    assert sub.next_capacity_bytes is None and sub.next_capacity_version == 4
+    assert len(rows["operations"]) == len(rows["notices"]) == 4 and not rows["invoices"]
+    await x.dispatch()
+    assert len(x.calls) == 4 and all(r.state == "delivered" for r in (await x.saved())[1]["notices"])
+    assert sum("123 байт" in call["plain_body"] for call in x.calls) == 1
+
+
+@pytest.mark.strict_rls
+@pytest.mark.asyncio
+async def test_storage_selection_two_polled_senders_contend_for_one_claim(storage_selection_case, monkeypatch):
+    x = storage_selection_case
+    _schedule_storage_selection(x)
+    both_polled, seen = asyncio.Event(), []
+    original = worker.storage_selection_notice_recipient
+    async def meet_before_claim(db, row):
+        address = await original(db, row)
+        seen.append((row.id, row.state, row.attempts))
+        if len(seen) == 2:
+            both_polled.set()
+        await asyncio.wait_for(both_polled.wait(), timeout=3)
+        return address
+    monkeypatch.setattr(worker, "storage_selection_notice_recipient", meet_before_claim)
+    await asyncio.wait_for(asyncio.gather(x.dispatch(), x.dispatch()), timeout=5)
+    row = (await x.saved())[1]["notices"][0]
+    assert seen == [(row.id, "pending", 0), (row.id, "pending", 0)]
+    assert (row.state, row.attempts) == ("delivered", 1) and len(x.calls) == 1
+    await x.dispatch()
+    assert len(x.calls) == 1
