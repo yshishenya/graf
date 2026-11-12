@@ -1,4 +1,5 @@
 {% import "cabinet/components/sections.html" as sections %}
+{% set renewal_unresolved = renewal_unresolved|default(False) %}
 <main id="cabinet-main" class="cabinet-main billing-page billing-subscription-page" tabindex="-1">
   <div class="cabinet-workspace settings-page">
     <div class="settings-page__content billing-page__content">
@@ -10,10 +11,10 @@
       {% elif result == "already_cancelled" %}<p class="notice" role="status">Автопродление уже отключено.</p>
       {% elif result == "already_active" %}<p class="notice" role="status">Автопродление уже включено.</p>
       {% elif result == "consent_required" %}<p class="notice notice--warning" role="alert">Подтвердите согласие на автоматическое списание.</p>
-      {% elif result == "method_required" %}<p class="notice notice--warning" role="alert">Автопродление не включено. <a href="/billing/payment-method">Проверьте способ оплаты</a>.</p>
+      {% elif result == "method_required" and not renewal_unresolved %}<p class="notice notice--warning" role="alert">Автопродление не включено. <a href="/billing/payment-method">Проверьте способ оплаты</a>.</p>
       {% elif result == "unavailable" %}<p class="notice notice--warning" role="alert">Управление подпиской временно недоступно.</p>{% endif %}
       {% set resolution = subscription.renewal_resolution|default(None) if subscription else None %}
-      {% set payment_unresolved = pending_payment_url|default(None) or pending_charge_amount_label|default(None) or resolution in ["pending", "unknown", "unknown_pending"] %}
+      {% set payment_unresolved = renewal_unresolved or pending_payment_url|default(None) or pending_charge_amount_label|default(None) or resolution in ["pending", "unknown", "unknown_pending"] %}
       {% set cycle_label = {"month": "месяц", "year": "год"}.get(subscription.cycle|default(None) if subscription else None, "период") %}
       <section class="billing-checkout-card" aria-labelledby="billing-subscription-state-title">
         {% set displayed_plan_label = subscription_plan_label|default({"personal": "Личный", "trial": "Пробный период", "free": "Бесплатный"}.get(subscription.plan_code if subscription else "free", "Бесплатный")) %}
@@ -21,11 +22,15 @@
           <h2 id="billing-subscription-state-title">{{ displayed_plan_label }}</h2>
           {% if active %}<span class="billing-plan-badge">Активна</span>{% endif %}
         </div>
-        {% if payment_unresolved %}
+        {% if renewal_unresolved %}
+        <p class="notice notice--warning" role="status">{{ renewal_notice }}</p>
+        <a class="button primary" data-billing-primary href="{{ renewal_action_url }}">{{ renewal_action_label }}</a>
+        {% elif payment_unresolved %}
         <p class="notice notice--warning" role="status">Результат платежа{% if pending_charge_amount_label|default(None) %} на <strong>{{ pending_charge_amount_label }}</strong>{% endif %} еще не подтвержден. Платеж еще может завершиться. Повторно платить не нужно.</p>
         <a class="button primary" data-billing-primary href="{{ pending_payment_url|default('/billing/history#billing-help', true) }}">Проверить платеж</a>
         {% endif %}
-        {% if payment_unresolved and resolution == "receipt_contact_required" %}<p class="notice notice--warning" role="status">Автопродление приостановлено: нужен адрес для чека из подтвержденной оплаты. <a href="/billing/history#billing-help">Обратиться в поддержку</a>.</p>
+        {% if renewal_unresolved %}
+        {% elif payment_unresolved and resolution == "receipt_contact_required" %}<p class="notice notice--warning" role="status">Автопродление приостановлено: нужен адрес для чека из подтвержденной оплаты. <a href="/billing/history#billing-help">Обратиться в поддержку</a>.</p>
         {% elif renewal_notice|default(None) %}<p class="notice notice--warning" role="status">{{ renewal_notice }} <a href="{{ renewal_action_url }}">{{ renewal_action_label }}</a></p>
         {% elif resolution in ["acceptance_budget", "provider_unavailable", "catalog_not_approved", "provider_floor"] %}<p class="notice notice--warning" role="status">Автопродление приостановлено. Уже оплаченный срок сохранен. <a href="/billing/history#billing-help">Обратиться в поддержку</a>.</p>
         {% elif resolution == "late_success" and not payment_unresolved %}<p class="notice" role="status">Подтверждение оплаты получено. Доступ обновлен.</p>{% endif %}
@@ -35,7 +40,7 @@
         <dl class="billing-order-summary billing-subscription-facts">
           <div><dt>Оплачено до</dt><dd><strong>{{ paid_through_short_label|default(paid_through_label|default("дата уточняется"), true) }}</strong></dd></div>
           <div><dt>Автопродление</dt><dd>{{ "Включено" if subscription.recurring_allowed else "Отключено" }}</dd></div>
-          {% if subscription.recurring_allowed %}<div><dt>Следующее списание</dt><dd><strong>{{ next_charge_amount_label|default("сумма уточняется", true) }}</strong> за {{ cycle_label }}<br>{{ next_charge_label|default("дата уточняется", true) }}</dd></div>{% endif %}
+          {% if subscription.recurring_allowed and not renewal_unresolved %}<div><dt>Следующее списание</dt><dd><strong>{{ next_charge_amount_label|default("сумма уточняется", true) }}</strong> за {{ cycle_label }}<br>{{ next_charge_label|default("дата уточняется", true) }}</dd></div>{% endif %}
         </dl>
         {% if next_charge_is_nominal_first|default(False) and subscription.plan_code == "personal" and subscription.recurring_allowed and next_charge_label|default(None) and not payment_unresolved and not operation_pending|default(False) and not renewal_notice|default(None) and resolution in [None, "succeeded", "late_success"] %}<p class="muted">Первая попытка списания планируется за 3 дня до конца оплаченного срока.</p>{% endif %}
         {% if next_capacity_label|default(None) %}<p>Со следующего неоплаченного периода: <strong>{{ next_capacity_label }} всего</strong>. <a href="/billing/storage">Изменить выбор объема</a></p>{% endif %}

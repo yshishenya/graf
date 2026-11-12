@@ -486,6 +486,24 @@ def test_billing_keyboard_focus_and_error_recovery_in_browser(tmp_path):
         **{**overview_context, "renewal_allowed": True,
            "next_charge_label": overview_label, "next_charge_is_nominal_first": overview_first},
     )
+    unresolved_names = []
+    for recurring_allowed in (False, True):
+        subscription = {**surface_context["subscription"],
+                        "recurring_allowed": recurring_allowed,
+                        "renewal_resolution": "method_required"}
+        notice, url, action = _renewal_notice(SimpleNamespace(**subscription), unresolved=True)
+        for surface, base in (("overview", overview_context), ("subscription", surface_context)):
+            name = f"mrc-{surface}-{'on' if recurring_allowed else 'off'}"
+            unresolved_names.append(name)
+            pages[name] = render_template(
+                f"cabinet/pages/billing_{surface}_content.html",
+                **{**base, "subscription": subscription, "renewal_allowed": recurring_allowed,
+                   "renewal_unresolved": True, "operation_pending": True,
+                   "renewal_notice": notice, "renewal_action_url": url,
+                   "renewal_action_label": action, "result": "method_required",
+                   "next_charge_label": notice, "next_charge_is_nominal_first": False,
+                   "resume_quote_id": None},
+            )
     missed_names = []
     for hours in (72, 60, 48, 24, 12):
         for surface, base, end in (
@@ -508,7 +526,7 @@ def test_billing_keyboard_focus_and_error_recovery_in_browser(tmp_path):
             "Оплата", content=pages[name], embedded=False,
             csrf_token="synthetic", active_nav="settings", settings_active="billing",
         )
-    for name in missed_names:
+    for name in missed_names + unresolved_names:
         pages[f"shell-{name}"] = _page_shell(
             "Оплата", content=pages[name], embedded=False, csrf_token="synthetic",
             active_nav="settings", settings_active="billing",

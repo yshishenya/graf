@@ -104,6 +104,23 @@ def _utc(value: datetime) -> datetime:
     return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
 
 
+def renewal_period_query(subscription: WorkspaceSubscription):
+    if subscription.paid_through is None:
+        raise ValueError("renewal period is unavailable")
+    return select(BillingOperation).where(
+        BillingOperation.workspace_id == subscription.workspace_id,
+        BillingOperation.kind == "renewal",
+        BillingOperation.request_snapshot["paid_through_at"].as_string()
+        == _utc(subscription.paid_through).isoformat(),
+    )
+
+
+def renewal_result_unresolved(operation: BillingOperation) -> bool:
+    return operation.state not in {"canceled", "succeeded"} and not (
+        operation.state == "scheduled" and operation.provider_id is None
+    )
+
+
 def renewal_attempt_due_at(*, paid_through: datetime, attempt: int) -> datetime:
     """Return the moment one renewal attempt may start.
 
@@ -369,6 +386,10 @@ async def plan_due_renewals(
             .limit(1)
         )
         if initial_checkout is not None:
+            continue
+        period_operations = await db.scalars(renewal_period_query(subscription).with_for_update())
+        if any(renewal_result_unresolved(item) for item in period_operations):
+            subscription.renewal_resolution = "pending"
             continue
         catalog = await _approved_catalog(db, cycle=subscription.cycle, now=current)
         base_catalog = catalog
@@ -1399,7 +1420,7 @@ async def charge_renewal_operation(
             return completed
         operation.state = "manual_resolution"
         invoice.status = "manual_resolution"
-        subscription.renewal_resolution = "method_required"
+        subscription.renewal_resolution = "pending"
         _record_charge_audit(
             db,
             subscription=subscription,
