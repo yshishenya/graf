@@ -6,11 +6,11 @@ const assets = path.join(__dirname, '../../src/twobrain_rec_server/cabinet/stati
 (async () => {
   const browser = await (process.env.GRAF_BROWSER === 'webkit' ? webkit : chromium).launch({headless:true});
   try {
-    for (const width of [320, 390, 480, 1440]) {
-      const page = await browser.newPage({viewport:{width,height:800},colorScheme:width===390||width===1440?'dark':'light'});
+    for (const width of [320, 390, 480, 1440]) for (const colorScheme of ['light', 'dark']) {
+      const page = await browser.newPage({viewport:{width,height:800},colorScheme});
       page.setDefaultTimeout(5000);
       const mutations=[], errors=[];
-      let version=1, audience='invite_only', scope='summary_only', grants=[], savedLink=true, workspaceEnabled=false, linkEnabled=true, holdAccess=null, holdPeople=null;
+      let version=1, audience='invite_only', scope='summary_only', grants=[], invitations=[], savedLink=true, workspaceEnabled=false, linkEnabled=true, holdAccess=null, holdPeople=null;
       let releaseGeneral;const generalGate=new Promise(resolve=>{releaseGeneral=resolve;});
       const fingerprint=()=>version.toString(16).padStart(64,'0');
       const link=()=>!savedLink?{state:'absent',grant_id:null,version:0,content_scope:'summary_only'}:audience==='link'?{state:'active',grant_id:'synthetic-link',version,content_scope:scope,share_url:'https://graf.test/synthetic-reader',expires_at:'2026-12-01T00:00:00Z'}:{state:width===320?'expired':'replacement_required',grant_id:'old-link',version,content_scope:'summary_only'};
@@ -30,9 +30,11 @@ const assets = path.join(__dirname, '../../src/twobrain_rec_server/cabinet/stati
           }
           return route.fulfill({json:general()});
         }
-        if(url.pathname===base+'/access'){if(holdAccess)await holdAccess;return route.fulfill({json:{share:{active_grants:grants,active_invitations:[],can_manage_roles:true}}});}
+        if(url.pathname===base+'/access'){if(holdAccess)await holdAccess;return route.fulfill({json:{share:{active_grants:grants,active_invitations:invitations,can_manage_roles:true}}});}
+        if(url.pathname===base+'/summary-sharing/batches'&&request.method()==='POST')return route.fulfill({json:{batch_id:'synthetic-batch',recipients:[{email:'recipient@example.test',state:'accepted'}],can_cancel:false}});
         if(url.pathname.endsWith('/auto-send'))return route.fulfill({json:{state:'off',rules:{},roster:[]}});
         if(url.pathname.endsWith('/recipients')){if(holdPeople)await holdPeople;return route.fulfill({json:{recipients:[{user_id:'synthetic-person',email:'person@example.test',display_label:'Учебный получатель'}]}});}
+        if(url.pathname.startsWith(base+'/share-invitations/')&&request.method()==='DELETE'){invitations=invitations.filter(invitation=>invitation.invitation_id!==url.pathname.split('/').at(-1));return route.fulfill({status:204});}
         if(url.pathname===base+'/share-invitations'&&request.method()==='POST')return route.fulfill({status:202,json:{status:'pending'}});
         if(url.pathname===base+'/shares'&&request.method()==='POST'){
           const body=request.postDataJSON();grants=[{...body,grant_id:'synthetic-grant',version:1,display_name:'Учебный получатель'}];return route.fulfill({json:{grant:grants[0]}});
@@ -73,7 +75,7 @@ const assets = path.join(__dirname, '../../src/twobrain_rec_server/cabinet/stati
       assert.equal(mutations.length,0,'Copying an invitation-only link must not publish');
       assert.equal(audience,'invite_only');
       assert.equal(await page.evaluate(()=>window.copied),'https://graf.test/shared-meetings/synthetic-meeting?workspace_id=workspace');
-      page.removeAllListeners('dialog');page.on('dialog',dialog=>dialog.dismiss());
+      page.removeAllListeners('dialog');page.on('dialog',dialog=>{if(width===320)assert(dialog.message().includes('Ссылка снова будет действовать 30 дней.'));dialog.dismiss();});
       await page.getByRole('combobox',{name:'Общий доступ',exact:true}).selectOption('link');
       await page.locator('[data-summary-share-dialog][aria-busy=false]').waitFor();
       assert.equal(audience,'invite_only');assert.equal(mutations.length,0,'Cancelled publication must not mutate');
@@ -131,8 +133,8 @@ const assets = path.join(__dirname, '../../src/twobrain_rec_server/cabinet/stati
       await page.locator('[data-sharing-person]').focus();releaseAccess();holdAccess=null;
       await page.getByText('Права изменены',{exact:true}).waitFor();
       assert.equal(await page.locator('[data-sharing-person]').evaluate(el=>el===document.activeElement),true,'A delayed access response must not steal focus moved outside the list');
-      await page.getByRole('button',{name:'Отозвать',exact:true}).focus();
-      await page.getByRole('button',{name:'Отозвать',exact:true}).press('Enter');
+      await page.getByRole('button',{name:/^Отозвать/}).focus();
+      await page.getByRole('button',{name:/^Отозвать/}).press('Enter');
       await page.getByText('Доступ отозван',{exact:true}).waitFor();assert.equal(grants.length,0);
       assert.equal(await page.locator('[data-summary-share-title]').evaluate(el=>el===document.activeElement),true,'Revoking the focused row must preserve dialog keyboard focus');
       await page.keyboard.press('Escape');assert.equal(await panel.isVisible(),false);
@@ -248,8 +250,65 @@ const assets = path.join(__dirname, '../../src/twobrain_rec_server/cabinet/stati
         assert.equal(mutations[0].body.content_scope,'summary_only');
         assert.equal(scope,'summary_only');
       }
+      // The populated state from the user's report must fit inside each row, not just the dialog.
+      for (const pendingCount of [3,15]) {
+        const longName='Учебный участник с очень длинным именем для проверки переноса';
+        grants=[{grant_id:'long-person',version:1,display_name:longName,content_scope:'full_meeting'}];
+        invitations=Array.from({length:pendingCount},(_,index)=>({invitation_id:'pending-'+index,
+          display_label:index===0?'long-address@'+'verylongdomain'.repeat(10)+'.example.test':`person-${index}@department.example.test`,
+          content_scope:index===1?'summary_only':'full_meeting',status:index===2?'outcome_unknown':'pending'}));
+        await page.reload();
+        await page.addScriptTag({path:path.join(assets,'summary-sharing.js')});
+        await page.locator('[data-sharing-access-list] .share-viewer-row').nth(pendingCount).waitFor();
+        await panel.evaluate(el=>el.scrollTop=0);
+        const initialCopy=await page.locator('[data-summary-share-copy]').boundingBox();
+        const initialPanel=await panel.boundingBox();
+        assert(initialCopy.y>=initialPanel.y&&initialCopy.y+initialCopy.height<=initialPanel.y+initialPanel.height+1,'Copy must stay visible above a populated list without scrolling');
+        if(process.env.GRAF_SHARING_SCREENSHOTS){
+          fs.mkdirSync(process.env.GRAF_SHARING_SCREENSHOTS,{recursive:true});
+          await page.screenshot({path:path.join(process.env.GRAF_SHARING_SCREENSHOTS,`owner-${width}-${colorScheme}-${pendingCount}.png`)});
+        }
+        const beforeList=mutations.length;
+        assert(await page.locator('[data-sharing-access-list] .share-viewer-row').evaluateAll(rows=>rows.every(row=>{
+          const bounds=row.getBoundingClientRect();
+          return [...row.children].every(child=>{const r=child.getBoundingClientRect();return r.left>=bounds.left-1&&r.right<=bounds.right+1&&child.scrollWidth<=child.clientWidth+1;});
+        })),'Every identity and action must stay within its own populated row');
+        assert.equal(await page.getByRole('combobox',{name:'Права '+longName,exact:true}).evaluate(el=>getComputedStyle(el).appearance),'none');
+        const lastAction=page.locator('[data-sharing-access-list] .share-viewer-row').last().getByRole('button');
+        await lastAction.focus();
+        const focusedAction=await lastAction.boundingBox();
+        const fixedCopy=await page.locator('.sharing-dialog-actions').boundingBox();
+        assert(focusedAction.y+focusedAction.height<=fixedCopy.y+1,'Pinned footer must not hide the focused invitation action');
+        const firstPending=page.locator('[data-sharing-access-list] .share-viewer-row').nth(1);
+        assert((await firstPending.innerText()).includes('Просмотр встречи'));
+        assert((await page.locator('[data-sharing-access-list]').innerText()).includes('Только итоги'));
+        const cancel=page.getByRole('button',{name:'Отменить приглашение для '+invitations[1].display_label,exact:true});
+        await cancel.focus();await cancel.press('Enter');
+        await page.getByText('Приглашение отменено',{exact:true}).waitFor();
+        assert.equal(invitations.length,pendingCount-1);
+        assert.equal(mutations.length,beforeList+1);
+        assert.equal(await page.locator('[data-summary-share-title]').evaluate(el=>el===document.activeElement),true);
+        await page.locator('[data-summary-share-copy]').scrollIntoViewIfNeeded();
+        const populatedCopy=await page.locator('[data-summary-share-copy]').boundingBox();
+        assert(populatedCopy.y+populatedCopy.height<= (await page.locator('main').boundingBox()).height+1);
+        await page.setViewportSize({width,height:680});
+        await page.addStyleTag({content:'.summary-share-dialog {font-size:200%;}'});
+        assert(await panel.evaluate(el=>el.scrollWidth<=el.clientWidth+1),'Populated panel must not overflow at 200% text');
+        assert(await page.locator('[data-sharing-access-list] .share-viewer-row').evaluateAll(rows=>rows.every(row=>[...row.children].every(child=>child.scrollWidth<=child.clientWidth+1))),'Populated identities must not overflow at 200% text');
+        await page.locator('[data-summary-share-copy]').scrollIntoViewIfNeeded();
+        const shortCopy=await page.locator('[data-summary-share-copy]').boundingBox();
+        const shortMain=await page.locator('main').boundingBox();
+        assert(shortCopy.y>=0&&shortCopy.y+shortCopy.height<=shortMain.y+shortMain.height+1,'Copy remains reachable in a short window at 200% text');
+        await page.setViewportSize({width,height:800});
+      }
+      await page.getByText('Дополнительные настройки',{exact:true}).click();
+      await page.getByRole('tab',{name:'По почте',exact:true}).click();
+      await page.locator('[data-share-recipient-input]').fill('recipient@example.test');
+      await page.locator('[data-summary-share-send]').click();
+      await page.locator('[data-summary-share-result-title]').getByText('Итоги отправлены',{exact:true}).waitFor();
+      assert.equal(await page.locator('[data-summary-share-copy]').isVisible(),false,'Pinned copy must be hidden while showing the delivery result');
       await page.close();
     }
-    console.log('Owner sharing: explicit publication, stable copy, narrowed scope/roles, revoke, export restore, Escape/focus 320/1440 PASS');
+    console.log('Owner sharing: explicit publication, stable copy, narrowed scope/roles, revoke, export restore, Escape/focus, populated 3/15, 320/390/480/1440 both themes and 200% PASS');
   } finally {await browser.close();}
 })().catch(error=>{console.error(error);process.exitCode=1;});
