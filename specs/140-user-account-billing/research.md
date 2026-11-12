@@ -883,3 +883,26 @@ SHA256 `5cac358eea8109081951b15eaf0b28277bf6f1ff3696519c4011015bdcfcbee4`.
 Root отдельно восстановил0111/receipt bootstrap, current maintenance helper,
 valid merge proof/lock и cleanup transaction originals. Это технический
 Phase1 проект, не checklist PASS/выполненная миграция/PostgreSQL приёмка.
+
+
+## T070/T068: account-close notice — 12.11.2026
+
+Decision: использовать сохраняемый AccountClosureRequest как единственный
+источник истории scheduled/canceled; один прежний ACCOUNT_CLOSE с phase,
+без нового статуса закрытия или migration. Rationale: реальные browser callers
+уже коммитят этот сервис; повтор планирования возвращает ту же запись,
+canceled_at доказывает отмену. Alternatives: письмо прямо из route потеряло бы
+service callers/атомарность; generic enum без source gate мог бы отправить
+чужую/устаревшую очередь. Ни один вариант не принимается.
+
+Decision: source locks shared NOWAIT до delivery lock; bounded retry вместо
+ожидания обратного порядка F178 identity→workspace→request и closure
+request→workspace→identity. Финализация закрывает identity перед fanout.
+Не следовать merged_into_user_id; новый владелец/плательщик не является
+получателем старой очереди. Источник без адреса не создаёт backfill, почта
+не становится условием сохранения права на отмену.
+
+Decision: только историческая формулировка с явной МСК и авторизованным
+/settings/account без параметров. Никаких recovery token, session bypass или
+нового письма completed. Неполный старый snapshot подавляется; значения
+не восстанавливаются из нынешней подписки. Postal/реальная почта не трогаются.

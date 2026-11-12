@@ -1489,3 +1489,34 @@ bash apps/server/scripts/run_local_postgres_tests.sh --focused \
 PASS и не запускать весь прежний набор без причины. После проверки сохранить
 хеши/логи/cleanup, code review/Converge/fragment и три PR gate. T070/T068 `[ ]`,
 полный FR-107, фактическое #7524, Dev, выпуск и сервер — отдельные условия.
+
+
+## T070/T068: account-close notice ACN1–ACN6 — будущая приёмка
+
+До кода независимый checklists/account-close-notices.md полностью принят,
+Analyze без CRITICAL/HIGH и подтверждены существующие #4926/#4922.
+Только disposable PostgreSQL17 и синтетические аккаунты; реальные данные,
+платежи, Postal и службы не менять. Проверки выполняются production handlers,
+сервисом и обычным sender с транспортом, ограниченным текущим тестом.
+
+1. Browser session+CSRF+confirmation → schedule/commit → один snapshot; повтор
+   запроса не меняет snapshot/recurring version. Cancel → второй historical
+   snapshot; новое schedule → новый request/event. Rollback/ошибка enqueue
+   не оставляют переход/письмо и не запускают транспорт.
+2. Mandatory notice при отключённой optional email, точные исходные даты/МСК,
+   один /settings/account, без UUID/token/email/meeting content в тексте/URL.
+   Планирование, отменённое до доставки, читается исторически без ложного
+   обещания активного закрытия/восстановления списаний/окончательной очистки.
+3. Истинный worker LOGIN/NOBYPASSRLS: requester/owner/membership/address
+   missing/closed/merged/foreign/changed, malformed/legacy/tampered snapshot,
+   finalize boundary и несогласованные даты → ноль transport/terminal suppressed.
+   Ошибку чтения отличать от подтверждённого отсутствия; poll→claim mutation
+   не может отправить старый body. Другие tenant rows не затронуты.
+4. Одновременные sender, source lock/новый worker restart: один сохранённый
+   claim до HTTP, независимое соединение читает unknown+attempt до transport;
+   попытки ≤5/пауза≥60с, future not-before не отправляет. Известный временный
+   Postal отказ может повториться, unknown/crash не повторяются.
+5. Профильные account-close/lifecycle/fanout/notification и затронутые F178
+   регрессии; точные исходные хеши/результаты/пределы в внешнем каталоге.
+   Converge и точные SHA/base PR gates отдельно, T068/T070 остаются [ ].
+   Stub подтверждает приложение→transport boundary, #7524 требует inbox.

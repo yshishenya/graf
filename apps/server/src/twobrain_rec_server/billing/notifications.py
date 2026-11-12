@@ -284,6 +284,25 @@ def notification_copy(
 ) -> tuple[str, str]:
     """Russian-first copy built only from allowlisted event fields."""
     payload = event.safe_payload
+    if event.kind == BillingNotification.ACCOUNT_CLOSE:
+        snapshot = build_notification(event_id=event.event_id, kind=event.kind, payload=payload).safe_payload
+        if not snapshot:
+            return "Закрытие аккаунта", "Проверьте текущий статус в настройках аккаунта."
+        dates = {
+            key: datetime.fromisoformat(value).astimezone(ZoneInfo("Europe/Moscow")).strftime("%d.%m.%Y %H:%M:%S МСК")
+            for key, value in snapshot.items() if key.endswith("_at")
+        }
+        requested, finalize = dates["account_close_requested_at"], dates["account_close_finalize_at"]
+        if snapshot["phase"] == "canceled":
+            return "Отмена закрытия аккаунта сохранена", (
+                f"Вы отменили закрытие аккаунта {dates['account_close_canceled_at']}. "
+                f"Планирование было сохранено {requested}, крайний срок отмены — {finalize}. "
+                "Проверьте текущий статус в настройках аккаунта."
+            )
+        return "Планирование закрытия аккаунта сохранено", (
+            f"Вы запланировали закрытие аккаунта {requested}. Крайний срок отмены: {finalize}. "
+            "Проверьте текущий статус и последствия в настройках аккаунта."
+        )
     if event.kind == BillingNotification.STORAGE_THRESHOLD:
         snapshot = build_notification(event_id=event.event_id, kind=event.kind, payload=payload).safe_payload
         if not snapshot:
@@ -475,6 +494,28 @@ def notification_copy(
 def build_notification(
     *, event_id: str, kind: BillingNotification, payload: dict[str, object]
 ) -> NotificationEvent:
+    if kind == BillingNotification.ACCOUNT_CLOSE:
+        phase, request_id = payload.get("phase"), payload.get("account_close_request_id")
+        if phase not in ("scheduled", "canceled") or not isinstance(request_id, str) or not re.fullmatch(r"[0-9a-f]{32}", request_id):
+            return NotificationEvent(event_id, kind, {})
+        safe = {"phase": phase, "account_close_request_id": request_id}
+        keys = ["account_close_requested_at", "account_close_finalize_at"]
+        if phase == "canceled":
+            keys.append("account_close_canceled_at")
+        for key in keys:
+            value = payload.get(key)
+            if not isinstance(value, str) or len(value) > 32:
+                return NotificationEvent(event_id, kind, {})
+            try:
+                stamp = datetime.fromisoformat(value)
+                if stamp.tzinfo is None or stamp.astimezone(UTC).isoformat() != value:
+                    return NotificationEvent(event_id, kind, {})
+                stamp.astimezone(ZoneInfo("Europe/Moscow"))
+            except (ValueError, OverflowError):
+                return NotificationEvent(event_id, kind, {})
+            safe[key] = value
+        safe["action_path"] = "/settings/account"
+        return NotificationEvent(event_id, kind, safe)
     if kind == BillingNotification.STORAGE_THRESHOLD:
         safe = {}
         for key in ("storage_used_bytes", "storage_capacity_bytes"):
