@@ -5,7 +5,7 @@
     {{ ui.settings_header("Запись встреч") }}
     {% if embedded %}
     <section class="settings-section" aria-labelledby="recording-rules-title" data-recording-settings>
-      <div class="settings-section__heading"><div class="settings-heading-label"><h2 id="recording-rules-title">Автозапись</h2>{{ ui.tooltip("recording-rules-help", "Правила действуют на этом Mac. «Спрашивать»: запись начнется через 8 секунд, если не отказаться.", "Как работает автозапись") }}</div></div>
+      <div class="settings-section__heading"><div class="settings-heading-label"><h2 id="recording-rules-title">Автозапись</h2>{{ ui.tooltip("recording-rules-help", "Правила действуют на этом Mac. «Спрашивать»: запись начнется через 8 секунд, если не отказаться.", "Как работает автозапись", windows_copy="Правила действуют на этом компьютере. «Спрашивать»: запись начнется через 8 секунд, если не отказаться.") }}</div></div>
       <div data-recording-settings-controls hidden>
         <label class="settings-control-row">
           <span class="settings-control-row__copy"><span class="settings-control-row__title">Для всех приложений</span></span>
@@ -19,7 +19,7 @@
         <p class="muted" data-recording-settings-empty hidden>Приложения не найдены. Измените поиск.</p>
       </div>
       <template data-recording-settings-select><select data-settings-combobox><option value="always">Всегда</option><option value="ask">Спрашивать</option><option value="never">Никогда</option></select></template>
-      <p class="muted" role="status" aria-live="polite" data-recording-settings-status>Загрузка настроек этого Mac…</p>
+      <p class="muted" role="status" aria-live="polite" data-recording-settings-status><span data-platform-copy="Загрузка настроек этого компьютера…">Загрузка настроек этого Mac…</span></p>
       <button type="button" class="button quiet" data-recording-settings-retry hidden>Повторить загрузку</button>
     </section>
     {% else %}

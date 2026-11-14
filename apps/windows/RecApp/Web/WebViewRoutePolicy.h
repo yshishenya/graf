@@ -1,0 +1,137 @@
+#pragma once
+
+#include <string>
+#include <string_view>
+#include <cstdint>
+#include <optional>
+#include <vector>
+
+namespace graf::windows {
+
+enum class RouteKind {
+    meetings,
+    meetingDetail,
+    artifactDownload,
+    settings,
+    nativeSettings,
+    authRecovery,
+    authProvider,
+    paymentProvider,
+    frame,
+    review,
+    deletionReport,
+    share,
+    billing,
+    external,
+    denied,
+    publicReader,
+    sharedMedia,
+};
+
+enum class RouteDecision {
+    allow,
+    openExternal,
+    deny,
+};
+
+struct RouteEvaluation {
+    RouteDecision decision = RouteDecision::deny;
+    RouteKind kind = RouteKind::denied;
+    std::string normalizedUrl;
+    bool userInitiated = false;
+};
+
+enum class AuthContinuation { none, yandex, vk };
+
+enum class WebResponseDecision {
+    cabinet, interactiveForm, externalDocument, expiredSession, workspaceReselection,
+    accessDenied, notFound, timeout, unavailable, malformed, blocked, ignore,
+};
+
+struct WebDocumentResponse {
+    int status = 200;
+    bool transportSucceeded = true;
+    std::string contentType{};
+    std::string recoveryHeader{};
+};
+
+struct WebResponseEvaluation {
+    WebResponseDecision decision;
+};
+
+class WebViewRoutePolicy final {
+public:
+    explicit WebViewRoutePolicy(std::string trustedOrigin = "https://rec.2brain.pro");
+
+    // Strict registered-protocol input -> canonical LOCAL reader route only.
+    // Caller supplies the configured origin; this grants no account/bridge authority.
+    [[nodiscard]] static std::optional<std::string> sharedMeetingRoute(std::string_view activation);
+
+    // Host grants a short-lived, provider-specific continuation only after an
+    // approved same-origin start route. It never grants bridge permissions.
+    [[nodiscard]] RouteEvaluation evaluate(std::string_view url, bool topLevel = true,
+        AuthContinuation auth = AuthContinuation::none, bool payment = false) const;
+    [[nodiscard]] AuthContinuation authContinuationForStart(std::string_view url) const noexcept;
+    [[nodiscard]] bool isAllowedDownload(std::string_view url, std::string_view sourceUrl) const;
+    [[nodiscard]] bool sharesOrigin(std::string_view url) const;
+    [[nodiscard]] bool canStartPayment(std::string_view source, std::string_view destination) const;
+    [[nodiscard]] bool allowsNativeBridge(std::string_view url) const;
+    [[nodiscard]] WebResponseEvaluation response(std::string_view url, const WebDocumentResponse& response,
+        AuthContinuation auth = AuthContinuation::none, bool payment = false) const;
+    [[nodiscard]] std::string safeRecoveryUrl(std::string_view url, std::string_view method = "GET") const;
+    [[nodiscard]] std::string recoveryUrl(WebResponseDecision reason, std::string_view safeDocument,
+        bool billingContext = false) const;
+    [[nodiscard]] const std::string& trustedOrigin() const noexcept { return trustedOrigin_; }
+
+private:
+    std::string trustedOrigin_;
+};
+
+// One non-persistent allowance per host. Milliseconds are supplied by the host's
+// monotonic clock (GetTickCount64 on Windows, including time asleep) or a test.
+class PaymentNavigation final {
+public:
+    [[nodiscard]] bool begin(const WebViewRoutePolicy& policy, std::string_view source,
+        std::string_view destination, std::uint64_t now);
+    [[nodiscard]] bool live(std::uint64_t now) const noexcept;
+    [[nodiscard]] bool started() const noexcept { return startedAt_.has_value(); }
+    [[nodiscard]] std::optional<std::uint64_t> startedAt() const noexcept { return startedAt_; }
+    void loaded(const WebViewRoutePolicy& policy, std::string_view url, std::uint64_t now);
+    void stop() noexcept { startedAt_.reset(); }
+private:
+    std::optional<std::uint64_t> startedAt_;
+};
+
+struct WebHistoryEntry {
+    int id = -1;
+    std::string url;
+};
+
+// Browser-owned order, native-only GET evidence. No URL or snapshot proves GET.
+// The host must fence async reads and supply only a correlated accepted response.
+class SafeHistory final {
+public:
+    [[nodiscard]] std::uint64_t revision() const noexcept { return revision_; }
+    void invalidate() noexcept;
+    void clear() noexcept;
+    void forgetEntry(int id) noexcept;
+    [[nodiscard]] bool acceptSnapshot(std::uint64_t requestRevision,
+        std::vector<WebHistoryEntry> entries, std::size_t currentIndex, std::string_view currentUrl);
+    [[nodiscard]] bool confirmCurrent(const WebViewRoutePolicy& policy, std::uint64_t revision,
+        std::string_view responseUrl, std::string_view method);
+    [[nodiscard]] std::optional<WebHistoryEntry> current() const;
+    [[nodiscard]] bool currentIsGet(const WebViewRoutePolicy& policy) const;
+    [[nodiscard]] bool allGet(const WebViewRoutePolicy& policy) const;
+    [[nodiscard]] std::optional<WebHistoryEntry> target(const WebViewRoutePolicy& policy, bool back) const;
+private:
+    struct Entry {
+        WebHistoryEntry browser;
+        bool confirmedGet = false;
+    };
+    std::vector<Entry> entries_;
+    std::size_t currentIndex_ = 0;
+    std::uint64_t revision_ = 0;
+    bool fresh_ = false;
+};
+
+} // namespace graf::windows

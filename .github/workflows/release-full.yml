@@ -303,7 +303,7 @@ jobs:
           ffmpeg -nostdin -version >/dev/null
           ffprobe -version >/dev/null
           npm ci --ignore-scripts --prefix apps/server/tests/browser
-          apps/server/tests/browser/node_modules/.bin/playwright install --with-deps chromium
+          apps/server/tests/browser/node_modules/.bin/playwright install --with-deps chromium webkit
 
       - name: Run Ubuntu postgres strict and performance component
         env:
@@ -453,7 +453,7 @@ jobs:
           ffmpeg -nostdin -version >/dev/null
           ffprobe -version >/dev/null
           npm ci --ignore-scripts --prefix apps/server/tests/browser
-          apps/server/tests/browser/node_modules/.bin/playwright install --with-deps chromium
+          apps/server/tests/browser/node_modules/.bin/playwright install --with-deps chromium webkit
 
       - name: Run Ubuntu postgres parallel shard component
         shell: bash

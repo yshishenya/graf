@@ -1979,7 +1979,7 @@ def _render_home_upcoming(
         state_copy = "Календарь не подключен"
         body = (
             '<div class="calendar-home-upcoming__empty"><strong>Подключите календарь</strong>'
-            "<p>GRAF покажет ближайшие встречи здесь и в строке меню macOS, но не начнет запись автоматически.</p></div>"
+            '<p data-platform-copy="GRAF покажет ближайшие встречи здесь и в меню приложения, но не начнет запись автоматически.">GRAF покажет ближайшие встречи здесь и в строке меню macOS, но не начнет запись автоматически.</p></div>'
         )
     elif calendar_surface.selected_calendar_count_total == 0:
         state_copy = "Нужно выбрать календари"
