@@ -25,6 +25,12 @@ public enum LocalBufferRiskState: String, Codable, Sendable {
     case warning
     case critical
     case mustDegradeOrStop = "must_degrade_or_stop"
+
+    /// A warning leaves headroom for the next recording. Only critical/full
+    /// states and reserve violations may block a new capture.
+    public var allowsRecordingStart: Bool {
+        self != .critical && self != .mustDegradeOrStop
+    }
 }
 
 public protocol LocalBufferWriting {

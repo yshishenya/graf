@@ -6,6 +6,7 @@ public struct CaptureControlView: View {
     private let blockedReason: RecordingBlockerPresentation?
     private let localRecordingStatus: LocalRecordingPresentation?
     private let muteTruthWarning: String?
+    private let storageWarning: String?
     private let recordingMicrophoneSelection: RecordingMicrophoneSelection?
     private let recordingMicrophoneInputs: [PhysicalAudioDevice]
     private let selectedRecordingMicrophoneDeviceId: String?
@@ -32,6 +33,7 @@ public struct CaptureControlView: View {
         blockedReason: RecordingBlockerPresentation? = nil,
         localRecordingStatus: LocalRecordingPresentation? = nil,
         muteTruthWarning: String? = nil,
+        storageWarning: String? = nil,
         recordingMicrophoneSelection: RecordingMicrophoneSelection? = nil,
         recordingMicrophoneInputs: [PhysicalAudioDevice] = [],
         selectedRecordingMicrophoneDeviceId: String? = nil,
@@ -56,6 +58,7 @@ public struct CaptureControlView: View {
         self.blockedReason = blockedReason
         self.localRecordingStatus = localRecordingStatus
         self.muteTruthWarning = muteTruthWarning
+        self.storageWarning = storageWarning
         self.recordingMicrophoneSelection = recordingMicrophoneSelection
         self.recordingMicrophoneInputs = recordingMicrophoneInputs
         self.selectedRecordingMicrophoneDeviceId = selectedRecordingMicrophoneDeviceId
@@ -150,6 +153,15 @@ public struct CaptureControlView: View {
                 )
                     .accessibilityLabel("\(blockedReason.title). \(blockedReason.message)")
                     .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.blockerBanner)
+            } else if let storageWarning, !storageWarning.isEmpty {
+                StatusNoteView(
+                    icon: "internaldrive",
+                    title: "Мало места на Mac",
+                    detail: storageWarning,
+                    iconColor: DesktopDesignTokens.amber
+                )
+                    .accessibilityLabel("Мало места на Mac. \(storageWarning)")
+                    .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.storageWarning)
             }
 
             if let session,
@@ -279,6 +291,11 @@ public struct CaptureControlView: View {
     public static func shouldShowRecordButton(for session: CaptureSession?) -> Bool {
         guard let session else { return true }
         return !CaptureStatusItem.showsStopButton(for: session)
+    }
+
+    public static func storageWarningText(for risk: LocalBufferRiskState?) -> String? {
+        guard risk == .warning else { return nil }
+        return "Запись разрешена, но старые локальные записи скоро нужно будет удалить. Освободите место на Mac."
     }
 
     public static func readinessSummary(for status: DesktopPermissionOnboardingStatus) -> String? {

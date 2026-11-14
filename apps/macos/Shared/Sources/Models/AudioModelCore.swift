@@ -186,7 +186,7 @@ public struct RecordingPrerequisiteSnapshot: Codable, Equatable, Sendable {
             policyAllowsRecording &&
             microphonePermissionGranted &&
             systemAudioPermissionGranted &&
-            storageRisk == .healthy &&
+            storageRisk.allowsRecordingStart &&
             indicatorAvailable &&
             sourceAppEligibility == .eligible
     }

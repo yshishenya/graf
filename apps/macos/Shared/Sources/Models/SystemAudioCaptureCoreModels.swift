@@ -915,6 +915,7 @@ public enum SystemAudioAccessibilityIdentifier {
     public static let recordingMicrophoneStatus = "systemAudio.recordingMicrophone.status"
     public static let recordingMicrophoneRecovery = "systemAudio.recordingMicrophone.recovery"
     public static let muteTruthWarning = "systemAudio.muteTruth.warning"
+    public static let storageWarning = "systemAudio.storage.warning"
     public static let calendarPrompt = "systemAudio.calendar.prompt"
     public static let calendarPromptPrimaryButton = "systemAudio.calendar.prompt.primary"
     public static let calendarPromptDismissButton = "systemAudio.calendar.prompt.dismiss"

@@ -27,6 +27,10 @@ struct ContentView: View {
     @State private var meetingMuteTruthService = MeetingMuteTruthService()
     @State private var captureSession: CaptureSession?
     @State private var recordingBlocker: RecordingBlockerPresentation?
+    @State private var localFootprintProvider: LocalRecordingFootprintProvider?
+    @State private var localFootprintRisk: LocalBufferRiskState = .mustDegradeOrStop
+    @State private var localFootprintMeasuredAt: Date?
+    @State private var storageWarning: String?
     @State private var recordingEvidenceEvents: [RecordingEvidenceEvent] = []
     @State private var localRecordingManifest: LocalRecordingManifest?
     @State private var selectedRecordingMicrophoneDeviceId: String?
@@ -179,6 +183,7 @@ struct ContentView: View {
                 blockedReason: recordingBlocker,
                 localRecordingStatus: localRecordingPresentation,
                 muteTruthWarning: meetingMuteTruthWarningText,
+                storageWarning: storageWarning,
                 recordingMicrophoneSelection: recordingMicrophoneSelection,
                 recordingMicrophoneInputs: recordingMicrophoneInputs,
                 selectedRecordingMicrophoneDeviceId: selectedRecordingMicrophoneDeviceId,
@@ -336,6 +341,7 @@ struct ContentView: View {
             appIsActive = true
             microphoneCaptureService.invalidateAvailableRecordingMicrophoneInputs()
             Task { await refreshRecordingMicrophoneInputs() }
+            Task { await refreshLocalFootprintRisk(force: true) }
             refreshPermissionOnboarding(reason: "app_became_active")
             Task { await refreshPermissionOnboardingWithFunctionalProbe(reason: "app_became_active") }
             Task { await synchronizeRecordingDeletions() }
@@ -430,6 +436,8 @@ struct ContentView: View {
             )
             refreshPermissionOnboarding(reason: "app_appeared")
             Task { await refreshPermissionOnboardingWithFunctionalProbe(reason: "app_appeared") }
+            configureLocalFootprintProviderIfNeeded()
+            Task { await refreshLocalFootprintRisk(force: true) }
             refreshUploadQueueAndProcess(reason: "app_appeared")
             startUploadQueueNetworkMonitorIfNeeded()
             startMeetingDetectionIfNeeded()
@@ -449,6 +457,7 @@ struct ContentView: View {
         }
         .onChange(of: uploadQueueItems) { _, items in
             refreshLocalRecordingRows(for: items)
+            Task { await refreshLocalFootprintRisk(force: false) }
         }
         .onChange(of: userTimeContext.timeZone) { _, _ in
             refreshLocalRecordingRows(for: uploadQueueItems)
@@ -658,6 +667,7 @@ struct ContentView: View {
         value.stopping = recordingStopInProgress
         let permissionBlocker = recordingBlocker == nil && !effectivePermissionOnboardingStatus.isReady
         value.blocker = recordingBlocker?.message ?? (permissionBlocker ? "Разрешите доступ к микрофону и звуку Mac, чтобы начать запись." : nil)
+        value.storageWarning = storageWarning
         value.uploadItems = uploadQueueItems
         return value
     }
@@ -1703,11 +1713,42 @@ struct ContentView: View {
     }
 
     @MainActor
-    private func meetingDetectionStorageRisk() -> LocalBufferRiskState {
-        let usedBytes = uploadQueueItems.reduce(Int64(0)) {
-            $0 + $1.artifactProfile.totalUploadBytes
+    private func configureLocalFootprintProviderIfNeeded() {
+        guard localFootprintProvider == nil else { return }
+        localFootprintProvider = LocalRecordingFootprintProvider(
+            rootURL: desktopUploadQueueService.recordingsRootURL
+        )
+    }
+
+    @MainActor
+    @discardableResult
+    private func refreshLocalFootprintRisk(force: Bool = true) async -> LocalBufferRiskState {
+        configureLocalFootprintProviderIfNeeded()
+        guard let localFootprintProvider else {
+            localFootprintRisk = .mustDegradeOrStop
+            storageWarning = nil
+            return .mustDegradeOrStop
         }
-        return LocalRecordingStorageProbe(usedBytes: usedBytes).riskState()
+        let risk = force
+            ? await localFootprintProvider.refresh()
+            : await localFootprintProvider.risk()
+        localFootprintRisk = risk
+        localFootprintMeasuredAt = Date()
+        storageWarning = CaptureControlView.storageWarningText(for: risk)
+        return risk
+    }
+
+    @MainActor
+    private func meetingDetectionStorageRisk() -> LocalBufferRiskState {
+        guard let localFootprintMeasuredAt,
+              Date().timeIntervalSince(localFootprintMeasuredAt) <= 300 else {
+            // The detection loop only reads this value. Schedule a fresh
+            // measurement so a long background stay cannot leave auto-record
+            // suppressed until an unrelated queue event happens.
+            Task { await refreshLocalFootprintRisk(force: true) }
+            return .mustDegradeOrStop
+        }
+        return localFootprintRisk
     }
 
     @MainActor
@@ -1996,6 +2037,7 @@ struct ContentView: View {
 
         localRecordingManifest = nil
         recordingBlocker = nil
+        let measuredStorageRisk = await refreshLocalFootprintRisk()
         let scopeApproval: CaptureScopeApproval
         do {
             if let meetingDetectionTarget {
@@ -2073,7 +2115,7 @@ struct ContentView: View {
         let prerequisite = evaluatedMeetingDetectionRecordingPrerequisite(
             permissions: permissionGate.snapshot,
             sourceAppIsCurrent: meetingDetectionTarget.map { isCurrentMeetingDetectionDecision($0) } ?? true,
-            storageRisk: meetingDetectionStorageRisk()
+            storageRisk: measuredStorageRisk
         )
 
         do {

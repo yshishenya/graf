@@ -297,7 +297,19 @@ public final class CalendarTrayController: NSObject, NSMenuDelegate {
             addItem("Начать запись", action: #selector(startRecording), id: "graf.menu.start")
         case .failed:
             addItem("Повторить запись", action: #selector(startRecording), id: "graf.menu.retry")
-            addItem("Нужна помощь", id: "graf.menu.failed", informational: true)
+            if let reason = DesktopControlModel.shared.snapshot.blocker?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+               !reason.isEmpty {
+                let item = addItem(
+                    Self.truncatedMenuTitle(reason),
+                    id: "graf.menu.failed-reason",
+                    informational: true
+                )
+                item.toolTip = reason
+                item.setAccessibilityLabel(reason)
+            } else {
+                addItem("Нужна помощь", id: "graf.menu.failed", informational: true)
+            }
         case .starting:
             addItem(GrafTrayRecordingState.starting.label ?? "Начинаем запись…", id: "graf.menu.starting", informational: true)
         case .recording, .paused, .degraded:
@@ -317,6 +329,17 @@ public final class CalendarTrayController: NSObject, NSMenuDelegate {
             model.recordingState == .degraded {
             addItem(CaptureStatusPresentation.title(for: .active) + " · " + DesktopControlModel.shared.elapsed(),
                     id: "graf.menu.elapsed", informational: true)
+        }
+        if let warning = DesktopControlModel.shared.snapshot.storageWarning?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !warning.isEmpty {
+            let item = addItem(
+                Self.truncatedMenuTitle("Мало места на Mac"),
+                id: "graf.menu.storage-warning",
+                informational: true
+            )
+            item.toolTip = warning
+            item.setAccessibilityLabel("Мало места на Mac. \(warning)")
         }
         menu.addItem(.separator())
         if !model.events.isEmpty {
@@ -574,7 +597,7 @@ final class GrafRecordingLightView: NSView {
     func update(state: GrafTrayRecordingState, reduceMotion: Bool) {
         microphoneMuted = state == .paused
         needsDisplay = true
-        isHidden = state == .idle || state == .starting
+        isHidden = state == .idle || state == .starting || state == .failed
         let animate = !reduceMotion && (state == .recording || state == .paused || state == .degraded)
         if animate {
             guard layer?.animation(forKey: "recordingPulse") == nil else { return }
