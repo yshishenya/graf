@@ -25,7 +25,7 @@
 - [X] T011 [US3] Add regression assertions for F284/local-only/deletion paths: `LocalRecordingPlayer`, `localPlaybackURL`, bridge open, local-only list and progress helpers unchanged.
 - [X] T012 [US3] Run focused tests, `apps/macos/Scripts/run-swift-tests.sh`, ContractValidation and `python3 scripts/validate-changelog-fragments.py`; record evidence in `validation.md`.
 - [X] T013 [US3] Add `quickstart.md`, `checklists/ux.md`, `changes/unreleased/F295.yaml`; run independent checklist review and `$speckit-analyze`.
-- [ ] T014 [US3] Commit `specs/295-capture-storage-gate/`, create PR, run `governance-fast`, `macos-pr`, `pr-metadata` and `validate-pr-checks.py` on exact SHA.
+- [X] T014 [US3] Commit `specs/295-capture-storage-gate/`, create PR, run `governance-fast`, `macos-pr`, `pr-metadata` and `validate-pr-checks.py` on exact SHA.
 - [ ] T015 [US4] Prepare release, freeze candidate, run `release-full`, build/notarize/staple/Gatekeeper/Sparkle.
 - [ ] T016 [US4] Run `cd-remote.sh --dry-run`, deploy production, verify health/runtime SHA, publish GitHub Release/appcast, close #8049 with Russian evidence.
 - [ ] T017 [US3] Run `$speckit-converge` and update `docs/current-product-status.md`.

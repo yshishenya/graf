@@ -7,6 +7,8 @@
 - Branch: `295-capture-storage-gate`
 - Risk lane: high-risk-product
 - Base: `f90c253555a8128c4164270d97c1d996cbee8e70`
+- PR: `#8050`
+- Merge SHA: `3b8abbec13d5a964648c970dd32e27fa09c6ee9e`
 - Release: next free CalVer after `v2026.11.12.5`
 
 ## Local checks
