@@ -90,6 +90,51 @@ dunning engine или второй платный тариф только рад
 
 ## Technical Context
 
+### MRC: приоритет незавершённого результата — 12.11.2026
+
+Lane: **high-risk-product**, F140 T068/T070, US4/US5/US9, FR-110/MRC1–MRC6.
+Это предварительное исправление состояния, не новый источник письма.
+Pre-research constitution check PASS: деньги/права/consent не меняются;
+server-only provider secrets, RLS и прежний workspace lock сохранены;
+запись, удаление, выпуск и рабочая среда не затрагиваются. Clarify находится
+в Session 2026-11-12; Phase0 решения — раздел MRC research.md.
+
+1. В `billing/renewal_charge.py` общий query builder выбирает renewal операции
+   точного workspace и `request_snapshot.paid_through_at` текущего срока.
+   Общий предикат из data-model.md отличает незавершённый исход от finished
+   и ещё не отправленного scheduled. Никакого нового state enum/хранилища.
+2. Planner после существующих owner/initial-checkout проверок и под тем же
+   workspace lock читает эти операции FOR UPDATE **до** catalog/method/receipt.
+   Незавершённая история сохраняет resolution=pending и запрещает планировать
+   новую попытку. Прежний цикл трёх окон, immutable successors, дедупликация,
+   запреты отправки и поведение при действительно отсутствующем методе остаются.
+3. Общий ValueError/TypeError handler сохраняет operation/invoice=manual_resolution,
+   subscription=pending, прежний audit reason. Не меняет сумму, key, срок,
+   method или authority; повтор не делает второй provider POST.
+4. `cabinet/web_routes/billing.py` читает операции периода один раз на страницу
+   и передаёт их в projection/notice/resume. Projection сохраняет tuple(label,
+   nominal_first), wrapper — строку; перед blockers и recurring-off применяется
+   общая незавершённость. Отдельные callers storage preview и resume snapshot
+   используют тот же запрос/предикат; повторный SQL для уже прочитанного списка
+   не нужен. POST resume по-прежнему заново проверяет под workspace lock.
+5. На `/billing` и `/billing/subscription` баннер, основная подсказка и действия
+   согласованы с фактической историей, включая старый method_required и
+   отозванное продление. Шаблоны получают явный признак unresolved renewal;
+   result=method_required и receipt/price подсказки не перекрывают его.
+   История/помощь и cancel доступны; возобновление/новая оплата не предлагаются
+   как разрешение прежнего платежа. Правила текста — notifications-support.md.
+6. Unit/contract и причинные PostgreSQL регрессии — MRC quickstart. До кода
+   обязательны независимый checklist PASS, tasks, analyze и sync существующих
+   #4922/#4926. Исходные задачи целиком не отмечаются выполненными.
+
+Post-design constitution check PASS по проекту: §§II/IV/VI/VII и privacy/
+metadata-only evidence сохранены; новые сущности, lifecycle, сеть, зависимости
+и сторонние ресурсы отсутствуют. Existing GRAF shell/tokens/semantic status
+переиспользуются; отклонение от ложной подсказки требуется правдивостью состояния.
+Это не независимое ревью или фактическая доступность. Точные PR SHA/base,
+required checks и отдельные release/deploy gates обязательны после реализации;
+Dev/VoiceOver/themes/200%/360px и #7524 принимаются отдельно.
+
 ### T077/O16 J5/J6: независимое наблюдение и реакция (03.11.2026)
 
 Полоса active Spec Kit slice/high-risk-product; Legacy Impact untouched.

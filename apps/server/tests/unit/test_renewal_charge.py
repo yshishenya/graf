@@ -22,6 +22,8 @@ from twobrain_rec_server.billing.renewal_charge import (
     renewal_attempt_due_at,
     renewal_invoice_number,
     renewal_operation_key,
+    renewal_period_query,
+    renewal_result_unresolved,
 )
 from twobrain_rec_server.billing.yookassa import YooKassaProviderError
 from twobrain_rec_server.config import Settings
@@ -162,6 +164,48 @@ class FakeProvider:
         if isinstance(self.response, BaseException):
             raise self.response
         return self.response
+
+
+@pytest.mark.parametrize(("state", "provider_id", "unresolved"), [
+    ("canceled", None, False), ("canceled", "synthetic", False),
+    ("succeeded", "synthetic", False), ("scheduled", None, False),
+    ("scheduled", "synthetic", True), ("manual_resolution", None, True),
+    ("sent", None, True), ("processing", None, True), ("unknown", None, True),
+    ("unknown_pending", None, True), ("unrecognized-state", None, True),
+])
+def test_period_result_classification(state, provider_id, unresolved):
+    assert renewal_result_unresolved(SimpleNamespace(state=state, provider_id=provider_id)) is unresolved
+
+
+def test_period_query_is_exact_and_requires_a_paid_period():
+    from sqlalchemy.dialects import postgresql
+
+    subscription = SimpleNamespace(workspace_id=WORKSPACE_ID, paid_through=PAID_THROUGH.replace(tzinfo=None))
+    query = renewal_period_query(subscription).with_for_update()
+    compiled = query.compile(dialect=postgresql.dialect())
+    assert set(compiled.params.values()) == {WORKSPACE_ID, "renewal", "paid_through_at", PAID_THROUGH.isoformat()}
+    assert "FOR UPDATE" in str(compiled)
+    subscription.paid_through = None
+    with pytest.raises(ValueError, match="period is unavailable"):
+        renewal_period_query(subscription)
+
+
+@pytest.mark.asyncio
+async def test_type_error_after_dispatch_keeps_manual_resolution_and_pending(monkeypatch, tmp_path):
+    settings = _settings(tmp_path)
+    subscription, operation, invoice, method = _rows(tmp_path, attempt=1)
+    provider = FakeProvider(TypeError("synthetic malformed provider result"))
+    monkeypatch.setattr("twobrain_rec_server.billing.renewal_charge.YooKassaClient", lambda _: provider)
+    result = await charge_renewal_operation(
+        FakeDb([subscription, operation, invoice, method]), settings,
+        operation_id=OPERATION_ID, workspace_id=WORKSPACE_ID, now=_attempt_charge_moment(1),
+    )
+    assert result.status == operation.state == invoice.status == "manual_resolution"
+    assert subscription.renewal_resolution == "pending"
+    assert subscription.recurring_allowed is True and subscription.recurring_authority_version == 4
+    assert subscription.paid_through == PAID_THROUGH and invoice.amount_minor == 79_000
+    assert operation.idempotency_key == "renewal:period-1" and operation.provider_id is None
+    assert len(provider.calls) == 1
 
 
 def _settings(tmp_path: Path) -> Settings:

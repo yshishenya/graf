@@ -111,6 +111,8 @@ from twobrain_rec_server.billing.renewal_charge import (
     renewal_attempt_due_at,
     renewal_attempt_of,
     renewal_canceled_without_payment,
+    renewal_period_query,
+    renewal_result_unresolved,
 )
 from twobrain_rec_server.billing.storage import (
     StorageProjection,
@@ -1044,8 +1046,19 @@ def _receipt_contact_action_url(request, *, next_path):
     return f"{account_path}?{urlencode({'next': next_path})}#account-providers-title"
 
 
-def _renewal_notice(subscription):
+def _renewal_notice(subscription, *, unresolved=False):
     """Explain existing renewal blockers without changing their resolution."""
+    if unresolved:
+        message = (
+            "Проверяем результат предыдущего списания. "
+            "Новый платёж не будет создан до завершения проверки"
+        )
+        if not subscription.recurring_allowed:
+            message += (
+                ". Автопродление отключено. Новые автоматические попытки запрещены; "
+                "прежний платёж продолжает проверяться"
+            )
+        return message, "/billing/history#billing-help", "Проверить результат"
     resolution = subscription.renewal_resolution if subscription else None
     cycle = "year" if subscription and subscription.cycle == "year" else "month"
     return {
@@ -1649,7 +1662,9 @@ async def billing_overview_page(
             # Keep lightweight test doubles and read-only adapters compatible;
             # production AsyncSession always takes the complete-query branch.
             blocking_operations = [latest_operation]
-    operation_pending = any(
+    period_operations = await _period_renewals(db, subscription)
+    renewal_unresolved = any(renewal_result_unresolved(item) for item in period_operations)
+    operation_pending = renewal_unresolved or any(
         not (
             operation.kind == "renewal"
             and operation.state == "scheduled"
@@ -1687,8 +1702,14 @@ async def billing_overview_page(
     recurring_next_charge_label = None
     next_charge_is_nominal_first = False
     recurring_next_charge_amount_label = None
-    renewal_notice, renewal_action_url, renewal_action_label = _renewal_notice(subscription)
-    if (
+    renewal_notice, renewal_action_url, renewal_action_label = _renewal_notice(
+        subscription, unresolved=renewal_unresolved,
+    )
+    if renewal_unresolved:
+        recurring_next_charge_label, next_charge_is_nominal_first = await _next_renewal_projection(
+            db, subscription, now=now, operations=period_operations,
+        )
+    elif (
         subscription is not None
         and plan_code == "personal"
         and subscription.paid_through
@@ -1696,7 +1717,7 @@ async def billing_overview_page(
     ):
         if subscription.recurring_allowed:
             recurring_next_charge_label, next_charge_is_nominal_first = (
-                await _next_renewal_projection(db, subscription, now=now)
+                await _next_renewal_projection(db, subscription, now=now, operations=period_operations)
             )
             snapshot = (
                 latest_invoice.plan_snapshot
@@ -1871,6 +1892,7 @@ async def billing_overview_page(
         next_charge_is_nominal_first=next_charge_is_nominal_first,
         next_charge_amount_label=recurring_next_charge_amount_label,
         renewal_allowed=bool(subscription and subscription.recurring_allowed),
+        renewal_unresolved=renewal_unresolved,
         renewal_notice=renewal_notice,
         renewal_action_url=renewal_action_url,
         renewal_action_label=renewal_action_label,
@@ -2910,12 +2932,14 @@ async def billing_subscription_page(
         else "free"
     )
     active = effective_plan == "personal"
+    period_operations = await _period_renewals(db, subscription)
+    renewal_unresolved = any(renewal_result_unresolved(item) for item in period_operations)
     next_charge_label, next_charge_is_nominal_first = (
-        await _next_renewal_projection(db, subscription, now=now)
-        if active and db is not None else (None, False)
+        await _next_renewal_projection(db, subscription, now=now, operations=period_operations)
+        if (active or renewal_unresolved) and db is not None else (None, False)
     )
     resume_charge_label = (
-        await _next_renewal_label(db, subscription, now=now, for_resume=True)
+        await _next_renewal_label(db, subscription, now=now, for_resume=True, operations=period_operations)
         if active and db is not None
         else None
     )
@@ -2927,7 +2951,9 @@ async def billing_subscription_page(
     next_charge_amount_label = None
     pending_invoice = None
     receipt_contact = await _verified_receipt_contact(db, principal.user_id) if db is not None else None
-    renewal_notice, renewal_action_url, renewal_action_label = _renewal_notice(subscription)
+    renewal_notice, renewal_action_url, renewal_action_label = _renewal_notice(
+        subscription, unresolved=renewal_unresolved,
+    )
     if db is not None and subscription is not None:
         payment_method_label = await db.scalar(
             select(BillingPaymentMethod.masked_label).where(
@@ -2977,12 +3003,15 @@ async def billing_subscription_page(
         and billing_checkout_allowed(request.app.state.settings, tenant_scope.workspace_id)
         and method_available
         and pending_invoice is None
+        and not renewal_unresolved
         and subscription.renewal_resolution not in {
             "pending", "unknown", "unknown_pending", "receipt_contact_required",
         }
     ):
         try:
-            resume_snapshot = await _resume_renewal_snapshot(db, subscription=subscription, now=now)
+            resume_snapshot = await _resume_renewal_snapshot(
+                db, subscription=subscription, now=now, operations=period_operations,
+            )
             bound = await create_purchase_quote(
                 db,
                 workspace_id=tenant_scope.workspace_id,
@@ -3038,6 +3067,7 @@ async def billing_subscription_page(
         prepared_charge_amount_label=prepared_charge_amount_label,
         pending_payment_url=_checkout_status_location(pending_invoice.safe_number)
         if pending_invoice else None,
+        renewal_unresolved=renewal_unresolved,
         renewal_notice=renewal_notice,
         renewal_action_url=renewal_action_url,
         renewal_action_label=renewal_action_label,
@@ -3412,6 +3442,10 @@ async def resume_billing_subscription(
     ):
         await db.rollback()
         return RedirectResponse("/billing/subscription?result=conflict", status_code=303)
+    period_operations = await _period_renewals(db, subscription, for_update=True)
+    if any(renewal_result_unresolved(item) for item in period_operations):
+        await db.rollback()
+        return RedirectResponse("/billing/subscription?result=conflict", status_code=303)
     method_exists = await db.scalar(
         select(BillingPaymentMethod.id).where(
             BillingPaymentMethod.workspace_id == tenant_scope.workspace_id,
@@ -3435,7 +3469,7 @@ async def resume_billing_subscription(
             subscription=subscription,
             now=now,
             expected_snapshot=await _resume_renewal_snapshot(
-                db, subscription=subscription, now=now
+                db, subscription=subscription, now=now, operations=period_operations,
             ),
         )
     except ValueError:
@@ -5432,9 +5466,24 @@ async def cancel_storage_selection(
     return _control_result_redirect(return_to, section="storage", result="schedule_canceled")
 
 
-async def _next_renewal_projection(db, subscription, *, now, for_resume=False, after_price_confirmation=False):
+async def _period_renewals(db, subscription, *, for_update=False):
+    if db is None or subscription is None or subscription.paid_through is None:
+        return []
+    query = renewal_period_query(subscription)
+    if for_update:
+        query = query.with_for_update()
+    return list(await db.scalars(query))
+
+
+async def _next_renewal_projection(
+    db, subscription, *, now, for_resume=False, after_price_confirmation=False, operations=None,
+):
     if subscription is None or subscription.paid_through is None:
         return "не запланировано", False
+    if operations is None:
+        operations = await _period_renewals(db, subscription)
+    if any(renewal_result_unresolved(item) for item in operations):
+        return "проверяем результат предыдущего списания; нового платежа не будет до завершения проверки", False
     if not subscription.recurring_allowed and not for_resume:
         return "не запланировано", False
     if subscription.renewal_resolution == "price_changed" and not (for_resume or after_price_confirmation):
@@ -5447,21 +5496,6 @@ async def _next_renewal_projection(db, subscription, *, now, for_resume=False, a
         "acceptance_budget", "provider_unavailable", "catalog_not_approved", "provider_floor"
     } and not for_resume:
         return "приостановлено: оплата временно недоступна", False
-    operations = list(
-        await db.scalars(
-            select(BillingOperation).where(
-                BillingOperation.workspace_id == subscription.workspace_id,
-                BillingOperation.kind == "renewal",
-                BillingOperation.request_snapshot["paid_through_at"].as_string()
-                == utc(subscription.paid_through).isoformat(),
-            )
-        )
-    )
-    unresolved = any(
-        item.state not in {"canceled", "succeeded", "scheduled"} for item in operations
-    )
-    if unresolved:
-        return "проверяем результат предыдущего списания; нового платежа не будет до завершения проверки", False
     next_at = next_renewal_attempt(
         paid_through=subscription.paid_through,
         now=now,
@@ -5488,26 +5522,28 @@ async def _next_renewal_projection(db, subscription, *, now, for_resume=False, a
     )
 
 
-async def _next_renewal_label(db, subscription, *, now, for_resume=False, after_price_confirmation=False):
+async def _next_renewal_label(
+    db, subscription, *, now, for_resume=False, after_price_confirmation=False, operations=None,
+):
     label, _ = await _next_renewal_projection(
         db, subscription, now=now, for_resume=for_resume,
         after_price_confirmation=after_price_confirmation,
+        operations=operations,
     )
     return label
 
 
-async def _resume_renewal_snapshot(db, *, subscription, now):
+async def _resume_renewal_snapshot(db, *, subscription, now, operations=None):
     if subscription.paid_through is None:
         raise PurchaseError("Нет оплаченного периода для возобновления")
-    operations = list(await db.scalars(select(BillingOperation).where(
-        BillingOperation.workspace_id == subscription.workspace_id,
-        BillingOperation.kind == "renewal",
-        BillingOperation.request_snapshot["paid_through_at"].as_string() == utc(subscription.paid_through).isoformat(),
-    )))
+    if operations is None:
+        operations = await _period_renewals(db, subscription)
+    if any(renewal_result_unresolved(item) for item in operations):
+        raise PurchaseError(_renewal_notice(subscription, unresolved=True)[0])
     if next_renewal_attempt(
         paid_through=subscription.paid_through, now=now,
         resolved_attempts={renewal_attempt_of(item) for item in operations if item.state in {"canceled", "succeeded"} and not renewal_canceled_without_payment(item)},
-        unresolved=any(item.state not in {"canceled", "succeeded", "scheduled"} for item in operations),
+        unresolved=False,
     ) is None:
         raise PurchaseError("Попытки автопродления недоступны. Проверьте историю и оплатите следующий период вручную")
     base = (await _approved_personal_catalog(db, now=now)).get(subscription.cycle)
@@ -5531,7 +5567,9 @@ async def _resume_renewal_snapshot(db, *, subscription, now):
         "catalog_snapshot": catalog.as_dict(),
         "storage_price_snapshot": storage_price_snapshot(storage_price),
         "payment_method_id": str(method),
-        "next_attempt_label": await _next_renewal_label(db, subscription, now=now, for_resume=True),
+        "next_attempt_label": await _next_renewal_label(
+            db, subscription, now=now, for_resume=True, operations=operations,
+        ),
     }
 
 
