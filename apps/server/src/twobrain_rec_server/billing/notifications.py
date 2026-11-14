@@ -284,6 +284,31 @@ def notification_copy(
 ) -> tuple[str, str]:
     """Russian-first copy built only from allowlisted event fields."""
     payload = event.safe_payload
+    if event.kind == BillingNotification.STORAGE_SELECTION_CHANGED:
+        snapshot = build_notification(event_id=event.event_id, kind=event.kind, payload=payload).safe_payload
+        if not snapshot:
+            return "Выбор хранилища", "Актуальные условия и состояние проверьте в управлении хранилищем."
+        saved = datetime.fromisoformat(snapshot["storage_selection_saved_at"]).astimezone(ZoneInfo("Europe/Moscow"))
+        when = saved.strftime("%d.%m.%Y %H:%M:%S МСК")
+        target = snapshot["storage_target_capacity_bytes"]
+        tail = "Актуальные условия и состояние проверьте в управлении хранилищем."
+        if snapshot["storage_selection_phase"] == "canceled":
+            return "Отмена выбора хранилища сохранена", (
+                f"Вы отменили сохранённый выбор хранилища {when}. Удалённый будущий выбор: {target} байт. "
+                "Это действие не создавало платёж, не сокращало оплаченные права "
+                f"и не подтверждало новую цену. {tail}"
+            )
+        effective = datetime.fromisoformat(snapshot["storage_effective_at"]).astimezone(ZoneInfo("Europe/Moscow"))
+        rubles, kopecks = divmod(int(snapshot["storage_next_amount_minor"]), 100)
+        price = f"{rubles:,}".replace(",", " ") + f",{kopecks:02d} ₽"
+        cycle = {"month": "месяц", "year": "год"}[snapshot["storage_cycle"]]
+        return "Выбор хранилища сохранён", (
+            f"Вы сохранили выбор хранилища {when}. В принятом расчёте: "
+            f"исходный объём {snapshot['storage_current_capacity_bytes']} байт, выбранный объём {target} байт; "
+            f"период {cycle}, полная цена {price}. Начало следующего неоплаченного периода "
+            f"было указано как {effective:%d.%m.%Y %H:%M:%S} МСК. "
+            "Это сохранение выбора не создавало платёж сейчас и не меняло ранее оплаченные права. " + tail
+        )
     if event.kind == BillingNotification.ACCOUNT_CLOSE:
         snapshot = build_notification(event_id=event.event_id, kind=event.kind, payload=payload).safe_payload
         if not snapshot:
@@ -494,6 +519,52 @@ def notification_copy(
 def build_notification(
     *, event_id: str, kind: BillingNotification, payload: dict[str, object]
 ) -> NotificationEvent:
+    if kind == BillingNotification.STORAGE_SELECTION_CHANGED:
+        if not isinstance(payload, dict):
+            return NotificationEvent(event_id, kind, {})
+        phase = payload.get("storage_selection_phase")
+        operation_id = payload.get("storage_selection_operation_id")
+        if (phase not in ("scheduled", "canceled") or not isinstance(operation_id, str)
+                or not re.fullmatch(r"[0-9a-f]{32}", operation_id)
+                or payload.get("action_path") != "/billing/storage"):
+            return NotificationEvent(event_id, kind, {})
+        safe = {"storage_selection_phase": phase, "storage_selection_operation_id": operation_id,
+                "action_path": "/billing/storage"}
+        numeric = {"storage_selection_version": 2147483647,
+                   "storage_target_capacity_bytes": 9223372036854775807}
+        dates = ["storage_selection_saved_at"]
+        if phase == "scheduled":
+            if payload.get("storage_cycle") not in ("month", "year"):
+                return NotificationEvent(event_id, kind, {})
+            safe["storage_cycle"] = payload["storage_cycle"]
+            numeric.update(storage_current_capacity_bytes=9223372036854775807,
+                           storage_next_amount_minor=9223372036854775807)
+            dates.append("storage_effective_at")
+        for key, maximum in numeric.items():
+            value = payload.get(key)
+            if (not isinstance(value, str) or not re.fullmatch(r"[1-9][0-9]{0,18}", value)
+                    or int(value) > maximum):
+                return NotificationEvent(event_id, kind, {})
+            safe[key] = value
+        for key in dates:
+            value = payload.get(key)
+            if not isinstance(value, str) or len(value) > 32:
+                return NotificationEvent(event_id, kind, {})
+            try:
+                stamp = datetime.fromisoformat(value)
+                if stamp.tzinfo is None or stamp.astimezone(UTC).isoformat() != value:
+                    return NotificationEvent(event_id, kind, {})
+                stamp.astimezone(ZoneInfo("Europe/Moscow"))
+            except (ValueError, OverflowError):
+                return NotificationEvent(event_id, kind, {})
+            safe[key] = value
+        if phase == "scheduled" and (
+            not 5_000_000_000 <= int(safe["storage_target_capacity_bytes"]) <= 500_000_000_000
+            or int(safe["storage_target_capacity_bytes"]) % 5_000_000_000
+            or datetime.fromisoformat(safe["storage_effective_at"]) <= datetime.fromisoformat(safe["storage_selection_saved_at"])
+        ):
+            return NotificationEvent(event_id, kind, {})
+        return NotificationEvent(event_id, kind, safe)
     if kind == BillingNotification.ACCOUNT_CLOSE:
         phase, request_id = payload.get("phase"), payload.get("account_close_request_id")
         if phase not in ("scheduled", "canceled") or not isinstance(request_id, str) or not re.fullmatch(r"[0-9a-f]{32}", request_id):

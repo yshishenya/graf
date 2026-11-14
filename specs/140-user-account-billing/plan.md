@@ -4,6 +4,11 @@
 
 ## Summary
 
+Текущий проект12.11.2026 — SSN1–SSN7, подтверждения сохранённого выбора
+хранилища и его отмены в существующих T070/T068. Канонический scoped проект
+находится в заключительном разделе «SSN: выбор хранилища». Прежние
+датированные результаты ниже сохраняются и не разрешают новый код сами.
+
 Текущий проект11.11.2026 — T070/T068, операторский источник fair-use;
 канонический scoped проект и условия допуска в заключительном разделе
 «T070/T068: операторский источник fair-use». Ниже — прежние датированные срезы.
@@ -1453,3 +1458,112 @@ Ruff/process/diff. До крупных сборок disk check, весь лок�
 не запускать. Затем Converge, собственный F140 fragment, commit/push/PR с Refs
 4922/4926, governance-fast/macos-pr/pr-metadata и common validator на точном
 head/currentbase. release-full и развёртывание отдельно; #7524 stub не закрывает.
+
+
+## SSN: выбор хранилища — T070/T068, 12.11.2026
+
+### Technical Context и Constitution Check до Phase 0
+
+Lane high-risk-product; SSN1–SSN7 продолжают F140, Legacy Impact: untouched.
+Python/SQLAlchemy/PostgreSQL, прежние browser handlers и Postal. Новые таблицы,
+миграции, зависимости, службы и публичные маршруты не нужны. Record/Stop,
+оплаченные grants, расчёт покупки, согласие, deletion truth, auth/CSRF/RLS и
+metadata-only evidence сохраняются. Письмо не является новой ценой/согласием/
+платежом. Предварительная конституционная проверка PASS по I/II/III/IV/VI/VII;
+выпуск отдельно. Clarify SSN текущий, 0 вопросов/ответов.
+
+### Phase 0: источник и минимальный состав
+
+Schedule уже имеет no-money `BillingOperation(kind=storage_schedule)` и
+consumed `BillingPurchaseQuote` с исходным Owner и точным принятым snapshot.
+Эта пара — источник; request_snapshot не дополнять/не переписывать. Отмена
+сохраняет одну succeeded no-money operation `kind=storage_selection_cancel`
+с закрытым snapshot из data-model.md, без invoice/provider mutation.
+`billing/monitoring.py:OPERATION_KINDS` должен признавать этот kind; финансовые
+состояния/агрегаты и O16 не переопределяются. Широкий audit не хранит сумму
+или снимок письма. Обоснование и альтернативы — research.md §SSN.
+Технических NEEDS CLARIFICATION не осталось: стек/интеграции существующие,
+собственное чтение выявило необходимые стыки, внешнее исследование не нужно.
+
+### Phase 1: два callers и одна транзакция
+
+В `cabinet/web_routes/billing.py`:
+
+1. storage_schedule после прежних owner/consent/quote/price/blocker checks:
+   operation.created_at задать тем же UTC now, которым проверен quote;
+   request_snapshot остаётся quote.snapshot. Сохранить consumed_operation_id,
+   flush, передать operation/quote новому небольшому
+   `billing/storage_selection_notifications.py`. Историческая post-version =
+   quote.selection_version+1 = новый subscription.next_capacity_version.
+   Повтор consumed quote сохраняет прежний ранний return без нового enqueue.
+2. cancel после прежних owner/blocker/version checks: если next_capacity_bytes
+   уже None, вернуть успешный результат без изменения версий/источника/письма.
+   Иначе сохранить прежний выбранный объём, actor, post-version и UTC now в
+   новой no-money operation; очистить выбор и увеличить версии один раз,
+   flush, вызвать тот же сервис. Каталог и price consent здесь не читаются.
+
+Сервис не коммитит. Источник и outbox сохраняются атомарно существующим
+caller commit; ошибка чтения/записи/enqueue откатывает действие. Подтверждённое
+отсутствие разрешённого получателя не блокирует действие: источник без delivery,
+без backfill. Не менять paid_through/capacity/grants/recurring_allowed/price
+consents ради письма; schedule сохраняет только прежнее принятие предложения.
+
+### Проверка источника/получателя перед claim
+
+Прежний billing_reconciliation maintenance context, без новых grants/RLS.
+Scheduled требует exact operation workspace/kind/state=succeeded, provider_id=None,
+idempotency_key=purchase:<quote.id>, consumed quote того же workspace/Owner и
+purpose=storage_schedule, полное равенство request_snapshot=quote.snapshot.
+Согласовать quote.selection_version с его snapshot; post-version равен +1,
+created_at операции внутри исходного окна quote. Сохранённые base/add-on/cycle/
+currency/target/полная цена согласованы между собой; текущий каталог не читать.
+Canceled требует точный закрытый snapshot, kind/state/key, provider_id=None,
+нет invoice/consumed quote. Схема/связи — data-model и notification contract §SSN.
+
+В обеих фазах исходный actor остаётся personal Workspace owner marker,
+active owner membership, subscription.billing_owner_id, active UserIdentity
+без merged_into. Нужен active verified непустой ExternalIdentity; выбрать
+минимальный email/id. Адрес в очереди не сохраняется, optional preference
+не проверяется. Missing/foreign/closed/merged → no enqueue/terminal suppressed.
+Существующие AccountClosureRequest исходного requester с finalized_at либо
+metadata marker finalization_started_at/content_workspace_ids запрещают новый
+claim; простое планирование закрытия не запрещает историческое финансовое
+письмо. Более новый выбор/цена/период не подменяют исторический источник.
+
+Shared NOWAIT source locks: operation → consumed quote (scheduled) → workspace
+→ subscription → identity → membership → verified identities → существующие
+closure requests исходного requester; затем delivery FOR UPDATE. NOWAIT на
+каждой source строке не допускает обратного ожидания workspace-first financial
+writers/identity-first merge. Источник читается заново в отдельной claim session.
+Сравнить полный poll tuple с delivery (workspace, recipient, event, payload,
+template, channel); при смене не отправлять старый текст, следующий poll читает
+заново. Испорченный snapshot/retry-not-before → suppressed; SQL/lock error →
+сохраняемый retry ≥60с/≤5. Claim/attempt/failed-unknown фиксируются до HTTP,
+блокировки освобождены; ошибка commit запрещает транспорт. Known retryable
+Postal failure допускает такой же повтор, unknown/crash после claim — нет.
+
+### Файлы, проверка и post-design Constitution Check
+
+Файлы: browser billing.py, новый billing/storage_selection_notifications.py,
+billing/notifications.py (строгие поля/исторический русский текст), workflows/worker.py
+(bounded family/source/claim), billing/monitoring.py (один известный kind).
+Storage threshold/optional preference и generic money sender не переписывать.
+Отдельный небольшой source helper необходим: storage_notice_owner допускает
+отсутствие subscription, учитывает optional preference и не блокирует workspace
+сам; это иной контракт. Не создавать общий recipient framework.
+
+Тесты: integration/test_billing_notification_flow.py, unit/test_billing_notifications.py,
+профильные purchase/monitoring suites. RED от настоящего HTTP source до кода,
+затем PostgreSQL17 LOGIN/NOBYPASSRLS source→commit→отдельная session→обычный
+sender, rollback/no-op/concurrency/authority/finalization/known/unknown по
+quickstart §SSN. Только синтетика/transport stub, disk до тяжёлой проверки;
+отдельные прогоны не суммировать. Никакой реальной почты/платежей/Dev.
+
+После Phase 1 Constitution Check PASS для проекта: I/II capture, III secrets/
+egress/metadata-only, IV deletion truth, VI полный Spec Kit с независимым gate,
+VII правдивый русский текст и безопасное действие сохранены; исключений нет.
+Это не независимый допуск. Reviewer-owned checklist:
+checklists/storage-selection-notices.md → tasks/Analyze/existing issues → код.
+Затем code review/Converge/свой F140 fragment/точные head+base и три GitHub
+checks/common validator. Release-full/deploy/inbox#7524 отдельно;
+T068/T070 остаются открыты, общая матрица не сокращается.

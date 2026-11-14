@@ -221,3 +221,58 @@ verified nonempty email. Для нескольких адресов выбира
 отменяет закрытие, не восстанавливает доступ и не даёт сессию. Отправка уже
 claimed до финализации может дойти позднее; не обещать отзыв у Postal.
 Реальная получательская приёмка #7524 и остальная матрица отдельно.
+
+
+## SSN: сохранённый выбор хранилища и его отмена
+
+SSN1–SSN7 уточняют Storage threshold/add-on только для подтверждения выбора
+следующего неоплаченного периода и отмены. Используется прежний обязательный
+STORAGE_SELECTION_CHANGED; STORAGE_THRESHOLD остаётся необязательным.
+
+Закрытая allowlist обеих фаз:
+`storage_selection_phase=scheduled|canceled`,
+`storage_selection_operation_id` (канонический UUID hex, внутренний),
+`storage_selection_version` (каноническая положительная десятичная строка ≤2147483647),
+`storage_selection_saved_at` (канонический timezone-aware UTC ISO8601),
+`storage_target_capacity_bytes` (каноническая положительная десятичная строка
+≤9223372036854775807), фиксированный action_path=/billing/storage.
+Scheduled дополнительно требует `storage_current_capacity_bytes` (такие же
+целые байты), `storage_cycle=month|year`, `storage_next_amount_minor`
+(положительная десятичная строка ≤9223372036854775807),
+`storage_effective_at` (канонический UTC ISO8601, строго позже saved_at).
+Для нового schedule target5–500ГБ с шагом5ГБ по принятому F278;
+current/canceled могут сохранять прежний положительный объём из источника.
+У canceled дополнительных полей scheduled нет. Неизвестные поля отбрасываются;
+неполная/неправильная схема становится пустым snapshot для suppression.
+Даты проверяются на представимость Europe/Moscow, вывод с секундами и МСК.
+Строки/целые bounded, bool/float/знаки/leading zero не принимаются.
+
+Scheduled: «Вы сохранили выбор хранилища {saved, МСК}. В принятом расчёте:
+исходный объём {current} байт, выбранный объём {target} байт; период {месяц/год},
+полная цена {amount, точные копейки} ₽. Начало следующего неоплаченного
+периода было указано как {effective, МСК}. Это сохранение выбора не создавало
+платёж сейчас и не меняло ранее оплаченные права. Актуальные условия и
+состояние проверьте в управлении хранилищем».
+Canceled: «Вы отменили сохранённый выбор хранилища {saved, МСК}. Удалённый
+будущий выбор: {target} байт. Это действие не создавало платёж, не сокращало
+оплаченные права и не подтверждало новую цену. Актуальные условия и состояние
+проверьте в управлении хранилищем». Не выводить будущую цену/дату/объём после
+предоплат из отмены. Одно действие открывает авторизованный /billing/storage
+на настроенном публичном origin; URL без ids/token/финансовых параметров.
+Обе фазы исторические даже после нового выбора/отмены/применения; никакого
+обещания нынешнего лимита, будущей оплаты или чека. next_attempt_label сюда
+не входит. Исходные числа — принятый immutable source, не новый расчёт.
+
+Источник: scheduled operation+consumed quote, canceled no-money operation
+из data-model §SSN; полная проверка equality/identity/versions/date/price и
+source locks описана в plan §SSN. Исходный active/unmerged personal Owner,
+marker/membership/billing_owner и текущий active verified непустой email
+проверяются на постановке и до durable claim. Адрес не хранится в delivery;
+marketing toggle не влияет. Нет источника/права/адреса → no enqueue либо
+terminal suppressed, read/lock error → rollback источника либо retry≥60с/≤5.
+Финализация/закрытие запрещают новый claim, не обещают отзыв уже ушедшего POST.
+Полный poll tuple сверяется с claim, сохранённый failed/postal_outcome_unknown
+и attempt видны до HTTP; никаких DB locks через транспорт. Known retryable
+failure ограниченно повторяется; unknown/crash после claim не повторяется.
+Старый неполный snapshot подавляется без backfill. Транспорт тот же Postal;
+принятый POST не означает inbox#7524. Полная T068/T070/матрица отдельно.

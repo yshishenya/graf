@@ -31,7 +31,7 @@ from twobrain_rec_server.db.models.identity import Workspace
 
 OPERATION_KINDS = (
     "initial_checkout", "renewal", "storage_upgrade", "early_renewal",
-    "storage_schedule", "resume_renewal",
+    "storage_schedule", "storage_selection_cancel", "resume_renewal",
 )
 OPERATION_STATES = (
     "scheduled", "provider_pending", "sent", "processing", "unknown",

@@ -117,6 +117,9 @@ from twobrain_rec_server.billing.storage import (
     lock_storage_workspace,
     project_active_playback_storage,
 )
+from twobrain_rec_server.billing.storage_selection_notifications import (
+    enqueue_storage_selection_notice,
+)
 from twobrain_rec_server.billing.subscription import (
     SubscriptionControl,
     cancel_auto_renewal,
@@ -5174,11 +5177,12 @@ async def confirm_billing_purchase(
                 idempotency_key=f"purchase:{bound.id}",
                 state="succeeded",
                 request_snapshot=value,
+                created_at=now,
             )
             db.add(operation)
             await db.flush()
             bound.consumed_operation_id = operation.id
-            await _notify_storage_selection(db, subscription=subscription)
+            await enqueue_storage_selection_notice(db, operation)
             await db.commit()
             return _control_result_redirect(return_to, section="storage", result="scheduled")
         receipt_contact = await _verified_receipt_contact(db, principal.user_id)
@@ -5424,10 +5428,23 @@ async def cancel_storage_selection(
         return await _purchase_error_page(
             request, tenant_scope, principal, db, "Объём уже изменился. Проверьте текущий выбор"
         )
+    if subscription.next_capacity_bytes is None:
+        return _control_result_redirect(return_to, section="storage", result="schedule_canceled")
+    canceled_capacity = subscription.next_capacity_bytes
     subscription.next_capacity_bytes = None
     subscription.next_capacity_version += 1
     subscription.application_version += 1
-    await _notify_storage_selection(db, subscription=subscription)
+    operation = BillingOperation(
+        workspace_id=tenant_scope.workspace_id, kind="storage_selection_cancel", state="succeeded",
+        idempotency_key=f"storage-cancel:{tenant_scope.workspace_id.hex}:{subscription.next_capacity_version}",
+        created_at=datetime.now(UTC),
+        request_snapshot={"storage_selection_schema": 1, "owner_user_id": principal.user_id.hex,
+                          "selection_version": subscription.next_capacity_version,
+                          "canceled_capacity_bytes": canceled_capacity},
+    )
+    db.add(operation)
+    await db.flush()
+    await enqueue_storage_selection_notice(db, operation)
     await db.commit()
     return _control_result_redirect(return_to, section="storage", result="schedule_canceled")
 
@@ -5533,16 +5550,3 @@ async def _resume_renewal_snapshot(db, *, subscription, now):
         "payment_method_id": str(method),
         "next_attempt_label": await _next_renewal_label(db, subscription, now=now, for_resume=True),
     }
-
-
-async def _notify_storage_selection(db, *, subscription):
-    if subscription.billing_owner_id is not None:
-        await enqueue_billing_notification(
-            db,
-            workspace_id=subscription.workspace_id,
-            recipient_id=subscription.billing_owner_id,
-            event_id=f"storage:{subscription.workspace_id}:selection:{subscription.next_capacity_version}",
-            kind=BillingNotification.STORAGE_SELECTION_CHANGED,
-            payload={"action_path": "/billing/storage"},
-            marketing_allowed=False,
-        )

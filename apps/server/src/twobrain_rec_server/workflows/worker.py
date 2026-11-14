@@ -58,6 +58,9 @@ from twobrain_rec_server.billing.storage_notifications import (
     reconcile_storage_notifications,
     storage_notice_owner,
 )
+from twobrain_rec_server.billing.storage_selection_notifications import (
+    storage_selection_notice_recipient,
+)
 from twobrain_rec_server.billing.trial_notifications import (
     TRIAL_NOTIFICATION_KINDS,
     enqueue_due_trial_notices,
@@ -693,7 +696,8 @@ async def run_billing_notification_reconciler(settings: Any) -> None:
                     )
                     is_bounded_notice = BillingNotificationDelivery.template_key.in_(
                         (*REFERRAL_NOTICE_KINDS, BillingNotification.STORAGE_THRESHOLD,
-                         BillingNotification.FAIR_USE_REVIEW, BillingNotification.ACCOUNT_CLOSE)
+                         BillingNotification.FAIR_USE_REVIEW, BillingNotification.ACCOUNT_CLOSE,
+                         BillingNotification.STORAGE_SELECTION_CHANGED)
                     )
                     retry_text = BillingNotificationDelivery.safe_payload[_BILLING_NOTICE_RETRY_KEY].as_string()
                     # Invalid queue metadata must reach the guarded claim, not abort the whole poll.
@@ -748,6 +752,7 @@ async def run_billing_notification_reconciler(settings: Any) -> None:
                     storage = row.template_key == BillingNotification.STORAGE_THRESHOLD
                     fair_use = row.template_key == BillingNotification.FAIR_USE_REVIEW
                     account_close = row.template_key == BillingNotification.ACCOUNT_CLOSE
+                    storage_selection = row.template_key == BillingNotification.STORAGE_SELECTION_CHANGED
                     try:
                         kind = BillingNotification(row.template_key)
                         trial_notice = kind in TRIAL_NOTIFICATION_KINDS
@@ -774,9 +779,9 @@ async def run_billing_notification_reconciler(settings: Any) -> None:
                             continue
                         event = (
                             build_notification(event_id=row.event_id, kind=kind, payload=(
-                                {} if (fair_use or account_close) and not isinstance(row.safe_payload, dict) else row.safe_payload or {}
+                                {} if (fair_use or account_close or storage_selection) and not isinstance(row.safe_payload, dict) else row.safe_payload or {}
                             ))
-                            if referral or storage or fair_use or account_close else NotificationEvent(row.event_id, kind, row.safe_payload or {})
+                            if referral or storage or fair_use or account_close or storage_selection else NotificationEvent(row.event_id, kind, row.safe_payload or {})
                         )
                         title, body = notification_copy(event, support_email=settings.billing_support_email)
                         action_path = event.safe_payload.get("action_path")
@@ -809,6 +814,8 @@ async def run_billing_notification_reconciler(settings: Any) -> None:
                                 recipient_email = await fair_use_notice_recipient(db, row)
                             if account_close:
                                 recipient_email = await account_close_notice_recipient(db, row)
+                            if storage_selection:
+                                recipient_email = await storage_selection_notice_recipient(db, row)
                             if trial_notice or storage:
                                 await lock_storage_workspace(db, row.workspace_id)
                             if storage:
@@ -820,22 +827,22 @@ async def run_billing_notification_reconciler(settings: Any) -> None:
                             )
                             if sending is None or sending.state not in {"pending", "retry"}:
                                 continue
-                            if fair_use or account_close:
+                            if fair_use or account_close or storage_selection:
                                 if (sending.workspace_id, sending.recipient_id, sending.event_id, sending.safe_payload,
                                     sending.template_key, sending.channel) != (
                                     row.workspace_id, row.recipient_id, row.event_id, row.safe_payload,
                                     row.template_key, row.channel,
                                 ):
                                     continue
-                                if not isinstance(sending.safe_payload, dict) or (account_close and not event.safe_payload):
+                                if not isinstance(sending.safe_payload, dict) or ((account_close or storage_selection) and not event.safe_payload):
                                     sending.state = "suppressed"
-                                    sending.last_error_code = "account_close_snapshot_invalid" if account_close else "fair_use_snapshot_invalid"
+                                    sending.last_error_code = "storage_selection_snapshot_invalid" if storage_selection else "account_close_snapshot_invalid" if account_close else "fair_use_snapshot_invalid"
                                     await db.commit()
                                     continue
                                 due = (sending.safe_payload or {}).get(_BILLING_NOTICE_RETRY_KEY, 0)
                                 if type(due) is not int or not 0 <= due <= 9223372036854775807:
                                     sending.state = "suppressed"
-                                    sending.last_error_code = "account_close_snapshot_invalid" if account_close else "fair_use_snapshot_invalid"
+                                    sending.last_error_code = "storage_selection_snapshot_invalid" if storage_selection else "account_close_snapshot_invalid" if account_close else "fair_use_snapshot_invalid"
                                     await db.commit()
                                     continue
                                 if due > datetime.now(UTC).timestamp():
@@ -941,14 +948,14 @@ async def run_billing_notification_reconciler(settings: Any) -> None:
                     except asyncio.CancelledError:
                         raise
                     except Exception as exc:
-                        if (storage or fair_use or account_close) and not claimed:
+                        if (storage or fair_use or account_close or storage_selection) and not claimed:
                             async with sessionmaker() as db:
                                 await apply_tenant_context(db, context)
                                 failed = await db.scalar(select(BillingNotificationDelivery).where(
                                     BillingNotificationDelivery.id == row.id,
                                 ).with_for_update())
                                 if failed is not None and failed.state in {"pending", "retry"}:
-                                    if account_close and (
+                                    if (account_close or storage_selection) and (
                                         failed.workspace_id, failed.recipient_id, failed.event_id, failed.safe_payload,
                                         failed.template_key, failed.channel,
                                     ) != (
@@ -957,13 +964,14 @@ async def run_billing_notification_reconciler(settings: Any) -> None:
                                     ):
                                         continue
                                     due = ((failed.safe_payload or {}).get(_BILLING_NOTICE_RETRY_KEY, 0)
-                                           if not account_close or isinstance(failed.safe_payload, dict) else None)
-                                    if account_close and (not event.safe_payload or type(due) is not int or not 0 <= due <= 9223372036854775807):
+                                           if not (account_close or storage_selection) or isinstance(failed.safe_payload, dict) else None)
+                                    if (account_close or storage_selection) and (not event.safe_payload or type(due) is not int or not 0 <= due <= 9223372036854775807):
                                         failed.state = "suppressed"
-                                        failed.last_error_code = "account_close_snapshot_invalid"
+                                        failed.last_error_code = "storage_selection_snapshot_invalid" if storage_selection else "account_close_snapshot_invalid"
                                     elif type(due) is int and due <= datetime.now(UTC).timestamp():
                                         failed.attempts = min(failed.attempts + 1, 5)
                                         failed.last_error_code = (
+                                            "storage_selection_authorization_unavailable" if storage_selection else
                                             "account_close_authorization_unavailable" if account_close else
                                             "fair_use_authorization_unavailable" if fair_use else "storage_authorization_unavailable"
                                         )
@@ -999,7 +1007,7 @@ async def run_billing_notification_reconciler(settings: Any) -> None:
                                 failed.state = "retry" if (
                                     known and exc.retryable and failed.attempts < 5
                                 ) else "failed"
-                                if (referral or storage or fair_use or account_close) and failed.state == "retry":
+                                if (referral or storage or fair_use or account_close or storage_selection) and failed.state == "retry":
                                     _schedule_billing_notice_retry(failed)
                             await db.commit()
                         logger.warning("billing notification delivery failed")

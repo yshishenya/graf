@@ -1520,3 +1520,50 @@ Analyze без CRITICAL/HIGH и подтверждены существующи�
    регрессии; точные исходные хеши/результаты/пределы в внешнем каталоге.
    Converge и точные SHA/base PR gates отдельно, T068/T070 остаются [ ].
    Stub подтверждает приложение→transport boundary, #7524 требует inbox.
+
+
+## SSN: будущая приёмка выбора хранилища — T070/T068
+
+До кода обязательны новый reviewer-owned checklist, Analyze и существующие
+#4922/#4926. Это план будущей проверки, не результат. Одна собственная
+disposable PostgreSQL17, настоящие app/maintenance LOGIN/NOBYPASSRLS,
+синтетические данные, прежний Postal sender с подставным транспортом.
+Роли готовить штатным scripts/bootstrap_runtime_database_roles.py;
+использовать apps/server/scripts/run_local_postgres_tests.sh --focused
+с именованными SSN-сценариями в tests/integration/test_billing_notification_flow.py.
+До тяжёлого запуска disk ≥80ГБ; реальные данные/платежи/почту/Dev не трогать.
+
+1. Причинный RED: настоящий HTTP preview→consent confirmation от Owner для
+   storage_schedule→commit→новое соединение→обычный sender не даёт требуемые
+   исторические числа/фазу в текущем коде. После минимальной реализации тот
+   же тест GREEN. Не создавать delivery вручную для доказательства producer.
+2. Schedule→повтор consumed quote→cancel→повтор актуального пустого cancel→
+   новое preview/confirmation: по одному источнику/письму на реальное действие,
+   no-op без version/письма; старая версия при новом выборе не отменяет его.
+   Только no-money операции, без invoice/provider вызова; права/согласия/grants
+   не меняются ради письма. Проверить rollback source+outbox на ошибке enqueue.
+3. Month/year, базовые5ГБ/добавленные пакеты, уменьшение, bonus/prepaid и
+   deferred below-floor: точные принятые цена/даты/байты, сохранённые paid rights.
+   Позднее изменение каталога/применение/новый выбор не подменяет текст.
+   Cancel при недоступном каталоге сохраняется и ничего не принимает по цене.
+   Русский текст, секунды/МСК, точные копейки, один безопасный URL; нет
+   provider IDs/контактов/UUID в body, ложного текущего лимита/следующего платежа.
+4. Исходный Owner/marker/membership/billing owner, missing/closed/merged identity,
+   email inactive/unverified/empty/changed, foreign source/tenant, неправильный
+   quote/operation/version/snapshot/даты, legacy payload, finalization: ноль
+   transport при suppression, без подмены получателя. Optional=false не мешает
+   обязательному письму. Ошибка чтения отличается от подтверждённого отсутствия.
+5. Два sender, source NOWAIT lock и poll→claim mutation; отдельная session видит
+   failed/postal_outcome_unknown+attempt до callback; source locks свободны
+   при transport. SQL/commit error → транспорт0, bounded retry≥60с/≤5,
+   future due не отправляется. Known temporary failure допускает повтор;
+   unknown/crash/restart после claim не создают автоматический дубликат.
+6. Unit parser/render/privacy и профильные purchase/monitoring/notification/
+   account-close/threshold регрессии. Новый kind узнаётся monitoring без
+   unrecognized; одинаковые исходные hashes до/после, полные результаты/логи.
+   После focused checks независимое code review/Converge, затем точные
+   head/base GitHub gates. Container удалить штатно, журналы/хеши оставить
+   внешне. Не складывать отдельные прогоны в выдуманную общую цифру.
+
+Реальная получательская #7524, полные T068/T070, paid upgrade/method-required/
+transient purge/FR107/O16 и выпуск/развёртывание/Dev отдельно.
