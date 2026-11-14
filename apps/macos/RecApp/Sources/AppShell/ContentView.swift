@@ -1742,6 +1742,10 @@ struct ContentView: View {
     private func meetingDetectionStorageRisk() -> LocalBufferRiskState {
         guard let localFootprintMeasuredAt,
               Date().timeIntervalSince(localFootprintMeasuredAt) <= 300 else {
+            // The detection loop only reads this value. Schedule a fresh
+            // measurement so a long background stay cannot leave auto-record
+            // suppressed until an unrelated queue event happens.
+            Task { await refreshLocalFootprintRisk(force: true) }
             return .mustDegradeOrStop
         }
         return localFootprintRisk

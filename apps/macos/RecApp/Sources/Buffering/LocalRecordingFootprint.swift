@@ -115,6 +115,36 @@ public actor LocalRecordingFootprintProvider {
         let snapshot: LocalRecordingFootprintSnapshot?
     }
 
+    private final class MeasurementWaiter: @unchecked Sendable {
+        private let lock = NSLock()
+        private var continuation: CheckedContinuation<MeasurementResult?, Never>?
+        private var resumed = false
+
+        func install(_ continuation: CheckedContinuation<MeasurementResult?, Never>) {
+            lock.lock()
+            if resumed {
+                lock.unlock()
+                continuation.resume(returning: nil)
+                return
+            }
+            self.continuation = continuation
+            lock.unlock()
+        }
+
+        func resume(_ result: MeasurementResult?) {
+            lock.lock()
+            guard !resumed else {
+                lock.unlock()
+                return
+            }
+            resumed = true
+            let continuation = continuation
+            self.continuation = nil
+            lock.unlock()
+            continuation?.resume(returning: result)
+        }
+    }
+
     private let rootURL: URL
     private let policy: LocalBufferPolicy
     private let measure: Measure
@@ -223,20 +253,18 @@ public actor LocalRecordingFootprintProvider {
     private func waitForMeasurement(
         _ task: Task<MeasurementResult, Never>
     ) async -> MeasurementResult? {
-        await withTaskGroup(of: MeasurementResult?.self) { group in
-            group.addTask {
-                await task.value
+        let waiter = MeasurementWaiter()
+        return await withCheckedContinuation { continuation in
+            waiter.install(continuation)
+            Task.detached {
+                let result = await task.value
+                waiter.resume(result)
             }
-            group.addTask { [timeout] in
+            Task.detached { [timeout] in
                 try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
-                return nil
-            }
-            let first = await group.next() ?? nil
-            group.cancelAll()
-            if first == nil {
                 task.cancel()
+                waiter.resume(nil)
             }
-            return first
         }
     }
 }

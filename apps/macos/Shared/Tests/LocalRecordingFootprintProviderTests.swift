@@ -117,13 +117,17 @@ final class LocalRecordingFootprintProviderTests: XCTestCase {
         XCTAssertEqual(risk, .mustDegradeOrStop)
     }
 
-    func testTimeoutFailsClosed() async {
+    func testTimeoutFailsClosedWithoutWaitingForTheScan() async {
         let provider = provider(timeout: 0.05, measure: { _ in
-            Thread.sleep(forTimeInterval: 0.2)
+            Thread.sleep(forTimeInterval: 0.5)
             return Self.snapshot(0)
         })
+        let startedAt = Date()
         let risk = await provider.refresh()
+        let elapsed = Date().timeIntervalSince(startedAt)
+
         XCTAssertEqual(risk, .mustDegradeOrStop)
+        XCTAssertLessThan(elapsed, 0.3, "timeout must not join the blocked filesystem scan")
     }
 
     func testInvalidateDuringMeasurementRejectsStaleResult() async {
