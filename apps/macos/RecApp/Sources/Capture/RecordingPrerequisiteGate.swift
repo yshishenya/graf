@@ -21,7 +21,7 @@ public struct RecordingPrerequisiteGate: Sendable {
         if !snapshot.systemAudioPermissionGranted {
             return blocked(snapshot, reason: .permissionDenied, action: "Grant Screen & System Audio permission in System Settings")
         }
-        if snapshot.storageRisk != .healthy {
+        if !snapshot.storageRisk.allowsRecordingStart {
             return blocked(snapshot, reason: .storageUnsafe, action: "Free local storage or reduce retention before recording")
         }
         if !snapshot.indicatorAvailable {

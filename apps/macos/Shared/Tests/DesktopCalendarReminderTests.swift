@@ -865,7 +865,7 @@ final class DesktopCalendarReminderTests: XCTestCase {
             XCTAssertNil(light.layer?.animation(forKey: "recordingPulse"))
             XCTAssertEqual(light.layer?.opacity, 1)
         }
-        for state in [GrafTrayRecordingState.stopping, .idle, .starting] {
+        for state in [GrafTrayRecordingState.stopping, .failed, .idle, .starting] {
             light.update(state: state, reduceMotion: false)
             XCTAssertEqual(light.isHidden, state != .stopping)
             XCTAssertNil(light.layer?.animation(forKey: "recordingPulse"))
@@ -948,6 +948,47 @@ final class DesktopCalendarReminderTests: XCTestCase {
         XCTAssertEqual(starts, 1)
         tray.stopRecording()
         XCTAssertEqual(stops, 0)
+    }
+
+    func testFailedTraySessionShowsSafeReason() throws {
+        var snapshot = DesktopControlSnapshot()
+        snapshot.blocker = "Запись не началась: недостаточно безопасного места для локальной копии."
+        DesktopControlModel.shared.update(snapshot)
+        defer { DesktopControlModel.shared.update(DesktopControlSnapshot()) }
+
+        let model = CalendarTrayModel { DesktopCalendarPromptResponse(events: []) }
+        let tray = CalendarTrayController(model: model, onOpenSettings: {}, onOpenMeetings: {},
+                                          onStartRecording: {}, onStopRecording: {},
+                                          onMuteMicrophone: {}, onUnmuteMicrophone: {}, onQuit: {})
+        tray.showRecordingState(.failed)
+        tray.rebuildMenu()
+
+        XCTAssertEqual(tray.menu.items.first?.title, "Повторить запись")
+        let reason = try XCTUnwrap(tray.menu.items.first { $0.identifier?.rawValue == "graf.menu.failed-reason" })
+        XCTAssertTrue(reason.toolTip?.contains("недостаточно безопасного места") == true)
+        XCTAssertEqual(reason.toolTip, snapshot.blocker)
+        XCTAssertNil(tray.menu.items.first { $0.identifier?.rawValue == "graf.menu.stop" })
+        XCTAssertNil(tray.menu.items.first { $0.identifier?.rawValue == "graf.menu.mute" })
+    }
+
+    func testTrayShowsStorageWarningWithoutBlockingStart() throws {
+        var snapshot = DesktopControlSnapshot()
+        snapshot.storageWarning = "Запись разрешена, но старые локальные записи скоро нужно будет удалить."
+        DesktopControlModel.shared.update(snapshot)
+        defer { DesktopControlModel.shared.update(DesktopControlSnapshot()) }
+
+        let model = CalendarTrayModel { DesktopCalendarPromptResponse(events: []) }
+        var starts = 0
+        let tray = CalendarTrayController(model: model, onOpenSettings: {}, onOpenMeetings: {},
+                                          onStartRecording: { starts += 1 }, onStopRecording: {},
+                                          onMuteMicrophone: {}, onUnmuteMicrophone: {}, onQuit: {})
+        tray.showRecordingState(.idle)
+        tray.rebuildMenu()
+
+        XCTAssertEqual(tray.menu.items.first?.title, "Начать запись")
+        XCTAssertNotNil(tray.menu.items.first { $0.identifier?.rawValue == "graf.menu.storage-warning" })
+        tray.startRecording()
+        XCTAssertEqual(starts, 1)
     }
 
     func testDegradedTraySessionOffersStopWithoutMute() throws {

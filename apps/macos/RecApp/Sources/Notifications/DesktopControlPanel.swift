@@ -9,6 +9,7 @@ public struct DesktopControlSnapshot: Equatable {
     public var transitioning = false
     public var stopping = false
     public var blocker: String?
+    public var storageWarning: String?
     public var uploadItems: [DesktopUploadQueueItem] = []
     public init() {}
     public var active: Bool { stopping || session.map { CaptureStatusItem.showsStopButton(for: $0) } == true }

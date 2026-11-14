@@ -7,6 +7,16 @@ import XCTest
 
 @MainActor
 final class CaptureControlTests: XCTestCase {
+    func testStorageWarningCopyIsInformationalOnly() {
+        XCTAssertNil(CaptureControlView.storageWarningText(for: nil))
+        XCTAssertNil(CaptureControlView.storageWarningText(for: .healthy))
+        XCTAssertNil(CaptureControlView.storageWarningText(for: .critical))
+        XCTAssertNil(CaptureControlView.storageWarningText(for: .mustDegradeOrStop))
+        let warning = CaptureControlView.storageWarningText(for: .warning)
+        XCTAssertNotNil(warning)
+        XCTAssertTrue(warning?.contains("Запись разрешена") == true)
+    }
+
     func testCaptureFailedStartBlockerIsSerializable() {
         XCTAssertEqual(RecordingStartBlocker.captureFailed.rawValue, "capture_failed")
     }

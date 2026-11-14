@@ -366,6 +366,22 @@ final class MeetingDetectionPolicyTests: XCTestCase {
         XCTAssertEqual(action, .suppress(reason: RecordingStartBlocker.storageUnsafe.rawValue))
     }
 
+    func testStorageWarningAllowsAutoRecordAfterTargetOptIn() {
+        let prerequisite = RecordingPrerequisiteGate().evaluate(recordingPrerequisite(storageRisk: .warning))
+        let action = MeetingDetectionPolicy().action(
+            for: MeetingDetectionCandidateDecision(
+                kind: .knownTarget(targetID: "yandex_telemost", mode: .promptEnabled),
+                candidateScore: 0
+            ),
+            settings: MeetingDetectionSettingsSnapshot(
+                automaticRecordingRules: ["yandex_telemost": .always]
+            ),
+            prerequisites: MeetingDetectionCapturePrerequisites(recordingPrerequisite: prerequisite)
+        )
+
+        XCTAssertEqual(action, .autoRecord(targetID: "yandex_telemost"))
+    }
+
     func testLogStreamPredicateCoversAudioHALAndSensorIndicators() {
         let configuration = MacOSAudioOwnershipLogStreamConfiguration()
         let predicate = configuration.arguments.last ?? ""

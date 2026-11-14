@@ -52,6 +52,27 @@ final class RecordingPrerequisiteGateTests: XCTestCase {
         XCTAssertEqual(decision.blockedReason, .storageUnsafe)
     }
 
+    func testStorageWarningAllowsRecordingStart() {
+        let decision = RecordingPrerequisiteGate().evaluate(
+            validSnapshot(storageRisk: .warning)
+        )
+
+        XCTAssertTrue(decision.allowsRecording)
+        XCTAssertEqual(decision.blockedReason, .none)
+        XCTAssertNil(decision.recoveryAction)
+        XCTAssertTrue(LocalBufferRiskState.warning.allowsRecordingStart)
+    }
+
+    func testMustDegradeStorageBlocksRecordingStart() {
+        let decision = RecordingPrerequisiteGate().evaluate(
+            validSnapshot(storageRisk: .mustDegradeOrStop)
+        )
+
+        XCTAssertFalse(decision.allowsRecording)
+        XCTAssertEqual(decision.blockedReason, .storageUnsafe)
+        XCTAssertFalse(LocalBufferRiskState.mustDegradeOrStop.allowsRecordingStart)
+    }
+
     func testMissingIndicatorBlocksRecordingStart() {
         let decision = RecordingPrerequisiteGate().evaluate(
             validSnapshot(indicatorAvailable: false)

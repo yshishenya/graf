@@ -74,6 +74,9 @@ final class InterfacePerformanceContractTests: XCTestCase {
         XCTAssertFalse(source.contains("AVCaptureDevice.DiscoverySession"))
         XCTAssertFalse(source.contains("FileManager.default.fileExists"))
         XCTAssertTrue(source.contains("invalidateAvailableRecordingMicrophoneInputs"))
+        XCTAssertFalse(source.contains("artifactProfile.totalUploadBytes"))
+        XCTAssertTrue(source.contains("LocalRecordingFootprintProvider"))
+        XCTAssertTrue(source.contains("refreshLocalFootprintRisk"))
     }
 
     func testMicrophoneDeviceChangesPublishObservedInputs() throws {
