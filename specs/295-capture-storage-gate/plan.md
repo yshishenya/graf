@@ -35,7 +35,7 @@ F295 **не удаляет файлы**, не меняет схему очере
 
 ### 1. Footprint value and measurer
 
-New file: `apps/macos/RecApp/Sources/Buffering/LocalRecordingFootprint.swift`
+New file: `apps/macos/RecApp/Sources/Buffering/LocalRecordingStorageUsage.swift`
 
 ```text
 LocalRecordingFootprintSnapshot
@@ -188,7 +188,7 @@ specs/295-capture-storage-gate/
     └── review-2026-11-14.md
 
 apps/macos/RecApp/Sources/Buffering/
-├── LocalRecordingFootprint.swift
+├── LocalRecordingStorageUsage.swift
 ├── LocalRecordingFootprintProvider.swift
 └── LocalBufferService.swift
 
