@@ -122,13 +122,26 @@
   [Проект и границы](https://github.com/yshishenya/graf/blob/71ae570ef8c73f2864e475495fd9c0c59911d25e/specs/273-paid-traffic-analytics/validation/t112-design-draft-20261116.md).
 - [x] Проверить связи GitHub: T112 явно входит в открытую #7698; T113 имеет
   отдельную #7804. Новые issues, комментарии и закрытия не создавались.
-- [ ] Получить новое независимое ревью проекта и всех четырёх checklist,
-  устранить замечания, выполнить scoped analyze и окончательный issue mapping
-  до RED/code/GREEN. Новые CHK046–052 оставлены открытыми; прежний PASS117/0
-  не является приёмкой этого проекта. T112/T113 и внешний счёт остаются открытыми.
+- [x] Получить новое независимое ревью проекта: D1–D7 и все четыре checklist
+  приняты,124 подтверждённых вопроса/0 открытых, P1/P2=0. Scoped analyze
+  FR-021/025/SC-006 не выявил critical/high; явный владелец T112 — открытая
+  #7698, дубль не создан. Это новый PASS требований, не старый PASS117/0.
+- [x] Начать реализацию с исправления свойства локальной записи: builder
+  требует явный bool/None, сохраняет false/true и опускает неизвестное поле,
+  неверный тип отвергает. RED12 → GREEN50, Ruff/diff/fragment PASS. Ранее
+  производственных callers не было; это ещё не реальный триггер просмотра.
+  Сохранено/pushed `503805cb6` в отдельной ветке T112.
+  [Проверка требований](https://github.com/yshishenya/graf/blob/503805cb6/specs/273-paid-traffic-analytics/validation/t112-requirements-review-20261116.md),
+  [analyze/mapping](https://github.com/yshishenya/graf/blob/503805cb6/specs/273-paid-traffic-analytics/validation/t112-analyze-20261116.md),
+  [первый шаг кода и остаток](https://github.com/yshishenya/graf/blob/503805cb6/specs/273-paid-traffic-analytics/validation/t112-capture-property-20261116.md).
+- [ ] Получить независимое implementation review нового кода и выполнить
+  полный source/audit/projection/proof, browser/native visibility, защищённый
+  POST и общую admission boundary с причинной DB/browser/Swift/failure матрицей.
+  T112/T113 и внешний счёт остаются открытыми; builder не закрывает задачу.
 
-Проверка среза:11 путей только Markdown F273, локальные ссылки существуют,
-diff check PASS; код/настройки/контент/вёрстка не менялись. Новый PR T112,
+Проверка первоначального проекта:11 путей только Markdown F273, локальные ссылки существуют,
+diff check PASS; в нём код не менялся. Последующая узкая правка builder описана
+выше; рабочие настройки, контент и вёрстка сохраняются. Новый PR T112,
 Full/CD, повтор live-проверок, отправка событий и публикации не выполнялись.
 Это реальный результат проектирования, не проверенное ожидание и не трафик.
 
