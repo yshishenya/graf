@@ -134,8 +134,12 @@
   [Проверка требований](https://github.com/yshishenya/graf/blob/503805cb6/specs/273-paid-traffic-analytics/validation/t112-requirements-review-20261116.md),
   [analyze/mapping](https://github.com/yshishenya/graf/blob/503805cb6/specs/273-paid-traffic-analytics/validation/t112-analyze-20261116.md),
   [первый шаг кода и остаток](https://github.com/yshishenya/graf/blob/503805cb6/specs/273-paid-traffic-analytics/validation/t112-capture-property-20261116.md).
-- [ ] Получить независимое implementation review нового кода и выполнить
-  полный source/audit/projection/proof, browser/native visibility, защищённый
+- [x] Получить независимое ревью первого изменения кода на `503805cb6`:
+  P1/P2=0, обязательное явное свойство capture и прежние защитные отказы
+  сохранены. Хеши кода и теста совпали с проверенными; неизменные тесты
+  повторно не запускались. Отчёт сохранён/pushed отдельно в `f8c560c0e`.
+  [Ревью и его границы](https://github.com/yshishenya/graf/blob/f8c560c0e8afc5c425b7767613519f33ab3e673c/specs/273-paid-traffic-analytics/validation/t112-capture-property-implementation-review-20261116.md).
+- [ ] Выполнить полный source/audit/projection/proof, browser/native visibility, защищённый
   POST и общую admission boundary с причинной DB/browser/Swift/failure матрицей.
   T112/T113 и внешний счёт остаются открытыми; builder не закрывает задачу.
 
