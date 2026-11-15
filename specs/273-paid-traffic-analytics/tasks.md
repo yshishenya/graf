@@ -115,7 +115,25 @@ description: "Список задач фичи 273 — готовность ан
 - [X] T034 [US2] Подключить или удалить мёртвый шаблон `apps/server/src/twobrain_rec_server/public/templates/public/_product_analytics_provider.html` (FR-005)
 - [X] T035 [US2] Не допускать влияния недоступности внешнего счётчика на работу сайта и на обезличенный счёт (FR-058)
 
-- [X] T078 [US2] Измерять шаги веб-регистрации отдельными шагами с сохранением кампании (FR-020)
+- [ ] T078 [US2] Измерять шаги веб-регистрации отдельными шагами с сохранением кампании (FR-020; продолжение16.11 — полный охват)
+
+  Исторический `[X]` в основе `e44aae0a3` относился к явной email-регистрации.
+  Пункт открыт повторно из-за двух пропущенных путей. Продолжение16.11
+  исправляет неполный охват в тех же FR-020/T078, без дублирующего task ID:
+  требования/checklist/analyze → RED в
+  `apps/server/tests/contract/test_product_analytics_registration_handoff_contract.py`
+  и unit `test_registration_measurement.py` → общий helper в
+  `apps/server/src/twobrain_rec_server/api/auth.py`, after-commit вызовы в нём
+  и `cabinet/web_routes/auth.py` → GREEN/independent review/converge → PR gates.
+  Матрица и ограничения — plan16.11 и дополнение сценария3 quickstart.
+  Внешний владелец продолжения — [#8054](https://github.com/yshishenya/graf/issues/8054),
+  общий остаток [#7698](https://github.com/yshishenya/graf/issues/7698) сохраняется.
+  Реализация16.11 и локальная приёмка готовы: RED3 → GREEN139, Ruff,
+  независимое ревью P1/P2=0 и scoped converge без новых задач. Отчёт —
+  `validation/t078-signup-completed-validation-20261116.md`. Пункт остаётся
+  `[ ]` до обязательных GitHub checks точного SHA/base и принятого merge;
+  #8054 открыт. Общие T098/T099/T112/T113, рабочее измерение и T0 этим
+  исправлением не принимаются.
 
 ### Тесты истории 2
 

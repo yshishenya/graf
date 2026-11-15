@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import asyncio
 import re
+from contextlib import asynccontextmanager
+from urllib.parse import parse_qs, urlparse
 from uuid import uuid4
 
 import pytest
@@ -22,6 +24,7 @@ from sqlalchemy.pool import NullPool
 
 from tests.fakes.auth_contexts import ORG_ID
 from twobrain_rec_server.api import auth as api_auth_module
+from twobrain_rec_server.cabinet.web_routes import auth as web_auth_module
 from twobrain_rec_server.cabinet.web_routes import auth_email_flow as auth_email_flow_module
 from twobrain_rec_server.db.models import UserIdentity
 from twobrain_rec_server.product_analytics.acquisition import (
@@ -448,6 +451,213 @@ def _start_login(client: TestClient, email: str, next_path="/meetings") -> tuple
     assert browser_nonce is not None
     client.cookies.set(cookie_name, browser_nonce, domain="testserver.local", path="/")
     return state_match.group(1), code_match.group(1)
+
+
+def test_email_login_counts_only_a_new_committed_registration(
+    client: TestClient, postgres_seeded_database_url: str,
+) -> None:
+    email = _new_email("login-signup")
+    campaign = "273_login_signup_coverage"
+    client.get("/download", params={"utm_campaign": campaign}, headers=BROWSER_HEADERS)
+    before = len(_rows(postgres_seeded_database_url, "user_identities"))
+    for attempt in range(2):
+        state, code = _start_login(client, email)
+        response = client.post(
+            "/login/email/verify",
+            data={"email": email, "code": code, "state": state, "next": "/meetings"},
+            headers=BROWSER_HEADERS, follow_redirects=False,
+        )
+        assert response.status_code == 303
+        assert len(_rows(postgres_seeded_database_url, "user_identities")) == before + 1
+        assert _surfaces(postgres_seeded_database_url).get("public_signup_completed", 0) == 1
+        if attempt == 0:
+            replay = client.post(
+                "/login/email/verify",
+                data={"email": email, "code": code, "state": state, "next": "/meetings"},
+                headers=BROWSER_HEADERS, follow_redirects=False,
+            )
+            assert replay.status_code != 303
+            assert _surfaces(postgres_seeded_database_url)["public_signup_completed"] == 1
+    rows = [r for r in _rows(postgres_seeded_database_url, AGGREGATE_TABLE)
+            if r["surface"] == "public_signup_completed"]
+    assert len(rows) == 1
+    assert rows[0]["campaign"] == campaign
+    assert rows[0]["landing_path"] == "/download"
+
+
+@pytest.mark.parametrize("browser_bound", [False, True])
+def test_oauth_counts_only_a_new_committed_registration(
+    client: TestClient, postgres_seeded_database_url: str, monkeypatch, browser_bound,
+) -> None:
+    from tests.contract.test_auth_contracts import _patch_fake_providers
+
+    _patch_fake_providers(monkeypatch, client)
+    before = len(_rows(postgres_seeded_database_url, "user_identities"))
+    for attempt in range(2):
+        if browser_bound:
+            started = client.get("/login/yandex/start", follow_redirects=False)
+            assert started.status_code == 303
+            state = parse_qs(urlparse(started.headers["location"]).query)["state"][0]
+            cookie = api_auth_module.BROWSER_AUTH_STATE_COOKIE_NAME
+            client.cookies.set(cookie, started.cookies[cookie], domain="testserver.local", path="/")
+        else:
+            started = client.post(
+                "/api/v1/auth/providers/yandex/start",
+                json={"workspace_return_url": "app://auth-callback"},
+            )
+            assert started.status_code == 200
+            state = started.json()["state_nonce"]
+        params = {"state": state, "code": "TEST-YA-SIGNUP-COVERAGE"}
+        response = client.get(
+            "/api/v1/auth/callback/yandex", params=params,
+            headers=BROWSER_HEADERS, follow_redirects=False,
+        )
+        assert response.status_code == (303 if browser_bound else 200)
+        assert len(_rows(postgres_seeded_database_url, "user_identities")) == before + 1
+        assert _surfaces(postgres_seeded_database_url).get("public_signup_completed", 0) == 1
+        if attempt == 0:
+            client.get("/api/v1/auth/callback/yandex", params=params, follow_redirects=False)
+            assert _surfaces(postgres_seeded_database_url)["public_signup_completed"] == 1
+    rows = [r for r in _rows(postgres_seeded_database_url, AGGREGATE_TABLE)
+            if r["surface"] == "public_signup_completed"]
+    assert len(rows) == 1
+    assert rows[0]["campaign"] is None
+    assert rows[0]["referrer_category"] == "unknown"
+
+
+def _new_registration_request(client, monkeypatch, route):
+    """Prepare real verification without calling a mail or OAuth service."""
+    if route == "oauth":
+        from tests.contract.test_auth_contracts import _patch_fake_providers
+
+        _patch_fake_providers(monkeypatch, client)
+        started = client.post(
+            "/api/v1/auth/providers/yandex/start",
+            json={"workspace_return_url": "app://auth-callback"},
+        )
+        assert started.status_code == 200
+        return lambda: client.get(
+            "/api/v1/auth/callback/yandex",
+            params={"state": started.json()["state_nonce"], "code": "TEST-YA-COVERAGE-FAILURES"},
+            headers=BROWSER_HEADERS, follow_redirects=False,
+        )
+    email = _new_email("coverage-failure")
+    state, code = (_start_signup if route == "signup" else _start_login)(client, email)
+    return lambda: client.post(
+        f"/{'sign-up' if route == 'signup' else 'login'}/email/verify",
+        data={"email": email, "code": code, "state": state, "next": "/meetings"},
+        headers=BROWSER_HEADERS, follow_redirects=False,
+    )
+
+
+@pytest.mark.parametrize("route", ["login", "signup", "oauth"])
+@pytest.mark.parametrize("failure", ["setup", "upsert", "commit", "ambiguous_commit"])
+def test_measurement_failure_preserves_committed_registration(
+    client, postgres_seeded_database_url, monkeypatch, route, failure,
+) -> None:
+    verify = _new_registration_request(client, monkeypatch, route)
+    before = len(_rows(postgres_seeded_database_url, "user_identities"))
+    original_session = api_auth_module.public_web_db_session
+    attempts = []
+
+    @asynccontextmanager
+    async def measurement_session(request):
+        # Another connection can already read the account before measurement.
+        async with client.app.state.db_sessionmaker() as observer:
+            count = await observer.scalar(sa.select(sa.func.count()).select_from(UserIdentity))
+            assert count == before + 1
+        if failure == "setup":
+            attempts.append(failure)
+            raise RuntimeError("synthetic measurement setup")
+        async with original_session(request) as session:
+            assert session is not None
+            original_commit = session.commit
+
+            async def fail(*args, **kwargs):
+                attempts.append(failure)
+                if failure == "ambiguous_commit":
+                    await original_commit()
+                raise RuntimeError("synthetic measurement failure")
+
+            monkeypatch.setattr(session, "execute" if failure == "upsert" else "commit", fail)
+            yield session
+
+    monkeypatch.setattr(api_auth_module, "public_web_db_session", measurement_session)
+    response = verify()
+    assert response.status_code == (200 if route == "oauth" else 303)
+    assert len(_rows(postgres_seeded_database_url, "user_identities")) == before + 1
+    assert attempts == [failure]
+    expected = 1 if failure == "ambiguous_commit" else 0
+    assert _surfaces(postgres_seeded_database_url).get("public_signup_completed", 0) == expected
+
+
+@pytest.mark.parametrize("route", ["login", "signup", "oauth"])
+def test_disabled_measurement_preserves_registration(
+    client, postgres_seeded_database_url, monkeypatch, route,
+) -> None:
+    verify = _new_registration_request(client, monkeypatch, route)
+    before = len(_rows(postgres_seeded_database_url, "user_identities"))
+    monkeypatch.setattr(client.app.state.settings, "product_analytics_anonymous_aggregate_enabled", False)
+    response = verify()
+    assert response.status_code == (200 if route == "oauth" else 303)
+    assert len(_rows(postgres_seeded_database_url, "user_identities")) == before + 1
+    assert _surfaces(postgres_seeded_database_url).get("public_signup_completed", 0) == 0
+
+
+def test_provider_link_does_not_count_another_registration(
+    client, postgres_seeded_database_url, monkeypatch,
+) -> None:
+    from tests.contract.test_auth_contracts import _prepare_provider_link_merge_candidate
+
+    _prepare_provider_link_merge_candidate(monkeypatch, client, provider_subject="TEST-VK-LINK")
+    assert _surfaces(postgres_seeded_database_url).get("public_signup_completed", 0) == 1
+
+
+def test_invalid_email_code_does_not_count_registration(
+    client, postgres_seeded_database_url,
+) -> None:
+    email = _new_email("bad-code-coverage")
+    before = len(_rows(postgres_seeded_database_url, "user_identities"))
+    state, code = _start_login(client, email)
+    response = client.post(
+        "/login/email/verify",
+        data={"email": email, "code": f"{(int(code) + 1) % 1000000:06d}",
+              "state": state, "next": "/meetings"},
+        headers=BROWSER_HEADERS, follow_redirects=False,
+    )
+    assert response.status_code == 400
+    assert len(_rows(postgres_seeded_database_url, "user_identities")) == before
+    assert _surfaces(postgres_seeded_database_url).get("public_signup_completed", 0) == 0
+
+
+@pytest.mark.parametrize("route", ["login", "signup", "oauth"])
+def test_failed_auth_commit_does_not_count_a_registration(
+    client, postgres_seeded_database_url, monkeypatch, route,
+) -> None:
+    verify = _new_registration_request(client, monkeypatch, route)
+    before = len(_rows(postgres_seeded_database_url, "user_identities"))
+    module = api_auth_module if route == "oauth" else web_auth_module
+    name = "resolve_callback_to_user" if route == "oauth" else "_consume_email_login_code"
+    original = getattr(module, name)
+    commit_attempts = []
+
+    async def create_but_fail_commit(db, *args, **kwargs):
+        result = await original(db, *args, **kwargs)
+        assert result.registered
+
+        async def fail_commit():
+            commit_attempts.append("commit")
+            raise RuntimeError("synthetic auth commit failure")
+
+        monkeypatch.setattr(db, "commit", fail_commit)
+        return result
+
+    monkeypatch.setattr(module, name, create_but_fail_commit)
+    with pytest.raises(RuntimeError, match="synthetic auth commit failure"):
+        verify()
+    assert commit_attempts == ["commit"]
+    assert len(_rows(postgres_seeded_database_url, "user_identities")) == before
+    assert _surfaces(postgres_seeded_database_url).get("public_signup_completed", 0) == 0
 
 
 @pytest.mark.parametrize("next_path", ["/meetings", "/desktop/meetings"])

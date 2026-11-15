@@ -1,5 +1,47 @@
 # Implementation Plan: Готовность аналитики к платному трафику
 
+## T078 — полный охват завершённого шага, 16.11.2026
+
+Полоса `high-risk-product`, существующие FR-020/T078, без новой фичи.
+Clarify в spec16.11 завершён без новых продуктовых вопросов. Историческая
+реализация T078 охватывает только явную email-регистрацию; этот срез исправляет
+два пропущенных входа. Исходник — `e44aae0a3c174249b72db77894ff761e67e2d962`.
+
+| Путь | Единственное место счёта `completed` |
+| --- | --- |
+| `POST /login/email/verify` | После внешнего `await db.commit()`, только `EmailLoginCompletion` с `registered=True`; оба существующих `next`, без изменения авторизации. |
+| `POST /sign-up/email/verify` | Прежнее место после commit; прежние started/failed остаются, второго completed из `_prepare_email_auth_response` нет. |
+| `GET /api/v1/auth/callback/{provider}` | После окончательного commit, только `profile.registered`; общий путь для browser-bound и unbound возврата, в том числе desktop-return. Это серверный HTTP шаг создания, а не веха установки/активации приложения. |
+| Existing login, provider link, verification failure, rollback | Completed не добавляется. Link выходит раньше; повтор callback не создаёт аккаунт повторно и не добавляет шаг. |
+
+Переиспользовать `_record_web_registration_step`: перенести существующий helper
+в `api/auth.py` и импортировать его из `cabinet/web_routes/auth.py`, который
+уже использует этот модуль. Сохранить совместимую сигнатуру и отдельную
+`public_web_db_session`; auth-сессия в writer не передаётся. Вокруг создания
+и использования measurement session добавить обычную границу `Exception`:
+setup/upsert/commit/cleanup ошибки измерения не изменяют успешный ответ входа.
+Сохраняются нынешние ограниченные фазы DB и writer250мс, никакого повтора при
+неподтверждённом commit. Внешняя отмена не подавляется; процесс может прекратиться
+между auth commit и записью счётчика. Это допустимый пробел best-effort агрегата,
+не обещание exactly-once. Новая таблица/очередь/account ledger не добавляются.
+
+Сохраняются L1 выключатель, normalizer, traffic class, неизвестная кампания,
+порог3, права и until_decision. Вызов не читает выбор согласия и не отправляет
+новые данные PostHog/Метрике. Контент, вёрстка, ответы/cookies и критерии
+авторизации не меняются. Схема и account acquisition не меняются; Legacy Impact
+untouched. Postal/Stalwart и T098 не препятствуют изолированной разработке.
+
+Порядок: reviewer-owned `checklists/signup-completed-coverage.md` → повторное
+независимое PASS → scoped analyze и сверка существующего issue → реальные
+HTTP→PostgreSQL RED/GREEN по дополнению quickstart → independent code review
+и converge → exact-SHA GitHub gates. Рабочее включение/релиз отдельно.
+
+Проверка конституции до исследования и после проекта: II — прежний выбор
+согласия; III — только существующий локальный агрегат без идентификаторов и
+новых получателей; IV — прежние категория/хранение/lifecycle; VI — независимый
+контроль до кода и точные проверки. I/V/VII не затронуты. Нарушений в проекте
+не выявлено; полнота требований ещё подтверждается reviewer, а не этим текстом.
+
 **Branch**: `273-paid-traffic-analytics` | **Date**: 2026-09-18 | **Spec**: [spec.md](spec.md)
 
 **Input**: Feature specification from `/specs/273-paid-traffic-analytics/spec.md`
