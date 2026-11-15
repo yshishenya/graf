@@ -139,17 +139,30 @@
   сохранены. Хеши кода и теста совпали с проверенными; неизменные тесты
   повторно не запускались. Отчёт сохранён/pushed отдельно в `f8c560c0e`.
   [Ревью и его границы](https://github.com/yshishenya/graf/blob/f8c560c0e8afc5c425b7767613519f33ab3e673c/specs/273-paid-traffic-analytics/validation/t112-capture-property-implementation-review-20261116.md).
+- [x] Подготовить внутреннюю проверку полной ingest/audit/source цепочки и
+  краткого HMAC proof с привязкой к owner/session/device/result/deletion/block.
+  Используется существующий общий критерий готовности; нормальные NULL revision
+  в audit не отвергают корректную upload session. Старый разговор при новом
+  приёме допускается; capture и внешний статус не выдумываются. Новый
+  поведенческий RED4 на неполной обработке устранён общим продуктовым правилом.
+  Итог137 PASS/1 прежний warning/0 skips на изолированной PostgreSQL,
+  Ruff/diff/fragment и независимое ревью P1/P2=0; runner удалил свой контейнер.
+  Сохранено/pushed `f2e06822db8df2cd60de5c8a06e2d30f0603ec66` отдельно.
+  [Проверки и остаток](https://github.com/yshishenya/graf/blob/f2e06822db8df2cd60de5c8a06e2d30f0603ec66/specs/273-paid-traffic-analytics/validation/t112-source-proof-20261116.md),
+  [независимое ревью](https://github.com/yshishenya/graf/blob/f2e06822db8df2cd60de5c8a06e2d30f0603ec66/specs/273-paid-traffic-analytics/validation/t112-source-proof-review-20261116.md).
 - [ ] Выполнить полный source/audit/projection/proof, browser/native visibility, защищённый
   POST и общую admission boundary с причинной DB/browser/Swift/failure матрицей.
-  T112/T113 и внешний счёт остаются открытыми; builder не закрывает задачу.
+  Готовые примитивы ещё не имеют производственных callers: source fact/подпись
+  не доказывают показ или действующий доступ. T112/T113 и внешний счёт остаются
+  открытыми; новый код и builder не закрывают задачу.
 
 Проверка первоначального проекта:11 путей только Markdown F273, локальные ссылки существуют,
-diff check PASS; в нём код не менялся. Последующая узкая правка builder описана
-выше; рабочие настройки, контент и вёрстка сохраняются. Новый PR T112,
+diff check PASS; в нём код не менялся. Последующие правки builder/source/proof
+описаны выше; рабочие настройки, контент и вёрстка сохраняются. Новый PR T112,
 Full/CD, повтор live-проверок, отправка событий и публикации не выполнялись.
-Это реальный результат проектирования, не проверенное ожидание и не трафик.
+Это результат проектирования и частичной реализации, не проверенное ожидание и не трафик.
 
-Полоса уточнения порядка и этого плана: docs-only; кодовый срез T078 —
+Полоса уточнения порядка и этого плана: docs-only; кодовые срезы T078/T112 —
 `high-risk-product` в существующем Spec Kit. Контент,
 вёрстка, настройки почты, nginx/DNS и рабочий сбор не менялись.
 
