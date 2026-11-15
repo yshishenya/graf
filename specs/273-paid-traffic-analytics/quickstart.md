@@ -119,6 +119,74 @@ Runtime не включать по результату unit-теста или �
 
 **Требования:** FR-021 … FR-025, SC-006, SC-007.
 
+### T112 — профиль подтверждения показа
+
+Договор: [result-visibility](contracts/result-visibility.md). Ниже проект
+причинных проверок, ещё не результаты. Использовать только синтетические
+записи, изолированную PostgreSQL и browser fixture, без реальных писем,
+аккаунтов, встреч и получателей. Перед кодом — новый reviewer gate/analyze/
+issue mapping. До рабочей приёмки T113 его настоящий gate обязан отказать.
+
+| Причина/переход | Наблюдаемое ожидание |
+| --- | --- |
+| Новый manual upload старого разговора после started_at, полный audit/source/result | При настоящем показе одна пара account-вех; capture false только при доказанном пути, никогда не выдуманный true |
+| Новый desktop-derived приём, готовая расшифровка | Та же first value; без per-record capture proof одноимённое свойство отсутствует |
+| Старый аккаунт, новая допустимая работа | Продуктовая веха допустима; новым внешним клиентом аккаунт не становится |
+| processing→ready и настоящий последующий показ | До показа0 новых строк, после него одна пара |
+| Готовые закреплённые итоги при другой текущей версии расшифровки | Proof каждого блока относится к собственной фактически показанной разрешённой версии |
+| GET/HEAD/prefetch/poll без observer-показа | Нет POST подтверждения, строк и provider calls |
+| Hidden/background/prerender, скрытая панель, блок вне viewport, уход до frame | Нет подтверждения; после настоящего visible+focus показ может учитываться |
+| Пустой/whitespace/title/placeholder/error, устаревший disconnected DOM | Нет подтверждения и принятия |
+| HTMX replacement, смена panel, поздний foreground | Новый актуальный блок проверяется; удалённый не продолжает слать |
+| Нет права экспорта или аудио, текст доступен | Показ текста измерим без export form/playback |
+| Native active/visible против minimized/occluded/inactive/старой session-generation | Только текущая видимая разрешённая detail surface; новый native handler ничего сам не отправляет |
+| Старый desktop без foreground bridge | Нет нового result-счёта, просмотр и запись сохранены |
+| Другой owner, admin/colleague/shared/cross-tenant | Нет нового владельческого решения даже при разрешённом чтении |
+| Нет auth/CSRF, чужая session, forged signature/refs, лишнее поле, большой body | Безопасный отказ, нет DB admission/внешней передачи |
+| Истёкший proof, неизменный блок | Обновление proof без счёта; новый настоящий показ, не более одного обновления на переход |
+| Старая встреча, миграция, свежий updated_at, неполный audit/source, неизвестное начало | Нет новой вехи; неизвестное не достраивается |
+| Обычный `ProcessingResult.status=imported` с полной новой цепочкой | Не отвергается как миграция только из имени статуса |
+| Known smoke/internal/test/support/automated | Не включаются в новые внешние AC; отсутствие smoke не даёт внешнего статуса |
+| Account close/access revoke/delete/source/result switch между render и POST | После locks нет нового решения по старой версии; проверяется фактическое конкурентное изменение |
+| Withdrawal/readiness/resource change во время locks/между двумя INSERT | Свежий gate закрывает запись, вся новая пара rollback |
+| Две вкладки/устройства/processes, replay/restart | Ровно одна строка на account+event и неизменный payload; второй клиент не меняет кампанию |
+| Сбой второго INSERT/commit, timeout/unknown commit | Нет частичного нового набора, нет немедленного retry; следующая настоящая видимость сверяется с authoritative keys |
+| Уже есть first_result другой записи, новый допустимый показ для first_value | Сохраняется старый first_result, новая first_value обоснована собственной текущей записью |
+| Настоящий gate disabled/recovery-unverified, сломанная БД/secret/bridge | Нет новых решений/egress; обычный просмотр доступен, бюджет запроса соблюдён |
+| Сохранённые payload и fake transport | Нет private meeting/result/proof/URL/текста/IP; unknown campaign не становится direct/linked |
+
+Минимальные новые тестовые файлы T112 после допуска к коду:
+`apps/server/tests/unit/test_result_visibility.py`,
+`apps/server/tests/contract/test_result_visibility.py`,
+`apps/server/tests/browser/result-visibility.test.cjs`,
+`apps/macos/Shared/Tests/EmbeddedCabinetResultVisibilityTests.swift`.
+Регрессии: существующие `test_activation_milestone_{ingress,ledger,delivery}.py`,
+`test_product_activation_analytics.py`, `test_product_analytics_activation_funnel.py`,
+`test_product_analytics_conversion_campaign_labels.py`, кабинет/access/render
+и `ProductActivationAnalyticsContractTests`. Имена новых файлов — план, не
+заявление об их наличии или исполнении. Unit builder не заменяет browser/DB
+доказательство. Native unit не заменяет ручную приёмку GRAF Dev.
+
+Плановые команды из корня после появления тестов:
+
+```sh
+UV_PROJECT_ENVIRONMENT=/Users/yshishenya/Documents/crisp/apps/server/.venv \
+UV_NO_SYNC=1 GRAF_TEST_WORKERS=1 \
+/opt/homebrew/bin/bash apps/server/scripts/run_local_postgres_tests.sh --focused \
+  tests/unit/test_result_visibility.py tests/contract/test_result_visibility.py \
+  tests/contract/test_activation_milestone_ingress.py \
+  tests/contract/test_activation_milestone_ledger.py \
+  tests/contract/test_activation_milestone_delivery.py -q
+node apps/server/tests/browser/result-visibility.test.cjs
+cd apps/macos && swift test --filter EmbeddedCabinetResultVisibilityTests
+```
+
+Перед стендом/крупной сборкой проверить место. Runner удаляет только свою БД;
+сохранить итоговые журналы/хеши, без полного содержимого и зависимостей.
+Ручная/native приёмка — только существующий `/Applications/GRAF Dev.app`
+через штатный dev-harness после чтения local-development, без отдельной копии.
+Не включать local_only/live и не отправлять события наружу ради этой матрицы.
+
 ## Сценарий 5 — отказ соблюдается
 
 **Шаги:** дать необязательное согласие, затем отозвать его. Пройти по сайту.

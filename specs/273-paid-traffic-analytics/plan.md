@@ -526,6 +526,45 @@ side effect; III — только прежние получатели, metadata-
 high-risk gate сохранён. Нарушений не выявлено; полноту подтверждает reviewer,
 а не этот текст. Неизвестная доставка остаётся неизвестной.
 
+## T112 — проект подтверждения показа, 16.11.2026
+
+Полоса `high-risk-product`, существующая T112/FR-021/025. Clarify:0 новых
+вопросов владельцу; независимые D1–D7 конкретизированы в
+[договоре показа](contracts/result-visibility.md). Общий объём и выключенный
+рабочий сбор сохраняются. Это проект до кода, не приёмка T112/T113.
+
+Выбран существующий серверный ingest/audit/source fingerprint вместо новой
+таблицы происхождения; его полнота доказывает новый приём, а не capture или
+внешнего клиента. Выбран подписанный ограниченный render proof и наблюдение
+реального блока в browser/foreground embedded surface; owner/source/deletion
+проверяются заново общей admission boundary. Два события сохраняются одной
+транзакцией; произвольный JSON result-вехи не получает разрешения.
+
+Область изменения после reviewer/analyze/issue gate:
+`cabinet/result_visibility.py` (узкая проверка proof/проекции/факта),
+`cabinet/web.py` (явное необязательное свойство capture),
+`cabinet/web_routes/{browser,desktop}.py`, `cabinet/{queries,rendering}.py`,
+`cabinet/templates/cabinet/pages/meeting_detail_content.html` и существующие
+рендеры непустых блоков, `cabinet/static/cabinet/cabinet.js`,
+`product_analytics/ingest.py` (доверенный вход общей границы, без снятия отказа
+для client JSON), `EmbeddedCabinetWebView.swift` (узкая foreground-проверка).
+Проверить все callers/builders/fixtures, каталог и отчётные фильтры, а не только
+новый helper. Точные причинные DB/browser/Swift сценарии — quickstart T112.
+Новых зависимостей, конфигурационных разрешений, миграций и получателей нет.
+
+Порядок: требования и source research → все четыре reviewer-owned checklist →
+scoped analyze → дедупликация существующей связи issue T112 → RED →
+изолированный код/GREEN → независимое implementation review/converge → exact
+GitHub gates. T112 `[ ]` до исходной полной приёмки. Истёкший T098 gate не
+ослабляется. Рабочий T113/local_only/restore/внешняя передача остаются отдельными.
+
+Constitution до/после проекта: II — разрешён только прежний узкий сбор вех с
+действующим основанием; III — содержимое и proof не передаются получателям;
+IV — durable ledger сохраняет прежние lifecycle/удаление/restore, краткоживущий
+proof не хранится; VI — требования/reviewer/analyze перед кодом; VII — тексты
+и оформление не меняются. Условия gate сохранены, новых исключений нет;
+независимый итог требований ещё требуется.
+
 ## T110/T113 — закрытые файлы копии GRAF, 28.10.2026
 
 Первый узкий срез перед проверкой восстановления: привести существующий

@@ -342,6 +342,23 @@ T088, T090 и T093 не назначаются дублирующие задач
 - [ ] T115 [US2] Привести агрегат, модель/миграцию и отчёт к закрытому региону `ru/non_ru/unknown` и нормативному порогу 3 до суммирования; проверить отсутствие запрещённых источников географии, публикации точного подавленного остатка и влияние фильтров/разностей. Пути: `product_analytics/anonymous_aggregate.py`, `db/models/product_analytics.py`, `product_analytics/report_surface.py` и профильные contract tests (FR-010, FR-057).
 
 Исполнение T112/T113 уточнено27.10: T113 предшествует включению T112.
+
+Уточнение T112 от16.11: подробный проект — `contracts/result-visibility.md`,
+маршруты и область — plan §T112, причинная матрица — quickstart §T112.
+В существующей задаче сначала независимо принять D1–D7 и все четыре checklist,
+выполнить scoped analyze и проверить существующий issue mapping; затем RED
+DB/browser/Swift и только затем код. Реальные точки: общий owner detail render
+и POST в `cabinet/web_routes/{browser,desktop}.py`, проверка в
+`cabinet/result_visibility.py`, `cabinet/{queries,rendering,web}.py`,
+`cabinet/static/cabinet/cabinet.js`, невидимые data-атрибуты готовых блоков,
+доверенный вход общей `product_analytics/ingest.py`, native foreground в
+`apps/macos/RecApp/Sources/Cabinet/EmbeddedCabinetWebView.swift` и профильные
+tests из quickstart. Builder, каталог, отчётные фильтры и прежние callers
+согласуются с `false/отсутствие/true` свойства capture. Не добавлять прямой
+result sender в `TwoBrainRecApp.swift`: встроенный кабинет использует тот же
+защищённый серверный путь, а общий client JSON остаётся недоверенным.
+T112 остаётся `[ ]`; это не новый task ID и не рабочая приёмка T113.
+
 Действуют trusted account, одна admission boundary для обоих API ingress и
 server-auth, одна GRAF DB relation и закрытые per-provider переходы из
 activation-milestones/data-model. T113 включает ограниченный существующий

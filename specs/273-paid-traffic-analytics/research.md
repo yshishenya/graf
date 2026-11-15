@@ -353,3 +353,32 @@ readiness связывают admission с поддерживаемым actual re
   transport; старые aggregate/attribution/milestone таблицы имеют другую цель;
   отдельный файловый реестр дублирует уже имеющуюся PostgreSQL и её копирование.
 - Exact contract: [public-consent-control](contracts/public-consent-control.md).
+
+## T112 — источник и подтверждение показа, 16.11.2026
+
+- Decision: существующие `Meeting`/`MediaRevision`/`UploadSession` и связанные
+  `IngestAuditEvent` после неизменного started_at T113; accepted source проверяет
+  `source_fingerprint_for_revision()`. Ни `imported`, ни updated_at, ни enum
+  источника отдельно не определяют новое использование или локальный capture.
+- Rationale: обычные `meeting_created`, `session_created` и `finalized`
+  сохраняются штатным продуктовым приёмом; отдельный путь ревизии имеет
+  `media_revision_upload_session_created`. Полное совпадение доказывает новый
+  приём аудио, включая старый разговор; неизвестная цепочка закрывает счёт.
+  Known smoke исключается существующими операторскими ID; внешний статус
+  остальных аккаунтов этим не доказан и остаётся отдельной сверкой.
+- Decision: краткоживущий HMAC proof той же разрешённой render-проекции;
+  IntersectionObserver/current DOM/visible+focus, дополнительно native
+  foreground для встроенного кабинета. Сервер проверяет владельца и текущую
+  версию после locks и перед общим durable admission пары вех.
+- Alternatives: один GET/poll/visibilityState не доказывает показ блока;
+  событие из произвольного client JSON обходит серверный факт; локальный set
+  не обеспечивает account-дедупликацию. Новая таблица происхождения/очереди и
+  отдельная идентичность избыточны. Source enum не подтверждает browser против
+  desktop или capture: неизвестное необязательное свойство отсутствует.
+- Evidence: `ingest/{meetings,sessions,finalize,media_revisions}.py`,
+  `cabinet/{queries,rendering}.py`, `auth/{context,dependencies,csrf}.py`,
+  `product_analytics/{ingest,milestones,legal_basis_gate,traffic_class}.py`,
+  `EmbeddedCabinetWebView.swift`; независимый
+  [preflight D1–D7](validation/t112-requirements-preflight-20261116.md).
+- Contract: [result-visibility](contracts/result-visibility.md).
+  Это проектирование, а не реализация или новый PASS готовности T113.
