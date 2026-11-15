@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.auth import (
     EMAIL_CODE_AUTH_METHOD_CATEGORY,
+    _record_web_registration_step,
     _set_browser_auth_state_cookie,
     attribution_handoff_for_request_async,
     build_provider_callback_url,
@@ -84,7 +85,6 @@ from twobrain_rec_server.product_analytics.anonymous_aggregate import (
 from twobrain_rec_server.product_analytics.browser_context import (
     build_request_browser_provider_context,
 )
-from twobrain_rec_server.public.analytics import record_public_registration_step
 from twobrain_rec_server.public.templates import (
     public_analytics_page_context,
     record_public_page_response,
@@ -115,33 +115,6 @@ def _attribution_request_values(request: Request) -> dict[str, Any]:
     values: dict[str, Any] = dict(getattr(request, "cookies", None) or {})
     values.update(dict(getattr(request, "query_params", None) or {}))
     return values
-
-
-async def _record_web_registration_step(
-    request: Request,
-    *,
-    db: AsyncSession | None,
-    step: str,
-) -> None:
-    """Count one step of web registration with the campaign of the visit (FR-020).
-
-    Registration is measured in the route that performs it, because before
-    sign-in the browser has no analytics identity and may send nothing optional
-    at all (FR-007, FR-010), while the campaign of the visit is known to the
-    server in every case. A step is a level 1 counter: no identifier is stored,
-    and a refused write leaves a measurement gap instead of a broken
-    registration (FR-058). The level 1 brake that governs public page counting
-    also governs these steps, so an operator can stop the counter when its basis
-    falls away (FR-048) without touching the optional levels.
-    """
-    settings = getattr(request.app.state, "settings", None)
-    if settings is not None and not settings.product_analytics_anonymous_aggregate_enabled:
-        return
-    # The counter must not cancel or commit the registration transaction.
-    async with public_web_db_session(request) as measurement_db:
-        await record_public_registration_step(
-            measurement_db, request, step, now=datetime.now(UTC)
-        )
 
 
 def _request_ip(request: Request) -> str:
@@ -753,6 +726,10 @@ async def browser_email_login_verify(
         if not isinstance(result, EmailCodeRetryResponse):
             _clear_email_auth_browser_cookie(request, response, state_nonce=state)
         await db.commit()
+        if isinstance(result, EmailLoginCompletion) and result.registered:
+            await _record_web_registration_step(
+                request, db=db, step=WEB_REGISTRATION_STEP_COMPLETED,
+            )
         return response
     except Exception:
         await db.rollback()
