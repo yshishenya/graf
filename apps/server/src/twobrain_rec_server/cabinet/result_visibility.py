@@ -7,6 +7,7 @@ import binascii
 import hmac
 import json
 import re
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from hashlib import sha256
@@ -16,15 +17,24 @@ from uuid import UUID
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from twobrain_rec_server.api.schemas import (
+    MeetingReviewResponse,
+    NotesActionCategoryState,
+    TranscriptSegmentView,
+    TranscriptSpeakerTurnView,
+)
+from twobrain_rec_server.cabinet.meeting_protocol import EMPTY
 from twobrain_rec_server.db.models import (
     IngestAuditEvent,
     MediaRevision,
     Meeting,
+    MeetingOutcomeSet,
     ProcessingResult,
     ProcessingWorkflow,
     UploadSession,
 )
 from twobrain_rec_server.ingest.media_revisions import source_fingerprint_for_revision
+from twobrain_rec_server.outcomes.templates import OUTCOME_CATEGORIES, built_in_template_for_version
 from twobrain_rec_server.processing.results import complete_processing_result_clause
 from twobrain_rec_server.product_analytics.milestones import USEFUL_RESULT_TYPES
 
@@ -54,6 +64,109 @@ class ResultViewBinding:
     block_type: str
     block_digest: str
     outcome_set_id: UUID | None
+
+
+def rendered_transcript_rows(
+    review: MeetingReviewResponse,
+) -> list[TranscriptSegmentView | TranscriptSpeakerTurnView]:
+    return (
+        review.transcript.speaker_turns or review.transcript.segments
+        if review.transcript.available and review.transcript.search_enabled
+        else []
+    )
+
+
+def ordered_outcome_sections(review: MeetingReviewResponse):
+    titles = {
+        "summary": "Summary", "key_points": "Key points", "decisions": "Decisions",
+        "action_items": "Action Items", "followups": "Follow-ups", "risks": "Risks",
+        "questions": "Questions", "evidence": "Evidence",
+    }
+    definition = built_in_template_for_version(
+        review.template.reason, review.template.template_version or 1,
+    )
+    # Personal and historical unknown templates use the stable canonical order.
+    order = definition.sections if definition is not None else OUTCOME_CATEGORIES
+    return [(key, titles[key], getattr(review.notes_action_truth, key)) for key in order]
+
+
+def rendered_outcome_items(state: NotesActionCategoryState):
+    return [item for item in state.items if item.text] if state.state == "available" else []
+
+
+def protocol_sections(document):
+    for key, title, empty in (
+        ("executive_summary", "Главное", "Краткие итоги не зафиксированы."),
+        ("decisions", "Принятые решения", EMPTY["Принятые решения"]),
+        ("action_items", "Задачи", "Задачи не зафиксированы."),
+        ("open_questions", "Открытые вопросы и следующие шаги", EMPTY["Открытые вопросы и следующие шаги"]),
+    ):
+        rows = document[key]
+        if key == "open_questions":
+            rows = rows + document["next_steps"]
+        yield key, title, empty, rows
+
+
+def protocol_topic_parts(topic):
+    for key, title in (("outcome", "Итог"), ("context", "Контекст"),
+                       ("discussion", "Обсуждение"), ("proposals", "Предложения")):
+        if topic[key]:
+            yield key, title, topic[key]
+
+
+def protocol_row_text(row):
+    return row.get("text", row.get("task"))
+
+
+def result_view_text_blocks(review: MeetingReviewResponse) -> list[tuple[str, str, str]]:
+    """Transient candidate bodies, not evidence of visibility or permission to admit."""
+    blocks = []
+
+    def add(key, block_type, text):
+        if isinstance(text, str) and text.strip():
+            blocks.append((key, block_type, text))
+
+    for index, row in enumerate(rendered_transcript_rows(review)):
+        add(f"transcript:{index}", "transcript", row.text)
+    protocol = review.notes_action_truth.protocol
+    if protocol is not None:
+        for key, _, _, rows in protocol_sections(protocol):
+            block_type = "summary" if key == "executive_summary" else (
+                "action_items" if key == "action_items" else "outcome"
+            )
+            for index, row in enumerate(rows):
+                add(f"protocol:{key}:{index}", block_type, protocol_row_text(row))
+        for topic_index, topic in enumerate(protocol["topics"]):
+            for key, _, rows in protocol_topic_parts(topic):
+                for index, row in enumerate(rows):
+                    add(f"protocol:topic:{topic_index}:{key}:{index}", "outcome", protocol_row_text(row))
+        for index, row in enumerate(protocol["notes"]):
+            add(f"protocol:notes:{index}", "outcome", protocol_row_text(row))
+    else:
+        for key, _, state in ordered_outcome_sections(review):
+            block_type = key if key in {"summary", "action_items"} else "outcome"
+            for index, item in enumerate(rendered_outcome_items(state)):
+                add(f"outcome:{key}:{index}", block_type, item.text)
+    return blocks
+
+
+def result_view_block_digest(
+    source: ResultViewSource, *, block_type: str, texts: Sequence[str],
+    outcome_set_id: UUID | None = None,
+) -> str | None:
+    if block_type not in USEFUL_RESULT_TYPES or isinstance(texts, str):
+        return None
+    body = [text for text in texts if text.strip()]
+    if not body:
+        return None
+    data = {
+        "type": block_type, "result_id": str(source.result_id),
+        "result_version": source.result_version, "texts": body,
+    }
+    if outcome_set_id is not None:
+        data["outcome_set_id"] = str(outcome_set_id)
+    raw = json.dumps(data, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return sha256(raw).hexdigest()
 
 
 def _known_time(value: datetime | None) -> bool:
@@ -172,6 +285,77 @@ async def load_result_view_source(
         result_id=result.id, result_version=result.result_version, deletion_epoch=meeting.deletion_epoch,
         first_recording_completed=False if revision.source_kind == "manual_upload" else None,
     )
+
+
+async def load_result_view_bindings(
+    db: AsyncSession,
+    *,
+    review: MeetingReviewResponse,
+    owner_id: UUID,
+    workspace_id: UUID,
+    auth_session_id: UUID,
+    session_device_id: UUID | None,
+    started_at: datetime | None,
+    now: datetime,
+) -> dict[str, ResultViewBinding]:
+    """Bind bodies of the caller's fresh authorized get_cabinet_meeting_review().
+
+    The caller still owns current principal/access, T113 fences and budgets.
+    This read neither proves visibility nor admits an event.
+    """
+    if (
+        review.access is None or review.access.state != "owner" or not review.access.can_view
+        or not review.access.can_view_full_meeting or review.provenance.media_revision_id is None
+        or not isinstance(auth_session_id, UUID)
+        or not _known_time(started_at) or not _known_time(now) or started_at > now
+    ):
+        return {}
+    blocks = result_view_text_blocks(review)
+    selections = []
+    result_ids = {row.processing_result_id for row in rendered_transcript_rows(review)}
+    if len(result_ids) == 1 and None not in result_ids:
+        selections.append(("transcript", result_ids.pop(), None, None))
+    if (
+        review.template.outcome_set_id is not None
+        and review.notes_action_truth.source_basis == "stored_output"
+        and any(block_type != "transcript" for _, block_type, _ in blocks)
+    ):
+        outcome = (await db.execute(select(
+            MeetingOutcomeSet.processing_result_id, MeetingOutcomeSet.deletion_epoch_at_start,
+        ).where(
+            MeetingOutcomeSet.id == review.template.outcome_set_id,
+            MeetingOutcomeSet.workspace_id == workspace_id,
+            MeetingOutcomeSet.meeting_id == review.meeting.meeting_id,
+            MeetingOutcomeSet.media_revision_id == review.provenance.media_revision_id,
+            MeetingOutcomeSet.lifecycle_state == "active",
+            MeetingOutcomeSet.status.in_(("available", "partial")),
+        ))).first()
+        if outcome is not None:
+            selections.append((
+                "outcome", outcome.processing_result_id, review.template.outcome_set_id,
+                outcome.deletion_epoch_at_start,
+            ))
+    bindings = {}
+    for kind, result_id, outcome_id, epoch in selections:
+        source = await load_result_view_source(
+            db, owner_id=owner_id, workspace_id=workspace_id,
+            meeting_id=review.meeting.meeting_id, media_revision_id=review.provenance.media_revision_id,
+            processing_result_id=result_id, started_at=started_at, now=now,
+        )
+        if source is None or (outcome_id is not None and epoch != source.deletion_epoch):
+            continue
+        for key, block_type, text in blocks:
+            if key.startswith("transcript:") != (kind == "transcript"):
+                continue
+            digest = result_view_block_digest(
+                source, block_type=block_type, texts=[text], outcome_set_id=outcome_id,
+            )
+            if digest is not None:
+                bindings[key] = ResultViewBinding(
+                    source=source, auth_session_id=auth_session_id, session_device_id=session_device_id,
+                    block_type=block_type, block_digest=digest, outcome_set_id=outcome_id,
+                )
+    return bindings
 
 
 def _proof_payload(binding: ResultViewBinding, issued_at: int) -> str:

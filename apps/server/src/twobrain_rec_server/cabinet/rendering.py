@@ -44,13 +44,20 @@ from twobrain_rec_server.cabinet.deletion_rendering import (
 from twobrain_rec_server.cabinet.deletion_rendering import (
     render_deletion_report_page as render_deletion_report_page,
 )
-from twobrain_rec_server.cabinet.meeting_protocol import EMPTY
 from twobrain_rec_server.cabinet.rendering_shared import (
     _base_path,
     _copy_convention,
     _page_shell,
     _settings_path,
     _ui_text,
+)
+from twobrain_rec_server.cabinet.result_visibility import (
+    ordered_outcome_sections,
+    protocol_row_text,
+    protocol_sections,
+    protocol_topic_parts,
+    rendered_outcome_items,
+    rendered_transcript_rows,
 )
 from twobrain_rec_server.cabinet.review_policy_rendering import (
     _render_activity,
@@ -74,8 +81,6 @@ from twobrain_rec_server.outcomes.models import PROTOCOL_ABOUT_GENERATOR_VERSION
 from twobrain_rec_server.outcomes.templates import (
     BUILT_IN_BY_KEY,
     BUILT_IN_TEMPLATES,
-    OUTCOME_CATEGORIES,
-    built_in_template_for_version,
 )
 
 
@@ -1076,11 +1081,7 @@ def _render_meeting_detail_content(
     shared_workspace_id: UUID | None = None,
     title_edit: dict[str, str] | None = None,
 ) -> str:
-    transcript_rows = (
-        review.transcript.speaker_turns or review.transcript.segments
-        if review.transcript.available and review.transcript.search_enabled
-        else []
-    )
+    transcript_rows = rendered_transcript_rows(review)
     speaker_palette = _speaker_palette(review.speakers)
     attribution_notice = _speaker_attribution_notice(review)
     transcript = trusted_component_html(
@@ -2669,7 +2670,7 @@ def _render_revision_status(review: MeetingReviewResponse) -> str:
 def _render_full_protocol(document, *, source_destination_available: bool, base_heading_level: int = 3, source_targets: frozenset[tuple[str, str]] = frozenset(), public_sources: bool = False) -> str:
     def render_row(row):
         item = OutcomeItemView(
-            category="summary", sequence=0, text=row.get("text", row.get("task")),
+            category="summary", sequence=0, text=protocol_row_text(row),
             truth_label="supported",
             source_refs=[OutcomeSourceReferenceView(
                 **ref, seekable=(str(ref["processing_result_id"]), str(ref["transcript_segment_id"])) in source_targets,
@@ -2682,15 +2683,7 @@ def _render_full_protocol(document, *, source_destination_available: bool, base_
 
     heading = base_heading_level
     blocks = []
-    for key, title, empty in (
-        ("executive_summary", "Главное", "Краткие итоги не зафиксированы."),
-        ("decisions", "Принятые решения", EMPTY["Принятые решения"]),
-        ("action_items", "Задачи", "Задачи не зафиксированы."),
-        ("open_questions", "Открытые вопросы и следующие шаги", EMPTY["Открытые вопросы и следующие шаги"]),
-    ):
-        rows = document[key]
-        if key == "open_questions":
-            rows = rows + document["next_steps"]
+    for key, title, empty, rows in protocol_sections(document):
         body = "".join(render_row(row) for row in rows)
         if key == "action_items" and rows:
             # Explicit table roles preserve semantics when narrow layouts stack cells (including WebKit).
@@ -2710,11 +2703,9 @@ def _render_full_protocol(document, *, source_destination_available: bool, base_
     topics = []
     for topic in document["topics"]:
         body = ""
-        for key, title in (("outcome", "Итог"), ("context", "Контекст"),
-                           ("discussion", "Обсуждение"), ("proposals", "Предложения")):
-            if topic[key]:
-                body += (f'<section class="notes-topic-part"><h{heading + 2}>{title}</h{heading + 2}>'
-                         + ''.join(render_row(row) for row in topic[key]) + '</section>')
+        for _, title, rows in protocol_topic_parts(topic):
+            body += (f'<section class="notes-topic-part"><h{heading + 2}>{title}</h{heading + 2}>'
+                     + ''.join(render_row(row) for row in rows) + '</section>')
         topics.append(
             f'<details class="notes-topic"><summary><h{heading + 1}>{escape(topic["title"])}</h{heading + 1}>'
             f'</summary><div class="notes-topic-content">{body}</div></details>'
@@ -2746,27 +2737,7 @@ def _render_notes_outcomes(review: MeetingReviewResponse) -> str:
                 review.playback.can_play or review.transcript.speaker_turns or review.transcript.segments
             ),
         )
-    rows = {
-        "summary": ("summary", "Summary", review.notes_action_truth.summary),
-        "key_points": ("key_points", "Key points", review.notes_action_truth.key_points),
-        "decisions": ("decisions", "Decisions", review.notes_action_truth.decisions),
-        "action_items": (
-            "action_items",
-            "Action Items",
-            review.notes_action_truth.action_items,
-        ),
-        "followups": ("followups", "Follow-ups", review.notes_action_truth.followups),
-        "risks": ("risks", "Risks", review.notes_action_truth.risks),
-        "questions": ("questions", "Questions", review.notes_action_truth.questions),
-        "evidence": ("evidence", "Evidence", review.notes_action_truth.evidence),
-    }
-    definition = built_in_template_for_version(
-        review.template.reason,
-        review.template.template_version or 1,
-    )
-    # Personal and historical unknown templates use the stable canonical order.
-    section_order = definition.sections if definition is not None else OUTCOME_CATEGORIES
-    ordered = [rows[category] for category in section_order]
+    ordered = ordered_outcome_sections(review)
     primary, secondary = ordered[:4], ordered[4:]
     aggregate_states = {"processing", "blocked", "unavailable", "deferred", "unsafe"}
     aggregate_candidates = [
@@ -2894,11 +2865,8 @@ def _render_notes_outcome_row(
                 item,
                 source_destination_available=source_destination_available,
             )
-            for item in state.items
-            if item.text
+            for item in rendered_outcome_items(state)
         )
-        if state.state == "available"
-        else ""
     )
     items = f'<div class="notes-items">{item_html}</div>' if item_html else ""
     state_reason = "" if state.state == "available" else _ui_text(state.reason)
