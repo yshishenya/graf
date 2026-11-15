@@ -80,9 +80,12 @@ def build_first_value_product_analytics_payload(
     result_state: str,
     useful_output_present: bool,
     useful_result_type: str | None,
+    first_recording_completed: bool | None,
     elapsed_bucket: str | None = None,
     campaign_context: Mapping[str, Any] | None = None,
 ) -> dict[str, object] | None:
+    if first_recording_completed is not None and not isinstance(first_recording_completed, bool):
+        raise ValueError("capture evidence must be a boolean or unknown")
     decision = first_value_decision(
         result_state=result_state,
         useful_output_present=useful_output_present,
@@ -94,7 +97,10 @@ def build_first_value_product_analytics_payload(
         "first_value_session_completed",
         stable_pseudonymous_user_id=stable_pseudonymous_user_id,
         properties={
-            "first_recording_completed": True,
+            **(
+                {"first_recording_completed": first_recording_completed}
+                if first_recording_completed is not None else {}
+            ),
             "first_result_viewed": True,
             "useful_output_present": True,
             "useful_result_type": decision.useful_result_type,
