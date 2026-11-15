@@ -6,8 +6,8 @@
 
 ## Phase 1: Измерение и политика
 
-- [X] T001 [P] [US1] Add `LocalRecordingFootprintSnapshot`, `LocalRecordingFootprintMeasurer` in `apps/macos/RecApp/Sources/Buffering/LocalRecordingFootprint.swift`; tests in `apps/macos/Shared/Tests/LocalRecordingFootprintTests.swift`.
-- [X] T002 [P] [US1] Add `LocalRecordingFootprintProvider` with single-flight, TTL and generation fence in `apps/macos/RecApp/Sources/Buffering/LocalRecordingFootprintProvider.swift`; tests in `apps/macos/Shared/Tests/LocalRecordingFootprintProviderTests.swift`.
+- [X] T001 [P] [US1] Add `LocalRecordingFootprintSnapshot`, `LocalRecordingFootprintMeasurer` in `apps/macos/RecApp/Sources/Buffering/LocalRecordingStorageUsage.swift`; tests in `apps/macos/Shared/Tests/LocalRecordingStorageUsageTests.swift`.
+- [X] T002 [P] [US1] Add `LocalRecordingFootprintProvider` with single-flight, TTL and generation fence in `apps/macos/RecApp/Sources/Buffering/LocalRecordingFootprintProvider.swift`; tests in `apps/macos/Shared/Tests/LocalRecordingStorageUsageProviderTests.swift`.
 - [X] T003 [US1] Wire `ContentView.meetingDetectionStorageRisk()` and `startManualRecording` to the cached/off-main provider; remove synchronous enumeration and duplicate start measurement.
 - [X] T004 [US1] Update `RecordingPrerequisiteSnapshot.allowsRecording` in `apps/macos/Shared/Sources/Models/AudioModelCore.swift` to allow `.warning`; use the shared `allowsRecordingStart` predicate.
 - [X] T005 [US1] Update `RecordingPrerequisiteGate` in `apps/macos/RecApp/Sources/Capture/RecordingPrerequisiteGate.swift` to block only `.critical`/`.mustDegradeOrStop`; boundary tests in `RecordingPrerequisiteGateTests.swift`.
