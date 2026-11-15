@@ -150,14 +150,27 @@
   Сохранено/pushed `f2e06822db8df2cd60de5c8a06e2d30f0603ec66` отдельно.
   [Проверки и остаток](https://github.com/yshishenya/graf/blob/f2e06822db8df2cd60de5c8a06e2d30f0603ec66/specs/273-paid-traffic-analytics/validation/t112-source-proof-20261116.md),
   [независимое ревью](https://github.com/yshishenya/graf/blob/f2e06822db8df2cd60de5c8a06e2d30f0603ec66/specs/273-paid-traffic-analytics/validation/t112-source-proof-review-20261116.md).
+- [x] Связать подготовку подтверждения с общим выбором действительно
+  отрисовываемого текста. Каждый turn/item/строка протокола получает свой
+  кандидат; metadata/heading/placeholder/пустое тело исключаются без изменения
+  исходного непустого текста. Binding использует собственные result/version/
+  outcome: настоящий общий query сохранил закреплённые итогиv2 рядом с
+  transcriptv3 и более новым незакреплённым выводом. Ledger не меняется.
+  Итог280 PASS/1 прежний warning/0 skips на disposable PostgreSQL,24 из24
+  HTML page/fragment browser/embedded побайтово равны исходным. Ruff/diff/
+  fragment и независимое ревью P1/P2=0; runner удалил свой контейнер.
+  Сохранено отдельно `09228887cfe66b1ee2b79f3cbfb4c0828cd24134`.
+  [Проверки и оставшийся объём](https://github.com/yshishenya/graf/blob/09228887cfe66b1ee2b79f3cbfb4c0828cd24134/specs/273-paid-traffic-analytics/validation/t112-projection-20261116.md),
+  [независимое ревью](https://github.com/yshishenya/graf/blob/09228887cfe66b1ee2b79f3cbfb4c0828cd24134/specs/273-paid-traffic-analytics/validation/t112-projection-review-20261116.md).
 - [ ] Выполнить полный source/audit/projection/proof, browser/native visibility, защищённый
   POST и общую admission boundary с причинной DB/browser/Swift/failure матрицей.
-  Готовые примитивы ещё не имеют производственных callers: source fact/подпись
-  не доказывают показ или действующий доступ. T112/T113 и внешний счёт остаются
-  открытыми; новый код и builder не закрывают задачу.
+  Renderer использует общий чистый выбор строк; binding/proof и issuance
+  в невидимые атрибуты ещё не подключены к рабочим вызовам. Source fact/подпись/
+  snapshot не доказывают показ или свежий доступ после fences. T112/T113 и
+  внешний счёт остаются открытыми; частичные шаги не закрывают задачу.
 
 Проверка первоначального проекта:11 путей только Markdown F273, локальные ссылки существуют,
-diff check PASS; в нём код не менялся. Последующие правки builder/source/proof
+diff check PASS; в нём код не менялся. Последующие правки builder/source/proof/проекции
 описаны выше; рабочие настройки, контент и вёрстка сохраняются. Новый PR T112,
 Full/CD, повтор live-проверок, отправка событий и публикации не выполнялись.
 Это результат проектирования и частичной реализации, не проверенное ожидание и не трафик.
