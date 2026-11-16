@@ -5655,8 +5655,9 @@
   const initSharedLinkPosition = ({ seek = true } = {}) => {
     const sharedMain = document.querySelector("[data-share-media-version]");
     if (sharedMain === sharedLinkContext?.detail) return;
-    const pendingSeek = sharedLinkMetadata?.url === window.location.href
-      && sharedLinkMetadata.version === sharedMain?.dataset.shareMediaVersion;
+    const pendingSeek = Boolean(sharedLinkMetadata
+      && sharedLinkMetadata.url === window.location.href
+      && sharedLinkMetadata.version === sharedMain?.dataset.shareMediaVersion);
     sharedLinkContext?.events.abort();
     sharedLinkContext = undefined;
     cancelSharedLinkSeek();
@@ -5668,8 +5669,9 @@
       if (!sharedMain.isConnected) return;
       const url = window.location.href;
       if (seek && url === sharedLinkUrl) return;
-      const pendingSeek = sharedLinkMetadata?.url === url
-        && sharedLinkMetadata.version === sharedMain.dataset.shareMediaVersion;
+      const pendingSeek = Boolean(sharedLinkMetadata
+        && sharedLinkMetadata.url === url
+        && sharedLinkMetadata.version === sharedMain.dataset.shareMediaVersion);
       sharedLinkUrl = url;
       cancelSharedLinkSeek();
 
