@@ -10,6 +10,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
 
 from twobrain_rec_server.api import product_analytics_guard as guard_module
@@ -104,6 +105,177 @@ def test_session_root_owner_is_known_before_checkout_and_removed_at_its_exact_en
                     transaction.rollback()
                 assert not owner.transactions and guard_module._RESULT_VIEW_TRANSACTION_OWNER not in db.info
         finally:
+            guard_module._RESULT_VIEW_TASK_OWNER.reset(token)
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("case", [
+    "owned", "raw", "repeat", "no_owner", "closed", "invalidated", "foreign_lease",
+    "stale_entry", "other_dbapi", "other_entry_dbapi", "other_driver", "other_entry_driver",
+    "not_in_use", "foreign_entry_lease", "foreign_root", "missing_root", "stale_root", "wrong_bound_lease",
+])
+def test_operation_handoff_requires_the_exact_connection_and_root_generation(case):
+    async def scenario():
+        owner = guard_module._ResultViewOwner()
+        old_task, dbapi, driver, transaction = object(), object(), object(), object()
+
+        class Entry:
+            pass
+
+        class Connection:
+            closed = case == "closed"
+            invalidated = case == "invalidated"
+
+            @property
+            def connection(self):
+                assert not self.closed and not self.invalidated, "must not reconnect"
+                return proxy
+
+            @property
+            def info(self):
+                assert not self.closed and not self.invalidated, "must not revalidate"
+                return entry.info
+
+        entry = Entry()
+        lease = [owner, dbapi, driver, old_task, entry]
+        root = [owner, transaction, old_task]
+        entry.info = {guard_module._RESULT_VIEW_CONNECTION_OWNER: lease}
+        entry.dbapi_connection, entry.driver_connection, entry.in_use = dbapi, driver, True
+        proxy = SimpleNamespace(dbapi_connection=dbapi, driver_connection=driver)
+        owner[entry], owner.transactions[transaction] = lease, root
+        if case != "raw":
+            entry.info[guard_module._RESULT_VIEW_TRANSACTION_OWNER] = (root, lease)
+        if case == "foreign_lease":
+            lease[0] = guard_module._ResultViewOwner()
+        if case == "stale_entry":
+            owner[entry] = lease.copy()
+        if case == "other_dbapi":
+            proxy.dbapi_connection = object()
+        if case == "other_entry_dbapi":
+            entry.dbapi_connection = object()
+        if case == "other_driver":
+            proxy.driver_connection = object()
+        if case == "other_entry_driver":
+            entry.driver_connection = object()
+        if case == "not_in_use":
+            entry.in_use = False
+        if case == "foreign_entry_lease":
+            entry.info[guard_module._RESULT_VIEW_CONNECTION_OWNER] = lease.copy()
+        if case == "foreign_root":
+            root[0] = guard_module._ResultViewOwner()
+        if case == "missing_root":
+            owner.transactions.clear()
+        if case == "stale_root":
+            owner.transactions[transaction] = root.copy()
+        if case == "wrong_bound_lease":
+            entry.info[guard_module._RESULT_VIEW_TRANSACTION_OWNER] = (root, lease.copy())
+        token = guard_module._RESULT_VIEW_TASK_OWNER.set(None if case == "no_owner" else owner)
+        try:
+            guard_module._handoff_result_connection(Connection())
+            if case == "repeat":
+                guard_module._handoff_result_connection(Connection(), object(), "SQL", {}, None, False)
+            accepted = case in {"owned", "raw", "repeat"}
+            assert lease[3] is (asyncio.current_task() if accepted else old_task)
+            assert root[2] is (asyncio.current_task() if accepted and case != "raw" else old_task)
+        finally:
+            guard_module._RESULT_VIEW_TASK_OWNER.reset(token)
+    asyncio.run(scenario())
+
+
+def test_global_connection_hooks_leave_synchronous_unowned_sessions_unchanged():
+    engine = create_engine("sqlite://")
+    try:
+        with Session(engine) as db:
+            assert db.scalar(text("SELECT 1")) == 1
+            assert guard_module._RESULT_VIEW_CONNECTION_OWNER not in db.connection().info
+            db.commit()
+    finally:
+        engine.dispose()
+
+
+def test_root_association_survives_nested_work_and_is_cleared_before_reuse_or_reconnect():
+    async def scenario():
+        engine = create_engine("sqlite://")
+        owner = guard_module._ResultViewOwner()
+        token = guard_module._RESULT_VIEW_TASK_OWNER.set(owner)
+        try:
+            with Session(engine) as db:
+                db.execute(text("SELECT 1"))
+                connection = db.connection()
+                original = connection.info[guard_module._RESULT_VIEW_TRANSACTION_OWNER]
+                with db.begin_nested():
+                    db.execute(text("SELECT 1"))
+                    assert connection.info[guard_module._RESULT_VIEW_TRANSACTION_OWNER] is original
+                assert connection.info[guard_module._RESULT_VIEW_TRANSACTION_OWNER] is original
+                db.commit()
+                assert not owner and not owner.transactions
+                db.execute(text("SELECT 1"))
+                replacement = db.connection().info[guard_module._RESULT_VIEW_TRANSACTION_OWNER]
+                assert replacement[0] is not original[0] and replacement[1] is not original[1]
+            assert not owner and not owner.transactions
+
+            async def foreign():
+                with engine.connect() as connection:
+                    assert guard_module._RESULT_VIEW_TRANSACTION_OWNER not in connection.info
+                    assert guard_module._RESULT_VIEW_CONNECTION_OWNER not in connection.info
+                    assert connection.scalar(text("SELECT 1")) == 1
+
+            await asyncio.create_task(foreign(), context=Context())
+            with engine.connect() as connection:
+                old = connection.connection.driver_connection
+                connection.invalidate()
+            assert not owner and not owner.transactions
+            with Session(engine) as db:
+                db.execute(text("SELECT 1"))
+                assert db.connection().connection.driver_connection is not old
+                association = db.connection().info[guard_module._RESULT_VIEW_TRANSACTION_OWNER]
+                assert association[0][0] is owner and association[0][2] is asyncio.current_task()
+            assert not owner and not owner.transactions
+        finally:
+            guard_module._RESULT_VIEW_TASK_OWNER.reset(token)
+            engine.dispose()
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("case", [
+    "owned", "pending_task", "connection_held", "foreign_owner", "other_transaction",
+    "foreign_session_info", "session_active", "stale_mapping", "foreign_context",
+])
+def test_cancelled_cleanup_forgets_only_finished_unbound_root_metadata(case):
+    async def scenario():
+        owner = guard_module._ResultViewOwner()
+        token = guard_module._RESULT_VIEW_TASK_OWNER.set(owner)
+        task = asyncio.create_task(asyncio.sleep(10 if case == "pending_task" else 0))
+        if case != "pending_task":
+            await task
+        session = SimpleNamespace(info={}, in_transaction=lambda: case == "session_active")
+        class Transaction:
+            pass
+        transaction = Transaction()
+        transaction.session = session
+        lease = [owner, transaction, task]
+        owner.transactions[transaction] = lease
+        session.info[guard_module._RESULT_VIEW_TRANSACTION_OWNER] = lease
+        if case == "connection_held":
+            owner[object()] = object()
+        if case == "foreign_owner":
+            lease[0] = guard_module._ResultViewOwner()
+        if case == "other_transaction":
+            lease[1] = object()
+        if case == "foreign_session_info":
+            session.info[guard_module._RESULT_VIEW_TRANSACTION_OWNER] = object()
+        if case == "stale_mapping":
+            owner.transactions[transaction] = lease.copy()
+        if case == "foreign_context":
+            guard_module._RESULT_VIEW_TASK_OWNER.set(guard_module._ResultViewOwner())
+        try:
+            guard_module._forget_finished_result_transactions(owner)
+            assert bool(owner.transactions) is (case != "owned")
+            assert bool(session.info) is (case != "owned")
+        finally:
+            if not task.done():
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
             guard_module._RESULT_VIEW_TASK_OWNER.reset(token)
     asyncio.run(scenario())
 

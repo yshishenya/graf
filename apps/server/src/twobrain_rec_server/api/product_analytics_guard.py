@@ -10,7 +10,7 @@ from contextvars import ContextVar
 from typing import Any
 
 from asyncpg import Connection as AsyncpgConnection
-from sqlalchemy import event
+from sqlalchemy import Engine, event
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import Pool
 
@@ -40,7 +40,7 @@ class _ResultViewOwner(dict):
 def _track_result_transaction(session, transaction):
     owner = _RESULT_VIEW_TASK_OWNER.get()
     if owner is not None and transaction.parent is None:
-        lease = (owner, transaction, asyncio.current_task())
+        lease = [owner, transaction, asyncio.current_task()]
         session.info[_RESULT_VIEW_TRANSACTION_OWNER] = lease
         owner.transactions[transaction] = lease
 
@@ -55,9 +55,10 @@ def _untrack_result_transaction(session, transaction):
 
 @event.listens_for(Pool, "checkout")
 def _track_result_connection(dbapi_connection, connection_record, connection_proxy):
+    connection_record.info.pop(_RESULT_VIEW_TRANSACTION_OWNER, None)
     owner = _RESULT_VIEW_TASK_OWNER.get()
     if owner is not None:
-        lease = (owner, dbapi_connection, connection_record.driver_connection, asyncio.current_task())
+        lease = [owner, dbapi_connection, connection_record.driver_connection, asyncio.current_task(), connection_record]
         connection_record.info[_RESULT_VIEW_CONNECTION_OWNER] = lease
         owner[connection_record] = lease
     else:
@@ -66,9 +67,83 @@ def _track_result_connection(dbapi_connection, connection_record, connection_pro
 
 @event.listens_for(Pool, "checkin")
 def _untrack_result_connection(dbapi_connection, connection_record):
+    connection_record.info.pop(_RESULT_VIEW_TRANSACTION_OWNER, None)
     lease = connection_record.info.pop(_RESULT_VIEW_CONNECTION_OWNER, None)
     if lease is not None:
         lease[0].pop(connection_record, None)
+
+
+def _result_connection_lease(connection):
+    owner = _RESULT_VIEW_TASK_OWNER.get()
+    if owner is None:
+        return None
+    task = asyncio.current_task()
+    if task is None or task.get_context().get(_RESULT_VIEW_TASK_OWNER) is not owner:
+        return None
+    if connection.closed or connection.invalidated:
+        return None
+    proxy = connection.connection
+    lease = connection.info.get(_RESULT_VIEW_CONNECTION_OWNER)
+    if lease is None or lease[0] is not owner:
+        return None
+    entry = lease[4]
+    if (
+        not entry.in_use or owner.get(entry) is not lease
+        or entry.info.get(_RESULT_VIEW_CONNECTION_OWNER) is not lease
+        or proxy.dbapi_connection is not lease[1] or entry.dbapi_connection is not lease[1]
+        or proxy.driver_connection is not lease[2] or entry.driver_connection is not lease[2]
+    ):
+        return None
+    return lease
+
+
+@event.listens_for(Session, "after_begin")
+def _bind_result_transaction(session, transaction, connection):
+    lease = _result_connection_lease(connection)
+    root = session.info.get(_RESULT_VIEW_TRANSACTION_OWNER)
+    if (
+        lease is not None and root is not None and transaction.parent is None
+        and root[0] is lease[0] and root[1] is transaction
+        and root[0].transactions.get(transaction) is root
+        and _RESULT_VIEW_TRANSACTION_OWNER not in connection.info
+    ):
+        connection.info[_RESULT_VIEW_TRANSACTION_OWNER] = (root, lease)
+
+
+@event.listens_for(Engine, "before_cursor_execute")
+@event.listens_for(Engine, "rollback")
+@event.listens_for(Engine, "commit")
+def _handoff_result_connection(connection, *args):
+    lease = _result_connection_lease(connection)
+    if lease is None:
+        return
+    association = connection.info.get(_RESULT_VIEW_TRANSACTION_OWNER)
+    if association is not None:
+        root, bound_lease = association
+        if bound_lease is not lease or root[0] is not lease[0] or root[0].transactions.get(root[1]) is not root:
+            return
+    # Session.__aexit__ moves rollback into a shielded close task.
+    lease[3] = asyncio.current_task()
+    if association is not None:
+        root[2] = lease[3]
+
+
+def _forget_finished_result_transactions(owner):
+    if owner or _RESULT_VIEW_TASK_OWNER.get() is not owner:
+        return
+    for transaction, lease in list(owner.transactions.items()):
+        if (
+            lease[0] is not owner or lease[1] is not transaction
+            or owner.transactions.get(transaction) is not lease or not lease[2].done()
+            or lease[2].get_context().get(_RESULT_VIEW_TASK_OWNER) is not owner
+        ):
+            continue
+        session = transaction.session
+        if session.in_transaction() or session.info.get(_RESULT_VIEW_TRANSACTION_OWNER) is not lease:
+            continue
+        # Cancelled close can skip after_transaction_end after releasing its connection.
+        session.info.pop(_RESULT_VIEW_TRANSACTION_OWNER)
+        owner.transactions.pop(transaction)
 
 
 @event.listens_for(Pool, "invalidate")
@@ -262,6 +337,7 @@ async def _run_result_view_app(app, scope, receive, send):
             child.cancel()
         # SQLAlchemy close uses shielded child tasks; join those as well as ASGI.
         await join()
+        _forget_finished_result_transactions(owner)
         raise
     finally:
         _RESULT_VIEW_TASK_OWNER.reset(token)
