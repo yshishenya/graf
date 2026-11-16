@@ -230,6 +230,21 @@
   совпал; новый код не включён в рабочий сбор, PR/merge/выпуска нет.
   [Проверки и предел](https://github.com/yshishenya/graf/blob/9f37adc897217ea2416cf3ebeccb4373efbe1c70/specs/273-paid-traffic-analytics/validation/t112-fresh-access-20261116.md),
   [ревью](https://github.com/yshishenya/graf/blob/9f37adc897217ea2416cf3ebeccb4373efbe1c70/specs/273-paid-traffic-analytics/validation/t112-fresh-verifier-review-20261116.md).
+- [x] В существующем внешнем `ProductAnalyticsIngressGuard` подготовить
+  ограничение будущих двух POST, включая body, auth/CSRF, post-response
+  продление сессии, выданное DB-соединение и отправку собственного ответа.
+  Причинные RED: задержка настоящего renewal вышла за2s; SQL cancel оставлял
+  close task; независимое H2 нашло отправку415/413/fallback вне общего срока.
+  Исправления прошли67 PASS/1 прежний warning/0 skips, runner37s/EXIT0;
+  изолированный PostgreSQL контейнер штатно удалён. Независимое повторное
+  ревью P1=0/P2=0, общий124/0 checklist качества требований без изменений.
+  Сохранено/pushed отдельно `7ece19e783ff844319f2ab88b8d3e796f318de5f`,
+  remote readback совпал; рабочая копия чистая. Полоса high-risk-product.
+  [Граница и доказательства](https://github.com/yshishenya/graf/blob/7ece19e783ff844319f2ab88b8d3e796f318de5f/specs/273-paid-traffic-analytics/validation/t112-http-boundary-design-20261116.md),
+  [ревью](https://github.com/yshishenya/graf/blob/7ece19e783ff844319f2ab88b8d3e796f318de5f/specs/273-paid-traffic-analytics/validation/t112-http-boundary-review-20261116.md).
+  Это узкая внешняя граница: DB handler синтетический и не пишет ledger.
+  Connect/pre-ping/slow-close, полная очистка ресурсов и настоящий HTTP-приём
+  ещё не приняты; PR/CI/merge/выпуска этого шага нет. T112/T113 не закрываются.
 - [ ] Выполнить полный source/audit/projection/proof, browser/native visibility, защищённый
   POST и общую admission boundary с причинной DB/browser/Swift/failure матрицей.
   Renderer использует общий чистый выбор строк и принимает необязательную карту
