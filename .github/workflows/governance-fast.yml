@@ -81,7 +81,7 @@ jobs:
         }}
       cancel-in-progress: true
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     env:
       GRAF_CI_REQUESTED_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.event_name == 'merge_group' && github.event.merge_group.head_sha || inputs.requested_sha }}
       GRAF_CI_EVIDENCE_PATH: .dev/ci-evidence/github-${{ github.run_id }}.json

@@ -942,3 +942,156 @@ Product SHA256 по-прежнему
 Raw и отчёт: `.dev/f200-browser-sharing-await-fix-20261116/`.
 Lane: узкая проверка существующего среза F200/F292; новый exact-SHA GitHub CI,
 нативная и установленная приёмка по-прежнему обязательны.
+
+## Продолжение: T116 — фактическая сборка private715 V4
+
+Один Main запуск native V4 завершился штатно: task Ready/last0, process0,
+полный результат PASS_PRIVATE715_BUILD_RECEIPTS_ONLY без failures или
+unavailable_reports. Учтены209 C/C++ translation units и ровно3 Windows resource
+objects; compile/link, карты символов, PE/import и проверки единственного
+счётчика защищённой памяти прошли. Исключение для ресурсов закрепляет ровно
+три полных пути и не ослабляет бюджет памяти или очистку.
+
+Actual result SHA256:
+`e357c1933b417a0cac74421be63a90aee69cbad55d68765df55c17215132e860`.
+Независимое actual build/ABI review:
+`.dev/t116-ffmpeg-private715-build-20261116-revision4-resources/actual-build-independent-review.md`,
+SHA256 `bbd16dce3ea255fd877ea3a49c588bc6067914f63c1109eb683b8923bdba3cf5`.
+Main прочитал отчёт и сверил привязки. Допуск ограничен отдельным synthetic
+runtime; фактически загруженные DLL ещё требуется связать с точными файлами.
+Runtime, fault/wipe/quality matrix и продуктовая замена AAC этим не подтверждены.
+
+## Продолжение: T088 — причина отказа предварительной проверки retention V2
+
+Data-only receiver V2 завершился штатно с exit1, без timeout и stderr, до
+verify-archive/размещения и без profile_operation. Старый local placement intent
+не является guest placement intent; guest intent/result не созданы. Все partial
+и прежние seals сохранены. Профиль не переименовывался, не копировался и не удалялся.
+
+Main выполнил отдельную проверку только на чтение: private ACL пяти каталогов,
+пустые source/control/evidence и три исходных SHA прошли; проверка qualification
+ошибочно отклонила размер. Дополнительное независимое чтение того же файла
+дало6717bytes и точный ожидаемый SHA256
+`8b1e18b460a72efb264f4aaa96e7569db49e852bf00e7646f5575deb4bdc2062`.
+В Windows PowerShell фактически подтверждены `'-1' -ge 0 == true` и
+`-1 -ge 0 == false`: непомеченный типом positional параметр length получил
+строку, поэтому служебное значение без ограничения размера стало ложным отказом.
+Это ошибка тестового receiver, не повреждение qualification или продукта.
+
+Raw двух отдельных нормальных наблюдений:
+`.dev/t088-r5-retention-preflight-diagnosis-20261116/main-readonly-once/`
+и `main-qualification-observe/`. В первом инструменте stage marker остался
+`start` из-за области видимости динамического ScriptBlock; причину определяют
+observations и отдельное чтение, а не этот marker. Следующее исправление —
+только числовой тип length с сохранением всех проверок и новой отдельной
+попыткой после сверки состояния; до неё Inspect/Retain/R6 не выполняются.
+Отдельная нормальная проверка PowerShell с `[int64]$length` прошла4/4:
+для фактического размера6717 значения−1/0/6717/6718 дают соответственно
+принять/отклонить/принять/отклонить и во всех случаях System.Int64.
+Raw: `main-typed-length-regression/` в том же диагностическом каталоге.
+
+## Продолжение: T088 — сохранение R5 и фактический результат R6
+
+После независимого source review исправлен только тип `[int64]$length`
+в новой копии receiver. Размещение пяти закреплённых входов прошло штатно:
+exit0, parser3/0errors, пять идентификаторов каталогов совпали со свежей
+предварительной проверкой. Отдельный Inspect, затем однократный Retain
+и независимое наблюдение подтвердили сохранение прежнего тестового профиля
+переименованием: обычный путь отсутствовал, сохранённый каталог имел тот же
+идентификатор. Удаления, копирования или восстановления профиля не было.
+Все12 собранных файлов проверены по размеру и SHA256. Независимое actual review
+подтвердило этот ограниченный результат без блокирующих замечаний:
+`.dev/t088-r5-retention-placement-int64-20261116/actual-review.md`.
+
+Следующий R6 выполнен один раз. Его дочерний процесс завершился штатно
+exit3 за6902мс, без timeout/forced; JobEmpty и ProcessSignaled подтверждены,
+264 исходных входа до/после совпали. Это **FAIL**, а не приёмка приложения.
+Первый документ получил HTTP200/HTML, но окончательные сведения о запросе
+не содержали текущую метку навигации и Sec-Fetch-Dest/Mode. Host отказал
+`response-metadata-timeout`; смена B/C и их cookies не проверены. Браузер
+завершился, callbacks закончились, новый оставшийся тестовый профиль сохранён.
+Перед следующим опытом требуется отдельное сохранение именно этого профиля
+с новыми привязками R6; прежняя конфигурация R5 для этого не подходит.
+Raw: `.dev/t088-r6-runtime-prep-20261116/`
+`runtime-collection-20261116T083949619977Z/`;
+runtime-result SHA256
+`524b3b49a6e9104afb78753963af3ce4c18efc5340368f946e3acd96151949be`.
+
+Main сохранил собственную ошибку предварительного сравнения вывода Parallels:
+ожидался знак `(-)`, хотя отключение обозначалось `state=disconnected`.
+Следующая команда оболочки исполнилась после неуспешного assert. Сохранённый
+до запуска снимок подтверждает фактическое отключение сети, но ошибочный
+guard не объявлен прошедшим. После подтверждённого завершения Job сеть штатно
+восстановлена. Следующий запуск должен зависеть от успешной проверки состояния
+в одном управляющем потоке, без продолжения после ошибки.
+
+Разбор `.dev/t088-r6-next-faithful-fixture-scope-20261116.md` рекомендует
+существующий настоящий HTTPS loopback transport вместо локальной подстановки
+ответа. Перестановка обработчиков уже проверялась исторически и не сохраняла
+окончательные сведения браузера. Подстановка защищённых заголовков или
+ослабление допуска Host не предлагаются. Новый тестовый origin/config будут
+явно перечислены как изменения производной сборки; установленная приёмка
+и пользовательские аккаунты этим не заменяются. Доверие к сертификату
+в этом продолжении не менялось.
+
+## Продолжение: T116 — отдельный диагностический host собран
+
+Main выполнил одну передачу и один запуск принятого host-only operator.
+Windows PowerShell5 разобрал build-host.ps1 без ошибок до регистрации task;
+task завершилась Ready/last0, process0, оставшихся native jobs нет. Compile,
+OBJ directives и PE inspection вернули0; source и dependencies до/после совпали.
+Коллектор подтвердил только PASS_HOST_BUILD_RECEIPTS_ONLY без missing reports.
+EXE:28160bytes, SHA256
+`903e7de52001e4347f8225bde71621ace4012a20152ca4b46d1eb26e999d318e`.
+Raw/receipts: `.dev/t116-module-host-build-operator-20261116/host-build-collections/20261116T092218Z-1a8b6550/`.
+Независимое actual binary review и runtime ещё требуются. Diagnostic EXE не
+запускался; продуктовый encoder, бюджет памяти и очистка не менялись.
+
+## Продолжение: T127 — подготовка настоящего UI опыта
+
+Три тестовых файла получили independent SOURCE GO: настоящий пустой защищённый
+owner/queue и существующий worker, без захвата аудио или fake writer. Main
+независимо повторил generator selfcheck:68PASS/0FAIL. Состояния recording/paused
+синтетические;25 actual XAML/peer/focus/disclosure/Stop assertions ещё NOT_RUN.
+Active writer getter и установленная приёмка этим не покрыты.
+
+Ревью Main build operator нашло две P2 до любого запуска: прежние download
+bindings и ошибочный PowerShell major9. Обе исправлены в отдельном R2, старый
+пакет сохранён. Добавлены проверки decoded actual command и major5,8PASS.
+Независимое narrow review R2: SOURCE GO,0findings. Это допуск сборки,
+не Windows UI PASS; runtime требует отдельного ограничения Job не более300с.
+Source package `.dev/t127-ui-source-prep-20261116/`; оператор
+`.dev/t127-ui-native-build-r2-20261116/`, seal
+`3e487e993ed15bbd44d117b5f6c5ebd991ab8c847d7f00e8b8bc4c5f48980bde`.
+
+## Продолжение: конечный бюджет governance-fast
+
+Предыдущий GitHub job43826401164 на b87aa2 отменён примерно через45мин;
+контрактные проверки ещё показывали прогресс незадолго до отмены. Конкретный
+зависший тест не доказан. Только job governance-fast получил60мин вместо45;
+существующий CI contracts выводит nodeid и15самых долгих завершённых проверок.
+Состав, строгие последовательные проверки, ошибки, required contexts и
+привязки SHA/base сохранены. release-full и его45мин не изменены.
+Авторский RED2expectedFAIL; GREEN11PASS/0FAIL/0SKIP. Независимое source review
+четырёх файлов: SOURCE GO,0findings. Raw `.dev/f200-ci-budget-20261116/`.
+Новый обязательный GitHub CI на точном commit ещё требуется; cancelled прежнего
+запуска остаётся отказом, а не доказательством успешной проверки.
+
+### Фактическая сборка T127 и собственная повторная проверка CI
+
+R2 Main build завершился штатно: taskReady/last0, restore/build/process0,
+source265/265 до и после, native jobs отсутствуют. Сохранены11полных отчётов
+с проверкой размера и SHA; source/toolchain/input bindings совпали. EXE3919360B,
+SHA256 `66359cf2e458db0f4035022b715b4d4880b88a308d28f9cc61b22d140faa2969`.
+Raw `.dev/t127-ui-native-build-r2-20261116/main-build-collection/`; независимое
+actual build review и25actual UI checks ещё требуются. Приложение не запущено
+и не установлено, захвата аудио нет.
+
+Main отдельно повторил7контрольных CI tests:7PASS/0FAIL/0SKIP; bash-n,Node
+syntax и git diff --check прошли. Первый governance отказ связан с глобальным
+CLI1.2.6 вместо закреплённого1.0.7. Изолированный cached uv run дал правильную
+версию, но long-path shell launcher не позволил doctor прочитать Git ref.
+Отдельный временный uv tool install из exactfe1d00e3 (offline) сохранил обычный
+короткий Python shebang; полный check_spec_kit_governance.py затем PASS.
+Глобальные CLI/lock/правила проверки не менялись. Raw
+`.dev/f200-ci-budget-20261116/main-independent-20261116/`.

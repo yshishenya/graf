@@ -7,6 +7,7 @@
 #include "../../RecApp/Recording/NativeCapture.h"
 #include "../../RecApp/Storage/Sha256.h"
 #include <winrt/Windows.Foundation.h>
+#include <winrt/Windows.Foundation.Collections.h>
 #include <winrt/Microsoft.UI.Xaml.Controls.h>
 #include <winrt/Microsoft.UI.Xaml.Controls.Primitives.h>
 #include <winrt/Microsoft.UI.Xaml.Media.h>
@@ -19,6 +20,36 @@
 namespace graf::windows {
 // Reserve the real controller/session lease; never launch WASAPI or a writer.
 struct CaptureSessionTestPeer {
+    // UI projection only: real session transitions, no device/factory/ACK claim.
+    static void storageUiState(WindowsCaptureSessionController& controller, SessionState state) {
+        const auto require = [](TransitionResult result) {
+            if (!result.accepted()) throw std::runtime_error("storage_ui_transition");
+        };
+        auto& session = controller.session_;
+        if (state == SessionState::recording && session.state() == SessionState::idle) {
+            require(session.beginReadinessCheck()); require(session.markReady());
+            require(session.beginStart()); require(session.startRecording());
+        } else if (state == SessionState::paused && session.state() == SessionState::recording) {
+            require(session.pause());
+        } else if (state == SessionState::recording && session.state() == SessionState::paused) {
+            require(session.resume());
+        } else if (state == SessionState::degraded && session.state() == SessionState::recording) {
+            require(session.markDegraded(ReasonCode::microphoneEndpointUnavailable));
+            controller.microphoneLost_.store(true);
+        } else if (state == SessionState::failed && session.state() == SessionState::degraded) {
+            require(session.fail(ReasonCode::storageUnavailable));
+        } else if (session.state() != state) throw std::runtime_error("storage_ui_state_order");
+        controller.indicator_.publish(session.state(), session.reason());
+    }
+    static void storageUiPrivacy(WindowsCaptureSessionController& controller, bool pending, bool error) {
+        controller.privacyPending_ = pending;
+        controller.privacyError_ = error ? ReasonCode::storageUnavailable : ReasonCode::none;
+    }
+    static bool storageUiDeviceFree(const WindowsCaptureSessionController& controller) {
+        return !controller.renderWorker_ && !controller.microphoneWorker_ &&
+            !controller.dispatchThread_.joinable() && !controller.acceptingBatches_.load() &&
+            !controller.awaitingPreparation_ && !controller.privacyCommand_ && !controller.privacyCompletion_;
+    }
     static bool reserve(WindowsCaptureSessionController& controller) {
         const auto result = controller.prepareRecording(nullptr, {});
         return result.accepted() && result.state == SessionState::starting;
@@ -29,6 +60,37 @@ struct CaptureSessionTestPeer {
     }
 };
 struct NativeCaptureStorageTestPeer {
+    static bool storageUiReady(const NativeCapture& capture) {
+        if (!capture.storageStartup_ || !capture.storageThread_) return false;
+        std::lock_guard<std::mutex> lock(capture.storageStartup_->mutex);
+        const auto& work = *capture.storageStartup_;
+        return capture.protectedQueueComplete(work) && !work.stop && !work.terminal &&
+            work.spaceQueryComplete && !work.spaceQueryRequested &&
+            work.spaceError == CustodyFileError::none && capture.protectedQueueValue_->items().empty();
+    }
+    static void storageUiObservation(NativeCapture& capture, bool complete, unsigned pressure,
+        CustodyFileError error = CustodyFileError::none, std::uint32_t nativeError = 0) {
+        if (!capture.storageStartup_) throw std::runtime_error("storage_ui_no_owner");
+        std::lock_guard<std::mutex> lock(capture.storageStartup_->mutex);
+        auto& work = *capture.storageStartup_;
+        if (!capture.protectedQueueComplete(work) || work.spaceQueryRequested || work.stop || work.terminal ||
+            capture.recordingWork_ || work.recording || work.nextTicket != 0)
+            throw std::runtime_error("storage_ui_not_quiescent");
+        // Keep the genuine owner/context/adoption untouched. Only last-query
+        // values change. Active UI uses this fallback, not a fabricated writer.
+        work.spaceQueryComplete = complete; work.spacePressure = pressure;
+        work.spaceError = error; work.spaceNativeError = nativeError;
+    }
+    static bool storageUiNoCaptureOrNetwork(const NativeCapture& capture) {
+        if (capture.recordingWork_ || capture.pendingStartReadiness_ || capture.currentAccount_ ||
+            !capture.authSessionToken_.empty() || capture.accountFuture_.valid() || capture.pendingRecovery_ ||
+            capture.lifecycleThread_.joinable() || capture.deletionThread_.joinable()) return false;
+        if (!capture.storageStartup_) return false;
+        std::lock_guard<std::mutex> lock(capture.storageStartup_->mutex);
+        const auto& work = *capture.storageStartup_;
+        return !work.recording && !work.upload && !work.deletion && !work.display && !work.playback &&
+            !work.recoveryCancellation && !work.inFlight && !work.commandReady && work.nextTicket == 0;
+    }
     static void pollAccount(NativeCapture& capture) { capture.pollAccount(); }
     static bool accountPending(const NativeCapture& capture) { return capture.accountFuture_.valid(); }
     static WindowsCaptureSessionController& controller(NativeCapture& capture) { return *capture.controller_; }

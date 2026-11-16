@@ -27,8 +27,13 @@ def load_validator():
 
 
 def test_governance_workflow_contract() -> None:
+    import yaml
+
     validator = load_validator()
-    assert validator.validate(ROOT / ".github/workflows/governance-fast.yml") == []
+    path = ROOT / ".github/workflows/governance-fast.yml"
+    assert validator.validate(path) == []
+    workflow = yaml.load(path.read_text(), Loader=yaml.BaseLoader)
+    assert workflow["jobs"]["governance-fast"]["timeout-minutes"] == "60"
 
 
 @pytest.mark.parametrize("missing", [
