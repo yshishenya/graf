@@ -617,6 +617,21 @@
   отмены внутри зависшего SQL нет. В продукте компонент не подключён;
   полная сессия с двумя INSERT/commit, readiness/freshness, HTTP/source/proof
   и максимальная нагрузка остаются открытыми. PR/merge/CI/release нет.
+- [x] По исходникам `c78a3222c` определить конкретное подключение ограниченной
+  сессии к общей транзакции: фиксированные две вехи, сохранение Session/RR/
+  connection/счётчика/срока до единственного commit, DB SH advisory(273,3)
+  после внешнего filesystem SH. Выбран RETURNING только UUID и обычный
+  guarded SELECT полной строки, чтобы не обходить raw/JSON budget для INSERT.
+  Server-auth callers сохраняют контракт row/created; после успешного INSERT
+  появляется один дополнительный SELECT. RR40001 закрывает конкурентный
+  вызов без retry, следующая новая видимость разрешает authoritative keys.
+  [Проект подключения](https://github.com/yshishenya/graf/blob/33d4c993424c855c4d26eab83f0c335d705f9296/specs/273-paid-traffic-analytics/validation/t112-admission-session-integration-design-20261116.md),
+  SHA-256 `07f285be119006510607d4e68930c068a1cc5c46540256f6ea016d0c29cf9bba`.
+- [ ] Получить независимое заключение нового проекта подключения до кода:
+  точный допуск INSERT/commit, общий deadline/SQL budget/cleanup, свежие locks
+  и отсутствие нового доверенного флага. Новый отчёт пока не получен;
+  request-файл не является доставкой или проверенным ожиданием. Настоящий
+  `_result_period_context` остаётся закрытым; fixture не доказывает T113.
 - [ ] Продолжить реальные HTTP/source/proof/admission границы T112/T113 и
   остальные непокрытые close/commit/cleanup исходы; `_result_period_context`
   по-прежнему `yield None`, HTTP-триггер не подключён. PR/merge/выпуска/
