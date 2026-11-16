@@ -864,12 +864,20 @@
   Пробник не в обычном наборе, не conftest. Ruff/context/diff PASS.
   [Код, проект и ограничения](https://github.com/yshishenya/graf/blob/ef9f5047a/specs/273-paid-traffic-analytics/validation/t112-early-proof-draft-validation-20261117.md).
   Это черновик, не HTTP/PG-приёмка. Рабочий код/исходные тесты не менялись.
-- [ ] Реально передать точную реализацию существующему reviewer и получить
-  независимый PASS/HOLD ДО одного GET/PG опыта. Поручение
-  /private/tmp/graf-t112-early-proof-implementation-review-request-20261117.txt
-  пока только файл; доставки/живого ожидания/FINAL implementation нет.
-  Проект не принимает реализацию заранее, synthetic15 не проверяет GET.
-  Старый V4-допуск израсходован; runtime не менять по неизвестной причине.
+- [x] Передать точную реализацию существующему reviewer и получить FINAL:
+  SCOPED IMPLEMENTATION PASS/P1=0/P2=0, report55cda55e… для прежнего
+  probe e3c5f0d… и selfcheck c73fa8b…. Принято ограничение одного GET/PG;
+  это не приёмка выдачи proof или рабочего измерения.
+- [ ] Исполнить единственный диагностический GET после принятия способа
+  загрузки fixture. Первая реальная попытка остановлена до collection:
+  EXIT4/unrecognized --graf-collection-file,0.424s, container_not_started.
+  БД/GET не запускались; временная копия снята. Статически причина — файл
+  вне tests/ не загрузил tests/conftest.py. Предложено явное -p tests.conftest;
+  новый допуск этой invocation ещё не получен. После сохранения33aedbaaa
+  поручение передано прежнему независимому reviewer; новый FINAL ещё не
+  получен. V4/87/POST не повторялись, runtime прежний.
+  [Отчёт collection и независимое implementation review](https://github.com/yshishenya/graf/blob/33aedbaaa4d79ff8c4f2305b211cf81e99a22177/specs/273-paid-traffic-analytics/validation/t112-early-proof-collection-validation-20261117.md)
+  сохранены отдельно от прежнего draft; причина старого0proofs неизвестна.
 - [ ] Завершить чтение нового завершённого недельного отчёта Метрики. В IAB2
   авторизованный кабинет действительно открылся; показал предупреждение
   технических работ и возможной задержки. Единственный увиденный прямой визит
