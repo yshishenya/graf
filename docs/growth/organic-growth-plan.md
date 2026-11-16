@@ -328,11 +328,16 @@
   сохранение отказа после следующей обычной Session.
   Checkpoint `78cd1ea855b77726c75b5877cf8a094d226a8684` сохранён/pushed;
   [Результаты и границы](https://github.com/yshishenya/graf/blob/78cd1ea855b77726c75b5877cf8a094d226a8684/specs/273-paid-traffic-analytics/validation/t112-init-validation-20261116.md).
-- [ ] Получить повторное независимое implementation review исправленного I1.
-  Поручение и законченные red/focused/full207 журналы подготовлены в
-  `/private/tmp/graf-t112-init-implementation-review-request-20261116.txt`;
-  нового заключения после78cd1ea85 ещё нет. Прежний reviewer terminal report
-  не является живым ожиданием нового ревью. К merge/выпуску не готово.
+- [x] Получить повторное независимое ревью исправленного I1: P1=0/P2=0.
+  Проверяющий прочитал новый diff и законченные red/focused/full207 журналы;
+  повторных тестов без нового основания не запускал. Подтверждены сохраняющийся
+  отказ текущего owner и неизменность чужих metadata/driver; checklist124/0
+  без переотметок. Основной агент прочитал всё дополнение и сверил его SHA-256
+  `646633c73276bfb6c91db6ebde5be4c7b049cc4722fbd0f05f6d50b0c88c01db`.
+  Документальный checkpoint `662d07367937903cf95d677ddeaac90c00148719`
+  сохранён/pushed; remote readback совпал. Это приёмка ограниченного этапа,
+  не полная T112, merge или выпуск.
+  [Независимое заключение](https://github.com/yshishenya/graf/blob/662d07367937903cf95d677ddeaac90c00148719/specs/273-paid-traffic-analytics/validation/t112-init-review-20261116.md).
 - [ ] Выполнить полный source/audit/projection/proof, browser/native visibility, защищённый
   POST и общую admission boundary с причинной DB/browser/Swift/failure матрицей.
   Renderer использует общий чистый выбор строк и принимает необязательную карту
