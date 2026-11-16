@@ -349,10 +349,36 @@
   Отчёт сохранён/pushed `e9eb5076197bbac912aa0f5b9118ded0f35f6edd`,
   remote readback совпал.
   [Проект close-проверок](https://github.com/yshishenya/graf/blob/e9eb5076197bbac912aa0f5b9118ded0f35f6edd/specs/273-paid-traffic-analytics/validation/t112-driver-close-preflight-20261116.md).
-- [ ] Получить исходный результат двух согласованных close-проверок на
-  неизменном guard. Только после причинного результата решать, требуется ли
-  отдельный проект runtime исправления; обычный close/TLS/pool reset и
-  same-pool foreign coverage этим узким случаем не принимаются.
+- [x] Получить исходный результат двух согласованных close-проверок на
+  неизменном guard: normal PASS, delayed EOF FAIL около2.004s на отсутствии
+  полного ASGI ответа. До отмены подтверждены native graceful close,
+  удержанный EOF и исчезнувшие backend/locks. Преждевременный is_closed=True
+  не оказался доказательством освобождённого сокета. Reviewer независимо принял
+  причинный RED C1/P2 и отдельно согласовал проект минимального исправления;
+  весь addendum прочитан до кода, SHA-256
+  `eece78510fec7918b0a89faa44e6cb89f9857d9a6489f134ffb010a0f070dd77`.
+- [x] Локально исправить только hard invalidate(None) точного собственного
+  checked-out idle native соединения: public terminate до graceful close,
+  без private API, изменения пула, retry и отмены всех дочерних задач.
+  Противоречие сохраняет failed только текущего owner; CancelledError/DB-first
+  ветвь прежняя. Новые24 unit:21 FAIL/3 PASS до кода →24 PASS после.
+  Native2 GREEN с полным ответом/ресурсами около0.094/0.077s. Полный изменённый
+  профиль233 PASS:198 unit+27 contract+8 integration,0 skips,1 прежний warning,
+  48.58s/runner53s/EXIT0, isolated_container_removed/result pass.
+  До gate.set доказаны законченные owner/close/relay/pumps/wait_closed,
+  пустые pool/backend/locks, сохранённые renewal/ledger0/foreign PID и новый
+  checkout другого поколения. После исправления client EOF заканчивает relay
+  до upstream EOF; это отдельный честно наблюдённый путь preemptive_abort.
+  Checkpoint `37274e642820ef87ba52a6dd6e8cd8ed185fe595` committed/pushed,
+  readback совпал; это локальный GREEN, не независимая приёмка реализации.
+  [Исходный отказ, исправление и границы](https://github.com/yshishenya/graf/blob/37274e642820ef87ba52a6dd6e8cd8ed185fe595/specs/273-paid-traffic-analytics/validation/t112-driver-close-validation-20261116.md).
+- [ ] Получить независимое implementation review исправленного C1.
+  Поручение с точными hashes/законченными журналами подготовлено в
+  `/private/tmp/graf-t112-driver-close-implementation-review-20261116.txt`;
+  отправка нового поручения и новый итог reviewer ещё не подтверждены.
+  Прежнее проектное ревью не является приёмкой кода или живым ожиданием.
+  Обычный close/TLS/pool reset, прочие commit и same-pool foreign coverage
+  этим узким случаем не принимаются; к merge/выпуску ещё не готово.
 - [ ] Выполнить полный source/audit/projection/proof, browser/native visibility, защищённый
   POST и общую admission boundary с причинной DB/browser/Swift/failure матрицей.
   Renderer использует общий чистый выбор строк и принимает необязательную карту
