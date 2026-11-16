@@ -192,11 +192,23 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     private let onSupportIncidentSync: ([String]) async throws -> DesktopSupportIncidentResponse
     private let onCopySupportIncidentReport: ([String]) throws -> String?
     private let onOpenSupportSignIn: () -> Void
+    private let onRefreshLocalCacheStatus: (() async -> LocalCacheStatusPresentation?)?
+    private let onSetAutoEvictionEnabled: ((Bool) -> Void)?
+    private let onFreeLocalSpace: ((String) async -> LocalCacheCleanupOutcome)?
+    private let onProbeLocalCacheCleanupAvailability:
+        (([DesktopUploadQueueItem]) async -> Set<String>)?
     private let captureControls: CaptureControls
     private let meetingsWorkspace: MeetingsWorkspace
     @State private var inspectorExpanded: Bool
     private let onInspectorExpandedChange: (Bool) -> Void
     @State private var custodyExpanded = false
+    @State private var localCacheStatusPresentation: LocalCacheStatusPresentation?
+    @State private var cleanupPrompt: LocalCacheCleanupPrompt?
+    @State private var cleanupInProgress = false
+    @State private var cleanupResultMessage: String?
+    @State private var showsLocalCachePanel = false
+    @State private var pendingCleanupAfterPanel: LocalCacheCleanupPrompt?
+    @State private var cleanupOfferableItemIDs: Set<String>?
     @ObservedObject private var controlModel = DesktopControlModel.shared
     @AccessibilityFocusState private var focusedRecordingSessionID: String?
     @ObservedObject private var userTimeContext = DesktopUserTimeContext.shared
@@ -230,6 +242,11 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         },
         onCopySupportIncidentReport: @escaping ([String]) throws -> String? = { _ in nil },
         onOpenSupportSignIn: @escaping () -> Void = {},
+        onRefreshLocalCacheStatus: (() async -> LocalCacheStatusPresentation?)? = nil,
+        onSetAutoEvictionEnabled: ((Bool) -> Void)? = nil,
+        onFreeLocalSpace: ((String) async -> LocalCacheCleanupOutcome)? = nil,
+        onProbeLocalCacheCleanupAvailability:
+            (([DesktopUploadQueueItem]) async -> Set<String>)? = nil,
         initialInspectorExpanded: Bool = false,
         onInspectorExpandedChange: @escaping (Bool) -> Void = { _ in },
         @ViewBuilder captureControls: () -> CaptureControls,
@@ -254,6 +271,10 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         self.onSupportIncidentSync = onSupportIncidentSync
         self.onCopySupportIncidentReport = onCopySupportIncidentReport
         self.onOpenSupportSignIn = onOpenSupportSignIn
+        self.onRefreshLocalCacheStatus = onRefreshLocalCacheStatus
+        self.onSetAutoEvictionEnabled = onSetAutoEvictionEnabled
+        self.onFreeLocalSpace = onFreeLocalSpace
+        self.onProbeLocalCacheCleanupAvailability = onProbeLocalCacheCleanupAvailability
         self.onInspectorExpandedChange = onInspectorExpandedChange
         _inspectorExpanded = State(initialValue: initialInspectorExpanded)
         self.captureControls = captureControls()
@@ -314,6 +335,61 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
                 attentionExpansionDismissed = false
             }
         }
+        .task {
+            await refreshLocalCacheStatus()
+            await refreshCleanupAvailability()
+        }
+        .onChange(of: uploadQueueItems) { _, _ in
+            Task { await refreshCleanupAvailability() }
+        }
+        .sheet(item: $cleanupPrompt) { prompt in
+            LocalCacheCleanupConfirmationView(
+                bytes: prompt.bytes,
+                isRunning: cleanupInProgress,
+                onConfirm: {
+                    Task { await runLocalCacheCleanup(prompt) }
+                },
+                onCancel: { cleanupPrompt = nil }
+            )
+        }
+        .sheet(isPresented: $showsLocalCachePanel, onDismiss: {
+            guard let pending = pendingCleanupAfterPanel else { return }
+            pendingCleanupAfterPanel = nil
+            DispatchQueue.main.async {
+                cleanupPrompt = pending
+            }
+        }) {
+            LocalCachePanelView(
+                initialStatus: localCacheStatusPresentation,
+                candidates: localCachePanelCandidates,
+                totalCandidateCount: locallyOfferableItems.count,
+                timeZone: userTimeContext.timeZone,
+                onRefreshStatus: {
+                    let status = await onRefreshLocalCacheStatus?()
+                    localCacheStatusPresentation = status
+                    return status
+                },
+                onSetAutoEvictionEnabled: { enabled in
+                    onSetAutoEvictionEnabled?(enabled)
+                    Task { await refreshLocalCacheStatus() }
+                },
+                onRequestCleanup: { prompt in
+                    pendingCleanupAfterPanel = prompt
+                    showsLocalCachePanel = false
+                },
+                onClose: { showsLocalCachePanel = false }
+            )
+        }
+        .overlay(alignment: .top) {
+            if cabinetConfigured, let cleanupResultMessage {
+                LocalCacheCleanupResultBanner(message: cleanupResultMessage) {
+                    self.cleanupResultMessage = nil
+                }
+                .frame(maxWidth: 520)
+                .padding(DesktopMeetingShellChrome.spacingMedium)
+                .accessibilitySortPriority(3)
+            }
+        }
         .accessibilityIdentifier("desktop-meeting-shell")
     }
 
@@ -342,6 +418,25 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
                 localAppUpdateBadge
             }
             localCabinetStatus
+
+            if onRefreshLocalCacheStatus != nil {
+                LocalCacheStatusCardView(
+                    status: localCacheStatusPresentation,
+                    onSetAutoEvictionEnabled: { enabled in
+                        onSetAutoEvictionEnabled?(enabled)
+                        Task { await refreshLocalCacheStatus() }
+                    },
+                    onRefresh: {
+                        Task { await refreshLocalCacheStatus() }
+                    }
+                )
+            }
+
+            if let cleanupResultMessage {
+                LocalCacheCleanupResultBanner(message: cleanupResultMessage) {
+                    self.cleanupResultMessage = nil
+                }
+            }
 
             VStack(alignment: .leading, spacing: DesktopMeetingShellChrome.spacingMedium) {
                 Text("Записи на этом Mac")
@@ -534,12 +629,67 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
             }
+            if let cleanupBytes = localCleanupBytes(for: item) {
+                Button(LocalCacheCleanupCopy.actionTitle) {
+                    cleanupPrompt = LocalCacheCleanupPrompt(itemID: item.id, bytes: cleanupBytes)
+                }
+                .buttonStyle(DesktopWebButtonStyle(.secondary))
+                .frame(minHeight: 40)
+                .disabled(cleanupInProgress)
+                .help(LocalCacheCleanupCopy.accessibilityAction)
+                .accessibilityLabel(LocalCacheCleanupCopy.accessibilityAction)
+                .accessibilityIdentifier("local-cache-cleanup-\(item.id)")
+            }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 11)
         .contentShape(Rectangle())
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: localCleanupBytes(for: item) == nil ? .combine : .contain)
         .accessibilityLabel(localRecordingAccessibilityLabel(for: item))
+    }
+
+    private func localCleanupBytes(for item: DesktopUploadQueueItem) -> Int64? {
+        guard onFreeLocalSpace != nil,
+              cleanupOfferableItemIDs?.contains(item.id) ?? true,
+              let bytes = LocalCacheCleanupCandidatePolicy.cleanupBytes(for: item) else {
+            return nil
+        }
+        return bytes
+    }
+
+    private var locallyOfferableItems: [DesktopUploadQueueItem] {
+        uploadQueueItems.filter { localCleanupBytes(for: $0) != nil }
+    }
+
+    private var localCachePanelCandidates: [LocalCacheCleanupCandidate] {
+        LocalCacheCleanupCandidatePolicy.panelCandidates(for: locallyOfferableItems)
+    }
+
+    @MainActor
+    private func refreshCleanupAvailability() async {
+        guard let onProbeLocalCacheCleanupAvailability else { return }
+        let candidates = uploadQueueItems.filter {
+            LocalCacheCleanupCandidatePolicy.cleanupBytes(for: $0) != nil
+        }
+        cleanupOfferableItemIDs = await onProbeLocalCacheCleanupAvailability(candidates)
+    }
+
+    @MainActor
+    private func refreshLocalCacheStatus() async {
+        guard let onRefreshLocalCacheStatus else { return }
+        localCacheStatusPresentation = await onRefreshLocalCacheStatus()
+    }
+
+    @MainActor
+    private func runLocalCacheCleanup(_ prompt: LocalCacheCleanupPrompt) async {
+        guard let onFreeLocalSpace, !cleanupInProgress else { return }
+        cleanupInProgress = true
+        let outcome = await onFreeLocalSpace(prompt.itemID)
+        cleanupInProgress = false
+        cleanupPrompt = nil
+        cleanupResultMessage = LocalCacheCleanupCopy.outcomeMessage(outcome)
+        await refreshLocalCacheStatus()
+        await refreshCleanupAvailability()
     }
 
     private func localRecordingTitle(for item: DesktopUploadQueueItem) -> String {
@@ -657,6 +807,24 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
 
                 compactCaptureAction
 
+                Button {
+                    Task { await refreshCleanupAvailability() }
+                    showsLocalCachePanel = true
+                } label: {
+                    Image(systemName: "internaldrive")
+                        .font(.system(size: DesktopDesignTokens.FontSize.label, weight: .semibold))
+                        .foregroundStyle(DesktopDesignTokens.muted)
+                        .frame(
+                            width: DesktopMeetingShellChrome.compactRailActionHitSize,
+                            height: DesktopMeetingShellChrome.compactRailActionHitSize
+                        )
+                }
+                .buttonStyle(.plain)
+                .contentShape(Rectangle())
+                .help(LocalCacheCleanupCopy.cacheTitle)
+                .accessibilityLabel(LocalCacheCleanupCopy.cacheTitle)
+                .accessibilityIdentifier("local-cache-open")
+
                 if attentionCustodyItemCount > 0 {
                     Button {
                         attentionExpansionDismissed = false
@@ -760,6 +928,21 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
                         Text("Запись")
                             .font(.system(size: DesktopDesignTokens.FontSize.subtitle, weight: .semibold))
                         Spacer()
+                        Button {
+                            Task { await refreshCleanupAvailability() }
+                            showsLocalCachePanel = true
+                        } label: {
+                            Label(LocalCacheCleanupCopy.cacheTitle, systemImage: "internaldrive")
+                                .labelStyle(.iconOnly)
+                        }
+                        .buttonStyle(.borderless)
+                        .frame(
+                            minWidth: DesktopMeetingShellChrome.controlHeight,
+                            minHeight: DesktopMeetingShellChrome.controlHeight
+                        )
+                        .help(LocalCacheCleanupCopy.cacheTitle)
+                        .accessibilityLabel(LocalCacheCleanupCopy.cacheTitle)
+                        .accessibilityIdentifier("local-cache-open")
                         Button(action: onOpenSettings) {
                             Label(DesktopMeetingShellChrome.settingsRailLabel, systemImage: "gearshape")
                                 .labelStyle(.iconOnly)

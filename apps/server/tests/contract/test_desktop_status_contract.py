@@ -91,6 +91,8 @@ def test_desktop_sync_state_exposes_structured_custody_for_058() -> None:
 
     assert "custody" in fields
     assert fields["custody"].default is None
+    assert "finalized_upload" in fields
+    assert fields["finalized_upload"].default is None
     payload = {
         "local_recording_id": "local-recording-057",
         "local_media_revision_id": "local-recording-057--initial",
@@ -120,6 +122,42 @@ def test_desktop_sync_state_exposes_structured_custody_for_058() -> None:
     assert response.custody is not None
     assert response.custody.state == CustodyState.FINALIZED
     assert response.custody.upload_state == CustodyUploadState.FINALIZED
+    assert response.playback.state == "unavailable"
+    assert response.playback.can_play is False
+    assert response.playback.object_verified is False
+    assert response.playback.media_revision_id is None
+    assert response.playback.local_media_revision_id is None
+    assert response.playback.verified_at is None
+    assert response.finalized_upload is None
+    assert response.meeting.retention.policy_state == "not_configured"
+    assert response.meeting.retention.delete_after is None
+
+
+def test_desktop_sync_state_accepts_old_payload_without_new_proof_fields() -> None:
+    payload = {
+        "local_recording_id": "legacy-recording-001",
+        "local_media_revision_id": "legacy-recording-001--initial",
+        "meeting": {
+            "meeting_id": str(uuid4()),
+            "status": MeetingStatus.INGESTED_PENDING_PROCESSING,
+            "processing_status": ProcessingStatus.PENDING_PROCESSING,
+        },
+        "media_revision": {"media_revision_id": str(uuid4())},
+        "upload_session": {"status": UploadSessionStatus.FINALIZED},
+        "processing": {"status": ProcessingStatus.PENDING_PROCESSING},
+        "review": {"available": True, "status": "processing"},
+    }
+
+    response = DesktopRecordingSyncStateResponse.model_validate(payload)
+
+    assert response.playback.state == "unavailable"
+    assert response.playback.reason_code == "no_audio"
+    assert response.playback.can_play is False
+    assert response.playback.object_verified is False
+    assert response.playback.automatic_recovery is False
+    assert response.playback.local_media_revision_id is None
+    assert response.finalized_upload is None
+    assert response.meeting.retention.policy_state == "not_configured"
 
 
 def test_custody_read_model_exposes_metadata_safe_incident_fields() -> None:
@@ -238,6 +276,7 @@ async def test_recording_not_found_problem_keeps_local_custody_active() -> None:
     response = problem_response(problem)
     body = json.loads(response.body)
     assert problem.status == 404
+    assert problem.headers == {"Cache-Control": "no-store"}
     assert body["code"] == "recording_not_found"
     assert body["custody_owner"] == "product_automatic"
     assert body["retry_class"] == "automatic"

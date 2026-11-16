@@ -13,6 +13,7 @@ from twobrain_rec_server.api.schemas import (
     CreateUploadSessionRequest,
     DeletionRequestResponse,
     DesktopRecordingSyncStateResponse,
+    DesktopStorageStatusResponse,
     FinalizeUploadRequest,
     FinalizeUploadResponse,
     ManualMediaUploadResponse,
@@ -43,6 +44,7 @@ from twobrain_rec_server.auth.dependencies import (
     get_tenant_scope,
     require_web_csrf,
 )
+from twobrain_rec_server.billing.storage_status import desktop_storage_status
 from twobrain_rec_server.cabinet.access import enforce_share_rate_limit
 from twobrain_rec_server.db.models import RecordingCalendarContextLink
 from twobrain_rec_server.db.tenant_context import apply_tenant_scope
@@ -326,15 +328,41 @@ async def create_manual_media_upload(
 )
 async def get_recording_sync_state(
     local_recording_id: str,
+    request: Request,
+    response: Response,
     local_media_revision_id: str | None = Query(default=None),
     tenant_scope: TenantScope = TenantDependency,
     db: AsyncSession | None = DbDependency,
+    storage: object = StorageDependency,
 ) -> DesktopRecordingSyncStateResponse:
+    response.headers["Cache-Control"] = "no-store"
     return await get_desktop_recording_sync_state(
         tenant_scope=tenant_scope,
         db=db,
         local_recording_id=local_recording_id,
         local_media_revision_id=local_media_revision_id,
+        settings=request.app.state.settings,
+        storage=storage,
+    )
+
+
+@router.get(
+    "/desktop/storage/status",
+    response_model=DesktopStorageStatusResponse,
+    dependencies=[PrincipalDependency, DeviceDependency],
+    tags=["billing"],
+)
+async def get_desktop_storage_status(
+    request: Request,
+    response: Response,
+    tenant_scope: TenantScope = TenantDependency,
+    db: AsyncSession | None = DbDependency,
+) -> DesktopStorageStatusResponse:
+    response.headers["Cache-Control"] = "no-store"
+    return await desktop_storage_status(
+        db,
+        tenant_scope=tenant_scope,
+        settings=request.app.state.settings,
     )
 
 

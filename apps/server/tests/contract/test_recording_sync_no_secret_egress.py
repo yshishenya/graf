@@ -15,6 +15,7 @@ FORBIDDEN_RESPONSE_MARKERS = [
     "mediaScribeApiKey",
     "minio_secret",
     "/Users/",
+    "meeting-review.m4a",
 ]
 
 
@@ -29,7 +30,26 @@ def test_recording_sync_state_response_is_metadata_only(client) -> None:
     )
 
     assert response.status_code == 200
-    assert response.json()["media_revision"]["media_revision_id"] is not None
+    body = response.json()
+    assert body["media_revision"]["media_revision_id"] is not None
+    assert set(body["playback"]) == {
+        "state",
+        "can_play",
+        "reason_code",
+        "media_revision_id",
+        "local_media_revision_id",
+        "object_verified",
+        "verified_at",
+        "automatic_recovery",
+    }
+    assert "finalized_upload" in body
+    assert body["finalized_upload"]["status"] == "finalized"
+    assert body["finalized_upload"]["finalized_at"] is not None
+    assert "archive_audio" not in body["upload_session"]
+    assert "finalized_at" not in body["upload_session"]
+    assert "media_revision_id" not in body["upload_session"]
+    assert "retention" in body["meeting"]
+    assert response.headers["cache-control"] == "no-store"
     for marker in FORBIDDEN_RESPONSE_MARKERS:
         assert marker not in response.text
 

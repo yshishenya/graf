@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
@@ -25,10 +26,12 @@ from twobrain_rec_server.api.schemas import (
     ContentExportCapabilityResponse,
     ContentExportDefaults,
     ContentExportReadiness,
+    DesktopPlaybackProof,
     ExportPackageExclusion,
     ExportPackageResponse,
     MeetingActivityItem,
     MeetingActivityResponse,
+    PlaybackPreparationReasonCode,
     PlaybackPreparationState,
 )
 from twobrain_rec_server.cabinet.access import (
@@ -130,6 +133,8 @@ ALLOWED_AUDIT_KEYS = {
     "turn_policy_version",
 }
 STORAGE_MATERIALIZATION_TIMEOUT_SECONDS = 30
+PLAYBACK_PROOF_TIMEOUT_SECONDS = 2.0
+PLAYBACK_PROOF_READ_PROBE_BYTES = 16 * 1024
 IMPLICIT_OWNER_ONLY_POLICY_SOURCES = frozenset({"meeting_default", "workspace_default"})
 
 
@@ -1721,6 +1726,229 @@ async def review_playback_state(
         reason_code="reconciliation_pending",
         label=playback_reason_copy("reconciliation_pending"),
         automatic_recovery=True,
+    )
+
+
+def _desktop_playback_proof_from_state(
+    playback: PlaybackPreparationState,
+    *,
+    revision: MediaRevision | None,
+) -> DesktopPlaybackProof:
+    return DesktopPlaybackProof(
+        state=playback.state,
+        can_play=playback.can_play,
+        reason_code=playback.reason_code,
+        media_revision_id=revision.id if revision is not None else None,
+        local_media_revision_id=revision.local_media_revision_id if revision is not None else None,
+        object_verified=False,
+        verified_at=None,
+        automatic_recovery=playback.automatic_recovery,
+    )
+
+
+async def _playback_object_probe_failure(
+    storage: object | None,
+    *,
+    artifact: TrackArtifact,
+    timeout: float,
+) -> PlaybackPreparationReasonCode | None:
+    """Return a fail-closed reason code, or None when stat and read both pass.
+
+    A successful probe requires the exact stored size and a bounded read of the
+    first bytes. It intentionally never assumes that database rows prove object
+    existence or readability.
+    """
+
+    if storage is None:
+        return "reconciliation_pending"
+    object_key = artifact.storage_object_key
+    if not object_key:
+        return "canonical_artifact_missing"
+
+    stat_async = getattr(storage, "stat_object_async", None)
+    stat_sync = getattr(storage, "stat_object", None)
+    if not callable(stat_async) and not callable(stat_sync):
+        return "reconciliation_pending"
+    try:
+        async with asyncio.timeout(timeout):
+            if callable(stat_async):
+                stat_result = await stat_async(object_key)
+            else:
+                stat_result = await to_thread.run_sync(stat_sync, object_key)
+            actual_size = (
+                stat_result if isinstance(stat_result, int) else getattr(stat_result, "size", None)
+            )
+    except KeyError:
+        return "canonical_artifact_missing"
+    except Exception:
+        return "reconciliation_pending"
+    if not isinstance(actual_size, int) or actual_size != artifact.byte_length:
+        return "canonical_artifact_missing"
+
+    iter_object = getattr(storage, "iter_object", None)
+    if not callable(iter_object):
+        return "reconciliation_pending"
+    probe_bytes = min(artifact.byte_length, PLAYBACK_PROOF_READ_PROBE_BYTES)
+    if probe_bytes <= 0:
+        return "canonical_artifact_missing"
+
+    def read_sync_probe(iterator: object) -> int:
+        total = 0
+        try:
+            for chunk in iterator:  # type: ignore[union-attr]
+                if not chunk:
+                    continue
+                total += min(len(chunk), probe_bytes - total)
+                if total >= probe_bytes:
+                    break
+        finally:
+            close = getattr(iterator, "close", None)
+            if callable(close):
+                close()
+        return total
+
+    async def read_async_probe(iterator: object) -> int:
+        total = 0
+        try:
+            async for chunk in iterator:  # type: ignore[union-attr]
+                if not chunk:
+                    continue
+                total += min(len(chunk), probe_bytes - total)
+                if total >= probe_bytes:
+                    break
+        finally:
+            aclose = getattr(iterator, "aclose", None)
+            if callable(aclose):
+                await aclose()
+        return total
+
+    try:
+        async with asyncio.timeout(timeout):
+            iterator = await to_thread.run_sync(
+                lambda: iter_object(object_key, offset=0, length=probe_bytes)
+            )
+            if inspect.isawaitable(iterator):
+                iterator = await iterator
+            if hasattr(iterator, "__aiter__"):
+                total = await read_async_probe(iterator)
+            else:
+                total = await to_thread.run_sync(lambda: read_sync_probe(iterator))
+    except KeyError:
+        return "canonical_artifact_missing"
+    except Exception:
+        return "reconciliation_pending"
+    if total != probe_bytes:
+        return "reconciliation_pending"
+    return None
+
+
+async def desktop_playback_proof(
+    db: AsyncSession,
+    *,
+    meeting: Meeting,
+    access: AccessDecision,
+    revision: MediaRevision | None = None,
+    storage: object | None = None,
+    timeout: float = PLAYBACK_PROOF_TIMEOUT_SECONDS,
+) -> DesktopPlaybackProof:
+    """Build a per-response proof for the revision playback actually serves.
+
+    The proof fails closed for missing objects, size mismatches, unreadable
+    objects, timeouts, archive opt-out, deletion and denied access. It never
+    changes the cabinet ``PlaybackPreparationState`` contract.
+    """
+
+    actual_revision = revision or await _latest_accepted_media_revision(
+        db,
+        workspace_id=meeting.workspace_id,
+        meeting_id=meeting.id,
+    )
+    playback = await review_playback_state(
+        db,
+        meeting=meeting,
+        access=access,
+        storage=None,
+        revision=actual_revision,
+    )
+    proof = _desktop_playback_proof_from_state(playback, revision=actual_revision)
+    if playback.state != "available" or not playback.can_play:
+        return proof
+    if actual_revision is None:
+        return proof
+    if not await archive_audio_for_revision(
+        db,
+        workspace_id=meeting.workspace_id,
+        meeting_id=meeting.id,
+        media_revision_id=actual_revision.id,
+    ):
+        return DesktopPlaybackProof(
+            state="unavailable",
+            can_play=False,
+            reason_code="audio_not_archived",
+            media_revision_id=actual_revision.id,
+            local_media_revision_id=actual_revision.local_media_revision_id,
+            object_verified=False,
+            verified_at=None,
+            automatic_recovery=False,
+        )
+    try:
+        artifact = await _stored_review_m4a_artifact(
+            db,
+            meeting=meeting,
+            revision=actual_revision,
+        )
+    except ReviewAudioBuildError as exc:
+        reason: PlaybackPreparationReasonCode = (
+            "canonical_artifact_missing"
+            if str(exc) == "missing_playback_artifact"
+            else "reconciliation_pending"
+        )
+        return DesktopPlaybackProof(
+            state="preparing",
+            can_play=False,
+            reason_code=reason,
+            media_revision_id=actual_revision.id,
+            local_media_revision_id=actual_revision.local_media_revision_id,
+            object_verified=False,
+            verified_at=None,
+            automatic_recovery=True,
+        )
+    except Exception:
+        return DesktopPlaybackProof(
+            state="preparing",
+            can_play=False,
+            reason_code="reconciliation_pending",
+            media_revision_id=actual_revision.id,
+            local_media_revision_id=actual_revision.local_media_revision_id,
+            object_verified=False,
+            verified_at=None,
+            automatic_recovery=True,
+        )
+    failure = await _playback_object_probe_failure(
+        storage,
+        artifact=artifact,
+        timeout=timeout,
+    )
+    if failure is not None:
+        return DesktopPlaybackProof(
+            state="preparing",
+            can_play=False,
+            reason_code=failure,
+            media_revision_id=actual_revision.id,
+            local_media_revision_id=actual_revision.local_media_revision_id,
+            object_verified=False,
+            verified_at=None,
+            automatic_recovery=True,
+        )
+    return DesktopPlaybackProof(
+        state="available",
+        can_play=True,
+        reason_code="canonical_ready",
+        media_revision_id=actual_revision.id,
+        local_media_revision_id=actual_revision.local_media_revision_id,
+        object_verified=True,
+        verified_at=datetime.now(UTC),
+        automatic_recovery=False,
     )
 
 

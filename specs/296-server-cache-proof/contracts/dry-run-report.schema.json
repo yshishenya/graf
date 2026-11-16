@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "local-cache-eviction-dry-run.v1",
+  "title": "Local cache eviction dry-run report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "generatedAt", "scopeFingerprint", "truncated", "availableItemCount", "policy", "totals", "byReason", "items"],
+  "properties": {
+    "schemaVersion": {"const": "local-cache-eviction-dry-run.v1"},
+    "generatedAt": {"type": "string", "format": "date-time"},
+    "scopeFingerprint": {"type": "string", "minLength": 1},
+    "truncated": {"type": "boolean"},
+    "availableItemCount": {"type": "integer", "minimum": 0},
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["maximumProofAgeSeconds", "graceSeconds", "minimumRemainingRetentionSeconds"],
+      "properties": {
+        "maximumProofAgeSeconds": {"type": "integer", "minimum": 1},
+        "graceSeconds": {"type": "integer", "minimum": 0},
+        "minimumRemainingRetentionSeconds": {"type": "integer", "minimum": 0}
+      }
+    },
+    "totals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["inspected", "eligible", "eligibleBytes", "rejected", "rejectedBytes", "unknownBytes"],
+      "properties": {
+        "inspected": {"type": "integer", "minimum": 0},
+        "eligible": {"type": "integer", "minimum": 0},
+        "eligibleBytes": {"type": "integer", "minimum": 0},
+        "rejected": {"type": "integer", "minimum": 0},
+        "rejectedBytes": {"type": "integer", "minimum": 0},
+        "unknownBytes": {"type": "integer", "minimum": 0}
+      }
+    },
+    "byReason": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "count", "bytes"],
+        "properties": {
+          "code": {"type": "string", "minLength": 1},
+          "count": {"type": "integer", "minimum": 0},
+          "bytes": {"type": "integer", "minimum": 0}
+        }
+      }
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["localRecordingFingerprint", "state", "bytes", "verdict", "primaryReason", "allReasons"],
+        "properties": {
+          "localRecordingFingerprint": {"type": "string", "minLength": 1},
+          "state": {"type": "string", "minLength": 1},
+          "bytes": {"type": "integer", "minimum": 0},
+          "verdict": {"enum": ["potentially_eligible", "keep"]},
+          "primaryReason": {"type": "string", "minLength": 1},
+          "allReasons": {"type": "array", "items": {"type": "string", "minLength": 1}},
+          "server": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "meetingFingerprint": {"type": ["string", "null"]},
+              "mediaRevisionFingerprint": {"type": ["string", "null"]},
+              "playbackRevisionFingerprint": {"type": ["string", "null"]},
+              "playbackState": {"type": ["string", "null"]},
+              "canPlay": {"type": ["boolean", "null"]},
+              "objectVerified": {"type": ["boolean", "null"]},
+              "archiveAudio": {"type": ["boolean", "null"]},
+              "policyState": {"type": ["string", "null"]}
+            }
+          }
+        }
+      }
+    }
+  }
+}

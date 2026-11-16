@@ -1014,6 +1014,8 @@ public struct EmbeddedCabinetLocalRecordingRow: Codable, Equatable, Sendable {
     public let showsPartialDuration: Bool
     public let canSend: Bool
     public let canDelete: Bool
+    public let canFreeSpace: Bool?
+    public let spaceToFreeBytes: Int64?
     public let uploadComplete: Bool
     public var localDeletionPending: Bool = false
     public var deletionIsLocalOnly: Bool = false
@@ -1069,6 +1071,8 @@ public struct EmbeddedCabinetLocalRecordingRow: Codable, Equatable, Sendable {
                 case .terminalDeleted: "Удалено"
                 }
             }
+            let spaceToFreeBytes = LocalCacheCleanupCandidatePolicy.cleanupBytes(for: item)
+            let canFreeSpace = spaceToFreeBytes != nil
             return Self(
                 id: item.id,
                 meetingId: item.meetingId ?? item.serverTruth.meetingId,
@@ -1086,6 +1090,8 @@ public struct EmbeddedCabinetLocalRecordingRow: Codable, Equatable, Sendable {
                     && ![.saving, .uploading, .uploaded].contains(item.state),
                 canDelete: !item.lifecycleBlocksContent && item.state != .saving &&
                     (item.ownerScope != nil || DesktopUploadQueueService.canDeleteLocalCopy(item: item, recordingsRootURL: recordingsRootURL)),
+                canFreeSpace: canFreeSpace,
+                spaceToFreeBytes: canFreeSpace ? spaceToFreeBytes : nil,
                 uploadComplete: item.state == .uploaded,
                 localDeletionPending: localDeletionPending,
                 deletionIsLocalOnly: item.serverCreationAttempted == false
@@ -1131,6 +1137,7 @@ public enum EmbeddedCabinetLocalRecordingBridge {
     public static let openAction = "open"
     public static let sendAction = "send"
     public static let deleteAction = "delete"
+    public static let freeSpaceAction = "freeSpace"
 
     public static let documentScript = """
     (() => {
@@ -1172,9 +1179,13 @@ public enum EmbeddedCabinetLocalRecordingBridge {
         guard let object = body as? [String: Any],
               let action = object["action"] as? String,
               let id = object["id"] as? String,
-              [openAction, sendAction, deleteAction].contains(action),
+              [openAction, sendAction, deleteAction, freeSpaceAction].contains(action),
               let row = rows.first(where: { $0.id == id }),
-              action == openAction ? row.canOpen : (action == sendAction ? row.canSend : row.canDelete)
+              action == openAction
+                ? row.canOpen
+                : (action == sendAction
+                    ? row.canSend
+                    : (action == freeSpaceAction ? row.canFreeSpace == true : row.canDelete))
         else {
             return nil
         }

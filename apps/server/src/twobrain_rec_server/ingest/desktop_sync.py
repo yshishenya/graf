@@ -7,18 +7,25 @@ from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.api.schemas import (
     CustodyIncidentReadModel,
     CustodyReadModel,
+    DesktopPlaybackProof,
     DesktopRecordingSyncStateResponse,
     DesktopSyncConflict,
+    DesktopSyncFinalizedUploadState,
     DesktopSyncMeetingState,
     DesktopSyncProcessingState,
+    DesktopSyncRetentionState,
     DesktopSyncReviewState,
     DesktopSyncUploadSessionState,
     MediaRevisionSummary,
     MissingRange,
 )
 from twobrain_rec_server.auth.context import TenantScope
+from twobrain_rec_server.cabinet.access import AccessDecision
+from twobrain_rec_server.cabinet.egress import desktop_playback_proof
+from twobrain_rec_server.config import Settings
 from twobrain_rec_server.db.models import Meeting as MeetingModel
 from twobrain_rec_server.db.models import ProcessingResult, ProcessingWorkflow
+from twobrain_rec_server.deletion.retention import retention_projection
 from twobrain_rec_server.domain.statuses import (
     CustodyMetadataSafety,
     CustodyNormalUserAction,
@@ -33,13 +40,16 @@ from twobrain_rec_server.domain.statuses import (
     ProcessingAvailabilityStatus,
     ProcessingResultStatus,
     ProcessingStatus,
+    RetentionPolicyState,
     SyncConflictState,
     UploadSessionStatus,
 )
 from twobrain_rec_server.ingest.media_revisions import normalize_initial_local_media_revision_id
 from twobrain_rec_server.ingest.ranges import missing_ranges_for_expected_sizes
 from twobrain_rec_server.ingest.store import (
+    FinalizedUploadCustody,
     UploadSessionRecord,
+    finalized_upload_custody_for_revision,
     load_active_upload_session_for_meeting,
     load_meeting_record,
     load_upload_session_record,
@@ -104,15 +114,35 @@ def _safe_deletion_state(value: str | None) -> DeletionState:
         return DeletionState.NONE
 
 
-async def _load_deletion_state(db: AsyncSession | None, meeting_id: object) -> DeletionState:
+async def _load_meeting_model(db: AsyncSession | None, meeting_id: object) -> MeetingModel | None:
     if db is None:
-        return DeletionState.NONE
-    model = await db.get(MeetingModel, meeting_id)
+        return None
+    return await db.get(MeetingModel, meeting_id)
+
+
+def _deletion_state_for_model(model: MeetingModel | None) -> DeletionState:
     if model is None:
         return DeletionState.NONE
     if model.deleted_at is not None:
         return DeletionState.DELETING
     return _safe_deletion_state(model.deletion_state)
+
+
+async def _load_deletion_state(db: AsyncSession | None, meeting_id: object) -> DeletionState:
+    return _deletion_state_for_model(await _load_meeting_model(db, meeting_id))
+
+
+def _sync_access_decision(access_state: str) -> AccessDecision:
+    return AccessDecision(
+        state=access_state,
+        label=access_state,
+        reason=None,
+        can_view=access_state == "owner",
+        can_share=False,
+        can_manage_team_visibility=False,
+        can_download=False,
+        can_export=False,
+    )
 
 
 def _metadata_conflict(*, expected_revision_id: str, actual_revision_id: str | None) -> DesktopSyncConflict:
@@ -734,6 +764,8 @@ async def get_desktop_recording_sync_state(
     db: AsyncSession | None,
     local_recording_id: str,
     local_media_revision_id: str | None,
+    settings: Settings | None = None,
+    storage: object | None = None,
 ) -> DesktopRecordingSyncStateResponse:
     meeting = await load_meeting_record(
         db,
@@ -750,6 +782,7 @@ async def get_desktop_recording_sync_state(
             retry_class=CustodyRetryClass.AUTOMATIC.value,
             normal_user_action=CustodyNormalUserAction.NONE.value,
             metadata_safety=CustodyMetadataSafety.METADATA_ONLY.value,
+            headers={"Cache-Control": "no-store"},
         )
     expected_revision_id = normalize_initial_local_media_revision_id(local_recording_id, local_media_revision_id)
     session: UploadSessionRecord | None = None
@@ -769,7 +802,8 @@ async def get_desktop_recording_sync_state(
     )
     # Expiry may restore a previous accepted revision. Compute all
     # revision-scoped projections only after that authoritative mutation.
-    deletion_state = await _load_deletion_state(db, meeting.id)
+    meeting_model = await _load_meeting_model(db, meeting.id)
+    deletion_state = _deletion_state_for_model(meeting_model)
     access_state, access_conflict = _access_conflict(tenant_scope=tenant_scope, meeting=meeting)
     metadata_conflict = _metadata_conflict(
         expected_revision_id=expected_revision_id,
@@ -873,6 +907,64 @@ async def get_desktop_recording_sync_state(
     )
     if conflict.state == SyncConflictState.STALE_DEVICE_IDENTITY:
         access_state = "stale_device_identity"
+    playback_proof = DesktopPlaybackProof()
+    if meeting_model is not None:
+        try:
+            playback_proof = await desktop_playback_proof(
+                db,
+                meeting=meeting_model,
+                access=_sync_access_decision(access_state),
+                storage=storage,
+            )
+        except Exception:
+            # Proof failure must never mask deletion, access or conflict state.
+            playback_proof = DesktopPlaybackProof(
+                state="preparing",
+                reason_code="reconciliation_pending",
+                automatic_recovery=True,
+            )
+    custody: FinalizedUploadCustody | None = None
+    if db is not None and playback_proof.media_revision_id is not None:
+        try:
+            custody = await finalized_upload_custody_for_revision(
+                db,
+                workspace_id=meeting.workspace_id,
+                meeting_id=meeting.id,
+                media_revision_id=playback_proof.media_revision_id,
+            )
+        except Exception:
+            custody = None
+    if custody is None and playback_proof.state == "available":
+        # Playback must not look provable without matching finalized custody.
+        playback_proof = DesktopPlaybackProof(
+            state="preparing",
+            reason_code="reconciliation_pending",
+            media_revision_id=playback_proof.media_revision_id,
+            local_media_revision_id=playback_proof.local_media_revision_id,
+            automatic_recovery=True,
+        )
+    finalized_upload = (
+        DesktopSyncFinalizedUploadState(
+            session_id=custody.session_id,
+            media_revision_id=custody.media_revision_id,
+            local_media_revision_id=custody.local_media_revision_id,
+            archive_audio=custody.archive_audio,
+            finalized_at=custody.finalized_at,
+            status=UploadSessionStatus.FINALIZED,
+        )
+        if custody is not None
+        else None
+    )
+    retention = DesktopSyncRetentionState()
+    if meeting_model is not None and settings is not None:
+        try:
+            delete_after, policy_state = retention_projection(meeting_model, settings)
+        except Exception:
+            delete_after, policy_state = None, RetentionPolicyState.NOT_CONFIGURED
+        retention = DesktopSyncRetentionState(
+            delete_after=delete_after,
+            policy_state=policy_state.value,
+        )
     accepted_bytes_by_track = _accepted_bytes_by_track(session)
     missing_ranges_by_track = _missing_ranges_by_track(session)
     review_available = _review_available(conflict, effective_processing_status)
@@ -897,6 +989,7 @@ async def get_desktop_recording_sync_state(
             processing_status=effective_processing_status,
             deletion_state=deletion_state,
             access_state=access_state,
+            retention=retention,
         ),
         media_revision=MediaRevisionSummary(
             media_revision_id=meeting.media_revision_id,
@@ -934,6 +1027,8 @@ async def get_desktop_recording_sync_state(
             web_url=f"/meetings/{meeting.id}" if review_available else None,
             desktop_url=review_desktop_url,
         ),
+        playback=playback_proof,
+        finalized_upload=finalized_upload,
         conflict=conflict,
         custody=_custody_read_model(
             meeting=meeting,

@@ -45,6 +45,7 @@ struct ContentView: View {
     @State private var uploadQueueItems: [DesktopUploadQueueItem] = []
     @ObservedObject private var userTimeContext = DesktopUserTimeContext.shared
     @State private var localRecordingRows: [EmbeddedCabinetLocalRecordingRow] = []
+    @State private var localCacheEvictionScheduler: LocalCacheEvictionScheduler?
     @State private var desktopCalendarReminderService = DesktopCalendarReminderService()
     @State private var desktopCalendarPrompt: DesktopCalendarPrompt?
     @State private var desktopCalendarJoinInProgress = false
@@ -172,6 +173,18 @@ struct ContentView: View {
             },
             onOpenSupportSignIn: {
                 openSupportSignIn()
+            },
+            onRefreshLocalCacheStatus: {
+                await localCacheStatus()
+            },
+            onSetAutoEvictionEnabled: { enabled in
+                setLocalCacheAutoEvictionEnabled(enabled)
+            },
+            onFreeLocalSpace: { itemID in
+                await cleanupLocalTranscription(itemID: itemID)
+            },
+            onProbeLocalCacheCleanupAvailability: { items in
+                await probeLocalCacheCleanupAvailability(items: items)
             },
             initialInspectorExpanded: interfacePreferences.inspectorExpanded,
             onInspectorExpandedChange: { value in
@@ -375,6 +388,7 @@ struct ContentView: View {
         .task { await synchronizeRecordingDeletionsLoop() }
         .task { await refreshCalendarReminderLoop() }
         .task { await refreshMeetingDetectionRegistryLoop() }
+        .task { await runLocalCacheEviction(trigger: .launch) }
         .task(id: meetingDetectionRegistryRequiresRemoteRefresh) {
             await retryMeetingDetectionRegistryLoop()
         }
@@ -1735,20 +1749,161 @@ struct ContentView: View {
         localFootprintRisk = risk
         localFootprintMeasuredAt = Date()
         storageWarning = CaptureControlView.storageWarningText(for: risk)
+        if force, risk != .healthy {
+            Task { await runLocalCacheEviction(trigger: .footprintRefresh) }
+        }
         return risk
     }
 
     @MainActor
-    private func meetingDetectionStorageRisk() -> LocalBufferRiskState {
-        guard let localFootprintMeasuredAt,
-              Date().timeIntervalSince(localFootprintMeasuredAt) <= 300 else {
-            // The detection loop only reads this value. Schedule a fresh
-            // measurement so a long background stay cannot leave auto-record
-            // suppressed until an unrelated queue event happens.
-            Task { await refreshLocalFootprintRisk(force: true) }
-            return .mustDegradeOrStop
+    private func localCacheScheduler() -> LocalCacheEvictionScheduler {
+        if let localCacheEvictionScheduler { return localCacheEvictionScheduler }
+        let queueService = desktopUploadQueueService
+        let client = DesktopUploadClient.configuredFromEnvironment()
+        let cleanup = makeLocalCacheCleanupService()
+        let loader = LocalCacheEvictionCandidateLoader(
+            queueURL: queueService.queueFileURL,
+            recordingsRootURL: queueService.recordingsRootURL,
+            client: client,
+            scopeProvider: { queueService.deletionScopeFence().scope }
+        )
+        let scheduler = LocalCacheEvictionScheduler(
+            footprintProvider: LocalCacheEvictionRuntime.footprintProvider(
+                rootURL: queueService.recordingsRootURL
+            ),
+            settingsProvider: { LocalCacheEvictionSettings.snapshot() },
+            candidateProvider: { await loader.load() },
+            evictor: { candidate in
+                await cleanup.cleanup(itemID: candidate.itemID, action: .automaticEviction)
+            }
+        )
+        localCacheEvictionScheduler = scheduler
+        return scheduler
+    }
+
+    @MainActor
+    private func makeLocalCacheCleanupService() -> LocalCacheCleanupService {
+        let queueService = desktopUploadQueueService
+        return LocalCacheCleanupService(
+            queueURL: queueService.queueFileURL,
+            recordingsRootURL: queueService.recordingsRootURL,
+            client: DesktopUploadClient.configuredFromEnvironment(),
+            fenceProvider: {
+                let current = queueService.deletionScopeFence()
+                return LocalCacheCleanupScopeFence(
+                    scope: current.scope,
+                    generation: current.generation
+                ) {
+                    queueService.isDeletionScopeCurrent(
+                        scope: current.scope,
+                        generation: current.generation
+                    )
+                }
+            }
+        )
+    }
+
+    @MainActor
+    private func presentLocalCacheCleanupConfirmation(itemID: String, bytes: Int64) {
+        let size = LocalCacheByteFormat.string(from: bytes)
+        let alert = NSAlert()
+        alert.messageText = LocalCacheCleanupCopy.confirmationTitle
+        alert.informativeText = LocalCacheCleanupCopy.confirmationBody +
+            "\n\n" + LocalCacheCleanupCopy.spaceLine(size: size)
+        alert.addButton(withTitle: LocalCacheCleanupCopy.confirmButtonTitle(size: size))
+        alert.addButton(withTitle: LocalCacheCleanupCopy.cancelTitle)
+        alert.alertStyle = .warning
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        Task { _ = await cleanupLocalTranscription(itemID: itemID) }
+    }
+
+    @MainActor
+    private func cleanupLocalTranscription(itemID: String) async -> LocalCacheCleanupOutcome {
+        let outcome = await makeLocalCacheCleanupService().cleanup(
+            itemID: itemID,
+            action: .manualCleanup
+        )
+        if case .completed = outcome {
+            uploadQueueItems = (try? desktopUploadQueueService.loadItems()) ?? uploadQueueItems
+            LocalRecordingPlayer.shared.reconcile(items: uploadQueueItems)
         }
-        return localFootprintRisk
+        AppLog.writeRaw(event: "local_cache.cleanup", detail: cleanupLogDetail(outcome))
+        return outcome
+    }
+
+    private func cleanupLogDetail(_ outcome: LocalCacheCleanupOutcome) -> String {
+        switch outcome {
+        case .completed(let bytes):
+            return "action=manual_cleanup outcome=completed bytes=\(bytes)"
+        case .noop:
+            return "action=manual_cleanup outcome=noop"
+        case .unexpectedMissing:
+            return "action=manual_cleanup outcome=unexpected_missing"
+        case .scopeChanged:
+            return "action=manual_cleanup outcome=scope_changed"
+        case .localFileChanged:
+            return "action=manual_cleanup outcome=local_file_changed"
+        case .notEligible(let primaryReason, _):
+            return "action=manual_cleanup outcome=not_eligible reason=\(primaryReason.rawValue)"
+        case .failed(let code):
+            return "action=manual_cleanup outcome=failed code=\(code)"
+        }
+    }
+
+    @MainActor
+    private func localCacheStatus() async -> LocalCacheStatusPresentation? {
+        await localCacheScheduler().status()
+    }
+
+    @MainActor
+    private func probeLocalCacheCleanupAvailability(
+        items: [DesktopUploadQueueItem]
+    ) async -> Set<String> {
+        let queueService = desktopUploadQueueService
+        let probe = LocalCacheCleanupAvailabilityProbe(
+            queueURL: queueService.queueFileURL,
+            recordingsRootURL: queueService.recordingsRootURL
+        )
+        return await probe.offerableItemIDs(among: items)
+    }
+
+    @MainActor
+    private func setLocalCacheAutoEvictionEnabled(_ enabled: Bool) {
+        UserDefaults.standard.set(enabled, forKey: LocalCacheEvictionSettings.userDefaultsKey)
+        AppLog.writeRaw(event: "local_cache.setting", detail: "auto_eviction_enabled=\(enabled)")
+        localCacheScheduler().notify(.footprintRefresh)
+    }
+
+    @MainActor
+    private func runLocalCacheEviction(trigger: LocalCacheEvictionTrigger) async {
+        let result = await localCacheScheduler().run(trigger)
+        guard case .completed(_, let deleted, let freedBytes) = result, deleted > 0 else {
+            return
+        }
+        uploadQueueItems = (try? desktopUploadQueueService.loadItems()) ?? uploadQueueItems
+        LocalRecordingPlayer.shared.reconcile(items: uploadQueueItems)
+        if let localFootprintProvider {
+            await localFootprintProvider.invalidate()
+        }
+        AppLog.writeRaw(
+            event: "local_cache.eviction",
+            detail: "trigger=\(trigger.rawValue) deleted=\(deleted) freed_bytes=\(freedBytes)"
+        )
+    }
+
+    @MainActor
+    private func meetingDetectionStorageRisk() -> LocalBufferRiskState {
+        if let risk = MeetingDetectionFootprintFreshness.freshRisk(
+            measuredAt: localFootprintMeasuredAt,
+            risk: localFootprintRisk
+        ) {
+            return risk
+        }
+        // The detection loop only reads this value. Schedule a fresh measurement
+        // so a long background stay cannot leave auto-record suppressed until an
+        // unrelated queue event happens.
+        Task { await refreshLocalFootprintRisk(force: true) }
+        return .mustDegradeOrStop
     }
 
     @MainActor
@@ -2651,6 +2806,7 @@ struct ContentView: View {
                 calendarMatchAttemptId: activeCalendarMatchAttemptId
             )
             clearActiveCalendarMatchState()
+            Task { await runLocalCacheEviction(trigger: .recordingStopped) }
             AppLog.writeRaw(
                 event: AuditEventName.recordingStopped.rawValue,
                 detail: "sessionId=\(stopped.id) reason=\(stopped.stopReason?.rawValue ?? "none") localRecordingStatus=\(manifest.status.rawValue)"
@@ -2772,6 +2928,7 @@ struct ContentView: View {
         }
         uploadQueueRefreshInProgress = true
         let service = desktopUploadQueueService
+        let uploadedBefore = Set(uploadQueueItems.filter { $0.state == .uploaded }.map(\.id))
         Task {
             do {
                 if !(await localRecordingWriter.isRecordingAsync()) {
@@ -2781,6 +2938,7 @@ struct ContentView: View {
                     }.value
                 }
                 try? await service.refreshDeletionScope()
+                Task { await runLocalCacheEviction(trigger: .footprintRefresh) }
                 try? await Task.detached(priority: .utility) { try service.finishLocalOnlyDeletions() }.value
                 _ = try await Task.detached(priority: .utility) { try service.scanAndEnqueueCompletedRecordings() }.value
                 _ = try await Task.detached(priority: .utility) { try service.applyRetentionExpiry() }.value
@@ -2824,6 +2982,9 @@ struct ContentView: View {
                     )
                     if refreshAgain {
                         refreshUploadQueueAndProcess(reason: "coalesced_\(reason)")
+                    }
+                    if items.contains(where: { $0.state == .uploaded && !uploadedBefore.contains($0.id) }) {
+                        Task { await runLocalCacheEviction(trigger: .uploadFinalized) }
                     }
                 }
             } catch {
@@ -3127,6 +3288,16 @@ struct ContentView: View {
                 uploadQueueItems = try desktopUploadQueueService.loadItems()
                 LocalRecordingPlayer.shared.reconcile(items: uploadQueueItems)
                 Task { await synchronizeRecordingDeletions() }
+            case EmbeddedCabinetLocalRecordingBridge.freeSpaceAction:
+                guard let item = try desktopUploadQueueService.loadItems().first(where: { $0.id == itemId }),
+                      let bytes = LocalCacheCleanupCandidatePolicy.cleanupBytes(for: item) else {
+                    return
+                }
+                Task { @MainActor in
+                    let offerable = await probeLocalCacheCleanupAvailability(items: [item])
+                    guard offerable.contains(item.id) else { return }
+                    presentLocalCacheCleanupConfirmation(itemID: itemId, bytes: bytes)
+                }
             default:
                 return
             }

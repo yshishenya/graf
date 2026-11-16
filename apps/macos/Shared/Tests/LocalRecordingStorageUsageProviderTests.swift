@@ -131,14 +131,22 @@ final class LocalRecordingFootprintProviderTests: XCTestCase {
     }
 
     func testInvalidateDuringMeasurementRejectsStaleResult() async {
+        let started = DispatchSemaphore(value: 0)
+        let release = DispatchSemaphore(value: 0)
         let provider = provider(timeout: 2, measure: { _ in
-            Thread.sleep(forTimeInterval: 0.1)
+            started.signal()
+            release.wait()
             return Self.snapshot(0)
         })
 
         let task = Task { await provider.refresh() }
-        try? await Task.sleep(nanoseconds: 20_000_000)
+        XCTAssertEqual(
+            started.wait(timeout: .now() + 1),
+            .success,
+            "measurement must start before invalidate; a sleep-only race is flaky under CI load"
+        )
         await provider.invalidate()
+        release.signal()
         let risk = await task.value
 
         XCTAssertEqual(risk, .mustDegradeOrStop)
@@ -157,6 +165,50 @@ final class LocalRecordingFootprintProviderTests: XCTestCase {
         _ = await provider.risk()
 
         XCTAssertEqual(calls.read(), 1)
+    }
+
+    func testMeetingDetectionFootprintFreshnessUsesTheProviderTTL() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        XCTAssertEqual(LocalRecordingFootprintProvider.defaultCacheTTL, 60)
+        XCTAssertEqual(
+            MeetingDetectionFootprintFreshness.freshRisk(
+                measuredAt: now,
+                risk: .warning,
+                now: now
+            ),
+            .warning
+        )
+        XCTAssertEqual(
+            MeetingDetectionFootprintFreshness.freshRisk(
+                measuredAt: now.addingTimeInterval(-60),
+                risk: .critical,
+                now: now
+            ),
+            .critical
+        )
+        XCTAssertNil(
+            MeetingDetectionFootprintFreshness.freshRisk(
+                measuredAt: now.addingTimeInterval(-61),
+                risk: .warning,
+                now: now
+            ),
+            "A value older than the provider TTL must be treated as stale"
+        )
+        XCTAssertNil(
+            MeetingDetectionFootprintFreshness.freshRisk(
+                measuredAt: nil,
+                risk: .healthy,
+                now: now
+            )
+        )
+        XCTAssertNil(
+            MeetingDetectionFootprintFreshness.freshRisk(
+                measuredAt: now.addingTimeInterval(1),
+                risk: .warning,
+                now: now
+            ),
+            "A future timestamp is not a trustworthy freshness proof"
+        )
     }
 
     func testInvalidateClearsCache() async {

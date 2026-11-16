@@ -201,6 +201,24 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         }
     }
 
+    public var queueFileURL: URL {
+        queueURL
+    }
+
+    /// Read-only scope/generation pair for the cleanup and eviction fences.
+    public func deletionScopeFence() -> (scope: RecordingDeletionScope?, generation: UInt64) {
+        queue.sync { (activeDeletionScope, UInt64(max(0, deletionScopeGeneration))) }
+    }
+
+    public func isDeletionScopeCurrent(
+        scope: RecordingDeletionScope?,
+        generation: UInt64
+    ) -> Bool {
+        queue.sync {
+            activeDeletionScope == scope && UInt64(max(0, deletionScopeGeneration)) == generation
+        }
+    }
+
     /// Called with an authenticated native context, never a WebView supplied account.
     public func setDeletionScope(_ scope: RecordingDeletionScope?) {
         let cancelled = queue.sync { () -> ([Task<Void, Error>], Task<Bool, Error>?) in
