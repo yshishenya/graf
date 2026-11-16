@@ -172,11 +172,10 @@ from twobrain_rec_server.deletion.local_purge import (
     ensure_local_purge_task,
     list_local_purge_tasks,
 )
-from twobrain_rec_server.deletion.report import lifecycle_state
 from twobrain_rec_server.deletion.retention import run_retention_scan
 from twobrain_rec_server.deletion.service import (
     deletion_report_response,
-    lifecycle_for_meeting,
+    meeting_deletion_lifecycle,
     request_meeting_deletion,
     retry_meeting_deletion,
 )
@@ -904,7 +903,7 @@ async def get_meeting_lifecycle_state_route(
         meeting_id=meeting_id,
         viewer_user_id=principal.user_id,
     )
-    return lifecycle_state(await lifecycle_for_meeting(meeting=meeting))
+    return await meeting_deletion_lifecycle(db, meeting=meeting)
 
 
 @router.post(
@@ -5194,7 +5193,7 @@ async def continue_public_meeting(request: Request, share_token: str,
         query["media_version"] = media_version
     target = f"/api/v1/cabinet/public-shares/{share_token}?"+urlencode(query)
     if tab != "outcomes" or position_ms is not None:
-        target += share_fragment(tab, position_ms)
+        target += share_fragment(tab, position_ms if media_version else None)
     cookie = seal(target, encryption_key(request.app.state.settings))
     destination = "/sign-up" if action == "sign-up" else "/login"
     response = RedirectResponse(destination+"?"+urlencode({"next":"/shared-meeting/continue"}),status_code=303)

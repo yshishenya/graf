@@ -32,6 +32,7 @@ def record_audit_event(
     actor_user_id: UUID | None = None,
     device_id: UUID | None = None,
     metadata: dict[str, object] | None = None,
+    retain_in_memory: bool = True,
 ) -> AuditEvent:
     filtered = _truncate_metadata(redact_mapping(metadata or {}))
     event = AuditEvent(
@@ -44,7 +45,8 @@ def record_audit_event(
         device_id=device_id,
         metadata=filtered,
     )
-    store_module.store.audit_events.append(event)
+    if retain_in_memory:
+        store_module.store.audit_events.append(event)
     return event
 
 

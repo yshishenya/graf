@@ -1037,7 +1037,7 @@ async def run_account_closure_reconciler(
     harmless and no meeting deletion is falsely reported as complete here.
     """
     engine = create_engine(settings)
-    sessionmaker = create_sessionmaker(engine)
+    sessionmaker = create_sessionmaker(engine, settings)
     storage = get_storage(settings)
     context = MaintenanceTenantContext(
         operation_name="billing_reconciliation",
@@ -1541,7 +1541,7 @@ async def run_dispatch_reconciler(settings: Any, temporal_client: object) -> Non
 async def run_deletion_purge_reconciler(settings: Any, temporal_client: object) -> None:
     """Converge committed deletion tombstones after process/storage failures."""
     engine = create_engine(settings)
-    sessionmaker = create_sessionmaker(engine)
+    sessionmaker = create_sessionmaker(engine, settings)
     storage = get_storage(settings)
     context = MaintenanceTenantContext(
         operation_name="deletion_purge_reconciliation",

@@ -15,8 +15,8 @@ Use this file with `.specify/memory/constitution.md`,
   Swift/Cocoa/ScreenCaptureKit/AVFoundation/Core Audio where appropriate.
 - Windows and other platforms require separate future native stacks and
   architecture decisions.
-- Manual `Record`/`Stop` remains available whenever workspace policy permits
-  recording.
+- Manual `Record` remains available when native capture prerequisites are met;
+  `Stop` remains available throughout active capture, including after a failure.
 - Active capture must always have a persistent local visible indicator and a
   one-action stop path.
 - No user or admin setting may make active capture invisible.
@@ -33,9 +33,13 @@ Use this file with `.specify/memory/constitution.md`,
   prompt. All states remain visible, accessible and reversible in settings.
 - The three-state preference is client-owned. Server assisted-auto-start policy
   and acknowledgement are not start gates and must be removed only after a
-  compatible client that ignores them has shipped. General workspace recording
-  and consent restrictions, approved-target detection, permissions, local
+  compatible client that ignores them has shipped. Approved-target detection, permissions, local
   storage, visible indicator and one-action Stop remain mandatory.
+- Constitution 7 removes workspace legal-policy setup, participant-notice and
+  legal-consent verification from recording prerequisites for all users.
+  Do not add a replacement dialog/server approval or fabricate consent records.
+  User-agreement work is separate; auth, workspace data access, OS permissions,
+  capture integrity and release checks are unchanged.
 - A bulk `Для всех приложений` choice applies one of the same three values to
   currently known apps. It is not a fourth state or a global “record arbitrary
   audio” switch.

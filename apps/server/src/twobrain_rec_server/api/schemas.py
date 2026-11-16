@@ -4,6 +4,7 @@ from typing import Annotated, Any, Literal, Self
 from uuid import UUID
 
 from pydantic import (
+    AwareDatetime,
     BaseModel,
     ConfigDict,
     Field,
@@ -866,6 +867,11 @@ class CreateMeetingRequest(BaseModel):
     duration_seconds: int = Field(gt=0)
 
 
+class StrictCalendarMeetingRequest(CreateMeetingRequest):
+    calendar_match_attempt_id: UUID
+    started_at: AwareDatetime
+
+
 class MeetingResponse(BaseModel):
     meeting_id: UUID
     workspace_id: UUID
@@ -889,6 +895,13 @@ class CreateUploadSessionRequest(BaseModel):
     )
     expected_track_sizes: dict[TrackRole, int] = Field(default_factory=dict)
     manifest_sha256: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+
+
+class CreateCalendarUploadSessionRequest(CreateUploadSessionRequest):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_media_revision_id: UUID
+    calendar_match_attempt_id: UUID
 
 
 class CreateMediaRevisionUploadSessionRequest(BaseModel):
@@ -917,6 +930,16 @@ class UploadSessionResponse(BaseModel):
     mediascribe_job_id: None = None
     desktop_label: str | None = None
     desktop_truth_rule: str | None = None
+
+
+class CalendarUploadSessionProof(BaseModel):
+    session_id: UUID
+    meeting_id: UUID
+    media_revision_id: UUID
+    status: Literal["pending", "uploading"]
+    expires_at: datetime
+    expected_tracks: list[TrackRole]
+    expected_track_sizes: dict[TrackRole, int]
 
 
 class MediaRevisionUploadSessionResponse(BaseModel):
@@ -1004,6 +1027,11 @@ class CustodyReadModel(BaseModel):
     metadata_safety: CustodyMetadataSafety = CustodyMetadataSafety.METADATA_ONLY
 
 
+class DesktopCalendarMatchReceipt(BaseModel):
+    attempt_id: UUID
+    state: Literal["matched_user", "declined_by_user"]
+
+
 class DesktopRecordingSyncStateResponse(BaseModel):
     local_recording_id: str
     local_media_revision_id: str
@@ -1014,6 +1042,9 @@ class DesktopRecordingSyncStateResponse(BaseModel):
     review: DesktopSyncReviewState
     conflict: DesktopSyncConflict = Field(default_factory=DesktopSyncConflict)
     custody: CustodyReadModel | None = None
+    calendar_match_receipt: DesktopCalendarMatchReceipt | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
 
 class UploadPartResponse(BaseModel):

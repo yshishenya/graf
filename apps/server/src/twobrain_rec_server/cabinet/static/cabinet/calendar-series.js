@@ -26,7 +26,7 @@
     if(!button || event.defaultPrevented || !event.isTrusted) return;
     event.preventDefault();
     const eventId=button.dataset.calendarJoin;if(!uuid.test(eventId) || pendingJoin) return;
-    if(navigator.userAgent.includes('GRAFDesktop/')) {
+    if(document.body.dataset.surfaceMode==='desktop_embedded' || navigator.userAgent.includes('GRAFDesktop/')) {
       joinFeedback(eventId,'Календарь загружается. Повторите попытку.');return;
     }
     // Reserve the tab during trusted input; async window.open can be blocked.

@@ -1,0 +1,4 @@
+# Preserve the exact pinned NuGet notice bytes on Windows checkouts too.
+WebView2/** -text
+CppWinRT/** -text
+WindowsAppSDK/** -text

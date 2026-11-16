@@ -1,8 +1,9 @@
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
-from sqlalchemy import select
+from sqlalchemy import Select, case, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.schemas import TrackDescriptor
@@ -36,6 +37,15 @@ from twobrain_rec_server.ingest.media_revisions import (
     initial_media_revision_status,
     normalize_initial_local_media_revision_id,
 )
+from twobrain_rec_server.storage.strict_upload_keys import (
+    STRICT_UPLOAD_ATTEMPT,
+    is_strict_upload_key,
+)
+
+if TYPE_CHECKING:
+    from twobrain_rec_server.ingest.strict_upload import StagedStrictUpload
+
+_STRICT_PUBLICATION = "strict_upload_publication"
 
 
 @dataclass(slots=True)
@@ -97,6 +107,7 @@ class UploadSessionRecord:
     finalized_at: datetime | None = None
     idempotency_key: str | None = None
     parts: dict[tuple[TrackRole, int], UploadPartRecord] = field(default_factory=dict)
+    calendar_match_attempt_id: UUID | None = None
 
 
 @dataclass(slots=True)
@@ -133,9 +144,10 @@ class InMemoryIngestStore:
         title: str | None,
         title_source: str,
         media_revision_source_kind: MediaRevisionSourceKind = MediaRevisionSourceKind.INITIAL_MIXED_RECORDING,
+        retain_in_memory: bool = True,
     ) -> MeetingRecord:
         key = (workspace_id, user_id, local_recording_id)
-        if key in self.meetings_by_local_id:
+        if retain_in_memory and key in self.meetings_by_local_id:
             return self.meetings[self.meetings_by_local_id[key]]
         if duration_seconds > settings.max_recording_duration_seconds:
             raise ValueError("recording_duration_exceeded")
@@ -159,8 +171,9 @@ class InMemoryIngestStore:
             media_revision_source_kind=media_revision_source_kind,
             created_at=created_at,
         )
-        self.meetings[meeting.id] = meeting
-        self.meetings_by_local_id[key] = meeting.id
+        if retain_in_memory:
+            self.meetings[meeting.id] = meeting
+            self.meetings_by_local_id[key] = meeting.id
         return meeting
 
     def create_upload_session(
@@ -172,6 +185,7 @@ class InMemoryIngestStore:
         expected_track_roles: list[TrackRole] | None = None,
         expected_track_sizes: dict[TrackRole, int] | None = None,
         idempotency_key: str | None = None,
+        retain_in_memory: bool = True,
     ) -> UploadSessionRecord:
         session = UploadSessionRecord(
             id=uuid4(),
@@ -193,7 +207,8 @@ class InMemoryIngestStore:
             idempotency_key=idempotency_key,
         )
         meeting.status = MeetingStatus.UPLOADING
-        self.sessions[session.id] = session
+        if retain_in_memory:
+            self.sessions[session.id] = session
         return session
 
 
@@ -336,6 +351,40 @@ async def persist_meeting(db: AsyncSession | None, meeting: MeetingRecord, *, co
     await _finish_write(db, commit=commit)
 
 
+def preferred_meeting_revision(workspace_id: UUID, meeting_id: UUID) -> Select[tuple[MediaRevision]]:
+    active = (
+        select(UploadSession.media_revision_id)
+        .where(
+            UploadSession.workspace_id == workspace_id,
+            UploadSession.meeting_id == meeting_id,
+            UploadSession.media_revision_id.is_not(None),
+            UploadSession.status.not_in({
+                UploadSessionStatus.FINALIZED.value,
+                UploadSessionStatus.DEGRADED.value,
+                UploadSessionStatus.FAILED.value,
+                UploadSessionStatus.ABORTED.value,
+                UploadSessionStatus.EXPIRED.value,
+            }),
+        )
+        .order_by(UploadSession.created_at.desc())
+        .limit(1)
+        .scalar_subquery()
+    )
+    return (
+        select(MediaRevision)
+        .where(
+            MediaRevision.workspace_id == workspace_id,
+            MediaRevision.meeting_id == meeting_id,
+            or_(active.is_(None), MediaRevision.id == active),
+        )
+        .order_by(
+            case((MediaRevision.status == MediaRevisionStatus.ACCEPTED.value, 0), else_=1),
+            MediaRevision.revision_number.desc(),
+        )
+        .limit(1)
+    )
+
+
 async def load_meeting_record(
     db: AsyncSession | None,
     *,
@@ -343,6 +392,7 @@ async def load_meeting_record(
     workspace_id: UUID | None = None,
     created_by_user_id: UUID | None = None,
     local_recording_id: str | None = None,
+    retain_in_memory: bool = True,
 ) -> MeetingRecord | None:
     if db is None:
         return None
@@ -363,43 +413,7 @@ async def load_meeting_record(
     workspace = await db.get(Workspace, model.workspace_id)
     if workspace is None:
         return None
-    terminal_statuses = {
-        UploadSessionStatus.FINALIZED.value,
-        UploadSessionStatus.DEGRADED.value,
-        UploadSessionStatus.FAILED.value,
-        UploadSessionStatus.ABORTED.value,
-        UploadSessionStatus.EXPIRED.value,
-    }
-    active_revision_id = await db.scalar(
-        select(UploadSession.media_revision_id)
-        .where(
-            UploadSession.workspace_id == model.workspace_id,
-            UploadSession.meeting_id == model.id,
-            UploadSession.media_revision_id.is_not(None),
-            UploadSession.status.not_in(terminal_statuses),
-        )
-        .order_by(UploadSession.created_at.desc())
-    )
-    revision_query = select(MediaRevision).where(
-        MediaRevision.workspace_id == model.workspace_id,
-        MediaRevision.meeting_id == model.id,
-    )
-    if active_revision_id is not None:
-        revision_query = revision_query.where(MediaRevision.id == active_revision_id)
-    else:
-        revision_query = revision_query.where(MediaRevision.status == MediaRevisionStatus.ACCEPTED.value)
-    media_revision = await db.scalar(
-        revision_query.order_by(MediaRevision.revision_number.desc())
-    )
-    if media_revision is None and active_revision_id is None:
-        media_revision = await db.scalar(
-            select(MediaRevision)
-            .where(
-                MediaRevision.workspace_id == model.workspace_id,
-                MediaRevision.meeting_id == model.id,
-            )
-            .order_by(MediaRevision.revision_number.desc())
-        )
+    media_revision = await db.scalar(preferred_meeting_revision(model.workspace_id, model.id))
     record = MeetingRecord(
         id=model.id,
         workspace_id=model.workspace_id,
@@ -437,8 +451,9 @@ async def load_meeting_record(
         processing_status=ProcessingStatus(model.processing_status),
         created_at=model.created_at,
     )
-    store.meetings[record.id] = record
-    store.meetings_by_local_id[(record.workspace_id, record.created_by_user_id, record.local_recording_id)] = record.id
+    if retain_in_memory:
+        store.meetings[record.id] = record
+        store.meetings_by_local_id[(record.workspace_id, record.created_by_user_id, record.local_recording_id)] = record.id
     return record
 
 
@@ -464,6 +479,7 @@ async def persist_upload_session(
                 id=session.id,
                 meeting_id=session.meeting_id,
                 media_revision_id=session.media_revision_id,
+                calendar_match_attempt_id=session.calendar_match_attempt_id,
                 workspace_id=session.workspace_id,
                 device_id=session.device_id,
                 created_by_user_id=session.created_by_user_id,
@@ -538,6 +554,7 @@ async def load_upload_session_record(
         device_id=model.device_id,
         created_by_user_id=model.created_by_user_id,
         media_revision_id=model.media_revision_id or meeting.media_revision_id,
+        calendar_match_attempt_id=model.calendar_match_attempt_id,
         media_revision_source_kind=(
             MediaRevisionSourceKind(session_revision.source_kind)
             if session_revision is not None
@@ -686,6 +703,8 @@ async def _clear_orphan_cleanup_intents_for_authoritative_keys(
     keys = tuple(dict.fromkeys(key for key in object_keys if key))
     if not keys:
         return
+    if any(map(is_strict_upload_key, keys)):
+        raise RuntimeError("strict_upload_requires_explicit_ownership")
     rows = (
         await db.scalars(
             select(PurgeJournal)
@@ -697,10 +716,63 @@ async def _clear_orphan_cleanup_intents_for_authoritative_keys(
             .with_for_update()
         )
     ).all()
+    if any(row.artifact_class == STRICT_UPLOAD_ATTEMPT for row in rows):
+        raise RuntimeError("strict_upload_requires_explicit_ownership")
     if any(row.state == "deleting" for row in rows):
         raise RuntimeError("object_cleanup_in_progress")
     for row in rows:
         await db.delete(row)
+
+
+def _has_staged_strict_owner(
+    db: AsyncSession, session: UploadSessionRecord, key: str, role: TrackRole, part: int | None,
+    length: int, digest: str | None, *, commit: bool,
+) -> bool:
+    publication = db.info.get(_STRICT_PUBLICATION)
+    if commit or publication is None or publication[0] is not db.get_transaction():
+        return False
+    item: StagedStrictUpload | None = publication[1].get(key)
+    if item is None:
+        return False
+    obj = item.object
+    return (
+        (obj.workspace_id, obj.meeting_id, obj.revision_id, obj.session_id, obj.role, obj.part_number)
+        == (session.workspace_id, session.meeting_id, session.media_revision_id, session.id, role, part)
+        and session.calendar_match_attempt_id == item.calendar_attempt_id
+        and length == item.byte_length and (digest is None or digest == item.sha256)
+    )
+
+
+async def _require_reused_strict_part(
+    db: AsyncSession, session: UploadSessionRecord, key: str, role: TrackRole, length: int,
+    digest: str | None, *, commit: bool,
+) -> None:
+    if commit or session.calendar_match_attempt_id is None:
+        raise RuntimeError("strict_upload_requires_explicit_ownership")
+    owner = select(UploadPart.id).where(
+        UploadPart.upload_session_id == session.id,
+        UploadPart.track_role == role.value,
+        UploadPart.storage_object_key == key,
+        UploadPart.byte_length == length,
+        UploadPart.status == "accepted",
+    )
+    if digest is not None:
+        owner = owner.where(UploadPart.sha256 == digest)
+    if await db.scalar(select(PurgeJournal.id).join(Meeting, Meeting.id == PurgeJournal.meeting_id).where(
+        PurgeJournal.workspace_id == session.workspace_id,
+        PurgeJournal.meeting_id == session.meeting_id,
+        PurgeJournal.media_revision_id == session.media_revision_id,
+        PurgeJournal.artifact_class == STRICT_UPLOAD_ATTEMPT,
+        PurgeJournal.object_key == key,
+        PurgeJournal.deletion_epoch == Meeting.deletion_epoch,
+        PurgeJournal.storage_epoch.is_not(None),
+        PurgeJournal.storage_scope.is_not(None),
+        PurgeJournal.multipart_upload_id.is_not(None),
+        PurgeJournal.state == "retained",
+        PurgeJournal.write_state == "accepted",
+        owner.exists(),
+    ).with_for_update(of=PurgeJournal)) is None:
+        raise RuntimeError("strict_upload_requires_explicit_ownership")
 
 
 async def persist_upload_part(
@@ -712,12 +784,16 @@ async def persist_upload_part(
 ) -> None:
     if db is None:
         return
-    await _clear_orphan_cleanup_intents_for_authoritative_keys(
-        db,
-        workspace_id=session.workspace_id,
-        meeting_id=session.meeting_id,
-        object_keys=[part.object_key],
+    staged = _has_staged_strict_owner(
+        db, session, part.object_key, part.track_role, part.part_number, part.byte_length, part.sha256, commit=commit,
     )
+    if not staged:
+        await _clear_orphan_cleanup_intents_for_authoritative_keys(
+            db,
+            workspace_id=session.workspace_id,
+            meeting_id=session.meeting_id,
+            object_keys=[part.object_key],
+        )
     existing = await db.scalar(
         select(UploadPart).where(
             UploadPart.upload_session_id == session.id,
@@ -725,6 +801,8 @@ async def persist_upload_part(
             UploadPart.part_number == part.part_number,
         )
     )
+    if existing is not None and staged:
+        raise RuntimeError("strict_upload_part_already_owned")
     if existing is None:
         db.add(
             UploadPart(
@@ -753,12 +831,18 @@ async def persist_temporary_upload_object(
 ) -> None:
     if db is None:
         return
-    await _clear_orphan_cleanup_intents_for_authoritative_keys(
-        db,
-        workspace_id=session.workspace_id,
-        meeting_id=session.meeting_id,
-        object_keys=[part.object_key],
+    staged = _has_staged_strict_owner(
+        db, session, part.object_key, part.track_role, part.part_number, part.byte_length, part.sha256, commit=commit,
     )
+    if staged and (object_role != "accepted_part" or cleanup_status != "pending"):
+        raise RuntimeError("strict_upload_custody_not_admitted")
+    if not staged:
+        await _clear_orphan_cleanup_intents_for_authoritative_keys(
+            db,
+            workspace_id=session.workspace_id,
+            meeting_id=session.meeting_id,
+            object_keys=[part.object_key],
+        )
     existing = await db.scalar(
         select(TemporaryUploadObject).where(
             TemporaryUploadObject.upload_session_id == session.id,
@@ -895,21 +979,31 @@ async def persist_finalized_tracks(
     manifest_sha256: str,
     track_object_keys: dict[TrackRole, str] | None = None,
     *,
+    reused_strict_keys: set[str] | None = None,
     commit: bool = True,
 ) -> None:
     if db is None:
         return
+    if (meeting.id, meeting.workspace_id) != (session.meeting_id, session.workspace_id):
+        raise RuntimeError("finalized_track_owner_mismatch")
     track_object_keys = track_object_keys or {}
     for track in tracks:
         storage_object_key = track_object_keys.get(track.track_role)
         if storage_object_key is None:
             storage_object_key = session.parts[(track.track_role, 0)].object_key
-        await _clear_orphan_cleanup_intents_for_authoritative_keys(
-            db,
-            workspace_id=meeting.workspace_id,
-            meeting_id=meeting.id,
-            object_keys=[storage_object_key],
-        )
+        if storage_object_key in (reused_strict_keys or ()):
+            await _require_reused_strict_part(
+                db, session, storage_object_key, track.track_role, track.byte_length, track.sha256, commit=commit,
+            )
+        elif not _has_staged_strict_owner(
+            db, session, storage_object_key, track.track_role, None, track.byte_length, track.sha256, commit=commit,
+        ):
+            await _clear_orphan_cleanup_intents_for_authoritative_keys(
+                db,
+                workspace_id=meeting.workspace_id,
+                meeting_id=meeting.id,
+                object_keys=[storage_object_key],
+            )
         existing = await db.scalar(
             select(TrackArtifact).where(
                 TrackArtifact.meeting_id == meeting.id,
@@ -979,6 +1073,17 @@ async def persist_transient_source_objects(
         if not object_key or byte_length <= 0:
             raise ValueError("transient source object metadata is invalid")
         admit_transient_media(now=admitted_at, source_bytes=byte_length, archive_requested=False)
+        if db is not None and (
+            is_strict_upload_key(object_key) or await db.scalar(select(PurgeJournal.id).where(
+                PurgeJournal.workspace_id == session.workspace_id,
+                PurgeJournal.meeting_id == session.meeting_id,
+                PurgeJournal.object_key == object_key,
+                PurgeJournal.artifact_class == STRICT_UPLOAD_ATTEMPT,
+            )) is not None
+        ) and not _has_staged_strict_owner(
+            db, session, object_key, track_role, None, byte_length, None, commit=commit,
+        ):
+            await _require_reused_strict_part(db, session, object_key, track_role, byte_length, None, commit=commit)
         existing = await db.scalar(
             select(TemporaryUploadObject)
             .where(

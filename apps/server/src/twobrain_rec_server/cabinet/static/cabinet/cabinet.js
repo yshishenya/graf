@@ -1,6 +1,18 @@
 (() => {
   document.documentElement.dataset.cabinetJs = "ready";
 
+  // The native bootstrap supplies a presentation hint, never bridge authority.
+  // No marker preserves the existing Mac copy, including older desktop clients.
+  const platformText = (mac, windows) => window.GRAFDesktopPlatform === "windows" ? windows : mac;
+  const applyPlatformCopy = (root = document) => {
+    if (window.GRAFDesktopPlatform !== "windows") return;
+    const apply = element => { element.textContent = element.dataset.platformCopy; };
+    if (root instanceof Element && root.matches("[data-platform-copy]")) apply(root);
+    root.querySelectorAll("[data-platform-copy]").forEach(apply);
+  };
+  window.GRAFPlatform = {refresh: () => applyPlatformCopy()};
+  applyPlatformCopy();
+
   const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || "";
   let pendingDeleteRows = [];
   let deleteReturnFocus = null;
@@ -182,6 +194,11 @@
       focused.focus({preventScroll: true});
     }
   };
+  const localRecordingDurationLabel = (value) =>
+    typeof value === "number" && Number.isFinite(value) && value >= 0
+      ? window.GRAFTime.formatDuration(value) : "";
+  const localRecordingDateLabel = (value) => value && Number.isFinite(Date.parse(value))
+    ? formatMeetingListDate(value) : platformText(formatMeetingListDate(value), 'На этом компьютере');
   const localRecordingMatches = (item) => {
     const access = document.querySelector("#meeting-access")?.value;
     const status = document.querySelector("#meeting-status")?.value;
@@ -190,8 +207,8 @@
     const query = (document.querySelector("#meeting-search")?.value || "").trim().toLowerCase().replace(/\s+/g, " ");
     if (!query) return true;
     const title = localRecordingDisplayTitle(item);
-    const duration = window.GRAFTime.formatDuration(item.durationSeconds);
-    const time = formatMeetingListDate(meetingListSort().startsWith("updated") ? item.updatedAt : item.startedAt);
+    const duration = localRecordingDurationLabel(item.durationSeconds);
+    const time = localRecordingDateLabel(meetingListSort().startsWith("updated") ? item.updatedAt : item.startedAt);
     return [title, duration, time, `${title} ${duration}`, `${title} ${time}`, `${duration} ${time}`, `${title} ${duration} ${time}`]
       .some((text) => text.toLowerCase().replace(/\s+/g, " ").includes(query));
   };
@@ -205,13 +222,17 @@
       empty.textContent = "Записей пока нет.";
       host.append(empty);
     } else if (allRows().length) { empty?.remove(); }
+    if (host) for (const state of host.querySelectorAll('.empty-state')) state.hidden = localRecordingState !== 'ready' || allRows().length > 0;
     const count = document.querySelector("[data-meeting-result-count]");
     if (count) {
       const incomplete = document.querySelector('[data-meeting-result-complete="false"]');
-      count.textContent = `Найдено: ${incomplete ? "больше " : ""}${allRows().length}`;
+      const localState = localRecordingState === 'ready' ? '' : localRecordingState === 'checking'
+        ? ' · локальные записи проверяются' : ' · локальные записи недоступны';
+      count.textContent = `Найдено: ${incomplete ? "больше " : ""}${allRows().length}${localState}`;
     }
   };
   let localRecordingRows = [];
+  let localRecordingState = 'ready';
   let visibleRecordingsFrame = null;
   const publishVisibleRecordings = () => {
     if (visibleRecordingsFrame !== null || !window.webkit?.messageHandlers?.grafLocalRecording
@@ -325,7 +346,8 @@
       row.dataset.grafLocalRecordingId = item.id;
       row.dataset.sortStarted = item.startedAt || "";
       row.dataset.sortUpdated = item.updatedAt || "";
-      row.dataset.sortDuration = String(item.durationSeconds);
+      const savedDuration = localRecordingDurationLabel(item.durationSeconds);
+      row.dataset.sortDuration = savedDuration ? String(item.durationSeconds) : "";
 
       const selection = document.createElement("label");
       selection.className = "row-select-hit";
@@ -359,10 +381,10 @@
       }
       const duration = document.createElement("span");
       duration.className = "meeting-duration muted";
-      const durationLabel = window.GRAFTime.formatDuration;
-      duration.textContent = item.showsPartialDuration
-        ? `Сохранено ${durationLabel(item.durationSeconds)} из ${durationLabel(item.sessionDurationSeconds)}`
-        : durationLabel(item.durationSeconds);
+      const sessionDuration = localRecordingDurationLabel(item.sessionDurationSeconds);
+      duration.textContent = item.showsPartialDuration && savedDuration && sessionDuration
+        ? `Сохранено ${savedDuration} из ${sessionDuration}`
+        : savedDuration || "Длительность неизвестна";
       heading.append(title, duration);
       const meta = document.createElement("span");
       meta.className = "row-meta";
@@ -395,7 +417,9 @@
       if (item.canOpen) title.setAttribute("aria-describedby", time.id);
       const timeValue = meetingListSort().startsWith("updated") ? item.updatedAt : item.startedAt;
       if (timeValue && Number.isFinite(Date.parse(timeValue))) time.dateTime = timeValue;
-      time.textContent = `${timeValue && meetingListSort().startsWith("updated") ? "Обновлено " : ""}${formatMeetingListDate(timeValue)}`;
+      time.textContent = timeValue && Number.isFinite(Date.parse(timeValue))
+        ? `${meetingListSort().startsWith("updated") ? "Обновлено " : ""}${localRecordingDateLabel(timeValue)}`
+        : localRecordingDateLabel(timeValue);
       row.append(selection, icon, content, actions, time);
       // Compare the complete rendered output, including localized dates and sort
       // context, while ignoring transient selection/focus mutations on the live row.
@@ -452,16 +476,16 @@
     list.replaceChildren();
     for (const item of localPending) {
       const row = document.createElement("li");
-      row.textContent = `${localRecordingDisplayTitle(item)}: очистка файлов на этом Mac еще не завершена. Повторим попытку автоматически.`;
+      row.textContent = localRecordingDisplayTitle(item) + platformText(": очистка файлов на этом Mac еще не завершена. Повторим попытку автоматически.", ": очистка файлов на этом компьютере еще не завершена. Повторим попытку автоматически.");
       list.append(row);
     }
     for (const operation of operations.slice(-100).reverse()) {
       const row = document.createElement("li");
       const labels = {queued:"Удаление ожидает подключения", sending:"Удаляем…", resolving:"Проверяем, принято ли удаление",
-        accepted:"Запись удалена из списка. Очистка проверяется отдельно.", verified:"Данные этой записи очищены на этом Mac", rejected:"Нет права удалить запись"};
+        accepted:"Запись удалена из списка. Очистка проверяется отдельно.", verified:platformText("Данные этой записи очищены на этом Mac", "Данные этой записи очищены на этом компьютере"), rejected:"Нет права удалить запись"};
       const waiting = {connection:"Ожидаем подключения для подтверждения удаления", authentication:"Войдите в исходный аккаунт для продолжения удаления",
         rateLimit:"Сервер попросил подождать. Повторим запрос автоматически", serverUpdate:"Для завершения удаления требуется обновление сервера",
-        localCleanup:"Запись удалена из списка. Не удалось очистить файлы на этом Mac; повторим попытку"};
+        localCleanup:platformText("Запись удалена из списка. Не удалось очистить файлы на этом Mac; повторим попытку", "Запись удалена из списка. Не удалось очистить файлы на этом компьютере; повторим попытку")};
       row.textContent = waiting[operation.waitReason] || labels[operation.phase] || "Состояние удаления неизвестно";
       const meetingId = operation.receipt?.meeting_id;
       if (typeof meetingId === "string" && /^[0-9a-f-]{36}$/i.test(meetingId)) {
@@ -487,7 +511,7 @@
     button.dataset.detailLocalPlayback = '';
     button.dataset.grafLocalRecordingAction = 'open';
     button.dataset.grafLocalRecordingId = row.id;
-    button.textContent = 'Слушать запись с этого Mac';
+    button.textContent = platformText('Слушать запись с этого Mac', 'Слушать запись с этого компьютера');
     playback.append(button);
   };
   window.GRAFLocalRecordings = {
@@ -495,7 +519,21 @@
       nativeDeletionReplies.get(requestId)?.(result);
       nativeDeletionReplies.delete(requestId);
     },
-    update(rows, operations = [], recoveryRequired = false) {
+    update(rows, operations = [], recoveryRequired = false, state = 'ready') {
+      localRecordingState = ['ready', 'checking', 'unavailable'].includes(state) ? state : 'unavailable';
+      let inventoryState = document.querySelector('[data-local-inventory-state]');
+      if (localRecordingState === 'ready') inventoryState?.remove();
+      else {
+        if (!inventoryState) {
+          inventoryState = document.createElement('p');
+          inventoryState.dataset.localInventoryState = '';
+          inventoryState.setAttribute('role', 'status');
+          document.querySelector('#meeting-list-region')?.after(inventoryState);
+        }
+        inventoryState.textContent = localRecordingState === 'checking'
+          ? 'Локальные записи проверяются. Показано последнее подтверждённое состояние.'
+          : 'Не удалось подтвердить список локальных записей. Это не означает, что записей нет. Используйте диагностику GRAF.';
+      }
       const nextRows = Array.isArray(rows) ? rows : [];
       const previousRowsById = new Map(localRecordingRows.map(item => [item.id, item]));
       const visibleServerMeetingIds = new Set(allRows().map(row => row.dataset.meetingId).filter(Boolean));
@@ -897,7 +935,7 @@
     const copy = {
       offline: {
         title: "Нет подключения",
-        description: "Запись на Mac продолжает работать.",
+        description: platformText("Запись на Mac продолжает работать.", "Запись в Windows продолжает работать."),
         action: "Повторить",
       },
       service: {
@@ -977,10 +1015,10 @@
       && localRecordingRows.some(localRecordingIsRenderable)) {
       const localHost = document.createElement("section");
       localHost.className = "list-card cabinet-card";
-      localHost.setAttribute("aria-label", "Записи на этом Mac");
+      localHost.setAttribute("aria-label", platformText("Записи на этом Mac", "Записи на этом компьютере"));
       const localNotice = document.createElement("p");
       localNotice.className = "muted";
-      localNotice.textContent = "Запись сохранена на этом Mac и останется здесь до повторной проверки списка.";
+      localNotice.textContent = platformText("Запись сохранена на этом Mac и останется здесь до повторной проверки списка.", "Запись сохранена на этом компьютере и останется здесь до повторной проверки списка.");
       localHost.append(localNotice);
       localHost.setAttribute("data-meeting-list", "");
       current.append(localHost);
@@ -1319,7 +1357,7 @@
       const localCount = pendingDeleteRows.filter(row => row.hasAttribute("data-graf-local-recording-row")
         && localRecordingRows.some(item => item.id === row.dataset.grafLocalRecordingId && item.deletionIsLocalOnly === true)).length;
       count.textContent = deletingLabel(pendingDeleteRows.length)
-        + (localCount ? ` Только на этом Mac: ${localCount}.`
+        + (localCount ? `${platformText(" Только на этом Mac: ", " Только на этом компьютере: ")}${localCount}.`
           + (localCount === pendingDeleteRows.length ? " Эти записи еще не отправлялись на сервер." : "") : "")
         + (localCount < pendingDeleteRows.length ? ` На сервере или ожидают его подтверждения: ${pendingDeleteRows.length - localCount}.` : "");
     }
@@ -2281,37 +2319,49 @@
   });
   window.addEventListener("pagehide", stopBillingStatusOnDeparture);
 
+  const recordingLinkVersion = (params) => {
+    const versions = params.getAll("media_version");
+    return versions.length === 1 && /^[0-9a-f]{24}$/.test(versions[0]) ? versions[0] : null;
+  };
+
   const initAuthTransition = () => {
     const page = document.querySelector(".auth-page");
     if (!page || page.dataset.authTransitionReady === "true") return;
     page.dataset.authTransitionReady = "true";
     // HTTP redirects inherit the reader fragment; forms must carry it in safe next.
     const fragment = window.location.hash;
-    const position = /^#recording\?position_ms=([0-9]{1,8})$/.exec(fragment);
-    if (["#outcomes", "#recording"].includes(fragment) || (position && Number(position[1]) <= 86400000)) {
-      const withContext = (value) => {
-        if (!value || value.startsWith("//")) return value;
-        try {
-          const target = new URL(value, window.location.origin);
-          if (target.origin !== window.location.origin || target.username || target.password || target.hash
-              || !/^\/shared-meetings\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(target.pathname)) return value;
-          return `${target.pathname}${target.search}${fragment}`;
-        } catch { return value; }
-      };
-      page.querySelectorAll('.auth-form input[name="next"]').forEach((input) => {
-        input.value = withContext(input.value);
-      });
-      page.querySelectorAll('a[href]').forEach((link) => {
-        let target;
-        try { target = new URL(link.href, window.location.href); } catch { return; }
-        if (target.origin !== window.location.origin || !/^\/(?:login|sign-up)(?:\/|$)/.test(target.pathname)) return;
-        const next = target.searchParams.get("next");
-        const contextual = withContext(next);
-        if (contextual === next) return;
-        target.searchParams.set("next", contextual);
-        link.href = target.href;
-      });
-    }
+    const inheritedPosition = /^#recording\?position_ms=([0-9]{1,8})$/.exec(fragment);
+    const inherit = ["#outcomes", "#recording"].includes(fragment)
+      || (inheritedPosition && Number(inheritedPosition[1]) <= 86400000);
+    const withContext = (value) => {
+      if (!value || value.startsWith("//")) return value;
+      try {
+        const target = new URL(value, window.location.origin);
+        if (target.origin !== window.location.origin || target.username || target.password
+            || !/^\/shared-meetings\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(target.pathname)) return value;
+        const contextualFragment = target.hash || (inherit ? fragment : "");
+        if (/^#recording\?position_ms=/.test(contextualFragment)) {
+          const position = /^#recording\?position_ms=([0-9]{1,8})$/.exec(contextualFragment);
+          if (!position || Number(position[1]) > 86400000 || !recordingLinkVersion(target.searchParams)) {
+            return target.pathname + target.search + "#recording";
+          }
+        }
+        return target.hash || !contextualFragment ? value : target.pathname + target.search + contextualFragment;
+      } catch { return value; }
+    };
+    page.querySelectorAll('.auth-form input[name="next"]').forEach((input) => {
+      input.value = withContext(input.value);
+    });
+    page.querySelectorAll('a[href]').forEach((link) => {
+      let target;
+      try { target = new URL(link.href, window.location.href); } catch { return; }
+      if (target.origin !== window.location.origin || !/^\/(?:login|sign-up)(?:\/|$)/.test(target.pathname)) return;
+      const next = target.searchParams.get("next");
+      const contextual = withContext(next);
+      if (contextual === next) return;
+      target.searchParams.set("next", contextual);
+      link.href = target.href;
+    });
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
     page.addEventListener("click", (event) => {
       const link = event.target.closest("a[href]");
@@ -2324,6 +2374,14 @@
       document.body.classList.add("auth-leaving");
       window.setTimeout(() => { window.location.href = url.href; }, 130);
     });
+  };
+
+  let sharedLinkUrl = "";
+  let sharedLinkMetadata;
+  let sharedLinkContext;
+  const cancelSharedLinkSeek = () => {
+    sharedLinkMetadata?.events.abort();
+    sharedLinkMetadata = undefined;
   };
 
   const activateDetailTab = (name, { updateUrl = true } = {}) => {
@@ -2357,9 +2415,11 @@
     document.querySelector(".detail-page-main")?.dispatchEvent(new Event("detail-tab-change"));
     if (updateUrl && ["outcomes", "recording"].includes(name)) {
       const hash = `#${name}`;
+      cancelSharedLinkSeek();
       if (window.location.hash !== hash) {
         window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}${hash}`);
       }
+      sharedLinkUrl = window.location.href;
     }
   };
 
@@ -3099,7 +3159,9 @@
         ? detail.nextElementSibling
         : null;
       const nextPlayback = fragment.querySelector(".detail-playback");
-      if (!nextDetail || (refreshReplacement && (!currentPlayback || !nextPlayback))) {
+      const sharedVersionChanged = detail === sharedLinkContext?.detail
+        && nextDetail?.dataset.shareMediaVersion !== detail.dataset.shareMediaVersion;
+      if (!nextDetail || ((refreshReplacement || sharedVersionChanged) && (!currentPlayback || !nextPlayback))) {
         retryFragmentRefresh();
         return false;
       }
@@ -3128,13 +3190,19 @@
       if (refreshReplacement) {
         currentPlayback?.querySelector("audio")?.pause();
         if (currentPlayback && nextPlayback) currentPlayback.replaceWith(nextPlayback);
-      } else if (refreshTranscript && currentPlayback && nextPlayback && !refreshPlaybackContent(currentPlayback, nextPlayback)) {
+      } else if ((refreshTranscript || sharedVersionChanged) && currentPlayback && nextPlayback
+          && !refreshPlaybackContent(currentPlayback, nextPlayback)) {
         currentPlayback.querySelector("audio")?.pause();
         currentPlayback.replaceWith(nextPlayback);
       }
       if (titleEditorActive()) {
-        if (!meetingTitleEditor.refreshDetail(nextDetail)) { retryFragmentRefresh(); return false; }
+        if (!meetingTitleEditor.refreshDetail(nextDetail)) {
+          updateSharedLinkPosition(detail);
+          retryFragmentRefresh();
+          return false;
+        }
       } else detail.replaceWith(nextDetail);
+      updateSharedLinkPosition(detail, nextDetail);
       window.setTimeout(() => {
         initCabinet();
         if (selectedTab && typeof activateDetailTab === "function") activateDetailTab(selectedTab, { updateUrl: false });
@@ -5584,6 +5652,94 @@
     });
   };
 
+  const initSharedLinkPosition = ({ seek = true } = {}) => {
+    const sharedMain = document.querySelector("[data-share-media-version]");
+    if (sharedMain === sharedLinkContext?.detail) return;
+    const pendingSeek = sharedLinkMetadata?.url === window.location.href
+      && sharedLinkMetadata.version === sharedMain?.dataset.shareMediaVersion;
+    sharedLinkContext?.events.abort();
+    sharedLinkContext = undefined;
+    cancelSharedLinkSeek();
+    sharedLinkUrl = "";
+    if (!sharedMain?.dataset.shareMediaVersion) return;
+    const events = new AbortController();
+    const defaultSharedTab = sharedMain?.querySelector('[data-detail-tab][aria-selected="true"]')?.dataset.detailTab;
+    const syncSharedPosition = (seek = true) => {
+      if (!sharedMain.isConnected) return;
+      const url = window.location.href;
+      if (seek && url === sharedLinkUrl) return;
+      const pendingSeek = sharedLinkMetadata?.url === url
+        && sharedLinkMetadata.version === sharedMain.dataset.shareMediaVersion;
+      sharedLinkUrl = url;
+      cancelSharedLinkSeek();
+
+      const fragment = /^#recording(?:\?position_ms=([0-9]{1,8}))?$/.exec(window.location.hash);
+      const tab = fragment ? "recording" : window.location.hash === "#outcomes" ? "outcomes"
+        : !window.location.hash ? defaultSharedTab : null;
+      if (seek && tab) activateDetailTab(tab, { updateUrl: false });
+
+      const params = new URLSearchParams(window.location.search);
+      const expected = recordingLinkVersion(params);
+      const existing = sharedMain.querySelector("[data-shared-version-notice]");
+      if (params.has("media_version") && expected !== sharedMain.dataset.shareMediaVersion) {
+        if (!existing) {
+          const notice = document.createElement("aside");
+          notice.className = "public-reader__notice";
+          notice.dataset.sharedVersionNotice = "";
+          notice.setAttribute("role", "status");
+          notice.append(document.createTextNode("Запись обновилась. Старая позиция не применена. "));
+          const refresh = document.createElement("a");
+          refresh.textContent = "Открыть новую запись с начала";
+          const target = new URL(url);
+          target.searchParams.delete("media_version");
+          target.hash = "recording";
+          refresh.href = target.href;
+          notice.append(refresh);
+          sharedMain.prepend(notice);
+        }
+        return;
+      }
+      existing?.remove();
+      if ((!seek && !pendingSeek) || !expected || !fragment?.[1] || Number(fragment[1]) > 86400000) return;
+
+      const seconds = Number(fragment[1]) / 1000;
+      const player = document.querySelector("[data-playback-player]");
+      const apply = () => {
+        if (!sharedMain.isConnected || sharedMain.dataset.shareMediaVersion !== expected
+            || window.location.href !== url || document.querySelector("[data-playback-player]") !== player) return;
+        cancelSharedLinkSeek();
+        if (player) {
+          try {
+            player.currentTime = Math.min(Number.isFinite(player.duration) ? player.duration : seconds, seconds);
+          } catch (_) { reportPlaybackFailure(player); }
+        }
+        const turn = [...sharedMain.querySelectorAll("[data-transcript-turn]")].find(
+          row => Number(row.dataset.startSeconds) <= seconds && Number(row.dataset.endSeconds) > seconds
+        );
+        if (turn) scrollTranscriptTurnIntoView(turn);
+      };
+      if (!player || player.readyState >= 1) apply();
+      else {
+        const metadata = new AbortController();
+        sharedLinkMetadata = { events: metadata, url, version: expected };
+        player.addEventListener("loadedmetadata", apply, { once: true, signal: metadata.signal });
+      }
+    };
+    sharedLinkContext = { detail: sharedMain, events, sync: syncSharedPosition };
+    syncSharedPosition(seek || pendingSeek);
+    for (const event of ["hashchange", "popstate"]) {
+      window.addEventListener(event, () => syncSharedPosition(), { signal: events.signal });
+    }
+  };
+
+  const updateSharedLinkPosition = (detail, nextDetail) => {
+    if (detail !== sharedLinkContext?.detail) return;
+    if (detail.isConnected) {
+      detail.dataset.shareMediaVersion = nextDetail?.dataset.shareMediaVersion || "";
+      sharedLinkContext.sync(false);
+    } else initSharedLinkPosition({ seek: false });
+  };
+
   const initSourceNavigation = () => {
     if (document.body.dataset.sourceNavigationReady === "true") return;
     document.body.dataset.sourceNavigationReady = "true";
@@ -5615,6 +5771,7 @@
       if (!control) return;
       const seconds = Number.parseFloat(control.dataset.seekSeconds || "0");
       if (!Number.isFinite(seconds)) return;
+      cancelSharedLinkSeek();
       const sourceJump = control.hasAttribute("data-source-segment");
       if (sourceJump) {
         sourceReturnTarget = control;
@@ -5652,25 +5809,6 @@
         if (live) live.textContent = `Открыт источник ${formatTime(seconds)} в расшифровке.`;
       });
     });
-    const sharedMain = document.querySelector('[data-share-media-version]');
-    if (sharedMain?.dataset.shareMediaVersion) {
-      const fragment = /^#recording(?:\?position_ms=([0-9]{1,8}))?$/.exec(window.location.hash);
-      const expected = new URLSearchParams(window.location.search).get('media_version');
-      const changed = expected && expected !== sharedMain.dataset.shareMediaVersion;
-      if (changed) {
-        const notice = document.createElement('aside');notice.className='public-reader__notice';notice.setAttribute('role','status');
-        notice.append(document.createTextNode('Запись обновилась. Старая позиция не применена. '));
-        const refresh=document.createElement('a');refresh.textContent='Открыть новую запись с начала';
-        const target=new URL(window.location.href);target.searchParams.delete('media_version');target.hash='recording';refresh.href=target.href;notice.append(refresh);sharedMain.prepend(notice);
-      } else if (fragment?.[1] && Number(fragment[1]) <= 86400000) {
-        const seconds=Number(fragment[1])/1000,player=document.querySelector('[data-playback-player]');
-        const apply=()=>{try{player.currentTime=Math.max(0,Math.min(Number.isFinite(player.duration)?player.duration:seconds,seconds));}catch(_){reportPlaybackFailure(player);}};
-        if(player){if(player.readyState>=1)apply();else player.addEventListener('loadedmetadata',apply,{once:true});}
-        const turns=[...sharedMain.querySelectorAll('[data-transcript-turn]')];
-        const turn=turns.find(row=>Number(row.dataset.startSeconds)<=seconds&&Number(row.dataset.endSeconds)>seconds);
-        if(turn)window.requestAnimationFrame(()=>{scrollTranscriptTurnIntoView(turn);turn.focus({preventScroll:true});});
-      }
-    }
     const sourceId = new URLSearchParams(window.location.hash.slice(1)).get("graf-source");
     if (sourceId) {
       const target = Array.from(document.querySelectorAll("[data-transcript-turn]")).find(
@@ -5979,6 +6117,7 @@
       };
       const seekTo = (seconds, { follow = true, autoplay = false, sourceIds = "" } = {}) => {
         if (!Number.isFinite(seconds) || sourceBlocked()) return;
+        cancelSharedLinkSeek();
         try { player.currentTime = Math.max(0, Math.min(playbackDuration() || Infinity, seconds)); }
         catch (_error) { reportPlaybackFailure(player); return; }
         shell.dataset.playbackSourceSegments = sourceIds;
@@ -6727,7 +6866,7 @@
             async load(){if(nonce()!==queueNonce)throw new Error('scope');const current=await post();if(current.error)throw new Error('unavailable');return {values:snapshotValues(current)};}
           });
           queue.refresh(values);render(current);status.textContent=current.error||'';retry.hidden=!current.error;
-        }catch(_){if(nonce()===owner){status.textContent='Не удалось загрузить настройки этого Mac.';retry.hidden=false;}}
+        }catch(_){if(nonce()===owner){status.textContent=platformText('Не удалось загрузить настройки этого Mac.', 'Не удалось загрузить настройки этого компьютера.');retry.hidden=false;}}
         finally{if(nonce()===owner)loading=null;}
       })();await loading;
     };
@@ -6798,7 +6937,7 @@
       renderAvailability(snapshot);
     };
     // This document has one v2 transport and the shared autosave draft queue.
-    let queue=null,snapshot=null,loading=null,identity=notificationSettingsNonce,generation=0,serial=Promise.resolve();
+    let queue=null,snapshot=null,loading=null,refreshPending=false,identity=notificationSettingsNonce,generation=0,serial=Promise.resolve();
     const renderRemote=response=>{
       // Edits may arrive while read/preview waits. Only the draft queue owns
       // their displayed values and save status until they are confirmed.
@@ -6811,7 +6950,7 @@
     status.id||='grafNotificationSettings-status';
     fields.forEach(input=>input.setAttribute('aria-describedby',[input.getAttribute('aria-describedby'),status.id].filter(Boolean).join(' ')));
     const current=(owner,epoch)=>root.isConnected&&owner===notificationSettingsNonce&&epoch===generation;
-    const disconnect=()=>{generation++;queue?.dispose();queue=null;snapshot=null;loading=null;serial=Promise.resolve();};
+    const disconnect=()=>{generation++;queue?.dispose();queue=null;snapshot=null;loading=null;refreshPending=false;serial=Promise.resolve();};
     const post=(action='read',patch={})=>{
       const owner=notificationSettingsNonce,epoch=generation;
       const operation=serial.then(async()=>{
@@ -6830,7 +6969,7 @@
     };
     const load=async()=>{
       if(identity!==notificationSettingsNonce){disconnect();identity=notificationSettingsNonce;}
-      if(loading)return loading;
+      if(loading){refreshPending=true;return loading;}
       if(queue?.pending()){if(await queue.flush())return load();return;}
       const editing=root.querySelector('input[role="combobox"][aria-expanded="true"]:focus');
       if(editing){editing.addEventListener('blur',load,{once:true});return;}
@@ -6867,8 +7006,8 @@
           if(!renderRemote(response))return;
           status.textContent=response.error||response.message||(!response.canEdit?'Настройки недоступны. Обновите окно настроек после входа в GRAF.':'');
           retry.hidden=!response.error;
-        }catch(_){if(current(owner,epoch)){controls.disabled=true;initSettingsComboboxes();status.textContent='Не удалось загрузить настройки этого Mac. Обновите окно настроек или повторите попытку.';retry.hidden=false;}}
-        finally{if(current(owner,epoch))loading=null;}
+        }catch(_){if(current(owner,epoch)){controls.disabled=true;initSettingsComboboxes();status.textContent=platformText('Не удалось загрузить настройки этого Mac. Обновите окно настроек или повторите попытку.', 'Не удалось загрузить настройки этого компьютера. Обновите окно настроек или повторите попытку.');retry.hidden=false;}}
+        finally{if(current(owner,epoch)){loading=null;if(refreshPending){refreshPending=false;void load();}}}
       })();return loading;
     };
     const preview=async()=>{
@@ -7727,20 +7866,55 @@
         menu.style.setProperty("--profile-menu-viewport-height", `${window.innerHeight / scale}px`);
       };
       const disclosures = Array.from(menu.querySelectorAll(".sidebar-profile-menu__disclosure"));
+      const disclosurePanelOpen = panel => typeof panel?.showPopover === "function" && panel.matches(":popover-open");
       const syncDisclosurePosition = (details) => {
-        details.classList.remove("is-flipped", "is-inline");
-        if (!details.open) return;
         const submenu = details.querySelector("[data-profile-menu-submenu]");
         if (!(submenu instanceof HTMLElement)) return;
+        const hidePanel = () => {
+          if (disclosurePanelOpen(submenu)) submenu.hidePopover();
+          submenu.removeAttribute("popover");
+        };
+        if (!details.open || menu.hidden) {
+          hidePanel();
+          details.classList.remove("is-inline");
+          return;
+        }
         window.requestAnimationFrame(() => {
-          if (!details.open || !details.isConnected) return;
+          if (!details.open || !details.isConnected || menu.hidden) return;
+          const inline = () => { hidePanel(); details.classList.toggle("is-inline", true); };
+          if (mobileNav?.contains(root) || typeof submenu.showPopover !== "function") {
+            inline();
+            return;
+          }
+          details.classList.remove("is-inline");
+          // A nested top-layer panel escapes the scrollable parent's clipping.
+          submenu.popover = "manual";
+          if (!disclosurePanelOpen(submenu)) submenu.showPopover();
+          const anchor = details.querySelector("summary").getBoundingClientRect();
           const rect = submenu.getBoundingClientRect();
-          details.classList.toggle("is-flipped", rect.right > window.innerWidth - 8);
-          const placed = submenu.getBoundingClientRect();
-          details.classList.toggle("is-inline", placed.left < 8 || placed.right > window.innerWidth - 8
-            || placed.top < 8 || placed.bottom > window.innerHeight - 8);
+          const bounds = menu.getBoundingClientRect();
+          const viewportWidth = document.documentElement.clientWidth || window.innerWidth;
+          const opensLeft = bounds.right + 8 + rect.width > viewportWidth - 8;
+          const left = opensLeft ? bounds.left - rect.width - 8 : bounds.right + 8;
+          if (left < 8) { inline(); return; }
+          if (anchor.bottom <= bounds.top || anchor.top >= bounds.bottom) {
+            details.open = false;
+            hidePanel();
+            return;
+          }
+          const scale = submenu.offsetWidth ? rect.width / submenu.offsetWidth : 1;
+          const top = Math.max(8, Math.min(anchor.top - 4, window.innerHeight - rect.height - 8));
+          submenu.style.setProperty("--profile-submenu-left", `${left / scale}px`);
+          submenu.style.setProperty("--profile-submenu-top", `${top / scale}px`);
+          // A fixed hit area crosses the gap without being clipped by either scroll container.
+          submenu.style.setProperty("--profile-submenu-bridge-left", `${(opensLeft ? bounds.left - 9 : bounds.right - 1) / scale}px`);
+          submenu.style.setProperty("--profile-submenu-bridge-width", `${10 / scale}px`);
+          submenu.style.setProperty("--profile-submenu-bridge-height", `${rect.height / scale}px`);
         });
       };
+      menu.addEventListener("scroll", () => disclosures.forEach((details) => {
+        if (disclosurePanelOpen(details.querySelector("[data-profile-menu-submenu]"))) syncDisclosurePosition(details);
+      }));
       let hoveredDisclosure = null;
       let disclosureCloseTimer;
       const closeDisclosures = (except = null) => {
@@ -7779,6 +7953,12 @@
           if (details.open) closeDisclosures(details);
           syncDisclosurePosition(details);
         });
+        const submenu = details.querySelector("[data-profile-menu-submenu]");
+        if (submenu && typeof ResizeObserver === "function") {
+          new ResizeObserver(() => {
+            if (details.open && disclosurePanelOpen(submenu)) syncDisclosurePosition(details);
+          }).observe(submenu);
+        }
       });
       const setOpen = (open, restoreFocus = false) => {
         if (open) {
@@ -8074,6 +8254,7 @@
         currentLiveStatus.textContent = nextLiveStatus.textContent || "";
       }
       if (!playbackChanged && !transcriptChanged) {
+        if (detail.dataset.shareMediaVersion !== nextDetail.dataset.shareMediaVersion) updateSharedLinkPosition(detail, nextDetail);
         renderDetailLocalPlayback();
         initPlaybackRecoveryPolling();
         return;
@@ -8083,6 +8264,7 @@
         currentPlayback.replaceWith(nextPlayback);
       }
       if (transcriptChanged) currentTranscript.replaceWith(nextTranscript);
+      updateSharedLinkPosition(detail, nextDetail);
       renderDetailLocalPlayback();
       initPlayback();
       initSpeakerTimelineResize();
@@ -9543,6 +9725,7 @@
     initMeetingList();
     announceUploadProgress();
     initManualUpload();
+    initSharedLinkPosition();
     initDetailTabs();
     initProcessingRecovery();
     initProcessingListProjection();
@@ -9644,6 +9827,8 @@
   document.body.addEventListener("htmx:afterSwap", (event) => {
     renderDetailLocalPlayback();
     const target = event.detail?.target;
+    const copyRoot = event.detail?.elt || target;
+    if (copyRoot instanceof Element) applyPlatformCopy(copyRoot);
     const source = shareRequestSource(event);
     if (source && target instanceof Element && target.id === "meeting-share-host") {
       resetShareRequestSource(source);

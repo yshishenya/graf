@@ -8,6 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.api.schemas import (
     AbortUploadRequest,
+    CalendarUploadSessionProof,
+    CreateCalendarUploadSessionRequest,
     CreateMediaRevisionUploadSessionRequest,
     CreateMeetingRequest,
     CreateUploadSessionRequest,
@@ -28,6 +30,7 @@ from twobrain_rec_server.api.schemas import (
     RecordingLifecycleEntry,
     RecordingLifecycleLookup,
     SafeClientText,
+    StrictCalendarMeetingRequest,
     UploadPartResponse,
     UploadSessionResponse,
 )
@@ -57,7 +60,7 @@ from twobrain_rec_server.ingest.finalize import finalize_upload
 from twobrain_rec_server.ingest.lifecycle import abort_upload_session
 from twobrain_rec_server.ingest.manual_media_upload import accept_manual_media_upload
 from twobrain_rec_server.ingest.meetings import create_or_get_meeting
-from twobrain_rec_server.ingest.parts import accept_part
+from twobrain_rec_server.ingest.parts import accept_part, get_session_for_tenant
 from twobrain_rec_server.ingest.policy import IngestLimitViolation
 from twobrain_rec_server.ingest.processing_dispatch import dispatch_processing_after_finalize
 from twobrain_rec_server.ingest.ranges import missing_ranges_for_expected_sizes
@@ -65,7 +68,7 @@ from twobrain_rec_server.ingest.sessions import (
     create_media_revision_upload_session,
     create_upload_session,
 )
-from twobrain_rec_server.ingest.status import get_upload_session_status
+from twobrain_rec_server.ingest.status import get_calendar_upload_session_proof
 from twobrain_rec_server.normalization.pickup import (
     dispatch_normalization_after_accepted_commit,
 )
@@ -239,6 +242,33 @@ async def create_meeting(
     tenant_scope: TenantScope = TenantDependency,
     db: AsyncSession | None = DbDependency,
 ) -> MeetingResponse:
+    return await _create_meeting_response(payload, request, tenant_scope, db)
+
+
+@router.post(
+    "/desktop/meetings/with-calendar-context",
+    response_model=MeetingResponse,
+    dependencies=[PrincipalDependency, DeviceDependency, Depends(require_web_csrf)],
+)
+async def create_meeting_with_calendar_context(
+    payload: StrictCalendarMeetingRequest,
+    request: Request,
+    tenant_scope: TenantScope = TenantDependency,
+    db: AsyncSession | None = DbDependency,
+) -> MeetingResponse:
+    return await _create_meeting_response(
+        payload, request, tenant_scope, db, require_explicit_calendar_match=True,
+    )
+
+
+async def _create_meeting_response(
+    payload: CreateMeetingRequest,
+    request: Request,
+    tenant_scope: TenantScope,
+    db: AsyncSession | None,
+    *,
+    require_explicit_calendar_match: bool = False,
+) -> MeetingResponse:
     try:
         meeting = await create_or_get_meeting(
             settings=request.app.state.settings,
@@ -256,6 +286,7 @@ async def create_meeting(
             media_scribe_source_mode=payload.media_scribe_source_mode,
             calendar_match_attempt_id=payload.calendar_match_attempt_id,
             consume_calendar_context=True,
+            require_explicit_calendar_match=require_explicit_calendar_match,
         )
     except IngestLimitViolation as exc:
         raise ProblemDetail(
@@ -326,15 +357,20 @@ async def create_manual_media_upload(
 )
 async def get_recording_sync_state(
     local_recording_id: str,
+    response: Response,
     local_media_revision_id: str | None = Query(default=None),
+    include_calendar_match_receipt: bool = Query(default=False),
     tenant_scope: TenantScope = TenantDependency,
     db: AsyncSession | None = DbDependency,
 ) -> DesktopRecordingSyncStateResponse:
+    if include_calendar_match_receipt:
+        response.headers["Cache-Control"] = "no-store"
     return await get_desktop_recording_sync_state(
         tenant_scope=tenant_scope,
         db=db,
         local_recording_id=local_recording_id,
         local_media_revision_id=local_media_revision_id,
+        include_calendar_match_receipt=include_calendar_match_receipt,
     )
 
 
@@ -368,6 +404,50 @@ async def create_session(
     )
     await commit_if_available(db)
     return session_response(session)
+
+
+@router.post(
+    "/desktop/meetings/{meeting_id}/upload-sessions",
+    response_model=UploadSessionResponse,
+    dependencies=[PrincipalDependency, DeviceDependency, Depends(require_web_csrf)],
+)
+async def create_calendar_upload_session(
+    meeting_id: UUID,
+    payload: CreateCalendarUploadSessionRequest,
+    request: Request,
+    idempotency_key: Annotated[str, Header(alias="Idempotency-Key", min_length=1, max_length=240)],
+    tenant_scope: TenantScope = TenantDependency,
+    db: AsyncSession | None = DbDependency,
+) -> UploadSessionResponse:
+    session = await create_upload_session(
+        settings=request.app.state.settings,
+        tenant_scope=tenant_scope,
+        db=db,
+        meeting_id=meeting_id,
+        expected_track_roles=payload.expected_tracks,
+        expected_track_sizes=payload.expected_track_sizes,
+        idempotency_key=idempotency_key,
+        calendar_pin=(payload.expected_media_revision_id, payload.calendar_match_attempt_id),
+    )
+    await commit_if_available(db)
+    return session_response(session)
+
+
+@router.get(
+    "/desktop/meetings/{meeting_id}/upload-sessions/{session_id}",
+    response_model=CalendarUploadSessionProof,
+    dependencies=[PrincipalDependency, DeviceDependency],
+)
+async def get_calendar_upload_session(
+    meeting_id: UUID,
+    session_id: UUID,
+    expected_media_revision_id: UUID,
+    response: Response,
+    tenant_scope: TenantScope = TenantDependency,
+    db: AsyncSession | None = DbDependency,
+) -> CalendarUploadSessionProof:
+    response.headers["Cache-Control"] = "no-store"
+    return await get_calendar_upload_session_proof(meeting_id, session_id, expected_media_revision_id, tenant_scope, db)
 
 
 @router.post(
@@ -458,7 +538,7 @@ async def get_session(
     tenant_scope: TenantScope = TenantDependency,
     db: AsyncSession | None = DbDependency,
 ) -> UploadSessionResponse:
-    return session_response(await get_upload_session_status(session_id, tenant_scope, db))
+    return session_response(await get_session_for_tenant(session_id, tenant_scope, db))
 
 
 @router.get(
@@ -471,7 +551,7 @@ async def get_missing_ranges(
     tenant_scope: TenantScope = TenantDependency,
     db: AsyncSession | None = DbDependency,
 ) -> MissingRangesResponse:
-    session = await get_upload_session_status(session_id, tenant_scope, db)
+    session = await get_session_for_tenant(session_id, tenant_scope, db)
     expected = session.expected_track_sizes or {
         role: sum(
             part.byte_length for (part_role, _), part in session.parts.items() if part_role == role
@@ -521,6 +601,7 @@ async def finalize_session(
     storage: object = StorageDependency,
 ) -> FinalizeUploadResponse:
     meeting, session = await finalize_upload(
+        settings=request.app.state.settings,
         tenant_scope=tenant_scope,
         db=db,
         session_id=session_id,

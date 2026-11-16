@@ -10,12 +10,15 @@ from alembic import command
 from alembic.config import Config
 from fastapi.testclient import TestClient
 from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from tests.fakes.fake_minio import FakeMinioStorage
 from twobrain_rec_server.config import Settings, get_settings
 from twobrain_rec_server.db.models import (
+    Meeting,
     Organization,
+    PurgeJournal,
     RegisteredDevice,
     UserIdentity,
     Workspace,
@@ -259,7 +262,7 @@ def test_production_share_head_upgrades_to_regeneration_merge(
         promotion_counter_function,
         promotion_counter_config,
     ) = asyncio.run(inspect_schema())
-    assert versions == ["0113_fair_use_operator_history"]
+    assert versions == ["0115_f200_strict_upload_journal"]
     assert "public.promotion_campaigns" in promotion_counter_function
     assert "search_path=pg_catalog, pg_temp" in promotion_counter_config
     assert {
@@ -985,6 +988,112 @@ def test_user_scoped_recording_migration_skips_existing_postgres_target_constrai
 
     assert fake_op.dropped_constraints == []
     assert fake_op.created_constraints == []
+
+
+def test_strict_upload_journal_downgrade_preserves_used_attempt_namespace(
+    postgres_clean_database_url: str,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("TWOBRAIN_DATABASE_URL", postgres_clean_database_url)
+    get_settings.cache_clear()
+    config = Config(str(ROOT / "apps/server/alembic.ini"))
+    config.set_main_option(
+        "script_location", str(ROOT / "apps/server/src/twobrain_rec_server/db/migrations")
+    )
+    parent = "0114_f200_calendar_upload_pin"
+    revision = "0115_f200_strict_upload_journal"
+
+    async def read(sql: str):
+        engine = create_async_engine(postgres_clean_database_url)
+        try:
+            async with engine.connect() as connection:
+                return await connection.scalar(text(sql))
+        finally:
+            await engine.dispose()
+
+    async def seed_legacy_journal() -> None:
+        engine = create_async_engine(postgres_clean_database_url)
+        sessions = async_sessionmaker(engine)
+        try:
+            await _seed_identity(sessions)
+            async with sessions.begin() as db:
+                meeting = Meeting(
+                    workspace_id=WORKSPACE_ID,
+                    created_by_user_id=USER_ID,
+                    device_id=DEVICE_ID,
+                    local_recording_id="test-journal",
+                    duration_seconds=1,
+                )
+                db.add(meeting)
+                await db.flush()
+                db.add(
+                    PurgeJournal(
+                        workspace_id=WORKSPACE_ID,
+                        meeting_id=meeting.id,
+                        artifact_class="object_store",
+                        object_key="test-legacy",
+                    )
+                )
+        finally:
+            await engine.dispose()
+
+    async def verify_concurrent_allocation_blocks_downgrade() -> None:
+        engine = create_async_engine(postgres_clean_database_url)
+        try:
+            async with engine.begin() as writer:
+                assert await writer.scalar(text("SELECT nextval('strict_upload_attempt_no')")) == 1
+                downgrade = asyncio.create_task(
+                    asyncio.to_thread(command.downgrade, config, parent)
+                )
+                try:
+                    async with asyncio.timeout(5):
+                        while not await writer.scalar(
+                            text(
+                                "SELECT EXISTS (SELECT 1 FROM pg_locks WHERE NOT granted "
+                                "AND relation = 'strict_upload_attempt_no'::regclass)"
+                            )
+                        ):
+                            await asyncio.sleep(0.02)
+                finally:
+                    await writer.commit()
+                    with pytest.raises(DBAPIError, match="requires a compatible rollback"):
+                        await asyncio.wait_for(downgrade, timeout=10)
+        finally:
+            await engine.dispose()
+
+    command.upgrade(config, revision)
+    sequence_cycles = (
+        "SELECT seqcycle FROM pg_sequence WHERE seqrelid = 'strict_upload_attempt_no'::regclass"
+    )
+    assert asyncio.run(read(sequence_cycles)) is False
+    asyncio.run(seed_legacy_journal())
+    command.downgrade(config, parent)
+    assert asyncio.run(read("SELECT to_regclass('strict_upload_attempt_no')")) is None
+    assert asyncio.run(read("SELECT object_key FROM meeting_purge_journal")) == "test-legacy"
+
+    command.upgrade(config, revision)
+
+    async def set_partial_upload(value: str | None) -> None:
+        engine = create_async_engine(postgres_clean_database_url)
+        try:
+            async with engine.begin() as connection:
+                await connection.execute(
+                    text("UPDATE meeting_purge_journal SET multipart_upload_id = :value"),
+                    {"value": value},
+                )
+        finally:
+            await engine.dispose()
+
+    asyncio.run(set_partial_upload("test-id-without-epoch"))
+    with pytest.raises(DBAPIError, match="requires a compatible rollback"):
+        command.downgrade(config, parent)
+    assert asyncio.run(read("SELECT multipart_upload_id FROM meeting_purge_journal")) == (
+        "test-id-without-epoch"
+    )
+    asyncio.run(set_partial_upload(None))
+    asyncio.run(verify_concurrent_allocation_blocks_downgrade())
+    assert asyncio.run(read("SELECT version_num FROM alembic_version")) == revision
+    assert asyncio.run(read("SELECT nextval('strict_upload_attempt_no')")) == 2
 
 
 def test_clean_database_migrates_and_accepts_seeded_identity_request(

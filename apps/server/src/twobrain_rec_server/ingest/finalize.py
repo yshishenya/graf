@@ -6,14 +6,15 @@ from typing import BinaryIO, NoReturn
 from uuid import UUID
 
 from anyio import to_thread
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.api.schemas import TrackDescriptor
 from twobrain_rec_server.auth.context import TenantScope
+from twobrain_rec_server.config import Settings
 from twobrain_rec_server.db.models import Meeting as MeetingModel
-from twobrain_rec_server.db.models import ProcessingPlaceholder
+from twobrain_rec_server.db.models import ProcessingPlaceholder, PurgeJournal, UploadPart
 from twobrain_rec_server.db.models import UploadSession as UploadSessionModel
 from twobrain_rec_server.domain.statuses import (
     MediaRevisionStatus,
@@ -36,6 +37,7 @@ from twobrain_rec_server.ingest.media_revisions import (
     mark_media_revision_accepted,
 )
 from twobrain_rec_server.ingest.parts import get_session_for_tenant
+from twobrain_rec_server.ingest.status import require_calendar_upload_access
 from twobrain_rec_server.ingest.store import (
     MeetingRecord,
     UploadPartRecord,
@@ -50,7 +52,16 @@ from twobrain_rec_server.ingest.store import (
 )
 from twobrain_rec_server.normalization.service import upsert_playback_normalization_job
 from twobrain_rec_server.processing.fences import meeting_is_deleted_or_deleting
-from twobrain_rec_server.storage.object_keys import build_final_artifact_prefix
+from twobrain_rec_server.storage.object_keys import (
+    build_final_artifact_prefix,
+    build_track_object_key,
+)
+from twobrain_rec_server.storage.recovery import storage_recovery_snapshot, storage_recovery_token
+from twobrain_rec_server.storage.strict_upload_cleanup import strict_upload_key_matches_epoch
+from twobrain_rec_server.storage.strict_upload_keys import (
+    STRICT_UPLOAD_ATTEMPT,
+    is_strict_upload_key,
+)
 
 FINALIZE_STREAM_CHUNK_BYTES = 4 * 1024 * 1024
 
@@ -60,6 +71,68 @@ class _MaterializedTrackStorageError(RuntimeError):
         super().__init__("temporary storage unavailable")
         self.object_key = object_key
         self.__cause__ = cause
+
+
+def _calendar_multipart_unavailable() -> ProblemDetail:
+    return ProblemDetail(
+        status=503,
+        code="calendar_finalize_multipart_unavailable",
+        title="Calendar multipart finalization is unavailable",
+    )
+
+
+def _strict_part_unavailable() -> ProblemDetail:
+    return ProblemDetail(
+        status=503, code="strict_upload_part_unavailable", title="Protected upload part is unavailable",
+    )
+
+
+def _strict_parts_query(session: UploadSessionRecord, keys: set[str]):
+    return select(PurgeJournal).where(
+        PurgeJournal.workspace_id == session.workspace_id,
+        PurgeJournal.meeting_id == session.meeting_id,
+        PurgeJournal.artifact_class == STRICT_UPLOAD_ATTEMPT,
+        PurgeJournal.object_key.in_(keys),
+    )
+
+
+async def _verify_reused_strict_parts(
+    db: AsyncSession, session: UploadSessionRecord, keys: set[str], *, scope: str | None, deletion_epoch: int,
+) -> None:
+    # Meeting and UploadSession are already locked by finalize.
+    journal = {
+        row.object_key: row
+        for row in await db.scalars(
+            _strict_parts_query(session, keys).with_for_update().execution_options(populate_existing=True)
+        )
+    }
+    accepted = set(await db.scalars(select(UploadPart.storage_object_key).where(
+        UploadPart.upload_session_id == session.id,
+        UploadPart.storage_object_key.in_(keys),
+        UploadPart.status == "accepted",
+    )))
+    if journal.keys() != keys or accepted != keys:
+        raise _strict_part_unavailable()
+    for part in session.parts.values():
+        if part.object_key not in keys:
+            continue
+        row = journal[part.object_key]
+        base = build_track_object_key(
+            organization_id=session.organization_id, workspace_id=session.workspace_id,
+            meeting_id=session.meeting_id, upload_session_id=session.id,
+            track_role=part.track_role, part_number=part.part_number,
+        )
+        if (
+            not part.object_key.startswith(f"{base}/calendar-attempts/")
+            or row.storage_epoch is None
+            or not strict_upload_key_matches_epoch(part.object_key, row.storage_epoch)
+            or not scope or row.storage_scope != scope
+            or row.media_revision_id != session.media_revision_id
+            or row.deletion_epoch != deletion_epoch
+            or row.state != "retained" or row.write_state != "accepted"
+            or not row.multipart_upload_id
+        ):
+            raise _strict_part_unavailable()
 
 
 async def _persist_degraded_finalize_failure(
@@ -138,15 +211,24 @@ async def _persist_degraded_finalize_failure(
                 code="media_revision_superseded",
                 title="A newer media revision is already active",
             )
-        meeting.status = MeetingStatus.DEGRADED
-        session.status = UploadSessionStatus.DEGRADED
-        persisted_meeting.status = MeetingStatus.DEGRADED.value
-        persisted_session.status = UploadSessionStatus.DEGRADED.value
         placeholder = await db.scalar(
             select(ProcessingPlaceholder)
             .where(ProcessingPlaceholder.meeting_id == persisted_meeting.id)
             .with_for_update()
         )
+        if session.calendar_match_attempt_id is not None and await db.scalar(
+            select(UploadPart.track_role)
+            .where(UploadPart.upload_session_id == session.id)
+            .group_by(UploadPart.track_role)
+            .having(func.count() > 1)
+            .limit(1)
+        ) is not None:
+            raise _calendar_multipart_unavailable()
+        await require_calendar_upload_access(db, session, tenant_scope)
+        meeting.status = MeetingStatus.DEGRADED
+        session.status = UploadSessionStatus.DEGRADED
+        persisted_meeting.status = MeetingStatus.DEGRADED.value
+        persisted_session.status = UploadSessionStatus.DEGRADED.value
         if placeholder is not None:
             placeholder.status = persisted_meeting.processing_status
             placeholder.meeting_status = persisted_meeting.status
@@ -452,6 +534,7 @@ async def _materialize_track_object(
 
 async def finalize_upload(
     *,
+    settings: Settings,
     tenant_scope: TenantScope,
     db: AsyncSession | None = None,
     session_id: UUID,
@@ -463,10 +546,29 @@ async def finalize_upload(
 ) -> tuple[object, object]:
     # Read a stable snapshot for validation/materialization. Final mutation
     # takes Meeting → MediaRevision → UploadSession locks after storage I/O.
-    session = await get_session_for_tenant(session_id, tenant_scope, db)
+    session = await get_session_for_tenant(session_id, tenant_scope, db, require_persisted=True)
+    initial_session = session
+    await require_calendar_upload_access(db, session, tenant_scope)
+    # shortcut: strict finalize can reuse accepted objects only, until B2c.14b fences late storage writes.
+    if session.calendar_match_attempt_id is not None and len(session.parts) != len({role for role, _ in session.parts}):
+        raise _calendar_multipart_unavailable()
     ensure_supported_upload_source(session.media_revision_source_kind, session.expected_track_roles)
-    await ensure_upload_session_mutable(db=db, session=session, event_type="expired")
+    if session.calendar_match_attempt_id is None:
+        await ensure_upload_session_mutable(db=db, session=session, event_type="expired")
     session_parts_snapshot = dict(session.parts)
+    keys = {part.object_key for part in session_parts_snapshot.values()}
+    strict_keys = {key for key in keys if is_strict_upload_key(key)}
+    if db is not None and keys:
+        strict_keys.update(await db.scalars(
+            _strict_parts_query(session, keys).with_only_columns(PurgeJournal.object_key)
+        ))
+    recovery = None
+    if strict_keys:
+        if db is None or session.calendar_match_attempt_id is None:
+            raise _strict_part_unavailable()
+        recovery = storage_recovery_token(settings)
+        if recovery in {None, "legacy"}:
+            raise _strict_part_unavailable()
     meeting = store_module.store.meetings[session.meeting_id]
     deletion_epoch_at_start: int | None = None
     if db is not None:
@@ -709,7 +811,9 @@ async def finalize_upload(
             manifest_sha256=manifest_sha256,
             tracks=tracks,
         )
-        session = await get_session_for_tenant(session.id, tenant_scope, db, for_update=True)
+        session = await get_session_for_tenant(
+            session.id, tenant_scope, db, for_update=True, require_persisted=True,
+        )
         ensure_supported_upload_source(session.media_revision_source_kind, session.expected_track_roles)
         if session.status not in {
             UploadSessionStatus.PENDING,
@@ -738,6 +842,18 @@ async def finalize_upload(
                 code="media_revision_superseded",
                 title="A newer media revision is already active",
             )
+        await require_calendar_upload_access(db, initial_session, tenant_scope)
+        if strict_keys:
+            assert db is not None and persisted_meeting is not None
+            if (
+                session.calendar_match_attempt_id != initial_session.calendar_match_attempt_id
+                or not strict_keys.issubset(finalized_track_object_keys.values())
+            ):
+                raise _strict_part_unavailable()
+            await _verify_reused_strict_parts(
+                db, session, strict_keys, scope=settings.strict_storage_scope,
+                deletion_epoch=persisted_meeting.deletion_epoch,
+            )
         await mark_media_revision_accepted(
             db,
             media_revision_id=revision_id,
@@ -754,7 +870,7 @@ async def finalize_upload(
             db=db,
             tenant_scope=tenant_scope,
             meeting=meeting,
-            session=session,
+            session=initial_session,
             status=409,
             code="media_revision_fingerprint_conflict",
             title="Accepted media revision fingerprint cannot be changed",
@@ -795,6 +911,7 @@ async def finalize_upload(
             tracks,
             manifest_sha256,
             finalized_track_object_keys,
+            reused_strict_keys=strict_keys,
             commit=False,
         )
         if archive_audio or any(track.track_role == TrackRole.MEDIA for track in tracks):
@@ -821,6 +938,15 @@ async def finalize_upload(
                 commit=False,
             )
         await persist_audit_event(db, event, commit=False)
+        if strict_keys:
+            # This path only aliases existing single parts; never delete them
+            # on an unknown commit outcome.
+            assert db is not None
+            with storage_recovery_snapshot(settings) as current:
+                if current != recovery:
+                    await db.rollback()
+                    raise _strict_part_unavailable()
+                await db.commit()
     except Exception as exc:
         await cleanup_materialized("finalize_persistence_failed")
         meeting.status = previous_meeting_status
@@ -830,5 +956,7 @@ async def finalize_upload(
         session.processing_status = previous_session_processing_status
         session.finalized_at = previous_finalized_at
         session.archive_audio = previous_archive_audio
+        if strict_keys and isinstance(exc, ProblemDetail):
+            raise
         raise ProblemDetail(status=503, code="persistence_unavailable", title="Persistence unavailable") from exc
     return meeting, session

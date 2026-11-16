@@ -33,10 +33,10 @@
 <span class="cabinet-badge cabinet-badge--{{ state }}" data-state="{{ state }}">{{ label }}</span>
 {%- endmacro %}
 
-{% macro tooltip(id, body, label="Подробнее") -%}
+{% macro tooltip(id, body, label="Подробнее", windows_copy="") -%}
 <span class="cabinet-tooltip" data-state="normal">
   <button class="cabinet-tooltip__trigger" type="button" aria-label="{{ label }}" aria-describedby="{{ id }}" popovertarget="{{ id }}">{{ icons.icon("info") }}</button>
-  <span class="cabinet-tooltip__body" id="{{ id }}" role="tooltip" popover="auto">{{ body }}</span>
+  <span class="cabinet-tooltip__body" id="{{ id }}" role="tooltip" popover="auto"{% if windows_copy %} data-platform-copy="{{ windows_copy }}"{% endif %}>{{ body }}</span>
 </span>
 {%- endmacro %}
 

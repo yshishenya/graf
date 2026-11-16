@@ -181,7 +181,30 @@ async def test_schema_startup_gate_requires_exact_migration_head() -> None:
 
 
 def test_worker_schema_head_is_derived_from_packaged_migrations() -> None:
-    assert packaged_schema_head() == "0113_fair_use_operator_history"
+    assert packaged_schema_head() == "0115_f200_strict_upload_journal"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("reconciler", ["run_account_closure_reconciler", "run_deletion_purge_reconciler"])
+async def test_lifecycle_reconcilers_select_the_configured_runtime_database(monkeypatch, reconciler):
+    from twobrain_rec_server.workflows import worker
+
+    settings = object()
+    engine = object()
+    calls = []
+
+    class BoundaryReached(Exception):
+        pass
+
+    def sessions(selected_engine, selected_settings=None):
+        calls.append((selected_engine, selected_settings))
+        raise BoundaryReached
+
+    monkeypatch.setattr(worker, "create_engine", lambda selected: engine if selected is settings else None)
+    monkeypatch.setattr(worker, "create_sessionmaker", sessions)
+    with pytest.raises(BoundaryReached):
+        await getattr(worker, reconciler)(settings, temporal_client=object())
+    assert calls == [(engine, settings)]
 
 
 @pytest.mark.anyio

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from datetime import UTC, datetime, timedelta
 from io import BytesIO
 from pathlib import Path
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import select
@@ -14,10 +15,12 @@ from tests.contract.test_ingest_openapi_contract import auth_headers
 from tests.fakes.fake_minio import FailOnceDeleteStorage
 from tests.fakes.fake_temporal import FakeTemporalClient
 from tests.fixtures.artifacts import deterministic_wav_bytes
-from tests.fixtures.processing import apply_job_worker_scope
+from tests.fixtures.processing import apply_job_worker_scope, create_finalized_meeting
 from tests.integration.test_playback_normalization_workflow import (
     FakeManualNormalizationPipeline,
 )
+from twobrain_rec_server.billing.storage import CANONICAL_PLAYBACK_PROFILE
+from twobrain_rec_server.config import Settings
 from twobrain_rec_server.db.models import (
     MediaRevision,
     MediaScribeJob,
@@ -29,6 +32,9 @@ from twobrain_rec_server.db.models import (
     PurgeJournal,
     TemporaryUploadObject,
     TrackArtifact,
+    UploadPart,
+    UploadSession,
+    Workspace,
 )
 from twobrain_rec_server.db.tenant_context import (
     MaintenanceTenantContext,
@@ -36,6 +42,8 @@ from twobrain_rec_server.db.tenant_context import (
 )
 from twobrain_rec_server.deletion.service import (
     MAX_PURGE_JOURNAL_ATTEMPTS,
+    STRICT_UPLOAD_ATTEMPT,
+    reconcile_source_retention_purges,
     reconcile_transient_media_purges,
     retry_orphan_purge_journals,
 )
@@ -43,7 +51,223 @@ from twobrain_rec_server.normalization.service import (
     NormalizationExecutionDeferred,
     run_normalization_job,
 )
+from twobrain_rec_server.normalization.statuses import VALIDATION_VERSION
 from twobrain_rec_server.processing import store
+from twobrain_rec_server.storage.recovery import meeting_storage_read_fence_path, storage_read_fence
+
+
+@pytest.mark.parametrize("archive", [False, True], ids=["transient", "retention"])
+@pytest.mark.parametrize("damaged_key", [False, True], ids=["canonical", "journal_only"])
+def test_policy_cleanup_fences_readers_and_accounts_for_a_protected_source_once(
+    client, tmp_path, monkeypatch, archive, damaged_key,
+) -> None:
+    client.app.state.settings.processing_enabled = True
+    client.app.state.temporal_client = FakeTemporalClient()
+    data = create_finalized_meeting(client, "protected-policy-source", archive_audio=archive)
+    meeting_id = UUID(str(data["meeting"]["meeting_id"]))
+    storage = client.app_state["storage"]
+    sessions = client.app_state["sessionmaker"]
+    now = datetime.now(UTC)
+    recovery_id = uuid4()
+    recovery_file = tmp_path / "recovery"
+    recovery_file.with_name("recovery.lock").touch()
+    recovery_file.write_text(json.dumps({
+        "schema": 1, "scope": "test-scope", "state": "reconciled", "recovery_id": str(recovery_id),
+    }), encoding="utf-8")
+    settings = Settings(
+        strict_storage_scope="test-scope", strict_storage_recovery_file=recovery_file,
+        strict_storage_recovery_id=recovery_id, strict_storage_read_fence_directory=tmp_path,
+    )
+    calls = []
+
+    async def run():
+        async with sessions.begin() as db:
+            meeting = await db.get(Meeting, meeting_id)
+            workspace = await db.get(Workspace, meeting.workspace_id)
+            workflow = await db.scalar(
+                select(ProcessingWorkflow).where(ProcessingWorkflow.meeting_id == meeting_id)
+            )
+            assert workflow is not None
+            revision = workflow.media_revision_id
+            assert revision is not None
+            source = await db.scalar(select(TrackArtifact).where(
+                TrackArtifact.meeting_id == meeting_id, TrackArtifact.track_role == "media",
+            ))
+            playback = await db.scalar(select(TrackArtifact).where(
+                TrackArtifact.meeting_id == meeting_id, TrackArtifact.track_role == "playback",
+            ))
+            assert source is not None and playback is not None
+            playback_key = playback.storage_object_key
+            session = await db.scalar(select(UploadSession).where(UploadSession.meeting_id == meeting_id))
+            part = await db.scalar(select(UploadPart).where(
+                UploadPart.upload_session_id == session.id, UploadPart.track_role == "media",
+            ))
+            temp = await db.scalar(select(TemporaryUploadObject).where(
+                TemporaryUploadObject.upload_session_id == session.id,
+                TemporaryUploadObject.storage_object_key == source.storage_object_key,
+            ).limit(1))
+            key = (
+                f"organizations/{workspace.organization_id}/workspaces/{workspace.id}/"
+                f"meetings/{meeting_id}/sessions/{session.id}/tracks/media/parts/"
+                f"{part.part_number:08d}/calendar-attempts/1/2"
+            )
+            if damaged_key:
+                key = key.replace("/calendar-attempts/", "/damaged-attempts/")
+            storage.objects[key] = storage.objects[source.storage_object_key]
+            source.storage_object_key = part.storage_object_key = key
+            if temp is None:
+                temp = TemporaryUploadObject(
+                    workspace_id=workspace.id, media_revision_id=revision,
+                    upload_session_id=session.id, byte_length=source.byte_length,
+                    storage_object_key=key,
+                    object_role="accepted_part" if archive else "transient_source",
+                )
+                db.add(temp)
+            else:
+                temp.storage_object_key = key
+            attempt_id, job_id = uuid4(), uuid4()
+            db.add(PurgeJournal(
+                id=attempt_id, workspace_id=workspace.id, meeting_id=meeting_id,
+                media_revision_id=revision, object_key=key, artifact_class=STRICT_UPLOAD_ATTEMPT,
+                state="retained", write_state="accepted", multipart_upload_id="exact-upload",
+                storage_scope="test-scope", storage_epoch=1, deletion_epoch=meeting.deletion_epoch,
+            ))
+            exact_attempts = {key: attempt_id}
+            if not archive and not damaged_key:
+                # The assembled source can have a different key from a retained input part.
+                extra_key = key.replace(f"/{part.part_number:08d}/", "/00000003/")
+                assert extra_key != key
+                extra_attempt_id = uuid4()
+                exact_attempts[extra_key] = extra_attempt_id
+                storage.objects[extra_key] = storage.objects[key]
+                db.add_all([
+                    UploadPart(
+                        upload_session_id=session.id, track_role=part.track_role,
+                        part_number=3, byte_offset=part.byte_length,
+                        byte_length=part.byte_length, sha256=part.sha256,
+                        storage_object_key=extra_key, status="accepted",
+                    ),
+                    TemporaryUploadObject(
+                        workspace_id=workspace.id, media_revision_id=revision,
+                        upload_session_id=session.id, byte_length=part.byte_length,
+                        storage_object_key=extra_key, object_role="accepted_part",
+                    ),
+                    PurgeJournal(
+                        id=extra_attempt_id, workspace_id=workspace.id, meeting_id=meeting_id,
+                        media_revision_id=revision, object_key=extra_key,
+                        artifact_class=STRICT_UPLOAD_ATTEMPT, state="retained",
+                        write_state="accepted", multipart_upload_id="exact-upload",
+                        storage_scope="test-scope", storage_epoch=1,
+                        deletion_epoch=meeting.deletion_epoch,
+                    ),
+                ])
+            db.add(MediaScribeJob(
+                id=job_id, workspace_id=workspace.id, meeting_id=meeting_id,
+                processing_workflow_id=workflow.id, media_revision_id=revision,
+                source_track_artifact_id=source.id, status="submitting",
+                submission_claim_token="synthetic-inflight",
+                submission_claimed_at=now - timedelta(minutes=10),
+            ))
+            if archive:
+                playback.status = "stored"
+                playback.normalization_profile_version = CANONICAL_PLAYBACK_PROFILE
+                playback.validated_at = now - timedelta(days=8)
+                playback.derivation_kind = "uploaded_candidate"
+                playback.source_fingerprint_sha256 = "a" * 64
+                playback.validation_version = VALIDATION_VERSION
+                source.source_playback_verified_at = source.source_transcript_imported_at = playback.validated_at
+            else:
+                workflow.status = "failed_terminal"
+                workflow.transient_state = "terminal"
+                workflow.transient_purge_due_at = now - timedelta(minutes=1)
+
+        original_exists = storage.object_exists_async
+
+        async def ordinary_exists(candidate):
+            assert candidate not in exact_attempts
+            return await original_exists(candidate)
+
+        async def exact_cleanup(**request):
+            candidate = request["key"]
+            assert request["attempt_id"] == exact_attempts[candidate]
+            assert request["upload_id"] == "exact-upload"
+            calls.append(candidate)
+            async with sessions() as reader:
+                await reader.scalar(
+                    select(Meeting.id).where(Meeting.id == meeting_id).with_for_update(nowait=True)
+                )
+                row = await reader.get(PurgeJournal, exact_attempts[candidate])
+                assert row.state == "deleting"
+                job = await reader.get(MediaScribeJob, job_id)
+                with pytest.raises(store.ProcessingLifecycleBlocked, match="source_purge_started"):
+                    await store.claim_mediascribe_submission(reader, job=job)
+            storage.objects.pop(candidate)
+            return True
+
+        monkeypatch.setattr(storage, "object_exists_async", ordinary_exists)
+        monkeypatch.setattr(storage, "purge_strict_upload_attempt", exact_cleanup, raising=False)
+
+        async def scan():
+            async with sessions() as db:
+                db.info["runtime_settings"] = settings
+                if archive:
+                    count = await reconcile_source_retention_purges(
+                        db, storage=storage, now=now, retention_period=timedelta(days=7),
+                        policy_version="source-audio-v1", backup_expiry_days=30,
+                    )
+                else:
+                    count = await reconcile_transient_media_purges(db, storage=storage, now=now)
+                await db.commit()  # The maintenance worker commits this session again.
+                return count
+
+        assert await scan() == 0
+        assert key in storage.objects and not calls
+        async with sessions.begin() as db:
+            job = await db.get(MediaScribeJob, job_id)
+            job.status = "not_submitted"
+            job.submission_claim_token = None
+        if not damaged_key:
+            fence_path = meeting_storage_read_fence_path(settings, workspace.id, meeting_id)
+            assert fence_path is not None
+            with storage_read_fence(fence_path, exclusive=False, create=True) as reader:
+                assert reader is not None
+                assert await scan() == 0 and not calls
+                async with sessions() as db:
+                    row = await db.get(PurgeJournal, attempt_id)
+                    assert row.state == "retained" and row.attempt_count == 0
+                    current_workflow = await db.get(ProcessingWorkflow, workflow.id)
+                    current_artifact = await db.get(TrackArtifact, source.id)
+                    assert current_workflow.transient_state != "purge_due"
+                    assert current_artifact.source_lifecycle_state != "purge_pending"
+        assert await scan() == 0
+        if damaged_key:
+            assert key in storage.objects and key not in storage.deleted_keys and not calls
+            async with sessions() as db:
+                assert await db.scalar(select(PurgeJournal.state).where(
+                    PurgeJournal.meeting_id == meeting_id, PurgeJournal.object_key == key,
+                    PurgeJournal.artifact_class != STRICT_UPLOAD_ATTEMPT,
+                )) == "terminal_unknown"
+            return
+        assert calls == [key] and key not in storage.objects
+        if not archive:
+            assert await scan() == 0  # The original input part has its own receipt.
+            assert await scan() == 0  # Ordinary objects settle before protected accounting.
+        assert sorted(await asyncio.gather(scan(), scan())) == [0, 1]
+        assert calls == sorted(exact_attempts)
+        assert not exact_attempts.keys() & storage.deleted_keys
+        assert not exact_attempts.keys() & storage.objects.keys()
+        assert (playback_key in storage.objects) is archive
+        async with sessions() as db:
+            for model, status in (
+                (TrackArtifact, TrackArtifact.status), (UploadPart, UploadPart.status),
+                (TemporaryUploadObject, TemporaryUploadObject.cleanup_status),
+            ):
+                expected_keys = {key} if model is TrackArtifact else exact_attempts.keys()
+                assert list(await db.scalars(
+                    select(status).where(model.storage_object_key.in_(expected_keys))
+                )) == ["purged"] * len(expected_keys)
+
+    asyncio.run(run())
 
 
 class BlockingVerifiedUploadStorage:

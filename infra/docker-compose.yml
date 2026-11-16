@@ -1,5 +1,19 @@
 name: twobrain-rec
 
+x-storage-recovery-environment: &storage-recovery-environment
+  TWOBRAIN_STRICT_STORAGE_RECOVERY_DIRECTORY: /run/graf-storage-recovery
+  TWOBRAIN_STRICT_STORAGE_RECOVERY_ALLOW_LEGACY: ${TWOBRAIN_STRICT_STORAGE_RECOVERY_ALLOW_LEGACY:-false}
+  TWOBRAIN_STRICT_STORAGE_SCOPE: ${TWOBRAIN_STRICT_STORAGE_SCOPE:-}
+  TWOBRAIN_STRICT_STORAGE_RECOVERY_ID: ${TWOBRAIN_STRICT_STORAGE_RECOVERY_ID:-}
+
+x-storage-recovery-mount: &storage-recovery-mount
+  type: volume
+  source: rec-storage-recovery
+  target: /run/graf-storage-recovery
+  read_only: true
+  volume:
+    nocopy: true
+
 services:
   rec-api:
     build:
@@ -11,6 +25,7 @@ services:
     env_file:
       - ./env/rec.production.env.example
     environment:
+      <<: *storage-recovery-environment
       TWOBRAIN_ENV: production
       GRAF_POSTHOG_GUARD_STATE_DIR: /run/graf-analytics-guard
       GRAF_POSTHOG_BACKUP_STATE_DIR: /run/graf-analytics-backup
@@ -187,6 +202,7 @@ services:
     ports:
       - "127.0.0.1:18081:8080"
     volumes:
+      - *storage-recovery-mount
       - ./runtime/public-downloads:/usr/local/lib/python3.13/site-packages/twobrain_rec_server/public/static/public/downloads:ro
       - /var/lib/graf-posthog-runtime-guard:/run/graf-analytics-guard:ro
       - /var/lib/graf-posthog-backup:/run/graf-analytics-backup:ro
@@ -234,6 +250,7 @@ services:
     env_file:
       - ./env/rec.production.env.example
     environment:
+      <<: *storage-recovery-environment
       TWOBRAIN_ENV: production
       TWOBRAIN_PUBLIC_BASE_URL: ${TWOBRAIN_PUBLIC_BASE_URL:-https://rec.2brain.pro}
       TWOBRAIN_WEB_RUNTIME_ENABLED: "false"
@@ -347,6 +364,8 @@ services:
         uid: "100"
         gid: "101"
         mode: 0440
+    volumes:
+      - *storage-recovery-mount
     command: ["python", "-m", "twobrain_rec_server.workflows.worker"]
     healthcheck:
       test: ["CMD", "python", "/app/scripts/verify_processing_worker_ready.py"]
@@ -495,6 +514,7 @@ services:
     env_file:
       - ./env/rec.production.env.example
     environment:
+      <<: *storage-recovery-environment
       TWOBRAIN_ENV: production
       TWOBRAIN_WEB_RUNTIME_ENABLED: "false"
       TWOBRAIN_PLAYBACK_NORMALIZATION_ENABLED: "true"
@@ -529,6 +549,7 @@ services:
       start_period: 20s
     volumes:
       - rec-media-work:/var/lib/twobrain-rec/playback-normalization
+      - *storage-recovery-mount
     depends_on:
       rec-db-runtime-bootstrap:
         condition: service_completed_successfully
@@ -715,6 +736,7 @@ services:
     env_file:
       - ./env/rec.production.env.example
     environment:
+      <<: *storage-recovery-environment
       TWOBRAIN_ENV: production
       TWOBRAIN_PUBLIC_BASE_URL: ${TWOBRAIN_PUBLIC_BASE_URL:-https://rec.2brain.pro}
       TWOBRAIN_WEB_RUNTIME_ENABLED: "false"
@@ -830,6 +852,8 @@ services:
         uid: "100"
         gid: "101"
         mode: 0440
+    volumes:
+      - *storage-recovery-mount
     command: ["python", "-m", "twobrain_rec_server.workflows.maintenance_worker"]
     depends_on:
       rec-db-runtime-bootstrap:
@@ -938,10 +962,13 @@ services:
         target: twobrain_minio_media_access_key
       - source: twobrain_minio_media_secret_key
         target: twobrain_minio_media_secret_key
+    volumes:
+      - ./minio/strict-upload-protection.json:/config/strict-upload-protection.json:ro
     entrypoint:
       - /bin/sh
       - -c
       - |
+        set -eu
         MINIO_ROOT_USER="$$(cat /run/secrets/twobrain_minio_root_user)"
         MINIO_ROOT_PASSWORD="$$(cat /run/secrets/twobrain_minio_root_password)"
         TWOBRAIN_MINIO_API_ACCESS_KEY="$$(cat /run/secrets/twobrain_minio_api_access_key)"
@@ -950,22 +977,24 @@ services:
         TWOBRAIN_MINIO_MEDIA_SECRET_KEY="$$(cat /run/secrets/twobrain_minio_media_secret_key)"
         mc alias set rec http://rec-minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD"
         mc mb --ignore-existing "rec/$$TWOBRAIN_MINIO_BUCKET"
-        printf 'ready\n' >/tmp/storage-readiness
-        mc cp /tmp/storage-readiness "rec/$$TWOBRAIN_MINIO_BUCKET/_system/readiness/ready"
-        mc admin user add rec "$$TWOBRAIN_MINIO_API_ACCESS_KEY" "$$TWOBRAIN_MINIO_API_SECRET_KEY" || true
+        mc admin policy create rec twobrain-rec-strict-upload-protection /config/strict-upload-protection.json || exit 1
+        mc admin user add rec "$$TWOBRAIN_MINIO_API_ACCESS_KEY" "$$TWOBRAIN_MINIO_API_SECRET_KEY"
+        mc admin policy attach rec twobrain-rec-strict-upload-protection --user "$$TWOBRAIN_MINIO_API_ACCESS_KEY" || exit 1
         cat >/tmp/rec-api-policy.json <<'JSON'
         {"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:ListBucket","s3:GetBucketLocation"],"Resource":["arn:aws:s3:::twobrain-rec-ingest"]},{"Effect":"Allow","Action":["s3:GetObject","s3:PutObject","s3:DeleteObject"],"Resource":["arn:aws:s3:::twobrain-rec-ingest/*"]}]}
         JSON
-        mc admin policy rm rec twobrain-rec-api || true
         mc admin policy create rec twobrain-rec-api /tmp/rec-api-policy.json
         mc admin policy attach rec twobrain-rec-api --user "$$TWOBRAIN_MINIO_API_ACCESS_KEY"
-        mc admin user add rec "$$TWOBRAIN_MINIO_MEDIA_ACCESS_KEY" "$$TWOBRAIN_MINIO_MEDIA_SECRET_KEY" || true
+        mc admin user add rec "$$TWOBRAIN_MINIO_MEDIA_ACCESS_KEY" "$$TWOBRAIN_MINIO_MEDIA_SECRET_KEY"
+        mc admin policy attach rec twobrain-rec-strict-upload-protection --user "$$TWOBRAIN_MINIO_MEDIA_ACCESS_KEY" || exit 1
         cat >/tmp/rec-media-policy.json <<'JSON'
         {"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetBucketLocation"],"Resource":["arn:aws:s3:::twobrain-rec-ingest"]},{"Effect":"Allow","Action":["s3:GetObject"],"Resource":["arn:aws:s3:::twobrain-rec-ingest/_system/readiness/ready","arn:aws:s3:::twobrain-rec-ingest/organizations/*/workspaces/*/meetings/*/sessions/*/tracks/media/parts/*","arn:aws:s3:::twobrain-rec-ingest/organizations/*/workspaces/*/meetings/*/sessions/*/tracks/microphone/parts/*","arn:aws:s3:::twobrain-rec-ingest/organizations/*/workspaces/*/meetings/*/sessions/*/tracks/system/parts/*","arn:aws:s3:::twobrain-rec-ingest/organizations/*/workspaces/*/meetings/*/sessions/*/tracks/playback/parts/*","arn:aws:s3:::twobrain-rec-ingest/organizations/*/workspaces/*/meetings/*/artifacts/media-revisions/*/tracks/media","arn:aws:s3:::twobrain-rec-ingest/organizations/*/workspaces/*/meetings/*/artifacts/media-revisions/*/tracks/microphone","arn:aws:s3:::twobrain-rec-ingest/organizations/*/workspaces/*/meetings/*/artifacts/media-revisions/*/tracks/system","arn:aws:s3:::twobrain-rec-ingest/organizations/*/workspaces/*/meetings/*/artifacts/media-revisions/*/tracks/playback"]},{"Effect":"Allow","Action":["s3:GetObject","s3:PutObject","s3:DeleteObject","s3:AbortMultipartUpload","s3:ListMultipartUploadParts"],"Resource":["arn:aws:s3:::twobrain-rec-ingest/organizations/*/workspaces/*/meetings/*/artifacts/playback-normalization/revisions/*/attempts/*/meeting-review.m4a"]}]}
         JSON
-        mc admin policy rm rec twobrain-rec-media || true
         mc admin policy create rec twobrain-rec-media /tmp/rec-media-policy.json
         mc admin policy attach rec twobrain-rec-media --user "$$TWOBRAIN_MINIO_MEDIA_ACCESS_KEY"
+        printf 'ready\n' >/tmp/storage-readiness
+        mc cp /tmp/storage-readiness "rec/$$TWOBRAIN_MINIO_BUCKET/_system/readiness/ready"
+
     logging:
       driver: json-file
       options:
@@ -996,6 +1025,9 @@ volumes:
     name: twobrain-rec-minio-data
   rec-media-work:
     name: twobrain-rec-media-work
+  rec-storage-recovery:
+    name: twobrain-rec-storage-recovery
+    external: true
 
 secrets:
   twobrain_postgres_password:
