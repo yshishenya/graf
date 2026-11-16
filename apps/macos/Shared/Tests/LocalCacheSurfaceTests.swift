@@ -415,6 +415,8 @@ final class LocalCacheSurfaceTests: XCTestCase {
         XCTAssertTrue(shell.contains("cleanupPrompt = pending"))
         XCTAssertTrue(shell.contains("await refreshLocalCacheStatus()"))
         XCTAssertTrue(shell.contains("await refreshCleanupAvailability()"))
+        XCTAssertTrue(shell.contains(".onChange(of: uploadQueueItems)"))
+        XCTAssertTrue(shell.contains("Task { await refreshCleanupAvailability() }"))
         XCTAssertFalse(shell.contains("guard !cabinetConfigured else { return }\n            await refreshLocalCacheStatus"))
         XCTAssertTrue(shell.contains("LocalCacheStatusCardView("))
 

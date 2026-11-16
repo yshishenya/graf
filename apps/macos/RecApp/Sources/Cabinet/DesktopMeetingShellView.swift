@@ -339,6 +339,9 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
             await refreshLocalCacheStatus()
             await refreshCleanupAvailability()
         }
+        .onChange(of: uploadQueueItems) { _, _ in
+            Task { await refreshCleanupAvailability() }
+        }
         .sheet(item: $cleanupPrompt) { prompt in
             LocalCacheCleanupConfirmationView(
                 bytes: prompt.bytes,
