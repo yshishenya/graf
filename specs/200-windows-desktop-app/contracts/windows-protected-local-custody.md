@@ -191,8 +191,32 @@ hash/upload/CopyTo buffers и cache. Plain read cache2MiB суммарно, об
 Clone, одна dirty seek/rewrite группа≤4blocks/1MiB, без накопления следующих.
 Крупный Write/CopyTo/hash выполняется частями≤256KiB; число Clones/pins≤32
 на процесс; нехватка бюджета — явный отказ до принятия изменения, не swap spill.
-MF/DPAPI internal allocations дополнительно измеряются, не объявляются частью
+MF/DPAPI и разрешённые ниже FFmpeg internal allocations дополнительно измеряются, не объявляются частью
 доказанной owned quota. Finalization освобождает writer copies перед reopen.
+
+### 5.1. Штатный FFmpeg — решение владельца от 2026-11-16
+
+Для Windows AAC разрешён штатный FFmpeg без собственного allocator, полного
+учёта или гарантии затирания его внутренних копий звука. Предел 64 MiB и
+обязательное затирание остаются для всех принадлежащих GRAF буферов, включая
+передаваемые библиотеке PCM, адаптер IO и полученные encoded bytes. Общая память
+процесса может превышать 64 MiB; внутренние выделения библиотеки не считать
+доказанно включёнными в этот предел. Не обещать затирание всей памяти процесса.
+
+FFmpeg не владеет захватом, разрешениями, AEC, временной шкалой, durable commit
+или признаком успешной записи. Он получает проверенный canonical prefix и
+пишет через существующий защищённый logical IO; открытые WAV/AAC, временный
+файл или накопление всей встречи в RAM запрещены. Ошибки encoder/IO/памяти не
+превращаются в normal package; последний проверенный prefix сохраняется по
+прежнему recovery contract. Все контексты, пакеты и кадры освобождаются на
+успешном и ошибочных выходах штатными API библиотеки.
+
+До подключения нужны закреплённые source/build/DLL/architecture, проверка
+лицензии и воспроизводимая app-local поставка без GPL/nonfree компонентов,
+сетевых протоколов и зависимости от внешнего `ffmpeg.exe` или Homebrew.
+Внутренний allocator FFmpeg не заменять. Расход памяти проверяется отдельно
+по [приёмке штатного FFmpeg](../quickstart.md#t116--штатный-ffmpeg-и-измерение-памяти);
+короткий стендовый результат не заменяет длинную и установленную проверку.
 
 Sequential canonical публикует каждый full256KiB block, Flush/Pause/Stop также
 tail. Это cadence по bytes, не wall-time гарантия1.365s при зависшем IO.
@@ -275,8 +299,10 @@ snapshot SetSize/Write отвергает. Clone — independent cursor/same pin
 generation/shared cache; CopyTo bounded, ошибки не маскируются. Commit flags
 поддерживаются явно, неизвестные flags/locking/revert — отказ, не ложный S_OK.
 
-IStream → IMFByteStream для SinkWriter/SourceReader/MediaEngine audio-only;
-container задаётся MF attributes/нейтральным label `.m4a`, не private path.
+IStream → IMFByteStream для SourceReader/MediaEngine audio-only сохраняется.
+Прежний AAC SinkWriter с container через MF attributes заменяется по §5.1;
+это не отменяет logical IO, lease и teardown гарантий. Нейтральный label `.m4a`
+не раскрывает private path.
 Никаких plaintext temp/URL codecs/ShellExecute/audio exports для playback.
 MediaEngine callbacks содержат безопасный event/error, не content, и проходят
 проверку owner/context epoch на UI. Pause/resume/seek/Stop используют один pin;

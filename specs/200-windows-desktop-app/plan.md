@@ -2097,8 +2097,10 @@ capture dispatcher; после workers/EOS/dispatcher fence и close timeline wr
 передаётся existing async finalizer. Canonical checkpoints сохраняют cadence;
 восстановление использует только complete480-sample frames, без padding/AEC.
 WAV сохраняет прежний 48→16 kHz PCM алгоритм/RIFF u32 bound через logical IO.
-AAC сохраняет PCM/MF цикл; output IStream → MFByteStream → SinkWriter с URL=null
-и explicit MPEG4 container attribute. Штатный readonly Reader не становится
+Прежний AAC encoder использовал PCM/MF цикл: output IStream → MFByteStream →
+SinkWriter с URL=null и explicit MPEG4 container attribute. Решение T116 от
+2026-11-16 и контракт §5.1 заменяют только этот AAC encoding/muxing блок на
+штатный FFmpeg; MF reader/playback и защищённый logical IO сохраняются. Штатный readonly Reader не становится
 writable через bool, plaintext URL/temp fallback не остаётся в рабочем V5.
 
 Тонкий writable IStream над тем же Writer имеет один charged serial state;
@@ -5636,3 +5638,40 @@ Boole подключает безопасные summary/`storageWarningText()` �
 genuine-owner fixtures и точки наблюдения; не подставляют фиктивные owner/writer
 или ready-флаги. Нет зависимости от новой реализации T088/B31 и правок их
 секций; текущая validation и активный native127 snapshot остаются у Main.
+
+## T116 — штатный FFmpeg после решения владельца 2026-11-16
+
+Полоса остаётся high-risk-product, существующие T116/T118. Решение и границы
+задаёт [контракт §5.1](contracts/windows-protected-local-custody.md). Конституция
+I/II/IV/VI сохраняется: WASAPI/AEC/clock и local recording truth принадлежат
+GRAF; FFmpeg заменяет только подтверждённо дефектный AAC encoding/muxing путь.
+
+После независимого [ревью требований](checklists/t116-stock-ffmpeg.md), analyze
+и синхронизации существующих GitHub задач:
+
+1. Закрепить поддерживаемую стабильную версию, официальный source hash,
+   воспроизводимую LGPL-сборку обычного FFmpeg и архитектуру; проверить
+   уведомления/исходники/условия распространения. Не использовать GPL-сборку
+   Homebrew и не продолжать собственный allocator/private715 fork. Прежние
+   исследовательские файлы и квитанции сохраняются как история, не поставляются.
+2. В `apps/windows/RecApp/Recording/V5LocalRecordingWriter.cpp::writePlayback`
+   заменить только MF AAC encoding/muxing блок, переиспользуя существующие
+   canonical reader и protected seek/rewrite IO. Жизненный цикл writer,
+   checkpoint/prefix/finalize и вызовы `writePlayback` сохраняются. Encoder
+   работает вне audio/UI callbacks и не меняет PCM, AEC, cutoff, v5 bytes/ranges/UUID,
+   durable authority или правила ошибок. Удалить только заменённый MF AAC-блок
+   и действительно неиспользуемые зависимости; `LocalRecordingPackage.cpp`
+   остаётся reader/inspection consumer, Media Foundation reader/playback сохраняются.
+3. Включить DLL/лицензию через существующие `apps/windows/RecApp/GrafWindowsApp.vcxproj`,
+   `apps/windows/CMakeLists.txt` и упаковочный путь; загрузка только app-local,
+   ошибка зависимости не подменяется старым encoder или внешним executable.
+4. Переиспользовать `apps/windows/Tests/GrafWindowsContractTests/` и
+   `GrafWindowsPackageTests/` для аудио, защищённого IO, отказов и сохранности;
+   выполнить [приёмку](quickstart.md#t116--штатный-ffmpeg-и-измерение-памяти).
+   Собственные буферы GRAF учитываются до allocation и затираются; внутренние
+   объекты FFmpeg освобождаются штатно, полное затирание не заявляется.
+
+Не вводятся вторая запись, служба, процесс encoder, открытые временные файлы,
+новый формат хранения или копирование всей встречи в RAM. Длинная запись,
+установленный MSIX, x64 hardware/AEC и публичная подпись остаются отдельными
+непройденными воротами, пока нет соответствующих фактических результатов.

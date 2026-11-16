@@ -2,6 +2,10 @@
 
 Дата исследования: 2026-08-23
 
+Дополнение от 2026-11-16: [сравнение публичной подписи Windows для ИП в РФ](research-code-signing-2026-11-16.md).
+По решению владельца покупка подписи отложена до готовности приложения;
+исследование не подтверждает выдачу сертификата и не закрывает T124.
+
 Актуальное дополнение2026-10-03: владелец принял live incremental ACK
 больших media objects с обязательным full verification после ownership gap
 и более поздним обнаружением скрытой old-DATA corruption. Выбор per-record
@@ -435,7 +439,7 @@ Manifest выбирался по Id MSTeams: второй entry использу
 | Capture on WebView/JavaScript | Web UI cannot own local permissions, reliable system mix, local custody or one-action Stop |
 | Electron/Tauri runtime | Adds a second browser/runtime or native bridge without reducing Windows Core Audio work |
 | C# shell + P/Invoke audio core | Extra managed/native lifecycle boundary around real-time ownership; revisit if UI staffing outweighs safety benefit |
-| FFmpeg bundled solely for AAC | Larger dependency/license/release surface when native Media Foundation AAC-LC/Sink Writer meets the required format |
+| FFmpeg bundled solely for AAC | Исторический отказ при предположении исправного MF AAC. Решение владельца 2026-11-16 разрешает штатный FFmpeg после подтверждённого искажения; контракт Windows protected custody §5.1 задаёт границы памяти и поставки. |
 
 Any future process-isolated capture feature must separately specify how the user
 selects and verifies the target process identity, whether child processes are in
