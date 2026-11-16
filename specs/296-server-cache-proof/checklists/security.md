@@ -2,9 +2,9 @@
 
 **Review Ownership**: reviewer-owned. Mark `[x]` only with concrete evidence.
 
-- [ ] CHK001 New proof fields contain no object keys, signed URLs, local paths, titles or transcripts; existing revision `manifest_sha256`/`track_sha256_by_role` fields are explicitly allowed.
+- [x] CHK001 New proof fields contain no object keys, signed URLs, local paths, titles or transcripts; existing revision `manifest_sha256`/`track_sha256_by_role` fields are explicitly allowed.
 - [x] CHK002 Storage status uses the request tenant context and respects billing-table RLS.
-- [ ] CHK003 Role matrix is exact: personal owner manage, corporate admin read-only with visible amounts, member/unknown read-only with null amounts and no management action.
+- [x] CHK003 Role matrix is exact: personal owner manage, corporate admin read-only with visible amounts, member/unknown read-only with null amounts and no management action.
 - [x] CHK004 Playback proof fails closed when storage is missing, times out, errors, or returns a size mismatch.
 - [x] CHK005 `archive_audio=false` and unknown archive custody never authorize local deletion.
 - [x] CHK006 Retention `unsafe`, `blocked`, `expired`, missing or too-close deadlines never authorize local deletion.
@@ -17,5 +17,5 @@
 
 ## Reviewer Notes
 
-- Review date: 2026-11-16. Totals: 6/12 checked, 6 unchecked. See `review-2026-11-16.md` for evidence and corrections.
-- CHK002 and CHK012 are checked at the contract/design level; the route and logging implementation are still pending and must be rechecked after implementation.
+- **Re-review 2026-11-16**: 8/12 checked, 4 unchecked. Design blockers: 0. CHK008–CHK011 are implementation-evidence items: the contracts/plans specify the behavior, but code and tests are still pending (T015, T019, T020).
+- CHK003 is checked against `contracts/desktop-storage-status.md:28-37` and `data-model.md:60-65`. `data-model.md:48` wording should be aligned during implementation; it does not change the role matrix.
