@@ -868,16 +868,24 @@
   SCOPED IMPLEMENTATION PASS/P1=0/P2=0, report55cda55e… для прежнего
   probe e3c5f0d… и selfcheck c73fa8b…. Принято ограничение одного GET/PG;
   это не приёмка выдачи proof или рабочего измерения.
-- [ ] Исполнить единственный диагностический GET после принятия способа
-  загрузки fixture. Первая реальная попытка остановлена до collection:
-  EXIT4/unrecognized --graf-collection-file,0.424s, container_not_started.
-  БД/GET не запускались; временная копия снята. Статически причина — файл
-  вне tests/ не загрузил tests/conftest.py. Предложено явное -p tests.conftest;
-  новый допуск этой invocation ещё не получен. После сохранения33aedbaaa
-  поручение передано прежнему независимому reviewer; новый FINAL ещё не
-  получен. V4/87/POST не повторялись, runtime прежний.
-  [Отчёт collection и независимое implementation review](https://github.com/yshishenya/graf/blob/33aedbaaa4d79ff8c4f2305b211cf81e99a22177/specs/273-paid-traffic-analytics/validation/t112-early-proof-collection-validation-20261117.md)
-  сохранены отдельно от прежнего draft; причина старого0proofs неизвестна.
+- [x] Получить FINAL invocation-review072eacd9…: SCOPED PASS/P1=0/P2=0
+  для явного -p tests.conftest. После исходного EXIT4 до БД/GET отдельно
+  принята исправленная загрузка: collect-only EXIT0/ровно1/inventory_only/
+  container_not_started; digest1f961a21…. Код runner/probe не менялся.
+- [x] Выполнить ровно один GET/PG по новому допуску: pytest1PASS1warning6.79s,
+  phase11s/wrapper18.33111s. HTTP200/1.458918s,16records/все7stages,
+  dropped0/incompletefalse/исключений0; bindings/inspect/issue/operation/optional
+  вернулиcount2, inspection owner верный, account exitfinished. Optional0.843491s,
+  loader0.786548s, на выходеwork0.656518/hard1.156518s. Это положительная
+  серверная предпосылка, не проверка HTML proof/видимости/принятия вех.
+  [Доказательство и пределы](https://github.com/yshishenya/graf/blob/959d43d0b9f7ece86e01e88c45b31d9bafe8ca41/specs/273-paid-traffic-analytics/validation/t112-early-proof-get-validation-20261117.md).
+  Изолированная PostgreSQL удалена runner, временная копия снята finally.
+  POST/M1/V4/87 не исполнялись. Допуск одногоGET использован.
+- [ ] Независимо определить минимальный следующий опыт для исходного native
+  COMMIT/response. Прежние normalPOST2responsecompletefalse/faultresponseheld
+  и repeatedHOLD не объяснены, tracing причиной не доказан. Новый дизайн
+  реализации заранее не принимает; до него не повторять native/87 и не менять
+  runtime. Поручение next-design пока только файл, не доставка/verified wait.
 - [ ] Завершить чтение нового завершённого недельного отчёта Метрики. В IAB2
   авторизованный кабинет действительно открылся; показал предупреждение
   технических работ и возможной задержки. Единственный увиденный прямой визит
