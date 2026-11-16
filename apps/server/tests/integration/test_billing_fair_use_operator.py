@@ -2549,13 +2549,17 @@ async def test_fair_use_sender_retries_genuine_held_row_locks(fair_use_sender_ca
 
 
 @pytest.mark.parametrize("outcome", ["rejected", "ack_lost"])
-async def test_fair_use_final_save_failure_never_repeats_transport(fair_use_sender_case, monkeypatch, outcome):
+@pytest.mark.parametrize("microsecond", [200580, 123456])
+async def test_fair_use_final_save_failure_never_repeats_transport(
+    fair_use_sender_case, monkeypatch, outcome, microsecond
+):
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from twobrain_rec_server.db.models import BillingNotificationDelivery
     from twobrain_rec_server.workflows import worker
 
     x, faults, claims = fair_use_sender_case, [], []
+    x.now = x.now.replace(microsecond=microsecond)
     c = x.case
     before = await cli_snapshot(c)
 
@@ -2616,7 +2620,7 @@ async def test_fair_use_final_save_failure_never_repeats_transport(fair_use_send
         assert row["last_error_code"] == "postal_outcome_unknown" and row["delivered_at"] is None
     else:
         assert faults == [True] and row["state"] == "delivered"
-        assert row["last_error_code"] is None and row["delivered_at"] == x.now.isoformat()
+        assert row["last_error_code"] is None and datetime.fromisoformat(row["delivered_at"]) == x.now
     x.now += timedelta(days=1)
     await x.dispatch()
     assert await cli_snapshot(c) == after and len(x.calls) == 1
