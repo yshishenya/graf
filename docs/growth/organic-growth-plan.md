@@ -709,6 +709,56 @@
   компоненты success. `isDraft=true`, `publishedAt=null`; публикация и рабочая
   приёмка этим не подтверждены, freeze сохраняется. Это чтение статуса, не
   новый запуск Full/CD и не разрешение слияния.
+- [x] Получить новый независимый проект ordinary return/неизвестного COMMIT
+  до тестового кода: `t112-ordinary-return-design-review-20261116.md`,
+  SHA-256 `04f10392b802ffd769dcd95324de4f1070f125ac29385f121547475611ad9c6f`,
+  TEST DESIGN PASS/P1=0/P2=0/checklist124/0. Ранее подготовленный preflight
+  сохранён. Искусственный медленный default reset не создавался.
+- [x] Выполнить два native опыта через настоящий GET/POST на неизменном
+  рабочем коде: normal сохраняет исправный driver/reset/checkin; fault
+  удерживает адресный COMMIT-ответ после доказанного сохранения двух строк.
+  До отмены M1 подтверждает присутствующий idle backend/noTX/locks0 и
+  работающий F того же пула; до gate.set/teardown проверены завершение старого
+  поколения/relay/tasks, новый borrower B и сохранность F/B. Следующий явный
+  POST сверяет прежние строки без дублей. Baseline2PASS; первый общий
+  профиль85PASS/2FAIL сохранён. Runtime source/fragment не менялись.
+- [x] Причинно исправить старый TTL-тест по независимому допуску: route clock
+  от issued_at конкретной подписи599s до настоящего чтения и604s после;
+  verifier/DB/монотонные сроки сохранены. Прежний тест мог войти сразу expired,
+  что подтверждено renewed и диагностическим trace. Временный observer
+  впоследствии обошёл base callback near-total теста: observed86PASS/1FAIL
+  с KeyError не принят как общий PASS, observer удалён.
+- [x] Завершить весь затронутый профиль без plugin:87PASS/0skips/1прежний
+  warning,150.46s/runner154s/EXIT0, isolated_container_removed/resultpass.
+  Normal0.992s/fault1.550s, оба со следующимPOST и без watchdog; TTL599→604
+  подтверждён. Журнал `graf-t112-native-commit-final-20261116.log`, SHA-256
+  `5bbd2af489357de43a880b7739b6f219983ecb8caf8478c833af85f16e2fa28e`.
+- [ ] Снять независимый implementation HOLD/P1=0/P2=1 ordinary-среза:
+  P2-01 требует точных assertions fault invalidate→checkin(None) и нового
+  DBAPI при B. Отдельно исходная причина unavailable следующего POST в первом
+  общем профиле не установлена. Финальный87PASS не объясняет этот отказ; переносить на него
+  причину TTL или прежних12FAIL нельзя. Не делать массовых повторов до PASS;
+  следующий опыт должен наблюдать исходное исключение/первый отказ точной
+  операции, сохраняя существующие callback и бюджеты. Scoped converge
+  оставляет эти работы в существующей T112, tasks.md/124отметки не менялись.
+  Полная F273/T112/T113 не принята.
+- [x] Дополнить ровно четыре assertion строки по допустимому проекту P2-01:
+  exact invalidate→checkin(None), normal прежний DBAPI/fault новый. Адресный
+  профиль2PASS/56deselected/10.74s/runner15s/EXIT0, свой контейнер удалён;
+  normal0.690/fault1.548s. Runtime/стенд/fixtures/бюджеты не менялись.
+  Независимое повторное ревью именно этого дополнения пока не получено;
+  прежний HOLD/P2=1 не объявляется снятым.87PASS относится к source до
+  дополнения, с новым2 он не суммируется. Кандидат с обоими тестами и четырьмя
+  отчётами сохранён/pushed под открытым HOLD:
+  `50c9ecab6586a39650e78039775311278a7d2ba9`, exact remote readback PASS,
+  agent-context PASS. [Результаты и все ограничения](https://github.com/yshishenya/graf/blob/50c9ecab6586a39650e78039775311278a7d2ba9/specs/273-paid-traffic-analytics/validation/t112-ordinary-return-validation-20261116.md).
+  Это контрольное сохранение, не допуск к PR/merge/release; требуется отдельное
+  ревью P2 и причинное решение по исходному repeated unavailable.
+- [x] Сверить новый действующий Full выпуска Метрики:43894088412 завершён
+  completed/success на `d03114b6ade9750154186cc6bedffe2235921628`, все13jobs
+  success. Draft `v2026.11.16.1` всё ещё isDraft=true/publishedAt=null;
+  публикация и рабочая приёмка не подтверждены, запрет слияний сохраняется.
+  Нового Full/CD этот чат не запускал.
 - [ ] Продолжить реальные HTTP/source/proof/admission границы T112/T113 и
   остальные непокрытые close/commit/cleanup исходы; `_result_period_context`
   по-прежнему `yield None`. HTTP-путь подключён и проверен в отдельной ветке;
