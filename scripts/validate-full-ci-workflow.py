@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Fail-closed contract check for the release-only GitHub Full CI workflow."""
+
 from __future__ import annotations
 
 import argparse
 import re
 import tempfile
 from pathlib import Path
-
 
 FORBIDDEN = (
     "cd-remote.sh",
@@ -82,8 +82,6 @@ def validate(path: Path) -> list[str]:
         "reservation job": r"(?ms)^\s*reserve:\s*\n.*?actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9",
         "artifact lookup": r"actions/artifacts",
         "server static job": r"(?ms)^\s*server-static:\s*\n.*?runs-on:\s*ubuntu-latest",
-        "server phases job": r"(?ms)^\s*server-phases:\s*\n.*?runs-on:\s*ubuntu-latest",
-        "server parallel job": r"(?ms)^\s*server-parallel:\s*\n.*?runs-on:\s*ubuntu-latest",
         "shard matrix": r"(?ms)^\s*server-parallel:\s*\n.*?matrix:\s*\n\s*shard:\s*\[\s*0\s*,\s*1\s*,\s*2\s*,\s*3\s*,\s*4\s*,\s*5\s*,\s*6\s*,\s*7\s*\]",
         "macOS job": r"(?ms)^\s*macos-full:\s*\n.*?runs-on:\s*macos-15",
         "aggregate job": r"(?ms)^\s*aggregate:\s*\n.*?needs:\s*\[?reserve.*?server-static.*?server-phases.*?server-parallel.*?macos-full",
@@ -137,6 +135,9 @@ def validate(path: Path) -> list[str]:
     if "authoritative_full=true" not in text and "--authoritative-full" not in text:
         errors.append("aggregate must explicitly produce authoritative_full=true")
     blocks = {job: job_block(text, job) for job in (*SERVER_JOBS, "aggregate", "reserve", "macos-full")}
+    for job in ("server-phases", "server-parallel"):
+        if not re.search(r"(?m)^    runs-on:[ \t]*ubuntu-24\.04[ \t]*$", blocks[job]):
+            errors.append(f"{job} must use ubuntu-24.04 for CI APT preparation")
     # A job-level env cannot use the runner context; only a step can.  GitHub
     # rejects the whole workflow with "Unrecognized named-value: 'runner'", so
     # the release cannot even be dispatched.  YAML validity does not catch it,
@@ -224,7 +225,7 @@ jobs:
         with:
           name: graf-full-component-server-${{ needs.reserve.outputs.artifact_key }}-${{ github.run_id }}-static
   server-phases:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -234,7 +235,7 @@ jobs:
         with:
           name: graf-full-component-server-${{ needs.reserve.outputs.artifact_key }}-${{ github.run_id }}-phases
   server-parallel:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 40
     strategy:
       matrix:
@@ -299,6 +300,13 @@ jobs:
         path.write_text(good, encoding="utf-8")
         errors = validate(path)
         assert errors == [], errors
+        for job in ("server-phases", "server-parallel"):
+            block = job_block(good, job)
+            path.write_text(
+                good.replace(block, block.replace("runs-on: ubuntu-24.04", "runs-on: ubuntu-latest")),
+                encoding="utf-8",
+            )
+            assert any(job in item and "ubuntu-24.04" in item for item in validate(path))
         phases = job_block(good, "server-phases")
         path.write_text(
             good.replace(phases, phases.replace("timeout-minutes: 30", "timeout-minutes: 90")),

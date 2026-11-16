@@ -856,6 +856,25 @@ git() { record git "$@"; }
         assert tests and lint[0] < compile_steps[0] < min(tests)
 
 
+def test_apt_jobs_use_supported_ubuntu() -> None:
+    """Задания с APT-помощником используют поддерживаемую им Ubuntu 24.04."""
+    import yaml
+
+    callers = set()
+    for name in ("governance-fast.yml", "release-full.yml"):
+        workflow = ROOT / ".github/workflows" / name
+        jobs = yaml.load(workflow.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)["jobs"]
+        for job_id, job in jobs.items():
+            if any("infra/scripts/prepare-ci-apt.sh" in step.get("run", "") for step in job.get("steps", [])):
+                callers.add((name, job_id))
+                assert job["runs-on"] == "ubuntu-24.04", (name, job_id, job["runs-on"])
+    assert callers == {
+        ("governance-fast.yml", "governance-fast"),
+        ("release-full.yml", "server-phases"),
+        ("release-full.yml", "server-parallel"),
+    }
+
+
 def release_full_jobs() -> dict:
     import yaml
 

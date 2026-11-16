@@ -63,3 +63,8 @@ T033, дополнительное наблюдение при визуальн�
 
 
 T034: живая проверка f327 на учебной встрече выявила старый expired grant при status=active. create_link идемпотентен и возвращает expired; general_access_view корректно исключает его из действующей аудитории. Исправлять явную смену аудитории существующим change_link внутри транзакции, сохраняя идемпотентность copy и обычного create_link. Нового API не требуется.
+
+
+## T040 — Ubuntu latest изменился, 2026-11-17
+
+GitHub run43965043808 от PR8118 использует Ubuntu26.04.1. `Prepare browser resources for server or APT helper changes` останавливается до тестов: существующий helper требует Ubuntu24.04 noble и правильно не применяет настройку пакетов иной ОС. Прямые callers: governance-fast job, release-full server-phases и server-parallel. Минимальное решение: runs-on ubuntu-24.04 только у этих3jobs. Существующий release validator и его synthetic fixture закрепляли latest у phases/parallel, поэтому они входят в совместимое изменение; остальные guards/команды остаются. Никаких изменений helper, публичного продукта, серверов и установленного приложения.
