@@ -284,6 +284,22 @@
   остаются открытыми.
   [Проверки и границы](https://github.com/yshishenya/graf/blob/fb221efc9c0f54480cfc2b1cf50a2fd01fd1fdc4/specs/273-paid-traffic-analytics/validation/t112-close-validation-20261116.md),
   [независимое ревью](https://github.com/yshishenya/graf/blob/fb221efc9c0f54480cfc2b1cf50a2fd01fd1fdc4/specs/273-paid-traffic-analytics/validation/t112-close-review-20261116.md).
+- [ ] Исправить следующий доказанный отказ: начальные запросы холодного
+  SQLAlchemy engine после native DBAPI connect и до checkout. Независимый
+  проект четырёх тестов принят до кода;124/0 требований, P1=0/P2=0 только
+  в проекте тестов. На неизменном guard два normal прошли, два network fault
+  не завершили HTTP-ответ до2s; native initialize marker и независимый DB
+  observer подтвердили фазу. Профиль4:2 PASS/2 FAIL, runner12s/EXIT1,
+  изолированный PostgreSQL контейнер штатно удалён. Прежний120 не повторялся.
+  Тесты и исходные отказы сохранены/pushed WIP
+  `d4dc1bfb963a18a9e22c8680ff720ee8a31443da`, remote readback совпал.
+  Это воспроизведение дефекта, не готовый к merge код. Отдельный public
+  runtime проект подготовлен; его повторное независимое согласование после
+  baseline ещё не получено, успешная отправка поручения не подтверждена.
+  Подготовленный текст не является живым ожиданием. Guard не менялся;
+  поздние fault cleanup assertions ещё не пройдены. Требуются отдельный
+  допуск до runtime правки, новый GREEN и implementation review.
+  [Исходный отказ и границы](https://github.com/yshishenya/graf/blob/d4dc1bfb963a18a9e22c8680ff720ee8a31443da/specs/273-paid-traffic-analytics/validation/t112-init-validation-20261116.md).
 - [ ] Выполнить полный source/audit/projection/proof, browser/native visibility, защищённый
   POST и общую admission boundary с причинной DB/browser/Swift/failure матрицей.
   Renderer использует общий чистый выбор строк и принимает необязательную карту
