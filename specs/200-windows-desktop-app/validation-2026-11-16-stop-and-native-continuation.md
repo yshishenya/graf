@@ -779,3 +779,93 @@ check_execution():199PASS/0SKIP, exit0, ci_focused_result=pass;
 `.dev/f200-ci-minio-independent-review-20261116.md`.
 Эти результаты относятся к рабочему дереву; новый exact-SHA GitHub gate
 обязателен после коммита. Merge и выпуск пока не выполнялись.
+
+## Продолжение: T088 — сохранение профиля и фактический отказ R5
+
+Generated-only квалификация native revision3 прошла все16 случаев, включая
+удержание source/parent/ancestor, no-replace/no-retry и reparse rejection.
+Независимые source и actual review сохранены отдельно. Затем Main выполнил
+один Inspect и отдельный Retain старого QA WebView2 профиля. Оба дочерних
+процесса завершились exit0 без принудительной остановки. Same-parent rename
+сохранил directory identity; последующее native Observe подтвердило отсутствие
+прежнего имени и ту же identity под retained leaf. Удаление/копирование и
+восстановление не выполнялись, историческое происхождение не выдумывается.
+Raw12 файлов сверены по SHA/размеру; независимый scoped actual PASS:
+`.dev/t088-retained-profile-operator-r3-20261116/actual-review.md`.
+Первый отказ загрузки сценария и SDK255 сохранены отдельно. Успешный вызов
+использовал RemoteSigned только в области процесса; постоянная политика
+Windows и доверие к сертификатам не менялись.
+
+R5 ABC запущен ровно один раз с новым отсутствующим ordinary профилем и
+отключённым только QA net0. EXE SHA256
+`7241ffa7334e714c55b103acb65aca10a2f242f79233449c1ca8f7fa4ebf9484`,
+source pre/post264, raw inputs SHA256
+`26d7ab4d833c369cfd9003ef57dc53780cc4316ef4507de25fdb5d075803ce17`.
+Фактический результат **FAIL**: A initialized/navigation/seed readback прошли,
+затем pre-bind guard получил `response-metadata-timeout`, HRESULT0,
+elapsed6234ms. Только один Core; settled A, B/C и cookies B/C не подтверждены.
+Job завершился штатно за7210ms: Created/Assigned/ProcessSignaled/JobEmpty=true,
+Forced/TimedOut=false, exit3. Ошибка collector TASK_OR_PROCESS_NOT_PROVED_TERMINAL
+включает ненулевой task result; она не означает продолжающий работать Job.
+
+Raw11 файлов без missing/read/hash errors сохранены в
+`.dev/t088-r5-runtime-prep-20261116/` →
+`runtime-collection-20261116T054950575912Z/`.
+Fixture сохранила новый профиль при unknown; внешней очистки и повторного
+запуска нет. Main postflight подтвердил отсутствие GRAF и процессов,
+использующих ordinary UDF;12 посторонних WebView2 не затронуты. После terminal
+проверки сеть возвращена к исходному shared net0. Ранняя подстановка ответа
+в fixture и final request metadata остаются гипотезами до наблюдения событий;
+product response/authority gates не ослаблены. T088 и F200 остаются открытыми.
+Независимый разбор `.dev/t088-r5-actual-runtime-independent-review-20261116.md`
+подтвердил целостность raw11 и FAIL/HOLD. Одна и та же строка таймаута используется
+также при ожидании допуска истории после полученных response metadata; сама
+строка не доказывает отсутствие конкретных заголовков. Для R6 подготовлены только
+пассивные наблюдения скалярных признаков запроса/ответа, без подстановки authority.
+
+## Продолжение: CI51f4 — недоступный образ MinIO
+
+На `51f4c67a91e0ec2b1713796fc7b21b3680dc09d3` Windows43808905304 и
+macos-pr43808905317 прошли. Governance43808905227 завершился FAIL до выполнения
+related-behavior тестов: анонимный pull `minio/minio` отклонён реестром.
+Прежние локальные199PASS использовали доступный тогда image cache и не
+доказывают подготовку на чистом GitHub runner. Raw job и API результаты:
+`.dev/f200-ci-governance-43808905227-20261116/`. Повтор старого run без
+исправления не выполнялся. Новая подготовка среды должна использовать
+закреплённый официальный бинарник в отдельном изолированном контейнере;
+обязательные тесты, запрет пропусков и check_execution остаются прежними.
+
+## Продолжение: CI — проверенный официальный MinIO binary
+
+Двухфайловое исправление runner/tests прошло независимый SOURCE GO без
+блокирующих замечаний. Вместо недоступного MinIO image используется официальный
+Linux binary той же версии RELEASE.2025-05-24T17-08-30Z. Архитектура определяется
+по фактическому image ID собственного готового PostgreSQL-контейнера; размер
+и SHA256 проверяются до запуска. MinIO работает в отдельном контейнере на том
+же image ID, с одним RO file bind, tmpfs256m и случайным loopback port.
+Новый image build/pull, mirror или ослабление check_execution не добавлены.
+При неизвестном результате удаления собственного контейнера бинарник
+сохраняется, PASS запрещён; подтверждённая очистка освобождает временный файл.
+
+Runner SHA256 `db6f4127c2cd37ddf9920becca9c4891048561369d28c204243716e298729a61`,
+tests SHA256 `4bcd54632e464c178eaa90544e8c6f92a6b9a25bc84fa38b470cda725ad04bbb`.
+Авторские 45 PASS/0FAIL/0ERROR/0SKIP подтверждены Main по JUnit и сохранённым
+20 evidence files; source pre/post совпали. Тесты проверяют настоящие wc/shasum
+на малых искусственных загрузках и отказы до запуска, выбор cases и очистку
+при unknown. Это отдельный результат от реального Docker исполнения.
+
+Main затем выполнил calendar2 и cleanup2 последовательно с настоящими
+изолированными PostgreSQL/MinIO: **4 PASS/0FAIL/0ERROR/0SKIP**, оба exit0.
+Фактически скачан arm64 binary SHA256
+`1fdf97b30dbe10e13db00f1c405bf16935d7e1d530b537b4ebd2ed941457280c`;
+проверены сборка дорожек с календарным владельцем, отказ при потерянной metadata,
+прерванная очистка с сохранением намерения и соседних данных. MinIO и PostgreSQL
+удалены до terminal PASS; последующий Docker inventory тестовых контейнеров пуст.
+Raw intent/stdout/stderr/exit/JUnit:
+`.dev/f200-ci-minio-binary-20261116/main-actual/{calendar,cleanup}/`.
+Независимый source review:
+`.dev/f200-ci-minio-binary-independent-review-20261116.md`.
+Независимый ACTUAL4 EVIDENCE PASS:
+`.dev/f200-ci-minio-binary-actual-independent-review-20261116.md`.
+Это рабочее дерево, не exact-SHA hosted CI; amd64 download/runtime проверит
+новый GitHub run после коммита. T088/T116 и публичный выпуск не закрываются.

@@ -26,16 +26,16 @@ fi
 
 cleanup() {
   local exit_status=$?
+  local minio_cleanup_proven=true
   trap - EXIT INT TERM
-  if [[ -n "$metadata_directory" ]]; then
-    rm -rf "$metadata_directory"
-  fi
   if [[ "$minio_attempted" == true ]]; then
+    minio_cleanup_proven=false
     local minio_identity minio_id remaining
     if minio_identity="$(docker inspect --format '{{.Id}} {{index .Config.Labels "graf.test.minio-owner"}}' "$minio_container" 2>/dev/null)"; then
       minio_id="${minio_identity%% *}"
       if [[ "$minio_id" =~ ^[0-9a-f]{64}$ && "$minio_identity" == "$minio_id $minio_owner" ]] \
-        && docker rm --force "$minio_id" >/dev/null 2>&1; then
+        && docker rm --force --volumes "$minio_id" >/dev/null 2>&1; then
+        minio_cleanup_proven=true
         printf 'minio_test_cleanup=isolated_container_removed\n'
       else
         printf 'minio_test_cleanup=ownership_or_remove_failed\n' >&2
@@ -43,6 +43,7 @@ cleanup() {
       fi
     elif remaining="$(docker ps --all --quiet --no-trunc --filter "name=^/${minio_container}$" 2>/dev/null)" \
       && [[ -z "$remaining" ]]; then
+      minio_cleanup_proven=true
       printf 'minio_test_cleanup=container_absent\n'
     else
       printf 'minio_test_cleanup=identity_unknown\n' >&2
@@ -58,6 +59,13 @@ cleanup() {
     fi
   else
     printf 'postgres_test_cleanup=container_not_started\n'
+  fi
+  if [[ -n "$metadata_directory" ]]; then
+    if [[ "$minio_cleanup_proven" == true ]]; then
+      rm -rf "$metadata_directory"
+    else
+      printf 'minio_test_temp_retained=%s\n' "$metadata_directory" >&2
+    fi
   fi
   if (( exit_status == 0 )) && [[ -n "$result_marker" ]]; then
     printf '%s\n' "$result_marker"
@@ -264,13 +272,30 @@ run_phase() {
 }
 
 start_minio() {
-  local image='minio/minio:RELEASE.2025-05-24T17-08-30Z'
-  local image_id endpoint access secret ready=false
-  if ! image_id="$(docker image inspect --format '{{.Id}}' "$image" 2>/dev/null)"; then
-    docker pull "$image" >/dev/null
-    image_id="$(docker image inspect --format '{{.Id}}' "$image")"
+  local release='RELEASE.2025-05-24T17-08-30Z'
+  local image_id arch binary_sha binary_bytes binary endpoint access secret ready=false
+  image_id="$(docker inspect --format '{{.Image}}' "$postgres_container")"
+  [[ "$image_id" =~ ^sha256:[0-9a-f]{64}$ ]] || { printf 'Invalid disposable PostgreSQL image ID.\n' >&2; exit 1; }
+  arch="$(docker image inspect --format '{{.Architecture}}' "$image_id")"
+  case "$arch" in
+    amd64)
+      binary_sha='fe8b37f38487b6caf758a71d6669a8c42a9a3ec88e7381cc24a39f067b0fa4c9'
+      binary_bytes=110756024 ;;
+    arm64)
+      binary_sha='1fdf97b30dbe10e13db00f1c405bf16935d7e1d530b537b4ebd2ed941457280c'
+      binary_bytes=104988856 ;;
+    *) printf 'Unsupported disposable PostgreSQL image architecture.\n' >&2; exit 1 ;;
+  esac
+  binary="$(cd "$metadata_directory" && pwd -P)/minio"
+  curl --disable --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
+    --connect-timeout 10 --max-time 120 --max-filesize "$binary_bytes" --output "$binary" \
+    "https://github.com/minio/minio/releases/download/$release/minio.linux-$arch.$release"
+  if [[ "$(wc -c < "$binary" | awk '{ print $1 }')" != "$binary_bytes" ]] \
+    || [[ "$(shasum -a 256 "$binary" | awk '{ print $1 }')" != "$binary_sha" ]]; then
+    printf 'Disposable MinIO binary size or SHA256 mismatch.\n' >&2
+    exit 1
   fi
-  [[ "$image_id" =~ ^sha256:[0-9a-f]{64}$ ]] || { printf 'Invalid disposable MinIO image ID.\n' >&2; exit 1; }
+  chmod 0555 "$binary"
   minio_owner="$(openssl rand -hex 16)"
   access="$(openssl rand -hex 16)"
   secret="$(openssl rand -hex 24)"
@@ -283,6 +308,7 @@ start_minio() {
   if ! MINIO_ROOT_USER="$access" MINIO_ROOT_PASSWORD="$secret" \
     docker run --detach --rm --name "$minio_container" --label "graf.test.minio-owner=$minio_owner" \
       --publish 127.0.0.1::9000 --tmpfs /data:rw,size=256m \
+      --entrypoint /graf-test-minio --mount "type=bind,source=$binary,target=/graf-test-minio,readonly" \
       --env MINIO_ROOT_USER --env MINIO_ROOT_PASSWORD --pull=never "$image_id" server /data >/dev/null 2>&1; then
     printf 'Disposable MinIO container start failed.\n' >&2
     exit 1
@@ -305,7 +331,7 @@ start_minio() {
   export GRAF_TEST_STRICT_MINIO_ENDPOINT="$endpoint"
   export GRAF_TEST_STRICT_MINIO_ACCESS="$access"
   export GRAF_TEST_STRICT_MINIO_SECRET="$secret"
-  printf 'minio_test_ready=true image=%s image_id=%s\n' "$image" "$image_id"
+  printf 'minio_test_ready=true release=%s binary_sha256=%s image_id=%s\n' "$release" "$binary_sha" "$image_id"
 }
 
 start_postgres() {
@@ -503,8 +529,6 @@ cleanup = "tests/integration/test_smoke_cleanup_deadlock.py::test_interrupted_sm
 print("true" if any(node.split("[", 1)[0] == calendar or node == cleanup for node in nodes) else "false")
 PY_MINIO
 )"
-if [[ "$minio_required" == true ]]; then start_minio; fi
-
 if [[ "$mode" == fast ]]; then
   # Fail cheap pure tests before allocating PostgreSQL. The two sets partition unit.
   if (( $(cat "$metadata_directory/pure-count") > 0 )); then
@@ -530,6 +554,7 @@ PY_PURE
   then
     start_postgres
   fi
+  if [[ "$minio_required" == true ]]; then start_minio; fi
   if [[ "$partitioned" == true ]]; then
     for phase in "${selected_phases[@]}"; do
       (( $(cat "$metadata_directory/$phase-count") > 0 )) || continue
@@ -556,6 +581,7 @@ PY_PURE
 fi
 
 start_postgres
+if [[ "$minio_required" == true ]]; then start_minio; fi
 if run_phase strict \
   -m strict_rls "${timing_args[@]}" "${pytest_args[@]}"; then
   :
