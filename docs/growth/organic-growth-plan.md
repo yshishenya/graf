@@ -460,6 +460,67 @@
   `codex/f273-result-visibility-20261116`; удалённый readback exact SHA совпал.
   agent-context/changelog-fragments/diff PASS, кодовая копия clean.
   [Итоговая приёмка и профиль294](https://github.com/yshishenya/graf/blob/eea992190c92e57b2cceaa199c2bcbd94ff71614/specs/273-paid-traffic-analytics/validation/t112-root-history-validation-20261116.md).
+- [x] Сверить зависимости следующего ограничения объёма проекции: клиентский
+  перенос selectors уже принят и не требует нового proof format. Проверены
+  вложенные calendar candidate/roster и previous-recurring-meeting чтения,
+  grants/invitations/grantee identities, полные текстовые коллекции и большие
+  scalar/JSON у limit1/limit50 ORM запросов. Guard только текущей встречи или
+  только transcript count неполон; согласованность агрегатов с последующим
+  чтением требует отдельного доказательства. Это source investigation, не
+  выявленный рабочий отказ и не утверждение production isolation.
+  Исследование сохранено в кодовом кандидате:
+  `specs/273-paid-traffic-analytics/validation/t112-projection-budget-map-20261116.md`.
+- [x] Получить и принять окончательный независимый вывод первоначального
+  проекта: **HOLD, P1=0/P2=1, H1**, проверяющий завершён. Отчёт в кодовой
+  копии `validation/t112-projection-budget-preflight-20261116.md`, SHA-256
+  `b3f5344650831ed104af19a108bbc870de0813659723f3ca44f644b5302f2356`.
+  Два одинаковых LIMIT SELECT в RR могут выбрать разные tied rows; известный
+  пример — activity_response50 по created_at без id. Промежуточный допуск
+  отменён окончательным выводом. Это design finding, не рабочий отказ.
+  Код/RED этого варианта не начинались, прежний294 не повторялся.
+- [x] Получить окончательный независимый допуск минимального устранения H1:
+  SCOPED DESIGN PASS, P1/P2=0, отчёт кодовой копии
+  `validation/t112-projection-determinism-preflight-20261116.md`, SHA-256
+  `295ce2c82c8638ddb9df1fbd5d478f0fefa53ea4b13ef34b6a3b760378a10326`.
+  Разрешены ровно три PK последними ключами общих readers: workflow,
+  dependency и activity. Другой обязательной сортировки не найдено.
+  Прежний HOLD сохранён как история; проектный PASS не открывает T113.
+- [x] Добавить три ключа и причинные проверки настоящего PostgreSQL:
+  RED3FAILED/6PASS → GREEN9PASS; окончательный затронутый профиль61PASS,
+  0пропусков,1прежний warning,111.40s/runner116s/EXIT0, свой контейнер удалён.
+  Проверены совпадения, сохранение приоритета ordinal/времени, фактический
+  activity LIMIT50 при Seq Scan/Index Scan в одной RR транзакции.
+  Ruff PASS; старые294/257/native2 не повторялись. Журнал regression SHA-256
+  `3debdf33cb353b79e18f6d34f9b77cf15f87ed008ab7dae43dcde9bf2184ec2e`.
+- [x] Принять письменное независимое ревью точной реализации трёх сортировок:
+  SCOPED IMPLEMENTATION PASS, P1/P2=0, SHA-256 отчёта
+  `593eef895e93a57a3df01e4d775739f4c0ac762aa843e7843fe01ea7467548ee`.
+  Четыре хеша code/test/fragment совпали; проверяющий прочитал окончательный
+  профиль61, тесты не повторял. Agent-context/changelog-fragments/diff PASS.
+- [x] Сохранить узкий проверенный кандидат commit/push с точным удалённым
+  чтением: `13fde51d1dbda80d0b06279f44c2248e24c5d714`, ветка
+  `codex/f273-result-visibility-20261116`. Кодовая копия clean, удалённый SHA
+  совпал. [Итог и пределы](https://github.com/yshishenya/graf/blob/13fde51d1dbda80d0b06279f44c2248e24c5d714/specs/273-paid-traffic-analytics/validation/t112-projection-determinism-validation-20261116.md).
+  Нового PR/слияния/выпуска нет; весь план не сливать.
+  Полный T112/T113 остаётся открыт.
+- [ ] Реализовать следующий числовой raw-byte/raw-shape Session guard.
+  Два завершённых изолированных SQL-опыта подтвердили: одинаковые LIMIT без
+  полного порядка выбирают разные строки; jsonb убирает исходные пробелы,
+  повторные ключи и их глубокие значения. Нужны исходные JSON::text bytes,
+  затем обход исходной глубины/узлов до передачи частных полей драйверу.
+  Эти опыты не являются испытанием ещё отсутствующей защиты приложения.
+  `_result_period_context` остаётся yield None; HTTP/T113/сбор/T0 закрыты.
+- [x] Уточнить фактические чтения до кода: найден существующий ранний snapshot
+  pattern `notification_snapshot_db`; previous-meeting revision/result и
+  historical summary-attempt могут идти через `scalar()` без SQL LIMIT.
+  Это не измеренное число строк драйвера и не рабочий отказ. Ранняя Meeting
+  fence действительно загружает ORM, но текущая модель имеет только
+  ограниченные scalar поля. Статический инвентарь193/91/31 — указатель,
+  не доказательство полного runtime read set. Новый локальный отчёт в кодовой
+  копии `validation/t112-projection-read-stability-20261116.md`, SHA-256
+  `0fb2bc8abad8f15127e3b719c09625eb0514feb3d0708c9e65415b1d3871b464`;
+  переданная reviewer карта8f3e811… не изменена. Все18 прежних требований
+  совпали по SHA-256; следующий числовой guard пока не реализован.
 - [ ] Продолжить реальные HTTP/source/proof/admission границы T112/T113 и
   остальные непокрытые close/commit/cleanup исходы; `_result_period_context`
   по-прежнему `yield None`, HTTP-триггер не подключён. PR/merge/выпуска/
