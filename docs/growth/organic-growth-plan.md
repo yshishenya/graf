@@ -894,12 +894,30 @@
   в кодовой копии; `apps/server` и `changes` побайтово прежние `ef9f5047a`.
   Общий agent-context плановой ветки отказал из-за прежних файлов за пределами
   ownership; область не расширялась. Новый diff содержит только этот план.
-- [ ] Подготовить точную инертную диагностическую копию и selfcheck без
-  HTTP/БД, затем получить отдельное независимое implementation review до
-  collect-only и единственного normal-запуска. Новый проект не является
-  допуском к исполнению. True/M1/87 не назначены; прежние normal POST2,
-  fault response_held и repeatedHOLD остаются необъяснёнными. Успех normal
-  сам по себе не установит их причину; runtime по догадке не менять.
+- [x] Подготовить точную инертную диагностическую копию и selfcheck без
+  HTTP/БД: полный integration-модуль вне обычного набора,14 обратимых правок
+  только одного native-теста и локальные помощники. Конструктор допускает
+  только точный False. Итоговый selfcheck EXIT0: исходный модуль побайтово/AST
+  восстановлен,3 мутации отвергнуты; identity/args/error/cancel/ContextVar,
+  ASGI attempted/completed, proof count/short-circuit, отдельные deadlines,
+  cap и partial snapshot проверены искусственными объектами. Ruff selfcheck
+  PASS; у копии ровно4 прежних I001 как у основы, новых0. Runtime/исходный
+  integration и apps/server/changes прежние; HTTP/PG ещё не запускались.
+  [Реализация и пределы](https://github.com/yshishenya/graf/blob/25c033bfc8b7a968f6d6823f081252b409c8a9a2/specs/273-paid-traffic-analytics/validation/t112-native-normal-implementation-20261117.md).
+  Кодовая ветка `25c033bfc`, probe20bf2ba1…/selfcheckdc1e6eda…;
+  итоговый чистый журнал2fafadd8…. Предварительное независимое чтение
+  подтвердило14 правок/45 исходных await/18 SAME/checklist124/0, но это
+  ещё не FINAL implementation PASS окончательных хешей.
+- [ ] Получить отдельное независимое FINAL implementation review probe
+  `20bf2ba1455156bf6863f2eac6123c1fae25b897e7260aa94793afc1de94a83b`
+  и selfcheck `dc1e6edabc1f8d98dd43911106ed71d9c6698ebcc63f55d290c25152f1ad00d2`.
+  Итоговый запрос с EXIT0/хешем журнала подготовлен отдельно; файл запроса
+  сам по себе не означает доставку или живое ожидание. Затем проверить
+  invocation: ровно один False/явный -p tests.conftest/collect-only без БД,
+  и лишь после принятого допуска — один normal-запуск. True/M1/87 не
+  назначены; прежние normal POST2/fault response_held/repeatedHOLD остаются
+  необъяснёнными. Успех normal сам по себе не установит их причину;
+  runtime по догадке не менять. Рабочий period сохраняет yield None.
 - [ ] Завершить чтение нового завершённого недельного отчёта Метрики. В IAB2
   авторизованный кабинет действительно открылся; показал предупреждение
   технических работ и возможной задержки. Единственный увиденный прямой визит
