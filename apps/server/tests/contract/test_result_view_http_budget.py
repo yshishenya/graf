@@ -386,6 +386,164 @@ def test_real_pre_ping_is_bounded_before_checkout_and_leaves_no_database_work(
     _run(postgres_seeded_database_url, scenario)
 
 
+@pytest.mark.parametrize("phase", ["auth", "renewal"])
+@pytest.mark.parametrize("fault", [False, True])
+def test_cold_dialect_initialization_is_bounded_after_native_connect(
+    postgres_seeded_database_url, phase, fault,
+):
+    async def scenario(engine):
+        async with _postgres_response_gate(postgres_seeded_database_url) as (url, gate, relay_tasks):
+            request_engine = create_async_engine(url, pool_size=1, max_overflow=0, pool_pre_ping=True)
+            request_sessions = async_sessionmaker(request_engine, expire_on_commit=False)
+            target, stages, checkouts, observations = {}, [], [], []
+            entered = asyncio.Event()
+            original_initialize = request_engine.sync_engine.dialect.initialize
+
+            async def use_cold_engine():
+                app.state.db_sessionmaker = request_sessions
+
+            app, sessions, session_id = await _setup(engine, before_response=use_cold_engine)
+            if phase == "auth":
+                app.state.db_sessionmaker = request_sessions
+
+            def connected(dbapi, entry):
+                if target:
+                    return
+                owner = guard_module._RESULT_VIEW_TASK_OWNER.get()
+                task = asyncio.current_task()
+                driver = entry.driver_connection
+                assert owner is not None and task.get_context().get(guard_module._RESULT_VIEW_TASK_OWNER) is owner
+                assert entry.dbapi_connection is dbapi and dbapi.driver_connection is driver
+                assert not driver.is_closed() and not entry.in_use and not checkouts
+                assert len(owner.transactions) == 1
+                root = next(iter(owner.transactions.values()))
+                assert root[0] is owner and root[2] is task
+                target.update(dbapi=dbapi, entry=entry, driver=driver, pid=driver.get_server_pid(),
+                              owner=owner, task=task, root=root, session=root[1].session)
+                stages.append((driver, "connected"))
+                if fault:
+                    gate.clear()
+
+            def initialize(connection):
+                driver = connection.connection.driver_connection
+                if driver is target["driver"]:
+                    assert connection.connection.dbapi_connection is target["dbapi"]
+                    assert target["entry"].dbapi_connection is target["dbapi"]
+                    assert asyncio.current_task() is target["task"]
+                    assert guard_module._RESULT_VIEW_TASK_OWNER.get() is target["owner"]
+                    assert not checkouts
+                stages.append((driver, "entered"))
+                entered.set()
+                try:
+                    result = original_initialize(connection)
+                    stages.append((driver, "returned"))
+                    return result
+                finally:
+                    stages.append((driver, "exited"))
+
+            event.listen(request_engine.sync_engine, "connect", connected, insert=True)
+            request_engine.sync_engine.dialect.initialize = initialize
+            event.listen(request_engine.sync_engine, "connect", lambda dbapi, entry: stages.append(
+                (entry.driver_connection, "completed")))
+            event.listen(request_engine.sync_engine, "checkout", lambda dbapi, entry, proxy: checkouts.append(
+                entry.driver_connection))
+
+            async def observe_initialization():
+                async with asyncio.timeout(1):
+                    await entered.wait()
+                    async with engine.connect() as observer:
+                        while True:
+                            row = (await observer.execute(text(
+                                "SELECT state, xact_start FROM pg_stat_activity WHERE pid=:pid"
+                            ), {"pid": target["pid"]})).first()
+                            if row is not None and row.xact_start is not None:
+                                assert row.state in {"active", "idle in transaction"}
+                                observations.append((row.state, True))
+                                return
+                            await asyncio.sleep(0.01)
+
+            observer_task = None
+            watchdog = None
+            try:
+                async with engine.connect() as foreign:
+                    foreign_pid = await foreign.scalar(text("SELECT pg_backend_pid()"))
+                    before = set(asyncio.all_tasks())
+                    if fault:
+                        observer_task = asyncio.create_task(observe_initialization(), context=Context())
+                    watchdog = asyncio.get_running_loop().call_later(3, gate.set)
+                    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="https://test") as client:
+                        began = monotonic()
+                        try:
+                            response = await client.post(
+                                f"/meetings/{MEETING_ID}/result-viewed", json={"proof": "synthetic"},
+                                headers=_headers(session_id),
+                            )
+                        except AssertionError as error:
+                            assert target and (target["driver"], "entered") in stages
+                            if observer_task is not None:
+                                await observer_task
+                                assert observations
+                            error.add_note("native DBAPI connect and dialect.initialize entry confirmed before response failure")
+                            raise
+                        assert monotonic() - began < 2
+                    if observer_task is not None:
+                        await observer_task
+                        assert observations
+                    assert response.status_code == 200
+                    assert response.json() == {"status": "unavailable" if fault else "accepted"}
+                    assert response.headers["cache-control"] == "private, no-store"
+                    assert request_engine.pool.checkedout() == 0
+                    assert not target["owner"] and not target["owner"].transactions
+                    assert not target["session"].in_transaction()
+                    assert guard_module._RESULT_VIEW_TRANSACTION_OWNER not in target["session"].info
+                    assert not [task for task in asyncio.all_tasks()
+                                if task.get_context().get(guard_module._RESULT_VIEW_TASK_OWNER) is target["owner"]]
+                    initial_stages = [stage for driver, stage in stages if driver is target["driver"]]
+                    if fault:
+                        assert initial_stages == ["connected", "entered", "exited"]
+                        assert not checkouts and target["driver"].is_closed()
+                        async with engine.connect() as observer:
+                            assert await observer.scalar(text(
+                                "SELECT count(*) FROM pg_stat_activity WHERE pid=:pid"
+                            ), {"pid": target["pid"]}) == 0
+                            assert await observer.scalar(text(
+                                "SELECT count(*) FROM pg_locks WHERE pid=:pid"
+                            ), {"pid": target["pid"]}) == 0
+                        assert not relay_tasks
+                    else:
+                        assert initial_stages == ["connected", "entered", "returned", "exited", "completed"]
+                        assert checkouts and all(driver is target["driver"] for driver in checkouts)
+                        assert "x-graf-auth-expires-at" in response.headers
+                        async with sessions() as db:
+                            expiry = await db.scalar(select(AuthSession.expires_at).where(AuthSession.id == session_id))
+                            assert expiry > datetime.now(UTC) + timedelta(days=29)
+                    assert set(asyncio.all_tasks()) - relay_tasks <= before
+                    assert await foreign.scalar(text("SELECT pg_backend_pid()")) == foreign_pid
+                    assert await foreign.scalar(text("SELECT 1")) == 1
+                    async with sessions() as db:
+                        assert await db.scalar(select(func.count()).select_from(ProductActivationMilestone)) == 0
+                    gate.set()
+                    async with request_engine.connect() as db:
+                        assert await db.scalar(text("SELECT 1")) == 1
+                        if fault:
+                            assert db.sync_connection.connection.driver_connection is not target["driver"]
+                            assert await db.scalar(text("SELECT pg_backend_pid()")) != target["pid"]
+                    assert request_engine.pool.checkedout() == 0
+            finally:
+                if watchdog is not None:
+                    watchdog.cancel()
+                # Teardown unblocks RED only; it never supplies successful cleanup evidence.
+                gate.set()
+                if observer_task is not None:
+                    observer_task.cancel()
+                    await asyncio.gather(observer_task, return_exceptions=True)
+                if target and not target["driver"].is_closed():
+                    target["driver"].terminate()
+                request_engine.sync_engine.dialect.initialize = original_initialize
+                await request_engine.dispose()
+    _run(postgres_seeded_database_url, scenario, pool_size=2)
+
+
 def test_real_physical_connect_cancellation_releases_its_socket_and_pool(postgres_seeded_database_url):
     async def scenario(engine):
         app, _, session_id = await _setup(engine)
