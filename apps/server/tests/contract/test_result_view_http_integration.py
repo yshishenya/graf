@@ -1010,7 +1010,7 @@ def test_real_commit_acknowledgement_and_idle_return_keep_pair_and_foreign_gener
     )
 
     async def scenario(engine):
-        streams, generations, checkouts, markers = [], [], [], []
+        streams, generations, checkouts, markers, returns = [], [], [], [], []
         target, entered = {}, asyncio.Event()
         foreign = borrower = second = post = observer = watchdog = None
         warm = []
@@ -1045,7 +1045,7 @@ def test_real_commit_acknowledgement_and_idle_return_keep_pair_and_foreign_gener
                     association = connection.info[guard_module._RESULT_VIEW_TRANSACTION_OWNER]
                     task = asyncio.current_task()
                     target.update(facts=facts, owner=owner, guard=guard, task=task, session=session,
-                                  root=root, lease=lease, connection=connection,
+                                  root=root, lease=lease, connection=connection, checkout_index=len(checkouts),
                                   commit_at=asyncio.get_running_loop().time(),
                                   checks=(proxy.dbapi_connection is target["dbapi"],
                                           proxy.driver_connection is target["driver"],
@@ -1074,9 +1074,11 @@ def test_real_commit_acknowledgement_and_idle_return_keep_pair_and_foreign_gener
                     markers.append(("reset", state.asyncio_safe, state.terminate_only, state.transaction_was_reset))
 
             def checkin(dbapi, entry):
-                if entered.is_set() and entry is target.get("entry") and "checkin" not in markers:
-                    markers.append("checkin")
-                    target["returned_dbapi"] = dbapi
+                if entered.is_set() and entry is target.get("entry"):
+                    returns.append(len(checkouts))
+                    if len(checkouts) == target["checkout_index"]:
+                        markers.append("checkin")
+                        target["returned_dbapi"] = dbapi
 
             def invalidate(dbapi, entry, error):
                 if entered.is_set() and entry is target.get("entry"):
@@ -1225,6 +1227,7 @@ def test_real_commit_acknowledgement_and_idle_return_keep_pair_and_foreign_gener
                             assert await db.scalar(text("SELECT count(*) FROM pg_locks WHERE pid=:pid"),
                                                    {"pid": target["pid"]}) == 0
                         await foreign_healthy()
+                        assert markers.count("checkin") == 1
                         prior_checkouts = len(checkouts)
                         borrower = await request_engine.connect()
                         entry, dbapi, driver, context_owner, leftover = checkouts[prior_checkouts]
@@ -1248,6 +1251,7 @@ def test_real_commit_acknowledgement_and_idle_return_keep_pair_and_foreign_gener
                         print({"native_commit_ack_fault": fault, "m1": "m1_pair" in target,
                                "elapsed": round(asyncio.get_running_loop().time() - began, 3),
                                "old_generation_closed": target["driver"].is_closed(),
+                               "return_checkout_offsets": [index - target["checkout_index"] for index in returns],
                                "same_pool_foreign": True, "safe_reuse": True, "watchdog": watchdog_fired})
                     watchdog.cancel()
                     watchdog = None
