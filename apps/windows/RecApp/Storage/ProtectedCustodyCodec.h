@@ -89,15 +89,33 @@ private:
         Base::resize(retained);
     }
 };
+namespace custody_string_detail {
+// Declared before the string base so retirement runs after its destructor.
+// Only the completed base's storage is erased, never its former heap pointer.
+template<class Base> class Retirement {
+protected:
+    Retirement() noexcept = default;
+    Retirement(const Retirement&) = delete;
+    Retirement& operator=(const Retirement&) = delete;
+    void arm(void* storage) noexcept { storage_ = storage; }
+    ~Retirement() { if (storage_) wipeCustodyMemory(storage_, sizeof(Base)); }
+private:
+    void* storage_ = nullptr;
+};
+}
 // Like CustodyVector: MSVC Debug default/move string constructors may allocate
 // inside noexcept. Construct throwing empty storage first, then transfer it.
-template<class Char> class BasicCustodyString final : public std::basic_string<Char, std::char_traits<Char>, CustodyAllocator<Char>> {
+template<class Char> class BasicCustodyString final
+    : private custody_string_detail::Retirement<std::basic_string<Char, std::char_traits<Char>, CustodyAllocator<Char>>>,
+      public std::basic_string<Char, std::char_traits<Char>, CustodyAllocator<Char>> {
     using Base = std::basic_string<Char, std::char_traits<Char>, CustodyAllocator<Char>>;
 public:
-    BasicCustodyString() : Base(std::size_t{0}, Char{}) {}
-    BasicCustodyString(const Char* value) : Base(value) {}
-    BasicCustodyString(const Char* value, std::size_t count) : Base(value, count) {}
-    BasicCustodyString(std::size_t count, Char value) : Base(count, value) {}
+    BasicCustodyString() : Base(std::size_t{0}, Char{}) {
+        this->arm(static_cast<Base*>(this));
+    }
+    BasicCustodyString(const Char* value) : BasicCustodyString() { this->assign(value); }
+    BasicCustodyString(const Char* value, std::size_t count) : BasicCustodyString() { this->assign(value, count); }
+    BasicCustodyString(std::size_t count, Char value) : BasicCustodyString() { this->assign(count, value); }
     explicit BasicCustodyString(std::basic_string_view<Char> value) : BasicCustodyString() {
         if (!value.empty()) this->assign(value.data(), value.size());
     }
@@ -105,7 +123,9 @@ public:
         this->swap(other);
         other.wipe(); // Some STL implementations retain the moved-from SSO tail.
     }
-    BasicCustodyString(const BasicCustodyString&) = default;
+    BasicCustodyString(const BasicCustodyString& other) : BasicCustodyString() {
+        this->assign(other.data(), other.size());
+    }
     BasicCustodyString& operator=(const BasicCustodyString& other) {
         if (this != &other) assign(other.data(), other.size());
         return *this;

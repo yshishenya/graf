@@ -46,6 +46,12 @@ stateTimer_.Tick([this, state, gate, closeFixture](auto const&, auto const&) {
             }
             if (!state->loaded) return;
             NativeCaptureStorageTestPeer::pollAccount(*capture_);
+            if (state->attached && cabinet_->webView().runtimeState() == WebRuntimeState::unavailable) {
+                std::fprintf(stderr, "T088_ABC host_unavailable site=pre-bind state=%u elapsed_ms=%llu detail=%s\n",
+                    static_cast<unsigned>(cabinet_->webView().runtimeState()),
+                    static_cast<unsigned long long>(GetTickCount64() - state->began), cabinet_->webView().failureDetail().c_str());
+                std::fflush(stderr);
+            }
             if (state->attached)
                 requireProblemUi(cabinet_->webView().runtimeState() != WebRuntimeState::unavailable, "abc_host_available");
             if (!state->matches(capture_->currentAccount())) return;
@@ -56,6 +62,12 @@ stateTimer_.Tick([this, state, gate, closeFixture](auto const&, auto const&) {
                 requireProblemUi(cabinet_->openCabinet().decision == RouteDecision::allow, "abc_initial_cabinet_route");
                 cabinet_->attach(webView_); state->attached = true;
             } else bindNotificationContext();
+            if (cabinet_->webView().runtimeState() == WebRuntimeState::unavailable) {
+                std::fprintf(stderr, "T088_ABC host_unavailable site=post-bind state=%u elapsed_ms=%llu detail=%s\n",
+                    static_cast<unsigned>(cabinet_->webView().runtimeState()),
+                    static_cast<unsigned long long>(GetTickCount64() - state->began), cabinet_->webView().failureDetail().c_str());
+                std::fflush(stderr);
+            }
             requireProblemUi(cabinet_->webView().runtimeState() != WebRuntimeState::unavailable, "abc_host_available");
             const auto slot = state->target.load();
             if (!state->inspected[slot] || state->scripts.load() ||

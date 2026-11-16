@@ -14,6 +14,9 @@ container_started=false
 metadata_directory=""
 media_password=""
 result_marker=""
+minio_container="graf-minio-test-${database_suffix//_/-}"
+minio_attempted=false
+minio_owner=""
 
 if [[ ! "$test_database" =~ ^twobrain_rec_test_[a-z0-9_]+$ ]] \
   || [[ ! "$rls_database" =~ ^twobrain_rec_test_[a-z0-9_]+$ ]]; then
@@ -26,6 +29,25 @@ cleanup() {
   trap - EXIT INT TERM
   if [[ -n "$metadata_directory" ]]; then
     rm -rf "$metadata_directory"
+  fi
+  if [[ "$minio_attempted" == true ]]; then
+    local minio_identity minio_id remaining
+    if minio_identity="$(docker inspect --format '{{.Id}} {{index .Config.Labels "graf.test.minio-owner"}}' "$minio_container" 2>/dev/null)"; then
+      minio_id="${minio_identity%% *}"
+      if [[ "$minio_id" =~ ^[0-9a-f]{64}$ && "$minio_identity" == "$minio_id $minio_owner" ]] \
+        && docker rm --force "$minio_id" >/dev/null 2>&1; then
+        printf 'minio_test_cleanup=isolated_container_removed\n'
+      else
+        printf 'minio_test_cleanup=ownership_or_remove_failed\n' >&2
+        if (( exit_status == 0 )); then exit_status=1; fi
+      fi
+    elif remaining="$(docker ps --all --quiet --no-trunc --filter "name=^/${minio_container}$" 2>/dev/null)" \
+      && [[ -z "$remaining" ]]; then
+      printf 'minio_test_cleanup=container_absent\n'
+    else
+      printf 'minio_test_cleanup=identity_unknown\n' >&2
+      if (( exit_status == 0 )); then exit_status=1; fi
+    fi
   fi
   if [[ "$container_started" == true ]]; then
     if docker rm --force --volumes "$postgres_container" >/dev/null 2>&1; then
@@ -241,6 +263,51 @@ run_phase() {
   fi
 }
 
+start_minio() {
+  local image='minio/minio:RELEASE.2025-05-24T17-08-30Z'
+  local image_id endpoint access secret ready=false
+  if ! image_id="$(docker image inspect --format '{{.Id}}' "$image" 2>/dev/null)"; then
+    docker pull "$image" >/dev/null
+    image_id="$(docker image inspect --format '{{.Id}}' "$image")"
+  fi
+  [[ "$image_id" =~ ^sha256:[0-9a-f]{64}$ ]] || { printf 'Invalid disposable MinIO image ID.\n' >&2; exit 1; }
+  minio_owner="$(openssl rand -hex 16)"
+  access="$(openssl rand -hex 16)"
+  secret="$(openssl rand -hex 24)"
+  if [[ ! "$minio_owner" =~ ^[a-f0-9]{32}$ || ! "$access" =~ ^[a-f0-9]{32}$ || ! "$secret" =~ ^[a-f0-9]{48}$ ]]; then
+    printf 'Unable to generate disposable MinIO credentials.\n' >&2
+    exit 1
+  fi
+  # Set ownership before run: a failed client call can still have created a container.
+  minio_attempted=true
+  if ! MINIO_ROOT_USER="$access" MINIO_ROOT_PASSWORD="$secret" \
+    docker run --detach --rm --name "$minio_container" --label "graf.test.minio-owner=$minio_owner" \
+      --publish 127.0.0.1::9000 --tmpfs /data:rw,size=256m \
+      --env MINIO_ROOT_USER --env MINIO_ROOT_PASSWORD --pull=never "$image_id" server /data >/dev/null 2>&1; then
+    printf 'Disposable MinIO container start failed.\n' >&2
+    exit 1
+  fi
+  endpoint="$(docker port "$minio_container" 9000/tcp)"
+  if [[ ! "$endpoint" =~ ^127\.0\.0\.1:([0-9]{1,5})$ ]] \
+    || (( 10#${BASH_REMATCH[1]} < 1 || 10#${BASH_REMATCH[1]} > 65535 )); then
+    printf 'Disposable MinIO did not expose a safe loopback port.\n' >&2
+    exit 1
+  fi
+  for _attempt in {1..60}; do
+    if curl --disable --fail --silent --noproxy '*' --connect-timeout 1 --max-time 1 \
+      "http://$endpoint/minio/health/ready" >/dev/null 2>&1; then
+      ready=true
+      break
+    fi
+    sleep 0.25
+  done
+  [[ "$ready" == true ]] || { printf 'Disposable MinIO did not become ready.\n' >&2; exit 1; }
+  export GRAF_TEST_STRICT_MINIO_ENDPOINT="$endpoint"
+  export GRAF_TEST_STRICT_MINIO_ACCESS="$access"
+  export GRAF_TEST_STRICT_MINIO_SECRET="$secret"
+  printf 'minio_test_ready=true image=%s image_id=%s\n' "$image" "$image_id"
+}
+
 start_postgres() {
   if ! docker info >/dev/null 2>&1; then
     printf 'Docker Engine is unavailable. Start Docker Desktop, wait until it is ready, then retry.\n' >&2
@@ -340,6 +407,8 @@ unset PYTEST_XDIST_WORKER PYTEST_XDIST_TESTRUNUID PYTEST_XDIST_WORKER_COUNT
 unset TWOBRAIN_DATABASE_URL RLS_TEST_DATABASE_URL RLS_TEST_PROBE_DATABASE_URL \
   RLS_TEST_MEDIA_DATABASE_URL GRAF_TEST_DATABASE_PREFIX GRAF_TEST_POSTGRES_ADMIN_URL \
   GRAF_TEST_POSTGRES_MEDIA_PASSWORD
+# Never collect or execute against an inherited operator object store.
+unset GRAF_TEST_STRICT_MINIO_ENDPOINT GRAF_TEST_STRICT_MINIO_ACCESS GRAF_TEST_STRICT_MINIO_SECRET
 metadata_directory="$(mktemp -d "${TMPDIR:-/tmp}/graf-postgres-test.XXXXXX")"
 selection=("${pytest_args[@]}")
 if [[ "$mode" == fast ]]; then selection=(-q tests/unit); fi
@@ -417,6 +486,24 @@ if [[ "$collect_only" == true ]]; then
   printf 'postgres_test_result=inventory_only mode=%s collection_only=true\n' "$mode"
   exit 0
 fi
+
+minio_required="$(python3 - "$metadata_directory" "$partitioned" "${selected_phases[@]}" <<'PY_MINIO'
+import json
+import pathlib
+import sys
+
+root = pathlib.Path(sys.argv[1])
+if sys.argv[2] == "true":
+    nodes = [node for phase in sys.argv[3:]
+             for node in json.loads((root / f"{phase}.json").read_text())["nodeids"]]
+else:
+    nodes = json.loads((root / "collection.json").read_text())["baseline"]
+calendar = "tests/integration/test_calendar_auto_context_match.py::test_strict_track_assembly_real_minio_and_calendar_owner"
+cleanup = "tests/integration/test_smoke_cleanup_deadlock.py::test_interrupted_smoke_retains_unconfirmed_object_intent_and_preserves_neighbor[real-minio]"
+print("true" if any(node.split("[", 1)[0] == calendar or node == cleanup for node in nodes) else "false")
+PY_MINIO
+)"
+if [[ "$minio_required" == true ]]; then start_minio; fi
 
 if [[ "$mode" == fast ]]; then
   # Fail cheap pure tests before allocating PostgreSQL. The two sets partition unit.
