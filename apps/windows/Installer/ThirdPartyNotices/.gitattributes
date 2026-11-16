@@ -2,3 +2,7 @@
 WebView2/** -text
 CppWinRT/** -text
 WindowsAppSDK/** -text
+# Keep the pinned publishers' whitespace as well as their text and line endings.
+WebView2/LICENSE.txt whitespace=-blank-at-eol
+WindowsAppSDK/NOTICE.txt whitespace=-blank-at-eol
+WindowsAppSDK/license.txt whitespace=-blank-at-eol,-blank-at-eof
