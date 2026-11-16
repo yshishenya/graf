@@ -62,3 +62,10 @@
 - Exact implementation SHA before PR: `2408c668c` (will be updated to the PR SHA).
 - Real-queue dry run must record report SHA, before/after queue SHA256/mtime and recordings tree hashes.
 - No deletion in Phase A; Phase B/C enablement only after the production dry run is clean.
+
+## Tracker closeout
+
+- `python3 scripts/validate-issue-closeout.py --feature 296 --umbrella 8063 --repo yshishenya/graf --tasks specs/296-server-cache-proof/tasks.md --expected-sha 387c3290ae2d36f35fb67d7bf432e4a5873466e0 --require-release-full` — OK (live GitHub PR/run verification).
+- Child issues `#8064`–`#8093` закрыты с evidence-комментариями; umbrella `#8063` закрыт после детей.
+- `$speckit-converge` — `converged`: 0 открытых задач, 0 открытых issues, 0 findings (32 FR, 15 SC, 5 user stories, 8 принципов конституции).
+- Задачи `T000`–`T030` отмечены `[X]` и связаны canonical-ссылками `(Issue #N)`.
