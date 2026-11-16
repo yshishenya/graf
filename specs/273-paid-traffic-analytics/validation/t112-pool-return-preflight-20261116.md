@@ -506,3 +506,360 @@ pre-ping/DB-first): runtime действительно изменён, поэт�
 contract `7b0c4bb447cc66aa828be731c1c61c64fde0e1b8fcecd9987d49f553a4139269`.
 Library hashes/версии и требования в исходной таблице остались прежними.
 Изменён только настоящий отчёт; baseline не повторялся.
+
+## Исправление проекта — реальное состояние root до выдачи соединения
+
+16.11.2026. Новое поручение
+`/private/tmp/graf-t112-idle-close-design-correction-20261116.txt`, SHA-256
+`ebe1fb502d29bfa68e581b10a5484e2535ce44dadb5741919beccb63d555525c`.
+Точная текущая основа `3ab916f2439d86914c83d22a78d1a518a6b21ebf`.
+Первая ссылка на c420927a и слова uncommitted в поручении исторические.
+Проверено: guard/unit/contract вновь побайтово равны `c420927a7633596ca392799b61e46022ae7234d2`.
+Сохранённый пробный patch `16d1f5ad2ab0854e5654fd0342cee9d6837efc8e0fcf819b37014f12d45913bd`
+не применялся этим проверяющим.
+
+**Подтверждён недостаток предыдущего runtime DESIGN: P1=1, P2=0 проекта.**
+Моё требование `transaction.is_active=True` непосредственно в Pool.close
+неверно: оно исключает именно настоящую фазу provisioning, для которой
+проектировалась защита. Предыдущий DESIGN PASS в этой части **отозван**.
+Изначальный причинный baseline RED и его P1-R1 остаются принятыми.
+
+Прочитаны оригинальные SQLAlchemy2.0.51 `orm/session.py:930–1042,1085–1128,
+1148–1270,1276–1437,4350–4472,4838–4884`. SHA-256 исходника
+`b75a4e427f453c2eaf19f04d87f66c2da644698a14f3b11880f56a73e2a0760d`.
+До `bind.connect()` root получает PROVISIONING_CONNECTION; ACTIVE
+восстанавливается в finally. Public root.is_active проверяет ACTIVE, а
+Session.is_active делегирует root. Поэтому оба False в требуемой точке.
+Подмена одного другим, чтение `_state`, сравнение строки private state или
+безусловное разрешение любого `is_active=False` не допускаются.
+
+Проверен main-owned `t112-idle-close-design-validation-20261116.md`, SHA-256
+`8d8d493200f563c27a20ca1358147ee2128086cb0f44bf720ff11d4b5173bb0f`.
+Законченный real Session / public do_connect опыт в этом отчёте согласуется
+с исходником. Новый опыт независимо не запускался. Native попытка
+`/private/tmp/graf-t112-idle-close-native-20261116.log`, SHA-256
+`6f8dd6786d0530e7557a42228323ff3570b2af209809946bc8f124cd508f5627`,
+была прервана после90.92s, runner94s/EXIT2, контейнер удалён. Ни одного
+законченного native case результата в ней нет.30 unit GREEN с моделированным
+root не доказывают применимость ошибочного предиката. Причина зависания
+конкретной попытки по этому журналу **не установлена**.
+
+## Исправленный public DESIGN — положительное свидетельство истории root
+
+**Одних текущих снимков public Session свойств — недостаточно, HOLD.**
+`in_transaction=True`, exact get_transaction, parent=None и отсутствие
+nested root исключают чужой/законченный root, но не все ошибочные состояния
+того же root. `is_active=False` бывает также при partial rollback. Нельзя
+просто удалить прежнюю проверку и считать это новым безопасным основанием.
+
+**PASS проекта с небольшим отдельным свидетельством public lifecycle ниже.**
+Это замена неверного признака доказанной историей того же root, а не
+ослабление до «root существует». При отказе от этой истории проект остаётся
+HOLD. Новых целей/данных/получателей и продуктовых настроек не требуется.
+
+Минимально добавить в existing owner отдельную краткоживущую mapping
+`unbound_roots` (название иллюстративно), не меняя формат прежнего root lease
+`[owner, transaction, task]` и не подменяя им connection lease.
+Значение связывает exact root lease и **исходную** creation task, независимо
+от последующего изменения lease[2]. Это не резерв entry и не новый DB owner.
+
+Положительное свидетельство создаётся **только** в существующем public
+Session.after_transaction_create при настоящем корневом AUTOBEGIN, если
+current owner/task/Context согласованы, transaction.parent=None,
+transaction.nested=False, origin=SessionTransactionOrigin.AUTOBEGIN,
+transaction.session — exact session, session.get_transaction() — этот root,
+session.in_transaction=True, nested transaction отсутствует. **Именно в
+этом событии** root.is_active и Session.is_active должны быть True:
+по проверенному исходнику root уже назначен Session и ACTIVE. Неуспех
+любого признака не создаёт свидетельства. После этого root нельзя заново
+«разрешать» по более позднему ACTIVE или только по Session.info.
+
+Свидетельство окончательно отзывается для того же root, без rearm:
+
+- При after_transaction_create любого дочернего/nested/subtransaction в этой
+  Session. Источник root берётся из сохранённого exact Session.info lease,
+  а не только из текущего Context: чужой Context не должен сохранить старое
+  разрешение после изменения той же Session.
+- В начале existing Session.after_begin, **до** попытки связать Connection
+  и любых early-return существующего binder. БД-транзакция уже началась —
+  разрешение для unbound root больше не подходит, даже если binding не доказан.
+- Public before_commit, after_rollback и after_soft_rollback этой Session.
+  Один маленький no-I/O revoke helper допустим; события не делают SQL и не
+  меняют существующие Connection/root handoff правила.
+- При after_transaction_end корня и в существующей ветви забывания уже
+  законченного root после отменённого close. В обоих местах убирается только
+  exact свидетельство того же root/owner. Проверка нулевых остатков включает
+  эту mapping; нельзя оставить скрытый реестр после окончания запроса.
+
+Почему эта история исключает ошибочные False в проверенной версии:
+
+| Возможное состояние | Публичное основание для отказа |
+| --- | --- |
+| CLOSED / уже другой root | session.get_transaction не совпадает либо root закончился; cleanup отзывает свидетельство |
+| PREPARED / COMMITTED | До перехода исполняется public before_commit; свидетельство отозвано |
+| DEACTIVE после flush | Рабочая flush-транзакция создаёт дочерний SUBTRANSACTION до try/rollback; её public create отзывает свидетельство. Ошибка до этого try сама не переводит root в DEACTIVE |
+| DEACTIVE после rollback | after_rollback/after_soft_rollback отзывает свидетельство. Если rollback падает до события, у работавшего root уже был after_begin либо flush-child и разрешение ранее отозвано; rollback без Connection не выполняет driver I/O |
+| ACTIVE | Не та стадия для нового callback: текущие root.is_active/Session.is_active True; no-op |
+| PROVISIONING_CONNECTION до первого after_begin | Сохранилось положительное создание exact root, не было запрещающих lifecycle событий; current False согласован с требуемой стадией |
+
+Runtime не читает private state; таблица — анализ source, не код проверки
+`_state`. Проект привязан к установленной библиотечной семантике. Если новые
+public observers/порядок событий противоречат этой истории, это HOLD для
+данного случая, а не повод расширить предикат. Событие не должно mint/rearm
+разрешение после уже случившегося begin/child/commit/rollback; порядок
+регистрации и действие на настоящем Session подтверждаются тестом.
+
+В новом Pool.close callback сохраняются **все** прежние проверки owner/task/
+Context/no cancellation, отсутствие connection leases/failed, единственный
+exact current root, Session.info, no nested, exact entry/wrapper/native
+generation, !in_use, отсутствие entry connection/init/root keys и native
+open/noTX. Вместо прежнего `root.is_active=True` требуются одновременно:
+
+1. Exact положительное, ещё не отозванное unbound-root свидетельство из
+   public creation event с той же исходной task и тем же root lease.
+2. root всё ещё public current transaction той же Session, parent=None,
+   nested=False, origin AUTOBEGIN, Session.in_transaction=True и нет nested.
+3. **В этой точке** public root.is_active=False и Session.is_active=False,
+   что допустимо только вместе со всей сохранённой историей выше.
+
+При любом несоответствии — no-op, без terminate, owner.failed и изменений
+чужих структур. Одно witness не разрешает закрыть Connection: полномочие
+на exact idle поколение по-прежнему даёт только сам public Pool.close.
+Recycle-specific reservation proof остаётся HOLD. Не добавляются retry,
+timer, lease задним числом или завершение всей Session. C1/I1/CancelledError/
+DB-first пути не расширяются; их существующие root/connection leases и
+handoff остаются источником cleanup. Это предупреждение нового graceful
+ожидания, не принятие отмены уже начатого native close.
+
+## Необходимая проверка исправленного основания
+
+До новой native попытки нужны не только моки:
+
+- Настоящий SQLAlchemy Session с public after_transaction_create и
+  Engine.do_connect: True при mint, False/False в connect при exact current
+  root/Context и живом witness; после after_begin witness отсутствует.
+- Настоящие child/nested, before_commit и rollback/partial-rollback случаи:
+  свидетельство отзывается и не появляется снова для того же root. Новая
+  транзакция получает новое свидетельство только своим creation event.
+- После успешного выхода/ошибки/cancel оба прежних owner registry и новый
+  witness registry пусты. Existing root lease остаётся трёхэлементным;
+  wrong-task/stale-lease/wrong-Context/событие другого root не дают terminate.
+- В native normal/fault точно зафиксировать **настоящие** root properties и
+  свидетельство в Pool.close перед проверкой ожидаемого предупреждения;
+  не предполагать состояние root из unit-модели. Все остальные ранние
+  требования исходного normal/fault проекта сохраняются в исходном2s.
+
+Эти проверки ещё не выполнены. PASS относится к исправленному проекту, не
+к его коду, публичному root эксперименту этого проверяющего или native GREEN.
+
+## Безопасные наблюдения и teardown при ранней ошибке callback
+
+Test Pool.close callback не должен бросать assert до фиксации target и тем
+более повторять assertion из engine.dispose. Для exact первого target
+сначала сохранить доступные entry/wrapper/driver/task/owner/root/public flags,
+одноразово disarm наблюдение, затем в finally выставить close_seen.
+Результаты проверок собирать как данные/список расхождений и проверять вне
+callback; не поднимать test AssertionError внутри SQLAlchemy close machinery.
+После завершения/ошибки POST напечатать сохранённую диагностику даже если
+root не совпал. Это не разрешает засчитать недоказанную фазу PASS.
+
+Если production callback может ошибиться раньше test Pool.close listener,
+test-only public Session.after_transaction_create observer должен заранее
+сохранить exact owner/root/task для request engine. Дополнительно иметь
+явный handle POST task; cleanup не зависит от успешного присваивания
+`target["owner"]` в позднем close callback. Неполные snapshots печатаются
+без вторичного KeyError, а observer не ждёт close_seen неограниченно.
+
+До закрытия handles/dispose: disarm/remove test observation listener,
+открыть **все** data/EOF gates, остановить watchdog, завершить/cancel только
+собственные request/observer задачи и задачи сохранённого exact owner.
+Затем в отдельном ограниченном сроке cleanup дождаться их окончания,
+закрыть все заранее учтённые F/P/T/direct handles и relay writers/pumps,
+dispose своих engines. Не делать неограниченный gather в finally и не
+отменять чужие задачи по общему списку asyncio.all_tasks. Если этот срок
+не выполнен, тест/runner завершается с отдельной ошибкой уборки и штатным
+удалением своего изолированного контейнера; это не product PASS и не повод
+ждать90s. Время cleanup не включается задним числом в раннюю приёмку2s.
+
+Ни гипотеза о прежнем assertion/dispose, ни этот проект teardown не являются
+доказательством причины уже прерванной попытки. Нового запуска здесь не было.
+18 входных хешей повторно совпали, основные124/0 и scoped analyze требований
+не менялись. Код/тесты/tasks/checklist/Git/GitHub/runtime не изменены.
+T112/T113/restore/runtime/T0, выпуск и цель трафика/продаж остаются открытыми.
+
+## Проверка реализации истории и проект наблюдения client EOF
+
+16.11.2026. Основа остаётся `3ab916f2439d86914c83d22a78d1a518a6b21ebf`;
+проверен текущий незакоммиченный diff guard/unit/contract. Проект исправления
+root прочитан основным исполнителем по SHA-256 `4b9b5f5a291fa2ce29b5d6cbf3bb0711a3f3e43b37d8041cf1f8d929d996848a`.
+Проверяющий не применял patch, не запускал тесты и меняет только отчёт.
+
+**Проект наблюдения client EOF — PASS с условиями ниже. Общая приёмка
+реализации — HOLD: P1=0 новых доказанных runtime-дефектов, P2=3 находки.**
+Исторический P1-R1 исходного baseline ещё не закрыт новым полным native GREEN.
+P2-N1 — неверное обязательное ожидание upstream EOF в observer;
+P2-N2 — неполная проверка формы root/witness в новых public callbacks;
+P2-N3 — новая witness-ветвь аварийного forget не покрыта существующим тестом.
+Это три небольших конкретных исправления, не основание повторять старый
+baseline либо233 до их завершения.
+
+### Что подтвердили исходники и законченные запуски
+
+Реализация mint/revoke в целом соответствует исправленному public-history
+проекту: положительное создание только AUTOBEGIN; отдельная mapping с exact
+lease/creation task; revoke при child, before_commit/rollback/soft rollback,
+в начале after_begin и при завершении root; terminal guard проверяет остаток
+mapping. Нет private _state, новых сетевых операций/таймеров/повторов.
+Pool.close проверяет exact idle generation и не меняет bookkeeping пула.
+Прежние C1/I1/CancelledError/DB-first ветви по diff не расширены.
+
+Исправленное ожидание real Session after_begin как False/False обосновано:
+вызов after_begin находится внутри `_connection_for_bind` до finally ACTIVE.
+Свидетельство при этом уже отозвано — именно это важное состояние, а не
+обязательная True активность в событии. Тест реального lifecycle теперь
+проверяет create True/True → connect False/False с witness → after_begin
+False/False без witness → return True/True без witness.
+
+Проверен unit-журнал `/private/tmp/graf-t112-root-history-unit-green-final-20261116.log`,
+SHA-256 `d6c17d0291a33affb900c79a0a6644e697417c729c2b69551be3811be2fa87a6`:
+**44PASS/198deselected/один прежний warning,0.23s**. Это3 real provisioning
+выхода +5 real lifecycle случаев +36 Pool.close predicate случаев.
+Они включают partial rollback, nested из пустого Context, stale lease/witness,
+wrong-task/Context, чужое поколение, init/root/connection keys, native TX/closed.
+Законченные тесты не подменены новым прогоном проверяющего.
+
+Native-журнал `/private/tmp/graf-t112-root-history-native-20261116.log`, SHA-256
+`515d1c00d1b332f2bc9c9f956117e5257f62c8b6a53dd488bd350076050bddb5`:
+**2FAIL/27deselected/один warning, pytest5.75s, runner8s,
+isolated_container_removed**. Обе ветви вернули POST около0.05s, все15
+close_checks=True, root_flags=False/False, snapshot_error=None,
+native_closed=True, watchdog=False. Далее обе упали на observer ожидании
+upstream eof_seen. Status/body, поздние backend/locks, owner/root/pool/F/P,
+ledger и reuse assertions не достигнуты; весь набор GREEN не объявляется.
+`backend_gone_before_cancel=False` в печати означает отсутствие законченного
+наблюдения, а не доказанную живую backend/утечку.
+
+### P2-N1 — допустимый минимальный observer
+
+Да: настоящий **client EOF + законченные target relay/pumps/writers/root +
+независимое исчезновение target backend/locks в исходном2s**, при всё ещё
+закрытом target upstreamEOFgate, допустимы как доказательство
+**предупреждённого native graceful ожидания**. Это **не** доказательство,
+что upstream EOF был получен и удержан. Формулировки/маркеры должны разделять
+эти два исхода. Сохранённый baseline уже доказал настоящий исходный held
+upstream EOF; GREEN вправе доказать, что до этой стадии больше не ждут.
+
+Минимальное расширение существующего relay: на каждом stream отдельное
+`client_eof_seen` событие, выставляемое только когда client→server
+`source.read()` реально вернул `b''`, **до** завершения этого pump. Не
+выставлять его из finally, при cancel/исключении, writer.close или просто
+по `done`. Непустые данные, F/P, data gate, FIRST_COMPLETED и закрытие обоих
+writer остаются штатными. Никакой подмены native API, задержки client pump
+или искусственного ожидания upstream pump ради нужного marker.
+
+Порядок для новых двух случаев:
+
+1. После подтверждённого окончания primer и до POST заранее вооружить
+   адресный upstream EOF gate T в fault; normal оставить открытым. Это
+   однозначно доказывает готовность прежнего fault до предупреждения close.
+   Не обязательно менять работающий runtime, чтобы получить upstream EOF.
+2. В Public Pool.close сохранить прежние exact15 признаков/witness/root
+   snapshot и факт native_closed=True уже до библиотечного driver close.
+   Это вместе с source порядком Pool.close→driver close доказывает раннее
+   предупреждение, а не позднее уничтожение зависшего close child.
+3. Observer после close_seen ждёт **client_eof_seen и законченный target
+   relay**, а не обязательный upstream eof_seen. Затем подтверждает root
+   done, оба pump done, оба wait_closed done и оба writer закрыты. Событие
+   client EOF обязательно для этого выбранного доказательства; один OR
+   `upstream_eof or done` не заменяет его.
+4. Независимый direct observer подтверждает отсутствие старого T PID и
+   locks; затем все прежние ранние проверки полного accepted/auth/tenant/
+   renewal, owner/transactions/unbound_roots, checkedout=2, нового T idle,
+   F/P exact PID/SELECT1/commit, ledger0. Всё — до открытия fault gate/dispose
+   и до **того же абсолютного POST+2s**, не нового времени после ответа.
+5. Проверить, что gate fault всё ещё закрыт, watchdog не сработал. Записать
+   upstream_eof_seen как фактический bool, допускающий False. При False
+   назвать результат `client EOF / prevented wait`, без слов held upstream
+   EOF. Если по честной гонке server EOF успел появиться, записать оба
+   маркера и сохранить те же условия раннего освобождения; не принуждать
+   отсутствие upstream EOF как новое условие продукта.
+
+Observer должен использовать исходный абсолютный deadline (можно передать
+его при создании), а не собственное новое ожидание1s после POST. Ранее
+созданный timeout1s может дать ненужный FAIL для допустимого ответа между
+1s и2s и в любом случае не является главным продуктовым бюджетом.
+
+Такой путь ожидаем по source: public asyncpg terminate прекращает клиентский
+transport; client EOF завершает client→server pump; FIRST_COMPLETED отменяет
+ожидающий server→client pump и закрывает upstream writer. PostgreSQL видит
+закрытие клиентской стороны relay и завершает backend. Это нормальная
+реакция реального TCP relay. Текущий журнал не содержит client EOF marker,
+поэтому **сам факт этой точной последовательности в двух уже законченных
+FAIL ещё не доказан**. Новый marker/полные ранние проверки нужны для GREEN.
+Ошибку source.read необходимо фиксировать отдельно; исключение pump не
+выдавать за EOF. Нового runtime изменения для этого наблюдения не нужно.
+
+### P2-N2 — форма нового root/witness должна проверяться до индексации
+
+В `_terminate_idle_result_generation` сейчас lease[0:3]/witness[0:2] читаются
+без проверки формы; `_revoke_unbound_result_root` без неё распаковывает lease
+и читает witness[0]. Прежний проект требовал exact трёхэлементный root list
+и противоречия как no-op. Пустой/короткий lease или witness дают IndexError/
+ValueError в public callback вместо no-op. Это source-находка; новый тест
+проверяющий для её воспроизведения не запускал. Нет утверждения, что обычный
+root constructor сам создаёт такие данные или что они внешне управляемы.
+
+Минимально: до распаковки/индексации в новых callbacks проверить root lease
+как list длины3 и witness как tuple длины2 с прежними identity constraints;
+не превращать проверку в generic repair чужой metadata. Если Session.info
+содержит противоречивую форму/owner, revoke не должен делать записи или
+падать из-за обращения к неизвестному owner API. Узкие negative случаи
+неправильной формы должны доказать no-op/no terminate/сохранность metadata.
+Не менять для этого прежние C1/I1/DB-first алгоритмы и не «исправлять» чужой
+lease на месте.
+
+### P2-N3 — аварийный forget ещё не проверяет новый witness
+
+`test_cancelled_cleanup_forgets_only_finished_unbound_root_metadata` проверяет
+прежние owner.transactions/Session.info, но **не создаёт** unbound_roots
+witness. Поэтому новая строка revoke в `_forget_finished_result_transactions`
+не проверена этим тестом. Real success/error/cancel lifecycle вызывает
+обычный db.close после уже выполненного after_begin и не заменяет этот
+отдельный путь: там witness ранее уже отозван.
+
+Минимально расширить существующий owned/contradictory cleanup тест exact
+свидетельством: для допустимого законченного root оно исчезает вместе с
+остальной metadata; pending task/active Session/foreign Context/owner/stale
+mapping и прочие отказы сохраняют чужое свидетельство и структуры. Нового
+набора API или повторения всего233 ради этого дополнения не требуется.
+
+Наблюдение/teardown текущего diff стали безопаснее: snapshot без assert
+в close, ранний public Session observer, одноразовый disarm, явный POST
+handle, gates до уборки, удаление test listener, отдельные bounded waits.
+На ветви уборочного timeout следует сохранить исходную ошибку и отдельно
+зафиксировать неоконченные собственные handles/tasks; нельзя назвать такую
+уборку PASS. Новые записи client EOF не должны менять рабочую cleanup
+логику либо закрывать чужие streams.
+
+### Точные входы текущего ревью и оставшиеся границы
+
+| Вход | SHA-256 |
+| --- | --- |
+| Текущий guard diff | `33ec2b127cdf1feae0d342233904d8a25345a0bc99dfc99dab7f3645685cdc5a` |
+| Текущий unit | `f3415b22a0818550518ab1ef5e072a4f7078d0d1fd6d6d1d9670ee9b0e48509e` |
+| Текущий contract | `19406596146e94a79ecd312464ea6799cd4d1b7b14367840cbe6dc680f8b2452` |
+
+18 исходных требований совпали. Reviewer-owned totals неизменны:
+requirements16/0, security27/0, privacy52/0, infra29/0, **124checked/0unchecked**.
+Это сохранённая приёмка требований, не закрытие трёх P2 или native profile.
+Scoped analyze требований остаётся применим. Независимый implementation PASS,
+focused native GREEN и затронутый regression-профиль пока отсутствуют.
+T112/T113/restore/runtime/T0, PR/CI/release и цель трафика/продаж открыты.
+Записан только настоящий отчёт; чужие три изменённых файла сохранены.
+
+Во время заключительной сверки contract параллельно изменился на SHA-256
+`c863b978885c759e1a30b0ac3e20a56017110735e21417a82cda638c6b7af5e1`:
+в нём уже появился client_eof_seen. Эти изменения сохранены, не откатывались.
+Полный разбор выше и журнал2FAIL относятся к `194065…`; новой полной
+implementation/native приёмки версии `c863b9…` это дополнение не заявляет.
+Открытые P2-N2/N3 guard/unit и общий HOLD сохраняются.
