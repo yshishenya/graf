@@ -144,7 +144,8 @@ jobs:
       - name: Run and verify the T124 package suite
         id: t124
         if: needs.scope.outputs.required == 'true'
-        shell: pwsh
+        # CTest must inherit PS5 module paths; pwsh only sanitizes directly launched PS5.
+        shell: powershell
         run: |
           $commands = ctest --test-dir $env:BUILD_DIR -R '^PublicAppInstallerTests$' --show-only=json-v1
           if ($LASTEXITCODE -ne 0) { throw 'CTest could not resolve the T124 command.' }
@@ -171,7 +172,7 @@ jobs:
                   or Path(props["WORKING_DIRECTORY"]).resolve(strict=True) != Path(os.environ["BUILD_DIR"]).resolve(strict=True)):
               raise SystemExit("Unexpected T124 CTest properties.")
           '@
-          python -I -c $checkPlan
+          $checkPlan | python -I -
           if ($LASTEXITCODE -ne 0) { throw 'CTest will not run the expected T124 script.' }
           $engine = Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
           & $engine -NoLogo -NoProfile -NonInteractive -Command '$PSVersionTable.PSVersion.ToString()' |
@@ -194,10 +195,10 @@ jobs:
                   or cases[0].get("status") != "run" or any(child.tag in {"disabled", "skipped", "error", "failure"} for child in cases[0])):
               raise SystemExit("Expected exactly one successful T124 JUnit result.")
           marker = "PUBLIC_APPINSTALLER_TESTS cases=111 public_release_ready=false"
-          if sum(line.rstrip().endswith(marker) for line in (report / "t124-ctest.log").read_text(encoding="utf-8-sig").splitlines()) != 1:
+          if sum(line.rstrip().endswith(marker) for line in (report / "t124-ctest.log").read_text(encoding="utf-16").splitlines()) != 1:
               raise SystemExit("Missing or duplicate T124 suite completion marker.")
           '@
-          python -I -c $checkReport
+          $checkReport | python -I -
           if ($LASTEXITCODE -ne 0) { throw 'T124 execution or its expected results failed.' }
       - name: Record diagnostic result
         if: always()
