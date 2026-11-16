@@ -9932,3 +9932,204 @@
   setup();
   document.addEventListener('htmx:afterSwap', setup);
 })();
+
+// A result body is observed independently of polling, headings and native recording controls.
+(() => {
+  if (window !== window.top || !window.IntersectionObserver || !window.MutationObserver) return;
+  const states = new Map();
+  const selector = 'div.text[data-result-view-proof],p.outcome-item-text[data-result-view-proof]';
+  const validProof = value => typeof value === 'string' && value.length <= 1536 && /^[A-Za-z0-9_-]+\.[a-f0-9]{64}$/.test(value);
+  const csrf = () => document.querySelector('meta[name="csrf-token"]')?.content || '';
+  let active = true, queued = false, nativeNonce = null, nativeReady = null, nativeRevision = 0;
+  const root = () => {
+    const match = /^\/(desktop\/)?meetings\/([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})$/.exec(location.pathname);
+    const node = document.querySelector('main#cabinet-main[data-meeting-id]');
+    return match && node?.dataset.meetingId === match[2]
+      && node.dataset.cabinetEmbedded === String(Boolean(match[1])) ? node : null;
+  };
+  const current = (state, generation, proof = state.proof, token = state.csrf) => active
+    && states.get(state.node) === state && state.generation === generation
+    && state.node.isConnected && state.root === root() && state.root.contains(state.node)
+    && state.path === location.pathname && state.query === location.search
+    && state.node.dataset.resultViewProof === proof && csrf() === token;
+  const bodyVisible = state => {
+    if (!active || document.visibilityState !== 'visible' || document.prerendering || !document.hasFocus()
+      || !state.intersects || !state.node.textContent.trim() || !state.node.getClientRects().length) return false;
+    for (let node = state.node; node; node = node.parentElement) {
+      if (node.hidden || node.inert || node.getAttribute('aria-hidden') === 'true'
+        || (node.tagName === 'DETAILS' && !node.open)) return false;
+      const style = getComputedStyle(node);
+      if (style.display === 'none' || ['hidden', 'collapse'].includes(style.visibility)
+        || Number(style.opacity) === 0 || style.contentVisibility === 'hidden') return false;
+    }
+    const rect = state.node.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0 && rect.right > 0 && rect.bottom > 0
+      && rect.left < innerWidth && rect.top < innerHeight;
+  };
+  const stop = (state, hidden = false) => {
+    state.generation++;
+    state.controller?.abort(); state.controller = null;
+    if (hidden) { state.visible = false; state.attempted = false; state.renewed = false; }
+  };
+  const nativeCheck = async (nonce, signal) => {
+    const handler = window.webkit?.messageHandlers?.grafResultVisibility;
+    if (!nonce || !handler?.postMessage || signal.aborted) return null;
+    let abort;
+    const cancelled = new Promise((_, reject) => {
+      abort = () => reject(new Error('unavailable'));
+      signal.addEventListener('abort', abort, { once: true });
+    });
+    try {
+      const reply = await Promise.race([handler.postMessage({ version: 1, nonce }), cancelled]);
+      return reply && Object.keys(reply).sort().join(',') === 'ready,version'
+        && reply.version === 1 && typeof reply.ready === 'boolean' ? reply.ready : null;
+    } catch { return null; }
+    finally { signal.removeEventListener('abort', abort); }
+  };
+  const refreshNative = async () => {
+    if (!nativeNonce || ![...states.values()].some(state => state.embedded)) return;
+    const nonce = nativeNonce, revision = ++nativeRevision;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 2000);
+    try {
+      const ready = await nativeCheck(nonce, controller.signal);
+      if (active && nonce === nativeNonce && revision === nativeRevision) {
+        nativeReady = ready;
+        schedule();
+      }
+    } finally { clearTimeout(timeout); }
+  };
+  const observeResponse = async (response, state, generation, proof, token, signal) => {
+    if (response.status !== 200 || response.redirected
+      || response.headers.get('content-type')?.split(';')[0] !== 'application/json' || !response.body) return null;
+    const reader = response.body.getReader();
+    const chunks = [];
+    let size = 0;
+    try {
+      while (true) {
+        const chunk = await reader.read();
+        if (signal.aborted || !current(state, generation, proof, token) || !bodyVisible(state)) return null;
+        if (chunk.done) break;
+        size += chunk.value.length;
+        if (size > 2048) return null;
+        chunks.push(chunk.value);
+      }
+      const bytes = new Uint8Array(size);
+      let offset = 0;
+      for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
+      return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+    } finally { await reader.cancel().catch(() => {}); }
+  };
+  const attempt = (state, generation) => {
+    requestAnimationFrame(() => {
+      if (!current(state, generation) || !bodyVisible(state)) return;
+      requestAnimationFrame(async () => {
+        if (!current(state, generation) || !bodyVisible(state)) return;
+        const proof = state.proof, token = state.csrf, nonce = nativeNonce;
+        const controller = new AbortController(); state.controller = controller;
+        const timeout = setTimeout(() => controller.abort(), 2000);
+        try {
+          if (state.embedded) {
+            const ready = await nativeCheck(nonce, controller.signal);
+            if (!current(state, generation, proof, token) || nativeNonce !== nonce || !bodyVisible(state)) return;
+            nativeReady = ready;
+            if (ready !== true) { schedule(); return; }
+          }
+          if (controller.signal.aborted || !current(state, generation, proof, token) || !bodyVisible(state)) return;
+          const response = await fetch(state.path + '/result-viewed', {
+            method: 'POST', credentials: 'same-origin', cache: 'no-store', redirect: 'error', signal: controller.signal,
+            headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-CSRF-Token': token },
+            body: JSON.stringify({ proof }),
+          });
+          if (!current(state, generation, proof, token) || !bodyVisible(state) || (state.embedded && nativeNonce !== nonce)) return;
+          const result = await observeResponse(response, state, generation, proof, token, controller.signal);
+          if (!current(state, generation, proof, token) || !bodyVisible(state) || (state.embedded && nativeNonce !== nonce)) return;
+          if (result?.status === 'accepted' && Object.keys(result).join(',') === 'status') state.done = true;
+          else if (result?.status === 'renewed' && Object.keys(result).sort().join(',') === 'proof,status'
+            && !state.renewed && validProof(result.proof) && result.proof !== proof) {
+            state.renewed = true;
+            state.proof = result.proof; state.node.dataset.resultViewProof = result.proof;
+            attempt(state, generation);
+          }
+        } catch { /* An uncertain delivery waits for a real new visibility transition. */ }
+        finally {
+          clearTimeout(timeout);
+          if (state.controller === controller) state.controller = null;
+        }
+      });
+    });
+  };
+  const evaluate = state => {
+    if (!state.csrf || !current(state, state.generation)) return;
+    if (!bodyVisible(state) || (state.embedded && nativeReady === false)) {
+      if (state.visible || state.controller) stop(state, true);
+      return;
+    }
+    // An unknown/disconnected bridge suspends observation without inventing a transition.
+    if (state.embedded && (!nativeNonce || nativeReady !== true)) return;
+    state.visible = true;
+    if (!state.done && !state.attempted) { state.attempted = true; attempt(state, state.generation); }
+  };
+  const observer = new IntersectionObserver(entries => {
+    for (const entry of entries) {
+      const state = states.get(entry.target);
+      if (state) {
+        state.intersects = entry.isIntersecting && entry.intersectionRect.width > 0 && entry.intersectionRect.height > 0;
+        evaluate(state);
+      }
+    }
+  });
+  const scan = () => {
+    queued = false;
+    if (!active) return;
+    const detail = root();
+    for (const [node, state] of states) {
+      if (state.root === detail && state.query !== location.search) {
+        stop(state); state.query = location.search; state.attempted = true;
+      }
+      if (state.csrf !== csrf()) {
+        stop(state); state.csrf = csrf(); state.attempted = true;
+      }
+      if (!current(state, state.generation) || !validProof(node.dataset.resultViewProof)) {
+        stop(state); observer.unobserve(node); states.delete(node);
+      }
+    }
+    let addedEmbedded = false;
+    if (detail && csrf()) for (const node of detail.querySelectorAll(selector)) {
+      if (!states.has(node) && validProof(node.dataset.resultViewProof)) {
+        const state = { node, root: detail, proof: node.dataset.resultViewProof, csrf: csrf(), path: location.pathname,
+          query: location.search, embedded: detail.dataset.cabinetEmbedded === 'true', generation: 0,
+          intersects: false, visible: false, attempted: false, done: false, renewed: false, controller: null };
+        states.set(node, state); observer.observe(node); addedEmbedded ||= state.embedded;
+      }
+    }
+    if (addedEmbedded) refreshNative();
+    for (const state of states.values()) evaluate(state);
+  };
+  function schedule() {
+    if (!queued && active) { queued = true; queueMicrotask(scan); }
+  }
+  window.GRAFResultVisibility = {
+    connect(nonce) {
+      if (typeof nonce !== 'string' || !/^[a-f0-9-]{36}$/i.test(nonce)) return;
+      nativeNonce = nonce; nativeRevision++;
+      for (const state of states.values()) if (state.embedded) stop(state);
+      refreshNative();
+    },
+    disconnect() {
+      nativeNonce = null; nativeReady = null; nativeRevision++;
+      for (const state of states.values()) if (state.embedded) stop(state);
+    },
+    refresh: refreshNative,
+  };
+  new MutationObserver(schedule).observe(document.documentElement, {
+    subtree: true, childList: true, characterData: true, attributes: true,
+    attributeFilter: ['data-result-view-proof', 'data-meeting-id', 'data-cabinet-embedded', 'hidden', 'inert', 'aria-hidden', 'class', 'style', 'open', 'content'],
+  });
+  for (const name of ['htmx:afterSwap', 'htmx:afterSettle', 'toggle', 'scroll']) document.addEventListener(name, schedule, true);
+  for (const name of ['resize', 'blur']) window.addEventListener(name, schedule);
+  for (const name of ['focus', 'visibilitychange']) (name === 'focus' ? window : document).addEventListener(name, () => { schedule(); refreshNative(); });
+  window.addEventListener('pagehide', () => { active = false; nativeRevision++; observer.disconnect(); for (const state of states.values()) stop(state, true); });
+  window.addEventListener('pageshow', () => { active = true; queued = false; for (const state of states.values()) observer.observe(state.node); schedule(); refreshNative(); });
+  scan();
+})();

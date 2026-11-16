@@ -1746,6 +1746,10 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             context.coordinator.notificationSettingsBridge, contentWorld: .page,
             name: EmbeddedCabinetNotificationSettingsBridge.handlerName
         )
+        configuration.userContentController.addScriptMessageHandler(
+            context.coordinator.resultVisibilityBridge, contentWorld: .page,
+            name: EmbeddedCabinetResultVisibilityBridge.handlerName
+        )
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.wantsLayer = true
         webView.underPageBackgroundColor = DesktopMeetingShellChrome.webEmbeddedBackgroundNSColor
@@ -1870,6 +1874,9 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             forName: EmbeddedCabinetNotificationSettingsBridge.handlerName, contentWorld: .page
         )
         container.webView.configuration.userContentController.removeScriptMessageHandler(
+            forName: EmbeddedCabinetResultVisibilityBridge.handlerName, contentWorld: .page
+        )
+        container.webView.configuration.userContentController.removeScriptMessageHandler(
             forName: EmbeddedCabinetUpdateBridge.messageHandlerName
         )
         container.webView.configuration.userContentController.removeScriptMessageHandler(
@@ -1889,6 +1896,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         let calendarJoinBridge = EmbeddedCabinetCalendarJoinBridge()
         let recordingSettingsBridge: EmbeddedCabinetRecordingSettingsBridge
         let notificationSettingsBridge: EmbeddedCabinetNotificationSettingsBridge
+        let resultVisibilityBridge: EmbeddedCabinetResultVisibilityBridge
         private let routePolicy: DesktopCabinetRoutePolicy
         private let desktopHeaders: [String: String]
         private let navigationRequestPolicy: DesktopCabinetNavigationRequestPolicy
@@ -1940,6 +1948,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             recordingSettingsBridge = EmbeddedCabinetRecordingSettingsBridge(routePolicy: routePolicy)
             self.notificationPresenter = notificationPresenter
             notificationSettingsBridge = EmbeddedCabinetNotificationSettingsBridge(routePolicy: routePolicy, presenter: notificationPresenter)
+            resultVisibilityBridge = EmbeddedCabinetResultVisibilityBridge(routePolicy: routePolicy)
             self.desktopHeaders = desktopHeaders
             navigationRequestPolicy = DesktopCabinetNavigationRequestPolicy(
                 routePolicy: routePolicy,
@@ -2118,6 +2127,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             calendarJoinBridge.invalidate()
             recordingSettingsBridge.invalidate()
             notificationSettingsBridge.invalidate()
+            resultVisibilityBridge.invalidate()
             navigationController.detach(webView: webView)
             return cleanup
         }
@@ -2787,6 +2797,12 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             }
             let synchronize: @MainActor () -> Void = { [weak self, weak webView] in
                 guard let self, let webView, isCurrentDocument() else { return }
+                self.resultVisibilityBridge.activate(webView, isCurrentDocument: { [weak self, weak webView] in
+                    guard let self, let webView else { return false }
+                    return self.isActive && !self.webContentProcessTerminated
+                        && self.navigationController.isAttached(to: webView) && !self.navigationController.isLoading
+                        && self.userTimeDocumentRevision == documentRevision
+                })
                 // Preferences belong to the authenticated document, after cookie reconciliation.
                 if EmbeddedCabinetNotificationSettingsBridge.isSettingsURL(url, policy: self.routePolicy) {
                     let authEpoch = self.notificationPresenter.authEpoch
@@ -2925,6 +2941,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             calendarJoinBridge.invalidate()
             recordingSettingsBridge.invalidate()
             notificationSettingsBridge.invalidate()
+            resultVisibilityBridge.invalidate()
             userTimeDocumentRevision &+= 1
             if let url = webView.url,
                [.authLogin, .authSignup, .authCallback, .authProvider].contains(routePolicy.decision(for: url).route.kind) {
@@ -2942,6 +2959,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             calendarJoinBridge.invalidate()
             recordingSettingsBridge.invalidate()
             notificationSettingsBridge.invalidate()
+            resultVisibilityBridge.invalidate()
             paymentNavigation = paymentNavigation.stopped()
             cancelJavaScriptConfirmation()
             navigationController.cancelPendingNavigation(webView: webView)
