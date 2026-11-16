@@ -481,67 +481,14 @@ def test_shared_reader_preserves_complete_ordinary_meeting(postgres_seeded_datab
     from datetime import timedelta
     from uuid import uuid4
 
-    from tests.contract.test_result_view_projection import _seed_projection
-    from tests.contract.test_result_visibility import NOW, _seed_source
+    from tests.contract.test_result_visibility import NOW
     from twobrain_rec_server.cabinet.queries import get_cabinet_meeting_review
     from twobrain_rec_server.cabinet.result_visibility import load_fresh_result_view_bindings
-    from twobrain_rec_server.db.models import (
-        DiarizationSegment,
-        Meeting,
-        MeetingSummarySlot,
-        RecordingCalendarContextLink,
-        TranscriptSegment,
-    )
 
     async def scenario(sessions):
         async with sessions() as db:
-            seed, pinned, current, old = await _seed_projection(db)
+            seed, pinned, current, old, previous_id = await _seed_ordinary_projection(db)
             meeting_id = seed.meeting.meeting_id
-            meeting = await db.get(Meeting, meeting_id)
-            meeting.duration_seconds = 3600
-            meeting.local_recording_id = "synthetic-current-session-guard"
-            pinned.template_key = "graf-auto-v1"
-            pinned.template_version = 1
-            pinned.revision_state = "accepted"
-            db.add(MeetingSummarySlot(
-                workspace_id=WORKSPACE_ID, meeting_id=meeting_id,
-                template_key="graf-auto-v1", current_outcome_set_id=pinned.id,
-                current_binding_class="verified_complete", is_meeting_default=True,
-                default_resolution_source="explicit_meeting", default_resolution_version="synthetic",
-                default_resolved_at=NOW,
-            ))
-            current.provenance_json = {"synthetic": True, "segments": list(range(600))}
-            current.segment_count = current.diarization_segment_count = 600
-            for n in range(1, 600):
-                value = "Синтетический разговор руководителя и специалиста. " * 8
-                db.add(TranscriptSegment(
-                    workspace_id=WORKSPACE_ID, meeting_id=meeting_id, processing_result_id=current.id,
-                    sequence=n, start_seconds=n * 6, end_seconds=(n + 1) * 6,
-                    text=value, source_role="canonical_mixed",
-                ))
-                db.add(DiarizationSegment(
-                    workspace_id=WORKSPACE_ID, meeting_id=meeting_id, processing_result_id=current.id,
-                    sequence=n, start_seconds=n * 6, end_seconds=(n + 1) * 6,
-                    text=value, source_role="canonical_mixed", speaker_label=f"SPEAKER_{n % 4:02d}",
-                ))
-            await db.commit()
-            previous, *_ = await _seed_source(db)
-            previous.started_at = NOW - timedelta(days=7)
-            previous.duration_seconds = 1800
-            for row, start in ((previous, NOW - timedelta(days=7)), (meeting, NOW)):
-                db.add(RecordingCalendarContextLink(
-                    workspace_id=WORKSPACE_ID, meeting_id=row.id, context_state="matched_auto",
-                    context_confidence="high", matcher_version="synthetic-session-guard",
-                    recurring_series_key_sha256="e" * 64, matched_event_starts_at=start,
-                    matched_event_ends_at=start + timedelta(hours=1), matched_title="Synthetic review",
-                    matched_title_state="available", matched_roster_state="available",
-                    matched_roster_count=4, matched_roster_json=[{
-                        "display_name": f"Synthetic participant {n}", "participant_kind": "required_attendee",
-                        "response_status": "accepted", "email_present": False,
-                    } for n in range(4)],
-                ))
-            await db.commit()
-            previous_id = previous.id
         params = dict(workspace_id=WORKSPACE_ID, meeting_id=meeting_id, viewer_user_id=USER_ID)
         actor = replace(principal(), session_id=uuid4(), auth_via_session=True,
                         session_workspace_id=WORKSPACE_ID)
@@ -583,3 +530,66 @@ def test_shared_reader_preserves_complete_ordinary_meeting(postgres_seeded_datab
         print(f"ordinary_projection_variant={variant} sql={owner.sql_count} rows={owner.budget.rows} "
               f"bytes={owner.budget.raw_bytes} nodes={owner.budget.json_nodes}")
     _run(postgres_seeded_database_url, scenario)
+
+
+async def _seed_ordinary_projection(db):
+    from datetime import timedelta
+
+    from tests.contract.test_result_view_projection import _seed_projection
+    from tests.contract.test_result_visibility import NOW, _seed_source
+    from twobrain_rec_server.db.models import (
+        DiarizationSegment,
+        Meeting,
+        MeetingSummarySlot,
+        RecordingCalendarContextLink,
+        TranscriptSegment,
+    )
+
+    seed, pinned, current, old = await _seed_projection(db)
+    meeting_id = seed.meeting.meeting_id
+    meeting = await db.get(Meeting, meeting_id)
+    meeting.duration_seconds = 3600
+    meeting.local_recording_id = "synthetic-current-session-guard"
+    pinned.template_key = "graf-auto-v1"
+    pinned.template_version = 1
+    pinned.revision_state = "accepted"
+    db.add(MeetingSummarySlot(
+        workspace_id=WORKSPACE_ID, meeting_id=meeting_id,
+        template_key="graf-auto-v1", current_outcome_set_id=pinned.id,
+        current_binding_class="verified_complete", is_meeting_default=True,
+        default_resolution_source="explicit_meeting", default_resolution_version="synthetic",
+        default_resolved_at=NOW,
+    ))
+    current.provenance_json = {"synthetic": True, "segments": list(range(600))}
+    current.segment_count = current.diarization_segment_count = 600
+    for n in range(1, 600):
+        value = "Синтетический разговор руководителя и специалиста. " * 8
+        db.add(TranscriptSegment(
+            workspace_id=WORKSPACE_ID, meeting_id=meeting_id, processing_result_id=current.id,
+            sequence=n, start_seconds=n * 6, end_seconds=(n + 1) * 6,
+            text=value, source_role="canonical_mixed",
+        ))
+        db.add(DiarizationSegment(
+            workspace_id=WORKSPACE_ID, meeting_id=meeting_id, processing_result_id=current.id,
+            sequence=n, start_seconds=n * 6, end_seconds=(n + 1) * 6,
+            text=value, source_role="canonical_mixed", speaker_label=f"SPEAKER_{n % 4:02d}",
+        ))
+    await db.commit()
+    previous, *_ = await _seed_source(db)
+    previous.started_at = NOW - timedelta(days=7)
+    previous.duration_seconds = 1800
+    for row, start in ((previous, NOW - timedelta(days=7)), (meeting, NOW)):
+        db.add(RecordingCalendarContextLink(
+            workspace_id=WORKSPACE_ID, meeting_id=row.id, context_state="matched_auto",
+            context_confidence="high", matcher_version="synthetic-session-guard",
+            recurring_series_key_sha256="e" * 64, matched_event_starts_at=start,
+            matched_event_ends_at=start + timedelta(hours=1), matched_title="Synthetic review",
+            matched_title_state="available", matched_roster_state="available",
+            matched_roster_count=4, matched_roster_json=[{
+                "display_name": f"Synthetic participant {n}", "participant_kind": "required_attendee",
+                "response_status": "accepted", "email_present": False,
+            } for n in range(4)],
+        ))
+    await db.commit()
+    previous_id = previous.id
+    return seed, pinned, current, old, previous_id

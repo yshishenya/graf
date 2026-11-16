@@ -1,7 +1,6 @@
 """Fresh session/access fences inside isolated account admission, not HTTP/T113."""
 
 import asyncio
-from contextlib import asynccontextmanager
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from time import monotonic
@@ -36,7 +35,7 @@ from twobrain_rec_server.db.models import (
     WorkspaceMembership,
 )
 from twobrain_rec_server.processing.fences import lock_meeting_fence
-from twobrain_rec_server.product_analytics import ingest
+from twobrain_rec_server.product_analytics import ingest, milestones
 
 pytestmark = pytest.mark.usefixtures("isolated_admission", "result_period")
 
@@ -147,7 +146,7 @@ def test_session_expiry_during_pair_rolls_back_all_new_rows(
         verify = await _prepare(sessions)
         async with sessions() as db:
             await db.execute(update(AuthSession).where(AuthSession.id == SESSION_ID).values(
-                expires_at=datetime.now(UTC) + timedelta(seconds=0.5),
+                expires_at=datetime.now(UTC) + timedelta(seconds=1),
             ))
             await db.commit()
         original = ingest.admit_account_milestone
@@ -158,10 +157,11 @@ def test_session_expiry_during_pair_rolls_back_all_new_rows(
             calls += 1
             row = await original(db, event, **kwargs)
             if calls == (1 if point == "second_insert" else 2):
-                await asyncio.sleep(0.6)
+                session = await db.get(AuthSession, SESSION_ID)
+                await asyncio.sleep(max(0, (session.expires_at - datetime.now(UTC)).total_seconds()) + 0.01)
             return row
 
-        monkeypatch.setattr(ingest, "admit_account_milestone", admit)
+        monkeypatch.setattr(milestones, "admit_account_milestone", admit)
         assert not await _accept(sessions, verify)
         assert calls == 2
         async with sessions() as db:
@@ -184,18 +184,24 @@ def test_device_bootstrap_keeps_empty_binding_set_fenced(
             product_analytics_enabled=True, web_login_workspace_id=AUTH_BOOTSTRAP_WORKSPACE_ID,
         ))
         actor = replace(_result_principal(), session_device_id=None)
-        async with (
-            service._account_transaction(actor, WORKSPACE_ID, sessions, require_period=True),
-            sessions() as writer_db,
-        ):
-            await writer_db.execute(text("SET LOCAL lock_timeout = '50ms'"))
-            writer_db.add(AuthSessionDeviceBinding(
-                auth_session_id=SESSION_ID, registered_device_id=DEVICE_ID, device_state="trusted",
-            ))
-            with pytest.raises(DBAPIError) as error:
-                await writer_db.flush()
-            assert error.value.orig.sqlstate == "55P03"
-            await writer_db.rollback()
+        blocked = []
+        async def verify(db, started_at):
+            async with sessions() as writer_db:
+                await writer_db.execute(text("SET LOCAL lock_timeout = '50ms'"))
+                writer_db.add(AuthSessionDeviceBinding(
+                    auth_session_id=SESSION_ID, registered_device_id=DEVICE_ID, device_state="trusted",
+                ))
+                try:
+                    await writer_db.flush()
+                except DBAPIError as error:
+                    blocked.append(error.orig.sqlstate)
+                await writer_db.rollback()
+            return None
+        assert not await service.admit_result_view(
+            principal=actor, workspace_id=WORKSPACE_ID, sessionmaker=sessions,
+            verify_view=verify, surface="cabinet_web",
+        )
+        assert blocked == ["55P03"]
         async with sessions() as db:
             db.add(AuthSessionDeviceBinding(
                 auth_session_id=SESSION_ID, registered_device_id=DEVICE_ID, device_state="trusted",
@@ -265,7 +271,7 @@ def test_analytics_first_holds_real_writer_conflict_through_commit(
                 blocked = True
             return row
 
-        monkeypatch.setattr(ingest, "admit_account_milestone", admit)
+        monkeypatch.setattr(milestones, "admit_account_milestone", admit)
         assert await _accept(sessions, verify)
         assert blocked
         async with sessions() as db:
@@ -287,19 +293,20 @@ def test_limited_application_role_preserves_tenant_scope_and_can_admit(
             await db.execute(text("GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA public TO graf_t112_access_test"))
             await db.commit()
 
-        @asynccontextmanager
-        async def limited_sessions():
-            async with sessions() as db:
-                await db.execute(text("SET LOCAL ROLE graf_t112_access_test"))
-                assert await db.scalar(text("SELECT current_user")) == "graf_t112_access_test"
-                assert not await db.scalar(text("SELECT rolbypassrls OR rolsuper FROM pg_roles WHERE rolname = current_user"))
-                yield db
-
+        from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+        limited = create_async_engine(postgres_seeded_database_url, connect_args={
+            "server_settings": {"role": "graf_t112_access_test"},
+        })
+        limited_sessions = async_sessionmaker(limited, expire_on_commit=False)
         try:
+            async with limited.connect() as probe:
+                assert await probe.scalar(text("SELECT current_user")) == "graf_t112_access_test"
+                assert not await probe.scalar(text("SELECT rolbypassrls OR rolsuper FROM pg_roles WHERE rolname = current_user"))
             assert await _accept(limited_sessions, verify)
             async with sessions() as db:
                 assert len(list(await db.scalars(select(ProductActivationMilestone)))) == 2
         finally:
+            await limited.dispose()
             async with sessions() as db:
                 await db.execute(text("DROP OWNED BY graf_t112_access_test"))
                 await db.execute(text("DROP ROLE graf_t112_access_test"))

@@ -1013,6 +1013,8 @@ def test_valid_json_replays_only_its_bounded_body_and_keeps_private_response(pat
     assert start["status"] == 200 and json.loads(body) == {"status": "accepted"}
     assert dict(start["headers"])[b"cache-control"] == b"private, no-store"
     assert len(calls) == 1
+    state = calls[0]["state"]
+    assert state["result_view_cleanup_deadline"] - state["result_view_deadline"] == 0.5
 
 
 @pytest.mark.parametrize("body", [

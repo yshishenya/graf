@@ -1,6 +1,7 @@
-"""Read-only owner for the real result reader; this does not open admission."""
+"""Owned result snapshots and a fixed pair operation; runtime T113 stays closed."""
 
 import asyncio
+import math
 from contextlib import asynccontextmanager, contextmanager
 
 from sqlalchemy import event, func, select, text
@@ -44,6 +45,7 @@ class ResultProjectionSession:
         self.failed = False
         self._task = asyncio.current_task()
         self._connection = None
+        self._async_connection = None
         self._driver = None
         self._expected = None
         self._cursor_pending = False
@@ -124,6 +126,15 @@ class ResultProjectionSession:
     def _forbid_write(self, *args):
         self._refuse()
 
+    def _before_commit(self, *args):
+        self._refuse()
+
+    def _commit_event(self, *args):
+        self._refuse()
+
+    def finish(self):
+        self.checkpoint()
+
     def _limit_statement(self):
         self.checkpoint()
         milliseconds = min(500, int((self.deadline - asyncio.get_running_loop().time()) * 1000))
@@ -194,16 +205,17 @@ class ResultProjectionSession:
             self._refuse()
         self.checkpoint()
         connection = await self.db.connection(execution_options={"isolation_level": "REPEATABLE READ"})
+        self._async_connection = connection
         self._connection = connection.sync_connection
         self._driver = self._connection.connection.driver_connection
         self._listen(self._connection, "before_execute", self._before_execute)
         self._listen(self._connection, "before_cursor_execute", self._before_cursor)
         self._listen(self._connection, "rollback", self._transaction_ended)
-        self._listen(self._connection, "commit", self._forbid_write)
+        self._listen(self._connection, "commit", self._commit_event)
         self._listen(self.db.sync_session, "do_orm_execute", self._read)
         self._listen(self.db.sync_session, "after_begin", self._after_begin)
         self._listen(self.db.sync_session, "before_flush", self._forbid_write)
-        self._listen(self.db.sync_session, "before_commit", self._forbid_write)
+        self._listen(self.db.sync_session, "before_commit", self._before_commit)
         for statement in (text("SET LOCAL lock_timeout = '250ms'"),
                           text("SET LOCAL statement_timeout = '500ms'")):
             with self._permit(statement):
@@ -211,34 +223,160 @@ class ResultProjectionSession:
         self.checkpoint()
 
 
-@asynccontextmanager
-async def result_projection_session(sessionmaker, *, deadline=None):
-    """Own one fresh read-only RR snapshot, with no shielded close task.
+class ResultAdmissionSession(ResultProjectionSession):
+    """Only the fixed result/value pair may write inside this owned snapshot."""
 
-    The caller must checkpoint around synchronous projection/digest work.
-    Admission, writer freshness and HTTP ownership are separate required gates.
-    """
+    def __init__(self, db, deadline):
+        super().__init__(db, deadline)
+        self._account_source = None
+        self._phase = 0
+        self._admitting = False
+        self._committing = False
+        self._commit_seen = False
+        self._terminal = False
+        self._committed = False
+        self._ready = False
+
+    def checkpoint(self):
+        if self._terminal:
+            self._refuse()
+        super().checkpoint()
+
+    async def start(self):
+        await super().start()
+        statement = select(func.pg_try_advisory_xact_lock_shared(273, 3))
+        await self.db.run_sync(lambda _: self._limit_statement())
+        with self._permit(statement):
+            acquired = await self._async_connection.scalar(statement)
+        if not acquired:
+            self._refuse()
+        self._ready = True
+        self.checkpoint()
+
+    def bind_account(self, account_id, source_kind):
+        self.checkpoint()
+        if (not self._ready or self._account_source is not None
+                or source_kind not in {"browser", "desktop"}):
+            self._refuse()
+        self._account_source = (account_id, source_kind)
+
+    async def admit_event(self, event, *, account_id, source_kind, before_insert):
+        from twobrain_rec_server.product_analytics.milestones import admit_account_milestone
+
+        self.checkpoint()
+        names = ("first_result_viewed", "first_value_session_completed")
+        if (self._admitting or self._phase >= len(names) or self._account_source != (account_id, source_kind)
+                or event.event_name != names[self._phase]):
+            self._refuse()
+        self._admitting = True
+        inserted = False
+        providers = None
+
+        def prepare_insert():
+            nonlocal providers
+            providers = before_insert()
+            self.checkpoint()
+            return providers
+
+        async def execute_insert(statement):
+            nonlocal inserted
+            self.checkpoint()
+            if inserted:
+                self._refuse()
+            await self.db.run_sync(lambda _: self._limit_statement())
+            if providers is None or before_insert() != providers:
+                self._refuse()
+            self.checkpoint()
+            self.budget.reserve_uuid()
+            inserted = True
+            with self._permit(statement):
+                result = await self._async_connection.execute(statement)
+            self.checkpoint()
+            return result
+
+        try:
+            result = await admit_account_milestone(
+                self.db, event, account_id=account_id, source_kind=source_kind,
+                before_insert=prepare_insert, _execute_insert=execute_insert,
+            )
+            self.checkpoint()
+            if not inserted:
+                self._refuse()
+            self._phase += 1
+            return result
+        except BaseException:
+            self.failed = self.budget.failed = True
+            raise
+        finally:
+            self._admitting = False
+
+    def _before_commit(self, *args):
+        self.checkpoint()
+        if not self._committing or self._phase != 2 or self._commit_seen:
+            self._refuse()
+
+    def _commit_event(self, *args):
+        self._before_commit()
+        self._commit_seen = True
+
+    async def commit_pair(self, recheck):
+        self.checkpoint()
+        if self._phase != 2 or self._admitting or self._committing or self.sql_count >= 128:
+            self._refuse()
+        try:
+            recheck()
+            self.checkpoint()
+            self.sql_count += 1  # COMMIT has no before_cursor_execute event.
+            self._committing = True
+            await self.db.commit()
+            self.checkpoint()
+            if not self._commit_seen:
+                self._refuse()
+            self._committed = True
+        except BaseException:
+            self.failed = self.budget.failed = True
+            raise
+        finally:
+            self._terminal = True
+            self._committing = False
+
+    def finish(self):
+        if (not self._committed or self.failed or self.budget.failed
+                or asyncio.get_running_loop().time() >= self.deadline):
+            self._refuse()
+
+
+def validate_result_deadlines(work_deadline, cleanup_deadline):
+    now = asyncio.get_running_loop().time()
+    if (any(isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value)
+            for value in (work_deadline, cleanup_deadline))
+            or work_deadline <= now or cleanup_deadline > now + 2
+            or cleanup_deadline - work_deadline < 0.5 - 1e-9):
+        raise ProjectionBudgetExceeded
+
+
+@asynccontextmanager
+async def _result_session_context(sessionmaker, owner_type, *, work_deadline, cleanup_deadline):
+    validate_result_deadlines(work_deadline, cleanup_deadline)
     if (not isinstance(sessionmaker, async_sessionmaker) or sessionmaker.class_ is not AsyncSession
             or not isinstance(sessionmaker.kw.get("bind"), AsyncEngine)
             or sessionmaker.kw.get("binds")
             or sessionmaker.kw.get("sync_session_class") not in (None, Session)):
         raise ProjectionBudgetExceeded  # Never adopt a caller's Session or begun connection.
-    loop = asyncio.get_running_loop()
-    deadline = min(loop.time() + 2, deadline) if deadline is not None else loop.time() + 2
     db = sessionmaker(autoflush=False, expire_on_commit=False, sync_session_class=_ProjectionSession)
-    owner = ResultProjectionSession(db, deadline - 0.5)
+    owner = owner_type(db, work_deadline)
     try:
         async with asyncio.timeout_at(owner.deadline):
             await owner.start()
             yield owner
-            owner.checkpoint()
+            owner.finish()
     except Exception:
         owner.failed = owner.budget.failed = True
         raise ProjectionBudgetExceeded from None
     finally:
         owner.detach()
         try:
-            async with asyncio.timeout_at(deadline):
+            async with asyncio.timeout_at(cleanup_deadline):
                 await db.close()
         except BaseException:
             # Close must not retain an in-flight owned connection past the budget.
@@ -248,3 +386,23 @@ async def result_projection_session(sessionmaker, *, deadline=None):
                 owner._driver.terminate()
                 await db.invalidate()
             raise
+
+
+@asynccontextmanager
+async def result_projection_session(sessionmaker, *, deadline=None):
+    """Own one fresh read-only RR snapshot; deadline remains the cleanup end."""
+    end = asyncio.get_running_loop().time() + 2
+    if deadline is not None:
+        end = min(end, deadline)
+    async with _result_session_context(
+        sessionmaker, ResultProjectionSession, work_deadline=end - 0.5, cleanup_deadline=end,
+    ) as owner:
+        yield owner
+
+
+@asynccontextmanager
+async def result_admission_session(sessionmaker, *, work_deadline, cleanup_deadline):
+    async with _result_session_context(
+        sessionmaker, ResultAdmissionSession, work_deadline=work_deadline, cleanup_deadline=cleanup_deadline,
+    ) as owner:
+        yield owner

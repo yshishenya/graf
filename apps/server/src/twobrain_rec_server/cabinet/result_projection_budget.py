@@ -136,6 +136,14 @@ class ProjectionReadBudget:
     json_nodes: int = 0
     failed: bool = False
 
+    def reserve_uuid(self):
+        """Charge the fixed INSERT RETURNING id before its possible decode."""
+        if self.failed or self.rows + 1 > _TOTAL_ROWS or self.raw_bytes + 32 > _TOTAL_BYTES:
+            self.failed = True
+            raise ProjectionBudgetExceeded
+        self.rows += 1
+        self.raw_bytes += 32
+
     def check(self, connection, statement, parameters=None):
         """Inspect numeric values before the caller executes the unchanged SELECT.
 

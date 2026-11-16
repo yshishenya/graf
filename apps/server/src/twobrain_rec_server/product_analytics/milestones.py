@@ -17,7 +17,7 @@ module keeps three promises that make the funnel readable:
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -25,7 +25,9 @@ from uuid import UUID, uuid4, uuid5
 
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.engine import Result
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.dml import Insert
 
 from twobrain_rec_server.db.models.identity import UserIdentity
 from twobrain_rec_server.db.models.product_analytics import (
@@ -266,6 +268,7 @@ async def admit_account_milestone(
     source_kind: str,
     requested_providers: tuple[str, ...] = (),
     before_insert: Callable[[], tuple[str, ...]] | None = None,
+    _execute_insert: Callable[[Insert], Awaitable[Result]] | None = None,
 ) -> tuple[ProductActivationMilestone, bool]:
     """Atomically keep one immutable account decision and its fixed intents."""
 
@@ -334,11 +337,10 @@ async def admit_account_milestone(
         insert(ProductActivationMilestone)
         .values(**values)
         .on_conflict_do_nothing()
-        .returning(ProductActivationMilestone)
+        .returning(ProductActivationMilestone.id)
     )
-    row = (await db.execute(statement)).scalar_one_or_none()
-    if row is not None:
-        return row, True
+    created = (await (db.execute(statement) if _execute_insert is None
+                     else _execute_insert(statement))).scalar_one_or_none() is not None
     row = await db.scalar(
         select(ProductActivationMilestone).where(
             ProductActivationMilestone.account_id == account_id,
@@ -347,7 +349,7 @@ async def admit_account_milestone(
     )
     if row is None:
         raise RuntimeError("milestone decision unavailable")
-    return row, False
+    return row, created
 
 
 def _provider_columns(provider: str):

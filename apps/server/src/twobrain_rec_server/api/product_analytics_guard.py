@@ -513,6 +513,7 @@ async def _guard_result_view(app, scope, receive, send):
     deadline = loop.time() + 2
     work_deadline = deadline - 0.5
     scope.setdefault("state", {})["result_view_deadline"] = work_deadline
+    scope["state"]["result_view_cleanup_deadline"] = deadline
     content_types = [value for name, value in scope.get("headers", []) if name.lower() == b"content-type"]
     if len(content_types) != 1 or content_types[0].split(b";", 1)[0].strip().lower() != b"application/json":
         await _result_view_unavailable(send, deadline, 415)

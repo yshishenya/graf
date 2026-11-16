@@ -8,11 +8,15 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
-from sqlalchemy import select, text
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal
 from twobrain_rec_server.auth.sessions import is_session_token_valid, session_device_access
+from twobrain_rec_server.cabinet.result_projection_session import (
+    ResultAdmissionSession,
+    validate_result_deadlines,
+)
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.db.models import (
     AuthSession,
@@ -59,6 +63,7 @@ class _AccountAdmissionContext:
     db: AsyncSession
     started_at: datetime | None = None
     recheck: Callable[[], None] | None = None
+    owner: ResultAdmissionSession | None = None
 
 
 @asynccontextmanager
@@ -172,7 +177,7 @@ class ProductAnalyticsIngestService:
         )
 
     @asynccontextmanager
-    async def _result_period_context(self, sessionmaker):
+    async def _result_period_context(self, sessionmaker, *, work_deadline, cleanup_deadline):
         """T113 has no trusted runtime verifier. No date/config/request can open it.
 
         Its future protected context must own its DB session and filesystem/DB
@@ -182,32 +187,44 @@ class ProductAnalyticsIngestService:
         yield None
 
     def _check_admission(self, context: _AccountAdmissionContext) -> None:
+        if context.owner is not None:
+            context.owner.checkpoint()
         if activation_milestone_write_blockers(self.settings):
             raise PermissionError("milestone admission blocked")
         if context.recheck is not None:
             context.recheck()
+        if context.owner is not None:
+            context.owner.checkpoint()
 
     @asynccontextmanager
-    async def _account_transaction(self, principal, workspace_id, sessionmaker, *, require_period=False):
-        source = self._result_period_context(sessionmaker) if require_period else _account_session(sessionmaker)
+    async def _account_transaction(
+        self, principal, workspace_id, sessionmaker, *, require_period=False,
+        work_deadline=None, cleanup_deadline=None, source_kind=None,
+    ):
+        source = (self._result_period_context(
+            sessionmaker, work_deadline=work_deadline, cleanup_deadline=cleanup_deadline,
+        ) if require_period else _account_session(sessionmaker))
         async with source as context:
             if context is None or (require_period and (
-                not isinstance(context.started_at, datetime) or context.started_at.utcoffset() is None
-                or context.started_at > datetime.now(UTC)
-                or context.recheck is None
+                not isinstance(context, _AccountAdmissionContext)
+                or type(context.owner) is not ResultAdmissionSession or context.db is not context.owner.db
+                or context.owner.deadline != work_deadline
+                or not isinstance(context.started_at, datetime) or context.started_at.utcoffset() is None
+                or context.started_at > datetime.now(UTC) or context.recheck is None
             )):
                 raise PermissionError("milestone period unverified")
-            # Reserve the rest of the outer 2s budget for connection cleanup.
-            async with asyncio.timeout(1.5 if require_period else None):
+            async with asyncio.timeout_at(work_deadline if require_period else None):
                 self._check_admission(context)
                 db = context.db
-                if require_period:
-                    await db.execute(text("SET LOCAL lock_timeout = '250ms'"))
-                    await db.execute(text("SET LOCAL statement_timeout = '500ms'"))
-                await apply_tenant_context(db, WorkspaceAuthContext(
+                auth_context = WorkspaceAuthContext(
                     organization_id=principal.organization_id, workspace_id=workspace_id,
                     user_id=principal.user_id, context_kind="auth_bootstrap",
-                ))
+                )
+                if require_period:
+                    context.owner.bind_account(principal.user_id, source_kind)
+                    await context.owner.tenant(auth_context)
+                else:
+                    await apply_tenant_context(db, auth_context)
                 if require_period and await db.scalar(select(UserIdentity.id).where(
                     UserIdentity.id == principal.user_id, UserIdentity.status == "active",
                     UserIdentity.organization_id == principal.organization_id,
@@ -215,7 +232,7 @@ class ProductAnalyticsIngestService:
                 ).with_for_update(read=True)) is None:
                     raise PermissionError("milestone account unavailable")
                 if require_period:
-                    session = await self._lock_result_session(db, principal, workspace_id)
+                    session = await self._lock_result_session(db, principal, workspace_id, owner=context.owner)
                     period_recheck = context.recheck
 
                     def recheck():
@@ -225,10 +242,13 @@ class ProductAnalyticsIngestService:
 
                     context = replace(context, recheck=recheck)
                 yield context
-                self._check_admission(context)
-                await db.commit()
+                if require_period:
+                    await context.owner.commit_pair(lambda: self._check_admission(context))
+                else:
+                    self._check_admission(context)
+                    await db.commit()
 
-    async def _lock_result_session(self, db, principal, workspace_id):
+    async def _lock_result_session(self, db, principal, workspace_id, *, owner):
         if (
             not principal.auth_via_session or principal.session_id is None
             or principal.session_workspace_id != workspace_id
@@ -259,7 +279,7 @@ class ProductAnalyticsIngestService:
             ))
         ):
             raise PermissionError("result workspace unavailable")
-        await apply_tenant_context(db, TenantDatabaseContext(
+        await owner.tenant(TenantDatabaseContext(
             organization_id=principal.organization_id, workspace_id=workspace_id,
             user_id=principal.user_id, auth_session_id=session.id,
             device_id=principal.session_device_id,
@@ -293,6 +313,10 @@ class ProductAnalyticsIngestService:
                 and resolve_provider_delivery_gate(self.settings, provider=provider).allowed
             )
 
+        if context.owner is not None:
+            return await context.owner.admit_event(
+                event, account_id=account_id, source_kind=source_kind, before_insert=before_insert,
+            )
         return await admit_account_milestone(
             context.db, event, account_id=account_id,
             source_kind=source_kind, before_insert=before_insert,
@@ -303,6 +327,7 @@ class ProductAnalyticsIngestService:
         sessionmaker,
         verify_view: Callable[[AsyncSession, datetime], Awaitable[ResultViewBinding | None]],
         surface: str,
+        work_deadline: float | None = None, cleanup_deadline: float | None = None,
     ) -> bool:
         """Internal pair admission; the verifier must lock/recheck auth/source/proof.
 
@@ -317,11 +342,18 @@ class ProductAnalyticsIngestService:
         ):
             return False
         try:
-            async with asyncio.timeout(2):
+            if work_deadline is None and cleanup_deadline is None:
+                cleanup_deadline = asyncio.get_running_loop().time() + 2
+                work_deadline = cleanup_deadline - 0.5
+            validate_result_deadlines(work_deadline, cleanup_deadline)
+            async with asyncio.timeout_at(cleanup_deadline):
                 async with self._account_transaction(
                     principal, workspace_id, sessionmaker, require_period=True,
+                    work_deadline=work_deadline, cleanup_deadline=cleanup_deadline,
+                    source_kind="browser" if surface == "cabinet_web" else "desktop",
                 ) as context:
                     binding = await verify_view(context.db, context.started_at)
+                    context.owner.checkpoint()
                     if (
                         binding is None or binding.source.owner_id != principal.user_id
                         or binding.source.workspace_id != workspace_id
