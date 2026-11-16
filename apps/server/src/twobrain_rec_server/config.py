@@ -60,6 +60,12 @@ class Settings(BaseSettings):
     minio_secret_key: str = "twobrain_rec_dev_secret"
     minio_bucket: str = "twobrain-rec-ingest"
     minio_secure: bool = False
+    strict_storage_scope: str | None = None
+    strict_storage_recovery_directory: Path | None = None
+    strict_storage_recovery_allow_legacy: bool = False
+    strict_storage_recovery_file: Path | None = None
+    strict_storage_recovery_id: UUID | None = None
+    strict_storage_read_fence_directory: Path | None = None
 
     public_base_url: AnyUrl | None = None
 

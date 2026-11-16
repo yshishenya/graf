@@ -1,0 +1,83 @@
+#pragma once
+
+#include "ProtectedCustodyFiles.h"
+#include "ProtectedPackedCustodyCodec.h"
+#include <mutex>
+
+namespace graf::windows {
+class ProtectedPackedCustodyOwner;
+class ProtectedPackedCustodyTree;
+struct PackedCipherRead {
+    // A failed byte move must leave the source's owner and pin intact.
+    // Ciphertext storage remains charged until its actual deallocation.
+    CustodyBytes bytes;
+    CustodyPin pin;
+    std::shared_ptr<ProtectedPackedCustodyOwner> owner;
+};
+
+// Worker-only physical prerequisite, not a logical reader/writer or authority.
+// Existing-open checks confinement/prefix, NOT cold closure. A physical HEAD
+// publication is NOT commit ACK. The tree layer must establish full/live proof,
+// paired descriptors, operation authority, retained roots and logical budgets.
+// Jobs/results share this owner, never reopen or expose its native handle.
+class ProtectedPackedCustodyOwner final : public std::enable_shared_from_this<ProtectedPackedCustodyOwner> {
+public:
+    [[nodiscard]] static CustodyFileResult<std::shared_ptr<ProtectedPackedCustodyOwner>> open(
+        const std::filesystem::path&, std::string_view packageDirectoryId,
+        const PackedCustodyContext&, CustodyFileAccess);
+    ~ProtectedPackedCustodyOwner();
+    ProtectedPackedCustodyOwner(const ProtectedPackedCustodyOwner&) = delete;
+    ProtectedPackedCustodyOwner& operator=(const ProtectedPackedCustodyOwner&) = delete;
+    [[nodiscard]] std::uint64_t epoch() const noexcept;
+    [[nodiscard]] CustodyFileResult<PackedCipherRead> readCiphertext(std::uint64_t offset, std::uint32_t bytes);
+    [[nodiscard]] CustodyFileResult<std::uint64_t> appendPosition();
+    [[nodiscard]] CustodyFileResult<std::uint32_t> append(const PackedRecordAddress&, const CustodyBytes&);
+    [[nodiscard]] CustodyFileResult<bool> flush();
+    [[nodiscard]] CustodyPublishResult publishHead(std::uint32_t slot, const CustodyBytes&);
+    void revokeWrites() noexcept;
+    void blockWrites() noexcept;
+private:
+    friend class ProtectedCustodyMigration;
+    friend class ProtectedPackedCustodyTree;
+    friend class ProtectedCustodyRecordingPackage;
+    friend class ProtectedCustodyStoreOwner; // Existing-only cold recovery under its continuously held root.
+#ifdef _WIN32
+    friend CustodyFileResult<CustodyPackageReaders> openProtectedCustodyReaders(
+        const std::filesystem::path&, std::shared_ptr<const ProtectedCustodyPackagePair>,
+        std::shared_ptr<const std::atomic<bool>>);
+#endif
+    [[nodiscard]] static CustodyFileResult<std::shared_ptr<ProtectedPackedCustodyOwner>> openImpl(
+        const std::filesystem::path&, std::string_view, const PackedCustodyContext&, CustodyFileAccess,
+        std::unique_ptr<ProtectedCustodyFiles>* prepared,
+        std::shared_ptr<ProtectedPackedCustodyOwner>* retainedFailure = nullptr,
+        CustodyId* discoveredContainer = nullptr,
+        const ProtectedCustodyFiles* migrationRoot = nullptr); // Exact native migration parent; never path-based admission.
+    struct State;
+    // Stack-only private operation: one job + owner + the SAME physical mutex
+    // across the entire tree/DPAPI/failure classification. No nested public IO.
+    class Guard final {
+        friend class ProtectedPackedCustodyTree;
+        explicit Guard(std::shared_ptr<ProtectedPackedCustodyOwner>, bool writing = false);
+        [[nodiscard]] CustodyFileResult<bool> check();
+        [[nodiscard]] CustodyFileResult<std::uint64_t> size();
+        [[nodiscard]] CustodyFileResult<CustodyBytes> read(std::uint64_t, std::uint32_t);
+        [[nodiscard]] CustodyFileResult<bool> writeReady();
+        [[nodiscard]] CustodyFileResult<std::uint64_t> reserve(std::uint64_t);
+        [[nodiscard]] CustodyFileResult<std::uint32_t> append(const PackedRecordAddress&, const CustodyBytes&);
+        [[nodiscard]] CustodyFileResult<bool> flush();
+        [[nodiscard]] CustodyPublishResult publishHead(std::uint32_t, const CustodyBytes&);
+        [[nodiscard]] CustodyFileResult<bool> reject(CustodyFileError, std::uint32_t = 0) noexcept;
+        [[nodiscard]] const PackedCustodyContext& context() const noexcept;
+        std::shared_ptr<ProtectedPackedCustodyOwner> owner_;
+        CustodyNativeJob job_;
+        std::unique_lock<std::mutex> groupLock_;
+        std::unique_lock<std::mutex> lock_;
+    };
+    explicit ProtectedPackedCustodyOwner(std::shared_ptr<State>);
+    // Shared physical implementation; caller MUST already hold job/owner/mutex.
+    [[nodiscard]] CustodyFileResult<std::uint32_t> appendLocked(const PackedRecordAddress&, const CustodyBytes&);
+    [[nodiscard]] CustodyFileResult<bool> flushLocked();
+    [[nodiscard]] CustodyPublishResult publishHeadLocked(std::uint32_t, const CustodyBytes&);
+    std::shared_ptr<State> state_;
+};
+} // namespace graf::windows

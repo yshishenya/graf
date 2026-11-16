@@ -711,7 +711,7 @@ async def test_nonempty_downgrade_refuses_without_losing_protection(operator_cas
     assert await source_snapshot(c) == before
     await bootstrap._bootstrap()
     async with c.owner.connect() as conn:
-        assert await conn.scalar(text("SELECT version_num FROM alembic_version")) == "0113_fair_use_operator_history"
+        assert await conn.scalar(text("SELECT version_num FROM alembic_version")) == "0115_f200_strict_upload_journal"
         assert await conn.scalar(text("SELECT bool_and(tgenabled='A') FROM pg_trigger WHERE tgname IN ('fair_use_review_guard','fair_use_audit_append','fair_use_audit_guard')")) is True
 
 
@@ -925,7 +925,101 @@ async def history_catalog(case):
             "SELECT proname,pg_get_functiondef(oid),proacl::text,proowner FROM pg_proc WHERE pronamespace='public'::regnamespace AND (proname LIKE '%fair_use%' OR proname='rec_context_kind') ORDER BY proname,oid",
             "SELECT * FROM pg_policies WHERE schemaname='public' AND tablename IN ('fair_use_reviews','billing_audit_events') ORDER BY tablename,policyname",
             "SELECT tgrelid,tgname,tgenabled,pg_get_triggerdef(oid) FROM pg_trigger WHERE NOT tgisinternal AND tgrelid IN ('public.fair_use_reviews'::regclass,'public.billing_audit_events'::regclass) ORDER BY tgrelid,tgname",
+            "SELECT indexdef FROM pg_indexes WHERE schemaname='public' AND indexname='uq_fair_use_audit_transition'",
+            "SELECT version_num FROM public.alembic_version ORDER BY version_num",
         )]
+
+
+@pytest.mark.parametrize("markers,partial,error", [
+    (["0112_storage_notifications"], False, None),
+    (["0112_storage_notifications"], True, "schema is incomplete"),
+    (["0113_fair_use_operator_history"], False, "schema is incomplete"),
+    (["0114_f200_calendar_upload_pin"], False, "schema is incomplete"),
+    (["0115_f200_strict_upload_journal"], False, "schema is incomplete"),
+    (["0113"], False, "marker is unsafe"),
+    (["0116_unknown_future"], False, "marker is unsafe"),
+    (["0113_f200_calendar_upload_pin"], False, "marker is unsafe"),
+    ([], False, "marker is unsafe"),
+    (["0112_storage_notifications", "0115_f200_strict_upload_journal"], False, "marker is unsafe"),
+])
+async def test_fair_use_bootstrap_missing_protection_marker_guard(markers, partial, error):
+    class Catalog:
+        async def fetch(self, sql, *args):
+            if "alembic_version" in sql:
+                return [{"version_num": marker} for marker in markers]
+            assert "pg_proc" in sql
+            return []
+
+        async def fetchval(self, sql):
+            assert "uq_fair_use_audit_transition" in sql and "fair_use_review_read" in sql
+            return partial
+
+        async def execute(self, *args):
+            pytest.fail("missing protection must not execute restriction DDL")
+
+    if error:
+        with pytest.raises(RuntimeError, match=error):
+            await bootstrap._restrict_fair_use_history(Catalog())
+    else:
+        await bootstrap._restrict_fair_use_history(Catalog())
+
+
+async def restrict_history_transaction(case):
+    # Real owner LOGIN: isolate this guard at 0114, where the strict sequence
+    # required by the full F200 bootstrap does not exist yet.
+    async with case.owner.begin() as conn:
+        assert await conn.scalar(text("SELECT session_user=current_user AND session_user='twobrain_rec'"))
+        await conn.execute(text("GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA public TO twobrain_rec_app,twobrain_rec_maintenance"))
+        raw = await conn.get_raw_connection()
+        await bootstrap._restrict_fair_use_history(raw.driver_connection)
+
+
+@pytest.mark.parametrize("marker", ["0112_storage_notifications", "0114_f200_calendar_upload_pin", "0115_f200_strict_upload_journal"])
+async def test_fair_use_bootstrap_marker_repeat_controls(operator_case, operator_migrations, marker):
+    c = operator_case
+    if marker != "0115_f200_strict_upload_journal":
+        await operator_migrations("downgrade", marker)
+    for _ in range(2):
+        if marker == "0115_f200_strict_upload_journal":
+            await bootstrap._bootstrap()
+        else:
+            await restrict_history_transaction(c)
+    async with c.owner.connect() as conn:
+        assert await conn.scalar(text("SELECT version_num FROM public.alembic_version")) == marker
+
+
+@pytest.mark.parametrize("marker", ["0114_f200_calendar_upload_pin", "0115_f200_strict_upload_journal"])
+async def test_fair_use_bootstrap_rejects_all_missing_descendant_protection(
+    operator_case, operator_migrations, marker,
+):
+    c = operator_case
+    if marker == "0114_f200_calendar_upload_pin":
+        await operator_migrations("downgrade", marker)
+    await create_source(c)
+    before = await source_snapshot(c)
+    async with c.owner.begin() as conn:
+        for sql in (
+            "DROP FUNCTION public.rec_guard_fair_use_review(),public.rec_append_fair_use_audit(),public.rec_guard_fair_use_audit(),public.rec_guard_fair_use_truncate() CASCADE",
+            "DROP INDEX public.uq_fair_use_audit_transition",
+            "DROP POLICY fair_use_review_read ON public.fair_use_reviews",
+        ):
+            await conn.execute(text(sql))
+    damaged = await history_catalog(c)
+    with pytest.raises(RuntimeError, match="fair-use history schema is incomplete"):
+        if marker == "0115_f200_strict_upload_journal":
+            await bootstrap._bootstrap()
+        else:
+            await restrict_history_transaction(c)
+    assert await history_catalog(c) == damaged
+    assert await source_snapshot(c) == before
+    for engine in (c.app, c.maintenance):
+        async with engine.connect() as conn:
+            assert await conn.scalar(text("SELECT session_user=current_user AND NOT rolsuper AND NOT rolbypassrls FROM pg_roles WHERE rolname=current_user"))
+            # history_catalog above preserves table/column ACLs for both tables.
+            # Ordinary billing audit DML remains allowed; reserved rows have a separate RLS/trigger guard.
+            assert not await conn.scalar(text(
+                "SELECT has_table_privilege(current_user,'public.fair_use_reviews','INSERT,UPDATE,DELETE')"
+            ))
 
 
 @pytest.mark.parametrize("damage", [
@@ -2616,7 +2710,7 @@ async def test_fair_use_final_save_failure_never_repeats_transport(fair_use_send
         assert row["last_error_code"] == "postal_outcome_unknown" and row["delivered_at"] is None
     else:
         assert faults == [True] and row["state"] == "delivered"
-        assert row["last_error_code"] is None and row["delivered_at"] == x.now.isoformat()
+        assert row["last_error_code"] is None and datetime.fromisoformat(row["delivered_at"]) == x.now
     x.now += timedelta(days=1)
     await x.dispatch()
     assert await cli_snapshot(c) == after and len(x.calls) == 1

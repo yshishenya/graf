@@ -661,6 +661,47 @@ def test_continuation_tamper_expiry_and_invalid_context_are_safe(client, tmp_pat
         )
 
 
+def test_continuation_preserves_position_only_with_media_version(client, tmp_path):
+    import pytest
+    from cryptography.fernet import Fernet
+
+    from twobrain_rec_server.cabinet.public_sharing import CONTINUATION_COOKIE
+
+    meeting, template = prepare(client, tmp_path)
+    _, path = publish(client, meeting, template)
+    origin = str(client.base_url.copy_with(scheme="https")).rstrip("/")
+    route = origin + path.replace("?", "/continue?")
+    resume = origin + "/shared-meeting/continue"
+    version = "b" * 24
+    for action, login in (("sign-in", "/login"), ("sign-up", "/sign-up")):
+        for media in ("", f"&media_version={version}"):
+            for position in (0, 14000):
+                begin = client.get(
+                    f"{route}&action={action}&tab=recording&position_ms={position}{media}",
+                    follow_redirects=False,
+                )
+                assert begin.status_code == 303
+                assert begin.headers["location"] == f"{login}?next=%2Fshared-meeting%2Fcontinue"
+                assert CONTINUATION_COOKIE in begin.cookies
+                assert "secure" in {
+                    flag.strip().lower() for flag in begin.headers["set-cookie"].split(";")[1:]
+                }
+                resumed = client.get(resume, follow_redirects=False)
+                assert resumed.status_code == 303
+                expected = f"{path}{media}#recording" + (f"?position_ms={position}" if media else "")
+                if resumed.headers["location"] != expected:
+                    pytest.fail("Continuation forwarded the wrong tab or recording position", pytrace=False)
+                assert CONTINUATION_COOKIE not in client.cookies
+
+    key = client.app.state.settings.credential_encryption_key_file.read_bytes()
+    legacy = Fernet(key).encrypt(f"{path}#recording?position_ms=0".encode()).decode()
+    client.cookies.set(CONTINUATION_COOKIE, legacy)
+    resumed = client.get(resume, follow_redirects=False)
+    assert resumed.status_code == 303
+    if resumed.headers["location"] != f"{path}#recording":
+        pytest.fail("Legacy cookie forwarded a recording position without a version", pytrace=False)
+
+
 def test_public_stream_is_bounded_and_closes_on_size_mismatch():
     import pytest
 

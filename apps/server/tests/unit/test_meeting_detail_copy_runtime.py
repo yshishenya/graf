@@ -128,8 +128,11 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const source = fs.readFileSync(process.argv[1], 'utf8');
 const implementation = source.slice(source.indexOf('  const initSourceNavigation ='), source.indexOf('  const DEFAULT_TIMELINE_HEIGHT ='));
+const cancellation = source.slice(source.indexOf('  const cancelSharedLinkSeek ='), source.indexOf('  const activateDetailTab ='));
 const listeners = {};
 let button = null, selected = null;
+let seekAborts = 0;
+let sharedLinkMetadata = {events:{abort:() => {seekAborts += 1;}}};
 const document = {
   body:{dataset:{}},
   querySelector:key => key === '[data-source-return]' ? button : null,
@@ -138,7 +141,7 @@ const document = {
 };
 const window = {location:{hash:''}, requestAnimationFrame:fn => fn()};
 const activateDetailTab = tab => {selected = tab;};
-eval(implementation + '\ninitSourceNavigation();'); // First mount can be a meeting list.
+eval(cancellation + '\n' + implementation + '\ninitSourceNavigation();'); // First mount can be a meeting list.
 for (const scrollTop of [500, 900]) {
   const old = button;
   button = {hidden:true, closest:key => key === '[data-source-return]' ? button : null};
@@ -150,6 +153,8 @@ for (const scrollTop of [500, 900]) {
     focus:() => {control.focused = true;}
   };
   for(const fn of listeners.click) fn({target:control});
+  assert.equal(seekAborts, 1, 'source navigation cancels the pending seek once; another click has none');
+  assert.equal(sharedLinkMetadata, undefined, 'cancelled metadata cannot remain pending');
   assert.equal(selected, 'recording'); assert.equal(button.hidden, false);
   if(old) assert.equal(old.hidden, true, 'detached previous button stays untouched');
   main.scrollTop = 0;

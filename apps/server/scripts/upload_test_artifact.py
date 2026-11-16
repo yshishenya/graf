@@ -9,10 +9,14 @@ import httpx
 
 try:
     from scripts.create_test_artifact import DESCRIPTORS, FILES, read_package
-    from scripts.smoke_target import read_private_auth_material, validate_origin
+    from scripts.smoke_target import (
+        read_private_auth_material,
+        validate_forward_origin,
+        validate_origin,
+    )
 except ModuleNotFoundError:
     from create_test_artifact import DESCRIPTORS, FILES, read_package
-    from smoke_target import read_private_auth_material, validate_origin
+    from smoke_target import read_private_auth_material, validate_forward_origin, validate_origin
 
 from twobrain_rec_server.config import LOCAL_DEV_SMOKE_IDS, SMOKE_IDENTITY_CLASS
 
@@ -139,10 +143,16 @@ def main() -> None:
     parser.add_argument("--artifact", type=Path, required=True)
     parser.add_argument("--stop-after-parts", type=int)
     parser.add_argument("--smoke-dry-run", action="store_true")
+    parser.add_argument("--forward", action="store_true")
     args = parser.parse_args()
 
     try:
-        api_origin = validate_origin(args.api)
+        if args.forward:
+            if not args.run_id or not args.run_id.startswith("forward-") or not args.token_file:
+                raise ValueError("forward smoke requires a run-bound auth material file")
+            api_origin = validate_forward_origin(args.api)
+        else:
+            api_origin = validate_origin(args.api)
     except ValueError as exc:
         parser.error(str(exc))
 

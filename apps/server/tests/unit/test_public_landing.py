@@ -391,6 +391,31 @@ def test_public_landing_analytics_has_opt_in_consent_widget(
 
 
 def test_public_download_handoff_is_available(client) -> None:
+    class PlatformCards(HTMLParser):
+        def __init__(self) -> None:
+            super().__init__()
+            self.articles: list[str | None] = []
+            self.statuses: dict[str, str | None] = {}
+            self.links: dict[str, list[str]] = {}
+
+        def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+            attributes = dict(attrs)
+            if tag == "article":
+                platform = attributes.get("data-platform")
+                self.articles.append(platform)
+                if platform:
+                    assert platform not in self.statuses
+                    self.statuses[platform] = attributes.get("data-platform-status")
+                    self.links[platform] = []
+            elif tag == "a" and "href" in attributes:
+                for platform in self.articles:
+                    if platform:
+                        self.links[platform].append(attributes["href"] or "")
+
+        def handle_endtag(self, tag: str) -> None:
+            if tag == "article":
+                self.articles.pop()
+
     response = client.get("/download")
 
     assert response.status_code == 200
@@ -399,9 +424,12 @@ def test_public_download_handoff_is_available(client) -> None:
     assert "Apple Silicon или Intel" in response.text
     assert "macOS 14.5 или новее" in response.text
     assert response.text.count("/static/public/downloads/graf.pkg?v=") == 1
-    assert response.text.count('data-platform-status="planned"') == 2
-    assert 'data-platform="windows" href=' not in response.text.lower()
-    assert 'data-platform="linux" href=' not in response.text.lower()
+    cards = PlatformCards()
+    cards.feed(response.text)
+    assert cards.statuses == {"macos": None, "windows": "planned", "linux": "planned"}
+    assert sum(link.startswith("/static/public/downloads/graf.pkg?v=") for link in cards.links["macos"]) == 1
+    assert cards.links["windows"] == []
+    assert cards.links["linux"] == []
 
 
 def test_public_legal_and_discovery_routes_are_available(client) -> None:

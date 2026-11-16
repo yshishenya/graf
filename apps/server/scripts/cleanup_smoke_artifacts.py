@@ -2,6 +2,7 @@
 import argparse
 import asyncio
 import json
+import re
 from typing import Any
 
 from minio import Minio
@@ -532,6 +533,10 @@ async def _database_residue(conn: Any, smoke_identity: dict[str, str]) -> list[s
             "select count(*) from meetings where workspace_id=:workspace_id and created_by_user_id=:user_id and device_id=:device_id",
         ),
         (
+            "meeting_purge_journal",
+            "select count(*) from meeting_purge_journal where workspace_id=:workspace_id",
+        ),
+        (
             "playback_normalization_jobs",
             "select count(*) from playback_normalization_jobs where workspace_id=:workspace_id",
         ),
@@ -558,10 +563,42 @@ async def _database_residue(conn: Any, smoke_identity: dict[str, str]) -> list[s
     return residue
 
 
+async def _reconcile_interrupted_storage(conn, settings, smoke_identity, meeting_ids):
+    prefix = _smoke_storage_prefix(smoke_identity)
+    workspace = {"workspace_id": smoke_identity["workspace_id"]}
+    journal = await _table_exists(conn, "meeting_purge_journal")
+    if journal:
+        rows = (await conn.execute(
+            text("""select meeting_id, artifact_class, object_key, deletion_request_id
+                    from meeting_purge_journal where workspace_id=:workspace_id for update"""),
+            workspace,
+        )).mappings()
+        for row in rows:
+            meeting = str(row["meeting_id"])
+            if (meeting not in meeting_ids or row["artifact_class"] != "object_store"
+                    or row["deletion_request_id"] is not None
+                    or not row["object_key"].startswith(f"{prefix}meetings/{meeting}/")):
+                raise ValueError("interrupted smoke has an unexpected storage obligation")
+    # The caller has attested that no writes can arrive after LIST. Keep the
+    # journal and meeting alive until the exact synthetic storage prefix is empty.
+    removed_objects, residue = _remove_storage_prefix(settings, prefix)
+    if residue:
+        raise ValueError("interrupted smoke still has storage residue")
+    removed_rows = 0
+    if journal:
+        result = await conn.execute(
+            text("delete from meeting_purge_journal where workspace_id=:workspace_id"), workspace)
+        removed_rows = result.rowcount
+    return removed_rows, removed_objects
+
+
 async def _cleanup_smoke_artifacts_once(
     run_id: str,
     meeting_id: str | None = None,
     session_id: str | None = None,
+    media_revision_id: str | None = None,
+    *,
+    reconcile_interrupted: bool = False,
 ) -> tuple[int, int, list[str]]:
     settings = Settings()
     engine = create_async_engine(settings.database_url)
@@ -583,10 +620,21 @@ async def _cleanup_smoke_artifacts_once(
             await _preflight_fair_use_history(conn, smoke_identity)
             meeting_ids = await _discover_smoke_meetings(conn, smoke_identity)
             sessions_by_meeting = await _discover_upload_sessions(conn, meeting_ids)
-            if meeting_id in sessions_by_meeting and session_id:
-                sessions_by_meeting[meeting_id] = sorted(
-                    {*sessions_by_meeting[meeting_id], session_id}
-                )
+            if reconcile_interrupted:
+                removed_rows, removed_objects = await _reconcile_interrupted_storage(
+                    conn, settings, smoke_identity, meeting_ids)
+            if media_revision_id is not None:
+                if not session_id or session_id not in sessions_by_meeting.get(meeting_id, ()):
+                    raise ValueError("forward smoke session does not belong to the discovered meeting")
+                if not await conn.scalar(
+                    text("""select s.id from upload_sessions s
+                            join media_revisions r on r.id=s.media_revision_id and r.meeting_id=s.meeting_id
+                            where s.id=:session_id and s.meeting_id=:meeting_id and r.id=:revision_id
+                              and s.status='finalized' and s.finalized_at is not null
+                            for update of s, r"""),
+                    {"session_id": session_id, "meeting_id": meeting_id, "revision_id": media_revision_id},
+                ):
+                    raise ValueError("forward smoke revision is not the finalized upload")
             table_names = {
                 "auth_session_device_bindings",
                 "auth_sessions",
@@ -800,12 +848,10 @@ async def _cleanup_smoke_artifacts_once(
                 )
 
         database_committed = True
-        removed_objects, storage_residue = _remove_storage_prefix(
-            settings,
-            _smoke_storage_prefix(smoke_identity),
-        )
-        if storage_residue:
-            residue.append(f"storage_residue:{storage_residue}")
+        if not reconcile_interrupted:
+            removed_objects, storage_residue = _remove_storage_prefix(settings, _smoke_storage_prefix(smoke_identity))
+            if storage_residue:
+                residue.append(f"storage_residue:{storage_residue}")
 
         async with engine.begin() as conn:
             await apply_tenant_context_to_connection(conn, _maintenance_context())
@@ -827,14 +873,21 @@ async def cleanup_smoke_artifacts(
     run_id: str,
     meeting_id: str | None = None,
     session_id: str | None = None,
+    media_revision_id: str | None = None,
+    *,
+    reconcile_interrupted: bool = False,
 ) -> tuple[int, int, list[str]]:
+    if reconcile_interrupted and (not re.fullmatch(r"forward-[0-9a-f]{32}", run_id)
+                                  or any(value is not None for value in (meeting_id, session_id, media_revision_id))):
+        raise ValueError("interrupted cleanup requires only the exact forward run ID")
     # PostgreSQL requires retrying the complete transaction after a deadlock.
     # Each attempt recreates counters/context/engine for the same exact identity.
     for delay in (0.0, 0.1, 0.3):
         if delay:
             await asyncio.sleep(delay)
         try:
-            return await _cleanup_smoke_artifacts_once(run_id, meeting_id, session_id)
+            return await _cleanup_smoke_artifacts_once(run_id, meeting_id, session_id, media_revision_id,
+                                                       reconcile_interrupted=reconcile_interrupted)
         except _CleanupTransactionDeadlock:
             continue
     raise RuntimeError("smoke cleanup database deadlock retries exhausted") from None
@@ -846,6 +899,8 @@ def main() -> None:
     parser.add_argument("--execute", action="store_true")
     parser.add_argument("--meeting-id")
     parser.add_argument("--session-id")
+    parser.add_argument("--media-revision-id")
+    parser.add_argument("--reconcile-interrupted", action="store_true")
     parser.add_argument("--residue-owner")
     parser.add_argument("--residue-follow-up-reason")
     args = parser.parse_args()
@@ -859,6 +914,8 @@ def main() -> None:
                 args.run_id,
                 meeting_id=args.meeting_id,
                 session_id=args.session_id,
+                media_revision_id=args.media_revision_id,
+                reconcile_interrupted=args.reconcile_interrupted,
             )
         )
 

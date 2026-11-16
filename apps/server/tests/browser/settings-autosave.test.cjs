@@ -86,7 +86,7 @@ const assets = path.join(__dirname, '../../src/twobrain_rec_server/cabinet/stati
     await page.locator('[action$="/profile"]').getByRole('button',{name:'Повторить',exact:true}).click();
     await page.waitForFunction(()=>document.querySelector('[action$="/profile"]').dataset.state==='conflict');
     const beforeAccept=requests;
-    await page.getByRole('button',{name:'Загрузить сохранённое',exact:true}).click();
+    await page.getByRole('button',{name:'Загрузить сохраненное',exact:true}).click();
     await page.waitForFunction(()=>!GRAFSettings.pending());
     assert.equal(await name.inputValue(),'Сохранённое имя');assert.equal(requests,beforeAccept);
     await page.route('**/problem',route=>route.fulfill({status:422,contentType:'application/problem+json',body:JSON.stringify({code:'summary_template_limit'})}));

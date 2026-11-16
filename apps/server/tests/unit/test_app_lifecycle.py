@@ -27,7 +27,6 @@ def test_app_lifespan_disposes_engine_and_closes_storage(monkeypatch, postgres_w
     engine = FakeEngine()
     storage = FakeStorage()
     monkeypatch.setattr(main_module, "create_engine", lambda _settings: engine)
-    monkeypatch.setattr(main_module, "create_sessionmaker", lambda _created_engine: object())
     monkeypatch.setattr(main_module, "get_storage", lambda _settings: storage)
 
     app = main_module.create_app(
@@ -41,7 +40,7 @@ def test_app_lifespan_disposes_engine_and_closes_storage(monkeypatch, postgres_w
     )
 
     with TestClient(app):
-        pass
+        assert app.state.db_sessionmaker.kw["info"]["runtime_settings"] is app.state.settings
 
     assert engine.disposed is True
     assert storage.closed is True
@@ -67,7 +66,6 @@ def test_development_lifespan_runs_and_stops_calendar_reconciler(
     key_file = tmp_path / "calendar-key"
     key_file.write_bytes(Fernet.generate_key())
     monkeypatch.setattr(main_module, "create_engine", lambda _settings: FakeEngine())
-    monkeypatch.setattr(main_module, "create_sessionmaker", lambda _engine: object())
     monkeypatch.setattr(main_module, "get_storage", lambda _settings: object())
     monkeypatch.setattr(main_module, "run_calendar_sync_reconciler", fake_reconciler)
     app = main_module.create_app(

@@ -11,6 +11,12 @@ def test_first_transcript_refresh_keeps_live_audio_and_comment_draft() -> None:
     subprocess.run(["node", str(script)], check=True, capture_output=True, text=True, timeout=60)
 
 
+@pytest.mark.browser
+def test_detail_local_playback_follows_native_capabilities_and_platform() -> None:
+    script = Path(__file__).parents[1] / "browser/detail-local-playback.test.cjs"
+    subprocess.run(["node", str(script)], check=True, capture_output=True, text=True, timeout=60)
+
+
 def test_partial_summary_is_available_with_limits_in_detail_and_list() -> None:
     script = Path(__file__).parents[2] / "src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js"
     subprocess.run(["node", "-e", r'''
@@ -117,7 +123,7 @@ def test_selected_partial_fragment_waits_for_real_content_without_reloading_play
     subprocess.run(["node", "-e", r'''
 const fs = require('fs'), assert = require('assert');
 const source = fs.readFileSync(process.argv[1], 'utf8');
-const section = source.slice(source.indexOf('const refreshProcessingDetailContentOnce'), source.indexOf('const renderProcessingProjection'));
+const section = (start, end) => source.slice(source.indexOf(start), source.indexOf(end, source.indexOf(start)));
 let processingRecoveryGeneration = 1, processingRecoveryPollTimer = null;
 let calls = 0, replacements = 0, timers = [];
 const window = {location:{href:'http://localhost/desktop/meetings/synthetic', reload(){throw Error('reload forbidden');}},
@@ -141,7 +147,10 @@ const DOMParser = class {parseFromString(text){return {querySelector(selector){
   if (selector === '.detail-playback') return null;
   return text === '1' ? {...next, dataset:{summaryRenderedState:'processing'}} : next;
 }};}};
-eval(section + ';global.refreshDetail = refreshProcessingDetailContentOnce;');
+eval(section('let sharedLinkUrl =', 'const activateDetailTab =')
+  + section('const updateSharedLinkPosition =', 'const initSourceNavigation =')
+  + section('const refreshProcessingDetailContentOnce', 'const renderProcessingProjection')
+  + ';global.refreshDetail = refreshProcessingDetailContentOnce;');
 (async()=>{
   await global.refreshDetail(detail, {summary_status:'partial'}, {forceSummary:true, summaryTemplate:'outline'});
   assert(replacements === 0 && timers.length === 1, 'pending fragment is not marked ready');

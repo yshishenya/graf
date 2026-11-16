@@ -43,6 +43,14 @@ def validate_origin(value: str) -> str:
     raise ValueError("api origin is not approved; use production or loopback")
 
 
+def validate_forward_origin(value: str) -> str:
+    configured = os.environ.get("TWOBRAIN_PUBLIC_BASE_URL", "").rstrip("/")
+    if value != configured or not re.fullmatch(r"https://[a-zA-Z0-9.-]+(?::[1-9][0-9]{0,4})?", value):
+        raise ValueError("forward smoke requires the configured bare HTTPS origin")
+    _ = urlsplit(value).port  # Reject out-of-range ports.
+    return value
+
+
 def read_private_auth_material(path: Path, *, expected_run_id: str | None = None) -> str:
     if expected_run_id is not None:
         validate_run_id(expected_run_id)
@@ -69,10 +77,15 @@ def read_private_auth_material(path: Path, *, expected_run_id: str | None = None
 
 def main() -> None:
     parser = ArgumentParser(description="Validate a production smoke run id.")
-    parser.add_argument("--validate-run-id", required=True)
+    check = parser.add_mutually_exclusive_group(required=True)
+    check.add_argument("--validate-run-id")
+    check.add_argument("--validate-forward-origin")
     args = parser.parse_args()
     try:
-        validate_run_id(args.validate_run_id)
+        if args.validate_forward_origin is not None:
+            validate_forward_origin(args.validate_forward_origin)
+        else:
+            validate_run_id(args.validate_run_id)
     except ValueError as exc:
         parser.error(str(exc))
 

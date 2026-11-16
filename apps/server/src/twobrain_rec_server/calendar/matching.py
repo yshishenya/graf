@@ -5,12 +5,13 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
-from sqlalchemy import or_, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.selectable import Exists
 
 from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.auth.context import TenantScope
@@ -19,6 +20,8 @@ from twobrain_rec_server.calendar.audit import (
     write_calendar_audit_event,
 )
 from twobrain_rec_server.db.models import (
+    AuthSession,
+    AuthSessionDeviceBinding,
     CalendarEventSnapshot,
     CalendarParticipant,
     CalendarSource,
@@ -27,6 +30,9 @@ from twobrain_rec_server.db.models import (
     Meeting,
     RecordingCalendarContextLink,
     RecordingCalendarMatchAttempt,
+    RegisteredDevice,
+    UserIdentity,
+    WorkspaceMembership,
 )
 from twobrain_rec_server.domain.metadata_text import safe_metadata_text
 from twobrain_rec_server.processing.fences import meeting_is_deleted_or_deleting
@@ -413,6 +419,98 @@ async def resolve_recording_calendar_context(
     return attempt
 
 
+def calendar_match_not_accepted() -> ProblemDetail:
+    return ProblemDetail(
+        status=409, code="calendar_match_not_accepted", title="Explicit calendar match not accepted",
+    )
+
+
+def active_calendar_match_access(tenant_scope: TenantScope) -> list[Exists]:
+    conditions = [
+        select(RegisteredDevice.id).where(
+            RegisteredDevice.id == tenant_scope.device_id,
+            RegisteredDevice.workspace_id == tenant_scope.workspace_id,
+            RegisteredDevice.user_id == tenant_scope.user_id,
+            RegisteredDevice.status == "active",
+            RegisteredDevice.registration_state != "revoked",
+        ).exists(),
+        select(WorkspaceMembership.user_id).where(
+            WorkspaceMembership.workspace_id == tenant_scope.workspace_id,
+            WorkspaceMembership.user_id == tenant_scope.user_id,
+            WorkspaceMembership.status == "active",
+        ).exists(),
+        select(UserIdentity.id).where(
+            UserIdentity.id == tenant_scope.user_id,
+            UserIdentity.organization_id == tenant_scope.organization_id,
+            UserIdentity.status == "active",
+        ).exists(),
+    ]
+    if tenant_scope.auth_session_id is not None:
+        conditions.append(
+            select(AuthSession.id)
+            .join(AuthSessionDeviceBinding, AuthSessionDeviceBinding.auth_session_id == AuthSession.id)
+            .where(
+                AuthSession.id == tenant_scope.auth_session_id,
+                AuthSession.workspace_id == tenant_scope.workspace_id,
+                AuthSession.user_id == tenant_scope.user_id,
+                or_(AuthSession.device_id.is_(None), AuthSession.device_id == tenant_scope.device_id),
+                AuthSession.status == "active",
+                AuthSession.expires_at > func.statement_timestamp(),
+                AuthSessionDeviceBinding.registered_device_id == tenant_scope.device_id,
+                AuthSessionDeviceBinding.device_state == "trusted",
+            )
+            .exists()
+        )
+    return conditions
+
+
+def explicit_calendar_match_state(
+    intent: str, state: str,
+) -> Literal["matched_user", "declined_by_user"] | None:
+    if (intent, state) == ("user_selected", "matched_user"):
+        return "matched_user"
+    if (intent, state) == ("user_declined", "declined_by_user"):
+        return "declined_by_user"
+    return None
+
+
+async def _lock_scoped_calendar_attempt(
+    db: AsyncSession, tenant_scope: TenantScope, *, meeting: object, attempt_id: UUID | None,
+) -> RecordingCalendarMatchAttempt | None:
+    if attempt_id is None:
+        return None
+    return await db.scalar(
+        select(RecordingCalendarMatchAttempt).where(
+            RecordingCalendarMatchAttempt.id == attempt_id,
+            RecordingCalendarMatchAttempt.workspace_id == tenant_scope.workspace_id,
+            RecordingCalendarMatchAttempt.owner_user_id == tenant_scope.user_id,
+            RecordingCalendarMatchAttempt.device_id == tenant_scope.device_id,
+            RecordingCalendarMatchAttempt.local_recording_id == _read(meeting, "local_recording_id"),
+        ).with_for_update().execution_options(populate_existing=True)
+    )
+
+
+async def require_explicit_calendar_match_replay(
+    db: AsyncSession, tenant_scope: TenantScope, *, meeting: object, attempt_id: UUID,
+) -> None:
+    attempt = await _lock_scoped_calendar_attempt(
+        db, tenant_scope, meeting=meeting, attempt_id=attempt_id,
+    )
+    if (
+        attempt is None
+        or attempt.consumed_at is None
+        or attempt.consumed_by_meeting_id != _read(meeting, "id")
+        or attempt.recording_started_at != _read(meeting, "started_at")
+        or explicit_calendar_match_state(attempt.decision_intent, attempt.attempt_state) is None
+        or not _attempt_can_back_meeting(
+            attempt, tenant_scope=tenant_scope, meeting=meeting, consumed_at=attempt.consumed_at,
+        )
+    ):
+        raise calendar_match_not_accepted()
+    if not await db.scalar(select(True).where(*active_calendar_match_access(tenant_scope))):
+        raise calendar_match_not_accepted()
+
+
 async def consume_recording_calendar_match_attempt(
     db: AsyncSession,
     tenant_scope: TenantScope,
@@ -420,6 +518,7 @@ async def consume_recording_calendar_match_attempt(
     meeting: object,
     attempt_id: UUID | None,
     consumed_at: datetime | None = None,
+    require_explicit: bool = False,
 ) -> RecordingCalendarContextLink:
     meeting_id = _as_uuid(_read(meeting, "id"))
     if meeting_id is None:
@@ -433,16 +532,32 @@ async def consume_recording_calendar_match_attempt(
         )
     )
     if existing_context is not None:
+        if require_explicit:
+            raise calendar_match_not_accepted()
         return existing_context
 
     consumed = _as_utc(consumed_at or datetime.now(UTC))
-    attempt = await db.get(RecordingCalendarMatchAttempt, attempt_id) if attempt_id else None
+    if require_explicit:
+        attempt = await _lock_scoped_calendar_attempt(
+            db, tenant_scope, meeting=meeting, attempt_id=attempt_id,
+        )
+        consumed = datetime.now(UTC)
+        if (
+            attempt is None
+            or attempt.recording_started_at != _read(meeting, "started_at")
+            or not _explicit_attempt_has_expected_snapshot(attempt)
+        ):
+            raise calendar_match_not_accepted()
+    else:
+        attempt = await db.get(RecordingCalendarMatchAttempt, attempt_id) if attempt_id else None
     if not _attempt_can_back_meeting(
         attempt,
         tenant_scope=tenant_scope,
         meeting=meeting,
         consumed_at=consumed,
     ):
+        if require_explicit:
+            raise calendar_match_not_accepted()
         context = _offline_context(
             tenant_scope=tenant_scope,
             meeting=meeting,
@@ -471,11 +586,14 @@ async def consume_recording_calendar_match_attempt(
             RecordingCalendarMatchAttempt.consumed_by_meeting_id.is_(None),
             RecordingCalendarMatchAttempt.consumed_at.is_(None),
             RecordingCalendarMatchAttempt.expires_at > consumed,
+            *(active_calendar_match_access(tenant_scope) if require_explicit else ()),
         )
         .values(consumed_by_meeting_id=meeting_id, consumed_at=consumed)
         .execution_options(synchronize_session=False)
     )
     if claim.rowcount != 1:
+        if require_explicit:
+            raise calendar_match_not_accepted()
         context = _offline_context(
             tenant_scope=tenant_scope,
             meeting=meeting,
@@ -1121,6 +1239,20 @@ def _request_fingerprint(
         "version": MATCHER_VERSION,
     }
     return _sha256_text(json.dumps(payload, separators=(",", ":"), sort_keys=True))
+
+
+def _explicit_attempt_has_expected_snapshot(attempt: RecordingCalendarMatchAttempt) -> bool:
+    state = explicit_calendar_match_state(attempt.decision_intent, attempt.attempt_state)
+    if state == "matched_user":
+        return (
+            attempt.selected_event_snapshot_id is not None
+            and attempt.selected_event_snapshot_id == attempt.matched_event_snapshot_id
+        )
+    return (
+        state == "declined_by_user"
+        and attempt.selected_event_snapshot_id is None
+        and attempt.matched_event_snapshot_id is None
+    )
 
 
 def _attempt_can_back_meeting(

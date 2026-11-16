@@ -52,11 +52,18 @@ def problem_response(problem: ProblemDetail, request: Request | None = None) -> 
     }
     if request is not None:
         body["request_id"] = getattr(request.state, "request_id", None)
+    headers = problem.headers
+    route_name = getattr(request.scope.get("route"), "name", None) if request else None
+    if route_name == "get_calendar_upload_session" or (
+        route_name == "get_recording_sync_state" and request is not None
+        and "include_calendar_match_receipt" in request.query_params
+    ):
+        headers = {**(headers or {}), "Cache-Control": "no-store"}
     return JSONResponse(
         status_code=problem.status,
         content=redact_mapping(body),
         media_type="application/problem+json",
-        headers=problem.headers,
+        headers=headers,
     )
 
 
