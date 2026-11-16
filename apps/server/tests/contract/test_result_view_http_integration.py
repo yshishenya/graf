@@ -6,20 +6,30 @@ import hmac
 import json
 import re
 from contextlib import asynccontextmanager, suppress
+from contextvars import Context
 from datetime import UTC, datetime
 from hashlib import sha256
 from time import monotonic
 
 import httpx
 import pytest
-from sqlalchemy import event, select, update
+from sqlalchemy import event, select, text, update
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import Session
 
 from tests.contract.test_activation_milestone_ingress import isolated_admission  # noqa: F401
-from tests.contract.test_result_view_http_budget import MEETING_ID, SECRET, _headers, _run, _setup
+from tests.contract.test_result_view_http_budget import (
+    MEETING_ID,
+    SECRET,
+    _headers,
+    _postgres_response_gate,
+    _run,
+    _setup,
+)
 from tests.contract.test_result_view_projection import _seed_projection
 from tests.contract.test_result_visibility import NOW, START
 from tests.fakes.auth_contexts import USER_ID, WORKSPACE_ID
+from twobrain_rec_server.api import product_analytics_guard as guard_module
 from twobrain_rec_server.cabinet.result_projection_session import (
     result_admission_session,
     result_inspection_session,
@@ -70,7 +80,8 @@ def http_period(monkeypatch):
     async def period(self, sessions, *, work_deadline, cleanup_deadline, inspection=False):
         factory = result_inspection_session if inspection else result_admission_session
         async with factory(sessions, work_deadline=work_deadline, cleanup_deadline=cleanup_deadline) as owner:
-            facts = {"inspection": inspection, "writes": 0, "commits": 0, "owner": owner}
+            facts = {"inspection": inspection, "writes": 0, "commits": 0, "owner": owner,
+                     "work_deadline": work_deadline, "cleanup_deadline": cleanup_deadline}
             observations.append(facts)
 
             def sql(connection, cursor, statement, parameters, context, many):
@@ -529,10 +540,14 @@ def test_valid_to_expired_race_never_starts_a_renewal_session(
 
     class AfterReadClock:
         shifted = False
+        issued_at = None
+        observed_ages = []
 
         @classmethod
         def now(cls, timezone):
-            return datetime.now(timezone) + timedelta(seconds=5 if cls.shifted else 0)
+            age = 604 if cls.shifted else 599
+            cls.observed_ages.append(age)
+            return cls.issued_at.astimezone(timezone) + timedelta(seconds=age)
 
     original = result_views.load_fresh_result_view_bindings
 
@@ -546,11 +561,17 @@ def test_valid_to_expired_race_never_starts_a_renewal_session(
         path = f"/meetings/{review.meeting.meeting_id}"
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="https://test") as client:
             proof = _proofs((await client.get(path, headers=_headers(session_id))).text)[0]
+            aged = _age_proof(proof, 599)
+            encoded = aged.split(".")[0]
+            issued_at = json.loads(base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4)))["issued_at"]
+            AfterReadClock.issued_at = datetime.fromtimestamp(issued_at, UTC)
             monkeypatch.setattr(result_views, "datetime", AfterReadClock)
             monkeypatch.setattr(result_views, "load_fresh_result_view_bindings", age_during_read)
-            response = await client.post(path + "/result-viewed", json={"proof": _age_proof(proof, 599)},
+            response = await client.post(path + "/result-viewed", json={"proof": aged},
                                          headers=_headers(session_id))
         assert response.json() == {"status": "unavailable"}
+        assert AfterReadClock.observed_ages[0] == 599 and 604 in AfterReadClock.observed_ages
+        print({"ttl_race_route_ages": AfterReadClock.observed_ages, "fresh_read_completed": AfterReadClock.shifted})
         assert len(http_period) == 2 and not http_period[-1]["inspection"]
         assert http_period[-1]["writes"] == http_period[-1]["commits"] == 0
         async with sessions() as db:
@@ -969,3 +990,295 @@ def test_authorized_nonowner_read_never_issues_or_admits_an_owner_proof(
         assert engine.pool.checkedout() == 0
 
     _run(postgres_seeded_database_url, scenario, pool_size=3)
+
+
+@pytest.mark.parametrize("fault", [False, True])
+def test_real_commit_acknowledgement_and_idle_return_keep_pair_and_foreign_generation(
+    postgres_seeded_database_url, http_period, monkeypatch, fault,
+):
+    provider_calls = []
+
+    def forbidden(*args, **kwargs):
+        provider_calls.append(True)
+        raise AssertionError("commit acknowledgement test must never enter provider transport")
+
+    monkeypatch.setattr(
+        "twobrain_rec_server.product_analytics.posthog_client.PostHogClientWrapper.capture_event", forbidden,
+    )
+    monkeypatch.setattr(
+        "twobrain_rec_server.product_analytics.router.ParallelMeasurementRouter.dispatch", forbidden,
+    )
+
+    async def scenario(engine):
+        streams, generations, checkouts, markers = [], [], [], []
+        target, entered = {}, asyncio.Event()
+        foreign = borrower = second = post = observer = watchdog = None
+        warm = []
+        armed, watchdog_fired = True, False
+        keys = (guard_module._RESULT_VIEW_CONNECTION_OWNER, guard_module._RESULT_VIEW_TRANSACTION_OWNER,
+                guard_module._RESULT_VIEW_INITIALIZATION_OWNER)
+        async with _postgres_response_gate(postgres_seeded_database_url, streams=streams) as (url, _, relay_tasks):
+            request_engine = create_async_engine(url, pool_size=2, max_overflow=0, pool_pre_ping=True)
+            direct_sessions = async_sessionmaker(engine, expire_on_commit=False)
+
+            def connected(dbapi, entry):
+                generations.append({"dbapi": dbapi, "entry": entry, "driver": entry.driver_connection})
+
+            def checkout(dbapi, entry, proxy):
+                checkouts.append((entry, dbapi, entry.driver_connection,
+                                  guard_module._RESULT_VIEW_TASK_OWNER.get(), tuple(k for k in keys if k in entry.info)))
+
+            def commit(connection):
+                if not armed:
+                    return
+                facts = next((item for item in reversed(http_period)
+                              if not item["inspection"] and item["owner"]._connection is connection), None)
+                if facts is None:
+                    return
+                owner = facts["owner"]
+                try:
+                    session = owner.db.sync_session
+                    root = session.get_transaction()
+                    proxy = connection.connection
+                    lease = connection.info[guard_module._RESULT_VIEW_CONNECTION_OWNER]
+                    guard = guard_module._RESULT_VIEW_TASK_OWNER.get()
+                    association = connection.info[guard_module._RESULT_VIEW_TRANSACTION_OWNER]
+                    task = asyncio.current_task()
+                    target.update(facts=facts, owner=owner, guard=guard, task=task, session=session,
+                                  root=root, lease=lease, connection=connection,
+                                  commit_at=asyncio.get_running_loop().time(),
+                                  checks=(proxy.dbapi_connection is target["dbapi"],
+                                          proxy.driver_connection is target["driver"],
+                                          lease[0] is guard, lease[1] is target["dbapi"],
+                                          lease[2] is target["driver"], lease[3] is task,
+                                          lease[4] is target["entry"], guard.get(target["entry"]) is lease,
+                                          association[0] is guard.transactions[root], association[1] is lease,
+                                          association[0][2] is task, root.session is session,
+                                          session.info[guard_module._RESULT_VIEW_TRANSACTION_OWNER] is association[0],
+                                          target["entry"].in_use, not target["driver"].is_closed(),
+                                          task.get_context().get(guard_module._RESULT_VIEW_TASK_OWNER) is guard,
+                                          facts["writes"] == 2, not owner.failed))
+                    if fault:
+                        target["stream"]["response_gate"].clear()
+                except Exception as error:
+                    target["snapshot_error"] = type(error).__name__
+                markers.append("commit")
+                entered.set()
+
+            def after_commit(session):
+                if session is target.get("session"):
+                    markers.append("after_commit")
+
+            def reset(dbapi, entry, state):
+                if entered.is_set() and entry is target.get("entry") and "checkin" not in markers:
+                    markers.append(("reset", state.asyncio_safe, state.terminate_only, state.transaction_was_reset))
+
+            def checkin(dbapi, entry):
+                if entered.is_set() and entry is target.get("entry") and "checkin" not in markers:
+                    markers.append("checkin")
+                    target["returned_dbapi"] = dbapi
+
+            def invalidate(dbapi, entry, error):
+                if entered.is_set() and entry is target.get("entry"):
+                    markers.append("invalidate")
+
+            listeners = [("connect", connected), ("checkout", checkout), ("commit", commit),
+                         ("reset", reset), ("checkin", checkin), ("invalidate", invalidate)]
+            for name, callback in listeners:
+                event.listen(request_engine.sync_engine, name, callback)
+            event.listen(Session, "after_commit", after_commit)
+
+            async def pair_snapshot(db):
+                return [dict(row) for row in (await db.execute(
+                    select(ProductActivationMilestone.__table__).where(
+                        ProductActivationMilestone.account_id == USER_ID,
+                    ).order_by(ProductActivationMilestone.event_name)
+                )).mappings()]
+
+            async def foreign_healthy():
+                proxy = foreign.sync_connection.connection
+                assert proxy.driver_connection is foreign_generation["driver"]
+                assert proxy.dbapi_connection is foreign_generation["dbapi"]
+                assert await foreign.scalar(text("SELECT pg_backend_pid()")) == foreign_generation["pid"]
+                assert await foreign.scalar(text("SELECT 1")) == 1
+                await foreign.commit()
+
+            async def observe_committed_pair():
+                await entered.wait()
+                assert "snapshot_error" not in target and all(target["checks"])
+                assert markers.count("commit") == 1
+                if not fault:
+                    return
+                stream = target["stream"]
+                async with asyncio.timeout_at(min(target["facts"]["work_deadline"] - .1,
+                                                 asyncio.get_running_loop().time() + .9)):
+                    await stream["response_held"].wait()
+                    async with direct_sessions() as db:
+                        while True:
+                            rows = await pair_snapshot(db)
+                            activity = (await db.execute(text(
+                                "SELECT state, xact_start FROM pg_stat_activity WHERE pid=:pid"
+                            ), {"pid": target["pid"]})).first()
+                            locks = await db.scalar(text("SELECT count(*) FROM pg_locks WHERE pid=:pid"),
+                                                    {"pid": target["pid"]})
+                            if len(rows) == 2 and activity is not None and activity.state == "idle" \
+                                    and activity.xact_start is None and locks == 0:
+                                break
+                            await db.rollback()
+                            await asyncio.sleep(.01)
+                    assert not post.done() and not target["task"].cancelling()
+                    assert "after_commit" not in markers and not stream["response_gate"].is_set()
+                    await foreign_healthy()
+                    target["m1_pair"] = rows
+                    target["m1_at"] = asyncio.get_running_loop().time()
+
+            def release_for_failed_test():
+                nonlocal watchdog_fired
+                watchdog_fired = True
+                target["stream"]["response_gate"].set()
+
+            try:
+                # Two sequential native connects make stream/generation pairing unambiguous.
+                for _ in range(2):
+                    count = len(streams)
+                    db = await request_engine.connect()
+                    warm.append(db)
+                    assert len(streams) == count + 1 and len(generations) == count + 1
+                    generation = generations[-1]
+                    assert db.sync_connection.connection.driver_connection is generation["driver"]
+                    generation.update(stream=streams[count], pid=await db.scalar(text("SELECT pg_backend_pid()")))
+                    await db.commit()
+                for db in warm:
+                    await db.close()
+                app, sessions, session_id, review, current, old = await _real_app(request_engine)
+                path = f"/meetings/{review.meeting.meeting_id}"
+                async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="https://test") as client:
+                    page = await client.get(path, headers=_headers(session_id))
+                    assert page.status_code == 200 and len(_proofs(page.text)) == 2
+                    proof = _proofs(page.text)[0]
+                    assert request_engine.pool.checkedout() == 0
+                    async with direct_sessions() as db:
+                        assert await pair_snapshot(db) == []
+                    foreign = await request_engine.connect()
+                    foreign_driver = foreign.sync_connection.connection.driver_connection
+                    foreign_generation = next(item for item in generations if item["driver"] is foreign_driver)
+                    await foreign_healthy()
+                    second = await request_engine.connect()
+                    second_driver = second.sync_connection.connection.driver_connection
+                    target.update(next(item for item in generations if item["driver"] is second_driver))
+                    assert target["entry"] is not foreign_generation["entry"]
+                    assert await second.scalar(text("SELECT pg_backend_pid()")) == target["pid"]
+                    await second.commit()
+                    await second.close()
+                    assert not any(k in foreign_generation["entry"].info for k in keys)
+                    before_operations = len(http_period)
+                    began = asyncio.get_running_loop().time()
+                    watchdog = asyncio.get_running_loop().call_later(3, release_for_failed_test)
+                    observer = asyncio.create_task(observe_committed_pair(), context=Context())
+                    post = asyncio.create_task(client.post(path + "/result-viewed", json={"proof": proof},
+                                                          headers=_headers(session_id)))
+                    response, _ = await asyncio.gather(post, observer)
+                    armed = False
+                    hard = target["facts"]["cleanup_deadline"]
+                    async with asyncio.timeout_at(hard):
+                        assert response.status_code == 200
+                        assert response.json() == {"status": "unavailable" if fault else "accepted"}
+                        assert response.headers["cache-control"] == "private, no-store"
+                        assert len(http_period) == before_operations + 1
+                        assert target["facts"]["writes"] == 2 and target["facts"]["commits"] == 1
+                        assert markers.count("commit") == 1 and not watchdog_fired
+                        assert provider_calls == []
+                        owner, guard = target["owner"], target["guard"]
+                        assert not owner.db.in_transaction() and owner._listeners == []
+                        assert not guard and not guard.transactions and not guard.unbound_roots
+                        assert not any(task.get_context().get(guard_module._RESULT_VIEW_TASK_OWNER) is guard
+                                       for task in asyncio.all_tasks())
+                        assert not any(k in target["entry"].info for k in keys)
+                        assert guard_module._RESULT_VIEW_TRANSACTION_OWNER not in target["session"].info
+                        assert request_engine.pool.checkedout() == 1
+                        if fault:
+                            assert markers.count("invalidate") == markers.count("checkin") == 1
+                            assert markers.index("invalidate") < markers.index("checkin")
+                            assert target["returned_dbapi"] is None
+                            assert target["m1_at"] < target["facts"]["work_deadline"]
+                            assert not target["stream"]["response_gate"].is_set()
+                            assert target["driver"].is_closed()
+                            await target["stream"]["done"].wait()
+                            stream = target["stream"]
+                            assert stream["root"].done()
+                            assert all(t.done() for t in stream["pumps"] + stream["wait_closed"])
+                            assert all(w.is_closing() for w in stream["writers"])
+                        else:
+                            assert not target["driver"].is_closed() and not target["driver"].is_in_transaction()
+                            assert markers[:4] == ["commit", "after_commit", ("reset", True, False, False), "checkin"]
+                            assert target["returned_dbapi"] is target["dbapi"]
+                        async with direct_sessions() as db:
+                            saved = await pair_snapshot(db)
+                            assert len(saved) == 2
+                            if fault:
+                                assert saved == target["m1_pair"]
+                            activity = (await db.execute(text(
+                                "SELECT state, xact_start FROM pg_stat_activity WHERE pid=:pid"
+                            ), {"pid": target["pid"]})).first()
+                            assert (activity is None if fault else
+                                    activity.state == "idle" and activity.xact_start is None)
+                            assert await db.scalar(text("SELECT count(*) FROM pg_locks WHERE pid=:pid"),
+                                                   {"pid": target["pid"]}) == 0
+                        await foreign_healthy()
+                        prior_checkouts = len(checkouts)
+                        borrower = await request_engine.connect()
+                        entry, dbapi, driver, context_owner, leftover = checkouts[prior_checkouts]
+                        assert len(checkouts) == prior_checkouts + 1
+                        assert entry is target["entry"] and context_owner is None and leftover == ()
+                        assert (dbapi is not target["dbapi"]) if fault else (dbapi is target["dbapi"])
+                        assert (driver is not target["driver"]) if fault else (driver is target["driver"])
+                        borrower_pid = await borrower.scalar(text("SELECT pg_backend_pid()"))
+                        assert (borrower_pid != target["pid"]) if fault else (borrower_pid == target["pid"])
+                        assert await borrower.scalar(text("SELECT 1")) == 1
+                        assert not guard and not guard.transactions and not guard.unbound_roots
+                        assert not any(task.get_context().get(guard_module._RESULT_VIEW_TASK_OWNER) is guard
+                                       for task in asyncio.all_tasks())
+                        target["stream"]["response_gate"].set()
+                        await foreign_healthy()
+                        assert borrower.sync_connection.connection.driver_connection is driver
+                        assert await borrower.scalar(text("SELECT pg_backend_pid()")) == borrower_pid
+                        assert await borrower.scalar(text("SELECT 1")) == 1
+                        await borrower.commit()
+                        assert not driver.is_closed() and not driver.is_in_transaction()
+                        print({"native_commit_ack_fault": fault, "m1": "m1_pair" in target,
+                               "elapsed": round(asyncio.get_running_loop().time() - began, 3),
+                               "old_generation_closed": target["driver"].is_closed(),
+                               "same_pool_foreign": True, "safe_reuse": True, "watchdog": watchdog_fired})
+                    watchdog.cancel()
+                    watchdog = None
+                    await borrower.close()
+                    borrower = None
+                    await foreign.close()
+                    foreign = None
+                    repeated = await client.post(path + "/result-viewed", json={"proof": proof},
+                                                 headers=_headers(session_id))
+                    assert repeated.json() == {"status": "accepted"}
+                    async with direct_sessions() as db:
+                        assert await pair_snapshot(db) == saved
+                    assert len(http_period) == before_operations + 2
+                    assert provider_calls == []
+                    assert request_engine.pool.checkedout() == 0
+            finally:
+                armed = False
+                if watchdog is not None:
+                    watchdog.cancel()
+                for stream in streams:
+                    stream["response_gate"].set()
+                for task in (post, observer):
+                    if task is not None and not task.done():
+                        task.cancel()
+                await asyncio.gather(*(t for t in (post, observer) if t is not None), return_exceptions=True)
+                event.remove(Session, "after_commit", after_commit)
+                for name, callback in listeners:
+                    event.remove(request_engine.sync_engine, name, callback)
+                for db in (borrower, foreign, second, *warm):
+                    if db is not None and not db.closed:
+                        await db.close()
+                await request_engine.dispose()
+
+    _run(postgres_seeded_database_url, scenario)

@@ -121,8 +121,10 @@ async def _postgres_response_gate(url, *, eof_gate=None, eof_seen=None, streams=
         if streams is not None:
             stream = {"root": asyncio.current_task(), "eof_gate": asyncio.Event(),
                       "eof_seen": asyncio.Event(), "client_eof_seen": asyncio.Event(),
-                      "done": asyncio.Event(), "writers": [writer]}
+                      "done": asyncio.Event(), "writers": [writer],
+                      "response_gate": asyncio.Event(), "response_held": asyncio.Event()}
             stream["eof_gate"].set()
+            stream["response_gate"].set()
             streams.append(stream)
         writers.add(writer)
         try:
@@ -135,6 +137,10 @@ async def _postgres_response_gate(url, *, eof_gate=None, eof_seen=None, streams=
                 while data := await source.read(65536):
                     if held:
                         await gate.wait()
+                        if stream is not None:
+                            if not stream["response_gate"].is_set():
+                                stream["response_held"].set()
+                            await stream["response_gate"].wait()
                     target.write(data)
                     await target.drain()
                 if not held and stream is not None:
@@ -176,6 +182,7 @@ async def _postgres_response_gate(url, *, eof_gate=None, eof_seen=None, streams=
             eof_gate.set()
         for stream in streams or ():
             stream["eof_gate"].set()
+            stream["response_gate"].set()
         for writer in list(writers):
             writer.close()
         async with asyncio.timeout(2):
