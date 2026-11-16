@@ -32,3 +32,12 @@
 
 - T028 (Issue #7930): https://github.com/yshishenya/graf/issues/7930
 - T029 (Issue #7938): https://github.com/yshishenya/graf/issues/7938
+- T030 (Issue #7942): https://github.com/yshishenya/graf/issues/7942
+- T031 (Issue #7943): https://github.com/yshishenya/graf/issues/7943
+- T032 (Issue #7944): https://github.com/yshishenya/graf/issues/7944
+- T033 (Issue #8016): https://github.com/yshishenya/graf/issues/8016
+- T034 (Issue #8019): https://github.com/yshishenya/graf/issues/8019
+- T035 (Issue #8025): https://github.com/yshishenya/graf/issues/8025
+- T036 (Issue #8036): https://github.com/yshishenya/graf/issues/8036
+- T037 (Issue #8039): https://github.com/yshishenya/graf/issues/8039
+- T038 (Issue #8045): https://github.com/yshishenya/graf/issues/8045
