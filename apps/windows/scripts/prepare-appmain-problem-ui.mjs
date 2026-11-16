@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import {spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 const [repoArgument, outputArgument, expectedAppMain, scenario = 'problem', settingsOrigin, frozenManifest] = process.argv.slice(2);
-assert(['problem', 'settings', 'startup-exit', 'shell-close', 'notification-context', 'settings-account-abc'].includes(scenario));
+assert(['problem', 'settings', 'startup-exit', 'shell-close', 'notification-context', 'settings-account-abc', 'storage-warning'].includes(scenario));
 if (scenario === 'settings') assert(/^https:\/\/localhost:[1-9][0-9]{3,4}$/.test(settingsOrigin ?? '') &&
  Number(new URL(settingsOrigin).port) <= 65535, 'Settings requires a generated loopback HTTPS origin');
 assert(repoArgument && outputArgument && /^[a-f0-9]{64}$/.test(expectedAppMain ?? ''),
@@ -16,8 +16,9 @@ const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 const app = 'apps/windows/RecApp/AppMain.cpp', project = 'apps/windows/RecApp/GrafWindowsApp.vcxproj';
 const prefix = 'apps/windows/Tests/GrafWindowsContractTests/';
 let files, frozenInputs = null, frozenDigest = null;
-if (scenario === 'settings-account-abc') {
- assert(settingsOrigin === 'product' && frozenManifest, 'ABC requires product origin and frozen source manifest');
+if (scenario === 'settings-account-abc' || scenario === 'storage-warning') {
+ assert(settingsOrigin === (scenario === 'storage-warning' ? 'native-only' : 'product') && frozenManifest,
+  'Frozen scenario requires its mode and source manifest');
  const frozenBytes = fs.readFileSync(frozenManifest);
  const frozen = JSON.parse(frozenBytes.toString('utf8'));
  frozenInputs = frozen; frozenDigest = sha(frozenBytes);
@@ -27,11 +28,16 @@ if (scenario === 'settings-account-abc') {
   assert(name.startsWith('apps/windows/') && !name.split('/').includes('..') && /^[a-f0-9]{64}$/.test(frozen[name]));
   assert(fs.lstatSync(path.join(repo, name)).isFile());
   // Test-only changes are allowed, every product input remains pinned to Main's snapshot.
-  if (!name.startsWith('apps/windows/Tests/') && !name.startsWith('apps/windows/scripts/'))
+  if (scenario === 'storage-warning' || (!name.startsWith('apps/windows/Tests/') && !name.startsWith('apps/windows/scripts/')))
    assert.equal(sha(fs.readFileSync(path.join(repo, name))), frozen[name], `Frozen product drift: ${name}`);
  }
- for (const name of ['AppMainSettingsAccountAbcFixture.h', 'AppMainSettingsAccountAbcLaunch.inc']) {
-  assert(!files.includes(prefix + name)); files.push(prefix + name);
+ if (scenario === 'settings-account-abc') {
+  for (const name of ['AppMainSettingsAccountAbcFixture.h', 'AppMainSettingsAccountAbcLaunch.inc']) {
+   assert(!files.includes(prefix + name)); files.push(prefix + name);
+  }
+ } else {
+  for (const name of [app, project, prefix + 'AppMainProblemUiFixture.h', prefix + 'AppMainStorageWarningUiLaunch.inc'])
+   assert(files.includes(name), `Missing frozen input: ${name}`);
  }
  files.sort();
 } else {
@@ -46,7 +52,7 @@ for (const name of files) {
  assert(name.startsWith('apps/windows/') && !name.split('/').includes('..'));
  assert(fs.lstatSync(path.join(repo, name)).isFile(), 'Only regular source inputs');
  const bytes = fs.readFileSync(path.join(repo, name)); inputs[name] = outputs[name] = sha(bytes);
- if (frozenInputs && !name.startsWith('apps/windows/Tests/') && !name.startsWith('apps/windows/scripts/'))
+ if (frozenInputs && (scenario === 'storage-warning' || (!name.startsWith('apps/windows/Tests/') && !name.startsWith('apps/windows/scripts/'))))
   assert.equal(inputs[name], frozenInputs[name], `Product changed while copying: ${name}`);
  fs.mkdirSync(path.dirname(path.join(output, name)), {recursive:true}); fs.writeFileSync(path.join(output, name), bytes, {flag:'wx'});
 }
@@ -81,7 +87,8 @@ if (scenario === 'startup-exit' || scenario === 'shell-close') {
      section(launch, '        window_.AppWindow().Closing(', '        window_.Activated([this](auto const&, auto const&) {'));
  derived = original.replace(launch, isolated);
 } else {
- const body = fs.readFileSync(path.join(output, prefix + fixture + 'Launch.inc'), 'utf8');
+ const body = fs.readFileSync(path.join(output, prefix +
+     (scenario === 'storage-warning' ? 'AppMainStorageWarningUiLaunch.inc' : fixture + 'Launch.inc')), 'utf8');
  derived = original.replace(launch, launchStart + '\n' + body + '\n    }\n');
 }
 const initializer = 'graf::windows::AutomaticRecordingPolicy automaticPolicy_{verifiedTargets_};';
@@ -89,7 +96,7 @@ assert.equal(derived.split(initializer).length, 2);
 derived = derived.replace(initializer, 'graf::windows::AutomaticRecordingPolicy automaticPolicy_{verifiedTargets_, graf::windows::AutomaticRecordingPreferenceStore{}};');
 const entryStart = 'int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {';
 const entry = section(derived, entryStart, '\n#else\n');
-derived = derived.replace(entry, `${entryStart}
+const testEntry = `${entryStart}
     try {
         winrt::init_apartment(winrt::apartment_type::single_threaded);
         winrt::Microsoft::UI::Xaml::Application::Start([](auto&&) { winrt::make<GrafApp>(); });
@@ -98,7 +105,14 @@ derived = derived.replace(entry, `${entryStart}
         std::fputs("AppMainProblemUiTests setup failed\\n", stderr); std::fflush(stderr); return 2;
     }
 }
-`);
+`;
+derived = derived.replace(entry, testEntry);
+if (scenario === 'storage-warning') {
+ const derivativeLaunch = section(derived, launchStart, '\nprivate:');
+ assert.equal(derived.replace(derivativeLaunch, launch).replace(testEntry, entry).replace(
+  'graf::windows::AutomaticRecordingPolicy automaticPolicy_{verifiedTargets_, graf::windows::AutomaticRecordingPreferenceStore{}};', initializer),
+  original, 'Storage UI changes only OnLaunched, automaticPolicy initializer and wWinMain');
+}
 // Main-approved R2 methodology delta: exactly one physical statement in the
 // overlapping configureCabinet/recreate sections; product checkout stays intact.
 const abcObserverStatement = '            graf::windows::testing::settingsAccountAbcBeforeAttach(webView_);\n';
@@ -130,6 +144,15 @@ if (scenario === 'shell-close') methods.push(
  ['openMainWindow', '    void openMainWindow()', '    void openAccountSettings()'],
  ['refreshTrayAvailability', '    void refreshTrayAvailability()', '    void buildShell()'],
  ['recordingIndicator', '    bool recordingIndicatorAvailable()', '    void pauseResumeCapture()']);
+if (scenario === 'storage-warning') methods.push(
+ ['shellBuilders', '    void buildShell()', '    void handleCabinetNavigation('],
+ ['refreshNativeState', '    void refreshNativeState()', '    static void updateMeter('],
+ ['inspectorDisclosure', '    void toggleInspector()', '    void showStartupError('],
+ ['publishCaptureState', '    void publishCaptureState()', '    void refreshNativeState()'],
+ ['recordingIndicator', '    bool recordingIndicatorAvailable()', '    void pauseResumeCapture()'],
+ ['refreshTrayAvailability', '    void refreshTrayAvailability()', '    void buildShell()'],
+ ['canStartRecording', '    bool canStartRecording()', '    void recordCapture('],
+ ['automaticPrerequisites', '    graf::windows::AutomaticRecordingPrerequisites automaticPrerequisites()', '    void refreshAutomaticRecording()']);
 if (scenario === 'settings-account-abc') methods.push(
  ['receiveAuthSession', '    void receiveAuthSession(', '    void openMainWindow()'],
  ['recreateHandler', '        host.setRecreateHandler([this] {', '        // Choose the pending reader']);
@@ -165,7 +188,13 @@ for (const [name, data] of Object.entries({'source.json':inputs, 'test-source.js
          observer_statement:abcObserverStatement, observer_statement_count:derived.split(abcObserverStatement).length - 1,
          fixture_wiring:'OnLaunched installs one test-only synchronous callback, observes initial control, clears callback at terminal; missing/throwing callback aborts attach',
          methodology:'11 exact + 2 overlapping instrumented sections; no 13/13 exact claim'} : {}),
+     ...(scenario === 'storage-warning' ? {storage_warning_methodology:{
+         genuine_empty_storage_worker:true, synthetic_inputs:'last-query scalars and session/privacy UI states only',
+         fabricated_owner_ready_writer:false, active_writer_branch_tested:false, no_capture_account_tls:true,
+         unloaded_webview_removed:true, scratch_cleanup:'retained; no delete API',
+         dispatcher_deadline_ms:180000, terminal_drain_ms:10000, requires_main_job_bound_ms:300000,
+         product_methods_instrumented:0, outside_three_replacements_byte_identical:true}} : {}),
      frozen_manifest_sha256:frozenDigest,
-     sequential_only:scenario === 'settings-account-abc', installed_acceptance:false}}))
+     sequential_only:scenario === 'settings-account-abc' || scenario === 'storage-warning', installed_acceptance:false}}))
  fs.writeFileSync(path.join(output, name), JSON.stringify(data, null, 2)+'\n', {flag:'wx'});
 console.log(JSON.stringify({inputs:files.length, original:expectedAppMain, derivative:outputs[app], method_count:methods.length}));

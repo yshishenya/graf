@@ -800,7 +800,7 @@ PY
       run_step "shell syntax" check_shell_syntax "$changed_list" || return $?
     fi
     if [[ "$has_infra" -eq 1 ]]; then
-      run_step "CI contracts" bash -c "cd apps/server && PYTHONPATH=src uv run --extra dev pytest -q \
+      run_step "CI contracts" bash -c "cd apps/server && PYTHONPATH=src uv run --extra dev pytest -v --durations=15 \
         tests/contract/test_ci_cd_contract.py \
         tests/contract/test_local_postgres_test_runner.py" || return $?
       run_step "production compose config" bash -c \
