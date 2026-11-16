@@ -781,10 +781,20 @@
   Runtime/fragment SAME237d368b. Изменения и полученные отчёты сохранены/pushed
   `3b1c23e7a85a77b8861ae18ed174232835587a32`, exact remote readback PASS;
   Ruff/context/diff PASS. [Новые результаты и пределы](https://github.com/yshishenya/graf/blob/3b1c23e7a85a77b8861ae18ed174232835587a32/specs/273-paid-traffic-analytics/validation/t112-ordinary-return-checkout-validation-20261116.md).
-- [ ] Независимо принять нынешнюю checkout-корреляцию: нового reviewer-вердикта
-  ещё нет, P2=0 не объявляется. Подготовлен точный запрос существующему
-  `/root/public_counter_readiness_review`; сам файл не доставка и не verified wait.
-  Отдельный unknown repeated HOLD сохраняется; runtime без установленной
+- [x] Независимо принять нынешнюю checkout-корреляцию: существующий
+  `/root/public_counter_readiness_review` завершил отдельную проверку,
+  новый64-строчный отчёт полностью прочитан и сверён:
+  SHA-256 `868e6607171826153c9708d6558601457a37979b2a5640516382bb65e2fdd056`.
+  **SCOPED IMPLEMENTATION PASS, P2-01 закрыт, P1=0/P2=0** именно для поправки
+  корреляции. Несжатый collector сохраняет дубли одной выдачи; checkout ordinal
+  допустим в этом стенде с удержанным F. Exact entry/поколения/M1/cleanup/F/B/
+  следующий POST сохранены.18inputs SAME, checklist124/0; отметки не менялись.
+  Предыдущие2FAIL и ограничения87/2 сохранены, новых тестов reviewer не запускал.
+  Отчёт сохранён/pushed `f8eabd30c5e11b9ccb28284c8559142d3a6f366d`, exact remote
+  readback/context/diff PASS. [Независимое заключение](https://github.com/yshishenya/graf/blob/f8eabd30c5e11b9ccb28284c8559142d3a6f366d/specs/273-paid-traffic-analytics/validation/t112-ordinary-return-checkout-review-20261116.md).
+- [ ] Установить причину первоначального repeated unavailable; это отдельный
+  **unknown repeated HOLD**, не оставшийся P2-дефект collector. Последующие
+  PASS и закрытие P2-01 не принимают весь кандидат. Runtime без установленной
   причины и нового независимого проекта не менять. T112/T113 открыты.
 - [x] После нового сообщения выпуска самостоятельно подтвердить в GitHub:
   [v2026.11.16.1](https://github.com/yshishenya/graf/releases/tag/v2026.11.16.1)
