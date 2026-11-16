@@ -640,10 +640,25 @@
   прежний end. [Дополнение к проекту](https://github.com/yshishenya/graf/blob/8a7b43955e6abc1dcdac8d47f8cbfb16ff359ae7/specs/273-paid-traffic-analytics/validation/t112-admission-session-integration-design-20261116.md),
   SHA-256 `1723f68cc452487f7db8c7869b8718d47a68db4712e994edbc1b731ff9e0ccb8`.
   Изменение и исходный HOLD сохранены/pushed, удалённый SHA совпал.
-- [ ] Получить повторную независимую приёмку конкретных D1/D2 до кода.
-  Новый отчёт ещё не получен; наличие request-файла не означает доставку
-  или проверенное живое ожидание. Настоящий `_result_period_context` остаётся
-  закрытым; fixture не доказывает T113. Кодовые тесты не повторялись.
+- [x] Получить повторную независимую приёмку конкретных D1/D2 до кода:
+  [DESIGN PASS](https://github.com/yshishenya/graf/blob/16323bc9336f7955a7d8f9f07730f76add1b6615/specs/273-paid-traffic-analytics/validation/t112-admission-session-d1-d2-rereview-20261116.md),
+  SHA-256 `8af7b866817aba3dfc2fd83872583d6728a3433563f0c71b33cbd0359a703217`.
+- [x] Подключить отдельный ResultAdmissionSession к внутреннему приёму пары
+  вех: одна RR-сессия/соединение/бюджет, exact INSERT прежнего примитива,
+  guarded SELECT, общие абсолютные сроки. Настоящий `_result_period_context`
+  остаётся `yield None`; рабочая готовность не подменяется тестовым периодом.
+  Независимый разбор нашёл C1: перехваченный отказ перед commit позволял
+  продолжить операцию. Причинный RED1 воспроизведён; исправление сохраняет
+  failed/terminal. Последующее [scoped implementation PASS, P1=0/P2=0](https://github.com/yshishenya/graf/blob/16323bc9336f7955a7d8f9f07730f76add1b6615/specs/273-paid-traffic-analytics/validation/t112-admission-session-precommit-rereview-20261116.md),
+  SHA-256 `ff6249cb0dd7160b94d20664d303a06be03776106569f0da0d766f2708c1eafb`,
+  полностью прочитан, девять source hashes совпали. Общий профиль до C1:
+  486PASS; после исправления:87 admission/access PASS и1 PASS после
+  эквивалентной линтерной правки теста. Нового общего487PASS нет.
+  Обычная60мин цепочка600+600 сегментов:94SQL/1228rows/1224672bytes/1909nodes,
+  без повышения ограничений.18 requirement inputs SAME, reviewer checklist124/0
+  не менялся. Ruff0.15.20/context/fragment/diff PASS. Код, отчёты и фрагмент
+  сохранены/pushed `16323bc9336f7955a7d8f9f07730f76add1b6615`, точный remote
+  readback принят. [Проверки и пределы](https://github.com/yshishenya/graf/blob/16323bc9336f7955a7d8f9f07730f76add1b6615/specs/273-paid-traffic-analytics/validation/t112-admission-session-integration-validation-20261116.md).
 - [ ] Продолжить реальные HTTP/source/proof/admission границы T112/T113 и
   остальные непокрытые close/commit/cleanup исходы; `_result_period_context`
   по-прежнему `yield None`, HTTP-триггер не подключён. PR/merge/выпуска/
