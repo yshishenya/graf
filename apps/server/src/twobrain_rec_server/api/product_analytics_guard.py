@@ -35,6 +35,7 @@ class _ResultViewOwner(dict):
     def __init__(self):
         super().__init__()
         self.transactions = {}
+        self.failed = False
 
 
 @event.listens_for(Session, "after_transaction_create")
@@ -88,6 +89,7 @@ def _track_result_connection(dbapi_connection, connection_record, connection_pro
                 _RESULT_VIEW_CONNECTION_OWNER, _RESULT_VIEW_INITIALIZATION_OWNER, _RESULT_VIEW_TRANSACTION_OWNER,
             )) or connection_record in owner
         ):
+            owner.failed = True
             return
         lease = [owner, dbapi_connection, driver, task, connection_record]
         connection_record.info[_RESULT_VIEW_INITIALIZATION_OWNER] = lease
@@ -97,6 +99,8 @@ def _track_result_connection(dbapi_connection, connection_record, connection_pro
     if _RESULT_VIEW_INITIALIZATION_OWNER in connection_record.info:
         lease = _initializing_result_connection(owner, connection_record)
         if lease is None or lease[1] is not dbapi_connection or lease[3] is not asyncio.current_task():
+            if owner is not None:
+                owner.failed = True
             return
         connection_record.info.pop(_RESULT_VIEW_INITIALIZATION_OWNER)
     connection_record.info.pop(_RESULT_VIEW_TRANSACTION_OWNER, None)
@@ -113,6 +117,9 @@ def _untrack_result_connection(dbapi_connection, connection_record):
     if _RESULT_VIEW_INITIALIZATION_OWNER in connection_record.info:
         lease = _initializing_result_connection(_RESULT_VIEW_TASK_OWNER.get(), connection_record)
         if lease is None or lease[1] is not dbapi_connection:
+            owner = _RESULT_VIEW_TASK_OWNER.get()
+            if owner is not None:
+                owner.failed = True
             return
         connection_record.info.pop(_RESULT_VIEW_INITIALIZATION_OWNER)
     connection_record.info.pop(_RESULT_VIEW_TRANSACTION_OWNER, None)
@@ -393,7 +400,7 @@ async def _run_result_view_app(app, scope, receive, send):
     try:
         await asyncio.shield(task)
         await join()
-        if owner or owner.transactions:
+        if owner.failed or owner or owner.transactions:
             raise _ResultViewUnavailable
     except BaseException:
         # Cancel the DB owner first so parent task-group cancellation cannot

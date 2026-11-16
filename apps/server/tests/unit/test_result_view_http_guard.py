@@ -10,7 +10,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import Session
 
 from twobrain_rec_server.api import product_analytics_guard as guard_module
@@ -360,6 +360,98 @@ def test_early_initialization_hooks_preserve_contradictory_metadata(phase, case,
         finally:
             await child
             guard_module._RESULT_VIEW_TASK_OWNER.reset(token)
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("phase", ["connect", "checkout", "checkin"])
+@pytest.mark.parametrize("has_owner", [False, True])
+def test_rejected_initialization_hook_marks_only_current_owner(phase, has_owner, monkeypatch):
+    async def scenario():
+        class Driver:
+            pass
+
+        class Entry:
+            pass
+
+        monkeypatch.setattr(guard_module, "AsyncpgConnection", Driver)
+        owner, foreign, entry, driver = guard_module._ResultViewOwner(), guard_module._ResultViewOwner(), Entry(), Driver()
+        wrapper = SimpleNamespace(driver_connection=driver)
+        lease = [foreign, wrapper, driver, asyncio.current_task(), entry]
+        foreign[entry] = lease
+        entry.info = {guard_module._RESULT_VIEW_INITIALIZATION_OWNER: lease,
+                      guard_module._RESULT_VIEW_CONNECTION_OWNER: lease}
+        entry.dbapi_connection, entry.driver_connection, entry.in_use = wrapper, driver, phase == "checkout"
+        token = guard_module._RESULT_VIEW_TASK_OWNER.set(owner if has_owner else None)
+        before = entry.info.copy()
+        try:
+            if phase == "checkin":
+                guard_module._untrack_result_connection(wrapper, entry)
+            else:
+                guard_module._track_result_connection(wrapper, entry, object() if phase == "checkout" else None)
+            assert getattr(owner, "failed", False) is has_owner
+            assert not owner and entry.info == before and foreign[entry] is lease
+            assert entry.driver_connection is driver
+        finally:
+            guard_module._RESULT_VIEW_TASK_OWNER.reset(token)
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("phase", ["checkout", "checkin"])
+@pytest.mark.parametrize("path", PATHS)
+def test_contradictory_initialization_with_absent_current_entry_cannot_release_accepted(phase, path):
+    async def scenario():
+        engine, clean_engine = create_engine("sqlite://"), create_engine("sqlite://")
+        entries, owners = [], []
+        event.listen(engine, "checkout", lambda dbapi, entry, proxy: entries.append(entry))
+        foreign = guard_module._ResultViewOwner()
+        try:
+            with engine.connect() as db:
+                assert db.scalar(text("SELECT 1")) == 1
+            with clean_engine.connect() as db:
+                assert db.scalar(text("SELECT 1")) == 1
+            entry = entries[0]
+            driver = entry.driver_connection
+            lease = [foreign, entry.dbapi_connection, driver, asyncio.current_task(), entry]
+            foreign[entry] = lease
+            foreign_info = {guard_module._RESULT_VIEW_INITIALIZATION_OWNER: lease,
+                            guard_module._RESULT_VIEW_CONNECTION_OWNER: lease}
+            if phase == "checkout":
+                entry.info.update(foreign_info)
+
+            async def app(scope, receive, send):
+                owner = guard_module._RESULT_VIEW_TASK_OWNER.get()
+                owners.append(owner)
+                assert entry not in owner and owner is not foreign
+                with Session(engine) as db:
+                    assert db.scalar(text("SELECT 1")) == 1
+                    if phase == "checkin":
+                        owner.pop(entry)
+                        entry.info.clear()
+                        entry.info.update(foreign_info)
+                    db.commit()
+                assert not owner and not owner.transactions
+                with Session(clean_engine) as db:
+                    assert db.scalar(text("SELECT 1")) == 1
+                    db.commit()
+                assert not owner and not owner.transactions
+                await send({"type": "http.response.start", "status": 200, "headers": []})
+                await send({"type": "http.response.body", "body": b'{"status":"accepted"}'})
+
+            before = set(asyncio.all_tasks())
+            start, body, elapsed, _ = await _request(ProductAnalyticsIngressGuard(app), path=path)
+            assert start["status"] == 200 and body == b'{"status":"unavailable"}'
+            assert elapsed < 2 and set(asyncio.all_tasks()) == before
+            assert len(owners) == 1 and owners[0].failed
+            assert not owners[0] and not owners[0].transactions and not foreign.failed
+            assert entry.info == foreign_info and foreign[entry] is lease
+            assert entry.driver_connection is driver
+            with engine.connect() as db:
+                assert db.scalar(text("SELECT 1")) == 1
+                assert db.connection.driver_connection is driver
+            assert entry.info == foreign_info and foreign[entry] is lease
+        finally:
+            engine.dispose()
+            clean_engine.dispose()
     asyncio.run(scenario())
 
 

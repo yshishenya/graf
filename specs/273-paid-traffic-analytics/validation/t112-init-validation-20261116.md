@@ -136,3 +136,54 @@ live agents snapshot подтвердил running. Отдельно требуе
 таких случаях. До заключения не выдавать197 за полную приёмку этой ветви.
 
 Все прежние ограничения полного T112/T113/HTTP/restore/runtime/T0 сохраняются.
+
+
+## I1 — сохранение отказа при противоречивом владении
+
+Независимое implementation review первого исправления найдено и прочитано
+полностью: [t112-init-review-20261116.md](t112-init-review-20261116.md),
+SHA-256 `cbc8d545b3ed6b51f44872a431bdf42ce9d6804a3f0e4ffc707f491b80b55473`.
+Результат P1=0/P2=1: rejected registration при отсутствующем current-owner
+entry сохраняла foreign metadata, но могла пропустить accepted после обычной
+Session. Реальное SQLite/Session воспроизведение reviewer подтверждает этот
+исход; дополнительная собственная unit-like диагностика имеет тот же результат.
+Это новый дефект I1, не ложный PASS197 и не доказательство сбоя рабочего сервера.
+
+До исправления добавлены10 проверок. Законченный RED:7 FAIL/3 PASS,
+164 deselected/1 прежний warning,0.40s/terminal66212 EXIT1. В четырёх отказах
+настоящие SQLite Session/Pool, SELECT1/commit и оба HTTP aliases выпускали
+accepted при ожидаемом unavailable. Три callback отказа не сохраняли failed;
+три owner=None контроля прошли. Артефакт:
+`/private/tmp/graf-t112-init-i1-red-20261116.log`, SHA-256
+`4cb215341441402d829748fd9ac729559a866415b0e3a79a98ca9aeac48a235c`.
+
+Следуя минимальному проекту reviewer, существующий owner получил failed bool.
+Ранний connect/checkout/checkin при отказе точного сопоставления отмечают
+только current owner; чужие mappings/driver не меняются. Конечный guard после
+join проверяет failed даже при пустых registry. Поздний обычный checkout,
+успешный commit и metadata cleanup не сбрасывают отказ. Owner=None сохраняет
+обычный путь. Исключения callbacks, pool invalidation/reconnect/retry не вводились;
+возможный commit не объявляется rollback и не повторяется автоматически.
+
+Focused initialization units:83 PASS/91 deselected/1 warning,0.09s/EXIT0.
+Новый полный изменённый профиль: **207 PASS/0 skips/1 прежний warning**,
+49.10s/runner53s/terminal48899 EXIT0; isolated_container_removed/result pass.
+Состав174 unit+25 contract+8 integration. Collection207/digest
+`4eda745fd0666368aca28fd7091234fa7030208e373e2f2192eaeb0e61c53c67`.
+Новое конечное HTTP поведение подтверждено для checkout/checkin с absent
+current mapping на обоих aliases, sticky отказом после второй обычной Session,
+неизменным foreign registry/driver и отсутствием новых tasks. Native init
+faults остаются <2s (около1.64s), все прежние регрессии197 вошли в новый запуск.
+
+| Окончательный вход I1 | SHA-256 |
+| --- | --- |
+| Guard | `b22a95714a2e6d94ec1645bad0475e1b99b518386caa7ebab785fb0d42dd0088` |
+| Unit | `7ee3f98d9fdffec701b2bec5a38ddedd1b960f7345ef1b42ab508e9f86c92ee2` |
+| Contract (без изменений после197) | `45f937184fd0f3569ee385659fc3529d5af1a3acb8d8a5b12fd72fce7dfad2ac` |
+| Full207 log | `d59d798365d2d097c149ae42e1669300d0f8bdf995f11063ebb5b87db3a30ec9` |
+| Focused83 log | `237c1592e8ba19617ff3f8de14aadc894d87e82527c11b6fd9273bfef2279285` |
+
+Ruff/diff-check PASS. Независимая повторная приёмка I1 ещё открыта; этот текст
+не меняет решение reviewer. Основные checklist и T112/T113 остаются прежними.
+Полные HTTP/issuance/ledger/browser/native/rawclose/TLS/poolreset/прочие commit,
+restore/runtime/T0 и коммерческие результаты не приняты.
