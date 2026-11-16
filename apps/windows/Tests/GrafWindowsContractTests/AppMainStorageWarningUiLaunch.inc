@@ -146,7 +146,7 @@ stateTimer_.Tick([this, state, beginClose](auto const&, auto const&) {
             std::fprintf(stderr, "STORAGE_UI terminal=%s cases=%zu/%zu drained=1 scratch_retained=1 installed=0 actual_audio=0 permission_denied=NOT_RUN\n",
                 problemUiResult == 73 ? "PASS" : "FAIL", state->passed, state->cases.size());
             std::fflush(stderr);
-            if (indicatorWindow_) indicatorWindow_.Close();
+            if (const auto indicator = indicatorWindow_) indicator.Close();
             window_.Close(); Application::Current().Exit(); return;
         }
         if (state->failed) { beginClose(); return; }
