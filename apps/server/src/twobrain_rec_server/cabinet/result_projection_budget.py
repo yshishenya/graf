@@ -30,6 +30,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.sql import Select, visitors
 from sqlalchemy.sql.elements import ColumnClause, TextClause, TypeCoerce
 from sqlalchemy.sql.functions import FunctionElement
+from sqlalchemy.sql.selectable import ForUpdateArg
 
 _ROWS_PER_QUERY = 4096
 _TOTAL_ROWS = 16384
@@ -75,7 +76,9 @@ def _bounded_projection(statement):
         raise ProjectionBudgetExceeded
     for node in visitors.iterate(statement):
         if (
-            isinstance(node, (TextClause, TypeCoerce))
+            node.is_dml
+            or isinstance(node, ForUpdateArg) and node.skip_locked
+            or isinstance(node, (TextClause, TypeCoerce))
             or isinstance(node, ColumnClause) and node.is_literal
             or isinstance(node, FunctionElement) and (
                 node.name.lower() not in _READ_FUNCTIONS or node.packagenames

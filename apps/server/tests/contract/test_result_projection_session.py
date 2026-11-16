@@ -25,6 +25,143 @@ class Probe(ProbeBase):
     details: Mapped[dict] = mapped_column(JSON, default=dict)
 
 
+@pytest.mark.parametrize("routing", ["factory", "execute", "connection", "mapper", "table"])
+def test_other_session_bind_never_executes_unchecked_sql(postgres_seeded_database_url, routing):
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    async def scenario(sessions):
+        other = create_async_engine(postgres_seeded_database_url)
+        observed = []
+        def capture(conn, cursor, sql, params, context, many):
+            observed.append(sql)
+        try:
+            async with other.connect() as warm:
+                await warm.execute(text("SELECT 1"))
+            event.listen(other.sync_engine, "before_cursor_execute", capture)
+            async with _probe(sessions):
+                factory = (async_sessionmaker(sessions.kw["bind"], binds={Probe: other})
+                           if routing == "factory" else sessions)
+                owners = []
+                with pytest.raises(ProjectionBudgetExceeded):
+                    async with result_projection_session(factory) as owner:
+                        owners.append(owner)
+                        if routing == "connection":
+                            connection = await owner.db.connection(
+                                bind_arguments={"bind": other.sync_engine},
+                            )
+                            await connection.execute(select(Probe))
+                        else:
+                            arguments = {}
+                            if routing == "execute":
+                                arguments["bind_arguments"] = {"bind": other.sync_engine}
+                            elif routing in {"mapper", "table"}:
+                                await owner.db.run_sync(lambda sync: (
+                                    sync.bind_mapper(Probe, other.sync_engine) if routing == "mapper"
+                                    else sync.bind_table(Probe.__table__, other.sync_engine)
+                                ))
+                            await owner.db.execute(select(Probe), **arguments)
+                assert not observed
+                assert all(item.failed and not item.db.identity_map for item in owners)
+        finally:
+            event.remove(other.sync_engine, "before_cursor_execute", capture)
+            await other.dispose()
+    _run(postgres_seeded_database_url, scenario)
+
+
+def test_borrowed_nested_connection_is_refused_before_a_savepoint(postgres_seeded_database_url):
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    async def scenario(sessions):
+        other = create_async_engine(postgres_seeded_database_url)
+        try:
+            async with other.connect() as borrowed:
+                await borrowed.begin()
+                await borrowed.begin_nested()
+                observed = []
+                def capture(conn, cursor, sql, params, context, many):
+                    observed.append(sql)
+                event.listen(borrowed.sync_connection, "before_cursor_execute", capture)
+                try:
+                    with pytest.raises(ProjectionBudgetExceeded):
+                        async with result_projection_session(sessions) as owner:
+                            with pytest.raises(ProjectionBudgetExceeded):
+                                await owner.db.connection(bind_arguments={"bind": borrowed.sync_connection})
+                    assert owner.failed and not owner.db.identity_map
+                    assert not observed and borrowed.in_nested_transaction()
+                finally:
+                    event.remove(borrowed.sync_connection, "before_cursor_execute", capture)
+                assert await borrowed.scalar(text("SELECT 1")) == 1
+        finally:
+            await other.dispose()
+    _run(postgres_seeded_database_url, scenario)
+
+
+@pytest.mark.parametrize("operation", ["insert", "update", "delete"])
+@pytest.mark.parametrize("referenced", [False, True], ids=["independent", "referenced"])
+def test_data_modifying_cte_is_refused_before_any_sql(
+    postgres_seeded_database_url, operation, referenced,
+):
+    from sqlalchemy import delete, literal, update
+
+    async def scenario(sessions):
+        async with _probe(sessions):
+            modifying = {
+                "insert": insert(Probe).values(id=2, body="synthetic added"),
+                "update": update(Probe).values(body="synthetic changed"),
+                "delete": delete(Probe).where(Probe.id == 1),
+            }[operation].returning(Probe.id).cte("modifying")
+            statement = select(modifying.c.id) if referenced else select(literal(1)).add_cte(modifying)
+            with pytest.raises(ProjectionBudgetExceeded):
+                async with result_projection_session(sessions) as owner:
+                    with pytest.raises(ProjectionBudgetExceeded):
+                        await owner.db.execute(statement)
+            assert owner.sql_count == 2 and not owner.db.identity_map
+            assert owner.failed and owner.budget.failed
+            async with sessions() as verify:
+                assert (await verify.execute(select(Probe.id, Probe.body))).all() == [(1, "synthetic")]
+    _run(postgres_seeded_database_url, scenario)
+
+
+@pytest.mark.parametrize("nested", [False, True], ids=["outer", "nested"])
+def test_skip_locked_cannot_change_the_checked_rows_before_original_read(postgres_seeded_database_url, nested):
+    async def scenario(sessions):
+        async with _probe(sessions, body="x" * (256 * 1024 + 1)), sessions() as writer:
+            await writer.execute(select(Probe.id).with_for_update())
+            loaded_sizes = []
+            with pytest.raises(ProjectionBudgetExceeded):
+                async with result_projection_session(sessions) as owner:
+                    check = owner.budget.check
+                    released = []
+                    def release_after_preflight(connection, statement, parameters):
+                        check(connection, statement, parameters)
+                        writer.sync_session.rollback()
+                        released.append(True)
+                    owner.budget.check = release_after_preflight
+                    if nested:
+                        locked = select(Probe.id).with_for_update(skip_locked=True).cte("locked")
+                        statement = select(Probe).where(Probe.id.in_(select(locked.c.id)))
+                    else:
+                        statement = select(Probe).with_for_update(skip_locked=True)
+                    result = await owner.db.execute(statement)
+                    loaded_sizes.append(len(result.scalar_one().body))
+            assert owner.sql_count == 2 and not owner.db.identity_map and not released
+            assert owner.failed and owner.budget.failed
+            assert not loaded_sizes
+            await writer.rollback()
+    _run(postgres_seeded_database_url, scenario)
+
+
+@pytest.mark.parametrize("locking", [{}, {"read": True}, {"nowait": True}], ids=["update", "share", "nowait"])
+def test_ordinary_row_lock_modes_keep_the_checked_result(postgres_seeded_database_url, locking):
+    async def scenario(sessions):
+        async with _probe(sessions), result_projection_session(sessions) as owner:
+            row = (await owner.db.scalars(select(Probe).with_for_update(**locking))).one()
+            actual = row.id, row.body
+            count = owner.sql_count
+        assert actual == (1, "synthetic") and count == 5
+    _run(postgres_seeded_database_url, scenario)
+
+
 @asynccontextmanager
 async def _probe(sessions, *, body="synthetic", rows=1):
     async with sessions() as db:

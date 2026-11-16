@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager, contextmanager
 
 from sqlalchemy import event, func, select, text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
+from sqlalchemy.orm import Session
 from sqlalchemy.sql import Select
 
 from twobrain_rec_server.cabinet.result_projection_budget import (
@@ -20,9 +21,23 @@ from twobrain_rec_server.db.tenant_context import (
 )
 
 
+class _ProjectionSession(Session):
+    def get_bind(self, *args, **kwargs):
+        bind = super().get_bind(*args, **kwargs)
+        self._projection_owner._check_bind(bind)
+        return bind
+
+    def connection(self, bind_arguments=None, execution_options=None):
+        if bind_arguments and bind_arguments.get("bind") is not None:
+            self._projection_owner._check_bind(bind_arguments["bind"])
+        return super().connection(bind_arguments=bind_arguments, execution_options=execution_options)
+
+
 class ResultProjectionSession:
     def __init__(self, db, deadline):
         self.db = db
+        self._engine = db.bind.sync_engine
+        db.sync_session._projection_owner = self
         self.deadline = deadline
         self.budget = ProjectionReadBudget()
         self.sql_count = 0
@@ -41,6 +56,11 @@ class ResultProjectionSession:
     def _refuse(self):
         self.failed = self.budget.failed = True
         raise ProjectionBudgetExceeded
+
+    def _check_bind(self, bind):
+        self.checkpoint()
+        if bind is not self._engine:
+            self._refuse()
 
     def checkpoint(self):
         if (self.failed or (self.budget.failed and not self._numeric)
@@ -65,8 +85,11 @@ class ResultProjectionSession:
         if self._expected is not None:
             self._refuse()
         self._expected = statement
+        before = self.sql_count
         try:
             yield
+            if self.sql_count != before + 1 or self._cursor_pending:
+                self._refuse()
         finally:
             self._expected = None
             self._cursor_pending = False
@@ -89,6 +112,11 @@ class ResultProjectionSession:
     def _transaction_ended(self, *args):
         # A reader cannot end the snapshot and continue in a new transaction.
         self.failed = self.budget.failed = True
+
+    def _after_begin(self, session, transaction, connection):
+        self.checkpoint()
+        if connection is not self._connection:
+            self._refuse()
 
     def _forbid_write(self, *args):
         self._refuse()
@@ -116,6 +144,8 @@ class ResultProjectionSession:
 
     def _read(self, state):
         self.checkpoint()
+        if state.bind_arguments.get("bind") is not None:
+            self._refuse()
         if self._control is not None:
             expected, self._control = self._control, None
             if state.parameters or not expected.compare(state.statement):
@@ -168,6 +198,7 @@ class ResultProjectionSession:
         self._listen(self._connection, "rollback", self._transaction_ended)
         self._listen(self._connection, "commit", self._forbid_write)
         self._listen(self.db.sync_session, "do_orm_execute", self._read)
+        self._listen(self.db.sync_session, "after_begin", self._after_begin)
         self._listen(self.db.sync_session, "before_flush", self._forbid_write)
         self._listen(self.db.sync_session, "before_commit", self._forbid_write)
         for statement in (text("SET LOCAL lock_timeout = '250ms'"),
@@ -185,11 +216,13 @@ async def result_projection_session(sessionmaker, *, deadline=None):
     Admission, writer freshness and HTTP ownership are separate required gates.
     """
     if (not isinstance(sessionmaker, async_sessionmaker) or sessionmaker.class_ is not AsyncSession
-            or not isinstance(sessionmaker.kw.get("bind"), AsyncEngine)):
+            or not isinstance(sessionmaker.kw.get("bind"), AsyncEngine)
+            or sessionmaker.kw.get("binds")
+            or sessionmaker.kw.get("sync_session_class") not in (None, Session)):
         raise ProjectionBudgetExceeded  # Never adopt a caller's Session or begun connection.
     loop = asyncio.get_running_loop()
     deadline = min(loop.time() + 2, deadline) if deadline is not None else loop.time() + 2
-    db = sessionmaker(autoflush=False, expire_on_commit=False)
+    db = sessionmaker(autoflush=False, expire_on_commit=False, sync_session_class=_ProjectionSession)
     owner = ResultProjectionSession(db, deadline - 0.5)
     try:
         async with asyncio.timeout_at(owner.deadline):
