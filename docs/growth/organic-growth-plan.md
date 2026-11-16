@@ -627,11 +627,23 @@
   вызов без retry, следующая новая видимость разрешает authoritative keys.
   [Проект подключения](https://github.com/yshishenya/graf/blob/33d4c993424c855c4d26eab83f0c335d705f9296/specs/273-paid-traffic-analytics/validation/t112-admission-session-integration-design-20261116.md),
   SHA-256 `07f285be119006510607d4e68930c068a1cc5c46540256f6ea016d0c29cf9bba`.
-- [ ] Получить независимое заключение нового проекта подключения до кода:
-  точный допуск INSERT/commit, общий deadline/SQL budget/cleanup, свежие locks
-  и отсутствие нового доверенного флага. Новый отчёт пока не получен;
-  request-файл не является доставкой или проверенным ожиданием. Настоящий
-  `_result_period_context` остаётся закрытым; fixture не доказывает T113.
+- [x] Получить и полностью прочитать независимый разбор нового проекта:
+  **HOLD, P1=0/P2=2**, D1/D2. Принят RETURNING UUID и последующий bounded
+  SELECT; не определены exact API исполнения INSERT и пара абсолютных сроков.
+  [Независимый разбор](https://github.com/yshishenya/graf/blob/8a7b43955e6abc1dcdac8d47f8cbfb16ff359ae7/specs/273-paid-traffic-analytics/validation/t112-admission-session-integration-preflight-review-20261116.md),
+  SHA-256 `2e7d172ee05216a7f2cc4737e84bd196789cd00f9b72f40cbe184061089d36a5`.
+- [x] Конкретизировать D1/D2 в проекте без изменения кода: exact statement
+  исполняется через public AsyncConnection той же Session, поскольку ORM
+  создаёт копию INSERT; callback исполнения доступен только owner. Единая
+  пара work_deadline/cleanup_deadline создаётся до входа в период, передаётся
+  без нового2s и повторного вычитания0.5; read-only wrapper сохраняет свой
+  прежний end. [Дополнение к проекту](https://github.com/yshishenya/graf/blob/8a7b43955e6abc1dcdac8d47f8cbfb16ff359ae7/specs/273-paid-traffic-analytics/validation/t112-admission-session-integration-design-20261116.md),
+  SHA-256 `1723f68cc452487f7db8c7869b8718d47a68db4712e994edbc1b731ff9e0ccb8`.
+  Изменение и исходный HOLD сохранены/pushed, удалённый SHA совпал.
+- [ ] Получить повторную независимую приёмку конкретных D1/D2 до кода.
+  Новый отчёт ещё не получен; наличие request-файла не означает доставку
+  или проверенное живое ожидание. Настоящий `_result_period_context` остаётся
+  закрытым; fixture не доказывает T113. Кодовые тесты не повторялись.
 - [ ] Продолжить реальные HTTP/source/proof/admission границы T112/T113 и
   остальные непокрытые close/commit/cleanup исходы; `_result_period_context`
   по-прежнему `yield None`, HTTP-триггер не подключён. PR/merge/выпуска/
