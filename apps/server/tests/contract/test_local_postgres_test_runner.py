@@ -582,3 +582,186 @@ def test_fast_pure_pass_follows_cleanup_without_starting_docker(partition_run, t
     assert len(rows) == 3 and not calls
     assert result.stdout.count("postgres_test_result=pass mode=fast") == 1
     assert result.stdout.index("postgres_test_cleanup=container_not_started") < result.stdout.index("postgres_test_result=pass")
+
+
+@pytest.fixture
+def minio_run(partition_run, tmp_path, monkeypatch):
+    """Use the existing real collection harness with synthetic MinIO consumers."""
+    integration = tmp_path / "tests/integration"
+    integration.mkdir(parents=True)
+    check = '''import json, os, re, pytest
+def check_store():
+    with open(os.environ["MINIO_CREDENTIALS"]) as source: credentials = json.load(source)
+    valid = (os.environ.get("GRAF_TEST_STRICT_MINIO_ENDPOINT") == "127.0.0.1:54900"
+        and bool(re.fullmatch("[a-f0-9]{32}", os.environ.get("GRAF_TEST_STRICT_MINIO_ACCESS", "")))
+        and bool(re.fullmatch("[a-f0-9]{48}", os.environ.get("GRAF_TEST_STRICT_MINIO_SECRET", "")))
+        and os.environ.get("GRAF_TEST_STRICT_MINIO_ACCESS") == credentials[0]
+        and os.environ.get("GRAF_TEST_STRICT_MINIO_SECRET") == credentials[1])
+    assert valid, "runner must provide its own ready store"
+'''
+    (integration / "test_calendar_auto_context_match.py").write_text(check + '''
+@pytest.mark.parametrize("tamper", [False, True], ids=["valid", "missing-attempt-metadata"])
+def test_strict_track_assembly_real_minio_and_calendar_owner(tamper): check_store()
+''')
+    (integration / "test_smoke_cleanup_deadlock.py").write_text(check + '''
+@pytest.mark.strict_rls
+@pytest.mark.parametrize("live_minio", [False, True], ids=["residue", "real-minio"])
+def test_interrupted_smoke_retains_unconfirmed_object_intent_and_preserves_neighbor(live_minio):
+    if live_minio: check_store()
+''')
+    # Collection must be isolated too, before any service could be started.
+    uv = tmp_path / "bin/uv"
+    uv.write_text(uv.read_text().replace(
+        'if os.environ.get("TAMPER_PHASE")',
+        'if "--collect-only" in args:\n'
+        '    assert not any(os.environ.get("GRAF_TEST_STRICT_MINIO_" + key) for key in ("ENDPOINT", "ACCESS", "SECRET"))\n'
+        'if os.environ.get("TAMPER_PHASE")',
+    ))
+    docker = tmp_path / "bin/docker"
+    docker.write_text(f'''#!{sys.executable}
+import json, os, sys
+args = sys.argv[1:]
+path = os.environ["DOCKER_CALLS"]
+with open(path, "a") as output: output.write(json.dumps(args) + "\\n")
+calls = [json.loads(line) for line in open(path)]
+runs = [call for call in calls if call[0] == "run" and "--label" in call]
+fault = os.environ.get("MINIO_FAULT", "")
+if args[:2] == ["image", "inspect"]:
+    if fault == "image-missing" and not any(call[0] == "pull" for call in calls): sys.exit(1)
+    print("sha256:" + "a" * 64)
+if args[0] == "run" and "--label" in args:
+    with open(os.environ["MINIO_CREDENTIALS"], "w") as output:
+        json.dump([os.environ["MINIO_ROOT_USER"], os.environ["MINIO_ROOT_PASSWORD"]], output)
+    if fault == "start": sys.exit(9)
+if args[0] == "inspect":
+    if fault in ("inspect", "absent", "inventory"): sys.exit(1)
+    label = runs[-1][runs[-1].index("--label") + 1].split("=", 1)[1]
+    print("b" * 64 + " " + ("foreign-owner" if fault == "owner" else label))
+if args[0] == "ps":
+    if fault == "inventory": sys.exit(1)
+    if fault != "absent": print("b" * 64)
+if args[0] == "rm" and args[-1] == "b" * 64 and fault == "remove": sys.exit(9)
+if args[0] == "logs": print("PostgreSQL init process complete; ready for start up.")
+if args[0] == "port":
+    print(os.environ.get("MINIO_PORT", "127.0.0.1:54900") if args[-1] == "9000/tcp" else "127.0.0.1:54329")
+''')
+    curl = tmp_path / "bin/curl"
+    curl.write_text(f'''#!{sys.executable}
+import json, os, sys
+with open(os.environ["CURL_CALLS"], "a") as output: output.write(json.dumps(sys.argv[1:]) + "\\n")
+sys.exit(7 if os.environ.get("MINIO_FAULT") == "readiness" else 0)
+''')
+    curl.chmod(0o755)
+    sleep = tmp_path / "bin/sleep"
+    sleep.write_text("#!/bin/sh\nexit 0\n")
+    sleep.chmod(0o755)
+    monkeypatch.setenv("CURL_CALLS", str(tmp_path / "curl.jsonl"))
+    monkeypatch.setenv("MINIO_CREDENTIALS", str(tmp_path / "minio-credentials.json"))
+    for key in ("ENDPOINT", "ACCESS", "SECRET"):
+        monkeypatch.setenv("GRAF_TEST_STRICT_MINIO_" + key, "inherited-operator-value")
+    return partition_run
+
+
+@pytest.mark.parametrize("args,expected", [
+    (("-k", "strict_track_assembly"), 2),
+    (("--partitioned", "--phases", "strict", "-k", "interrupted_smoke"), 2),
+    (("--partitioned", "--phases", "parallel", "--shard", "0/2", "-k", "strict_track_assembly"), 1),
+])
+def test_selected_minio_consumers_receive_an_owned_ready_store(minio_run, tmp_path, args, expected):
+    result, rows, calls = minio_run(*args, "-q")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert len(rows) == expected
+    run = [call for call in calls if call[0] == "run" and "--label" in call]
+    assert len(run) == 1
+    assert run[0][run[0].index("--publish") + 1] == "127.0.0.1::9000"
+    assert run[0][run[0].index("--tmpfs") + 1] == "/data:rw,size=256m"
+    assert run[0][-3:] == ["sha256:" + "a" * 64, "server", "/data"]
+    assert "--pull=never" in run[0]
+    assert [run[0][i + 1] for i, arg in enumerate(run[0]) if arg == "--env"] == ["MINIO_ROOT_USER", "MINIO_ROOT_PASSWORD"]
+    assert [call for call in calls if call[0] == "rm"][0] == ["rm", "--force", "b" * 64]
+    curl = json.loads((tmp_path / "curl.jsonl").read_text())
+    assert curl[curl.index("--noproxy") + 1] == "*"
+    assert curl[curl.index("--max-time") + 1] == "1"
+    assert curl[-1] == "http://127.0.0.1:54900/minio/health/ready"
+    assert "inherited-operator-value" not in result.stdout + result.stderr
+    credentials = json.loads((tmp_path / "minio-credentials.json").read_text())
+    leaked = any(value in result.stdout + result.stderr for value in credentials)
+    assert not leaked
+    assert result.stdout.index("minio_test_cleanup=isolated_container_removed") < result.stdout.index("postgres_test_result=pass")
+
+
+@pytest.mark.parametrize("args", [
+    ("--collect-only", "-k", "strict_track_assembly"),
+    ("-k", "test_plain"),
+    ("--partitioned", "--phases", "performance"),
+    ("--partitioned", "--phases", "strict", "-k", "residue"),
+    # Sorted parallel inventory: plain, other, calendar[missing], calendar[valid].
+    ("--partitioned", "--phases", "parallel", "--shard", "0/4"),
+])
+def test_unselected_minio_consumers_never_start_minio(minio_run, tmp_path, args):
+    result, _, calls = minio_run(*args, "-q")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert not any(call[0] in ("image", "pull", "inspect", "ps") or "--label" in call for call in calls)
+    assert not (tmp_path / "curl.jsonl").exists()
+
+
+@pytest.mark.parametrize("fault", ["start", "readiness", "owner", "inspect", "inventory", "remove"])
+def test_minio_failures_never_pass_or_remove_unknown_containers(minio_run, tmp_path, monkeypatch, fault):
+    monkeypatch.setenv("MINIO_FAULT", fault)
+    result, rows, calls = minio_run("-k", "strict_track_assembly", "-q")
+    assert result.returncode != 0, result.stdout + result.stderr
+    assert "postgres_test_result=pass" not in result.stdout
+    removed = [call for call in calls if call[0] == "rm" and call[-1] == "b" * 64]
+    assert bool(removed) == (fault in ("start", "readiness", "remove"))
+    if fault in ("start", "readiness"):
+        assert not rows
+    if fault == "readiness":
+        assert len((tmp_path / "curl.jsonl").read_text().splitlines()) == 60
+
+
+@pytest.mark.parametrize("endpoint", ["0.0.0.0:54900", "127.0.0.1:0", "127.0.0.1:65536", "127.0.0.1:54900\n[::]:54900"])
+def test_minio_refuses_unsafe_published_endpoints(minio_run, tmp_path, monkeypatch, endpoint):
+    monkeypatch.setenv("MINIO_PORT", endpoint)
+    result, rows, calls = minio_run("-k", "strict_track_assembly", "-q")
+    assert result.returncode != 0 and not rows, result.stdout + result.stderr
+    assert not (tmp_path / "curl.jsonl").exists()
+    assert ["rm", "--force", "b" * 64] in calls
+
+
+@pytest.mark.parametrize("status", [17, 130, 143])
+def test_minio_is_cleaned_after_pytest_failure_or_signal(minio_run, tmp_path, status):
+    uv = tmp_path / "bin/uv"
+    uv.write_text(uv.read_text().replace(
+        "os.execv(sys.executable,",
+        'if "--collect-only" not in args:\n'
+        + (f'    os.kill(os.getppid(), {status - 128})\n    sys.exit(0)\n'
+           if status >= 128 else f'    sys.exit({status})\n')
+        + "os.execv(sys.executable,",
+    ))
+    result, rows, calls = minio_run("-k", "strict_track_assembly", "-q")
+    assert result.returncode == status and not rows, result.stdout + result.stderr
+    assert "postgres_test_result=pass" not in result.stdout
+    assert ["rm", "--force", "b" * 64] in calls
+
+
+def test_minio_pulls_only_the_existing_pinned_release(minio_run, monkeypatch):
+    monkeypatch.setenv("MINIO_FAULT", "image-missing")
+    result, _, calls = minio_run("-k", "strict_track_assembly", "-q")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert [call for call in calls if call[0] == "pull"] == [["pull", "minio/minio:RELEASE.2025-05-24T17-08-30Z"]]
+
+
+def test_full_runner_shares_one_minio_across_serial_and_parallel_consumers(minio_run):
+    result, rows, calls = minio_run("-q", full=True)
+    assert result.returncode == 0 and len(rows) == 9, result.stdout + result.stderr
+    assert len([call for call in calls if call[0] == "run" and "--label" in call]) == 1
+    assert ["rm", "--force", "b" * 64] in calls
+
+
+def test_minio_cleanup_accepts_only_confirmed_absence(minio_run, monkeypatch):
+    monkeypatch.setenv("MINIO_FAULT", "absent")
+    result, _, calls = minio_run("-k", "strict_track_assembly", "-q")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "minio_test_cleanup=container_absent" in result.stdout
+    assert any(call[0] == "ps" for call in calls)
+    assert ["rm", "--force", "b" * 64] not in calls

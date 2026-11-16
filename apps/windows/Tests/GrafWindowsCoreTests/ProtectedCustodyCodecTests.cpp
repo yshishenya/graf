@@ -19,6 +19,7 @@
 #include <thread>
 #include <cstdio>
 #include <type_traits>
+#include <set>
 #ifdef _MSC_VER
 #include <crtdbg.h>
 #endif
@@ -87,6 +88,223 @@ struct EntriesPressure {
     EntriesPressure(const EntriesPressure&) = delete;
     EntriesPressure& operator=(const EntriesPressure&) = delete;
 };
+
+// Capture only an actual inline character range while the string is alive.
+// After teardown the enclosing storage must remain allocated and unreused.
+struct InlineCharacters {
+    const volatile unsigned char* bytes = nullptr;
+    std::size_t count = 0;
+    void assertZero() const {
+        for (std::size_t i = 0; i < count; ++i) assert(bytes[i] == 0);
+    }
+};
+template<class String> InlineCharacters inlineCharacters(const String& value) {
+    using Char = typename String::value_type;
+    using Base = std::basic_string<Char, std::char_traits<Char>, CustodyAllocator<Char>>;
+    const auto base = reinterpret_cast<std::uintptr_t>(static_cast<const Base*>(&value));
+    const auto data = reinterpret_cast<std::uintptr_t>(value.data());
+    const auto count = (value.size() + 1) * sizeof(Char);
+    if (data < base || data >= base + sizeof(Base)) return {};
+    assert(count <= base + sizeof(Base) - data);
+    return {reinterpret_cast<const volatile unsigned char*>(value.data()), count};
+}
+template<class String> struct RetainedString {
+    std::uint64_t before = 0x12345678abcdef01ULL;
+    alignas(String) unsigned char storage[sizeof(String)];
+    std::uint64_t after = 0xfedcba9876543210ULL;
+    String* value = nullptr;
+    template<class... Args> void construct(Args&&... args) {
+        assert(!value);
+        value = ::new (static_cast<void*>(storage)) String(std::forward<Args>(args)...);
+    }
+    void reset() {
+        if (value) { value->~String(); value = nullptr; }
+        assert(before == 0x12345678abcdef01ULL && after == 0xfedcba9876543210ULL);
+    }
+    ~RetainedString() { reset(); }
+    RetainedString() = default;
+    RetainedString(const RetainedString&) = delete;
+    RetainedString& operator=(const RetainedString&) = delete;
+};
+
+template<class String> void stringLifetimeTests() {
+    using Char = typename String::value_type;
+    const auto baseline = CustodyOwnedMemory::usedBytes();
+    const auto exact = [](const String& value, std::basic_string_view<Char> expected) {
+        assert(value.size() == expected.size());
+        assert(std::equal(value.begin(), value.end(), expected.begin()));
+        assert(value.data()[value.size()] == Char{});
+    };
+    const String empty;
+    const auto withEmpty = CustodyOwnedMemory::usedBytes();
+    const auto inlineCapacity = empty.capacity();
+    assert(inlineCharacters(empty).count == sizeof(Char));
+    // All seven public constructors, at the real inline boundary and beyond.
+    for (const auto count : {std::size_t{0}, std::size_t{3}, inlineCapacity, inlineCapacity + 1, std::size_t{257}}) {
+        const std::basic_string<Char> input(count, Char{'q'});
+        for (unsigned kind = 0; kind != 7; ++kind) {
+            String source(input.data(), input.size());
+            RetainedString<String> slot;
+            switch (kind) {
+            case 0: slot.construct(); break;
+            case 1: slot.construct(input.c_str()); break;
+            case 2: slot.construct(input.data(), input.size()); break;
+            case 3: slot.construct(count, Char{'q'}); break;
+            case 4: slot.construct(std::basic_string_view<Char>(input)); break;
+            case 5: slot.construct(source); break;
+            default: slot.construct(std::move(source)); break;
+            }
+            exact(*slot.value, kind == 0 ? std::basic_string_view<Char>{} : std::basic_string_view<Char>(input));
+            const auto span = inlineCharacters(*slot.value);
+            if (count <= inlineCapacity || kind == 0) assert(span.count != 0);
+            { EntriesPressure pressure; slot.reset(); span.assertZero(); }
+            if (kind != 6) exact(source, input); // A copied guard must not target source.
+        }
+    }
+    const Char embedded[] = {Char{'a'}, Char{}, Char{'z'}, Char{}};
+    for (unsigned kind = 0; kind != 3; ++kind) {
+        RetainedString<String> slot;
+        if (kind == 0) slot.construct(embedded);
+        else if (kind == 1) slot.construct(embedded, 3);
+        else slot.construct(std::basic_string_view<Char>(embedded, 3));
+        exact(*slot.value, {embedded, kind == 0 ? 1U : 3U});
+        const auto span = inlineCharacters(*slot.value); assert(span.count != 0);
+        slot.reset(); span.assertZero();
+    }
+    // Guard addresses remain local through all short/long transfer pairings.
+    for (bool longA : {false, true}) for (bool longB : {false, true}) {
+        for (unsigned operation = 0; operation != 4; ++operation) {
+            RetainedString<String> a, b;
+            a.construct(longA ? 257 : 3, Char{'a'});
+            b.construct(longB ? 259 : 3, Char{'b'});
+            const auto oldA = inlineCharacters(*a.value), oldB = inlineCharacters(*b.value);
+            const std::basic_string<Char> expectedA(a.value->data(), a.value->size());
+            const std::basic_string<Char> expectedB(b.value->data(), b.value->size());
+            if (operation == 0) *a.value = *b.value;
+            else if (operation == 1) *a.value = std::move(*b.value);
+            else if (operation == 2) a.value->swap(*b.value);
+            else std::swap(*a.value, *b.value);
+            exact(*a.value, expectedB);
+            auto& alias = *a.value;
+            *a.value = alias; *a.value = std::move(alias);
+            exact(*a.value, expectedB);
+            const auto finalA = inlineCharacters(*a.value), finalB = inlineCharacters(*b.value);
+            { EntriesPressure pressure; a.reset(); oldA.assertZero(); finalA.assertZero(); }
+            if (operation == 0) exact(*b.value, expectedB);
+            else if (operation >= 2) exact(*b.value, expectedA);
+            { EntriesPressure pressure; b.reset(); oldB.assertZero(); finalB.assertZero(); }
+        }
+    }
+    {
+        RetainedString<String> slot;
+        slot.construct(3, Char{'x'});
+        const auto original = inlineCharacters(*slot.value); assert(original.count != 0);
+        slot.value->assign(257, Char{'y'}); assert(inlineCharacters(*slot.value).count == 0);
+        String shortValue(3, Char{'z'});
+        slot.value->swap(shortValue); // Actual long -> inline; resize need not do this.
+        assert(inlineCharacters(*slot.value).count != 0);
+        slot.reset(); original.assertZero(); exact(shortValue, std::basic_string<Char>(257, Char{'y'}));
+    }
+    {
+        struct Owner { std::uint64_t before = 17; std::optional<String> field; String sibling; std::uint64_t after = 29; };
+        auto owner = std::make_unique<Owner>();
+        owner->sibling.assign(3, Char{'s'});
+        owner->field.emplace(embedded, 3);
+        const auto span = inlineCharacters(*owner->field); assert(span.count != 0);
+        { EntriesPressure pressure; owner->field.reset(); span.assertZero(); }
+        assert(owner->before == 17 && owner->after == 29);
+        exact(owner->sibling, std::basic_string<Char>(3, Char{'s'}));
+        std::array<std::optional<String>, 2> array;
+        array[0].emplace(3, Char{'a'}); array[1].emplace(3, Char{'b'});
+        const auto first = inlineCharacters(*array[0]), second = inlineCharacters(*array[1]);
+        { EntriesPressure pressure; array[0].reset(); first.assertZero(); }
+        exact(*array[1], std::basic_string<Char>(3, Char{'b'}));
+        { EntriesPressure pressure; array[1].reset(); second.assertZero(); }
+    }
+    {
+        CustodyVector<String> values;
+        values.reserve(1); values.emplace_back(3, Char{'a'});
+        values.emplace_back(3, Char{'b'}); // Relocate nontrivial strings.
+        exact(values[0], std::basic_string<Char>(3, Char{'a'}));
+        const auto first = inlineCharacters(values[0]), last = inlineCharacters(values[1]);
+        assert(first.count != 0 && last.count != 0);
+        { EntriesPressure pressure; values.erase(values.end() - 1); last.assertZero(); }
+        exact(values[0], std::basic_string<Char>(3, Char{'a'}));
+        { EntriesPressure pressure; values.clear(); first.assertZero(); }
+        assert(values.capacity() >= 2); // Retired spans are still in allocated capacity.
+        std::set<String, std::less<String>, CustodyAllocator<String>> nodes;
+        nodes.emplace(3, Char{'n'});
+        auto copy = nodes;
+        { EntriesPressure pressure; nodes.clear(); }
+        exact(*copy.begin(), std::basic_string<Char>(3, Char{'n'}));
+        { EntriesPressure pressure; copy.clear(); }
+    }
+    // Weak ownership retains the allocation, but not the String lifetime.
+    for (bool charged : {false, true}) {
+        const auto beforeOwner = CustodyOwnedMemory::usedBytes();
+        auto owner = charged ? std::allocate_shared<String>(CustodyAllocator<String>{}, embedded, 3)
+                             : std::make_shared<String>(embedded, 3);
+        auto second = owner;
+        std::weak_ptr<String> weak(owner);
+        const auto span = inlineCharacters(*owner); assert(span.count != 0);
+        owner.reset(); exact(*second, {embedded, 3});
+        { EntriesPressure pressure; second.reset(); assert(weak.expired()); span.assertZero(); }
+        if (charged) assert(CustodyOwnedMemory::usedBytes() > beforeOwner);
+        weak.reset();
+        assert(CustodyOwnedMemory::usedBytes() == beforeOwner);
+    }
+    {
+        struct SyntheticThrow {};
+        struct ThrowAfter {
+            ThrowAfter(const String& value, InlineCharacters& span, std::optional<EntriesPressure>& pressure) {
+                span = inlineCharacters(value); assert(span.count != 0);
+                pressure.emplace(); // Held by the caller throughout member unwind.
+                throw SyntheticThrow{};
+            }
+        };
+        struct UnwindOwner {
+            String value;
+            ThrowAfter tail;
+            UnwindOwner(const Char* input, InlineCharacters& span, std::optional<EntriesPressure>& pressure)
+                : value(input, 3), tail(value, span, pressure) {}
+        };
+        alignas(UnwindOwner) unsigned char storage[sizeof(UnwindOwner)];
+        InlineCharacters span;
+        std::optional<EntriesPressure> pressure;
+        bool threw = false;
+        try { ::new (static_cast<void*>(storage)) UnwindOwner(embedded, span, pressure); }
+        catch (const SyntheticThrow&) { threw = true; }
+        assert(threw); span.assertZero(); // Storage remains alive after member unwind.
+        assert(pressure.has_value()); pressure.reset();
+    }
+    {
+        String source(257, Char{'r'});
+        const auto used = CustodyOwnedMemory::usedBytes();
+        RetainedString<String> failed;
+        for (bool copy : {false, true}) {
+            bool refused = false;
+            { EntriesPressure pressure;
+              try { if (copy) failed.construct(source); else failed.construct(257, Char{'r'}); }
+              catch (const std::bad_alloc&) { refused = true; }
+              assert(refused && !failed.value && CustodyOwnedMemory::usedBytes() == CustodyOwnedMemory::limit);
+            }
+            assert(CustodyOwnedMemory::usedBytes() == used);
+            exact(source, std::basic_string<Char>(257, Char{'r'}));
+            // Fail the real payload allocation after a successful empty delegate,
+            // including on STL configurations with a separate Debug proxy.
+            failAllocationBytes = (source.capacity() + 1) * sizeof(Char);
+            refused = false;
+            try { if (copy) failed.construct(source); else failed.construct(257, Char{'r'}); }
+            catch (const std::bad_alloc&) { refused = true; }
+            assert(refused && !failed.value && failAllocationBytes == 0);
+            assert(CustodyOwnedMemory::usedBytes() == used);
+            exact(source, std::basic_string<Char>(257, Char{'r'}));
+        }
+    }
+    // The empty string can own a charged MSVC Debug proxy until scope exit.
+    assert(withEmpty >= baseline && CustodyOwnedMemory::usedBytes() == withEmpty);
+    std::fprintf(stderr, "STRING_LIFETIME width=%zu PASS\n", sizeof(Char));
+}
 
 // Select one cut per process so every RED identifies its own pre-free oracle.
 // All observed storage is still allocated; SSO is inside a test heap owner.
@@ -677,6 +895,13 @@ int main(int argc, char** argv) {
         mutationBudgetTests<CustodyWideString>();
         return 0;
     }
+    if (argc == 2 && std::strcmp(argv[1], "--string-lifetime") == 0) {
+        const auto before = CustodyOwnedMemory::usedBytes();
+        stringLifetimeTests<CustodyString>();
+        stringLifetimeTests<CustodyWideString>();
+        assert(CustodyOwnedMemory::usedBytes() == before);
+        return 0;
+    }
     using Codec = ProtectedCustodyCodec;
     auto c = context();
     entriesMoveBudgetTests();
@@ -688,6 +913,8 @@ int main(int argc, char** argv) {
     retiringMemoryTests<CustodyBytes>();
     retiringMemoryTests<CustodyString>();
     retiringMemoryTests<CustodyWideString>();
+    stringLifetimeTests<CustodyString>();
+    stringLifetimeTests<CustodyWideString>();
     memoryBudgetTests(c);
     assert(CustodyOwnedMemory::usedBytes() == 0);
     assert(Codec::logicalLimit(c.role) == (std::uint64_t{64} << 30));
