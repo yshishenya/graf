@@ -881,11 +881,25 @@
   [Доказательство и пределы](https://github.com/yshishenya/graf/blob/959d43d0b9f7ece86e01e88c45b31d9bafe8ca41/specs/273-paid-traffic-analytics/validation/t112-early-proof-get-validation-20261117.md).
   Изолированная PostgreSQL удалена runner, временная копия снята finally.
   POST/M1/V4/87 не исполнялись. Допуск одногоGET использован.
-- [ ] Независимо определить минимальный следующий опыт для исходного native
-  COMMIT/response. Прежние normalPOST2responsecompletefalse/faultresponseheld
-  и repeatedHOLD не объяснены, tracing причиной не доказан. Новый дизайн
-  реализации заранее не принимает; до него не повторять native/87 и не менять
-  runtime. Поручение next-design пока только файл, не доставка/verified wait.
+- [x] Получить и полностью прочитать независимый проект следующего опыта:
+  TEST DESIGN PASS/P1=0/P2=0; отчёт SHA-256
+  `8f59e2eacbe72fb0dcf3a553869c001141eeeb4fac6032f4938e449f137c1e3d`.
+  Выбран один normal `[False]` исходного native-теста: реальный GET/HTML,
+  оба прежних POST, COMMIT, ранняя очистка/F/B и исходные assertions/сроки.
+  Только редкие отметки и attempted/completed ASGI-send в тестовой копии,
+  без глобальной трассировки/добавочных HTTP/SQL. Независимо подтверждены
+  узкие пределы выполненного oneGET; новый native опыт не запускался.
+  [Проект и критерии остановки](https://github.com/yshishenya/graf/blob/d33d9cfc49253bea4a3f207c1000ec56a5d55c85/specs/273-paid-traffic-analytics/validation/t112-native-response-next-design-20261117.md).
+  Отчёт сохранён/pushed `d33d9cfc4`, exact remote readback/context/diff PASS
+  в кодовой копии; `apps/server` и `changes` побайтово прежние `ef9f5047a`.
+  Общий agent-context плановой ветки отказал из-за прежних файлов за пределами
+  ownership; область не расширялась. Новый diff содержит только этот план.
+- [ ] Подготовить точную инертную диагностическую копию и selfcheck без
+  HTTP/БД, затем получить отдельное независимое implementation review до
+  collect-only и единственного normal-запуска. Новый проект не является
+  допуском к исполнению. True/M1/87 не назначены; прежние normal POST2,
+  fault response_held и repeatedHOLD остаются необъяснёнными. Успех normal
+  сам по себе не установит их причину; runtime по догадке не менять.
 - [ ] Завершить чтение нового завершённого недельного отчёта Метрики. В IAB2
   авторизованный кабинет действительно открылся; показал предупреждение
   технических работ и возможной задержки. Единственный увиденный прямой визит
