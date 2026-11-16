@@ -411,6 +411,8 @@ def test_public_metrica_templates_match_mode_without_loading_sdk_on_legal_pages(
     def render(name, path):
         return env.get_template('public/' + name).render(
             public_analytics=build_public_analytics_context(settings, path),
+            canonical_url='https://graf.invalid/',
+            public_offer={'catalog_ready': False, 'sale_ready': False},
             public_static_asset_url=lambda name: '/static/public/' + name,
             cabinet_static_asset_url=lambda name: '/static/cabinet/' + name,
         )
@@ -418,6 +420,13 @@ def test_public_metrica_templates_match_mode_without_loading_sdk_on_legal_pages(
     assert ('/static/public/metrica.js' in html) is automatic
     assert ('cookieconsent.umd.js' in html) is not automatic
     assert ('data-metrica-toggle' in html) is automatic
+    html = render('landing.html', '/')
+    assert ('/static/public/metrica.js' in html) is automatic
+    assert ('cookieconsent.umd.js' in html) is not automatic
+    assert html.count('data-metrica-toggle') == int(automatic)
+    assert ('id="analytics-settings"' in html) is automatic
+    assert ('data-metrica-status' in html) is automatic
+    assert ('data-cc="show-preferencesModal"' in html) is not automatic
     for name, path in [('cookies.html', '/cookies'), ('privacy.html', '/privacy'),
                        ('analytics_consent.html', '/analytics-consent')]:
         html = render(name, path)
