@@ -46,4 +46,4 @@
 - Deploy backup: `/opt/projects/2brain-rec/backups/20261115T215456Z`.
 - Final notarized PKG: `GRAF-2026.11.12.6.pkg`, 9 706 266 bytes, SHA256 `5acf5d3eb18659255afa30708ad63f548dae4250830806b95a3d5ee721ba363e`.
 - GitHub Release `v2026.11.12.6` published with PKG, Sparkle archive, appcast, checksum and attestation.
-- Website `graf.pkg` replaced with the final PKG; HTTP 200 and SHA256 verified, previous file kept as `graf.pkg.pre-2026.11.12.6-20261115T221852Z`.
+- Website `/static/public/downloads/graf.pkg` replaced with the final PKG; HTTP 200 and SHA256 verified, previous file kept as `graf.pkg.pre-2026.11.12.6-20261115T221852Z`.
