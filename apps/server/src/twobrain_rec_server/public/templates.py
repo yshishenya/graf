@@ -15,6 +15,7 @@ from twobrain_rec_server.cabinet.templates import CABINET_STATIC_URL, cabinet_st
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.product_analytics.acquisition import record_visit_attribution_safely
 from twobrain_rec_server.public.analytics import (
+    PUBLIC_ANALYTICS_MAP_FRAME_ORIGINS,
     apply_public_visit_attribution_cookie,
     build_public_analytics_context,
     read_public_visit_attribution,
@@ -178,4 +179,11 @@ def public_template_response(
         status_code=status_code,
     )
     response.headers.update(PUBLIC_HTML_HEADERS)
+    analytics = context["public_analytics"]
+    if analytics.get("automatic_enabled") and analytics.get("replay_allowed"):
+        response.headers["Content-Security-Policy"] = (
+            "frame-ancestors " + " ".join(PUBLIC_ANALYTICS_MAP_FRAME_ORIGINS)
+            + "; base-uri 'self'; object-src 'none'"
+        )
+        del response.headers["X-Frame-Options"]
     return response

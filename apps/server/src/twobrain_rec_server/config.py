@@ -106,6 +106,7 @@ class Settings(BaseSettings):
     support_incident_rate_limit_window_seconds: PositiveInt = Field(default=3600)
     support_incident_rate_limit_max_attempts: PositiveInt = Field(default=10)
     public_analytics_enabled: bool = False
+    public_analytics_automatic_enabled: bool = False
     public_analytics_yandex_metrica_id: str | None = None
     public_analytics_validation_mode: str = "disabled"
     public_analytics_replay_enabled: bool = False

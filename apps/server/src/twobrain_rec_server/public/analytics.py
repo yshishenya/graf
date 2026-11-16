@@ -111,6 +111,12 @@ PUBLIC_ANALYTICS_CONSENT_CATEGORIES = (
     "behavior_replay",
 )
 
+PUBLIC_ANALYTICS_MAP_FRAME_ORIGINS = (
+    "https://metrika.yandex.ru", "https://metrika.yandex.by",
+    "https://metrica.yandex.com", "https://metrica.yandex.com.tr",
+    "https://webvisor.com", "https://*.webvisor.com",
+)
+
 PUBLIC_ANALYTICS_SECTION_IDS = ("hero", "audience", "workflow", "pricing", "faq", "final_cta")
 PUBLIC_ANALYTICS_CTA_LOCATIONS = (
     "header_download",
@@ -467,11 +473,14 @@ def normalize_public_campaign_attribution(
     return normalized
 
 
-def public_analytics_blocker(settings: Settings, path: str) -> str | None:
+def public_analytics_blocker(
+    settings: Settings, path: str, *, require_consent_revision: bool = True,
+) -> str | None:
     """Resolve public permission afresh; unknown basis never permits delivery."""
     if not settings.public_analytics_enabled:
         return "public_measurement_disabled"
-    if settings.public_analytics_consent_copy_version != PUBLIC_ANALYTICS_CONSENT_VERSION:
+    if (require_consent_revision
+            and settings.public_analytics_consent_copy_version != PUBLIC_ANALYTICS_CONSENT_VERSION):
         return "consent_revision_mismatch"
     if (settings.env.lower() not in PUBLIC_ANALYTICS_PRODUCTION_ENVS
             and settings.public_analytics_validation_mode not in {"render_only", "provider_smoke"}):
@@ -501,14 +510,21 @@ def build_public_analytics_context(
         "render_only",
         "provider_smoke",
     }
-    configured = bool(counter_id and public_analytics_blocker(settings, path) is None)
+    automatic_enabled = bool(
+        settings.public_analytics_automatic_enabled
+        and surface in PUBLIC_ANALYTICS_EXTERNAL_COUNTER_SURFACES
+    )
+    configured = bool(counter_id and public_analytics_blocker(
+        settings, path, require_consent_revision=not automatic_enabled,
+    ) is None)
     enabled = bool(configured and surface)
     # Refusal control remains available when optional measurement is disabled.
-    consent_ui_enabled = path in PUBLIC_ANALYTICS_CONSENT_PATHS
-    # T106 currently admits only the first-party relay. External SDK/replay need
-    # their own accepted revocation boundary before they can be enabled again.
-    replay_allowed = False
-    external_counter_allowed = False
+    consent_ui_enabled = path in PUBLIC_ANALYTICS_CONSENT_PATHS and not automatic_enabled
+    # The automatic public branch never grants consent to the relay or PostHog.
+    external_counter_allowed = bool(
+        automatic_enabled and enabled and validation_mode != "render_only"
+    )
+    replay_allowed = bool(external_counter_allowed and settings.public_analytics_replay_enabled)
 
     campaign_attribution = normalize_public_campaign_attribution(
         query_params,
@@ -518,14 +534,17 @@ def build_public_analytics_context(
 
     return {
         "enabled": enabled,
+        "automatic_configured": settings.public_analytics_automatic_enabled,
+        "automatic_enabled": automatic_enabled,
         "consent_ui_enabled": consent_ui_enabled,
         "consent_control_endpoint": "/analytics/public-consent" if consent_ui_enabled else None,
         "provider": PUBLIC_ANALYTICS_PROVIDER,
         "validation_mode": validation_mode,
         "environment_allowed": environment_allowed,
         "yandex_metrica_id_present": bool(counter_id),
-        "yandex_metrica_id": None,
+        "yandex_metrica_id": counter_id if external_counter_allowed else None,
         "replay_allowed": replay_allowed,
+        "map_frame_origins": list(PUBLIC_ANALYTICS_MAP_FRAME_ORIGINS) if replay_allowed else [],
         "webvisor_allowed": replay_allowed,
         "click_map_allowed": replay_allowed,
         "scroll_map_allowed": replay_allowed,
@@ -533,7 +552,7 @@ def build_public_analytics_context(
         "replay_scope": list(PUBLIC_ANALYTICS_REPLAY_SURFACES),
         "external_counter_allowed": external_counter_allowed,
         "external_counter_scope": list(PUBLIC_ANALYTICS_EXTERNAL_COUNTER_SURFACES),
-        "measurement_scope": "all_public_pages_by_consent",
+        "measurement_scope": "public_landing_automatic" if automatic_enabled else "all_public_pages_by_consent",
         "posthog_capture_endpoint": PUBLIC_ANALYTICS_CAPTURE_ENDPOINT,
         "visit_attribution_cookie": PUBLIC_VISIT_ATTRIBUTION_COOKIE,
         "consent_copy_version": consent_copy_version,

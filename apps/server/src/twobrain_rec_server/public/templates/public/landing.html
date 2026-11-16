@@ -367,7 +367,12 @@
           <a href="/terms">Условия</a>
           <a href="/offer">Оплата и возврат</a>
           <a href="/analytics-consent">Об аналитике</a>
-          {% if public_analytics.get('consent_ui_enabled', false) %}
+          {% if public_analytics.get('automatic_enabled', false) %}
+            <button id="analytics-settings" class="cookie-settings-link" type="button" data-metrica-toggle>
+              Отключить Метрику и Вебвизор
+            </button>
+            <span role="status" aria-live="polite" data-metrica-status></span>
+          {% elif public_analytics.get('consent_ui_enabled', false) %}
             <button class="cookie-settings-link" type="button" data-cc="show-preferencesModal">
               Настройки cookies
             </button>

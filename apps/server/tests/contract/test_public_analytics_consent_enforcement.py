@@ -105,6 +105,16 @@ def _stored_download_visits(database_url: str) -> int:
 
 
 @pytest.mark.skipif(NODE is None, reason="node is required to run the browser controller")
+def test_automatic_public_metrica_controller_preserves_refusal_and_frame_boundaries() -> None:
+    completed = subprocess.run(
+        [NODE, str(ROOT / "tests/browser/public-metrica-automatic.test.cjs")],
+        capture_output=True, text=True, check=False, cwd=str(ROOT), timeout=30,
+    )
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert "fail 0" in completed.stdout
+
+
+@pytest.mark.skipif(NODE is None, reason="node is required to run the browser controller")
 def test_browser_controller_never_sends_an_optional_event_without_consent(tmp_path: Path) -> None:
     """SC-004, FR-059: run the real controller, not a description of it."""
     context = build_public_analytics_context(
