@@ -135,3 +135,75 @@ filesystem guards не выдумывается данным проектом. �
 До кода независимый reviewer должен подтвердить точку допуска INSERT,
 учёт RETURNING/commit, полномочия Session и единый срок. Неясный узел
 означает доработку проекта; код не начинается по общему одобрению направления.
+
+## Уточнение после независимого HOLD: D1/D2
+
+Получен полностью прочитанный
+[preflight review](t112-admission-session-integration-preflight-review-20261116.md),
+SHA-256 `2e7d172ee05216a7f2cc4737e84bd196789cd00f9b72f40cbe184061089d36a5`:
+HOLD P1=0/P2=2. Самостоятельный прежний R4 PASS не разрешает этот новый код.
+Следующие точные интерфейсы заменяют неоднозначность §§5/6/9 выше.
+
+### D1 — исполнение exact INSERT
+
+В `admit_account_milestone` добавляется только внутренний необязательный
+параметр `_execute_insert`; его значение — async callback(statement),
+возвращающий обычный SQLAlchemy Result с единственным scalar UUID/None.
+Default caller исполняет тот же statement через db.execute. SQL-примитив
+один раз строит values/ON CONFLICT/RETURNING id; после обоих исходов выполняет
+общий SELECT и возвращает прежние row/created. Частные Insert._values,
+ORM annotations и копия SQL не используются.
+
+Admission owner хранит public AsyncConnection, полученную ровно один раз
+через собственную новую Session при start; синхронная Connection для detector
+соответствует именно ей. Внутри фиксированной операции `.admit_event` owner
+передаёт SQL-примитиву своё короткоживущее замыкание `_execute_insert`.
+Verifier получает только db, не callback или разрешение на записи.
+Замыкание после phase/event/account/source и свежего gate/checkpoint
+резервирует1row/32bytes, устанавливает `_permit(statement)` и выполняет
+**await owned_async_connection.execute(statement)** на том же объекте,
+без ORM pre-session pass. До него `_limit_statement` уже применил остаток
+срока; после полного await/checkpoint разрешение снимается finally.
+Scalar извлекает прежний SQL-примитив, затем guarded SELECT материализует row.
+Любая ошибка/отмена помечает failed до передачи primitive/reader.
+
+Нет engine.connect/нового checkout, обхода event detectors или доверия
+типу/таблице Insert. Прямой db.execute/connection.execute похожего INSERT
+не имеет exact разрешения. Row shape и единственный cursor execution этого
+public Connection пути подтверждаются причинным тестом до приёмки кода.
+Sequence: reads → event1 primitive completed → event2 primitive completed →
+единственная commit attempt → terminal. Completed включает duplicate SELECT.
+
+### D2 — два абсолютных срока без повторного резерва
+
+Общий внутренний context manager принимает обязательные keyword-only
+`work_deadline` и `cleanup_deadline`. Он не создаёт новый2s и не вычитает
+резерв. Owner.start/tenant/reads/gates/обаINSERT/commit используют work;
+rollback/close — исходный cleanup. Work<=cleanup; истёкшая/некорректная пара
+закрывает путь до подключения/verifier.
+
+Публичный read-only wrapper сохраняет прежнее `deadline=end`: один раз
+получает end=min(start+2,deadline), затем передаёт work=end-0.5/end общему
+context. Его существующая семантика не меняется.
+
+`admit_result_view` получает необязательную keyword-only пару
+`work_deadline`, `cleanup_deadline`; либо оба отсутствуют и он создаёт
+end=start+2/work=end-0.5 **до входа в период**, либо оба заданы middleware.
+Один без другого/невалидная пара/срок за собственным start+2 — отказ.
+Дальше та же пара без преобразования идёт в `_account_transaction`,
+`_result_period_context(sessionmaker, *, work_deadline, cleanup_deadline)`
+и внутренний admission context/owner. В require_period ветке прежние
+новые timeout2/timeout1.5 удаляются; caller/owner используют timeout_at
+этих значений. Server-auth ветка без периода сохраняет прежний путь.
+
+HTTP middleware создаёт пару один раз: прежний
+request.state.result_view_deadline остаётся work; новый
+request.state.result_view_cleanup_deadline хранит исходный end.
+Будущий handler передаёт оба числа явно. Он не переводит work в end и не
+прибавляет новый резерв. Общий2s включает body/auth/dependencies/commit/
+response/cleanup; закрытый route не получает больше времени от нового owner.
+
+В причинных тестах задержка до входа в период и checkout расходует ту же
+пару; work не сокращается ещё на0.5. In-flight SQL/commit/close cancellation
+и pool handoff проверяют исходный end без surviving Session/tasks. Новый
+проектный PASS ещё требуется; эти проверки не объявлены выполненными.
