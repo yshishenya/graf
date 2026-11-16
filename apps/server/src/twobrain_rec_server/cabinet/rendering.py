@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
@@ -1026,6 +1027,7 @@ def render_meeting_detail_page(
     profile=None,
     shared_workspace_id: UUID | None = None,
     title_edit: dict[str, str] | None = None,
+    result_view_proofs: Mapping[str, str] | None = None,
 ) -> str:
     content = _render_meeting_detail_content(
         review,
@@ -1034,6 +1036,7 @@ def render_meeting_detail_page(
         poll_url=poll_url,
         shared_workspace_id=shared_workspace_id,
         title_edit=title_edit,
+        result_view_proofs=result_view_proofs,
     )
     return _page_shell(
         review.meeting.title,
@@ -1054,6 +1057,7 @@ def render_meeting_detail_fragment(
     focus_calendar_context: bool = False,
     poll_url: str | None = None,
     shared_workspace_id: UUID | None = None,
+    result_view_proofs: Mapping[str, str] | None = None,
 ) -> str:
     return render_template(
         "cabinet/fragments/meeting_detail.html",
@@ -1065,6 +1069,7 @@ def render_meeting_detail_fragment(
                 focus_calendar_context=focus_calendar_context,
                 poll_url=poll_url,
                 shared_workspace_id=shared_workspace_id,
+                result_view_proofs=result_view_proofs,
             ),
             source="meeting_detail.content",
         ),
@@ -1080,12 +1085,14 @@ def _render_meeting_detail_content(
     poll_url: str | None = None,
     shared_workspace_id: UUID | None = None,
     title_edit: dict[str, str] | None = None,
+    result_view_proofs: Mapping[str, str] | None = None,
 ) -> str:
     transcript_rows = rendered_transcript_rows(review)
     speaker_palette = _speaker_palette(review.speakers)
     attribution_notice = _speaker_attribution_notice(review)
     transcript = trusted_component_html(
-        _render_transcript(transcript_rows, speaker_palette), source="meeting_detail.transcript"
+        _render_transcript(transcript_rows, speaker_palette, result_view_proofs=result_view_proofs),
+        source="meeting_detail.transcript",
     )
     if "source_result_id" in parse_qs(urlsplit(poll_url or "").query):
         transcript = trusted_component_html(
@@ -1282,7 +1289,8 @@ def _render_meeting_detail_content(
         audio_download_available=(review.governance.download.state == "available"),
         audio_download_href=audio_download_href,
         outcomes=trusted_component_html(
-            _render_notes_outcomes(review), source="meeting_detail.outcomes"
+            _render_notes_outcomes(review, result_view_proofs=result_view_proofs),
+            source="meeting_detail.outcomes",
         ),
         transcript=transcript,
         calendar_context_chooser=trusted_component_html(
@@ -2304,20 +2312,26 @@ def _render_list_delete_dialog() -> str:
     """
 
 
+def _result_view_proof_attribute(proof: str | None) -> str:
+    return f' data-result-view-proof="{escape(proof)}"' if proof else ""
+
+
 def _render_transcript(
     segments: list[TranscriptSegmentView | TranscriptSpeakerTurnView],
     speaker_palette: dict[str, int],
     *, public: bool = False,
+    result_view_proofs: Mapping[str, str] | None = None,
 ) -> str:
+    proofs = result_view_proofs or {}
     return "\n".join(
         f"""
           <article class="segment speaker-color-{speaker_palette.get(segment.speaker_key, 0)}" data-transcript-turn {"data-public-turn" if public else ""} data-source-segments="{escape(_transcript_source_segment_ids(segment))}" data-speaker-key="{escape(segment.speaker_key)}" data-start-seconds="{escape(str(segment.start_seconds))}" data-end-seconds="{escape(str(segment.end_seconds))}" tabindex="-1">
             {_render_timestamp(segment, public=public)}
             <div class="speaker"><span class="dot" aria-hidden="true"></span><span class="speaker-label">{escape(_speaker_display_label(segment.speaker_label))}</span></div>
-            <div class="text">{escape(segment.text)}</div>
+            <div class="text"{_result_view_proof_attribute(proofs.get(f'transcript:{index}') if segment.text.strip() else None)}>{escape(segment.text)}</div>
           </article>
         """
-        for segment in segments
+        for index, segment in enumerate(segments)
     )
 
 
@@ -2667,8 +2681,10 @@ def _render_revision_status(review: MeetingReviewResponse) -> str:
     """
 
 
-def _render_full_protocol(document, *, source_destination_available: bool, base_heading_level: int = 3, source_targets: frozenset[tuple[str, str]] = frozenset(), public_sources: bool = False) -> str:
-    def render_row(row):
+def _render_full_protocol(document, *, source_destination_available: bool, base_heading_level: int = 3, source_targets: frozenset[tuple[str, str]] = frozenset(), public_sources: bool = False, result_view_proofs: Mapping[str, str] | None = None) -> str:
+    proofs = result_view_proofs or {}
+
+    def render_row(row, key):
         item = OutcomeItemView(
             category="summary", sequence=0, text=protocol_row_text(row),
             truth_label="supported",
@@ -2676,7 +2692,10 @@ def _render_full_protocol(document, *, source_destination_available: bool, base_
                 **ref, seekable=(str(ref["processing_result_id"]), str(ref["transcript_segment_id"])) in source_targets,
             ) for ref in row.get("source_refs", [])],
         )
-        rendered = _render_outcome_item(item, source_destination_available=source_destination_available)
+        rendered = _render_outcome_item(
+            item, source_destination_available=source_destination_available,
+            result_view_proof=proofs.get(key),
+        )
         if public_sources:
             rendered += " ".join(f'<a class="notes-source-link" href="#recording?position_ms={int(ref["start_ms"])}" data-public-seek="{int(ref["start_ms"])}">{escape(str(ref["time"]))}</a>' for ref in row.get("sources", []))
         return rendered
@@ -2684,14 +2703,14 @@ def _render_full_protocol(document, *, source_destination_available: bool, base_
     heading = base_heading_level
     blocks = []
     for key, title, empty, rows in protocol_sections(document):
-        body = "".join(render_row(row) for row in rows)
+        body = "".join(render_row(row, f"protocol:{key}:{index}") for index, row in enumerate(rows))
         if key == "action_items" and rows:
             # Explicit table roles preserve semantics when narrow layouts stack cells (including WebKit).
             body = '<table class="notes-action-table" role="table"><caption class="sr-only">Задачи встречи</caption><thead role="rowgroup"><tr role="row">'
             body += ''.join(f'<th role="columnheader" scope="col">{name}</th>' for name in ("Задача", "Ответственный", "Срок"))
             body += '</tr></thead><tbody role="rowgroup">'
-            for row in rows:
-                body += (f'<tr role="row"><td role="cell">{render_row(row)}</td>'
+            for index, row in enumerate(rows):
+                body += (f'<tr role="row"><td role="cell">{render_row(row, f"protocol:{key}:{index}")}</td>'
                          '<td role="cell"><span class="notes-task-label" aria-hidden="true">Ответственный: </span>'
                          f'{escape(row["owner_text"] or "Не назначен")}</td>'
                          '<td role="cell"><span class="notes-task-label" aria-hidden="true">Срок: </span>'
@@ -2701,11 +2720,11 @@ def _render_full_protocol(document, *, source_destination_available: bool, base_
             body = f'<p class="muted">{escape(empty)}</p>'
         blocks.append(f'<section class="notes-section"><h{heading}>{escape(title)}</h{heading}>{body}</section>')
     topics = []
-    for topic in document["topics"]:
+    for topic_index, topic in enumerate(document["topics"]):
         body = ""
-        for _, title, rows in protocol_topic_parts(topic):
+        for key, title, rows in protocol_topic_parts(topic):
             body += (f'<section class="notes-topic-part"><h{heading + 2}>{title}</h{heading + 2}>'
-                     + ''.join(render_row(row) for row in rows) + '</section>')
+                     + ''.join(render_row(row, f"protocol:topic:{topic_index}:{key}:{index}") for index, row in enumerate(rows)) + '</section>')
         topics.append(
             f'<details class="notes-topic"><summary><h{heading + 1}>{escape(topic["title"])}</h{heading + 1}>'
             f'</summary><div class="notes-topic-content">{body}</div></details>'
@@ -2717,15 +2736,18 @@ def _render_full_protocol(document, *, source_destination_available: bool, base_
     if document["notes"]:
         blocks.append(
             f'<details class="notes-section notes-protocol-notes"><summary><h{heading}>Примечания</h{heading}>'
-            '</summary>' + ''.join(render_row(row) for row in document["notes"]) + '</details>'
+            '</summary>' + ''.join(render_row(row, f"protocol:notes:{index}") for index, row in enumerate(document["notes"])) + '</details>'
         )
     return '<div class="notes-full-protocol">' + ''.join(blocks) + '</div>'
 
 
-def _render_notes_outcomes(review: MeetingReviewResponse) -> str:
+def _render_notes_outcomes(
+    review: MeetingReviewResponse, *, result_view_proofs: Mapping[str, str] | None = None,
+) -> str:
     if review.notes_action_truth.protocol is not None:
         return _render_full_protocol(
             review.notes_action_truth.protocol,
+            result_view_proofs=result_view_proofs,
             source_targets=frozenset(
                 (str(segment.processing_result_id), segment.segment_id)
                 for segment in review.transcript.segments
@@ -2779,6 +2801,7 @@ def _render_notes_outcomes(review: MeetingReviewResponse) -> str:
             category,
             title,
             state,
+            result_view_proofs=result_view_proofs,
             source_destination_available=source_destination_available,
         )
         for category, title, state in primary
@@ -2788,6 +2811,7 @@ def _render_notes_outcomes(review: MeetingReviewResponse) -> str:
             category,
             title,
             state,
+            result_view_proofs=result_view_proofs,
             source_destination_available=source_destination_available,
         )
         for category, title, state in secondary
@@ -2857,15 +2881,18 @@ def _render_notes_outcome_row(
     state: NotesActionCategoryState,
     *,
     source_destination_available: bool,
+    result_view_proofs: Mapping[str, str] | None = None,
 ) -> str:
+    proofs = result_view_proofs or {}
     state_name = escape(state.state)
     item_html = (
         "".join(
             _render_outcome_item(
                 item,
                 source_destination_available=source_destination_available,
+                result_view_proof=proofs.get(f"outcome:{category}:{index}"),
             )
-            for item in rendered_outcome_items(state)
+            for index, item in enumerate(rendered_outcome_items(state))
         )
     )
     items = f'<div class="notes-items">{item_html}</div>' if item_html else ""
@@ -2890,7 +2917,9 @@ def _render_notes_outcome_row(
     """
 
 
-def _render_outcome_item(item, *, source_destination_available: bool) -> str:
+def _render_outcome_item(
+    item, *, source_destination_available: bool, result_view_proof: str | None = None,
+) -> str:
     text = escape(item.text or "")
     if not text:
         return ""
@@ -2949,9 +2978,10 @@ def _render_outcome_item(item, *, source_destination_available: bool) -> str:
     metadata_html = (
         f'<div class="notes-item-meta-row">{"".join(metadata)}</div>' if metadata else ""
     )
+    proof_attribute = _result_view_proof_attribute(result_view_proof) if item.text.strip() else ""
     return (
         f'<article class="outcome-item" data-outcome-truth-label="{escape(truth_label)}">'
-        f'<p class="outcome-item-text">{text}</p>{source_html}{metadata_html}</article>'
+        f'<p class="outcome-item-text"{proof_attribute}>{text}</p>{source_html}{metadata_html}</article>'
     )
 
 

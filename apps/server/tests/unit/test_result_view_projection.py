@@ -1,8 +1,10 @@
 """The digest describes the same body text that the cabinet renders."""
 
 import json
+import re
 from dataclasses import replace
 from hashlib import sha256
+from html.parser import HTMLParser
 from uuid import UUID
 
 import pytest
@@ -116,6 +118,106 @@ def test_protocol_metadata_and_empty_disclosures_do_not_become_result_text():
     for key in ("outcome", "context", "discussion", "proposals"):
         protocol["topics"][0][key] = []
     assert result_view_text_blocks(review) == []
+
+
+@pytest.mark.parametrize("kind", ["segments", "turns", "plain", "protocol", "unavailable", "no_search"])
+@pytest.mark.parametrize("embedded", [False, True])
+def test_proof_attributes_belong_only_to_the_corresponding_body_and_preserve_html(kind, embedded):
+    from twobrain_rec_server.cabinet.rendering import (
+        render_meeting_detail_fragment,
+        render_meeting_detail_page,
+    )
+    from twobrain_rec_server.cabinet.result_visibility import result_view_text_blocks
+
+    review = projection_review(kind)
+    if kind == "protocol":
+        protocol = review.notes_action_truth.protocol
+        for category in ("executive_summary", "decisions", "open_questions", "next_steps", "notes"):
+            protocol[category] = [{"text": f"{category}:{index}", "source_refs": []} for index in range(2)]
+        protocol["action_items"] *= 2
+        protocol["topics"].append(dict(protocol["topics"][0]))
+        for topic_index, topic in enumerate(protocol["topics"]):
+            for part in ("outcome", "context", "discussion", "proposals"):
+                topic[part] = [{"text": f"{topic_index}:{part}:{index}", "source_refs": []} for index in range(2)]
+    elif kind == "plain":
+        review.notes_action_truth.summary.items.insert(0, OutcomeItemView(
+            category="summary", sequence=0, text=" \n ", truth_label="supported",
+        ))
+    blocks = result_view_text_blocks(review)
+    proofs = {key: f"synthetic-{index}." + "a" * 64 for index, (key, _, _) in enumerate(blocks)}
+    expected = {proofs[key]: text for key, _, text in blocks}
+
+    class Bodies(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.current = None
+            self.values = {}
+
+        def handle_starttag(self, tag, attrs):
+            proof = dict(attrs).get("data-result-view-proof")
+            if proof:
+                assert self.current is None and tag in {"p", "div"}
+                assert proof not in self.values
+                self.current = proof
+                self.values[proof] = ""
+
+        def handle_data(self, text):
+            if self.current:
+                self.values[self.current] += text
+
+        def handle_endtag(self, tag):
+            if tag in {"p", "div"}:
+                self.current = None
+
+    for render in (render_meeting_detail_page, render_meeting_detail_fragment):
+        before = render(review, embedded=embedded)
+        assert render(review, embedded=embedded, result_view_proofs={}) == before
+        after = render(review, embedded=embedded, result_view_proofs=proofs)
+        parser = Bodies()
+        parser.feed(after)
+        assert parser.values == expected
+        assert re.sub(r' data-result-view-proof="[^"]*"', "", after) == before
+
+
+def test_proof_attribute_is_escaped_without_changing_the_body_or_other_attributes():
+    from twobrain_rec_server.cabinet.rendering import render_meeting_detail_page
+    from twobrain_rec_server.cabinet.result_visibility import result_view_text_blocks
+
+    review = projection_review("plain")
+    proof = '\" onmouseover=\"synthetic\"><script>synthetic</script>&'
+    blocks = result_view_text_blocks(review)
+    proofs = {key: proof for key, _, _ in blocks}
+    html = render_meeting_detail_page(review, result_view_proofs=proofs)
+
+    class Attributes(HTMLParser):
+        def handle_starttag(self, tag, attrs):
+            values = dict(attrs)
+            if "data-result-view-proof" in values:
+                assert values == {"class": "text" if tag == "div" else "outcome-item-text",
+                                  "data-result-view-proof": proof}
+                self.count += 1
+
+    parser = Attributes()
+    parser.count = 0
+    parser.feed(html)
+    assert parser.count == len(blocks)
+    assert re.sub(r' data-result-view-proof="[^"]*"', "", html) == render_meeting_detail_page(review)
+
+
+def test_blank_bodies_and_unavailable_outcomes_cannot_receive_a_proof():
+    from twobrain_rec_server.cabinet.rendering import render_meeting_detail_page
+    from twobrain_rec_server.cabinet.result_visibility import result_view_text_blocks
+
+    review = projection_review("plain")
+    proofs = {key: "synthetic" for key, _, _ in result_view_text_blocks(review)}
+    proofs["title"] = "synthetic"
+    review.transcript.segments[0].text = " \n\t "
+    review.notes_action_truth.summary.items[0].text = " \t "
+    review.notes_action_truth.action_items.state = "unsafe"
+    review.notes_action_truth.decisions.items[0].text = ""
+    before = render_meeting_detail_page(review)
+    assert render_meeting_detail_page(review, result_view_proofs=proofs) == before
+    assert "data-result-view-proof" not in before
 
 
 def test_digest_is_canonical_binds_its_own_result_and_preserves_original_text():
