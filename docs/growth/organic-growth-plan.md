@@ -263,6 +263,22 @@
   [Проверки и предел](https://github.com/yshishenya/graf/blob/41ff49078c30d02d8c6c626018ae1a3c0584e68f/specs/273-paid-traffic-analytics/validation/t112-precheckout-validation-20261116.md),
   [независимое ревью](https://github.com/yshishenya/graf/blob/41ff49078c30d02d8c6c626018ae1a3c0584e68f/specs/273-paid-traffic-analytics/validation/t112-precheckout-review-20261116.md).
   Рабочий сбор выключен; PR/CI/merge/выпуска этого расширения нет.
+- [ ] Принять следующее отдельное расширение: отмена native rollback внутри
+  штатного Session.close/__aexit__. Исходный сетевой RED: три контроля PASS,
+  три fault не завершали HTTP-ответ до2s. Публичные SQLAlchemy события теперь
+  передают владение actual close task, сохраняя точные owner/entry/DBAPI/driver
+  и root association. После join/checkin удаляется только завершённая
+  собственная metadata; неизвестный commit не повторяется.
+  Новый изменённый профиль120 PASS/1 прежний warning/0 skips,
+  runner48s/EXIT0; PostgreSQL контейнер штатно удалён. Включены35 новых случаев
+  и85 прежних регрессий, независимый DB observer и сохранение чужого соединения.
+  Сохранено/pushed промежуточным кодом
+  `afa72de5deb2f2d335df62b9b178092a441e201f`, remote readback совпал.
+  Полоса high-risk-product; независимое implementation review ещё не получено,
+  проектный preflight его не заменяет. PR/CI/merge/выпуска нет, рабочий сбор
+  выключен. Pool reset/raw driver.close/init/остальные commit и весь T112/T113
+  остаются открытыми.
+  [Проверки и границы](https://github.com/yshishenya/graf/blob/afa72de5deb2f2d335df62b9b178092a441e201f/specs/273-paid-traffic-analytics/validation/t112-close-validation-20261116.md).
 - [ ] Выполнить полный source/audit/projection/proof, browser/native visibility, защищённый
   POST и общую admission boundary с причинной DB/browser/Swift/failure матрицей.
   Renderer использует общий чистый выбор строк и принимает необязательную карту
