@@ -3,13 +3,16 @@
 import asyncio
 import json
 from contextlib import asynccontextmanager
+from contextvars import Context
 from time import monotonic
 from types import SimpleNamespace
 
 import pytest
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from sqlalchemy.orm import Session
 
+from twobrain_rec_server.api import product_analytics_guard as guard_module
 from twobrain_rec_server.api.product_analytics_guard import ProductAnalyticsIngressGuard
 from twobrain_rec_server.auth import session_renewal
 
@@ -17,6 +20,92 @@ PATHS = [
     "/meetings/70000000-0000-0000-0000-000000000001/result-viewed",
     "/desktop/meetings/70000000-0000-0000-0000-000000000001/result-viewed",
 ]
+
+
+@pytest.mark.parametrize("case", [
+    "precheckout", "checkout", "no_owner", "not_cancelling", "not_in_use",
+    "other_dbapi", "other_driver", "foreign_lease", "stale_lease", "wrong_lease_driver", "not_cancelled_error",
+])
+def test_cancelled_precheckout_terminates_only_its_exact_current_driver(case, monkeypatch):
+    async def scenario():
+        class Entry:
+            pass
+
+        class Driver:
+            calls = 0
+
+            def terminate(self):
+                self.calls += 1
+
+        monkeypatch.setattr(guard_module, "AsyncpgConnection", Driver)
+        owner = {}
+        driver = Driver()
+        wrapper = SimpleNamespace(driver_connection=driver)
+        entry = Entry()
+        entry.info = {}
+        entry.dbapi_connection = wrapper
+        entry.driver_connection = driver
+        entry.in_use = case != "not_in_use"
+        if case in {"checkout", "foreign_lease", "stale_lease", "wrong_lease_driver"}:
+            lease = ({} if case == "foreign_lease" else owner, wrapper,
+                     object() if case == "wrong_lease_driver" else driver, None)
+            entry.info[guard_module._RESULT_VIEW_CONNECTION_OWNER] = lease
+            if case != "stale_lease":
+                owner[entry] = lease
+        if case == "other_dbapi":
+            entry.dbapi_connection = object()
+        if case == "other_driver":
+            entry.driver_connection = object()
+
+        async def operation():
+            token = guard_module._RESULT_VIEW_TASK_OWNER.set(None if case == "no_owner" else owner)
+            try:
+                if case == "not_cancelling":
+                    guard_module._terminate_cancelled_result_connection(wrapper, entry, asyncio.CancelledError())
+                    return
+                try:
+                    await asyncio.Event().wait()
+                except asyncio.CancelledError as error:
+                    guard_module._terminate_cancelled_result_connection(
+                        wrapper, entry, RuntimeError("synthetic") if case == "not_cancelled_error" else error,
+                    )
+            finally:
+                guard_module._RESULT_VIEW_TASK_OWNER.reset(token)
+
+        task = asyncio.create_task(operation())
+        await asyncio.sleep(0)
+        if case != "not_cancelling":
+            task.cancel()
+        await task
+        assert driver.calls == (1 if case in {"precheckout", "checkout"} else 0)
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("case", ["owned", "nested", "foreign", "close_in_another_context"])
+def test_session_root_owner_is_known_before_checkout_and_removed_at_its_exact_end(case):
+    async def scenario():
+        owner = guard_module._ResultViewOwner()
+        token = guard_module._RESULT_VIEW_TASK_OWNER.set(None if case == "foreign" else owner)
+        try:
+            with Session() as db:
+                transaction = db.begin()
+                assert len(owner.transactions) == (0 if case == "foreign" else 1)
+                if case != "foreign":
+                    assert owner.transactions[transaction][2] is asyncio.current_task()
+                    if case == "nested":
+                        with db.begin_nested():
+                            assert list(owner.transactions) == [transaction]
+                        assert list(owner.transactions) == [transaction]
+                if case == "close_in_another_context":
+                    async def close():
+                        db.close()
+                    await asyncio.create_task(close(), context=Context())
+                else:
+                    transaction.rollback()
+                assert not owner.transactions and guard_module._RESULT_VIEW_TRANSACTION_OWNER not in db.info
+        finally:
+            guard_module._RESULT_VIEW_TASK_OWNER.reset(token)
+    asyncio.run(scenario())
 
 
 async def _request(app, *, path=PATHS[0], chunks=None, headers=None, method="POST", delay=0):

@@ -1,6 +1,7 @@
 """Real auth/renewal and pool cancellation, with a synthetic non-ledger handler."""
 
 import asyncio
+from contextlib import asynccontextmanager
 from contextvars import Context
 from datetime import UTC, datetime, timedelta
 from time import monotonic
@@ -10,10 +11,12 @@ import httpx
 import pytest
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
-from sqlalchemy import func, select, text
+from sqlalchemy import event, func, select, text
+from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from tests.fakes.auth_contexts import AUTH_BOOTSTRAP_WORKSPACE_ID, DEVICE_ID, USER_ID, WORKSPACE_ID
+from twobrain_rec_server.api import product_analytics_guard as guard_module
 from twobrain_rec_server.api.problems import ProblemDetail, problem_exception_handler
 from twobrain_rec_server.api.product_analytics_guard import ProductAnalyticsIngressGuard
 from twobrain_rec_server.auth import dependencies, session_renewal
@@ -84,12 +87,69 @@ def _headers(session_id, transport="native", csrf=True):
 
 def _run(url, scenario, *, pool_size=1):
     async def run():
-        engine = create_async_engine(url, pool_size=pool_size, max_overflow=0, pool_timeout=10)
+        engine = create_async_engine(url, pool_size=pool_size, max_overflow=0, pool_timeout=10,
+                                     pool_pre_ping=True)
         try:
             await scenario(engine)
         finally:
             await engine.dispose()
     asyncio.run(run())
+
+
+@asynccontextmanager
+async def _postgres_response_gate(url):
+    """Hold real PostgreSQL replies without replacing the driver's ping/close."""
+    upstream = make_url(url)
+    gate, tasks, relays, writers = asyncio.Event(), set(), set(), set()
+    gate.set()
+
+    def start(coro, *, root=False):
+        task = asyncio.create_task(coro, context=Context())
+        tasks.add(task)
+        task.add_done_callback(tasks.discard)
+        if root:
+            relays.add(task)
+            task.add_done_callback(relays.discard)
+        return task
+
+    async def relay(reader, writer):
+        upstream_writer = None
+        pumps = []
+        writers.add(writer)
+        try:
+            upstream_reader, upstream_writer = await asyncio.open_connection(upstream.host, upstream.port)
+            writers.add(upstream_writer)
+
+            async def copy(source, target, held=False):
+                while data := await source.read(65536):
+                    if held:
+                        await gate.wait()
+                    target.write(data)
+                    await target.drain()
+
+            pumps = [start(copy(reader, upstream_writer)), start(copy(upstream_reader, writer, True))]
+            await asyncio.wait(pumps, return_when=asyncio.FIRST_COMPLETED)
+        finally:
+            for task in pumps:
+                task.cancel()
+            await asyncio.gather(*pumps, return_exceptions=True)
+            own_writers = [writer] + ([upstream_writer] if upstream_writer is not None else [])
+            for target in own_writers:
+                target.close()
+            await asyncio.gather(*(target.wait_closed() for target in own_writers), return_exceptions=True)
+            writers.difference_update(own_writers)
+
+    server = await asyncio.start_server(lambda r, w: start(relay(r, w), root=True), "127.0.0.1", 0)
+    try:
+        yield upstream.set(host="127.0.0.1", port=server.sockets[0].getsockname()[1]), gate, tasks
+    finally:
+        server.close()
+        await server.wait_closed()
+        gate.set()
+        for writer in list(writers):
+            writer.close()
+        async with asyncio.timeout(2):
+            await asyncio.gather(*list(relays), return_exceptions=True)
 
 
 @pytest.mark.parametrize("embedded,transport", [(False, "native"), (True, "native"),
@@ -251,4 +311,109 @@ def test_actual_sleeping_sql_is_cancelled_and_pool_remains_usable(
         assert set(asyncio.all_tasks()) == before
         async with engine.connect() as db:
             assert await db.scalar(text("SELECT 1")) == 1
+    _run(postgres_seeded_database_url, scenario)
+
+
+@pytest.mark.parametrize("phase", ["auth", "renewal"])
+def test_real_pre_ping_is_bounded_before_checkout_and_leaves_no_database_work(
+    postgres_seeded_database_url, phase,
+):
+    async def scenario(engine):
+        async with _postgres_response_gate(postgres_seeded_database_url) as (url, gate, relay_tasks):
+            checkouts, invalidations = [], []
+
+            async def begin_renewal_ping():
+                gate.clear()
+
+            app, _, session_id = await _setup(engine, before_response=begin_renewal_ping)
+            request_engine = create_async_engine(url, pool_size=2, max_overflow=0, pool_pre_ping=True)
+            foreign = None
+            try:
+                async with asyncio.timeout(5):
+                    foreign = await request_engine.connect()
+                    foreign_pid = await foreign.scalar(text("SELECT pg_backend_pid()"))
+                    async with request_engine.connect() as db:
+                        pid = await db.scalar(text("SELECT pg_backend_pid()"))
+                app.state.db_sessionmaker = async_sessionmaker(request_engine, expire_on_commit=False)
+                event.listen(request_engine.sync_engine, "checkout", lambda *args: checkouts.append(True))
+                def invalidated(dbapi, record, error):
+                    owner = guard_module._RESULT_VIEW_TASK_OWNER.get()
+                    task = asyncio.current_task()
+                    invalidations.append((type(error).__name__, owner is not None, task.cancelling(),
+                                          record.in_use, record.dbapi_connection is dbapi,
+                                          record.driver_connection is dbapi.driver_connection,
+                                          bool(record.info.get(guard_module._RESULT_VIEW_CONNECTION_OWNER)),
+                                          record.driver_connection.is_closed()))
+                event.listen(request_engine.sync_engine, "invalidate", invalidated)
+                if phase == "auth":
+                    gate.clear()
+                before = set(asyncio.all_tasks())
+                # Release the synthetic outage if old cleanup cannot cancel it.
+                watchdog = asyncio.get_running_loop().call_later(3, gate.set)
+                try:
+                    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="https://test") as client:
+                        began = monotonic()
+                        response = await client.post(f"/meetings/{MEETING_ID}/result-viewed", json={"proof": "synthetic"},
+                                                     headers=_headers(session_id))
+                        assert monotonic() - began < 2
+                        assert response.json() == {"status": "unavailable"}
+                finally:
+                    watchdog.cancel()
+                assert len(checkouts) == (0 if phase == "auth" else 2)
+                assert invalidations == [("CancelledError", True, 1, True, True, True, False, True)]
+                assert request_engine.pool.checkedout() == 1
+                async with engine.connect() as observer:
+                    row = (await observer.execute(text(
+                        "SELECT state, xact_start FROM pg_stat_activity WHERE pid=:pid"
+                    ), {"pid": pid})).first()
+                    assert row is None or (row.state == "idle" and row.xact_start is None)
+                    assert await observer.scalar(text("SELECT count(*) FROM pg_locks WHERE pid=:pid"),
+                                                 {"pid": pid}) == 0
+                assert set(asyncio.all_tasks()) - relay_tasks <= before
+                gate.set()
+                assert await foreign.scalar(text("SELECT pg_backend_pid()")) == foreign_pid
+                assert await foreign.scalar(text("SELECT 1")) == 1
+                await foreign.close()
+                assert request_engine.pool.checkedout() == 0
+                async with request_engine.connect() as db:
+                    assert await db.scalar(text("SELECT 1")) == 1
+            finally:
+                gate.set()
+                if foreign is not None:
+                    await foreign.close()
+                await request_engine.dispose()
+    _run(postgres_seeded_database_url, scenario)
+
+
+def test_real_physical_connect_cancellation_releases_its_socket_and_pool(postgres_seeded_database_url):
+    async def scenario(engine):
+        app, _, session_id = await _setup(engine)
+        async with _postgres_response_gate(postgres_seeded_database_url) as (url, gate, relay_tasks):
+            request_engine = create_async_engine(url, pool_size=1, max_overflow=0, pool_pre_ping=True)
+            app.state.db_sessionmaker = async_sessionmaker(request_engine, expire_on_commit=False)
+            connected = []
+            event.listen(request_engine.sync_engine, "connect", lambda *args: connected.append(True))
+            gate.clear()
+            before = set(asyncio.all_tasks())
+            watchdog = asyncio.get_running_loop().call_later(3, gate.set)
+            try:
+                async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="https://test") as client:
+                    began = monotonic()
+                    response = await client.post(f"/meetings/{MEETING_ID}/result-viewed", json={"proof": "synthetic"},
+                                                 headers=_headers(session_id))
+                    assert monotonic() - began < 2
+                    assert response.json() == {"status": "unavailable"}
+                assert not connected and request_engine.pool.checkedout() == 0
+                # A separate database roundtrip also lets peer EOF finish in the relay.
+                async with engine.connect() as observer:
+                    assert await observer.scalar(text("SELECT 1")) == 1
+                assert not relay_tasks and set(asyncio.all_tasks()) <= before
+                gate.set()
+                async with request_engine.connect() as db:
+                    assert await db.scalar(text("SELECT 1")) == 1
+                assert connected == [True]
+            finally:
+                watchdog.cancel()
+                gate.set()
+                await request_engine.dispose()
     _run(postgres_seeded_database_url, scenario)

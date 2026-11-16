@@ -11,6 +11,7 @@ from typing import Any
 
 from asyncpg import Connection as AsyncpgConnection
 from sqlalchemy import event
+from sqlalchemy.orm import Session
 from sqlalchemy.pool import Pool
 
 PRODUCT_ANALYTICS_POST_PATHS = frozenset(
@@ -26,6 +27,30 @@ _RESULT_VIEW_PATH = re.compile(
 )
 _RESULT_VIEW_TASK_OWNER = ContextVar("result_view_task_owner", default=None)
 _RESULT_VIEW_CONNECTION_OWNER = "graf_result_view_owner"
+_RESULT_VIEW_TRANSACTION_OWNER = "graf_result_view_transaction_owner"
+
+
+class _ResultViewOwner(dict):
+    def __init__(self):
+        super().__init__()
+        self.transactions = {}
+
+
+@event.listens_for(Session, "after_transaction_create")
+def _track_result_transaction(session, transaction):
+    owner = _RESULT_VIEW_TASK_OWNER.get()
+    if owner is not None and transaction.parent is None:
+        lease = (owner, transaction, asyncio.current_task())
+        session.info[_RESULT_VIEW_TRANSACTION_OWNER] = lease
+        owner.transactions[transaction] = lease
+
+
+@event.listens_for(Session, "after_transaction_end")
+def _untrack_result_transaction(session, transaction):
+    lease = session.info.get(_RESULT_VIEW_TRANSACTION_OWNER)
+    if lease is not None and lease[1] is transaction:
+        session.info.pop(_RESULT_VIEW_TRANSACTION_OWNER)
+        lease[0].transactions.pop(transaction, None)
 
 
 @event.listens_for(Pool, "checkout")
@@ -49,16 +74,28 @@ def _untrack_result_connection(dbapi_connection, connection_record):
 @event.listens_for(Pool, "invalidate")
 def _terminate_cancelled_result_connection(dbapi_connection, connection_record, exception):
     owner = _RESULT_VIEW_TASK_OWNER.get()
-    lease = connection_record.info.get(_RESULT_VIEW_CONNECTION_OWNER)
+    if owner is None or not isinstance(exception, asyncio.CancelledError):
+        return
+    task = asyncio.current_task()
+    driver = connection_record.driver_connection
     if (
-        owner is not None and isinstance(exception, asyncio.CancelledError)
-        and lease is not None and lease[0] is owner and lease[1] is dbapi_connection
-        and lease[2] is connection_record.driver_connection
+        task is None or not connection_record.in_use
+        or connection_record.dbapi_connection is not dbapi_connection
+        or not isinstance(driver, AsyncpgConnection)
+        or dbapi_connection.driver_connection is not driver
     ):
-        driver = connection_record.driver_connection
-        if isinstance(driver, AsyncpgConnection):
-            # Its normal graceful close can outlive this request's cleanup reserve.
-            driver.terminate()
+        return
+    lease = connection_record.info.get(_RESULT_VIEW_CONNECTION_OWNER)
+    if lease is not None:
+        owned = (lease[0] is owner and lease[1] is dbapi_connection and lease[2] is driver
+                 and owner.get(connection_record) is lease)
+    else:
+        # Automatic pre-ping cancellation precedes checkout, but this exact
+        # reserved entry is still owned by the cancelling callback task.
+        owned = task.cancelling() > 0 and task.get_context().get(_RESULT_VIEW_TASK_OWNER) is owner
+    if owned:
+        # Its normal graceful close can outlive this request's cleanup reserve.
+        driver.terminate()
 
 
 class _ResultViewUnavailable(Exception):
@@ -197,7 +234,7 @@ async def _result_view_unavailable(send, deadline, status=200):
 
 
 async def _run_result_view_app(app, scope, receive, send):
-    owner = {}
+    owner = _ResultViewOwner()
     token = _RESULT_VIEW_TASK_OWNER.set(owner)
 
     def children():
@@ -213,12 +250,14 @@ async def _run_result_view_app(app, scope, receive, send):
     try:
         await asyncio.shield(task)
         await join()
-        if owner:
+        if owner or owner.transactions:
             raise _ResultViewUnavailable
     except BaseException:
         # Cancel the DB owner first so parent task-group cancellation cannot
         # repeatedly interrupt SQLAlchemy's invalidation bookkeeping.
         db_tasks = {lease[3] for lease in owner.values() if not lease[3].done()}
+        # Session autobegin precedes pool checkout and pre-ping.
+        db_tasks.update(lease[2] for lease in owner.transactions.values() if not lease[2].done())
         for child in db_tasks or {task}:
             child.cancel()
         # SQLAlchemy close uses shielded child tasks; join those as well as ASGI.
