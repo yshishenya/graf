@@ -264,8 +264,8 @@ FfmpegApi::FfmpegApi() : state_(std::make_unique<State>()) {
 
 #define BIND(index, name) name = function<decltype(name)>(state_->modules[index], #name)
     BIND(0, av_version_info); BIND(0, avutil_version); BIND(0, avutil_configuration); BIND(0, avutil_license);
-    BIND(0, av_log_set_level); BIND(0, av_malloc); BIND(0, av_free); BIND(0, av_freep);
-    BIND(0, av_frame_alloc); BIND(0, av_frame_free); BIND(0, av_frame_get_buffer); BIND(0, av_frame_make_writable);
+    BIND(0, av_malloc); BIND(0, av_free); BIND(0, av_freep);
+    BIND(0, av_frame_alloc); BIND(0, av_frame_free);
     BIND(0, av_channel_layout_default); BIND(0, av_channel_layout_copy);
     BIND(1, avcodec_version); BIND(1, avcodec_configuration); BIND(1, avcodec_license);
     BIND(1, avcodec_find_encoder_by_name); BIND(1, avcodec_alloc_context3); BIND(1, avcodec_open2);

@@ -2204,7 +2204,8 @@ def test_desktop_sync_calendar_match_receipt_after_lost_create_response(
     legacy = client.get(path, headers=headers)
     assert legacy.status_code == 200
     assert "calendar_match_receipt" not in legacy.json()
-    assert legacy.headers.get("Cache-Control") != "no-store"
+    # Server-copy proof is fresh for every sync response, including legacy callers.
+    assert legacy.headers.get("Cache-Control") == "no-store"
     meeting_id = UUID(legacy.json()["meeting"]["meeting_id"])
 
     async def age_receipt_and_seed_device() -> str:

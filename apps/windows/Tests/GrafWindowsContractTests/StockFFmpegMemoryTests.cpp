@@ -19,6 +19,10 @@ using graf::windows::CustodyOwnedMemory;
 constexpr double pi = 3.14159265358979323846;
 constexpr unsigned sampleRate = 48000, blockSamples = 480, pollMs = 5;
 struct Variant { unsigned minutes; bool paced; };
+constexpr unsigned budgetSeconds(Variant selected) {
+    // R10 accelerated10 took 439 s; allow headroom above its 2632 s projection for accelerated60.
+    return selected.paced ? selected.minutes*60+1800 : (selected.minutes==60 ? 3600 : selected.minutes*30+900);
+}
 bool variant(std::string_view argument, Variant& result) {
     if (argument == "--synthetic-10min-accelerated") result = {10,false};
     else if (argument == "--synthetic-60min-accelerated") result = {60,false};
@@ -55,8 +59,17 @@ bool durationMatches(std::uint64_t actual, std::uint64_t expected) {
 void selfcheck() {
     static_assert(pollMs<=10);
     Variant v{};
-    for (const auto argument : {"--synthetic-10min-accelerated","--synthetic-60min-accelerated",
-                               "--synthetic-10min-paced","--synthetic-60min-paced"}) assert(variant(argument,v));
+    const struct { const char* argument; unsigned minutes; bool paced; unsigned seconds; } cases[] = {
+        {"--synthetic-10min-accelerated",10,false,1200},
+        {"--synthetic-60min-accelerated",60,false,3600},
+        {"--synthetic-10min-paced",10,true,2400},
+        {"--synthetic-60min-paced",60,true,5400}
+    };
+    for (const auto& expected : cases) {
+        assert(variant(expected.argument,v));
+        assert(v.minutes==expected.minutes && v.paced==expected.paced);
+        assert(budgetSeconds(v)==expected.seconds);
+    }
     assert(!variant("",v) && !variant("--synthetic-1min-paced",v));
     assert(!variant("--synthetic-60min-paced-extra",v));
     assert(variant("--synthetic-10min-accelerated",v) && v.minutes==10 && !v.paced);
@@ -350,7 +363,7 @@ int run(Variant selected) {
     const auto baseline = CustodyOwnedMemory::usedBytes();
     require(baseline==0,"use a fresh dedicated process without other custody owners");
     // Cooperative cancellation only; the parent must set its hard timeout above this bound.
-    const unsigned deadlineSeconds = selected.paced ? selected.minutes*60+1800 : selected.minutes*30+900;
+    const unsigned deadlineSeconds = budgetSeconds(selected);
     MemorySamples memory(Clock::now()+std::chrono::seconds(deadlineSeconds));
     std::fprintf(stderr,"MEMORY_PROBE synthetic_only=1 microphone=0 network=0 plaintext_files=0 minutes=%u mode=%s "
         "deadline_seconds=%u sample_requested_ms=%u owned_peak_kind=process_lifetime_admission strict_sc003_acceptance=0\n",

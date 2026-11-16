@@ -33,14 +33,11 @@ public:
     decltype(&::avutil_version) avutil_version = nullptr;
     decltype(&::avutil_configuration) avutil_configuration = nullptr;
     decltype(&::avutil_license) avutil_license = nullptr;
-    decltype(&::av_log_set_level) av_log_set_level = nullptr;
     decltype(&::av_malloc) av_malloc = nullptr;
     decltype(&::av_free) av_free = nullptr;
     decltype(&::av_freep) av_freep = nullptr;
     decltype(&::av_frame_alloc) av_frame_alloc = nullptr;
     decltype(&::av_frame_free) av_frame_free = nullptr;
-    decltype(&::av_frame_get_buffer) av_frame_get_buffer = nullptr;
-    decltype(&::av_frame_make_writable) av_frame_make_writable = nullptr;
     decltype(&::av_channel_layout_default) av_channel_layout_default = nullptr;
     decltype(&::av_channel_layout_copy) av_channel_layout_copy = nullptr;
 
