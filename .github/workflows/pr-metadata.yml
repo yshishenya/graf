@@ -1,3 +1,4 @@
+# Metadata-only PR validator; kept separate from code checks.
 name: pr-metadata
 
 on:
