@@ -10036,7 +10036,15 @@
             if (ready !== true) { schedule(); return; }
           }
           if (controller.signal.aborted || !current(state, generation, proof, token) || !bodyVisible(state)) return;
-          const response = await fetch(state.path + '/result-viewed', {
+          const target = new URL(state.path + '/result-viewed', location.origin);
+          const selection = new URLSearchParams(state.query);
+          const keys = state.embedded ? ['summary_format'] : ['summary_format', 'source_result_id'];
+          for (const key of keys) {
+            // Match the detail route's last-value query selection without forwarding unrelated data.
+            const value = selection.getAll(key).at(-1);
+            if (value !== undefined) target.searchParams.set(key, value);
+          }
+          const response = await fetch(target.href, {
             method: 'POST', credentials: 'same-origin', cache: 'no-store', redirect: 'error', signal: controller.signal,
             headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-CSRF-Token': token },
             body: JSON.stringify({ proof }),

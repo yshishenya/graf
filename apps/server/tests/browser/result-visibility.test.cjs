@@ -17,7 +17,7 @@ let cases = 0;
     page.on('pageerror', error => errors.push(error.message));
     await page.route('https://graf.test/**', async route => {
       const request = route.request();
-      if (request.url().endsWith('/result-viewed')) {
+      if (new URL(request.url()).pathname.endsWith('/result-viewed')) {
         writes.push({ url: request.url(), method: request.method(), headers: request.headers(), body: request.postDataJSON() });
         const reply = await responses?.(writes.length) || { status: 'accepted' };
         return route.fulfill({ json: reply });
@@ -51,6 +51,47 @@ let cases = 0;
       window.dispatchEvent(new Event('resize'));
     });
     await settle(visible.page); assert.equal(visible.writes.length, 1); await close(visible);
+
+    for (const [query, expected] of [
+      ['?summary_format=graf-auto-v1', [['summary_format', 'graf-auto-v1']]],
+      ['?source_result_id=selected', [['source_result_id', 'selected']]],
+      ['?summary_format=graf-auto-v1&source_result_id=selected&unrelated=discarded#fragment',
+        [['summary_format', 'graf-auto-v1'], ['source_result_id', 'selected']]],
+      ['?summary_format=discarded&source_result_id=discarded&summary_format=last&source_result_id=selected',
+        [['summary_format', 'last'], ['source_result_id', 'selected']]],
+      ['?summary_format=discarded&source_result_id=discarded&summary_format=&source_result_id=',
+        [['summary_format', ''], ['source_result_id', '']]],
+      ['?summary_format=%D1%82%D0%B5%D0%BA%D1%81%D1%82%20%2B%26&source_result_id=a%2Fb%3Fc%3Dd%23e',
+        [['summary_format', 'текст +&'], ['source_result_id', 'a/b?c=d#e']]],
+      ['?proof=never-forward&utM_source=private&utm_campaign=private&unrelated=private#private', []],
+    ]) {
+      const selected = await open({ pathname: `/meetings/${id}${query}` });
+      await count(selected, 1);
+      const target = new URL(selected.writes[0].url);
+      assert.equal(target.pathname, `/meetings/${id}/result-viewed`);
+      assert.deepEqual([...target.searchParams], expected);
+      assert.equal(target.hash, '');
+      assert.deepEqual(selected.writes[0].body, { proof });
+      await close(selected);
+    }
+
+    // Embedded GET selects summary_format only; source_result_id must not select a different POST projection.
+    for (const [query, expected] of [
+      ['?source_result_id=ignored&proof=never-forward#private', []],
+      ['?summary_format=discarded&source_result_id=ignored&summary_format=', [['summary_format', '']]],
+      ['?summary_format=chosen&source_result_id=ignored', [['summary_format', 'chosen']]],
+    ]) {
+      const selected = await open({ embedded: true, pathname: `/desktop/meetings/${id}${query}`,
+        init: 'window.webkit={messageHandlers:{grafResultVisibility:{postMessage:async()=>({version:1,ready:true})}}}' });
+      await selected.page.evaluate(value => GRAFResultVisibility.connect(value), nonce);
+      await count(selected, 1);
+      const target = new URL(selected.writes[0].url);
+      assert.equal(target.pathname, `/desktop/meetings/${id}/result-viewed`);
+      assert.deepEqual([...target.searchParams], expected);
+      assert.equal(target.hash, '');
+      assert.deepEqual(selected.writes[0].body, { proof });
+      await close(selected);
+    }
 
     const hidden = [
       `<div hidden>${body}</div>`, `<div inert>${body}</div>`, `<div aria-hidden="true">${body}</div>`,
