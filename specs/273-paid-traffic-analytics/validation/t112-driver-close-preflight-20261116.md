@@ -377,3 +377,116 @@ initialization/root association и уже closing driver: никаких чуж�
 reset и остальные исходы, рабочее измерение/T0/restore, выпуск и трафик/
 продажи остаются открыты. Проверяющий только дополнил этот отчёт и сохранил
 параллельные изменения основного агента.
+
+## Дополнение — независимое ревью реализации C1
+
+16.11.2026. Поручение:
+`/private/tmp/graf-t112-driver-close-implementation-review-20261116.txt`.
+Авторитетный checkpoint из его финального раздела проверен:
+`37274e642820ef87ba52a6dd6e8cd8ed185fe595`. Старый e9eb/dirty заголовок —
+история, не версия настоящего заключения. Рабочая копия при входе чистая.
+
+**C1 устранена в согласованной узкой области hard invalidate(None) точного
+собственного открытого idle native соединения. Implementation review:
+SCOPED PASS, P1=0, P2=0.** Это новый вывод по фактическому коду и журналам,
+а не повтор проектного допуска. История исходного RED C1 и её SHA выше
+сохранена. Полный T112/T113 этим не принимается.
+
+### Проверка реализации и отказов
+
+Прочитан весь diff guard/unit/contract относительно e9eb, актуальный callback,
+выпускной fragment и исполнительский validation отчёт. Новая None ветвь
+имеет отдельный ранний выход: прежний CancelledError путь и его pre-ping
+fallback не расширены на неподтверждённый lease. Общие проверки task,
+checked-out entry, DBAPI/native driver identity сохранены. Дополнительно
+проверяются list5, все его ссылки, task Context/identity, owner registry,
+отсутствие initialization/root ключей и exact generation. Неизвестный lease
+не превращается в разрешение взять ресурс.
+
+При нарушении ownership новая ветвь меняет только sticky failure текущего
+owner; maps и foreign owner не присваиваются/не очищаются. Этот failure
+обрабатывается уже принятым конечным guard, даже если позднее оба реестра
+пусты. При допустимом lease сначала проверяется is_closed, затем отсутствие
+активной native transaction; только открытый idle driver завершается
+публичным terminate до штатного graceful close. Закрытый/active driver новой
+ветвью не прекращается; это отрицательные условия, не новая приёмка таких
+cleanup исходов. Root-associated и initialization пути также не расширены.
+
+Порядок общей отмены DB-first/join не менялся. Новых фоновых задач, таймеров,
+параметров, SQL, повторов, callback exceptions, runtime registries, фабрик,
+private protocol/transport или записи состояния пула нет. SQLAlchemy сам
+заканчивает штатные invalidation/checkin действия. Никакого rollback уже
+прошедшего synthetic commit новая ветвь не обещает.
+
+Прочитаны24 новых unit-случая и все их фактические RED причины: own abort,
+несоответствие task/context/entry/wrapper/driver/lease/registry, отсутствие
+owner/task, initialization/root, active/closed и другие причины. На исходном
+guard21FAIL/3PASS вызваны ожидаемым отсутствием нового abort/failure/state
+checks, а не ошибками fixture. На новом guard24PASS. Проверяются неизменность
+maps, отсутствие foreign failure, число terminate и порядок closed→transaction;
+у закрытого driver запрещено повторное чтение освобождённого protocol.
+Эти fake unit не используются вместо native доказательства ресурсов ниже.
+
+### Реальное соединение, сокет и конечный ответ
+
+Новый native test сохраняет настоящий SELECT1/PID/commit и открытый driver
+перед public invalidate(None). В public Pool.close зафиксировано уже закрытое
+точное поколение; early closed здесь только маркер упреждения, а не конечное
+доказательство ресурсов. Fault EOF gate закрывается до invalidate; data gate
+открыт. Ни native close/rollback/terminate, ни SQLAlchemy не подменены.
+
+Изменение observer необходимо причинно: настоящий client abort может завершить
+relay по FIRST_COMPLETED до публикации server EOF. Observer принимает такой
+путь лишь после законченного relay, затем отдельным direct соединением
+подтверждает отсутствие backend/locks. Свежая transaction наблюдателя для
+короткого повторного чтения не создаёт продуктовый retry и ограничена1s.
+Требование незаконченного graceful waiter сохраняется только для исходного
+неупреждённого пути; исправление не обязано создавать предотвращённый waiter.
+
+В обоих законченных случаях выполнены полный ответ, await observer, пустой
+relay tasks набор, завершённые root/pumps/публичные wait_closed и отсутствие
+новых owner/close/DB задач, пустые оба реестра owner и request pool0 в пределах
+исходного2s, до gate.set/dispose/teardown. Один driver.is_closed не даёт PASS.
+Проверены штатный сохранённый renewal, ledger0, foreign direct PID/SELECT1 и
+новый native driver/PID после принятия cleanup. Это не same-pool foreign тест.
+
+Законченный focused native профиль:2PASS/25deselected,3.63s/runner7s;
+normal/fault около0.094/0.077s, оба preemptive_abort, watchdogFalse.
+upstream_eof=False согласуется с завершением обоих pump по client EOF и не
+скрывает pending relay. Квитанции resultpass/isolated_container_removed есть.
+
+Законченный общий профиль: **233PASS,0skip,1 прежний fixture warning**,
+48.58s/runner53s,198unit+27contract+8integration. Состав согласован с
+предыдущими207+24unit+2native. Collection233/digest:
+`db682996e8827c65a688b462dbaa8363644b755aa79686844ad018c08edf1ffb`.
+Подтверждены focused statuspass, resultpass и удаление изолированного контейнера.
+Предыдущий207 отдельно не повторялся и не заменяет233 для новой версии.
+Проверяющий тесты не запускал: новой находки для причинного воспроизведения нет.
+
+| Проверенный вход реализации | SHA-256 |
+| --- | --- |
+| Guard | `eda3d18801b09b742ac3c21ac7bae6f68665dee7252f7074e100baa06e94ef14` |
+| Unit | `7dbb443ab4f8ea2dc9211b98b742b5f7db778c4c6823f2285b52a3f3aa26aa57` |
+| Contract | `179ab88cf95fdd02f2a53be0cd22c9d0c474ac8b62376f8893db1219041e9932` |
+| Unit RED log | `7e477559e3c2c92d302194644c40998d171956968ab2d21dd852fd6941b1254d` |
+| Unit GREEN log | `52cd1dd8e3c2cdb2c56880659e78b099c8a733b55a652ac70df9de06e8e49db7` |
+| Native GREEN log | `7d3fab8629e90f337fb66845c00e085e2f0d90a847ccfb1ae0aaa3953d720200` |
+| Full233 log | `dd7bd28a0a08e13d5dc2c10636ddc962135599e57026b2651170151110a25e80` |
+
+### Сохранённые границы
+
+Diff spec/plan/tasks/quickstart/contracts/checklists/scoped analyze от e9eb
+пуст. Хеш analyze прежний0252da92…; все четыре checklist пересчитаны по
+принятым точным хешам без переотметок: requirements16/0, security27/0,
+privacy-measurement52/0, infra29/0 — **124/0 качества требований**.
+
+Обычный close, уже начатый graceful close, active/root-associated invalidation,
+TLS/reset/recycle, прочие причины и commit/cleanup исходы не объявляются вновь
+доказанными. Полные защищённый HTTP/issuance/ledger/browser/native T112/T113,
+restore/runtime/T0, exact PR/CI/merge/release, рабочий сбор, трафик и продажи
+остаются открытыми. Независимая проверка этого checkpoint не является
+разрешением рабочего включения или закрытием исходной задачи.
+
+Проверяющий только дополнил настоящий отчёт, не изменял код/тесты/requirements/
+checklist markers, Git/GitHub или runtime. Чужие изменения сохранены;
+тесты/сборки/сетевые эксперименты не выполнялись.
