@@ -826,12 +826,21 @@
   [Точные артефакты и границы](https://github.com/yshishenya/graf/blob/0b87d4a468f31035ec52cada7f342a5fe482c5dd/specs/273-paid-traffic-analytics/validation/t112-observer-no-parse-validation-20261117.md).
   Три отчёта сохранены/pushed0b87d4a46; runtime/changes SAME237d368b,
   текущие integration/budget не менялись. Это docs-only сохранение, не выпуск.
-- [ ] Реализовать минимальное причинное наблюдение normal POST2/fault POST1
-  по проекту reviewer, затем получить статический допуск точной реализации
-  ДО одного адресного опыта двух native параметризаций. V3 ещё наблюдает
-  только fault POST2 и этот проект не реализует. Новый87 ради PASS не назначен,
-  исходные2s/work1.5s/cleanup0.5s сохранены; unknown HOLD открыт, прежний
-  P2-01 checkout/checkin остаётся закрытым отдельно. Рабочий runtime не менять
+- [x] Подготовить черновик причинного наблюдения v4 normal POST2/fault POST1
+  по проекту reviewer. Источник SHA57f5b851…, фиксированные sourcepins;
+  guard/cleanup/ASGI attempted-completed и независимые M1/relay metadata,
+  snapshot до finally1271, максимум96records+dropped. Context() сохраняется,
+  app/DB/Pool/native tests не меняются. Selfcheck AST-извлечённых функций дал
+  10PASS/EXIT0 без сети/БД; это adapter/delegation, не реальная трассировка.
+  Ruff/context/diff PASS. Код и отчёт сохранены/pushed eef65dc70 в отдельную
+  ветку: [проект и ограничения](https://github.com/yshishenya/graf/blob/eef65dc7082d5fe40156829376b32e3e8af747e3/specs/273-paid-traffic-analytics/validation/t112-causal-v4-draft-validation-20261117.md).
+- [ ] Передать точную v4 существующему независимому reviewer и получить
+  статический допуск ДО одного адресного опыта двух native параметризаций.
+  Поручение /private/tmp/graf-t112-causal-v4-review-request-20261117.txt пока
+  только подготовлено; доставка/живое ожидание/FINAL не установлены. Наличие
+  commit и10selfcheck не разрешает HTTP/PG запуск. Новый87 ради PASS не назначен,
+  исходные2s/work1.5s/cleanup0.5s сохранены; unknown HOLD открыт, прежние
+  v3/P2-D01 и checkout/P2-01 закрыты отдельно. Рабочий runtime не менять
   без установленной причины. T112/T113/T098/T0 остаются открытыми.
 - [ ] Завершить чтение нового завершённого недельного отчёта Метрики. В IAB2
   авторизованный кабинет действительно открылся; показал предупреждение
