@@ -157,6 +157,10 @@ public actor LocalCacheEvictionScheduler {
         guard let footprint = await measuredFootprint() else {
             return .failed(code: "footprint_unavailable")
         }
+        if let stopped = settingsStopResult(settings: settingsProvider(), deleted: 0,
+                                            evaluated: 0, freedBytes: 0) {
+            return stopped
+        }
         // Unknown free disk cannot prove the safe reserve; fail closed even when
         // the used-bytes threshold alone would suggest eviction.
         guard let freeDiskBytes = footprint.freeDiskBytes else {
@@ -179,6 +183,10 @@ public actor LocalCacheEvictionScheduler {
                 .sorted(by: Self.oldestFirst)
                 .prefix(configuration.maximumCandidates)
         )
+        if let stopped = settingsStopResult(settings: settingsProvider(), deleted: 0,
+                                            evaluated: 0, freedBytes: 0) {
+            return stopped
+        }
         var evaluated = 0
         var deleted = 0
         var freedBytes: Int64 = 0
@@ -186,6 +194,16 @@ public actor LocalCacheEvictionScheduler {
         for candidate in candidates {
             if usedBytes < warningBytes && freeDisk > reserveBytes { break }
             if deleted >= configuration.maximumDeletionsPerRun { break }
+            // The user or the operator may disable eviction while candidate
+            // discovery or an earlier cleanup is awaiting I/O.
+            if let stopped = settingsStopResult(
+                settings: settingsProvider(),
+                deleted: deleted,
+                evaluated: evaluated,
+                freedBytes: freedBytes
+            ) {
+                return stopped
+            }
             evaluated += 1
             switch await evictor(candidate) {
             case .completed(let bytes):
@@ -203,6 +221,28 @@ public actor LocalCacheEvictionScheduler {
 
         lastFreedBytes = freedBytes
         return .completed(evaluated: evaluated, deleted: deleted, freedBytes: freedBytes)
+    }
+
+    private func settingsStopResult(
+        settings: LocalCacheEvictionSettingSnapshot,
+        deleted: Int,
+        evaluated: Int,
+        freedBytes: Int64
+    ) -> LocalCacheEvictionRunResult? {
+        let stopped: LocalCacheEvictionRunResult?
+        if settings.operatorDisabled {
+            stopped = .operatorDisabled
+        } else if !settings.userEnabled {
+            stopped = .disabled
+        } else {
+            stopped = nil
+        }
+        guard let stopped else { return nil }
+        lastFreedBytes = freedBytes
+        if deleted > 0 {
+            return .completed(evaluated: evaluated, deleted: deleted, freedBytes: freedBytes)
+        }
+        return stopped
     }
 
     private func measuredFootprint() async -> LocalCacheEvictionFootprint? {
@@ -230,6 +270,7 @@ public struct LocalCacheEvictionCandidateLoader: Sendable {
 
     private let queueURL: URL
     private let recordingsRootURL: URL
+    private let receiptDirectoryURL: URL?
     private let client: (any DesktopServerProofFetching)?
     private let scopeProvider: @Sendable () -> RecordingDeletionScope?
     private let maximumCandidates: Int
@@ -242,6 +283,7 @@ public struct LocalCacheEvictionCandidateLoader: Sendable {
     public init(
         queueURL: URL,
         recordingsRootURL: URL,
+        receiptDirectoryURL: URL? = nil,
         client: (any DesktopServerProofFetching)?,
         scopeProvider: @escaping @Sendable () -> RecordingDeletionScope?,
         maximumCandidates: Int = 20,
@@ -255,6 +297,7 @@ public struct LocalCacheEvictionCandidateLoader: Sendable {
     ) {
         self.queueURL = queueURL
         self.recordingsRootURL = recordingsRootURL
+        self.receiptDirectoryURL = receiptDirectoryURL
         self.client = client
         self.scopeProvider = scopeProvider
         self.maximumCandidates = max(0, maximumCandidates)
@@ -280,14 +323,37 @@ public struct LocalCacheEvictionCandidateLoader: Sendable {
             items: [],
             deletionOperations: snapshot.deletionOperations
         )
-        let preCandidates = snapshot.items
+        let receiptDirectory = receiptDirectoryURL
+            ?? queueURL.deletingLastPathComponent()
+                .appendingPathComponent("LocalCacheEviction/receipts", isDirectory: true)
+        let rawCandidates = snapshot.items
             .compactMap { $0.decodeItem() }
             .filter { item in
-                item.state == .uploaded &&
-                    item.isV5Package &&
-                    item.ownerScope == scope &&
-                    item.isLocalUnbound != true
+                item.ownerScope == scope &&
+                    LocalCacheCleanupCandidatePolicy.cleanupBytes(for: item) != nil
             }
+        // Cheap, read-only prefilter before the bounded proof scan. Cleaned
+        // items keep .uploaded with a missing WAV, so they must not occupy the
+        // oldest-first scan window forever.
+        let root = recordingsRootURL
+        let candidatesToScan = await Task.detached(priority: .utility) {
+            rawCandidates.filter { item in
+                guard LocalCacheArtifactProbe.isInside(
+                    item.transcriptionAudioPath,
+                    root: root
+                ),
+                    case .regular = LocalCacheFileIdentity.state(
+                        atPath: item.transcriptionAudioPath
+                    ) else {
+                    return false
+                }
+                return !LocalCacheCleanupReceiptLookup.hasCompletedOrNoopReceipt(
+                    item: item,
+                    receiptDirectory: receiptDirectory
+                )
+            }
+        }.value
+        let preCandidates = candidatesToScan
             .sorted {
                 let lhs = $0.serverTruth.finalizedAt ?? $0.createdAt
                 let rhs = $1.serverTruth.finalizedAt ?? $1.createdAt

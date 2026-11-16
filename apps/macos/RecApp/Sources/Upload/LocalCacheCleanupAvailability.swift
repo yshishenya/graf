@@ -42,7 +42,10 @@ public struct LocalCacheCleanupAvailabilityProbe: Sendable {
                     ) else {
                     continue
                 }
-                if Self.hasCompletedReceipt(item: item, receiptDirectory: receiptDirectory) {
+                if LocalCacheCleanupReceiptLookup.hasCompletedOrNoopReceipt(
+                    item: item,
+                    receiptDirectory: receiptDirectory
+                ) {
                     continue
                 }
                 result.insert(item.id)
@@ -51,7 +54,13 @@ public struct LocalCacheCleanupAvailabilityProbe: Sendable {
         }.value
     }
 
-    private static func hasCompletedReceipt(
+}
+
+enum LocalCacheCleanupReceiptLookup {
+    /// A completed/noop receipt for either action means the text WAV was already
+    /// cleaned. A corrupt receipt fails closed too. Pending receipts stay
+    /// eligible so a retry can complete them.
+    static func hasCompletedOrNoopReceipt(
         item: DesktopUploadQueueItem,
         receiptDirectory: URL
     ) -> Bool {
@@ -65,8 +74,6 @@ public struct LocalCacheCleanupAvailabilityProbe: Sendable {
                 mediaRevisionFingerprint: mediaFingerprint
             )
             guard let receipt = try? store.load() else {
-                // A present but unreadable receipt is not trustworthy evidence;
-                // hide the action rather than offering another cleanup.
                 if FileManager.default.fileExists(atPath: store.fileURL.path) {
                     return true
                 }

@@ -245,6 +245,81 @@ final class LocalCacheEvictionSchedulerTests: XCTestCase {
         XCTAssertEqual(recorder.items, ["a", "a", "b"])
     }
 
+    func testKillSwitchIsReReadBeforeEveryCandidate() async {
+        let settings = SettingsBox(userEnabled: true, operatorDisabled: false)
+        let recorder = EvictionRecorder()
+        let base = now
+        let items = [
+            candidate("first", finalizedAt: base.addingTimeInterval(-3), bytes: 100_000_000),
+            candidate("second", finalizedAt: base.addingTimeInterval(-2), bytes: 100_000_000),
+            candidate("third", finalizedAt: base.addingTimeInterval(-1), bytes: 100_000_000),
+        ]
+        let scheduler = makeScheduler(
+            usedBytes: 5_000_000_000,
+            settings: settings,
+            candidates: { items },
+            evict: { candidate in
+                recorder.record(candidate.itemID)
+                if candidate.itemID == "first" {
+                    settings.set(userEnabled: false)
+                }
+                return .completed(bytes: candidate.bytes)
+            }
+        )
+
+        let result = await scheduler.run(.launch)
+
+        XCTAssertEqual(recorder.items, ["first"])
+        XCTAssertEqual(result, .completed(evaluated: 1, deleted: 1, freedBytes: 100_000_000))
+    }
+
+    func testOperatorSwitchIsReReadBeforeEveryCandidate() async {
+        let settings = SettingsBox(userEnabled: true, operatorDisabled: false)
+        let recorder = EvictionRecorder()
+        let base = now
+        let items = [
+            candidate("first", finalizedAt: base.addingTimeInterval(-2), bytes: 100_000_000),
+            candidate("second", finalizedAt: base.addingTimeInterval(-1), bytes: 100_000_000),
+        ]
+        let scheduler = makeScheduler(
+            usedBytes: 5_000_000_000,
+            settings: settings,
+            candidates: { items },
+            evict: { candidate in
+                recorder.record(candidate.itemID)
+                if candidate.itemID == "first" {
+                    settings.set(operatorDisabled: true)
+                }
+                return .completed(bytes: candidate.bytes)
+            }
+        )
+
+        let result = await scheduler.run(.launch)
+
+        XCTAssertEqual(recorder.items, ["first"])
+        XCTAssertEqual(result, .completed(evaluated: 1, deleted: 1, freedBytes: 100_000_000))
+    }
+
+    func testKillSwitchReadAfterCandidateDiscoveryStopsBeforeEviction() async {
+        let settings = SettingsBox(userEnabled: true, operatorDisabled: false)
+        let evictCalls = Counter()
+        let items = [candidate("a", bytes: 100_000_000)]
+        let scheduler = makeScheduler(
+            usedBytes: 5_000_000_000,
+            settings: settings,
+            candidates: {
+                settings.set(userEnabled: false)
+                return items
+            },
+            evict: { _ in evictCalls.increment(); return .completed(bytes: 1) }
+        )
+
+        let result = await scheduler.run(.launch)
+
+        XCTAssertEqual(result, .disabled)
+        XCTAssertEqual(evictCalls.value, 0)
+    }
+
     func testStatusReportsBudgetThresholdAndOperatorOverride() async {
         let settings = SettingsBox(userEnabled: false, operatorDisabled: true)
         let scheduler = makeScheduler(
@@ -365,6 +440,13 @@ private final class SettingsBox: @unchecked Sendable {
             userEnabled: userEnabled,
             operatorDisabled: operatorDisabled
         )
+    }
+
+    func set(userEnabled: Bool? = nil, operatorDisabled: Bool? = nil) {
+        lock.lock()
+        if let userEnabled { self.userEnabled = userEnabled }
+        if let operatorDisabled { self.operatorDisabled = operatorDisabled }
+        lock.unlock()
     }
 }
 

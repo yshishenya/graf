@@ -64,6 +64,106 @@ final class LocalCacheEvictionCandidateLoaderTests: XCTestCase {
                        LocalCacheFingerprint.recording("recording-20"))
     }
 
+    func test205CleanedUploadedItemsDoNotStarveANewerEligibleItem() async throws {
+        let cleanedRoot = recordingsRoot.appendingPathComponent("cleaned", isDirectory: true)
+        try FileManager.default.createDirectory(at: cleanedRoot, withIntermediateDirectories: true)
+        try Data(repeating: 1, count: 128).write(to: cleanedRoot.appendingPathComponent("manifest.json"))
+        try Data(repeating: 3, count: 500).write(to: cleanedRoot.appendingPathComponent("meeting-review.m4a"))
+        // No meeting-transcription.wav: these items were already cleaned.
+
+        var items: [DesktopUploadQueueItem] = []
+        for index in 0..<205 {
+            var item = makeItem(
+                index: index,
+                createdAt: now.addingTimeInterval(-Double(400 - index) * 60)
+            )
+            item.directoryPath = cleanedRoot.path
+            item.manifestPath = cleanedRoot.appendingPathComponent("manifest.json").path
+            items.append(item)
+        }
+        let eligible = makeItem(index: 205, createdAt: now)
+        items.append(eligible)
+        try writeQueue(items)
+        let counter = FetchCounter()
+        let scope = try XCTUnwrap(self.scope)
+
+        let loader = LocalCacheEvictionCandidateLoader(
+            queueURL: queueURL,
+            recordingsRootURL: recordingsRoot,
+            client: LoaderProofFetcher(
+                eligibleID: "recording-205",
+                serverRevision: serverRevision,
+                counter: counter
+            ),
+            scopeProvider: { scope },
+            maximumCandidates: 20,
+            maximumScan: 200,
+            proofTimeout: 2
+        )
+
+        let candidates = await loader.load()
+
+        XCTAssertEqual(candidates.map(\.itemID), ["recording-205"])
+        let fetchCount = await counter.value()
+        XCTAssertEqual(fetchCount, 1)
+    }
+
+    func testCompletedReceiptsAreSkippedBeforeTheProofScan() async throws {
+        let scope = try XCTUnwrap(self.scope)
+        let items = (0..<3).map { index in
+            makeItem(
+                index: index,
+                createdAt: now.addingTimeInterval(-Double(3 - index) * 60)
+            )
+        }
+        let receiptDirectory = queueURL.deletingLastPathComponent()
+            .appendingPathComponent("LocalCacheEviction/receipts", isDirectory: true)
+        for index in 0..<2 {
+            let item = items[index]
+            let store = LocalCacheCleanupReceiptStore(
+                receiptDirectoryURL: receiptDirectory,
+                action: .manualCleanup,
+                localRecordingFingerprint: LocalCacheFingerprint.recording(item.directoryId),
+                mediaRevisionFingerprint: LocalCacheFingerprint.revision(item.localMediaRevisionId)
+            )
+            try store.write(LocalCacheCleanupReceipt(
+                action: .manualCleanup,
+                state: .completed,
+                localRecordingFingerprint: LocalCacheFingerprint.recording(item.directoryId),
+                meetingFingerprint: LocalCacheFingerprint.meeting(item.meetingId),
+                mediaRevisionFingerprint: LocalCacheFingerprint.revision(item.localMediaRevisionId),
+                playbackRevisionFingerprint: LocalCacheFingerprint.revision(serverRevision),
+                verifiedAt: now,
+                bytes: 1_000,
+                ownerScopeFingerprint: LocalCacheFingerprint.scope(scope),
+                appVersion: "test",
+                createdAt: now
+            ))
+        }
+        try writeQueue(items)
+        let counter = FetchCounter()
+
+        let loader = LocalCacheEvictionCandidateLoader(
+            queueURL: queueURL,
+            recordingsRootURL: recordingsRoot,
+            client: LoaderProofFetcher(
+                eligibleID: nil,
+                serverRevision: serverRevision,
+                counter: counter
+            ),
+            scopeProvider: { scope },
+            maximumCandidates: 20,
+            maximumScan: 200,
+            proofTimeout: 2
+        )
+
+        let candidates = await loader.load()
+
+        XCTAssertEqual(candidates.map(\.itemID), ["recording-2"])
+        let fetchCount = await counter.value()
+        XCTAssertEqual(fetchCount, 1)
+    }
+
     func testLoaderReturnsAtMostMaximumCandidatesEligibleItems() async throws {
         let items = (0..<6).map { index in
             makeItem(
@@ -184,14 +284,28 @@ final class LocalCacheEvictionCandidateLoaderTests: XCTestCase {
     }
 }
 
+private actor FetchCounter {
+    private var count = 0
+
+    func increment() {
+        count += 1
+    }
+
+    func value() -> Int {
+        count
+    }
+}
+
 private struct LoaderProofFetcher: DesktopServerProofFetching {
     /// `nil` means every item is eligible.
     let eligibleID: String?
     let serverRevision: String
+    var counter: FetchCounter? = nil
 
     var recordingSessionFingerprint: String? { "session" }
 
     func fetchServerProof(for item: DesktopUploadQueueItem) async throws -> DesktopUploadReconciliation? {
+        await counter?.increment()
         let now = Date()
         let eligible = eligibleID == nil || item.id == eligibleID
         let proof = DesktopServerProof(
