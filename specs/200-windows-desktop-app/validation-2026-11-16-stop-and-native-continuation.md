@@ -869,3 +869,46 @@ Raw intent/stdout/stderr/exit/JUnit:
 `.dev/f200-ci-minio-binary-actual-independent-review-20261116.md`.
 Это рабочее дерево, не exact-SHA hosted CI; amd64 download/runtime проверит
 новый GitHub run после коммита. T088/T116 и публичный выпуск не закрываются.
+
+
+## Продолжение: CI4d86 — зависимость изолированной проверки перехода
+
+На `4d86bc4dd306c9013c3995aed74fc96c7a62da0e` Windows43816701528 и
+macos-pr43816701448 прошли. Governance43816701541 прошёл подготовку MinIO и
+related-behavior, затем остановился в pure unit-фазе:2939PASS/1FAIL.
+Причина — `ReferenceError: cancelSharedLinkSeek is not defined` в отдельном
+тестовом окружении `test_source_return_survives_entering_detail_and_replacing_main`.
+Настоящий helper присутствует в общем cabinet.js; isolated source slice
+его не подключал. Полный продуктовый код этим отказом не признан сломанным.
+
+Тест теперь извлекает настоящий helper из cabinet.js. Искусственный pending
+seek проверяет один abort и очистку metadata; второй переход выполняется без
+оставшегося ожидания. Все прежние проверки возврата, двух замен main, фокуса,
+прокрутки и единственного обработчика сохранены. Production JS не менялся.
+До изменения тот же тест воспроизвёл FAIL; после — runtime4PASS и pure2940PASS
+без ошибок/пропусков, выход0. Raw/JUnit/source before:
+`.dev/f200-governance-4d86-runtime-fixture-fix-20261116/{red,green}/`.
+Main отдельно прочитал весь diff и результаты JUnit. Новый exact-SHA GitHub
+governance остаётся обязательным.
+
+Дополнительные browser checks пока не объявлены полностью успешными: первый
+вызов public-sharing не передал обязательный путь fixture; WebKit addressed
+playback получил0 вместо2.5 при новом переходе после обновления. Эти результаты
+сохранены отдельно и требуют разбора, не подменены зелёной unit-фазой.
+
+## Продолжение: T116 — сохранённый отказ передачи private715
+
+Независимая узкая проверка исправления имён map-файлов дала SOURCE GO для
+сборки. Main до запуска подтвердил141GiB свободного места, отсутствие native
+задач и целевых paths, session1/yshis и exact tool hashes. Одна передача
+остановилась на build.ps1 offset11264: Parallels SDK255
+`PrlJob_GetResult: Invalid argument. An invalid argument was passed.`
+Повторной передачи, parser, регистрации task, компиляции и runtime не было.
+
+Отдельная read-only сверка показала один частичный build.ps1 размером11264:
+SHA256 `07a2f5c9e8c93be2019ed5aab355dc0a8b669c4d1b4212923ac3dc04a7952bfe`.
+Task/scratch отсутствуют, активных GRAF/native jobs нет. Частичная попытка
+сохранена; новая передача одним пакетом готовится отдельно. Продуктовый encoder,
+единый бюджет памяти и очистка данных не изменены; build/runtime PASS не заявлен.
+Raw: `.dev/t116-ffmpeg-private715-build-20261116-revision2-mapnames/main-raw-transport/`;
+reconciliation: `.dev/t116-msvc-bulk-main-20261116/private715-v2-readonly-reconcile.*`.
