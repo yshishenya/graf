@@ -165,6 +165,12 @@ const delayedRefresh = async (browser, replaceDetail, cancel = '') => {
       window.addEventListener('hashchange', resolve, { once: true });
       location.hash = '#recording?position_ms=2500';
     }), version);
+    // The second refresh can replace the player after the earlier metadata barrier.
+    await page.waitForFunction(() => {
+      const player = document.querySelector('audio');
+      return player?.readyState >= 1 && !player.seeking
+        && seekCalls.some(call => call.player === player && call.value === 2.5);
+    }, null, { timeout: 5000 });
     assert.equal(await page.locator('audio').evaluate(player => player.currentTime), 2.5);
     assert.equal(await page.evaluate(() => playCalls), 0);
     assert.equal(await page.locator('#keep').evaluate(node => node === document.activeElement), true);

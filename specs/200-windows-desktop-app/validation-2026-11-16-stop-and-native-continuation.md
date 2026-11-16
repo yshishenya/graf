@@ -912,3 +912,33 @@ Task/scratch отсутствуют, активных GRAF/native jobs нет. �
 единый бюджет памяти и очистка данных не изменены; build/runtime PASS не заявлен.
 Raw: `.dev/t116-ffmpeg-private715-build-20261116-revision2-mapnames/main-raw-transport/`;
 reconciliation: `.dev/t116-msvc-bulk-main-20261116/private715-v2-readonly-reconcile.*`.
+
+## Продолжение: адресная позиция после замены проигрывателя
+
+Установлена ошибка синхронизации браузерной проверки: после второго обновления
+страницы текущий audio мог стать новым объектом с readyState0. Завершение
+hashchange не гарантировало готовность его metadata. Управляемая задержка
+настоящего синтетического WAV воспроизвела точное `0 !== 2.5`; после отпускания
+ответа штатный обработчик продукта сам выполнил seek2.5. Этот RED exit1 сохранён.
+
+В `sharing-addressed-playback.test.cjs` добавлено одно ожидание до5000мс:
+metadata текущего audio, отсутствие незавершённого seek и фактический вызов
+существующего native setter со значением2.5 для того же объекта. Прежнее точное
+сравнение позиции, проверки фокуса, отсутствия play и ошибок сохранены.
+Product cabinet.js не менялся; sleep, retry и подставленных media values нет.
+
+Через канонический pytest caller Chromium и WebKit: каждый1PASS/0FAIL/0SKIP,
+exit0 и10/10 delayed scenarios. Новый управляемый запуск WebKit сначала подтвердил
+readyState0/currentTime0 у нового audio во всех пяти replaced-detail сценариях,
+затем после отпускания WAV прошёл ожидание и прежние exact assertions; exit0.
+Правильный public-sharing caller также дал по1PASS/0SKIP в обоих браузерах.
+Неверный прежний вызов и исторический WebKit FAIL не переписаны.
+
+Main независимо прочитал полный diff, RED→GREEN patch, команды и raw/JUnit,
+сверил все24 файла manifest и exact source hash. Browser test SHA256:
+`5620ae4979d44845e7ed6b33f267506fc4902ed06aec35663f99350d35f0ffdf`.
+Product SHA256 по-прежнему
+`27fb2573a9b40b64f5fdf16586af65ffcd3fc2411d57feda0b7fe68239ea7d90`.
+Raw и отчёт: `.dev/f200-browser-sharing-await-fix-20261116/`.
+Lane: узкая проверка существующего среза F200/F292; новый exact-SHA GitHub CI,
+нативная и установленная приёмка по-прежнему обязательны.
