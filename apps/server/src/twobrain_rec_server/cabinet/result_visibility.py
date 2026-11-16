@@ -9,7 +9,7 @@ import json
 import re
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from hashlib import sha256
 from typing import Literal
 from uuid import UUID
@@ -23,6 +23,7 @@ from twobrain_rec_server.api.schemas import (
     TranscriptSegmentView,
     TranscriptSpeakerTurnView,
 )
+from twobrain_rec_server.auth.context import AuthenticatedPrincipal
 from twobrain_rec_server.cabinet.meeting_protocol import EMPTY
 from twobrain_rec_server.db.models import (
     IngestAuditEvent,
@@ -35,6 +36,7 @@ from twobrain_rec_server.db.models import (
 )
 from twobrain_rec_server.ingest.media_revisions import source_fingerprint_for_revision
 from twobrain_rec_server.outcomes.templates import OUTCOME_CATEGORIES, built_in_template_for_version
+from twobrain_rec_server.processing.fences import lock_meeting_fence
 from twobrain_rec_server.processing.results import complete_processing_result_clause
 from twobrain_rec_server.product_analytics.milestones import USEFUL_RESULT_TYPES
 
@@ -356,6 +358,40 @@ async def load_result_view_bindings(
                     block_type=block_type, block_digest=digest, outcome_set_id=outcome_id,
                 )
     return bindings
+
+
+async def load_fresh_result_view_bindings(
+    db: AsyncSession, *, principal: AuthenticatedPrincipal, workspace_id: UUID,
+    meeting_id: UUID, started_at: datetime,
+    selected_summary_template_key: str | None = None, source_result_id: UUID | None = None,
+) -> dict[str, ResultViewBinding]:
+    """Read under the admission owner's locked auth/session and bounded transaction.
+
+    The owner supplies a fresh session and holds its T113/access fences through
+    commit. This helper neither opens readiness nor commits; no product write or
+    external storage operation is needed to verify the selected text.
+    """
+    from twobrain_rec_server.cabinet.queries import get_cabinet_meeting_review
+
+    meeting = await lock_meeting_fence(db, workspace_id=workspace_id, meeting_id=meeting_id)
+    if (
+        meeting is None or meeting.created_by_user_id != principal.user_id
+        or meeting.deletion_state != "none" or meeting.deleted_at is not None
+        or meeting.deletion_requested_at is not None
+    ):
+        return {}
+    review = await get_cabinet_meeting_review(
+        db, workspace_id=workspace_id, meeting_id=meeting_id, viewer_user_id=principal.user_id,
+        selected_summary_template_key=selected_summary_template_key,
+        source_result_id=source_result_id, storage=None,
+    )
+    if review is None:
+        return {}
+    return await load_result_view_bindings(
+        db, review=review, owner_id=principal.user_id, workspace_id=workspace_id,
+        auth_session_id=principal.session_id, session_device_id=principal.session_device_id,
+        started_at=started_at, now=datetime.now(UTC),
+    )
 
 
 def _proof_payload(binding: ResultViewBinding, issued_at: int) -> str:

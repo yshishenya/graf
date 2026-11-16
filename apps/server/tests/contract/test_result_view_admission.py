@@ -13,14 +13,23 @@ from sqlalchemy import select
 from tests.contract.test_activation_milestone_ingress import isolated_admission  # noqa: F401
 from tests.contract.test_result_view_projection import _seed_projection
 from tests.contract.test_result_visibility import START, _run
-from tests.fakes.auth_contexts import USER_ID, WORKSPACE_ID, principal
+from tests.fakes.auth_contexts import (
+    AUTH_BOOTSTRAP_WORKSPACE_ID,
+    DEVICE_ID,
+    USER_ID,
+    WORKSPACE_ID,
+    principal,
+)
 from twobrain_rec_server.cabinet.result_visibility import (
     issue_result_view_proof,
+    load_fresh_result_view_bindings,
     load_result_view_bindings,
     verify_result_view_proof,
 )
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.db.models import (
+    AuthSession,
+    AuthSessionDeviceBinding,
     MediaRevision,
     ProcessingWorkflow,
     ProductActivationMilestone,
@@ -33,6 +42,11 @@ pytestmark = pytest.mark.usefixtures("isolated_admission")
 
 SECRET = "synthetic-result-view-admission-secret"
 SESSION_ID = UUID("50000000-0000-0000-0000-000000000001")
+
+
+def _result_principal():
+    return replace(principal(), session_id=SESSION_ID, auth_via_session=True,
+                   session_workspace_id=WORKSPACE_ID, session_device_id=DEVICE_ID)
 
 
 @pytest.fixture
@@ -48,6 +62,16 @@ def result_period(monkeypatch):
 async def _prepare(sessions, *, capture_unknown=False):
     async with sessions() as db:
         review, _, _, _ = await _seed_projection(db)
+        db.add(AuthSession(
+            id=SESSION_ID, user_id=USER_ID, workspace_id=WORKSPACE_ID,
+            device_id=DEVICE_ID, provider="email", session_token_hash="synthetic-result-session",
+            status="active", expires_at=datetime.now(UTC) + timedelta(hours=1),
+        ))
+        await db.flush()
+        db.add(AuthSessionDeviceBinding(
+            auth_session_id=SESSION_ID, registered_device_id=DEVICE_ID, device_state="trusted",
+        ))
+        await db.commit()
         if capture_unknown:
             revision = await db.get(MediaRevision, review.provenance.media_revision_id)
             revision.source_kind = "initial_mixed_recording"
@@ -57,14 +81,17 @@ async def _prepare(sessions, *, capture_unknown=False):
             workflow.source_fingerprint = source_fingerprint_for_revision(revision)
             await db.commit()
         params = dict(owner_id=USER_ID, workspace_id=WORKSPACE_ID, auth_session_id=SESSION_ID,
-                      session_device_id=None, started_at=START)
+                      session_device_id=DEVICE_ID, started_at=START)
         now = datetime.now(UTC)
         bindings = await load_result_view_bindings(db, review=review, now=now, **params)
         proof = issue_result_view_proof(bindings["transcript:0"], secret=SECRET, issued_at=now)
 
     async def verify(db, started_at):
         assert started_at == START
-        bindings = await load_result_view_bindings(db, review=review, now=datetime.now(UTC), **params)
+        bindings = await load_fresh_result_view_bindings(
+            db, principal=_result_principal(), workspace_id=WORKSPACE_ID,
+            meeting_id=review.meeting.meeting_id, started_at=started_at,
+        )
         return next((binding for binding in bindings.values() if verify_result_view_proof(
             proof, binding, secret=SECRET, now=datetime.now(UTC),
         ) == "valid"), None)
@@ -74,10 +101,9 @@ async def _prepare(sessions, *, capture_unknown=False):
 
 async def _accept(sessions, verify, surface="cabinet_web"):
     return await ingest.ProductAnalyticsIngestService(
-        Settings(product_analytics_enabled=True),
+        Settings(product_analytics_enabled=True, web_login_workspace_id=AUTH_BOOTSTRAP_WORKSPACE_ID),
     ).admit_result_view(
-        principal=replace(principal(), session_id=SESSION_ID, auth_via_session=True,
-                          session_workspace_id=WORKSPACE_ID),
+        principal=_result_principal(),
         workspace_id=WORKSPACE_ID, sessionmaker=sessions,
         verify_view=verify, surface=surface,
     )
@@ -318,6 +344,7 @@ def test_caller_cancellation_closes_the_verifier_and_propagates(
     postgres_seeded_database_url, result_period,
 ):
     async def scenario(sessions):
+        await _prepare(sessions)
         entered = asyncio.Event()
         stopped = False
 
@@ -385,6 +412,7 @@ def test_missing_fact_and_timeout_leave_no_rows_or_running_verifier(
     postgres_seeded_database_url, result_period,
 ):
     async def scenario(sessions):
+        await _prepare(sessions)
         stopped = False
 
         async def absent(db, started_at):

@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Awaitable, Callable, Mapping
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
@@ -12,9 +12,21 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal
+from twobrain_rec_server.auth.sessions import is_session_token_valid, session_device_access
 from twobrain_rec_server.config import Settings
-from twobrain_rec_server.db.models import UserIdentity
-from twobrain_rec_server.db.tenant_context import WorkspaceAuthContext, apply_tenant_context
+from twobrain_rec_server.db.models import (
+    AuthSession,
+    AuthSessionDeviceBinding,
+    RegisteredDevice,
+    UserIdentity,
+    Workspace,
+    WorkspaceMembership,
+)
+from twobrain_rec_server.db.tenant_context import (
+    TenantDatabaseContext,
+    WorkspaceAuthContext,
+    apply_tenant_context,
+)
 from twobrain_rec_server.product_analytics.delivery_gap import AnalyticsDeliveryGap
 from twobrain_rec_server.product_analytics.event_catalog import (
     yandex_offline_conversion_event_names,
@@ -198,11 +210,76 @@ class ProductAnalyticsIngestService:
                 ))
                 if require_period and await db.scalar(select(UserIdentity.id).where(
                     UserIdentity.id == principal.user_id, UserIdentity.status == "active",
+                    UserIdentity.organization_id == principal.organization_id,
+                    UserIdentity.merged_into_user_id.is_(None),
                 ).with_for_update(read=True)) is None:
                     raise PermissionError("milestone account unavailable")
+                if require_period:
+                    session = await self._lock_result_session(db, principal, workspace_id)
+                    period_recheck = context.recheck
+
+                    def recheck():
+                        period_recheck()
+                        if not is_session_token_valid(session, datetime.now(UTC)):
+                            raise PermissionError("result session expired")
+
+                    context = replace(context, recheck=recheck)
                 yield context
                 self._check_admission(context)
                 await db.commit()
+
+    async def _lock_result_session(self, db, principal, workspace_id):
+        if (
+            not principal.auth_via_session or principal.session_id is None
+            or principal.session_workspace_id != workspace_id
+            or workspace_id not in principal.workspace_ids
+            or self.settings.web_login_workspace_id is None
+            or workspace_id == self.settings.web_login_workspace_id
+        ):
+            raise PermissionError("result session unavailable")
+        session = await db.scalar(select(AuthSession).where(
+            AuthSession.id == principal.session_id,
+            AuthSession.user_id == principal.user_id,
+            AuthSession.workspace_id == workspace_id,
+        ).with_for_update().execution_options(populate_existing=True))
+        if session is None or not is_session_token_valid(session, datetime.now(UTC)):
+            raise PermissionError("result session unavailable")
+        membership = await db.scalar(select(WorkspaceMembership).where(
+            WorkspaceMembership.workspace_id == workspace_id,
+            WorkspaceMembership.user_id == principal.user_id,
+        ).with_for_update(read=True).execution_options(populate_existing=True))
+        workspace = await db.scalar(select(Workspace).where(
+            Workspace.id == workspace_id,
+        ).with_for_update(read=True).execution_options(populate_existing=True))
+        if (
+            membership is None or membership.status != "active" or workspace is None
+            or workspace.organization_id != principal.organization_id
+            or (workspace.kind == "personal" and (
+                workspace.owner_user_id != principal.user_id or membership.role != "owner"
+            ))
+        ):
+            raise PermissionError("result workspace unavailable")
+        await apply_tenant_context(db, TenantDatabaseContext(
+            organization_id=principal.organization_id, workspace_id=workspace_id,
+            user_id=principal.user_id, auth_session_id=session.id,
+            device_id=principal.session_device_id,
+        ))
+        # The parent UPDATE lock also excludes new binding rows via their FK.
+        links = list(await db.scalars(select(AuthSessionDeviceBinding).where(
+            AuthSessionDeviceBinding.auth_session_id == session.id,
+        ).order_by(AuthSessionDeviceBinding.id).with_for_update(read=True)
+            .execution_options(populate_existing=True)))
+        device_ids = {link.registered_device_id for link in links}
+        if session.device_id is not None:
+            device_ids.add(session.device_id)
+        devices = list(await db.scalars(select(RegisteredDevice).where(
+            RegisteredDevice.id.in_(device_ids),
+        ).order_by(RegisteredDevice.id).with_for_update(read=True)
+            .execution_options(populate_existing=True))) if device_ids else []
+        allowed, device = session_device_access(session, {row.id: row for row in devices}, links)
+        if not allowed or (device.id if device is not None else None) != principal.session_device_id:
+            raise PermissionError("result device unavailable")
+        return session
 
     async def _admit_event(self, context, event, *, account_id, source_kind):
         def before_insert():
