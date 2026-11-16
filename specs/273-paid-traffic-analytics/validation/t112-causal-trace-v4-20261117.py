@@ -147,6 +147,12 @@ def causal_trace(request, monkeypatch):
             return None
         frame.f_trace_lines = True
         frame.f_trace_opcodes = False
+        if event == "line" and line not in guard_lines[code]:
+            return trace
+        if event not in ("line", "exception"):
+            return trace
+        if event == "exception" and arg[0] in (StopIteration, StopAsyncIteration):
+            return trace
         data = {"post": marker[0], "function": code.co_name, "line": line,
                 "post_elapsed": round(time.monotonic() - marker[1], 6)}
         now = time.monotonic()
@@ -164,7 +170,7 @@ def causal_trace(request, monkeypatch):
             data["operation_task"] = task_state(local["task"])
         if "messages" in local:
             messages = local["messages"]
-            data.update(buffer_count=len(messages), response_bytes=local["response_bytes"],
+            data.update(buffer_count=len(messages), response_bytes=local.get("response_bytes"),
                         starts=sum(m["type"] == "http.response.start" for m in messages),
                         terminal_body=bool(messages and messages[-1]["type"] == "http.response.body"
                                            and not messages[-1].get("more_body", False)))
