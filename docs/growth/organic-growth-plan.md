@@ -300,6 +300,39 @@
   поздние fault cleanup assertions ещё не пройдены. Требуются отдельный
   допуск до runtime правки, новый GREEN и implementation review.
   [Исходный отказ и границы](https://github.com/yshishenya/graf/blob/d4dc1bfb963a18a9e22c8680ff720ee8a31443da/specs/273-paid-traffic-analytics/validation/t112-init-validation-20261116.md).
+- [x] Получить отдельный независимый runtime-design допуск после init RED:
+  один initialization marker того же lease/registry принят до runtime кода,
+  P1/P2=0 в проектной области. Дополнение `t112-init-preflight-20261116.md`
+  с SHA-256 `4952a0e9fe19f4bb48e87cb7e4203d8c9e9a030577c37e13a985ac59ddba9bf8`
+  прочитано полностью; требования и checklist124/0 не менялись.
+- [x] Подготовить минимальное раннее владение и пройти новый изменённый
+  профиль197:164 unit+25 contract+8 integration, без пропусков и ошибок,
+  1 прежний warning,47.93s/runner51s/EXIT0; контейнер удалён runner.
+  Native4 теперь проходят с unavailable около1.58s при задержке initialization,
+  проверкой actual runtime marker до initialize, closed driver/backend/locks/
+  tasks/root/pool/relay до teardown и новым checkout после ответа.
+  Код/тесты/отчёт сохранены/pushed `8f3302da5adbb61f72e6a57b6dd6880d732b503d`,
+  remote readback совпал. Это checkpoint, не merge/выпуск и не полная T112.
+  [Новый профиль и ограничения](https://github.com/yshishenya/graf/blob/8f3302da5adbb61f72e6a57b6dd6880d732b503d/specs/273-paid-traffic-analytics/validation/t112-init-validation-20261116.md).
+- [x] Получить первый независимый implementation review initialization:
+  P1=0/P2=1. I1 причинно подтвердил accepted при чужом marker и отсутствующем
+  entry current owner; основной агент прочитал весь отчёт. Полный197 не
+  покрывал этот случай и не был выдан за итоговую приёмку.
+- [x] Исправить I1 по минимальному проекту reviewer: sticky failed bool только
+  текущего owner сохраняет отказ до конца запроса, без callback исключения,
+  изменения чужих mappings/driver и повторного commit. Новые10 тестов сначала
+  дали7 FAIL/3 PASS, затем полный изменённый профиль207 прошёл:174 unit+
+  25 contract+8 integration,0 skips,1 прежний warning,49.10s/runner53s/EXIT0,
+  isolated_container_removed. Настоящие Session/Pool на обоих aliases
+  подтверждают unavailable, пустые свои registry, неизменный чужой driver и
+  сохранение отказа после следующей обычной Session.
+  Checkpoint `78cd1ea855b77726c75b5877cf8a094d226a8684` сохранён/pushed;
+  [Результаты и границы](https://github.com/yshishenya/graf/blob/78cd1ea855b77726c75b5877cf8a094d226a8684/specs/273-paid-traffic-analytics/validation/t112-init-validation-20261116.md).
+- [ ] Получить повторное независимое implementation review исправленного I1.
+  Поручение и законченные red/focused/full207 журналы подготовлены в
+  `/private/tmp/graf-t112-init-implementation-review-request-20261116.txt`;
+  нового заключения после78cd1ea85 ещё нет. Прежний reviewer terminal report
+  не является живым ожиданием нового ревью. К merge/выпуску не готово.
 - [ ] Выполнить полный source/audit/projection/proof, browser/native visibility, защищённый
   POST и общую admission boundary с причинной DB/browser/Swift/failure матрицей.
   Renderer использует общий чистый выбор строк и принимает необязательную карту
