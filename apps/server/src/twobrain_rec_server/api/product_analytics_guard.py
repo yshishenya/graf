@@ -470,7 +470,7 @@ async def _result_view_unavailable(send, deadline, status=200):
         return
 
 
-async def _run_result_view_app(app, scope, receive, send):
+async def _run_result_view_operation(operation):
     owner = _ResultViewOwner()
     token = _RESULT_VIEW_TASK_OWNER.set(owner)
 
@@ -483,12 +483,13 @@ async def _run_result_view_app(app, scope, receive, send):
         while pending := children():
             await asyncio.gather(*pending, return_exceptions=True)
 
-    task = asyncio.create_task(app(scope, receive, send))
+    task = asyncio.create_task(operation())
     try:
-        await asyncio.shield(task)
+        result = await asyncio.shield(task)
         await join()
         if owner.failed or owner or owner.transactions or owner.unbound_roots:
             raise _ResultViewUnavailable
+        return result
     except BaseException:
         # Cancel the DB owner first so parent task-group cancellation cannot
         # repeatedly interrupt SQLAlchemy's invalidation bookkeeping.
@@ -496,7 +497,8 @@ async def _run_result_view_app(app, scope, receive, send):
         # Session autobegin precedes pool checkout and pre-ping.
         db_tasks.update(lease[2] for lease in owner.transactions.values() if not lease[2].done())
         for child in db_tasks or {task}:
-            child.cancel()
+            if not child.cancelling():
+                child.cancel()
         _terminate_initializing_result_connections(owner, db_tasks)
         # SQLAlchemy close uses shielded child tasks; join those as well as ASGI.
         await join()
@@ -505,6 +507,10 @@ async def _run_result_view_app(app, scope, receive, send):
         raise
     finally:
         _RESULT_VIEW_TASK_OWNER.reset(token)
+
+
+async def _run_result_view_app(app, scope, receive, send):
+    return await _run_result_view_operation(lambda: app(scope, receive, send))
 
 
 async def _guard_result_view(app, scope, receive, send):

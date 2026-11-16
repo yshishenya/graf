@@ -17,6 +17,7 @@ from twobrain_rec_server.cabinet.web_routes import (
     notifications,
     provider_links,
     referrals,
+    result_views,
     settings,
     spaces,
     speakers,
@@ -47,6 +48,7 @@ router.include_router(titles.router)
 router.include_router(deletion.router)
 router.include_router(desktop.router)
 router.include_router(fair_use.router)
+router.include_router(result_views.router)
 
 
 def build_first_result_viewed_product_analytics_payload(

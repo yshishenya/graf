@@ -246,8 +246,10 @@ async def embedded_meeting_detail_page(
             request,
             csrf_token=_csrf_token_for_principal(request, principal),
         )
+    result_view_selection = {}
     response = await get_cabinet_meeting_review(
         db,
+        result_view_selection=result_view_selection,
         workspace_id=tenant_scope.workspace_id,
         meeting_id=parsed_meeting_id,
         viewer_user_id=principal.user_id,
@@ -273,10 +275,18 @@ async def embedded_meeting_detail_page(
             ),
             status_code=302,
         )
+    from twobrain_rec_server.cabinet.web_routes.result_views import optional_result_view_proofs
+
+    result_view_proofs = await optional_result_view_proofs(
+        request, principal=principal, workspace_id=tenant_scope.workspace_id,
+        meeting_id=parsed_meeting_id, review=response, selection=result_view_selection,
+        embedded=True,
+    )
     if _is_hx_request(request):
         return cabinet_html_response(
             render_meeting_detail_fragment(
                 response,
+                result_view_proofs=result_view_proofs,
                 embedded=True,
                 csrf_token=_csrf_token_for_principal(request, principal),
                 poll_url=_request_path_with_query(request),
@@ -286,6 +296,7 @@ async def embedded_meeting_detail_page(
     return cabinet_html_response(
         render_meeting_detail_page(
             response,
+            result_view_proofs=result_view_proofs,
             embedded=True,
             csrf_token=_csrf_token_for_principal(request, principal),
             poll_url=_request_path_with_query(request),

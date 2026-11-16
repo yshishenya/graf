@@ -1,6 +1,5 @@
 """Fresh session/access fences inside isolated account admission, not HTTP/T113."""
 
-import asyncio
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from time import monotonic
@@ -144,26 +143,35 @@ def test_session_expiry_during_pair_rolls_back_all_new_rows(
 ):
     async def scenario(sessions):
         verify = await _prepare(sessions)
-        async with sessions() as db:
-            await db.execute(update(AuthSession).where(AuthSession.id == SESSION_ID).values(
-                expires_at=datetime.now(UTC) + timedelta(seconds=1),
-            ))
-            await db.commit()
         original = ingest.admit_account_milestone
+        validate_session = ingest.is_session_token_valid
         calls = 0
+        expired = False
+        checks = []
+
+        def check_at_phase_time(session, at):
+            # Move only the session clock; real work/cleanup deadlines do not move.
+            phase_time = session.expires_at + timedelta(microseconds=1) if expired else at
+            valid = validate_session(session, phase_time)
+            checks.append((expired, valid))
+            return valid
 
         async def admit(db, event, **kwargs):
-            nonlocal calls
+            nonlocal calls, expired
             calls += 1
             row = await original(db, event, **kwargs)
             if calls == (1 if point == "second_insert" else 2):
-                session = await db.get(AuthSession, SESSION_ID)
-                await asyncio.sleep(max(0, (session.expires_at - datetime.now(UTC)).total_seconds()) + 0.01)
+                assert await db.get(AuthSession, SESSION_ID) is not None
+                expired = True
             return row
 
+        monkeypatch.setattr(ingest, "is_session_token_valid", check_at_phase_time)
         monkeypatch.setattr(milestones, "admit_account_milestone", admit)
+        began = monotonic()
         assert not await _accept(sessions, verify)
-        assert calls == 2
+        assert monotonic() - began < 2.1
+        assert calls == 2 and expired
+        assert (False, True) in checks and checks[-1] == (True, False)
         async with sessions() as db:
             assert list(await db.scalars(select(ProductActivationMilestone))) == []
     _run(postgres_seeded_database_url, scenario)

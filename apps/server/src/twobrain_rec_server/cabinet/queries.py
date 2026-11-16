@@ -1663,7 +1663,10 @@ async def get_cabinet_meeting_review(
     external_invitations_enabled: bool = False,
     invitation_encryption_key: bytes | None = None,
     recipient_proof: ShareRecipientAccessProof | None = None,
+    result_view_selection: dict | None = None,
 ) -> MeetingReviewResponse | None:
+    if result_view_selection is not None:
+        result_view_selection.clear()
     with _meeting_review_read_scope(db):
         meeting = await db.scalar(
             select(Meeting).where(
@@ -1862,7 +1865,7 @@ async def get_cabinet_meeting_review(
             )
             is not None
         )
-        return build_review_response(
+        response = build_review_response(
             meeting,
             summary_progress_state=await summary_progress(
                 db, meeting=meeting, result=result, template_key=selected_summary_template_key,
@@ -1914,6 +1917,31 @@ async def get_cabinet_meeting_review(
             can_rename_speakers=source_result_id is None and (decision.state == "owner" or decision.can_edit or decision.role in {"owner", "admin"}),
             reprocess_available=reprocess_available,
         )
+
+        if result_view_selection is not None and media_revision is not None:
+            from twobrain_rec_server.cabinet.result_visibility import ResultViewRenderSelection
+            from twobrain_rec_server.ingest.media_revisions import source_fingerprint_for_revision
+
+            try:
+                fingerprint = source_fingerprint_for_revision(media_revision)
+            except ValueError:
+                fingerprint = None
+            if fingerprint is not None:
+                outcome_reference = None
+                for pair in prefetch.outcome_resolutions.values():
+                    if pair is not None and outcome_set is not None and pair[0].id == outcome_set.id:
+                        resolved, pinned = pair
+                        if pinned is not None:
+                            outcome_reference = (resolved.id, pinned.id, pinned.result_version)
+                        break
+                result_view_selection["selection"] = ResultViewRenderSelection(
+                    owner_id=meeting.created_by_user_id, workspace_id=meeting.workspace_id,
+                    meeting_id=meeting.id, media_revision_id=media_revision.id,
+                    source_fingerprint=fingerprint, deletion_epoch=meeting.deletion_epoch,
+                    transcript=(result.id, result.result_version) if result is not None else None,
+                    outcome=outcome_reference,
+                )
+        return response
 
 
 async def _meeting_activity_response(

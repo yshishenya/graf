@@ -223,24 +223,13 @@ class ResultProjectionSession:
         self.checkpoint()
 
 
-class ResultAdmissionSession(ResultProjectionSession):
-    """Only the fixed result/value pair may write inside this owned snapshot."""
+class ResultInspectionSession(ResultProjectionSession):
+    """Locked account reads; no event admission or commit authority."""
 
     def __init__(self, db, deadline):
         super().__init__(db, deadline)
         self._account_source = None
-        self._phase = 0
-        self._admitting = False
-        self._committing = False
-        self._commit_seen = False
-        self._terminal = False
-        self._committed = False
         self._ready = False
-
-    def checkpoint(self):
-        if self._terminal:
-            self._refuse()
-        super().checkpoint()
 
     async def start(self):
         await super().start()
@@ -259,6 +248,24 @@ class ResultAdmissionSession(ResultProjectionSession):
                 or source_kind not in {"browser", "desktop"}):
             self._refuse()
         self._account_source = (account_id, source_kind)
+
+
+class ResultAdmissionSession(ResultInspectionSession):
+    """Only the fixed result/value pair may write inside this owned snapshot."""
+
+    def __init__(self, db, deadline):
+        super().__init__(db, deadline)
+        self._phase = 0
+        self._admitting = False
+        self._committing = False
+        self._commit_seen = False
+        self._terminal = False
+        self._committed = False
+
+    def checkpoint(self):
+        if self._terminal:
+            self._refuse()
+        super().checkpoint()
 
     async def admit_event(self, event, *, account_id, source_kind, before_insert):
         from twobrain_rec_server.product_analytics.milestones import admit_account_milestone
@@ -404,5 +411,13 @@ async def result_projection_session(sessionmaker, *, deadline=None):
 async def result_admission_session(sessionmaker, *, work_deadline, cleanup_deadline):
     async with _result_session_context(
         sessionmaker, ResultAdmissionSession, work_deadline=work_deadline, cleanup_deadline=cleanup_deadline,
+    ) as owner:
+        yield owner
+
+
+@asynccontextmanager
+async def result_inspection_session(sessionmaker, *, work_deadline, cleanup_deadline):
+    async with _result_session_context(
+        sessionmaker, ResultInspectionSession, work_deadline=work_deadline, cleanup_deadline=cleanup_deadline,
     ) as owner:
         yield owner

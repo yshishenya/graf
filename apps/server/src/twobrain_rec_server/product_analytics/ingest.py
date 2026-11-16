@@ -15,6 +15,7 @@ from twobrain_rec_server.auth.context import AuthenticatedPrincipal
 from twobrain_rec_server.auth.sessions import is_session_token_valid, session_device_access
 from twobrain_rec_server.cabinet.result_projection_session import (
     ResultAdmissionSession,
+    ResultInspectionSession,
     validate_result_deadlines,
 )
 from twobrain_rec_server.config import Settings
@@ -63,7 +64,7 @@ class _AccountAdmissionContext:
     db: AsyncSession
     started_at: datetime | None = None
     recheck: Callable[[], None] | None = None
-    owner: ResultAdmissionSession | None = None
+    owner: ResultInspectionSession | None = None
 
 
 @asynccontextmanager
@@ -177,7 +178,7 @@ class ProductAnalyticsIngestService:
         )
 
     @asynccontextmanager
-    async def _result_period_context(self, sessionmaker, *, work_deadline, cleanup_deadline):
+    async def _result_period_context(self, sessionmaker, *, work_deadline, cleanup_deadline, inspection=False):
         """T113 has no trusted runtime verifier. No date/config/request can open it.
 
         Its future protected context must own its DB session and filesystem/DB
@@ -187,27 +188,36 @@ class ProductAnalyticsIngestService:
         yield None
 
     def _check_admission(self, context: _AccountAdmissionContext) -> None:
-        if context.owner is not None:
-            context.owner.checkpoint()
-        if activation_milestone_write_blockers(self.settings):
-            raise PermissionError("milestone admission blocked")
-        if context.recheck is not None:
-            context.recheck()
-        if context.owner is not None:
-            context.owner.checkpoint()
+        try:
+            if context.owner is not None:
+                context.owner.checkpoint()
+            if activation_milestone_write_blockers(self.settings):
+                raise PermissionError("milestone admission blocked")
+            if context.recheck is not None:
+                context.recheck()
+            if context.owner is not None:
+                context.owner.checkpoint()
+        except BaseException:
+            if context.owner is not None:
+                context.owner.failed = context.owner.budget.failed = True
+            raise
 
     @asynccontextmanager
     async def _account_transaction(
         self, principal, workspace_id, sessionmaker, *, require_period=False,
-        work_deadline=None, cleanup_deadline=None, source_kind=None,
+        work_deadline=None, cleanup_deadline=None, source_kind=None, inspection=False,
     ):
+        if inspection and not require_period:
+            raise PermissionError("inspection period required")
         source = (self._result_period_context(
             sessionmaker, work_deadline=work_deadline, cleanup_deadline=cleanup_deadline,
+            **({"inspection": True} if inspection else {}),
         ) if require_period else _account_session(sessionmaker))
         async with source as context:
             if context is None or (require_period and (
                 not isinstance(context, _AccountAdmissionContext)
-                or type(context.owner) is not ResultAdmissionSession or context.db is not context.owner.db
+                or type(context.owner) is not (ResultInspectionSession if inspection else ResultAdmissionSession)
+                or context.db is not context.owner.db
                 or context.owner.deadline != work_deadline
                 or not isinstance(context.started_at, datetime) or context.started_at.utcoffset() is None
                 or context.started_at > datetime.now(UTC) or context.recheck is None
@@ -242,7 +252,9 @@ class ProductAnalyticsIngestService:
 
                     context = replace(context, recheck=recheck)
                 yield context
-                if require_period:
+                if require_period and inspection:
+                    self._check_admission(context)
+                elif require_period:
                     await context.owner.commit_pair(lambda: self._check_admission(context))
                 else:
                     self._check_admission(context)
@@ -332,7 +344,7 @@ class ProductAnalyticsIngestService:
         """Internal pair admission; the verifier must lock/recheck auth/source/proof.
 
         No HTTP/event payload supplies this callback or the protected period.
-        No route is wired yet. A binding alone is not a fresh access decision.
+        A binding alone is not a fresh access decision.
         """
         if (
             principal is None or not principal.auth_via_session or principal.session_id is None
@@ -389,6 +401,95 @@ class ProductAnalyticsIngestService:
             return True
         except Exception:
             return False
+
+    async def _inspect_result_view(
+        self, *, principal, workspace_id, sessionmaker, inspect_view, surface,
+        work_deadline, cleanup_deadline,
+    ):
+        if (
+            principal is None or not principal.auth_via_session or principal.session_id is None
+            or workspace_id not in principal.workspace_ids
+            or principal.session_workspace_id != workspace_id or sessionmaker is None
+            or surface not in {"cabinet_web", "cabinet_desktop"}
+        ):
+            return None
+        try:
+            validate_result_deadlines(work_deadline, cleanup_deadline)
+            async with asyncio.timeout_at(cleanup_deadline):
+                async with self._account_transaction(
+                    principal, workspace_id, sessionmaker, require_period=True, inspection=True,
+                    work_deadline=work_deadline, cleanup_deadline=cleanup_deadline,
+                    source_kind="browser" if surface == "cabinet_web" else "desktop",
+                ) as context:
+                    result = await inspect_view(context.db, context.started_at, context.owner)
+                    self._check_admission(context)
+            return result
+        except Exception:
+            return None
+
+    async def issue_result_view_proofs(
+        self, *, principal, workspace_id, sessionmaker, meeting_id, review, selection,
+        secret, surface, work_deadline, cleanup_deadline,
+        selected_summary_template_key=None, source_result_id=None,
+    ) -> dict[str, str]:
+        from twobrain_rec_server.cabinet.result_visibility import (
+            issue_result_view_proof,
+            load_fresh_result_view_bindings,
+        )
+
+        async def inspect(db, started_at, owner):
+            bindings = await load_fresh_result_view_bindings(
+                db, principal=principal, workspace_id=workspace_id, meeting_id=meeting_id,
+                started_at=started_at, selected_summary_template_key=selected_summary_template_key,
+                source_result_id=source_result_id, rendered_review=review, rendered_selection=selection,
+            )
+            proofs = {}
+            for key, binding in bindings.items():
+                owner.checkpoint()
+                proof = issue_result_view_proof(binding, secret=secret, issued_at=datetime.now(UTC))
+                owner.checkpoint()
+                if proof is not None:
+                    proofs[key] = proof
+            return proofs
+
+        return await self._inspect_result_view(
+            principal=principal, workspace_id=workspace_id, sessionmaker=sessionmaker,
+            inspect_view=inspect, surface=surface, work_deadline=work_deadline,
+            cleanup_deadline=cleanup_deadline,
+        ) or {}
+
+    async def renew_result_view_proof(
+        self, *, principal, workspace_id, sessionmaker, meeting_id, proof, secret,
+        surface, work_deadline, cleanup_deadline,
+        selected_summary_template_key=None, source_result_id=None,
+    ) -> str | None:
+        from twobrain_rec_server.cabinet.result_visibility import (
+            issue_result_view_proof,
+            load_fresh_result_view_bindings,
+            verify_result_view_proof,
+        )
+
+        async def inspect(db, started_at, owner):
+            bindings = await load_fresh_result_view_bindings(
+                db, principal=principal, workspace_id=workspace_id, meeting_id=meeting_id,
+                started_at=started_at, selected_summary_template_key=selected_summary_template_key,
+                source_result_id=source_result_id,
+            )
+            for binding in bindings.values():
+                owner.checkpoint()
+                status = verify_result_view_proof(proof, binding, secret=secret, now=datetime.now(UTC))
+                owner.checkpoint()
+                if status == "expired":
+                    renewed = issue_result_view_proof(binding, secret=secret, issued_at=datetime.now(UTC))
+                    owner.checkpoint()
+                    return renewed
+            return None
+
+        return await self._inspect_result_view(
+            principal=principal, workspace_id=workspace_id, sessionmaker=sessionmaker,
+            inspect_view=inspect, surface=surface, work_deadline=work_deadline,
+            cleanup_deadline=cleanup_deadline,
+        )
 
 
 def _parse_occurred_at(value: object) -> datetime | None:

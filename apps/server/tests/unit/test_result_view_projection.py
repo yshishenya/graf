@@ -86,7 +86,8 @@ def test_projection_ignores_metadata_unavailable_items_and_blank_text():
         assert metadata not in serialized
 
 
-def test_protocol_projection_preserves_render_order_without_titles_or_empty_messages():
+@pytest.mark.parametrize("bounded", [False, True])
+def test_protocol_projection_preserves_render_order_without_titles_or_empty_messages(bounded):
     from twobrain_rec_server.cabinet.result_visibility import result_view_text_blocks
 
     review = projection_review("protocol")
@@ -95,7 +96,14 @@ def test_protocol_projection_preserves_render_order_without_titles_or_empty_mess
     protocol["open_questions"] = [{"text": "Вопрос", "source_refs": []}]
     protocol["next_steps"] = [{"text": "Следующий шаг", "source_refs": []}]
     protocol["topics"][0]["outcome"] = [{"text": "Итог темы", "source_refs": []}]
-    blocks = result_view_text_blocks(review)
+    class Owner:
+        def checkpoint(self):
+            pass
+
+        def _refuse(self):
+            pytest.fail("small valid protocol must fit the original budget")
+
+    blocks = result_view_text_blocks(review, owner=Owner() if bounded else None)
     assert [(kind, text) for _, kind, text in blocks] == [
         ("summary", "  Макет обсуждён — риск: нет доступа.  "),
         ("action_items", "Сделать макет"),
