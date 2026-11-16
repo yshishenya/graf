@@ -445,15 +445,25 @@
   три reset/checkin, committed renewal и ledger0. Gate остаётся закрытым,
   watchdog не срабатывал; затем reuse PASS. Собственные контейнеры удалены.
   [История и точные входы](https://github.com/yshishenya/graf/blob/127a1ca5596df097526ef17d5a0ba282da3e12e4/specs/273-paid-traffic-analytics/validation/t112-root-history-validation-20261116.md).
-- [ ] Получить повторное независимое ревью последних исправлений P2,
-  затем затронутый общий regression-профиль и scoped converge. Последнее
-  независимое заключение остаётся HOLD; локальные GREEN его не заменяют.
-  Подготовлено `/private/tmp/graf-t112-root-history-review-update-20261116.txt`;
-  подтверждённой доставки нового поручения после3653b057 и verified wait нет.
-  Отчёты сохранены отдельным docs-only checkpoint127a1ca55. Код/тесты/fragment
-  остаются незакоммиченным кандидатом в изолированной рабочей копии;
-  свой patch дополнительно сохранён вне дерева, SHA-256c51af0f0….
-  PR/merge/выпуска/рабочего включения нет. T112/T113 открыты.
+- [x] Получить повторное независимое ревью N1–N3: SCOPED implementation PASS,
+  P1/P2=0, report SHA-256
+  `1316131eedeccb03abc2f1333e3d86ae3daf0b74010db0568b429d1c9c554862`.
+  Приняты окончательные257unitPASS и2nativePASS; три кодовых хеша неизменны.
+  Затем один общий PostgreSQL-профиль **294 PASS /0 skips /1 прежний warning /
+  50.50s /EXIT0**, runner54s, свой контейнер удалён. Журнал
+  `/private/tmp/graf-t112-root-history-regression294-20261116.log`, SHA-256
+  `57900f094db18ab00e6e04934af61e0a64d740d7bb3e1b271d27a1836cc982e1`.
+  Сверка завершения конкретного исправления не выявила новых пробелов в нём;
+  полный T112/T113 не принят, задачи и checklist не закрывались.
+- [x] Сохранить проверенный кодовый кандидат отдельным commit/push:
+  `eea992190c92e57b2cceaa199c2bcbd94ff71614`, ветка
+  `codex/f273-result-visibility-20261116`; удалённый readback exact SHA совпал.
+  agent-context/changelog-fragments/diff PASS, кодовая копия clean.
+  [Итоговая приёмка и профиль294](https://github.com/yshishenya/graf/blob/eea992190c92e57b2cceaa199c2bcbd94ff71614/specs/273-paid-traffic-analytics/validation/t112-root-history-validation-20261116.md).
+- [ ] Продолжить реальные HTTP/source/proof/admission границы T112/T113 и
+  остальные непокрытые close/commit/cleanup исходы; `_result_period_context`
+  по-прежнему `yield None`, HTTP-триггер не подключён. PR/merge/выпуска/
+  рабочего включения нет. Большую плановую ветку не сливать.
 - [ ] Проверить остальные реальные границы: обычный close/возврат в пул,
   TLS/reset/recycle и прочие commit/cleanup исходы. Упреждённый hard invalidate
   и foreign direct connection не доказывают ordinary close или same-pool
