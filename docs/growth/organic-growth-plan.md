@@ -908,16 +908,26 @@
   итоговый чистый журнал2fafadd8…. Предварительное независимое чтение
   подтвердило14 правок/45 исходных await/18 SAME/checklist124/0, но это
   ещё не FINAL implementation PASS окончательных хешей.
-- [ ] Получить отдельное независимое FINAL implementation review probe
-  `20bf2ba1455156bf6863f2eac6123c1fae25b897e7260aa94793afc1de94a83b`
-  и selfcheck `dc1e6edabc1f8d98dd43911106ed71d9c6698ebcc63f55d290c25152f1ad00d2`.
-  Итоговый запрос с EXIT0/хешем журнала подготовлен отдельно; файл запроса
-  сам по себе не означает доставку или живое ожидание. Затем проверить
-  invocation: ровно один False/явный -p tests.conftest/collect-only без БД,
-  и лишь после принятого допуска — один normal-запуск. True/M1/87 не
-  назначены; прежние normal POST2/fault response_held/repeatedHOLD остаются
-  необъяснёнными. Успех normal сам по себе не установит их причину;
-  runtime по догадке не менять. Рабочий period сохраняет yield None.
+- [x] Получить отдельное независимое FINAL implementation review окончательных
+  probe20bf2ba1… и selfcheckdc1e6eda…: **SCOPED IMPLEMENTATION PASS/P1=0/P2=0**.
+  [Отчёт](https://github.com/yshishenya/graf/blob/1514803209d4d619d406219edf0c633f63652082/specs/273-paid-traffic-analytics/validation/t112-native-normal-implementation-review-20261117.md)
+  полностью прочитан, SHA65dbb8557d407953acef697d058b9be3f54771cf40283f6c6391a18c1e958bd0
+  совпал. Независимо подтверждены14 обратимых правок/45 await/18 SAME/124/0,
+  итоговый pure selfcheck EXIT0 принят. Сохранено в кодовой ветке151480320;
+  это приёмка инструмента, ещё не запуск GET/POST/PG.
+- [ ] Принять отдельную invocation: подготовлен инертный рецепт
+  `/private/tmp/graf-t112-native-normal-invocation-20261117.py`, SHA
+  `bbe0e009f93ace302d1c01c212275ce97cff56b08da4d00ab9e0a87b82742f49`;
+  parse/Ruff PASS, не исполнен. Запрос существующему reviewer:
+  `/private/tmp/graf-t112-native-normal-invocation-review-request-20261117.txt`;
+  наличие файла не означает доставку/verified wait. Нужен отдельный FINAL
+  invocation gate: ровно один False/явный -p tests.conftest, сначала
+  collect-only/inventory1/container_not_started, затем один normal-запуск.
+  Рецепт сверяет9pins, эксклюзивные логи/копию и предыдущий сбор; сохраняет
+  безопасную квитанцию и очистку. True/M1/87/повторы не назначены;
+  прежние normal POST2/fault response_held/repeatedHOLD не объяснены.
+  Успех normal сам по себе не установит их причину; runtime по догадке
+  не менять. Рабочий period сохраняет yield None.
 - [ ] Завершить чтение нового завершённого недельного отчёта Метрики. В IAB2
   авторизованный кабинет действительно открылся; показал предупреждение
   технических работ и возможной задержки. Единственный увиденный прямой визит
