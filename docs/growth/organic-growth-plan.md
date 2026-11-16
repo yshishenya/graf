@@ -245,7 +245,7 @@
   Это узкая внешняя граница: DB handler синтетический и не пишет ledger.
   Connect/pre-ping/slow-close, полная очистка ресурсов и настоящий HTTP-приём
   ещё не приняты; PR/CI/merge/выпуска этого шага нет. T112/T113 не закрываются.
-- [ ] Принять расширение отмены до получения DB-соединения: промежуточный код
+- [x] Принять отдельное расширение отмены до получения DB-соединения: код
   сохранён/pushed отдельно `5ed913c6292c143f7d8799b6902c5406f39097f7`,
   remote readback совпал. Публичные SessionEvents связывают корневую
   транзакцию с её task до connect/pre-ping; точный invalidate завершает
@@ -254,10 +254,14 @@
   сохранение чужого соединения того же pool и один startup cancellation
   входят в85 PASS/1 прежний warning/0 skips, runner42s/EXIT0;
   изолированный контейнер штатно удалён. Полоса high-risk-product.
-  Независимое ревью реализации ещё ожидается: прежний preflight его
-  не заменяет, промежуточный код не готов к слиянию. Initialization,
+  Независимое ревью точного исходника дало P1=0/P2=0 в границах этого этапа;
+  основной агент прочитал полный отчёт. Он сохранён/pushed отдельно
+  `41ff49078c30d02d8c6c626018ae1a3c0584e68f`, remote readback совпал.
+  Initialization,
   slow rollback/close и остальные исходы commit/cleanup ещё открыты.
-  [Проверки и предел](https://github.com/yshishenya/graf/blob/5ed913c6292c143f7d8799b6902c5406f39097f7/specs/273-paid-traffic-analytics/validation/t112-precheckout-validation-20261116.md).
+  Передача уже начатой Session другой task также не принята.
+  [Проверки и предел](https://github.com/yshishenya/graf/blob/41ff49078c30d02d8c6c626018ae1a3c0584e68f/specs/273-paid-traffic-analytics/validation/t112-precheckout-validation-20261116.md),
+  [независимое ревью](https://github.com/yshishenya/graf/blob/41ff49078c30d02d8c6c626018ae1a3c0584e68f/specs/273-paid-traffic-analytics/validation/t112-precheckout-review-20261116.md).
   Рабочий сбор выключен; PR/CI/merge/выпуска этого расширения нет.
 - [ ] Выполнить полный source/audit/projection/proof, browser/native visibility, защищённый
   POST и общую admission boundary с причинной DB/browser/Swift/failure матрицей.
