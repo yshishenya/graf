@@ -383,11 +383,23 @@
   socket/task/backend cleanup в исходном2s. Заключение сохранено в
   `b573c49e050bff010f95ce91a1fed674103f99aa`.
   [Независимое заключение C1](https://github.com/yshishenya/graf/blob/b573c49e050bff010f95ce91a1fed674103f99aa/specs/273-paid-traffic-analytics/validation/t112-driver-close-preflight-20261116.md).
+- [x] Проследить исходники обычного close/возврата в пул до новых опытов:
+  SQLAlchemy2.0.51/asyncpg0.31.0 и реальные auth/renewal/ingest callers.
+  Обычный close возвращает исправное соединение в пул; постоянный idle socket
+  не является утечкой запроса. Активная transaction и отдельная shielded
+  close-task требуют собственного доказательства завершения. Штатная фабрика
+  задаёт только pre_ping, возрастной recycle не включён; другие причины
+  library invalidation/recycle этим не исключены. Это сверка исходников,
+  не PASS новых тестов. [Разбор путей](https://github.com/yshishenya/graf/blob/3bb4f81cac072ead06f3498447d488d358a26d84/specs/273-paid-traffic-analytics/validation/t112-pool-return-source-20261116.md).
 - [ ] Проверить следующую реальную границу: обычный close/возврат в пул,
   TLS/reset/recycle и прочие commit/cleanup исходы. Упреждённый hard invalidate
   и foreign direct connection не доказывают ordinary close или same-pool
   foreign coverage. Перед новыми тестами/кодом восстановить применимые
   оригинальные требования и получить независимый проект следующего опыта.
+  Применимые целые оригинальные разделы восстановлены,18 прежних hashes
+  совпали; live issue7698 OPEN и содержит T112/T113. Поручение проекта:
+  `/private/tmp/graf-t112-pool-return-review-request-20261116.txt`.
+  Нового независимого отчёта ещё нет; подготовленный файл не verified wait.
 - [ ] Выполнить полный source/audit/projection/proof, browser/native visibility, защищённый
   POST и общую admission boundary с причинной DB/browser/Swift/failure матрицей.
   Renderer использует общий чистый выбор строк и принимает необязательную карту
