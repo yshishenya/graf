@@ -139,6 +139,11 @@ async def full_projection(db, *, meeting, summary, outcome_set=None, outcome_ite
     from twobrain_rec_server.cabinet.egress import review_playback_state
 
     revision, result, version = await current_media(db, meeting=meeting)
+    duration_seconds = (
+        revision.duration_seconds
+        if revision is not None and revision.duration_seconds is not None
+        else meeting.duration_seconds
+    )
     playback_available = revision is not None and (
         await review_playback_state(db, meeting=meeting, access=public_access(), revision=revision)
     ).can_play
@@ -179,7 +184,7 @@ async def full_projection(db, *, meeting, summary, outcome_set=None, outcome_ite
             diarization_segments=diarization,
             status="ready",
             playback_available=playback_available,
-            playback_duration_seconds=meeting.duration_seconds,
+            playback_duration_seconds=duration_seconds,
         )
         lanes = speaker_state(diarization, transcript_segments=segments, speaker_names=names, can_rename=False)
         keys = {lane.speaker_key: f"speaker-{index + 1}" for index, lane in enumerate(lanes.speakers)}
@@ -241,7 +246,7 @@ async def full_projection(db, *, meeting, summary, outcome_set=None, outcome_ite
     return {
         "meeting_label": label,
         "occurred_at": occurred,
-        "duration_seconds": max(0, meeting.duration_seconds or 0),
+        "duration_seconds": max(0, duration_seconds or 0),
         "summary_sections": sections or summary["summary_sections"],
         "protocol": protocol,
         "transcript": turns,
