@@ -519,17 +519,22 @@
   удалён. Ruff/context/fragment/diff PASS; прежние61/294/257/native2 не повторялись.
   Кандидат с исходным HOLD и отчётом сохранён/pushed отдельно:
   `78744cd6bf8a066201271ee3a1ec36b84be6c559`, удалённый SHA совпал,
-  файлы побайтно совпали с commit. Это сохранение для повторного ревью,
-  не независимая приёмка, PR merge или выпуск.
-- [ ] Получить независимое повторное ревью точных файлов числового компонента
+  файлы побайтно совпали с commit. Независимая приёмка отдельного компонента
+  получена ниже; PR merge, выпуск и рабочий сбор этим не принимаются.
+- [x] Получить независимое повторное ревью точных файлов числового компонента
   в `/private/tmp/graf-f273-result-visibility-20261116`: module SHA-256
   `3017498c3ae23d897671ae7cc67432b36ffcfbedc9b96a0ab442610b4ef2d18b`, test
   `7b36f0c99cee98af4b867f05bd01ab2117ed589b0dbb8b8cc35531986ce9828a`.
   Отчёт основного исполнителя `validation/t112-numeric-projection-validation-20261116.md`;
   исходный reviewer HOLD сохранён в `validation/t112-numeric-projection-review-20261116.md`
   с SHA-256 `8deb1db80100f28a22981b821eafb293edad2ef18cd76f6e49cf0cbd72e2946f`.
-  Готовый запрос повторного ревью сохранён отдельно; его доставку и новый
-  FINAL не утверждаем. Полная Session/RR/interception/bypass/SQL128/2s/
+  Получен FINAL от существующего `/root/public_counter_readiness_review`:
+  SCOPED PASS/P1=0/P2=0, N1 устранён. Новый reviewer-owned отчёт
+  `validation/t112-numeric-projection-rereview-20261116.md`, SHA-256
+  `2e85b70398859d758ccb3b63adb2cd3ae728444d992441944ecf8f8c74d3e5cd`.
+  Основной исполнитель перечитал отчёт, сверил файлы и18 неизменных входов.
+  [Принятое заключение сохранено отдельно](https://github.com/yshishenya/graf/blob/3fd1de03b342d85537784db98b213dfc1553edbd/specs/273-paid-traffic-analytics/validation/t112-numeric-projection-rereview-20261116.md).
+  Тесты без изменения кода не повторялись. Полная Session/RR/interception/bypass/SQL128/2s/
   locks/freshness/очистка и обычный30–60мин путь не реализованы этим компонентом.
 - [x] Уточнить фактические чтения до кода: найден существующий ранний snapshot
   pattern `notification_snapshot_db`; previous-meeting revision/result и
