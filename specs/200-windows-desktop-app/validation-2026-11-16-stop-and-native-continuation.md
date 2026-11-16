@@ -590,3 +590,94 @@ F200, installed Windows/macOS, exact-SHA CI или release. T006/#7905 оста�
 Main разрешил её ограниченное выполнение вместе с неизменённым baseline, без
 VM/продукта/реальных данных и без ослабления исходного zero oracle. На момент
 этой записи фактический результат не получен. Общая цель/выпуск не закрыты.
+
+## Продолжение: промежуточный коммит и проверки GitHub
+
+Интеграция786путей закреплена коммитом
+`f497000e89bd0fe8b98fcc0c1884a6198b90fae1`, отправлена в отдельную ветку
+`codex/200-windows-integration-20261116`; создан draft PR#8061.
+Base остаётся `5223422357487ab28cfc83084c9e45717d0a6568`.
+GitHub macos-pr run43792439612 и pr-metadata run43792714266 прошли.
+Governance run43792439613 остановился на исходном оформлении четырёх
+сторонних лицензий; Windows run43792713670 — на недоступном Get-FileHash
+в дочернем PowerShell5.1. Это реальные отказы; последующие правки не меняют
+их исторический результат. Точное узкое сохранение оформления лицензий,
+без изменения их байтов/SHA, прошло независимый review и закреплено отдельным
+коммитом `5b66572543a525a9b8c724424024ce382acfcdd9`.
+Merge и выпуск не выполнялись; новый SHA требует новых проверок.
+
+## Продолжение: SSO — фактический отказ сохранён
+
+Неизменённый контроль --memory-tail char sso-clear на текущем libc++ даёт
+after-clear zero=1, но pre-free zero=0/SIGABRT6. Независимо проверенное
+исполнение трёхточечной диагностики показывает111→111→000, exit2:
+выбранные три байта нулевые после clear и полного derived wipe, но ненулевые
+перед free. Совпадения с исходным синтетическим маркером нет; происхождение
+ненулевых байтов и утечка секрета этим не установлены. Исходный zero oracle
+сохранён. Отчёт исполнения SHA256
+`e4005c561a2e1f0b2c98ff3113bd60c4a11b74919cfe425550665b8fc253b195`;
+независимый result/fix-scope report SHA256
+`06b4e6c6eda41994456082a79c72a68b9dfcbbfe4ddc9ee910e6e6186c994f03`.
+Это Mac synthetic evidence, не утверждение о текущем Windows runtime.
+Исправление порядка завершения BasicCustodyString ещё не реализовано.
+
+## Продолжение: T088 — настоящий ограниченный запуск R3 завершился отказом
+
+R2 transport сохранил REQUEST_CHANGES: длинный EncodedCommand не проходит
+через Parallels. Отдельная frozen R3 подготовка использует gzip всего запроса,
+короткий фиксированный -Command и предел полной гостевой команды<3800.
+Независимый delta review PASS; Main actual PS5 parse5/5 и C# Add-Type PASS
+без запуска приложения закреплены отдельно. R2 не переименован в PASS.
+
+Main выполнил ровно один запуск R3 в QA ARM после свежего preflight и
+отключения только net0. Exact EXE ef70f4d… совпал; source pre/post264/264,
+raw input hashes совпали. Task Ready/3, Job Created/Assigned/ProcessSignaled/
+JobEmpty=true, TimedOut/Forced=false, exit3. Первое окно initialized/core/
+navigation и seed readback прошли, затем abc_host_available остановил сценарий.
+Только1из3окон; B/C, окончательный readback и cookie preservation не подтверждены.
+Raw evidence сохранено в `.dev/t088-xaml-abc-20261116/revisions/` →
+`r2-pre-attach-observer/runtime-r3-short-command/` →
+`runtime-collection-20261116T024527181290Z/`.
+
+Fixture сохранила свой профиль при unknown; внешней очистки/повторного запуска
+не было. Main postflight подтвердил отсутствие GRAF и исходного browser12080;
+другие WebView2 процессы существовали до запуска и не используют fixture UDF.
+После подтверждения terminal/JobEmpty сеть QA возвращена к прежнему shared net0.
+Рабочая Windows11 не затронута. Требуется разбор причины; T088/F200 остаются открыты.
+
+## Продолжение: T124 — среда PowerShell и чтение журнала
+
+Узкая правка Windows CI запускает весь T124 шаг в Windows PowerShell5.1;
+CTest больше не передаёт ему пути модулей PowerShell7 через промежуточный процесс.
+Исходный PS1, SHA-256 проверка,8аргументов команды,180s timeout,111сценариев,
+JUnit и запреты пропусков сохранены. Журнал Tee-Object остаётся в исходном
+UTF16LE+BOM, проверяющий читает его как UTF-16. Реальная цепочка соответствует
+описанному Microsoft механизму; выбранный module manifest в старом CI не измерялся.
+Новые регрессии воспроизводят отказ прежней конфигурации и ошибку кодировки;
+финальный existing governance suite:20PASS/0skip,0.55s, exit0. Embedded Python
+validator действительно исполняется на UTF16LE bytes, отвергает duplicate marker
+и CTest exit8; raw bytes не переписываются. Это локальный результат на Mac,
+не новый Windows CI PASS. Отчёт: `.dev/f200-ci-psmodule-fix-20261116.md`.
+Дополнительно Main проверил полный изменённый шаг штатным Parser Windows
+PowerShell5.1.26100.9457 в QA:0ошибок; Get-FileHash доступен из
+Microsoft.PowerShell.Utility3.1.0.0. Сам шаг/CTest не исполнялся; это syntax
+qualification, не suite111. Exact workflow SHA256
+`b12468ee32462cacecbe77474c4527015d4f01ca0862f985d70e682f6c231958`;
+квитанция `.dev/f200-ci-ps5-qualification-20261116.json`.
+
+Независимое ревью выявило отдельный P2: legacy native argv в PS5 теряет
+кавычки Python here-string при передаче через -c. Оба блока теперь поступают
+через `$checkPlan | python -I -` и `$checkReport | python -I -`; -I и проверки
+кодов выхода сохранены. Тест дополнительно закрепляет оба пути и ASCII-текст
+блоков для штатной кодировки stdin PS5. Final focused suite:21PASS/0skip,
+0.58s, exit0. Workflow SHA256
+`918a58a487dd1f31d3a4c57512c37d3b8793fc38b92d2a9c2d50c9fd84005537`;
+test SHA256 `22eae913422ff7616faafea96d6eeb11af5d1454581b04086658e96654899b21`.
+Прежний review REQUEST_CHANGES сохранён; новый независимый verdict и GitHub
+CI ожидаются. PS5 parser-квитанция выше относится к прежним байтам и не
+доказывает выполнение native argv или нынешнего шага. Python в QA не установлен;
+его установка ради этой узкой проверки не выполнялась.
+Повторный независимый SOURCE PASS получен для точных финальных двух файлов:
+`.dev/f200-ci-psmodule-stdin-rereview-20261116.md`, SHA256
+`deef89f4b1c497a459348e30ed6f914244316d85abe0139df5bd0d32f15577fb`.
+P2 устранён, новых блокирующих замечаний нет; suite111/hosted CI этим не заменены.
