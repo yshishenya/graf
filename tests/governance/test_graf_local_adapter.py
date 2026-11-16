@@ -3,6 +3,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 import importlib.util
 import json
+import re
 from pathlib import Path
 from urllib.error import HTTPError
 
@@ -18,6 +19,16 @@ SPEC.loader.exec_module(dev_harness)
 
 def manifest(tmp_path: Path, sha: str = "a" * 40, feature: str = "216"):
     return dev_harness.build_manifest(sha, feature, root=tmp_path)
+
+
+def test_postgres_default_is_immutable_and_matches_compose():
+    _component, variable, image, source_bound = dev_harness.COMPOSE_IMAGE_COMPONENTS["rec-postgres"]
+    assert re.fullmatch(r"postgres:17-alpine@sha256:[0-9a-f]{64}", image)
+    assert not source_bound
+    compose = (SOURCE_ROOT / "infra/docker-compose.dev.yml").read_text()
+    service = re.search(r"(?ms)^  rec-postgres:\n(.*?)(?=^  \S|\Z)", compose)
+    assert service, "Dev Compose must define rec-postgres"
+    assert f'image: "${{{variable}:-{image}}}"' in service.group(1)
 
 
 def test_live_adapter_build_is_explicit_and_uses_only_dev_environment(monkeypatch, tmp_path):

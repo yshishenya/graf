@@ -93,7 +93,12 @@ COMPOSE_IMAGE_COMPONENTS = {
         "temporalio/auto-setup:1.28.0",
         False,
     ),
-    "rec-postgres": ("database", "GRAF_DEV_DATABASE_IMAGE", "postgres:17-alpine", False),
+    "rec-postgres": (
+        "database",
+        "GRAF_DEV_DATABASE_IMAGE",
+        "postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24",
+        False,
+    ),
     "rec-minio": (
         "storage",
         "GRAF_DEV_STORAGE_IMAGE",
