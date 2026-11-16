@@ -391,15 +391,32 @@
   задаёт только pre_ping, возрастной recycle не включён; другие причины
   library invalidation/recycle этим не исключены. Это сверка исходников,
   не PASS новых тестов. [Разбор путей](https://github.com/yshishenya/graf/blob/3bb4f81cac072ead06f3498447d488d358a26d84/specs/273-paid-traffic-analytics/validation/t112-pool-return-source-20261116.md).
-- [ ] Проверить следующую реальную границу: обычный close/возврат в пул,
+- [x] Получить независимый проект двух native случаев замены старого поколения
+  пула до checkout: normal и адресная задержка EOF. Проект принят до тестов,
+  checklist124/0; runtime guard не менялся. Выполненный причинный baseline:
+  normal PASS около0.064s; fault FAIL около2.002s на отсутствии полного ASGI
+  ответа. Старый backend и его locks исчезли до отмены, но graceful close
+  оставался pending. Поздние fault cleanup/reuse и сохранность чужих ресурсов
+  не достигнуты и не считаются PASS; нормальный случай проверил их в исходном2s.
+  Итог1PASS/1FAIL,27deselected, прежний warning; runner завершён, временные
+  контейнеры удалены. Первый normal test-count defect исправлен по реальному
+  auth/tenant/renewal пути; итоговый журнал отделён от первой попытки.
+  Checkpoint `c420927a7633596ca392799b61e46022ae7234d2` committed/pushed,
+  remote readback совпал. Прежний233 без изменения не повторялся.
+  [Опыт и ограничения](https://github.com/yshishenya/graf/blob/c420927a7633596ca392799b61e46022ae7234d2/specs/273-paid-traffic-analytics/validation/t112-pool-return-validation-20261116.md).
+- [ ] Независимо принять новый baseline и отдельно согласовать минимальный
+  проект runtime исправления. Готовое поручение сохранено в
+  `/private/tmp/graf-t112-pool-return-baseline-review-20261116.txt`;
+  новый отчёт ещё не получен, живое ожидание не подтверждено. Принятый проект
+  тестов не является допуском runtime кода; T112 и рабочий сбор открыты.
+- [ ] Проверить остальные реальные границы: обычный close/возврат в пул,
   TLS/reset/recycle и прочие commit/cleanup исходы. Упреждённый hard invalidate
   и foreign direct connection не доказывают ordinary close или same-pool
   foreign coverage. Перед новыми тестами/кодом восстановить применимые
   оригинальные требования и получить независимый проект следующего опыта.
   Применимые целые оригинальные разделы восстановлены,18 прежних hashes
-  совпали; live issue7698 OPEN и содержит T112/T113. Поручение проекта:
-  `/private/tmp/graf-t112-pool-return-review-request-20261116.txt`.
-  Нового независимого отчёта ещё нет; подготовленный файл не verified wait.
+  совпали; live issue7698 OPEN и содержит T112/T113. Проект двух случаев
+  принят, исходный результат зафиксирован выше; остальные пути не закрыты.
 - [ ] Выполнить полный source/audit/projection/proof, browser/native visibility, защищённый
   POST и общую admission boundary с причинной DB/browser/Swift/failure матрицей.
   Renderer использует общий чистый выбор строк и принимает необязательную карту
