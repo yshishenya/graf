@@ -51,7 +51,7 @@
 - [X] T024 [US1] Start the independent reviewer-owned checklist review **before implementation**; reviewer may edit only `checklists/*` and its report, must mark `[x]` only with evidence, and must reread/report totals. — Issue https://github.com/yshishenya/graf/issues/8087
 - [X] T025 [US1] Run `$speckit-analyze` until 0 CRITICAL/HIGH findings; record the result. — Issue https://github.com/yshishenya/graf/issues/8088
 - [X] T026 [US1] Run `$speckit-taskstoissues`, create canonical child issues, link every task to its issue and keep #8063 as umbrella. — Issue https://github.com/yshishenya/graf/issues/8089
-- [ ] T027 [US6] Open a PR with exact-SHA evidence, `governance-fast`, `macos-pr`, `pr-metadata`, and `validate-pr-checks.py`. — Issue https://github.com/yshishenya/graf/issues/8090
+- [X] T027 [US6] Open a PR with exact-SHA evidence, `governance-fast`, `macos-pr`, `pr-metadata`, and `validate-pr-checks.py`. — Issue https://github.com/yshishenya/graf/issues/8090
 - [ ] T028 [US6] Freeze the candidate, run `release-full`, Developer ID/notarization/staple/Gatekeeper/Sparkle/live appcast, `cd-remote.sh --dry-run`, production deploy, health/runtime SHA. — Issue https://github.com/yshishenya/graf/issues/8091
 - [ ] T029 [US6] Run a production dry run; verify zero file/queue mutation and zero false eligibility. Enable Phase B, then Phase C only if evidence is clean; otherwise keep Phase C disabled. — Issue https://github.com/yshishenya/graf/issues/8092
 - [ ] T030 [US6] Update `validation.md`, `changes/unreleased/F296.yaml`, `docs/current-product-status.md`; run `$speckit-converge`; run `scripts/validate-issue-closeout.py` for each child issue and #8063, then close them with Russian evidence. — Issue https://github.com/yshishenya/graf/issues/8093
