@@ -162,10 +162,23 @@
   Сохранено отдельно `09228887cfe66b1ee2b79f3cbfb4c0828cd24134`.
   [Проверки и оставшийся объём](https://github.com/yshishenya/graf/blob/09228887cfe66b1ee2b79f3cbfb4c0828cd24134/specs/273-paid-traffic-analytics/validation/t112-projection-20261116.md),
   [независимое ревью](https://github.com/yshishenya/graf/blob/09228887cfe66b1ee2b79f3cbfb4c0828cd24134/specs/273-paid-traffic-analytics/validation/t112-projection-review-20261116.md).
+- [x] Провести необязательную карту подтверждений через оба detail renderer
+  к конкретному непустому текстовому телу. Ключи совпадают с общей проекцией,
+  включая несколько тем/частей протокола, next steps и разрывы индексов при
+  whitespace. Атрибут экранируется; неизвестные ключи и пустые/недоступные тела
+  его не получают. При отсутствии карты и с пустой картой прежний HTML сохранён.
+  Итог156 PASS/1 прежний warning/0 skips, включая Chromium-регрессию; все24
+  baseline HTML-хеша прежние, Ruff/diff/fragment PASS. Независимое ревью
+  P1/P2=0, два точных хеша совпали. Новый код сохранён/pushed отдельно
+  `13edb699c1cee3c9b40808b44d3d8d3b0ba01852`.
+  [Проверки и оставшийся объём](https://github.com/yshishenya/graf/blob/13edb699c1cee3c9b40808b44d3d8d3b0ba01852/specs/273-paid-traffic-analytics/validation/t112-proof-attributes-20261116.md),
+  [независимое ревью](https://github.com/yshishenya/graf/blob/13edb699c1cee3c9b40808b44d3d8d3b0ba01852/specs/273-paid-traffic-analytics/validation/t112-proof-attributes-review-20261116.md).
 - [ ] Выполнить полный source/audit/projection/proof, browser/native visibility, защищённый
   POST и общую admission boundary с причинной DB/browser/Swift/failure матрицей.
-  Renderer использует общий чистый выбор строк; binding/proof и issuance
-  в невидимые атрибуты ещё не подключены к рабочим вызовам. Source fact/подпись/
+  Renderer использует общий чистый выбор строк и принимает необязательную карту
+  для невидимых атрибутов; binding/proof и issuance ещё не подключены к рабочим
+  вызовам. Следующие шаги: общий observer настоящей видимости и native foreground,
+  затем защищённый серверный приём/выдача proof. Source fact/подпись/
   snapshot не доказывают показ или свежий доступ после fences. T112/T113 и
   внешний счёт остаются открытыми; частичные шаги не закрывают задачу.
 
