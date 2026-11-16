@@ -183,7 +183,10 @@ faults остаются <2s (около1.64s), все прежние регре�
 | Full207 log | `d59d798365d2d097c149ae42e1669300d0f8bdf995f11063ebb5b87db3a30ec9` |
 | Focused83 log | `237c1592e8ba19617ff3f8de14aadc894d87e82527c11b6fd9273bfef2279285` |
 
-Ruff/diff-check PASS. Независимая повторная приёмка I1 ещё открыта; этот текст
-не меняет решение reviewer. Основные checklist и T112/T113 остаются прежними.
+Ruff/diff-check PASS. Повторная независимая приёмка checkpoint78cd1ea85
+завершена: I1 устранена, P1=0/P2=0 в пределах initialization extension.
+Основной агент прочитал весь addendum и сверил неизменные код/тесты/log207;
+новый SHA-256 отчёта `646633c73276bfb6c91db6ebde5be4c7b049cc4722fbd0f05f6d50b0c88c01db`.
+Тесты повторно не запускались. Основные checklist и T112/T113 остаются прежними.
 Полные HTTP/issuance/ledger/browser/native/rawclose/TLS/poolreset/прочие commit,
 restore/runtime/T0 и коммерческие результаты не приняты.
