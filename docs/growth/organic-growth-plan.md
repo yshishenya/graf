@@ -700,6 +700,15 @@
   Полоса `high-risk-product`; это приёмка только HTTP-среза, не всей T112/T113.
   Слияния в master приостановлены по поручению владельца до завершения выпуска
   Метрики. Новый PR, GitHub gates, merge, Full/CD и рабочее включение не выполнены.
+  Свежая независимая сверка GitHub16.11 в15:36UTC: прежний
+  [Full43879019850](https://github.com/yshishenya/graf/actions/runs/43879019850)
+  для `910e805cbef4125d53691208b387143a5a4b2e02` завершился failure; draft
+  `v2026.11.16.1` уже указывает на `d03114b6ade9750154186cc6bedffe2235921628`.
+  Его [Full43894088412](https://github.com/yshishenya/graf/actions/runs/43894088412)
+  фактически in_progress: strict/performance выполняется, остальные показанные
+  компоненты success. `isDraft=true`, `publishedAt=null`; публикация и рабочая
+  приёмка этим не подтверждены, freeze сохраняется. Это чтение статуса, не
+  новый запуск Full/CD и не разрешение слияния.
 - [ ] Продолжить реальные HTTP/source/proof/admission границы T112/T113 и
   остальные непокрытые close/commit/cleanup исходы; `_result_period_context`
   по-прежнему `yield None`. HTTP-путь подключён и проверен в отдельной ветке;
