@@ -99,10 +99,31 @@ public enum LocalRecordingFootprintMeasurer {
     }
 }
 
+/// Meeting detection may only consume a footprint measurement that is still
+/// inside the provider cache window. Older values fail closed and the caller
+/// schedules a fresh off-main measurement.
+public enum MeetingDetectionFootprintFreshness {
+    public static func freshRisk(
+        measuredAt: Date?,
+        risk: LocalBufferRiskState,
+        now: Date = Date(),
+        maximumAge: TimeInterval = LocalRecordingFootprintProvider.defaultCacheTTL
+    ) -> LocalBufferRiskState? {
+        guard let measuredAt else { return nil }
+        let age = now.timeIntervalSince(measuredAt)
+        guard age >= 0, age <= maximumAge else { return nil }
+        return risk
+    }
+}
+
 public actor LocalRecordingFootprintProvider {
     public typealias Measure = @Sendable (URL) throws -> LocalRecordingFootprintSnapshot
     public typealias AvailableBytes = @Sendable (URL) throws -> Int64
     public typealias Clock = @Sendable () -> Date
+
+    /// The cached footprint is valid for the same window the capture gate and
+    /// meeting detection may consume it.
+    public static let defaultCacheTTL: TimeInterval = 60
 
     private struct CachedMeasurement: Sendable {
         let risk: LocalBufferRiskState
@@ -149,6 +170,7 @@ public actor LocalRecordingFootprintProvider {
     private let policy: LocalBufferPolicy
     private let measure: Measure
     private let availableBytes: AvailableBytes
+    private let capacityBytes: AvailableBytes
     private let ttl: TimeInterval
     private let timeout: TimeInterval
     private let clock: Clock
@@ -159,11 +181,12 @@ public actor LocalRecordingFootprintProvider {
     public init(
         rootURL: URL,
         policy: LocalBufferPolicy = LocalBufferService.defaultPolicy,
-        ttl: TimeInterval = 60,
+        ttl: TimeInterval = LocalRecordingFootprintProvider.defaultCacheTTL,
         timeout: TimeInterval = 2,
         clock: @escaping Clock = Date.init,
         measure: @escaping Measure = { try LocalRecordingFootprintMeasurer.measure(at: $0) },
-        availableBytes: @escaping AvailableBytes = LocalRecordingStorageProbe.measureAvailableBytes
+        availableBytes: @escaping AvailableBytes = LocalRecordingStorageProbe.measureAvailableBytes,
+        capacityBytes: @escaping AvailableBytes = LocalRecordingStorageProbe.measureCapacityBytes
     ) {
         self.rootURL = rootURL
         self.policy = policy
@@ -172,6 +195,7 @@ public actor LocalRecordingFootprintProvider {
         self.clock = clock
         self.measure = measure
         self.availableBytes = availableBytes
+        self.capacityBytes = capacityBytes
     }
 
     public func cachedRisk(maxAge: TimeInterval? = nil) -> LocalBufferRiskState? {
@@ -217,14 +241,18 @@ public actor LocalRecordingFootprintProvider {
         let policy = policy
         let measure = measure
         let availableBytes = availableBytes
+        let capacityBytes = capacityBytes
         let task = Task.detached(priority: .utility) { () -> MeasurementResult in
             do {
                 let snapshot = try measure(rootURL)
                 let freeDiskBytes = try availableBytes(rootURL)
+                let resolvedPolicy = policy.resolved(
+                    diskCapacityBytes: try? capacityBytes(rootURL)
+                )
                 let risk = LocalBufferService().riskState(
                     usedBytes: snapshot.bytes,
                     freeDiskBytes: freeDiskBytes,
-                    policy: policy
+                    policy: resolvedPolicy
                 )
                 return MeasurementResult(risk: risk, snapshot: snapshot)
             } catch {

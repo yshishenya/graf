@@ -44,6 +44,14 @@
 | Production deploy / health / runtime SHA | pending |
 | Production dry run: zero file/queue mutation | pending |
 
+## Release order gate
+
+1. Deploy the server contract (Phase A) before publishing the app update.
+2. Build/notarize the candidate and install it on the operator Mac with `GRAF_DISABLE_LOCAL_CACHE_AUTO_EVICTION=1`.
+3. Run the production dry run; require zero file/queue mutation and zero false `potentially_eligible` verdicts.
+4. Only then publish the appcast/GitHub Release and remove the operator kill switch.
+5. If the dry run finds a defect, keep the operator switch on, ship no appcast update, and fix before publication.
+
 ## Evidence
 
 - Pending implementation and release evidence.

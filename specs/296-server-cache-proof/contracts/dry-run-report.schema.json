@@ -4,11 +4,13 @@
   "title": "Local cache eviction dry-run report",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "generatedAt", "scopeFingerprint", "policy", "totals", "byReason", "items"],
+  "required": ["schemaVersion", "generatedAt", "scopeFingerprint", "truncated", "availableItemCount", "policy", "totals", "byReason", "items"],
   "properties": {
     "schemaVersion": {"const": "local-cache-eviction-dry-run.v1"},
     "generatedAt": {"type": "string", "format": "date-time"},
     "scopeFingerprint": {"type": "string", "minLength": 1},
+    "truncated": {"type": "boolean"},
+    "availableItemCount": {"type": "integer", "minimum": 0},
     "policy": {
       "type": "object",
       "additionalProperties": false,

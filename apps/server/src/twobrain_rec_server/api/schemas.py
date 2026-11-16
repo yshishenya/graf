@@ -926,12 +926,99 @@ class MediaRevisionUploadSessionResponse(BaseModel):
     upload_session: UploadSessionResponse
 
 
+PlaybackPreparationStateValue = Literal[
+    "preparing",
+    "available",
+    "unavailable",
+    "deleting",
+    "deleted",
+]
+PlaybackPreparationReasonCode = Literal[
+    "normalization_queued",
+    "normalization_running",
+    "normalization_publishing",
+    "normalization_retry_wait",
+    "reconciliation_pending",
+    "canonical_artifact_missing",
+    "canonical_ready",
+    "access_denied",
+    "audio_not_archived",
+    "storage_capacity_exceeded",
+    "empty_source",
+    "no_audio",
+    "ambiguous_audio_tracks",
+    "unsupported_media",
+    "encrypted_media",
+    "corrupt_source",
+    "limit_exceeded",
+    "source_missing",
+    "source_mismatch",
+    "meeting_deleting",
+    "meeting_deleted",
+    "audio_purged",
+]
+RetentionPolicyStateValue = Literal[
+    "active",
+    "blocked",
+    "unsafe",
+    "expired",
+    "not_configured",
+]
+StorageThresholdValue = Literal["normal", "80%", "95%", "full", "unknown"]
+StorageActionValue = Literal["none", "open_billing_storage", "contact_owner"]
+
+
+class DesktopPlaybackProof(BaseModel):
+    """Per-response playback proof; every default stays fail-closed."""
+
+    state: PlaybackPreparationStateValue = "unavailable"
+    can_play: bool = False
+    reason_code: PlaybackPreparationReasonCode = "no_audio"
+    media_revision_id: UUID | None = None
+    local_media_revision_id: str | None = None
+    object_verified: bool = False
+    verified_at: datetime | None = None
+    automatic_recovery: bool = False
+
+
+class DesktopSyncRetentionState(BaseModel):
+    delete_after: datetime | None = None
+    policy_state: RetentionPolicyStateValue = "not_configured"
+
+
+class DesktopSyncFinalizedUploadState(BaseModel):
+    session_id: UUID
+    media_revision_id: UUID
+    local_media_revision_id: str | None = None
+    archive_audio: bool
+    finalized_at: datetime | None = None
+    status: UploadSessionStatus = UploadSessionStatus.FINALIZED
+
+
+class DesktopStorageStatusResponse(BaseModel):
+    billing_role: Literal["owner", "admin", "member"]
+    access_mode: Literal["manage", "read_only"]
+    plan_code: str
+    used_bytes: int | None = None
+    reserved_bytes: int | None = None
+    capacity_bytes: int | None = None
+    available_bytes: int | None = None
+    threshold: StorageThresholdValue = "unknown"
+    action: StorageActionValue = "none"
+    action_path: str | None = None
+    meeting_retention_days: int | None = None
+    source_audio_retention_days: int | None = None
+    retention_policy_state: RetentionPolicyStateValue = "not_configured"
+    observed_at: datetime | None = None
+
+
 class DesktopSyncMeetingState(BaseModel):
     meeting_id: UUID
     status: MeetingStatus
     processing_status: ProcessingStatus
     deletion_state: DeletionState = DeletionState.NONE
     access_state: str = "owner"
+    retention: DesktopSyncRetentionState = Field(default_factory=DesktopSyncRetentionState)
 
 
 class MissingRange(BaseModel):
@@ -1012,6 +1099,8 @@ class DesktopRecordingSyncStateResponse(BaseModel):
     upload_session: DesktopSyncUploadSessionState
     processing: DesktopSyncProcessingState
     review: DesktopSyncReviewState
+    playback: DesktopPlaybackProof = Field(default_factory=DesktopPlaybackProof)
+    finalized_upload: DesktopSyncFinalizedUploadState | None = None
     conflict: DesktopSyncConflict = Field(default_factory=DesktopSyncConflict)
     custody: CustodyReadModel | None = None
 
@@ -1313,37 +1402,6 @@ PlaybackUnavailableReason = Literal[
     "storage_unavailable",
 ]
 PlaybackSourceMode = Literal["none", "stored_review_m4a"]
-PlaybackPreparationStateValue = Literal[
-    "preparing",
-    "available",
-    "unavailable",
-    "deleting",
-    "deleted",
-]
-PlaybackPreparationReasonCode = Literal[
-    "normalization_queued",
-    "normalization_running",
-    "normalization_publishing",
-    "normalization_retry_wait",
-    "reconciliation_pending",
-    "canonical_artifact_missing",
-    "canonical_ready",
-    "access_denied",
-    "audio_not_archived",
-    "storage_capacity_exceeded",
-    "empty_source",
-    "no_audio",
-    "ambiguous_audio_tracks",
-    "unsupported_media",
-    "encrypted_media",
-    "corrupt_source",
-    "limit_exceeded",
-    "source_missing",
-    "source_mismatch",
-    "meeting_deleting",
-    "meeting_deleted",
-    "audio_purged",
-]
 GovernanceState = Literal[
     "available", "disabled", "planned", "policy_blocked", "browser_handoff", "out_of_scope"
 ]

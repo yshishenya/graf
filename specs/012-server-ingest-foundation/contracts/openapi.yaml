@@ -1643,6 +1643,109 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Problem'
+  /api/v1/desktop/storage/status:
+    get:
+      tags:
+      - ingest
+      - billing
+      summary: Get Desktop Storage Status
+      operationId: get_desktop_storage_status_api_v1_desktop_storage_status_get
+      parameters:
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DesktopStorageStatusResponse'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '413':
+          description: Payload too large
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503':
+          description: Dependency unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
   /api/v1/desktop/notification-context:
     get:
       tags:
@@ -15740,6 +15843,12 @@ components:
           $ref: '#/components/schemas/DesktopSyncProcessingState'
         review:
           $ref: '#/components/schemas/DesktopSyncReviewState'
+        playback:
+          $ref: '#/components/schemas/DesktopPlaybackProof'
+        finalized_upload:
+          anyOf:
+          - $ref: '#/components/schemas/DesktopSyncFinalizedUploadState'
+          - type: 'null'
         conflict:
           $ref: '#/components/schemas/DesktopSyncConflict'
         custody:
@@ -15772,6 +15881,39 @@ components:
           default: continue_upload
       type: object
       title: DesktopSyncConflict
+    DesktopSyncFinalizedUploadState:
+      properties:
+        session_id:
+          type: string
+          format: uuid
+          title: Session Id
+        media_revision_id:
+          type: string
+          format: uuid
+          title: Media Revision Id
+        local_media_revision_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Local Media Revision Id
+        archive_audio:
+          type: boolean
+          title: Archive Audio
+        finalized_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Finalized At
+        status:
+          $ref: '#/components/schemas/UploadSessionStatus'
+          default: finalized
+      type: object
+      required:
+      - session_id
+      - media_revision_id
+      - archive_audio
+      title: DesktopSyncFinalizedUploadState
     DesktopSyncMeetingState:
       properties:
         meeting_id:
@@ -15789,6 +15931,8 @@ components:
           type: string
           title: Access State
           default: owner
+        retention:
+          $ref: '#/components/schemas/DesktopSyncRetentionState'
       type: object
       required:
       - meeting_id
@@ -22045,3 +22189,187 @@ components:
       - end_ms
       - time
       title: PublicTranscriptTurn
+    DesktopPlaybackProof:
+      properties:
+        state:
+          type: string
+          enum:
+          - preparing
+          - available
+          - unavailable
+          - deleting
+          - deleted
+          title: State
+          default: unavailable
+        can_play:
+          type: boolean
+          title: Can Play
+          default: false
+        reason_code:
+          type: string
+          enum:
+          - normalization_queued
+          - normalization_running
+          - normalization_publishing
+          - normalization_retry_wait
+          - reconciliation_pending
+          - canonical_artifact_missing
+          - canonical_ready
+          - access_denied
+          - audio_not_archived
+          - storage_capacity_exceeded
+          - empty_source
+          - no_audio
+          - ambiguous_audio_tracks
+          - unsupported_media
+          - encrypted_media
+          - corrupt_source
+          - limit_exceeded
+          - source_missing
+          - source_mismatch
+          - meeting_deleting
+          - meeting_deleted
+          - audio_purged
+          title: Reason Code
+          default: no_audio
+        media_revision_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Media Revision Id
+        local_media_revision_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Local Media Revision Id
+        object_verified:
+          type: boolean
+          title: Object Verified
+          default: false
+        verified_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Verified At
+        automatic_recovery:
+          type: boolean
+          title: Automatic Recovery
+          default: false
+      type: object
+      title: DesktopPlaybackProof
+      description: Per-response playback proof; every default stays fail-closed.
+    DesktopStorageStatusResponse:
+      properties:
+        billing_role:
+          type: string
+          enum:
+          - owner
+          - admin
+          - member
+          title: Billing Role
+        access_mode:
+          type: string
+          enum:
+          - manage
+          - read_only
+          title: Access Mode
+        plan_code:
+          type: string
+          title: Plan Code
+        used_bytes:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Used Bytes
+        reserved_bytes:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Reserved Bytes
+        capacity_bytes:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Capacity Bytes
+        available_bytes:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Available Bytes
+        threshold:
+          type: string
+          enum:
+          - normal
+          - 80%
+          - 95%
+          - full
+          - unknown
+          title: Threshold
+          default: unknown
+        action:
+          type: string
+          enum:
+          - none
+          - open_billing_storage
+          - contact_owner
+          title: Action
+          default: none
+        action_path:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Action Path
+        meeting_retention_days:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Meeting Retention Days
+        source_audio_retention_days:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Source Audio Retention Days
+        retention_policy_state:
+          type: string
+          enum:
+          - active
+          - blocked
+          - unsafe
+          - expired
+          - not_configured
+          title: Retention Policy State
+          default: not_configured
+        observed_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Observed At
+      type: object
+      required:
+      - billing_role
+      - access_mode
+      - plan_code
+      title: DesktopStorageStatusResponse
+    DesktopSyncRetentionState:
+      properties:
+        delete_after:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Delete After
+        policy_state:
+          type: string
+          enum:
+          - active
+          - blocked
+          - unsafe
+          - expired
+          - not_configured
+          title: Policy State
+          default: not_configured
+      type: object
+      title: DesktopSyncRetentionState

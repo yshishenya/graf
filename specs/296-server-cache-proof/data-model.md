@@ -15,13 +15,14 @@ F296 adds a read-only proof layer and a local deletion ledger. It does not add d
 | `state` | enum string (`PlaybackPreparationStateValue`) | `unavailable` | `available`, `preparing`, `unavailable`, `deleting`, `deleted` |
 | `can_play` | bool | `false` | True only when playback is currently servable |
 | `reason_code` | enum string | `no_audio` | Canonical reason; `canonical_ready` means ready |
-| `media_revision_id` | UUID? | `nil` | Actual playback revision, not necessarily the meeting revision |
+| `media_revision_id` | UUID? | `nil` | Server UUID of the actual playback revision |
+| `local_media_revision_id` | string? | `nil` | Local revision ID of the actual playback revision |
 | `object_verified` | bool | `false` | Canonical object exists, `stat.size == artifact.byte_length`, and a bounded read probe succeeded |
 | `verified_at` | datetime? | `nil` | Server UTC observation time, set only when verified |
 | `automatic_recovery` | bool | `false` | True only when a known server path can repair without user action |
 
 Validation:
-- `object_verified=true` implies `can_play=true`, `state=available`, `reason_code=canonical_ready`, non-nil `media_revision_id`, non-nil `verified_at`, a successful stat/size match and a successful bounded read.
+- `object_verified=true` implies `can_play=true`, `state=available`, `reason_code=canonical_ready`, non-nil `media_revision_id`, non-nil `local_media_revision_id`, non-nil `verified_at`, a successful stat/size match and a successful bounded read.
 - `archive_audio != true` forces `can_play=false`, `object_verified=false`, `reason_code=audio_not_archived`.
 - `deletion_state != none` forces `deleting`/`deleted`, `can_play=false`.
 - Unknown enum/string values are treated as keep-local by the client.
@@ -69,11 +70,12 @@ Validation:
 | Field | Type | Meaning |
 |---|---|---|
 | `session_id` | UUID | Finalized upload session |
-| `media_revision_id` | UUID | Revision this custody row describes; must equal the playback revision |
+| `media_revision_id` | UUID | Server revision this custody row describes; must equal the playback UUID |
+| `local_media_revision_id` | string? | Local revision ID; must equal the playback local ID and the item |
 | `archive_audio` | bool | Finalize choice |
 | `finalized_at` | datetime? | Server finalization timestamp |
 
-Lookup is scoped by workspace + meeting + **playback revision** + `status=FINALIZED`, newest first. Sync-state exposes this revision as `upload_session.media_revision_id`; a mismatch with `playback.media_revision_id` is keep-local.
+Lookup is scoped by workspace + meeting + **playback revision** + `status=FINALIZED`, newest first. Sync-state exposes it as `finalized_upload`; a mismatch of either server UUID or local ID with `playback`/the item is keep-local. The active `upload_session` is a separate object and is never mixed with custody.
 
 ## Client Value Objects
 

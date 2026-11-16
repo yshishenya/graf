@@ -103,6 +103,15 @@ final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMenuItemVal
                 self?.calendarTrayController?.showUpdate(presentation, actionEnabled: enabled)
             }
         appUpdateController.start()
+        // Diagnostics-only dry run. It is launched off the main actor exactly
+        // once per process and performs no UI work.
+        if LocalCacheEvictionDryRunDiagnostics.isRequested(
+            in: ProcessInfo.processInfo.environment
+        ) {
+            Task.detached(priority: .utility) {
+                _ = await LocalCacheEvictionDryRunDiagnostics.runIfRequested()
+            }
+        }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             self.logWindowVisibility()
         }

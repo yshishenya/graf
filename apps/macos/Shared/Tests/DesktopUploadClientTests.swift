@@ -1165,6 +1165,411 @@ final class DesktopUploadClientTests: XCTestCase {
         )
     }
 
+    // MARK: - F296 server proof
+
+    func testSyncStateDecodesFullServerProofAndFetchReceipt() async throws {
+        var item = makeQueueItem()
+        item.meetingId = "meeting-proof"
+        let serverRevision = "11111111-1111-4111-8111-111111111111"
+        XCTAssertNotEqual(serverRevision, item.localMediaRevisionId)
+        let data = try makeSyncStateResponse(
+            item: item,
+            playback: [
+                "state": "available",
+                "can_play": true,
+                "reason_code": "canonical_ready",
+                "media_revision_id": serverRevision,
+                "local_media_revision_id": item.localMediaRevisionId,
+                "object_verified": true,
+                "verified_at": "2026-11-16T10:00:00Z",
+                "automatic_recovery": false,
+            ],
+            finalizedUpload: [
+                "session_id": "finalized-session",
+                "status": "finalized",
+                "media_revision_id": serverRevision,
+                "local_media_revision_id": item.localMediaRevisionId,
+                "archive_audio": true,
+                "finalized_at": "2026-11-09T10:00:00Z",
+            ],
+            retention: [
+                "delete_after": "2027-11-16T09:00:00Z",
+                "policy_state": "active",
+            ]
+        )
+        let recorder = StartAcceptanceRequestRecorder()
+        let client = try makeSyncStateClient(data: data, recorder: recorder)
+
+        let fetchedBefore = Date()
+        let fetchedReconciliation = try await client.reconcileServerTruth(item)
+        let reconciliation = try XCTUnwrap(fetchedReconciliation)
+        let fetchedAfter = Date()
+
+        XCTAssertEqual(reconciliation.proof?.meetingId, "meeting-proof")
+        XCTAssertEqual(reconciliation.proof?.deletionState, "none")
+        XCTAssertEqual(reconciliation.proof?.accessState, "owner")
+        XCTAssertEqual(reconciliation.proof?.conflictState, "none")
+        XCTAssertEqual(reconciliation.proof?.playback?.state, "available")
+        XCTAssertEqual(reconciliation.proof?.playback?.canPlay, true)
+        XCTAssertEqual(reconciliation.proof?.playback?.reasonCode, "canonical_ready")
+        XCTAssertEqual(reconciliation.proof?.playback?.mediaRevisionId, serverRevision)
+        XCTAssertEqual(
+            reconciliation.proof?.playback?.localMediaRevisionId,
+            item.localMediaRevisionId
+        )
+        XCTAssertEqual(reconciliation.proof?.playback?.objectVerified, true)
+        XCTAssertEqual(
+            reconciliation.proof?.playback?.verifiedAt?.date,
+            ServerTimestamp.parse("2026-11-16T10:00:00Z")
+        )
+        XCTAssertEqual(reconciliation.proof?.playback?.automaticRecovery, false)
+        XCTAssertEqual(reconciliation.proof?.uploadSession?.status, nil)
+        XCTAssertEqual(reconciliation.proof?.finalizedUpload?.status, "finalized")
+        XCTAssertEqual(
+            reconciliation.proof?.finalizedUpload?.mediaRevisionId,
+            serverRevision
+        )
+        XCTAssertEqual(
+            reconciliation.proof?.finalizedUpload?.localMediaRevisionId,
+            item.localMediaRevisionId
+        )
+        XCTAssertEqual(reconciliation.proof?.finalizedUpload?.archiveAudio, true)
+        XCTAssertEqual(
+            reconciliation.proof?.finalizedUpload?.finalizedAt?.date,
+            ServerTimestamp.parse("2026-11-09T10:00:00Z")
+        )
+        XCTAssertEqual(reconciliation.proof?.retention?.policyState, "active")
+        XCTAssertEqual(
+            reconciliation.proof?.retention?.deleteAfter?.date,
+            ServerTimestamp.parse("2027-11-16T09:00:00Z")
+        )
+
+        // The queue fingerprint keeps its client-clock semantics: this response
+        // carries server finalization only inside the non-persisted proof.
+        XCTAssertNil(reconciliation.serverTruth.finalizedAt)
+        XCTAssertGreaterThanOrEqual(reconciliation.fetchedAt, fetchedBefore)
+        XCTAssertLessThanOrEqual(reconciliation.fetchedAt, fetchedAfter)
+    }
+
+    func testRealShapedProofIdentitySeparatesServerUUIDAndLocalRevision() async throws {
+        var item = makeQueueItem()
+        item.meetingId = "meeting-identity"
+        let serverRevision = "33333333-3333-4333-8333-333333333333"
+        XCTAssertNotEqual(serverRevision, item.localMediaRevisionId)
+        let now = Date()
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        let data = try makeSyncStateResponse(
+            item: item,
+            playback: [
+                "state": "available",
+                "can_play": true,
+                "reason_code": "canonical_ready",
+                "media_revision_id": serverRevision,
+                "local_media_revision_id": item.localMediaRevisionId,
+                "object_verified": true,
+                "verified_at": formatter.string(from: now.addingTimeInterval(-5)),
+                "automatic_recovery": false,
+            ],
+            finalizedUpload: [
+                "session_id": "finalized-session",
+                "status": "finalized",
+                "media_revision_id": serverRevision,
+                "local_media_revision_id": item.localMediaRevisionId,
+                "archive_audio": true,
+                "finalized_at": formatter.string(from: now.addingTimeInterval(-8 * 24 * 60 * 60)),
+            ],
+            retention: [
+                "delete_after": formatter.string(from: now.addingTimeInterval(300 * 24 * 60 * 60)),
+                "policy_state": "active",
+            ]
+        )
+        let client = try makeSyncStateClient(data: data, recorder: StartAcceptanceRequestRecorder())
+        let fetchedReconciliation = try await client.reconcileServerTruth(item)
+        let reconciliation = try XCTUnwrap(fetchedReconciliation)
+        let proof = try XCTUnwrap(reconciliation.proof)
+
+        XCTAssertEqual(proof.playback?.mediaRevisionId, serverRevision)
+        XCTAssertEqual(proof.playback?.localMediaRevisionId, item.localMediaRevisionId)
+        XCTAssertEqual(proof.finalizedUpload?.mediaRevisionId, serverRevision)
+        XCTAssertEqual(proof.finalizedUpload?.localMediaRevisionId, item.localMediaRevisionId)
+
+        let scope = try RecordingDeletionScope(
+            serverOrigin: "https://sync.invalid",
+            workspaceID: "workspace",
+            actorUserID: "owner"
+        )
+        item.state = .uploaded
+        item.ownerScope = scope
+        item.isLocalUnbound = false
+        let facts = LocalArtifactFacts(
+            manifestPresent: true,
+            reviewAudioPresent: true,
+            transcriptionAudioPresent: true,
+            transcriptionBytes: 800,
+            transcriptionSha256: nil,
+            reviewPlaybackAvailable: true,
+            packageBytes: 1_000
+        )
+        let document = DesktopUploadQueueDocument(updatedAt: now, items: [])
+        let decision = LocalCacheEligibility.evaluate(
+            item: item,
+            document: document,
+            scope: scope,
+            proof: proof,
+            proofFetchedAt: reconciliation.fetchedAt,
+            localFacts: facts,
+            now: now
+        )
+        XCTAssertEqual(decision.verdict, .potentiallyEligible)
+
+        let mismatched = DesktopServerProof(
+            meetingId: proof.meetingId,
+            deletionState: proof.deletionState,
+            accessState: proof.accessState,
+            conflictState: proof.conflictState,
+            playback: DesktopPlaybackProof(
+                state: "available",
+                canPlay: true,
+                reasonCode: "canonical_ready",
+                mediaRevisionId: serverRevision,
+                localMediaRevisionId: "other-local-revision",
+                objectVerified: true,
+                verifiedAt: proof.playback?.verifiedAt,
+                automaticRecovery: false
+            ),
+            uploadSession: proof.uploadSession,
+            finalizedUpload: proof.finalizedUpload,
+            retention: proof.retention
+        )
+        let mismatchedDecision = LocalCacheEligibility.evaluate(
+            item: item,
+            document: document,
+            scope: scope,
+            proof: mismatched,
+            proofFetchedAt: reconciliation.fetchedAt,
+            localFacts: facts,
+            now: now
+        )
+        XCTAssertEqual(mismatchedDecision.verdict, .keep)
+        XCTAssertEqual(mismatchedDecision.primaryReason, .revisionMismatch)
+    }
+
+    func testSyncStateOldPayloadKeepsProofFieldsUnknownInsteadOfSafe() async throws {
+        var item = makeQueueItem()
+        item.meetingId = "meeting-legacy"
+        let data = try makeSyncStateResponse(item: item)
+        let client = try makeSyncStateClient(data: data, recorder: StartAcceptanceRequestRecorder())
+
+        let fetchedReconciliation = try await client.reconcileServerTruth(item)
+        let reconciliation = try XCTUnwrap(fetchedReconciliation)
+
+        XCTAssertEqual(reconciliation.proof?.meetingId, "meeting-legacy")
+        XCTAssertNil(reconciliation.proof?.playback)
+        XCTAssertNil(reconciliation.proof?.retention)
+        XCTAssertNil(reconciliation.proof?.finalizedUpload)
+        XCTAssertEqual(reconciliation.proof?.uploadSession?.sessionId, "session-sync")
+        XCTAssertNil(reconciliation.proof?.uploadSession?.status)
+        XCTAssertEqual(reconciliation.serverTruth.meetingId, "meeting-legacy")
+        XCTAssertNil(reconciliation.serverTruth.finalizedAt)
+    }
+
+    func testSyncStateDecodesFractionalAndWholeSecondTimestamps() throws {
+        XCTAssertEqual(
+            ServerTimestamp.parse("2026-11-16T10:00:00Z"),
+            Date(timeIntervalSince1970: 1_794_823_200)
+        )
+        let fractional = try XCTUnwrap(ServerTimestamp.parse("2026-11-16T10:00:00.123456Z"))
+        XCTAssertEqual(
+            fractional.timeIntervalSince1970,
+            1_794_823_200.123456,
+            accuracy: 0.001
+        )
+        let halfSecond = try XCTUnwrap(ServerTimestamp.parse("2026-11-16T09:00:00.5Z"))
+        XCTAssertEqual(halfSecond.timeIntervalSince1970, 1_794_819_600.5, accuracy: 0.001)
+        XCTAssertNil(ServerTimestamp.parse("not-a-timestamp"))
+        XCTAssertNil(ServerTimestamp.parse(""))
+    }
+
+    func testSyncStateProofDecodesFractionalTimestampsAndUnknownStateStrings() async throws {
+        var item = makeQueueItem()
+        item.meetingId = "meeting-fractional"
+        let serverRevision = "22222222-2222-4222-8222-222222222222"
+        let data = try makeSyncStateResponse(
+            item: item,
+            playback: [
+                "state": "quantum_ready",
+                "can_play": true,
+                "reason_code": "future_reason",
+                "media_revision_id": serverRevision,
+                "local_media_revision_id": item.localMediaRevisionId,
+                "object_verified": true,
+                "verified_at": "2026-11-16T10:00:00.987Z",
+            ],
+            finalizedUpload: [
+                "session_id": "finalized-session",
+                "status": "finalized",
+                "media_revision_id": serverRevision,
+                "local_media_revision_id": item.localMediaRevisionId,
+                "archive_audio": false,
+                "finalized_at": "2026-11-16T09:00:00.5Z",
+            ],
+            retention: [
+                "delete_after": "2027-11-16T09:00:00.250Z",
+                "policy_state": "active",
+            ]
+        )
+        let client = try makeSyncStateClient(data: data, recorder: StartAcceptanceRequestRecorder())
+
+        let fetchedReconciliation = try await client.reconcileServerTruth(item)
+        let reconciliation = try XCTUnwrap(fetchedReconciliation)
+
+        XCTAssertEqual(reconciliation.proof?.playback?.state, "quantum_ready")
+        XCTAssertEqual(reconciliation.proof?.playback?.reasonCode, "future_reason")
+        XCTAssertEqual(
+            try XCTUnwrap(reconciliation.proof?.playback?.verifiedAt).date.timeIntervalSince1970,
+            1_794_823_200.987,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(reconciliation.proof?.playback?.localMediaRevisionId, item.localMediaRevisionId)
+        XCTAssertEqual(reconciliation.proof?.finalizedUpload?.archiveAudio, false)
+        XCTAssertEqual(
+            try XCTUnwrap(reconciliation.proof?.finalizedUpload?.finalizedAt).date.timeIntervalSince1970,
+            1_794_819_600.5,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(reconciliation.proof?.retention?.deleteAfter).date.timeIntervalSince1970,
+            1_826_355_600.25,
+            accuracy: 0.001
+        )
+    }
+
+    func testSyncState404ReturnsNoReconciliationAndNoProof() async throws {
+        var item = makeQueueItem()
+        item.meetingId = "meeting-missing"
+        let data = try JSONSerialization.data(withJSONObject: ["code": "recording_not_found"])
+        let client = try makeSyncStateClient(
+            data: data,
+            recorder: StartAcceptanceRequestRecorder(),
+            statusCode: 404
+        )
+
+        let reconciliation = try await client.reconcileServerTruth(item)
+        let proofReconciliation = try await client.fetchServerProof(for: item)
+
+        XCTAssertNil(reconciliation)
+        XCTAssertNil(proofReconciliation)
+    }
+
+    func testProofFetchDoesNotRequireALiveLocalManifest() async throws {
+        var item = makeQueueItem()
+        item.meetingId = "meeting-historical"
+        // Historical packages legitimately outlive their manifest; the proof
+        // read must not be blocked by upload admission.
+        item.directoryPath = "/tmp/f296-missing-package"
+        item.manifestPath = "/tmp/f296-missing-package/manifest.json"
+        let data = try makeSyncStateResponse(
+            item: item,
+            playback: [
+                "state": "available",
+                "can_play": true,
+                "reason_code": "canonical_ready",
+                "media_revision_id": item.localMediaRevisionId,
+                "object_verified": true,
+                "verified_at": "2026-11-16T10:00:00Z",
+            ]
+        )
+        let recorder = StartAcceptanceRequestRecorder()
+        let client = try makeSyncStateClient(data: data, recorder: recorder)
+
+        let reconciliation = try await client.fetchServerProof(for: item)
+        let recordedRequests = await recorder.snapshot()
+
+        XCTAssertNotNil(reconciliation?.proof?.playback)
+        XCTAssertEqual(recordedRequests.count, 1)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: item.manifestPath))
+    }
+
+    func testSyncStateBypassesLocalHTTPCache() async throws {
+        var item = makeQueueItem()
+        item.meetingId = "meeting-cache"
+        let data = try makeSyncStateResponse(item: item)
+        let recorder = StartAcceptanceRequestRecorder()
+        let client = try makeSyncStateClient(data: data, recorder: recorder)
+
+        _ = try await client.reconcileServerTruth(item)
+
+        let recordedRequests = await recorder.snapshot()
+        let request = try XCTUnwrap(recordedRequests.first)
+        XCTAssertEqual(request.cachePolicy, .reloadIgnoringLocalCacheData)
+        XCTAssertEqual(request.httpMethod, "GET")
+        XCTAssertTrue(request.url?.path.hasSuffix("/sync-state") == true)
+    }
+
+    private func makeSyncStateClient(
+        data: Data,
+        recorder: StartAcceptanceRequestRecorder,
+        statusCode: Int = 200
+    ) throws -> DesktopUploadClient {
+        DesktopUploadClient(
+            baseURL: try XCTUnwrap(URL(string: "https://sync.invalid")),
+            headers: [:],
+            partSizeBytes: 64 * 1024,
+            authSessionTokenProvider: { _ in nil },
+            requestExecutor: { request in
+                await recorder.record(request)
+                return (
+                    data,
+                    try XCTUnwrap(HTTPURLResponse(
+                        url: try XCTUnwrap(request.url),
+                        statusCode: statusCode,
+                        httpVersion: nil,
+                        headerFields: nil
+                    ))
+                )
+            }
+        )
+    }
+
+    private func makeSyncStateResponse(
+        item: DesktopUploadQueueItem,
+        playback: [String: Any]? = nil,
+        uploadSession: [String: Any] = [:],
+        finalizedUpload: [String: Any]? = nil,
+        retention: [String: Any]? = nil,
+        conflict: [String: Any] = ["state": "none", "next_action": "continue_upload"]
+    ) throws -> Data {
+        var meeting: [String: Any] = [
+            "meeting_id": item.meetingId ?? "meeting-sync",
+            "status": "uploaded",
+            "deletion_state": "none",
+            "access_state": "owner",
+        ]
+        if let retention { meeting["retention"] = retention }
+        var session: [String: Any] = [
+            "session_id": "session-sync",
+            "accepted_bytes_by_track": [:],
+            "missing_ranges_by_track": [:],
+        ]
+        session.merge(uploadSession) { _, new in new }
+        var object: [String: Any] = [
+            "local_recording_id": item.directoryId,
+            "local_media_revision_id": item.localMediaRevisionId,
+            "meeting": meeting,
+            "media_revision": [
+                "media_revision_id": "media-sync",
+                "track_sha256_by_role": [:],
+            ],
+            "upload_session": session,
+            "processing": ["status": "not_submitted"],
+            "conflict": conflict,
+        ]
+        if let playback { object["playback"] = playback }
+        if let finalizedUpload { object["finalized_upload"] = finalizedUpload }
+        return try JSONSerialization.data(withJSONObject: object)
+    }
+
     private func makeSupportIncidentReport() -> DesktopSupportIncidentReport? {
         var item = makeQueueItem()
         item = item.withTransition(

@@ -17,6 +17,7 @@ from twobrain_rec_server.deletion.audit import build_lifecycle_audit_metadata
 from twobrain_rec_server.deletion.local_purge import reconcile_expired_local_purge_tasks
 from twobrain_rec_server.deletion.policy import (
     RETENTION_POLICY_UNSAFE_REASON,
+    _unsafe_reason,
     persist_retention_policy_snapshot,
     retention_policy_allows_actions,
 )
@@ -262,6 +263,57 @@ def _retention_deadline(meeting: Meeting, *, snapshot: RetentionPolicySnapshot) 
     if meeting.started_at is None or snapshot.meeting_delete_after_days is None:
         return None
     return _as_utc(meeting.started_at) + timedelta(days=snapshot.meeting_delete_after_days)
+
+
+def retention_projection(
+    meeting: object,
+    settings: Settings,
+    *,
+    now: datetime | None = None,
+) -> tuple[datetime | None, RetentionPolicyState]:
+    """Project the effective meeting deletion deadline without persistence.
+
+    Explicit ``retention_delete_after`` wins; otherwise the configured meeting
+    retention window from ``started_at`` applies. An incomplete deployment
+    retention policy is always ``unsafe`` and exposes only an explicit
+    per-meeting deadline. Stored unsafe/blocked/expired policy states are
+    preserved, and a missing deadline is always reported as ``not_configured``
+    rather than inferred as "forever".
+    """
+
+    stored_value = getattr(meeting, "retention_policy_state", None)
+    try:
+        stored_state = RetentionPolicyState(stored_value or RetentionPolicyState.NOT_CONFIGURED.value)
+    except ValueError:
+        stored_state = RetentionPolicyState.UNSAFE
+    explicit_deadline = getattr(meeting, "retention_delete_after", None)
+    if _unsafe_reason(settings) is not None:
+        # An incomplete deployment retention policy cannot authorize local
+        # eviction. Only an explicit per-meeting deadline remains visible.
+        return (
+            _as_utc(explicit_deadline) if explicit_deadline is not None else None,
+            RetentionPolicyState.UNSAFE,
+        )
+    deadline = explicit_deadline
+    if deadline is None:
+        started_at = getattr(meeting, "started_at", None)
+        configured_days = getattr(settings, "retention_meeting_delete_after_days", None)
+        if started_at is not None and configured_days is not None:
+            deadline = started_at + timedelta(days=configured_days)
+    if stored_state in {
+        RetentionPolicyState.UNSAFE,
+        RetentionPolicyState.BLOCKED,
+        RetentionPolicyState.EXPIRED,
+    }:
+        return (_as_utc(deadline) if deadline is not None else None, stored_state)
+
+    if deadline is None:
+        return None, RetentionPolicyState.NOT_CONFIGURED
+    effective_deadline = _as_utc(deadline)
+    current = _as_utc(now or datetime.now(UTC))
+    if effective_deadline <= current:
+        return effective_deadline, RetentionPolicyState.EXPIRED
+    return effective_deadline, RetentionPolicyState.ACTIVE
 
 
 def _as_utc(value: datetime) -> datetime:

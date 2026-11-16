@@ -12,7 +12,7 @@
 
 ## R2. Which revision must playback prove?
 
-**Decision**: the actual playback revision (`_latest_accepted_media_revision`), not the meeting revision. The client compares it to `localMediaRevisionId`.
+**Decision**: the actual playback revision (`_latest_accepted_media_revision`), not the meeting revision. The response exposes both the server UUID and the local revision ID; the client compares the local ID to `item.localMediaRevisionId`.
 
 **Rationale**: playback can be pinned to an older accepted outcome revision. The meeting revision may be newer. Deleting local revision R when playback serves R′ loses the only copy of R.
 
@@ -28,7 +28,7 @@
 
 ## R4. How are `archive_audio` and `finalized_at` resolved?
 
-**Decision**: from the latest `FINALIZED` upload session for the **playback revision being verified**, and the response exposes that revision as `upload_session.media_revision_id`. Both are nullable; `archive_audio=null` or `false` means keep local. `finalized_at` from the server, not the client clock. If custody and playback revisions differ, keep local.
+**Decision**: from the latest `FINALIZED` upload session for the **playback revision being verified**, exposed as a separate `finalized_upload` object with the server UUID and local revision ID. Both are nullable; `archive_audio=null` or `false` means keep local. `finalized_at` from the server, not the client clock. If custody and playback revisions differ (either ID), keep local. The active `upload_session` stays a separate object.
 
 **Rationale**: sync-state currently loads only the active session, which excludes finalized sessions. `finalizedAt` in the client fingerprint is set with `Date()` after finalize and drives upload follow-up/custody; it must not be repurposed. `archive_audio=false` can still produce a canonical artifact, so playback proof must also require archive custody.
 

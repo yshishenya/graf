@@ -61,13 +61,15 @@ Phase B и Phase C могут разрабатываться в этом же п
   - `state: PlaybackPreparationStateValue = "unavailable"`
   - `can_play: bool = False`
   - `reason_code: PlaybackPreparationReasonCode = "no_audio"`
-  - `media_revision_id: UUID | None = None` — фактическая ревизия, которую обслуживает playback
+  - `media_revision_id: UUID | None = None` — серверный UUID фактической ревизии playback
+  - `local_media_revision_id: str | None = None` — локальный ID той же ревизии
   - `object_verified: bool = False`
   - `verified_at: datetime | None = None` — серверное UTC-время этой проверки
   - `automatic_recovery: bool = False`
 - `DesktopSyncRetentionState`: `delete_after`, `policy_state`.
+- `DesktopSyncFinalizedUploadState`: `session_id`, `media_revision_id`, `local_media_revision_id`, `archive_audio`, `finalized_at`, `status`.
 - `DesktopStorageStatusResponse`: `billing_role`, `access_mode`, `plan_code`, `used_bytes`, `reserved_bytes`, `capacity_bytes`, `available_bytes`, `threshold`, `action`, `action_path`, `meeting_retention_days`, `source_audio_retention_days`, `retention_policy_state`, `observed_at`.
-- Add `playback` to `DesktopRecordingSyncStateResponse`; `archive_audio`/`finalized_at`/`media_revision_id` to `DesktopSyncUploadSessionState`; `retention` to `DesktopSyncMeetingState`. The upload-session custody block must describe the same revision as `playback.media_revision_id`.
+- Add `playback` and `finalized_upload` to `DesktopRecordingSyncStateResponse`; add `retention` to `DesktopSyncMeetingState`. `DesktopSyncUploadSessionState` remains active-session-only. `finalized_upload` must describe the same server and local revision as `playback`.
 
 Все новые поля имеют fail-closed defaults: `can_play=false`, `object_verified=false`, `verified_at=null`, `archive_audio=null`, `finalized_at=null`, `policy_state=not_configured`.
 
@@ -75,7 +77,7 @@ Phase B и Phase C могут разрабатываться в этом же п
 
 `apps/server/src/twobrain_rec_server/ingest/store.py`:
 
-- `FinalizedUploadCustody(session_id, media_revision_id, archive_audio, finalized_at)`.
+- `FinalizedUploadCustody(session_id, media_revision_id, local_media_revision_id, archive_audio, finalized_at)`.
 - `finalized_upload_custody_for_revision(db, workspace_id, meeting_id, media_revision_id)` — последняя `FINALIZED` сессия **ревизии playback**, с ordering `created_at desc, id desc`; sync-state передаёт `playback.media_revision_id`, а не meeting revision.
 - `archive_audio_for_revision` делегирует в новый helper, сохраняя текущий legacy default `True` при отсутствии строки.
 
@@ -99,7 +101,7 @@ Phase B и Phase C могут разрабатываться в этом же п
 - `get_desktop_recording_sync_state(..., settings=None, storage=None)`.
 - После expiry-restore и загрузки meeting/deletion/access:
   - `playback = await desktop_playback_proof(...)`.
-  - `upload_session.archive_audio/finalized_at` из revision-scoped finalized custody.
+  - `finalized_upload` из revision-scoped finalized custody; `upload_session` остаётся активной сессией.
   - `meeting.retention` из `retention_projection(meeting, settings)`.
 - Ошибка custody/proof не должна маскировать deletion/access/conflict: конфликты строятся как сегодня, proof только дополняет.
 - `api/ingest.py`: передать `settings` и `StorageDependency`; `Cache-Control: no-store`.
@@ -141,7 +143,7 @@ Phase B и Phase C могут разрабатываться в этом же п
 `apps/macos/Shared/Sources/Models/LocalCacheEligibility.swift`:
 
 - Inputs: item, document, scope, proof, local facts, policy, now.
-- Gates: uploaded/finalized, owner scope, no deletion/purge, no conflict, fresh proof (`maximumProofAge = 120 s`), meeting/revision match, playback actual revision == local revision, `state=available`, `can_play=true`, `reason_code=canonical_ready`, `object_verified=true`, `verified_at` fresh, `archive_audio=true`, `finalized_at` non-null + grace (`7 days`), `deletion_state=none`, `access_state=owner`, retention safe (`> 30 days`), local files verified (manifest + review + WAV; size/hash).
+- Gates: uploaded/finalized, owner scope, no deletion/purge, no conflict, fresh proof (`maximumProofAge = 120 s`), meeting/revision match, playback local revision == local revision and finalized_upload server/local revision == playback, `state=available`, `can_play=true`, `reason_code=canonical_ready`, `object_verified=true`, `verified_at` fresh, `archive_audio=true`, `finalized_at` non-null + grace (`7 days`), `deletion_state=none`, `access_state=owner`, retention safe (`> 30 days`), local files verified (manifest + review + WAV; size/hash).
 - Any missing/unknown/error → `keep`, primary reason + all reasons.
 - No IO in the predicate; no `localPlaybackURL`/player.
 

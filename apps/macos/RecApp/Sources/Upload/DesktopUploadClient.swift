@@ -83,23 +83,40 @@ public struct DesktopUploadReconciliation: Equatable, Sendable {
     public let conflictState: DesktopSyncConflictState
     public let conflictReason: String?
     public let nextAction: String?
+    /// Fresh, non-persisted proof from this response. Absent for old servers.
+    public let proof: DesktopServerProof?
+    /// Client receipt time of this response. Eligibility needs to know how
+    /// fresh the proof is without trusting the persisted queue.
+    public let fetchedAt: Date
 
     public init(
         serverTruth: ServerTruthFingerprint,
         conflictState: DesktopSyncConflictState = .none,
         conflictReason: String? = nil,
-        nextAction: String? = nil
+        nextAction: String? = nil,
+        proof: DesktopServerProof? = nil,
+        fetchedAt: Date = Date()
     ) {
         self.serverTruth = serverTruth
         self.conflictState = conflictState
         self.conflictReason = conflictReason
         self.nextAction = nextAction
+        self.proof = proof
+        self.fetchedAt = fetchedAt
     }
 
     public var canContinueUpload: Bool {
         conflictState == .none ||
             (conflictState == .uploadSessionExpired && nextAction == "create_upload_session")
     }
+}
+
+/// Narrow read-only seam for diagnostics and cleanup. It skips upload admission
+/// (a historical package may legitimately no longer exist on disk) and never
+/// mutates the queue.
+public protocol DesktopServerProofFetching: Sendable {
+    var recordingSessionFingerprint: String? { get }
+    func fetchServerProof(for item: DesktopUploadQueueItem) async throws -> DesktopUploadReconciliation?
 }
 
 public struct DesktopUploadResult: Sendable {
@@ -922,11 +939,14 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
            headers["X-Graf-Expected-Actor"] != scope.actorUserID || headers["X-Graf-Expected-Workspace"] != scope.workspaceID {
             return try await scoped(to: scope).reconcileServerTruth(item)
         }
-        let request = try request(
+        var request = try request(
             path: "/api/v1/desktop/recordings/\(item.directoryId)/sync-state",
             method: "GET",
             queryItems: [URLQueryItem(name: "local_media_revision_id", value: item.localMediaRevisionId)]
         )
+        // Proof must come from the network on every read; a cached response
+        // could authorize a cleanup after server custody changed.
+        request.cachePolicy = .reloadIgnoringLocalCacheData
         do {
             let response: DesktopRecordingSyncStateResponse = try await perform(request, recordingLifecycleRequest: true)
             let conflictState = DesktopSyncConflictState(rawValue: response.conflict.state) ?? .dependencyUnavailable
@@ -955,10 +975,23 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
                 serverTruth: serverTruth,
                 conflictState: conflictState,
                 conflictReason: response.conflict.reason,
-                nextAction: response.conflict.next_action
+                nextAction: response.conflict.next_action,
+                proof: DesktopServerProof(
+                    meetingId: response.meeting.meeting_id,
+                    deletionState: response.meeting.deletion_state,
+                    accessState: response.meeting.access_state,
+                    conflictState: response.conflict.state,
+                    playback: response.playback,
+                    uploadSession: response.upload_session.proof,
+                    finalizedUpload: response.finalized_upload,
+                    retention: response.meeting.retention,
+                    storage: nil
+                ),
+                fetchedAt: Date()
             )
         } catch DesktopUploadClientError.httpStatus(let status, let code)
             where Self.isServerUnknownRecording(status: status, code: code) {
+            // A missing server recording has no proof. Never synthesize one.
             return nil
         }
     }
@@ -1512,6 +1545,14 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
     }
 }
 
+extension DesktopUploadClient: DesktopServerProofFetching {
+    /// Read-only sync-state proof for dry-run/cleanup. It deliberately avoids
+    /// `reconcile`, whose upload-admission gate expects a live local manifest.
+    public func fetchServerProof(for item: DesktopUploadQueueItem) async throws -> DesktopUploadReconciliation? {
+        try await reconcileServerTruth(item)
+    }
+}
+
 // Copies scoped to an actor/workspace share the two F262 HTTP slots. Upload bytes
 // and unrelated API calls do not use this budget; no permit spans nested adapters.
 private actor RecordingLifecycleRequestBudget {
@@ -1665,6 +1706,8 @@ private struct DesktopRecordingSyncStateResponse: Decodable {
     let processing: DesktopSyncProcessingState
     let review: DesktopSyncReviewState?
     let conflict: DesktopSyncConflict
+    let playback: DesktopPlaybackProof?
+    let finalized_upload: DesktopFinalizedUploadProof?
 }
 
 private struct DesktopSyncMeetingState: Decodable {
@@ -1673,6 +1716,7 @@ private struct DesktopSyncMeetingState: Decodable {
     let processing_status: String?
     let deletion_state: String?
     let access_state: String?
+    let retention: DesktopRetentionProof?
 }
 
 private struct DesktopSyncMediaRevisionState: Decodable {
@@ -1688,6 +1732,10 @@ private struct DesktopSyncUploadSessionState: Decodable {
     let accepted_bytes_by_track: [String: Int64]
     let missing_ranges_by_track: [String: [MissingRange]]
     let desktop_truth_rule: String?
+
+    var proof: DesktopUploadSessionProof {
+        DesktopUploadSessionProof(sessionId: session_id, status: status)
+    }
 }
 
 private struct DesktopSyncProcessingState: Decodable {

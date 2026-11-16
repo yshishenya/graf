@@ -99,6 +99,17 @@ class UploadSessionRecord:
     parts: dict[tuple[TrackRole, int], UploadPartRecord] = field(default_factory=dict)
 
 
+@dataclass(frozen=True, slots=True)
+class FinalizedUploadCustody:
+    """Revision-scoped proof of the finalized upload choice."""
+
+    session_id: UUID
+    media_revision_id: UUID
+    archive_audio: bool
+    finalized_at: datetime | None
+    local_media_revision_id: str | None = None
+
+
 @dataclass(slots=True)
 class AuditEvent:
     event_type: str
@@ -207,6 +218,56 @@ async def _finish_write(db: AsyncSession, *, commit: bool) -> None:
         await db.flush()
 
 
+async def finalized_upload_custody_for_revision(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    meeting_id: UUID,
+    media_revision_id: UUID,
+) -> FinalizedUploadCustody | None:
+    """Return the newest finalized custody row for one exact media revision.
+
+    The caller must pass the revision playback actually serves, not the current
+    meeting revision. A newer finalized revision must never satisfy an older
+    local item, and a missing row means the archive choice is unknown.
+    """
+
+    row = (
+        await db.execute(
+            select(
+                UploadSession.id,
+                UploadSession.media_revision_id,
+                UploadSession.archive_audio,
+                UploadSession.finalized_at,
+                MediaRevision.local_media_revision_id,
+            )
+            .join(
+                MediaRevision,
+                (MediaRevision.id == UploadSession.media_revision_id)
+                & (MediaRevision.workspace_id == UploadSession.workspace_id)
+                & (MediaRevision.meeting_id == UploadSession.meeting_id),
+            )
+            .where(
+                UploadSession.workspace_id == workspace_id,
+                UploadSession.meeting_id == meeting_id,
+                UploadSession.media_revision_id == media_revision_id,
+                UploadSession.status == UploadSessionStatus.FINALIZED.value,
+            )
+            .order_by(UploadSession.created_at.desc(), UploadSession.id.desc())
+            .limit(1)
+        )
+    ).first()
+    if row is None:
+        return None
+    return FinalizedUploadCustody(
+        session_id=row.id,
+        media_revision_id=row.media_revision_id,
+        archive_audio=bool(row.archive_audio),
+        finalized_at=row.finalized_at,
+        local_media_revision_id=row.local_media_revision_id,
+    )
+
+
 async def archive_audio_for_revision(
     db: AsyncSession,
     *,
@@ -216,17 +277,13 @@ async def archive_audio_for_revision(
 ) -> bool:
     """Read the finalized revision custody choice; legacy rows default to archive."""
 
-    archive_audio = await db.scalar(
-        select(UploadSession.archive_audio)
-        .where(
-            UploadSession.workspace_id == workspace_id,
-            UploadSession.meeting_id == meeting_id,
-            UploadSession.media_revision_id == media_revision_id,
-            UploadSession.status == UploadSessionStatus.FINALIZED.value,
-        )
-        .order_by(UploadSession.created_at.desc(), UploadSession.id.desc())
+    custody = await finalized_upload_custody_for_revision(
+        db,
+        workspace_id=workspace_id,
+        meeting_id=meeting_id,
+        media_revision_id=media_revision_id,
     )
-    return True if archive_audio is None else bool(archive_audio)
+    return True if custody is None else custody.archive_audio
 
 
 async def persist_meeting(db: AsyncSession | None, meeting: MeetingRecord, *, commit: bool = True) -> None:

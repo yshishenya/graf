@@ -159,6 +159,50 @@ final class LocalRecordingFootprintProviderTests: XCTestCase {
         XCTAssertEqual(calls.read(), 1)
     }
 
+    func testMeetingDetectionFootprintFreshnessUsesTheProviderTTL() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        XCTAssertEqual(LocalRecordingFootprintProvider.defaultCacheTTL, 60)
+        XCTAssertEqual(
+            MeetingDetectionFootprintFreshness.freshRisk(
+                measuredAt: now,
+                risk: .warning,
+                now: now
+            ),
+            .warning
+        )
+        XCTAssertEqual(
+            MeetingDetectionFootprintFreshness.freshRisk(
+                measuredAt: now.addingTimeInterval(-60),
+                risk: .critical,
+                now: now
+            ),
+            .critical
+        )
+        XCTAssertNil(
+            MeetingDetectionFootprintFreshness.freshRisk(
+                measuredAt: now.addingTimeInterval(-61),
+                risk: .warning,
+                now: now
+            ),
+            "A value older than the provider TTL must be treated as stale"
+        )
+        XCTAssertNil(
+            MeetingDetectionFootprintFreshness.freshRisk(
+                measuredAt: nil,
+                risk: .healthy,
+                now: now
+            )
+        )
+        XCTAssertNil(
+            MeetingDetectionFootprintFreshness.freshRisk(
+                measuredAt: now.addingTimeInterval(1),
+                risk: .warning,
+                now: now
+            ),
+            "A future timestamp is not a trustworthy freshness proof"
+        )
+    }
+
     func testInvalidateClearsCache() async {
         let provider = provider(measure: { _ in Self.snapshot(0) })
         _ = await provider.refresh()

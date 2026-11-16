@@ -68,13 +68,7 @@ public final class AESGCMBufferEncryptionService: LocalBufferEncryptionService {
 }
 
 public final class LocalBufferService: LocalBufferWriting {
-    public static let defaultPolicy = LocalBufferPolicy(
-        maxBytesPerDevice: 2_000_000_000,
-        warningFraction: 0.75,
-        criticalFraction: 0.9,
-        minimumDiskReserveBytes: 20 * 1024 * 1024,
-        retentionDays: 7
-    )
+    public static let defaultPolicy = LocalBufferPolicy.productBaseline
 
     public let policy: LocalBufferPolicy
     public private(set) var usedBytes: Int64
@@ -182,25 +176,31 @@ public struct LocalRecordingStorageProbe: Sendable {
     private let usedBytes: Int64
     private let policy: LocalBufferPolicy
     private let availableBytes: Measurement
+    private let capacityBytes: Measurement
 
     public init(
         rootURL: URL = LocalRecordingStore().rootURL,
         usedBytes: Int64,
         policy: LocalBufferPolicy = LocalBufferService.defaultPolicy,
-        availableBytes: @escaping Measurement = Self.measureAvailableBytes
+        availableBytes: @escaping Measurement = Self.measureAvailableBytes,
+        capacityBytes: @escaping Measurement = Self.measureCapacityBytes
     ) {
         self.rootURL = rootURL
         self.usedBytes = usedBytes
         self.policy = policy
         self.availableBytes = availableBytes
+        self.capacityBytes = capacityBytes
     }
 
     public func riskState() -> LocalBufferRiskState {
         do {
+            let resolvedPolicy = policy.resolved(
+                diskCapacityBytes: try? capacityBytes(rootURL)
+            )
             return LocalBufferService().riskState(
                 usedBytes: max(usedBytes, 0),
                 freeDiskBytes: try availableBytes(rootURL),
-                policy: policy
+                policy: resolvedPolicy
             )
         } catch {
             return .mustDegradeOrStop
@@ -208,12 +208,7 @@ public struct LocalRecordingStorageProbe: Sendable {
     }
 
     public static func measureAvailableBytes(at rootURL: URL) throws -> Int64 {
-        var capacityURL = rootURL
-        while !FileManager.default.fileExists(atPath: capacityURL.path),
-              capacityURL.path != "/" {
-            capacityURL.deleteLastPathComponent()
-        }
-        let values = try capacityURL.resourceValues(forKeys: [
+        let values = try volumeValues(at: rootURL, keys: [
             .volumeAvailableCapacityForImportantUsageKey,
             .volumeAvailableCapacityKey,
         ])
@@ -224,5 +219,25 @@ public struct LocalRecordingStorageProbe: Sendable {
             return Int64(available)
         }
         throw CocoaError(.fileReadUnknown)
+    }
+
+    public static func measureCapacityBytes(at rootURL: URL) throws -> Int64 {
+        let values = try volumeValues(at: rootURL, keys: [.volumeTotalCapacityKey])
+        if let capacity = values.volumeTotalCapacity {
+            return Int64(capacity)
+        }
+        throw CocoaError(.fileReadUnknown)
+    }
+
+    private static func volumeValues(
+        at rootURL: URL,
+        keys: Set<URLResourceKey>
+    ) throws -> URLResourceValues {
+        var capacityURL = rootURL
+        while !FileManager.default.fileExists(atPath: capacityURL.path),
+              capacityURL.path != "/" {
+            capacityURL.deleteLastPathComponent()
+        }
+        return try capacityURL.resourceValues(forKeys: keys)
     }
 }
