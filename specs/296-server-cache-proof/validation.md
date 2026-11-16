@@ -7,8 +7,9 @@
 - Branch: `296-server-cache-proof`
 - Risk lane: `high-risk-product`
 - Base: `5223422357487ab28cfc83084c9e45717d0a6568`
-- PR: pending
-- Merge SHA: pending
+- PR: `#8099`
+- Merge SHA: `f6322eeb5d9185e83a52b86b9bec30e31ff73a2d`
+- Release: `v2026.11.16.2`
 - Release: next free CalVer
 
 ## Design gates
