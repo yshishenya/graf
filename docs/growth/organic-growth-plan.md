@@ -263,7 +263,7 @@
   [Проверки и предел](https://github.com/yshishenya/graf/blob/41ff49078c30d02d8c6c626018ae1a3c0584e68f/specs/273-paid-traffic-analytics/validation/t112-precheckout-validation-20261116.md),
   [независимое ревью](https://github.com/yshishenya/graf/blob/41ff49078c30d02d8c6c626018ae1a3c0584e68f/specs/273-paid-traffic-analytics/validation/t112-precheckout-review-20261116.md).
   Рабочий сбор выключен; PR/CI/merge/выпуска этого расширения нет.
-- [ ] Принять следующее отдельное расширение: отмена native rollback внутри
+- [x] Принять следующее отдельное расширение: отмена native rollback внутри
   штатного Session.close/__aexit__. Исходный сетевой RED: три контроля PASS,
   три fault не завершали HTTP-ответ до2s. Публичные SQLAlchemy события теперь
   передают владение actual close task, сохраняя точные owner/entry/DBAPI/driver
@@ -274,11 +274,16 @@
   и85 прежних регрессий, независимый DB observer и сохранение чужого соединения.
   Сохранено/pushed промежуточным кодом
   `afa72de5deb2f2d335df62b9b178092a441e201f`, remote readback совпал.
-  Полоса high-risk-product; независимое implementation review ещё не получено,
-  проектный preflight его не заменяет. PR/CI/merge/выпуска нет, рабочий сбор
-  выключен. Pool reset/raw driver.close/init/остальные commit и весь T112/T113
+  Полоса high-risk-product; независимое ревью реализации точного checkpoint
+  завершено: P1=0/P2=0 в пределах этого этапа. Основной агент прочитал весь
+  отчёт и сверил хеши кода и журнала120; успешные тесты не повторялись.
+  Ревью сохранено/pushed отдельным docs-only коммитом
+  `fb221efc9c0f54480cfc2b1cf50a2fd01fd1fdc4`, remote readback совпал.
+  PR/CI/merge/выпуска нет, рабочий сбор выключен.
+  Pool reset/raw driver.close/init/остальные commit и весь T112/T113
   остаются открытыми.
-  [Проверки и границы](https://github.com/yshishenya/graf/blob/afa72de5deb2f2d335df62b9b178092a441e201f/specs/273-paid-traffic-analytics/validation/t112-close-validation-20261116.md).
+  [Проверки и границы](https://github.com/yshishenya/graf/blob/fb221efc9c0f54480cfc2b1cf50a2fd01fd1fdc4/specs/273-paid-traffic-analytics/validation/t112-close-validation-20261116.md),
+  [независимое ревью](https://github.com/yshishenya/graf/blob/fb221efc9c0f54480cfc2b1cf50a2fd01fd1fdc4/specs/273-paid-traffic-analytics/validation/t112-close-review-20261116.md).
 - [ ] Выполнить полный source/audit/projection/proof, browser/native visibility, защищённый
   POST и общую admission boundary с причинной DB/browser/Swift/failure матрицей.
   Renderer использует общий чистый выбор строк и принимает необязательную карту
