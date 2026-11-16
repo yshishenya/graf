@@ -98,7 +98,7 @@ def _run(url, scenario, *, pool_size=1):
 
 
 @asynccontextmanager
-async def _postgres_response_gate(url, *, eof_gate=None, eof_seen=None):
+async def _postgres_response_gate(url, *, eof_gate=None, eof_seen=None, streams=None):
     """Hold real PostgreSQL replies without replacing the driver's ping/close."""
     upstream = make_url(url)
     gate, tasks, relays, writers = asyncio.Event(), set(), set(), set()
@@ -116,10 +116,18 @@ async def _postgres_response_gate(url, *, eof_gate=None, eof_seen=None):
     async def relay(reader, writer):
         upstream_writer = None
         pumps = []
+        stream = None
+        if streams is not None:
+            stream = {"root": asyncio.current_task(), "eof_gate": asyncio.Event(),
+                      "eof_seen": asyncio.Event(), "done": asyncio.Event(), "writers": [writer]}
+            stream["eof_gate"].set()
+            streams.append(stream)
         writers.add(writer)
         try:
             upstream_reader, upstream_writer = await asyncio.open_connection(upstream.host, upstream.port)
             writers.add(upstream_writer)
+            if stream is not None:
+                stream["writers"].append(upstream_writer)
 
             async def copy(source, target, held=False):
                 while data := await source.read(65536):
@@ -127,11 +135,16 @@ async def _postgres_response_gate(url, *, eof_gate=None, eof_seen=None):
                         await gate.wait()
                     target.write(data)
                     await target.drain()
+                if held and stream is not None:
+                    stream["eof_seen"].set()
+                    await stream["eof_gate"].wait()
                 if held and eof_gate is not None:
                     eof_seen.set()
                     await eof_gate.wait()
 
             pumps = [start(copy(reader, upstream_writer)), start(copy(upstream_reader, writer, True))]
+            if stream is not None:
+                stream["pumps"] = pumps
             await asyncio.wait(pumps, return_when=asyncio.FIRST_COMPLETED)
         finally:
             for task in pumps:
@@ -140,8 +153,13 @@ async def _postgres_response_gate(url, *, eof_gate=None, eof_seen=None):
             own_writers = [writer] + ([upstream_writer] if upstream_writer is not None else [])
             for target in own_writers:
                 target.close()
-            await asyncio.gather(*(start(target.wait_closed()) for target in own_writers), return_exceptions=True)
+            closing = [start(target.wait_closed()) for target in own_writers]
+            if stream is not None:
+                stream["wait_closed"] = closing
+            await asyncio.gather(*closing, return_exceptions=True)
             writers.difference_update(own_writers)
+            if stream is not None:
+                stream["done"].set()
 
     server = await asyncio.start_server(lambda r, w: start(relay(r, w), root=True), "127.0.0.1", 0)
     try:
@@ -152,6 +170,8 @@ async def _postgres_response_gate(url, *, eof_gate=None, eof_seen=None):
         gate.set()
         if eof_gate is not None:
             eof_gate.set()
+        for stream in streams or ():
+            stream["eof_gate"].set()
         for writer in list(writers):
             writer.close()
         async with asyncio.timeout(2):
@@ -331,6 +351,204 @@ def test_native_driver_close_finishes_with_its_socket_within_the_request_budget(
                     await foreign.close()
                 await request_engine.dispose()
     _run(postgres_seeded_database_url, scenario, pool_size=3)
+
+
+@pytest.mark.parametrize("fault", [False, True])
+def test_pool_generation_replacement_before_checkout_is_bounded(postgres_seeded_database_url, fault):
+    async def scenario(engine):
+        streams, generations, invalidations, returns, target = [], [], [], [], {}
+        close_seen = asyncio.Event()
+        async with _postgres_response_gate(postgres_seeded_database_url, streams=streams) as (url, gate, relay_tasks):
+            request_engine = create_async_engine(url, pool_size=3, max_overflow=0, pool_pre_ping=True)
+            app, sessions, session_id = await _setup(engine)
+            app.state.db_sessionmaker = async_sessionmaker(request_engine, expire_on_commit=False)
+            foreign = primer = old_target = observer_db = observer = watchdog = None
+            watchdog_fired = []
+            held = []
+
+            def connected(dbapi, entry):
+                assert len(streams) == len(generations) + 1
+                generations.append({"dbapi": dbapi, "entry": entry, "driver": entry.driver_connection,
+                                    "stream": streams[-1]})
+
+            def invalidated(dbapi, entry, exception):
+                invalidations.append((dbapi, entry, exception))
+
+            def reset(dbapi, entry, state):
+                returns.append(("reset", dbapi, entry, state.asyncio_safe,
+                                state.terminate_only, state.transaction_was_reset))
+
+            def checkin(dbapi, entry):
+                returns.append(("checkin", dbapi, entry))
+
+            def closing(dbapi, entry):
+                if dbapi is not target.get("dbapi") or close_seen.is_set():
+                    return
+                task, owner = asyncio.current_task(), guard_module._RESULT_VIEW_TASK_OWNER.get()
+                assert entry is target["entry"] and not entry.in_use
+                assert entry.dbapi_connection is dbapi and entry.driver_connection is target["driver"]
+                assert not target["driver"].is_closed() and not target["driver"].is_in_transaction()
+                assert owner is not None and not owner and len(owner.transactions) == 1
+                root = next(iter(owner.transactions.values()))
+                assert root[0] is owner and root[2] is task and task.get_context().get(
+                    guard_module._RESULT_VIEW_TASK_OWNER) is owner
+                assert not any(key in entry.info for key in (
+                    guard_module._RESULT_VIEW_CONNECTION_OWNER, guard_module._RESULT_VIEW_INITIALIZATION_OWNER,
+                    guard_module._RESULT_VIEW_TRANSACTION_OWNER,
+                ))
+                target.update(owner=owner, task=task, root=root, close_at=monotonic())
+                if fault:
+                    target["stream"]["eof_gate"].clear()
+                close_seen.set()
+
+            async def observe():
+                assert guard_module._RESULT_VIEW_TASK_OWNER.get() is None
+                async with asyncio.timeout(1):
+                    await close_seen.wait()
+                    await target["stream"]["eof_seen"].wait()
+                    assert gate.is_set() and (target["stream"]["eof_gate"].is_set() is not fault)
+                    while await observer_db.scalar(text("SELECT count(*) FROM pg_stat_activity WHERE pid=:pid"),
+                                                  {"pid": target["pid"]}):
+                        await observer_db.rollback()
+                        await asyncio.sleep(0)
+                    assert await observer_db.scalar(text("SELECT count(*) FROM pg_locks WHERE pid=:pid"),
+                                                    {"pid": target["pid"]}) == 0
+                    await observer_db.rollback()
+                    assert target["task"].cancelling() == 0
+                    if fault:
+                        assert target["driver"].is_closed() and not target["stream"]["done"].is_set()
+                        assert not target["task"].done() and len(generations) == 4
+                    target["observed"] = True
+
+            for name, callback in [("connect", connected), ("invalidate", invalidated), ("reset", reset),
+                                   ("checkin", checkin), ("close", closing)]:
+                event.listen(request_engine.sync_engine, name, callback)
+            try:
+                for _ in range(3):
+                    db = await request_engine.connect()
+                    held.append(db)
+                    generations[-1]["pid"] = await db.scalar(text("SELECT pg_backend_pid()"))
+                    assert await db.scalar(text("SELECT 1")) == 1
+                    await db.commit()
+                foreign, primer, old_target = held
+                foreign_generation, primer_generation = generations[:2]
+                target.update(generations[2])
+                await primer.close()
+                primer = None
+                await old_target.close()
+                old_target = None
+                assert not target["entry"].in_use and not target["entry"].info
+                observer_db = await engine.connect()
+                row = (await observer_db.execute(text(
+                    "SELECT state, xact_start FROM pg_stat_activity WHERE pid=:pid"
+                ), {"pid": target["pid"]})).one()
+                assert row.state == "idle" and row.xact_start is None
+                assert await observer_db.scalar(text("SELECT count(*) FROM pg_locks WHERE pid=:pid"),
+                                                {"pid": target["pid"]}) == 0
+                assert await observer_db.scalar(text("SELECT pg_terminate_backend(:pid)"),
+                                                {"pid": primer_generation["pid"]}) is True
+                await observer_db.rollback()
+                primer = await request_engine.connect()
+                assert len(generations) == 4 and generations[-1]["entry"] is primer_generation["entry"]
+                assert len(invalidations) == 1 and invalidations[0][0] is primer_generation["dbapi"]
+                assert invalidations[0][1] is primer_generation["entry"] and invalidations[0][2] is not None
+                primer_pid = await primer.scalar(text("SELECT pg_backend_pid()"))
+                assert primer_pid != primer_generation["pid"]
+                await primer.commit()
+                async with asyncio.timeout(1):
+                    await primer_generation["stream"]["done"].wait()
+                    while not primer_generation["stream"]["root"].done():
+                        await asyncio.sleep(0)
+                assert request_engine.pool.checkedout() == 2 and not target["entry"].in_use
+                returns.clear()
+                observer = asyncio.create_task(observe(), context=Context())
+                before = set(asyncio.all_tasks())
+
+                def release_watchdog():
+                    watchdog_fired.append(True)
+                    target["stream"]["eof_gate"].set()
+
+                watchdog = asyncio.get_running_loop().call_later(3, release_watchdog)
+                async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="https://test") as client:
+                    began = monotonic()
+                    deadline = asyncio.get_running_loop().time() + 2
+                    try:
+                        response = await client.post(f"/meetings/{MEETING_ID}/result-viewed",
+                                                     json={"proof": "synthetic"}, headers=_headers(session_id))
+                    finally:
+                        await observer
+                        print({"pool_replacement_fault": fault, "elapsed": round(monotonic() - began, 3),
+                               "close_before_checkout": close_seen.is_set(), "upstream_eof": target["stream"]["eof_seen"].is_set(),
+                               "backend_gone_before_cancel": target.get("observed", False),
+                               "watchdog_fired": bool(watchdog_fired)})
+                    async with asyncio.timeout_at(deadline):
+                        await target["stream"]["done"].wait()
+                        while not target["stream"]["root"].done():
+                            await asyncio.sleep(0)
+                        assert response.status_code == 200
+                        assert response.json() == {"status": "unavailable" if fault else "accepted"}
+                        assert not target["owner"] and not target["owner"].transactions
+                        assert not target["root"][1].session.in_transaction()
+                        assert guard_module._RESULT_VIEW_TRANSACTION_OWNER not in target["root"][1].session.info
+                        assert not [task for task in asyncio.all_tasks()
+                                    if task.get_context().get(guard_module._RESULT_VIEW_TASK_OWNER) is target["owner"]]
+                        assert request_engine.pool.checkedout() == 2
+                        stream = target["stream"]
+                        assert all(task.done() for task in stream["pumps"] + stream["wait_closed"])
+                        assert all(writer.is_closing() for writer in stream["writers"])
+                        assert await foreign.scalar(text("SELECT pg_backend_pid()")) == foreign_generation["pid"]
+                        assert await foreign.scalar(text("SELECT 1")) == 1
+                        await foreign.commit()
+                        assert await primer.scalar(text("SELECT pg_backend_pid()")) == primer_pid
+                        assert await primer.scalar(text("SELECT 1")) == 1
+                        await primer.commit()
+                        assert gate.is_set() and (stream["eof_gate"].is_set() is not fault)
+                        if not fault:
+                            new_target = generations[-1]
+                            assert new_target["entry"] is target["entry"] and new_target["driver"] is not target["driver"]
+                            assert not new_target["entry"].in_use and not new_target["driver"].is_closed()
+                            assert not new_target["driver"].is_in_transaction()
+                            new_pid = new_target["driver"].get_server_pid()
+                            row = (await observer_db.execute(text(
+                                "SELECT state, xact_start FROM pg_stat_activity WHERE pid=:pid"
+                            ), {"pid": new_pid})).one()
+                            assert row.state == "idle" and row.xact_start is None
+                            assert await observer_db.scalar(text("SELECT count(*) FROM pg_locks WHERE pid=:pid"),
+                                                            {"pid": new_pid}) == 0
+                            assert [(r[0], *r[3:]) for r in returns if r[1] is new_target["dbapi"]] == [
+                                ("reset", True, False, False), ("checkin",),
+                                ("reset", True, False, False), ("checkin",),
+                                ("reset", True, False, False), ("checkin",),
+                            ]
+                            assert "x-graf-auth-expires-at" in response.headers
+                            assert await observer_db.scalar(select(AuthSession.expires_at).where(
+                                AuthSession.id == session_id)) > datetime.now(UTC) + timedelta(days=29)
+                        assert await observer_db.scalar(select(func.count()).select_from(ProductActivationMilestone)) == 0
+                        await observer_db.rollback()
+                        assert not watchdog_fired and monotonic() - began < 2
+                assert set(asyncio.all_tasks()) - relay_tasks <= before
+                target["stream"]["eof_gate"].set()
+                async with request_engine.connect() as db:
+                    assert await db.scalar(text("SELECT 1")) == 1
+                    assert await db.scalar(text("SELECT pg_backend_pid()")) != target["pid"]
+                    await db.commit()
+            finally:
+                if watchdog is not None:
+                    watchdog.cancel()
+                for stream in streams:
+                    stream["eof_gate"].set()
+                if observer is not None:
+                    observer.cancel()
+                    await asyncio.gather(observer, return_exceptions=True)
+                if "owner" in target:
+                    await asyncio.gather(*(task for task in asyncio.all_tasks() if task is not asyncio.current_task()
+                                           and task.get_context().get(guard_module._RESULT_VIEW_TASK_OWNER)
+                                           is target["owner"]), return_exceptions=True)
+                for db in (primer, observer_db, *held):
+                    if db is not None:
+                        await db.close()
+                await request_engine.dispose()
+    _run(postgres_seeded_database_url, scenario)
 
 
 @pytest.mark.parametrize("auth", ["missing", "csrf"])
