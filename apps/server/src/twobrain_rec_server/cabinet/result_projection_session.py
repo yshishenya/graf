@@ -90,6 +90,9 @@ class ResultProjectionSession:
             yield
             if self.sql_count != before + 1 or self._cursor_pending:
                 self._refuse()
+        except BaseException:
+            self.failed = self.budget.failed = True
+            raise
         finally:
             self._expected = None
             self._cursor_pending = False

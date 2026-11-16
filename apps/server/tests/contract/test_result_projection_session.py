@@ -25,6 +25,37 @@ class Probe(ProbeBase):
     details: Mapped[dict] = mapped_column(JSON, default=dict)
 
 
+@pytest.mark.parametrize("next_action", ["checkpoint", "read", "exit"])
+def test_caught_original_json_decode_failure_permanently_closes_owner(postgres_seeded_database_url, next_action):
+    import sys
+
+    async def scenario(sessions):
+        limit = sys.get_int_max_str_digits()
+        assert 0 < limit < 128 * 1024
+        async with _probe(sessions):
+            async with sessions() as seed:
+                await seed.execute(text("UPDATE t112_projection_session_probe SET details=CAST(:raw AS json)"),
+                                   {"raw": "9" * (limit + 1)})
+                await seed.commit()
+            failures = []
+            with pytest.raises(ProjectionBudgetExceeded):
+                async with result_projection_session(sessions) as owner:
+                    with pytest.raises(ValueError):
+                        await owner.db.get(Probe, 1)
+                    failures.append(True)
+                    if next_action == "checkpoint":
+                        with pytest.raises(ProjectionBudgetExceeded):
+                            owner.checkpoint()
+                    elif next_action == "read":
+                        with pytest.raises(ProjectionBudgetExceeded):
+                            await owner.db.scalar(select(Probe.id))
+            assert failures == [True] and owner.failed and owner.budget.failed
+            assert owner.budget.rows == 1 and owner.budget.json_nodes == 1
+            assert owner.sql_count >= 5 and not owner.db.identity_map
+            assert not owner.db.in_transaction() and not owner._listeners
+    _run(postgres_seeded_database_url, scenario)
+
+
 @pytest.mark.parametrize("routing", ["factory", "execute", "connection", "mapper", "table"])
 def test_other_session_bind_never_executes_unchecked_sql(postgres_seeded_database_url, routing):
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
