@@ -108,8 +108,14 @@ final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMenuItemVal
         if LocalCacheEvictionDryRunDiagnostics.isRequested(
             in: ProcessInfo.processInfo.environment
         ) {
-            Task.detached(priority: .utility) {
-                _ = await LocalCacheEvictionDryRunDiagnostics.runIfRequested()
+            // The desktop session cookies are installed by the cabinet bridge
+            // after the app finishes launching. Starting the diagnostics before
+            // that turns every proof request into a fail-closed dependency
+            // error even though the server is healthy.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 20) {
+                Task.detached(priority: .utility) {
+                    _ = await LocalCacheEvictionDryRunDiagnostics.runIfRequested()
+                }
             }
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
