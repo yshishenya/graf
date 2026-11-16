@@ -759,6 +759,45 @@
   success. Draft `v2026.11.16.1` всё ещё isDraft=true/publishedAt=null;
   публикация и рабочая приёмка не подтверждены, запрет слияний сохраняется.
   Нового Full/CD этот чат не запускал.
+- [x] Получить и полностью прочитать повторное независимое ревью P2-01:
+  `4618fe7668ef0feef4732cda697049827c4ac82d9d5e4d02b448ab41777ab5f7`.
+  Вердикт HOLD/P1=0/P2=1: порядок/None/DBAPI приняты, но collector заранее
+  отбрасывал повторные checkin и count1 не доказывал уникальность.
+- [x] Завершить уже запущенную ограниченную chain-диагностику:87PASS,
+  150.37s/runner155s/EXIT0, контейнер удалён. Оба вторых POST accepted;
+  исходный repeated unavailable не воспроизведён, причина неизвестна.
+  Ожидаемая цепочка ProjectionBudgetExceeded→TimeoutError→CancelledError
+  относится только к намеренно задержанному первому fault COMMIT.
+  Временный plugin удалён из дерева, маленькая копия/хеш сохранены внеGit.
+- [x] Уточнить тестовый подсчёт без подмены native/Session и изменения сроков.
+  Простое снятие фильтра дало2FAIL: два возврата одного slot не обязательно
+  принадлежат одной выдаче. Теперь COMMIT фиксирует публичный checkout ordinal,
+  raw collector сохраняет все возвраты, count1 проверяется для этой выдачи
+  до B. Дубли внутри одной выдачи больше не подавляются. Наблюдение `[0,1]`
+  подтвердило: второй checkin относится к следующей выдаче; точный caller
+  второго возврата отдельно не доказан. Адресно2PASS/56deselected/10.30s/
+  runner15s/EXIT0, контейнер удалён; normal0.720/fault1.554s, watchdogFalse,
+  следующие POST и полные строки PASS. Прежний87 не приписывается этому коду.
+  Runtime/fragment SAME237d368b. Изменения и полученные отчёты сохранены/pushed
+  `3b1c23e7a85a77b8861ae18ed174232835587a32`, exact remote readback PASS;
+  Ruff/context/diff PASS. [Новые результаты и пределы](https://github.com/yshishenya/graf/blob/3b1c23e7a85a77b8861ae18ed174232835587a32/specs/273-paid-traffic-analytics/validation/t112-ordinary-return-checkout-validation-20261116.md).
+- [ ] Независимо принять нынешнюю checkout-корреляцию: нового reviewer-вердикта
+  ещё нет, P2=0 не объявляется. Подготовлен точный запрос существующему
+  `/root/public_counter_readiness_review`; сам файл не доставка и не verified wait.
+  Отдельный unknown repeated HOLD сохраняется; runtime без установленной
+  причины и нового независимого проекта не менять. T112/T113 открыты.
+- [x] После нового сообщения выпуска самостоятельно подтвердить в GitHub:
+  [v2026.11.16.1](https://github.com/yshishenya/graf/releases/tag/v2026.11.16.1)
+  опубликован16.11 в16:34:19UTC, isDraft=false/isPrerelease=false,
+  targetCommitish `d03114b6ade9750154186cc6bedffe2235921628`;
+  Full43894088412 completed/success, все13jobs success на том же SHA.
+  По прямому сообщению задачи выпуска пауза master снята. Её runtime/deploy/
+  health/HTTP200 Метрики сообщены другой задачей, нашим чатом повторно не
+  проверены. T121/#8056 сохраняет отдельную приёмку Вебвизора/кабинета;
+  технический сеанс webvisor.recp=0 не внешний визит. Собственный HOLD,
+  T098/T113 и закрытый `_result_period_context` сохраняются. Утверждение
+  о выключенности всей публичной Метрики после этого сообщения устарело;
+  наша T112-аналитика этим выпуском не принимается. Новый Full/CD не запускался.
 - [ ] Продолжить реальные HTTP/source/proof/admission границы T112/T113 и
   остальные непокрытые close/commit/cleanup исходы; `_result_period_context`
   по-прежнему `yield None`. HTTP-путь подключён и проверен в отдельной ветке;
