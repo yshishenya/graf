@@ -205,6 +205,18 @@
   серверный проект и его независимый preflight PASS; server-кода ещё нет.
   [Проверки и остаток](https://github.com/yshishenya/graf/blob/46c989b959856c836ab0c2fc5ef0aeb255992a07/specs/273-paid-traffic-analytics/validation/t112-selection-query-20261116.md),
   [независимое ревью](https://github.com/yshishenya/graf/blob/46c989b959856c836ab0c2fc5ef0aeb255992a07/specs/273-paid-traffic-analytics/validation/t112-view-selectors-review-20261116.md).
+- [x] Сохранить общий владелец транзакции и атомарную пару первых result/value
+  вех в существующем ingest. Прежний authenticated ingress использует ту же
+  границу и SQL-примитив; новый внутренний вызов не подключён к HTTP.
+  Настоящий источник периода остаётся закрытым, без даты или флага допуска.
+  На изолированном PostgreSQL итог106 PASS/1 прежний warning/0 skips;
+  ошибки второй вставки, отзыв перед commit, replay/concurrency, неизвестный
+  commit, чужой binding, timeout/cancellation проверены. Независимое ревью
+  P1=0/P2=0 относится только к этому подшагу, не к полному fresh verifier/T113.
+  Сохранено/pushed отдельно `41fdf6c11475819993a3584aa869496034a391e2`,
+  remote readback совпал; PR/merge/выпуска нет.
+  [Проверки и границы](https://github.com/yshishenya/graf/blob/41fdf6c11475819993a3584aa869496034a391e2/specs/273-paid-traffic-analytics/validation/t112-account-pair-20261116.md),
+  [независимое ревью](https://github.com/yshishenya/graf/blob/41fdf6c11475819993a3584aa869496034a391e2/specs/273-paid-traffic-analytics/validation/t112-account-pair-review-20261116.md).
 - [ ] Выполнить полный source/audit/projection/proof, browser/native visibility, защищённый
   POST и общую admission boundary с причинной DB/browser/Swift/failure матрицей.
   Renderer использует общий чистый выбор строк и принимает необязательную карту
