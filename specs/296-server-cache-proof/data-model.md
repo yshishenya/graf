@@ -116,6 +116,8 @@ Reason vocabulary:
 | `schemaVersion` | string | `local-cache-eviction-dry-run.v1` |
 | `generatedAt` | date | Report time |
 | `scopeFingerprint` | string | Workspace/user fingerprint |
+| `truncated` | bool | True when the 200-item cap hid part of the queue |
+| `availableItemCount` | int | Number of raw queue items available before the cap |
 | `policy` | object | Max proof age, grace, minimum retention |
 | `totals` | object | inspected, eligible, eligibleBytes, rejected, rejectedBytes, unknownBytes |
 | `byReason` | array | primary reason, count, bytes |

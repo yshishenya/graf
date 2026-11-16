@@ -38,7 +38,7 @@
 - [x] F284 local playback, local-only mode and the local player are explicitly preserved
 - [x] Server quota is explicitly not a capture or eviction gate
 - [x] Retention and `archive_audio=false` are explicit keep-local conditions
-- [ ] Dry-run evidence proves both eligibility logic and absence of file/queue mutation
+- [x] Dry-run evidence proves both eligibility logic and absence of file/queue mutation
 - [x] Manual cleanup deletes only the transcription WAV and preserves review audio, manifest, queue row and local playback
 - [x] Automatic eviction is gated by a kill switch, deletes only verified WAVs, and stops on any missing/stale proof
 - [x] Cleanup and eviction are idempotent and leave a durable receipt without paths, titles or transcripts
@@ -49,4 +49,4 @@
 
 ## Notes
 
-- **Re-review 2026-11-16**: 27/29 checked, 2 unchecked. Remaining items require implementation/validation evidence: SC outcomes and the real dry-run no-mutation report. Design blockers: 0. See `review-2026-11-16.md`.
+- **Implementation re-review 2026-11-16**: 28/29 checked, 1 unchecked. The only open item is the real production dry-run evidence for SC-001/SC-008/SC-012. Code/test no-mutation evidence is present in `LocalCacheEvictionDryRunTests`. See `review-2026-11-16.md`.

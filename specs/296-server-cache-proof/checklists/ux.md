@@ -17,5 +17,4 @@
 
 ## Reviewer Notes
 
-- **Re-review 2026-11-16**: 12/12 checked at the copy/design level. Design blockers: 0. UI implementation and copy/AX tests are still pending (T016, T020).
-- CHK010 is checked against `contracts/ux-copy.md:45,59` and `plan.md:191`; F296 warning/eviction is informational. The critical capture state remains an F295 capture gate, not an F296 false error.
+- **Implementation re-review 2026-11-16**: 12/12 checked. `LocalCacheSurfaceTests` verifies the exact copy, reason mapping, accessibility identifiers, warning visibility, action availability, and settings/operator override. UI wiring is present in `LocalCacheSurfaceView`, `DesktopMeetingShellView` and `ContentView`.

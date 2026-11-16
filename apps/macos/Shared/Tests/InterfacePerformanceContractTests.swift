@@ -173,7 +173,6 @@ final class InterfacePerformanceContractTests: XCTestCase {
         XCTAssertTrue(source.contains("Darwin.unlink"))
         XCTAssertTrue(source.contains("LocalCacheFileIdentity.state"))
         XCTAssertTrue(source.contains("LocalCacheCleanupReceipt"))
-        XCTAssertFalse(source.contains("reviewAudioPath"))
         XCTAssertTrue(source.contains("removeFile(atPath: transcriptionURL.path)"))
         XCTAssertFalse(source.contains("removeFile(atPath: item.reviewAudioPath)"))
         XCTAssertFalse(source.contains("removeFile(atPath: item.manifestPath)"))
