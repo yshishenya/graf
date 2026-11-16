@@ -404,11 +404,31 @@
   Checkpoint `c420927a7633596ca392799b61e46022ae7234d2` committed/pushed,
   remote readback совпал. Прежний233 без изменения не повторялся.
   [Опыт и ограничения](https://github.com/yshishenya/graf/blob/c420927a7633596ca392799b61e46022ae7234d2/specs/273-paid-traffic-analytics/validation/t112-pool-return-validation-20261116.md).
-- [ ] Независимо принять новый baseline и отдельно согласовать минимальный
-  проект runtime исправления. Готовое поручение сохранено в
-  `/private/tmp/graf-t112-pool-return-baseline-review-20261116.txt`;
-  новый отчёт ещё не получен, живое ожидание не подтверждено. Принятый проект
-  тестов не является допуском runtime кода; T112 и рабочий сбор открыты.
+- [x] Независимо принять новый baseline: reviewer подтвердил причинный
+  P1-R1, P2=0; поздние fault cleanup/reuse не приняты. Отдельный проект
+  public Pool.close прочитан до кода, SHA-256
+  `b3d65ee4365f506fd66da3ad0a35aae0e20eba3abcee3657606273acd83afd96`.
+  Проект использует решение пула физически закрыть exact idle поколение,
+  не выдумывает request lease или recycle-specific reservation.
+- [x] Испытать допущенный проект и сохранить отрицательный результат.
+  Unit3FAIL/27PASS →30PASS не подтвердили настоящий Session root.
+  Native-попытка зависла и остановлена только в собственном pytest;
+  terminalEXIT2/runner94s, временный контейнер удалён. Ни один native случай
+  не принят. Source и настоящий Session/in-memory SQLite/public do_connect
+  показали: при получении соединения и root.is_active, и Session.is_active
+  временно False, хотя текущий root существует. Требуемое проектом True
+  исключает нужную фазу. Точное место native зависания отдельно не доказано.
+  Свой пробный diff трёх файлов сохранён вне дерева и только он отменён;
+  guard/unit/contract снова побайтово равны c420927a. Прежний233 не повторялся.
+  Отчёт и reviewer addendum committed/pushed в
+  `3ab916f2439d86914c83d22a78d1a518a6b21ebf`.
+  [Проверка проекта и ограничения](https://github.com/yshishenya/graf/blob/3ab916f2439d86914c83d22a78d1a518a6b21ebf/specs/273-paid-traffic-analytics/validation/t112-idle-close-design-validation-20261116.md).
+- [ ] Независимо исправить public root-предикат проекта и безопасную
+  диагностику раннего callback assertion; затем новая адресная native-проверка.
+  Готовое уточнение — `/private/tmp/graf-t112-idle-close-design-correction-20261116.txt`;
+  подтверждённой доставки и нового заключения пока нет, verified wait нет.
+  До нового допуска callback не возвращать, active-проверку ради PASS
+  не удалять. T112 и рабочий сбор остаются открытыми.
 - [ ] Проверить остальные реальные границы: обычный close/возврат в пул,
   TLS/reset/recycle и прочие commit/cleanup исходы. Упреждённый hard invalidate
   и foreign direct connection не доказывают ordinary close или same-pool
