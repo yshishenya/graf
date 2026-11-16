@@ -346,3 +346,111 @@ def test_public_context_rereads_basis_and_refuses_unknown_state(public_basis_reg
         return real_open(path, *args, **kwargs)
     monkeypatch.setattr(builtins, "open", refuse_register)
     assert build_public_analytics_context(settings, "/")["enabled"] is False
+
+
+@pytest.mark.parametrize('path', ['/', '/download'])
+def test_automatic_public_metrica_is_scoped_and_independent_of_consent_revision(path):
+    settings = Settings(
+        public_analytics_enabled=True, public_analytics_automatic_enabled=True,
+        public_analytics_yandex_metrica_id='12345678',
+        public_analytics_validation_mode='provider_smoke',
+        public_analytics_consent_copy_version='2026-08-13.1',
+        public_analytics_replay_enabled=True,
+    )
+    context = build_public_analytics_context(settings, path)
+    assert context['automatic_enabled'] is True
+    assert context['external_counter_allowed'] is True
+    assert context['yandex_metrica_id'] == '12345678'
+    assert context['replay_allowed'] is True
+    assert context['consent_ui_enabled'] is False
+    from twobrain_rec_server.public.analytics import public_analytics_blocker
+    assert public_analytics_blocker(settings, path) == 'consent_revision_mismatch'
+    for excluded in ['/login', '/signup', '/privacy', '/cabinet', '/meetings']:
+        context = build_public_analytics_context(settings, excluded)
+        assert context['automatic_enabled'] is False
+        assert context['external_counter_allowed'] is False
+        assert context['yandex_metrica_id'] is None
+
+
+@pytest.mark.parametrize('override', [
+    {'public_analytics_enabled': False},
+    {'public_analytics_yandex_metrica_id': None},
+    {'public_analytics_validation_mode': 'disabled'},
+    {'public_analytics_validation_mode': 'render_only'},
+])
+def test_automatic_public_metrica_keeps_global_environment_and_render_only_gates(override):
+    values = dict(public_analytics_enabled=True, public_analytics_automatic_enabled=True,
+                  public_analytics_yandex_metrica_id='12345678',
+                  public_analytics_validation_mode='provider_smoke')
+    context = build_public_analytics_context(Settings(**(values | override)), '/')
+    assert context['external_counter_allowed'] is False
+    assert context['yandex_metrica_id'] is None
+
+
+def test_automatic_public_metrica_requires_fresh_basis(public_basis_register):
+    settings = Settings(public_analytics_enabled=True, public_analytics_automatic_enabled=True,
+                        public_analytics_yandex_metrica_id='12345678',
+                        public_analytics_validation_mode='provider_smoke')
+    public_basis_register.write_text("legal_basis_state_version=1\nbasis_withdrawal level=provider_analytics state=withdrawn withdrawn_at=2026-09-18 reason=consent_withdrawn_by_visitors evidence_ref=ev-273-test\n")
+    assert build_public_analytics_context(settings, '/')['external_counter_allowed'] is False
+    public_basis_register.unlink()
+    assert build_public_analytics_context(settings, '/')['external_counter_allowed'] is False
+
+
+@pytest.mark.parametrize('automatic', [False, True])
+def test_public_metrica_templates_match_mode_without_loading_sdk_on_legal_pages(automatic):
+    from pathlib import Path
+
+    from jinja2 import Environment, FileSystemLoader, select_autoescape
+
+    templates = Path(__file__).parents[2] / 'src/twobrain_rec_server/public/templates'
+    env = Environment(loader=FileSystemLoader(templates), autoescape=select_autoescape())
+    settings = Settings(public_analytics_enabled=True, public_analytics_automatic_enabled=automatic,
+                        public_analytics_yandex_metrica_id='12345678',
+                        public_analytics_validation_mode='provider_smoke')
+    def render(name, path):
+        return env.get_template('public/' + name).render(
+            public_analytics=build_public_analytics_context(settings, path),
+            public_static_asset_url=lambda name: '/static/public/' + name,
+            cabinet_static_asset_url=lambda name: '/static/cabinet/' + name,
+        )
+    html = render('_analytics.html', '/')
+    assert ('/static/public/metrica.js' in html) is automatic
+    assert ('cookieconsent.umd.js' in html) is not automatic
+    assert ('data-metrica-toggle' in html) is automatic
+    for name, path in [('cookies.html', '/cookies'), ('privacy.html', '/privacy'),
+                       ('analytics_consent.html', '/analytics-consent')]:
+        html = render(name, path)
+        assert ('запускается автоматически без предварительного запроса согласия' in html) is automatic
+        assert '/static/public/metrica.js' not in html
+
+
+@pytest.mark.parametrize('path,replay,automatic,allowed', [
+    ('/', True, True, True), ('/download', True, True, True),
+    ('/privacy', True, True, False), ('/login', True, True, False),
+    ('/meetings', True, True, False), ('/', False, True, False),
+    ('/', True, False, False),
+])
+def test_map_viewer_frame_headers_are_public_and_replay_scoped(monkeypatch, path, replay, automatic, allowed):
+    from types import SimpleNamespace
+
+    from starlette.requests import Request
+
+    from twobrain_rec_server.public import templates
+
+    settings = Settings(public_analytics_enabled=True, public_analytics_automatic_enabled=automatic,
+                        public_analytics_yandex_metrica_id='12345678',
+                        public_analytics_validation_mode='provider_smoke', public_analytics_replay_enabled=replay)
+    request = Request({'type': 'http', 'method': 'GET', 'path': path, 'query_string': b'',
+                       'scheme': 'https', 'headers': [], 'server': ('graf.invalid', 443),
+                       'app': SimpleNamespace(state=SimpleNamespace(settings=settings))})
+    monkeypatch.setattr(templates, 'render_template', lambda *args, **kwargs: '')
+    response = templates.public_template_response(request, 'unused.html')
+    if allowed:
+        assert 'X-Frame-Options' not in response.headers
+        assert 'https://metrika.yandex.ru' in response.headers['Content-Security-Policy']
+        assert 'https://*.webvisor.com' in response.headers['Content-Security-Policy']
+        assert "base-uri 'self'; object-src 'none'" in response.headers['Content-Security-Policy']
+    else:
+        assert response.headers['X-Frame-Options'] == 'DENY'
+        assert "frame-ancestors 'none'" in response.headers['Content-Security-Policy']

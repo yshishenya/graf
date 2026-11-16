@@ -4,6 +4,15 @@ description: "Список задач фичи 273 — готовность ан
 
 # Tasks: Готовность аналитики к платному трафику
 
+## Уточнённый срез 16.11.2026 — автоматическая Метрика
+
+Источник требований: Session 16.11.2026 в spec.md и
+`contracts/public-metrica-automatic.md`; high-risk-product. Старые задачи и
+их состояния не переоцениваются этой записью.
+
+- [X] T120 [US2] Подготовить выключенный по умолчанию public-only режим Метрики без запроса выбора с Вебвизором, картами, сохранением отказа и согласованным раскрытием: `apps/server/src/twobrain_rec_server/config.py`, `public/analytics.py`, `public/static/public/metrica.js`, `public/templates/public/{_analytics,cookies,privacy,analytics_consent}.html`, `infra/docker-compose.yml`; сначала независимый requirements checklist/analyze/issue sync, затем RED/GREEN в `apps/server/tests/unit/test_public_analytics.py` и `apps/server/tests/browser/public-metrica-automatic.test.cjs`, прежние consent регрессии и независимая проверка реализации; fragment в `changes/unreleased/`.
+- [ ] T121 [US2] До рабочего включения T120 подтвердить основание нового объёма, публичное раскрытие, точные PR/release проверки; после контролируемого включения подтвердить получение посещения, целей, Вебвизора и карт в существующем кабинете; сохранить доказательства в `specs/273-paid-traffic-analytics/validation/`. Подготовленный код, fake transport и серверный агрегат не закрывают эту задачу; отдельное одобрение рабочего выпуска остаётся обязательным.
+
 **Input**: Design documents from `/specs/273-paid-traffic-analytics/`
 
 **Prerequisites**: [plan.md](plan.md), [spec.md](spec.md), [research.md](research.md), [data-model.md](data-model.md), [contracts/](contracts/), [quickstart.md](quickstart.md), [legal-basis.md](legal-basis.md)
@@ -11,6 +20,8 @@ description: "Список задач фичи 273 — готовность ан
 **Tests**: Строгий путь требует тестов. Тестовые задачи включены в каждую историю.
 
 **Organization**: Задачи сгруппированы по пяти историям, каждая проверяется отдельно.
+
+**Срез 16.11.2026:** T120 — [#8055](https://github.com/yshishenya/graf/issues/8055); T121 — [#8056](https://github.com/yshishenya/graf/issues/8056). T120/T122 реализованы и проверены локально; GitHub-задачи остаются открыты до PR/обязательных проверок, T121 не выполнена; локальные доказательства — `validation/metrica-automatic-validation-20261116.md`.
 
 ## Format: `[ID] [P?] [Story] Description`
 
@@ -754,3 +765,7 @@ PASS требований6/0; последующие analyze/issue-sync обяз
 Независимое чтение тестов допустимо параллельно без правки чужих файлов.
 Рабочее включение/T0/SDK остаются закрытыми до отдельных backup/restore,
 capacity, actual rights, legal/provider/browser readback и операционной приёмки.
+
+## Phase 17: Convergence — просмотр карт 16.11.2026
+
+- [X] T122 [US2] Разрешить безопасный просмотр карт только двух automatic replay страниц в официальных HTTPS окнах Метрики: `apps/server/src/twobrain_rec_server/public/{analytics,templates}.py`, `public/static/public/metrica.js`; сохранить CSP/X-Frame-Options остальных страниц и блокировку посторонних frame. Проверки границ заголовков в `apps/server/tests/unit/test_public_analytics.py`, trusted/untrusted frame в `apps/server/tests/browser/public-metrica-automatic.test.cjs`; независимый пересмотр требований и кода. Основание — официальный раздел «Показ данных в iframe» документации карт; фактический показ остаётся T121.

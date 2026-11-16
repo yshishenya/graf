@@ -5,7 +5,12 @@
     <a href="/terms">Условия</a>
     <a href="/offer">Оплата и возврат</a>
     <a href="/analytics-consent">Об аналитике</a>
-    {% if public_analytics.get('consent_ui_enabled', false) %}
+    {% if public_analytics.get('automatic_enabled', false) %}
+      <button id="analytics-settings" class="cookie-settings-link" type="button" data-metrica-toggle>
+        Отключить Метрику и Вебвизор
+      </button>
+      <span role="status" aria-live="polite" data-metrica-status></span>
+    {% elif public_analytics.get('consent_ui_enabled', false) %}
       <button class="cookie-settings-link" type="button" data-cc="show-preferencesModal">
         Настройки cookies
       </button>
@@ -13,7 +18,10 @@
   </footer>
 {% endif %}
 
-{% if public_analytics.get('consent_ui_enabled', false) %}
+{% if public_analytics.get('automatic_enabled', false) %}
+  <script id="graf-public-analytics-config" type="application/json">{{ public_analytics | tojson }}</script>
+  <script defer src="{{ public_static_asset_url('metrica.js') }}"></script>
+{% elif public_analytics.get('consent_ui_enabled', false) %}
   <div id="graf-public-consent-status" role="status" aria-live="polite" hidden>
     <span data-consent-message></span>
     <button type="button" data-consent-retry hidden></button>

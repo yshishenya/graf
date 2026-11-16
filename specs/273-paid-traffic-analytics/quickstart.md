@@ -1,5 +1,31 @@
 # Quickstart: проверка готовности аналитики
 
+## Автоматическая публичная Метрика — T120/T121
+
+Новая модель описана в `contracts/public-metrica-automatic.md`; рабочий флаг
+по умолчанию выключен. Из корня выполнить:
+
+```sh
+PYTHONPATH=apps/server/src python3 -m pytest apps/server/tests/unit/test_public_analytics.py
+node apps/server/tests/browser/public-metrica-automatic.test.cjs
+PYTHONPATH=apps/server:apps/server/src python3 -m tests.fixtures.public_analytics_config > /tmp/graf-public-config.json
+node apps/server/tests/browser/public-analytics-consent.test.cjs /tmp/graf-public-config.json
+```
+
+Python использует действующие зависимости проекта, Node не требует новых
+пакетов. Для проверки штатного SDK используйте
+`public-metrica-automatic-sdk.test.cjs --sdk-file <временный tag.js> --sdk-sha256 <проверенный SHA-256>`
+с существующим Playwright через `GRAF_NODE_MODULES`; ни один запрос не проходит
+в рабочий счётчик. Контрольная сумма и предел проверки записаны в
+`validation/metrica-automatic-validation-20261116.md`.
+Проверить default/automatic, scope, withdrawal и закрытые состояния;
+в Node — один начальный hit без выбора, прежний отказ, отказ replay,
+недоступный/повреждённый storage, отказ в другой вкладке и небезопасный URL.
+Сеть теста перехвачена, рабочий счётчик не вызывается. На выпуске отдельно
+подтвердить раскрытие и основание, затем проверки PR и выпуска на точной версии, затем визит,
+цели, Вебвизор и карты в рабочем кабинете. Тестовая очередь SDK не доказывает
+получение данных Яндексом и не закрывает T121.
+
 Руководство по проверке на живом стенде. Описывает, что запустить и что должно
 получиться, без деталей реализации.
 
