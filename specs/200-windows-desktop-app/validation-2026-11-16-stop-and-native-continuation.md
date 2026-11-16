@@ -681,3 +681,39 @@ CI ожидаются. PS5 parser-квитанция выше относится
 `.dev/f200-ci-psmodule-stdin-rereview-20261116.md`, SHA256
 `deef89f4b1c497a459348e30ed6f914244316d85abe0139df5bd0d32f15577fb`.
 P2 устранён, новых блокирующих замечаний нет; suite111/hosted CI этим не заменены.
+
+## Продолжение: фактические GitHub результаты и общий кабинет F292
+
+На точном коммите `75621dff997321f5a4b4350e3f5a5a0c2d7a7b25`
+настоящий Windows run43796741405 завершился SUCCESS: пять из пяти основных
+тестов и T124 `PUBLIC_APPINSTALLER_TESTS cases=111 public_release_ready=false`.
+Исходный журнал сохранён как `.dev/f200-ci-windows-pass-43796741405.log`.
+`macos-pr` также PASS. Это проверка исходников в GitHub, не установленного
+приложения, публичной подписи или новых незакоммиченных изменений памяти.
+
+Общий governance run43796741443 завершился FAIL: в его предметном наборе
+7failed/178passed/2skipped. Все семь отказов имеют одну причину в общем
+initializer кабинета: при отсутствующих metadata и href сравнение двух
+undefined допускает прямое чтение поля version. Обычный браузер предоставляет
+строковый href; отказ реального браузера этим журналом не установлен.
+Прежний failed log и диагностика сохранены, ошибки не переименованы в PASS.
+
+Узкое исправление существующего F292 требует наличия metadata в обоих
+вычислениях pendingSeek. Порядок abort/reset, проверки URL/версии, применение
+позиции ровно один раз и отмена устаревшего намерения сохранены. Прежний
+CSRF smoke дополнен полным href без удаления минимального окружения или
+изменения прежних assertions. Локально: 8targeted PASS, полный static module
+80PASS без пропусков; неизменённый addressed-playback script дал по 10PASS
+в Chromium и WebKit. Ни зависимости, ни сервисы не устанавливались.
+
+Source SHA256: cabinet.js
+`27fb2573a9b40b64f5fdf16586af65ffcd3fc2411d57feda0b7fe68239ea7d90`;
+test_cabinet_static_assets_contract.py
+`4376418804668cf7b9bb3a848c2353e25d619eb4e4f56226201ed1117995a543`.
+Отчёт и raw receipts: `.dev/f200-ci-cabinet-undefined-fix-20261116/`.
+Независимый SOURCE PASS:
+`.dev/f200-ci-cabinet-undefined-independent-review-20261116.md`, SHA256
+`9bc47caee8d18f805beee8cdeb2e2e16e4ad01578d8ae9b12ce89545dc4ef4d0`.
+Новый GitHub governance для исправленного коммита ещё требуется; исходный
+run43796741443 остаётся неуспешным. F200/T088/T116, установленная приёмка и
+публичный выпуск не закрыты.

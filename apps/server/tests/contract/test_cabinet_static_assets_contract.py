@@ -86,7 +86,8 @@ def test_cabinet_brand_assets_are_local_and_nonempty() -> None:
         assert path.stat().st_size > 0
 
 
-def test_cabinet_js_wires_csrf_header_for_unsafe_htmx_requests() -> None:
+@pytest.mark.parametrize("location_mode", ["minimal", "full_href"])
+def test_cabinet_js_wires_csrf_header_for_unsafe_htmx_requests(location_mode: str) -> None:
     harness = r'''
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -110,7 +111,10 @@ for (const token of ["synthetic-csrf", null]) {
         }
       } }
     };
-    const window = { addEventListener() {}, location: { pathname: "/meetings", hash: "" } };
+    const window = { addEventListener() {}, location: {
+      pathname: "/meetings", hash: "",
+      ...(process.argv[2] === "full_href" ? { href: "https://graf.test/meetings", search: "" } : {}),
+    } };
     vm.runInNewContext(script, { document, window, URLSearchParams, setInterval() {}, clearInterval() {} });
     assert.equal(typeof handler, "function");
     for (const verb of ["POST", "put", "PATCH", "delete", "GET", "head", "OPTIONS", undefined]) {
@@ -127,7 +131,7 @@ for (const token of ["synthetic-csrf", null]) {
 }
 '''
     result = subprocess.run(
-        ["node", "-e", harness, str(STATIC_DIR / "cabinet.js")],
+        ["node", "-e", harness, str(STATIC_DIR / "cabinet.js"), location_mode],
         capture_output=True, text=True, check=False,
     )
     assert result.returncode == 0, result.stderr
