@@ -2662,7 +2662,7 @@ async def activity_response(
                 MeetingEgressAuditEvent.workspace_id == workspace_id,
                 MeetingEgressAuditEvent.meeting_id == meeting_id,
             )
-            .order_by(MeetingEgressAuditEvent.created_at.desc())
+            .order_by(MeetingEgressAuditEvent.created_at.desc(), MeetingEgressAuditEvent.id.desc())
             .limit(50)
         )
     ).all()

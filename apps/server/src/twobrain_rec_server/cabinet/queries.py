@@ -1483,7 +1483,7 @@ async def _prefetch_meeting_review_reads(
         ProcessingWorkflow.workspace_id == workspace_id,
         ProcessingWorkflow.meeting_id == meeting_id,
         ProcessingWorkflow.media_revision_id.is_not_distinct_from(revision.id),
-    ).order_by(ProcessingWorkflow.attempt_ordinal.desc(), ProcessingWorkflow.created_at.desc()))
+    ).order_by(ProcessingWorkflow.attempt_ordinal.desc(), ProcessingWorkflow.created_at.desc(), ProcessingWorkflow.id.desc()))
     result_query = effective_processing_result_query(
         workspace_id=workspace_id, meeting_id=meeting_id, media_revision_id=revision.id,
     )
@@ -1562,7 +1562,7 @@ async def _prefetch_meeting_review_reads(
     dependency = one(ProcessingDependencyState, select(ProcessingDependencyState).where(
         ProcessingDependencyState.workspace_id == workspace_id,
         ProcessingDependencyState.meeting_id == meeting_id,
-    ).order_by(ProcessingDependencyState.updated_at.desc()))
+    ).order_by(ProcessingDependencyState.updated_at.desc(), ProcessingDependencyState.id.desc()))
     personal_default = one(SummaryTemplate, select(SummaryTemplate).where(
         SummaryTemplate.workspace_id == workspace_id,
         SummaryTemplate.id == Workspace.default_summary_template_id,
