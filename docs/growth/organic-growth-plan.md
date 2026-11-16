@@ -372,13 +372,22 @@
   Checkpoint `37274e642820ef87ba52a6dd6e8cd8ed185fe595` committed/pushed,
   readback совпал; это локальный GREEN, не независимая приёмка реализации.
   [Исходный отказ, исправление и границы](https://github.com/yshishenya/graf/blob/37274e642820ef87ba52a6dd6e8cd8ed185fe595/specs/273-paid-traffic-analytics/validation/t112-driver-close-validation-20261116.md).
-- [ ] Получить независимое implementation review исправленного C1.
-  Поручение с точными hashes/законченными журналами подготовлено в
-  `/private/tmp/graf-t112-driver-close-implementation-review-20261116.txt`;
-  отправка нового поручения и новый итог reviewer ещё не подтверждены.
-  Прежнее проектное ревью не является приёмкой кода или живым ожиданием.
-  Обычный close/TLS/pool reset, прочие commit и same-pool foreign coverage
-  этим узким случаем не принимаются; к merge/выпуску ещё не готово.
+- [x] Получить независимое ревью реализации исправленного C1 на checkpoint
+  `37274e642820ef87ba52a6dd6e8cd8ed185fe595`: SCOPED PASS, P1=0/P2=0.
+  Существующий проверяющий сверил фактический diff и законченный профиль233;
+  основной агент полностью прочитал новый addendum и подтвердил SHA-256
+  `fe303b41d68c2a65369d8f1635259b9d5d5e13df45d68d688a8cc1e34132acbf`,
+  три исходных файла, четыре журнала и18 неизменных входных хешей. Checklist
+  124/0 без переотметок. Повторных тестов нет: код и находки не изменились.
+  Принят только own idle hard invalidate(None), с полным ответом и окончанием
+  socket/task/backend cleanup в исходном2s. Заключение сохранено в
+  `b573c49e050bff010f95ce91a1fed674103f99aa`.
+  [Независимое заключение C1](https://github.com/yshishenya/graf/blob/b573c49e050bff010f95ce91a1fed674103f99aa/specs/273-paid-traffic-analytics/validation/t112-driver-close-preflight-20261116.md).
+- [ ] Проверить следующую реальную границу: обычный close/возврат в пул,
+  TLS/reset/recycle и прочие commit/cleanup исходы. Упреждённый hard invalidate
+  и foreign direct connection не доказывают ordinary close или same-pool
+  foreign coverage. Перед новыми тестами/кодом восстановить применимые
+  оригинальные требования и получить независимый проект следующего опыта.
 - [ ] Выполнить полный source/audit/projection/proof, browser/native visibility, защищённый
   POST и общую admission boundary с причинной DB/browser/Swift/failure матрицей.
   Renderer использует общий чистый выбор строк и принимает необязательную карту
