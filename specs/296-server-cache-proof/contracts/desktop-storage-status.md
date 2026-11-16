@@ -25,11 +25,16 @@
 }
 ```
 
-## Roles
+## Role matrix
 
-- `owner`: personal workspace owner with no external payer. `access_mode=manage`, amounts visible, action may be `open_billing_storage` with `action_path=/billing/storage`.
-- `admin`: corporate owner/admin. `access_mode=read_only`, amounts visible only if the existing billing projection allows it; action `contact_owner` when over threshold.
-- `member`: `access_mode=read_only`, all amount fields `null`, `threshold=unknown`, `action=none`, `action_path=null`.
+| Role | access_mode | amounts | threshold | action | action_path |
+|---|---|---|---|---|---|
+| Personal owner with payer rights | `manage` | visible | exact | `open_billing_storage` when over threshold, else `none` | `/billing/storage` only when actionable |
+| Corporate owner/admin | `read_only` | visible if the existing billing projection allows | exact | `contact_owner` when over threshold, else `none` | `null` |
+| Member | `read_only` | `null` | `unknown` | `none` | `null` |
+| Unknown role | `read_only` | `null` | `unknown` | `none` | `null` |
+
+`read_only` does not automatically mean null amounts; only member/unknown hide them. Corporate owners are `admin` in auth, not `owner`.
 
 ## Thresholds
 
@@ -37,8 +42,8 @@ Exactly `normal`, `80%`, `95%`, `full`, `unknown`. Reuse `classify_storage_thres
 
 ## Failure behavior
 
-- Missing database session: `503 cabinet_store_unavailable`.
-- Projection failure: HTTP 200 with `threshold=unknown`, null amounts (or role-appropriate visibility), `retention_policy_state` as known; never 5xx for a dependency failure.
+- Missing database session: `503 cabinet_store_unavailable` (the request cannot be scoped).
+- Projection failure after a valid session: HTTP 200 with `threshold=unknown`, role-appropriate visibility and `retention_policy_state` as known; never 5xx for a dependency failure.
 - Unknown role/plan: fail closed with `read_only`, `threshold=unknown`, `action=none`.
 
 ## RLS

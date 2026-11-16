@@ -16,12 +16,12 @@ F296 adds a read-only proof layer and a local deletion ledger. It does not add d
 | `can_play` | bool | `false` | True only when playback is currently servable |
 | `reason_code` | enum string | `no_audio` | Canonical reason; `canonical_ready` means ready |
 | `media_revision_id` | UUID? | `nil` | Actual playback revision, not necessarily the meeting revision |
-| `object_verified` | bool | `false` | Canonical object exists and `stat.size == artifact.byte_length` |
+| `object_verified` | bool | `false` | Canonical object exists, `stat.size == artifact.byte_length`, and a bounded read probe succeeded |
 | `verified_at` | datetime? | `nil` | Server UTC observation time, set only when verified |
 | `automatic_recovery` | bool | `false` | True only when a known server path can repair without user action |
 
 Validation:
-- `object_verified=true` implies `can_play=true`, `state=available`, `reason_code=canonical_ready`, non-nil `media_revision_id`, non-nil `verified_at`.
+- `object_verified=true` implies `can_play=true`, `state=available`, `reason_code=canonical_ready`, non-nil `media_revision_id`, non-nil `verified_at`, a successful stat/size match and a successful bounded read.
 - `archive_audio != true` forces `can_play=false`, `object_verified=false`, `reason_code=audio_not_archived`.
 - `deletion_state != none` forces `deleting`/`deleted`, `can_play=false`.
 - Unknown enum/string values are treated as keep-local by the client.
@@ -58,19 +58,22 @@ Validation:
 | `observed_at` | datetime? | `nil` | Server observation time |
 
 Validation:
-- `access_mode=read_only` implies null amounts, `threshold=unknown`, `action=none`, `action_path=nil`.
-- `access_mode=manage` requires a personal owner with matching payer.
-- Projection failure returns `threshold=unknown`, not 5xx.
+- `access_mode=manage` requires a personal owner with matching payer; amounts are visible and action may be `open_billing_storage`.
+- Corporate owner/admin has `read_only`, visible amounts and `contact_owner` when over threshold.
+- `member` has `read_only`, null amounts, `threshold=unknown`, `action=none`, `action_path=nil`.
+- Unknown role gets the member profile.
+- Missing DB session is 503; projection failure returns `threshold=unknown`, not 5xx.
 
 ### FinalizedUploadCustody
 
 | Field | Type | Meaning |
 |---|---|---|
 | `session_id` | UUID | Finalized upload session |
+| `media_revision_id` | UUID | Revision this custody row describes; must equal the playback revision |
 | `archive_audio` | bool | Finalize choice |
 | `finalized_at` | datetime? | Server finalization timestamp |
 
-Lookup is scoped by workspace + meeting + media revision + `status=FINALIZED`, newest first.
+Lookup is scoped by workspace + meeting + **playback revision** + `status=FINALIZED`, newest first. Sync-state exposes this revision as `upload_session.media_revision_id`; a mismatch with `playback.media_revision_id` is keep-local.
 
 ## Client Value Objects
 
@@ -127,11 +130,12 @@ Validation:
 |---|---|---|
 | `schemaVersion` | string | `local-cache-cleanup-receipt.v1` |
 | `action` | enum | `manual_cleanup`, `automatic_eviction` |
+| `state` | enum | `pending`, `completed`, `noop` |
 | `localRecordingFingerprint` | string | Stable local identity |
 | `meetingFingerprint` | string | Stable server identity |
 | `mediaRevisionFingerprint` | string | Local revision |
-| `playbackRevisionFingerprint` | string? | Actual playback revision |
-| `verifiedAt` | date? | Proof verification time |
+| `playbackRevisionFingerprint` | string | Actual playback revision |
+| `verifiedAt` | date | Proof verification time |
 | `bytes` | int64 | Bytes removed |
 | `ownerScopeFingerprint` | string | Account/workspace |
 | `appVersion` | string | App version |
@@ -139,7 +143,8 @@ Validation:
 
 Validation:
 - Written atomically, 0600, outside the recordings root.
-- Repeated action on missing WAV appends no duplicate and reports no-op.
+- A `pending` intent is written before unlink and `completed` after. On retry, pending + missing WAV becomes `completed`/`noop`; a missing WAV without intent is reported as unexpected. Repeated completed action appends no duplicate.
+- `playbackRevisionFingerprint` and `verifiedAt` are required for both cleanup actions.
 - No paths, titles, transcript text, tokens.
 
 ## State Transitions

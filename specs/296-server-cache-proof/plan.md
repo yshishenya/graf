@@ -67,7 +67,7 @@ Phase B и Phase C могут разрабатываться в этом же п
   - `automatic_recovery: bool = False`
 - `DesktopSyncRetentionState`: `delete_after`, `policy_state`.
 - `DesktopStorageStatusResponse`: `billing_role`, `access_mode`, `plan_code`, `used_bytes`, `reserved_bytes`, `capacity_bytes`, `available_bytes`, `threshold`, `action`, `action_path`, `meeting_retention_days`, `source_audio_retention_days`, `retention_policy_state`, `observed_at`.
-- Add `playback` to `DesktopRecordingSyncStateResponse`; `archive_audio`/`finalized_at` to `DesktopSyncUploadSessionState`; `retention` to `DesktopSyncMeetingState`.
+- Add `playback` to `DesktopRecordingSyncStateResponse`; `archive_audio`/`finalized_at`/`media_revision_id` to `DesktopSyncUploadSessionState`; `retention` to `DesktopSyncMeetingState`. The upload-session custody block must describe the same revision as `playback.media_revision_id`.
 
 Все новые поля имеют fail-closed defaults: `can_play=false`, `object_verified=false`, `verified_at=null`, `archive_audio=null`, `finalized_at=null`, `policy_state=not_configured`.
 
@@ -75,8 +75,8 @@ Phase B и Phase C могут разрабатываться в этом же п
 
 `apps/server/src/twobrain_rec_server/ingest/store.py`:
 
-- `FinalizedUploadCustody(session_id, archive_audio, finalized_at)`.
-- `finalized_upload_custody_for_revision(db, workspace_id, meeting_id, media_revision_id)` — последняя `FINALIZED` сессия именно этой ревизии, с ordering `created_at desc, id desc`.
+- `FinalizedUploadCustody(session_id, media_revision_id, archive_audio, finalized_at)`.
+- `finalized_upload_custody_for_revision(db, workspace_id, meeting_id, media_revision_id)` — последняя `FINALIZED` сессия **ревизии playback**, с ordering `created_at desc, id desc`; sync-state передаёт `playback.media_revision_id`, а не meeting revision.
 - `archive_audio_for_revision` делегирует в новый helper, сохраняя текущий legacy default `True` при отсутствии строки.
 
 #### A3. Playback proof
@@ -84,12 +84,12 @@ Phase B и Phase C могут разрабатываться в этом же п
 `apps/server/src/twobrain_rec_server/cabinet/egress.py`:
 
 - `desktop_playback_proof(db, *, meeting, access, revision, storage, timeout)`:
-  1. `_latest_accepted_media_revision` — фактическая ревизия playback.
+  1. `_latest_accepted_media_revision` — фактическая ревизия playback; она передаётся во все последующие чтения.
   2. `review_playback_state(..., storage=None)` — получить state/can_play/reason/automatic_recovery без небезопасной ветки «storage is None => available».
   3. Если `archive_audio_for_revision` не true → `audio_not_archived`, `can_play=false`, `object_verified=false`.
-  4. Найти `_stored_review_m4a_artifact` и проверить `stat_object`; `object_verified=true` только при `stat.size == artifact.byte_length`.
+  4. Найти `_stored_review_m4a_artifact(..., revision=<та же ревизия>)`; проверить `stat_object` и bounded read probe (первые 12–64 КиБ) с timeout; `object_verified=true` только при `stat.size == artifact.byte_length` и успешном чтении.
   5. Ошибка/таймаут/несовпадение размера → `preparing`, `can_play=false`, `object_verified=false`, `automatic_recovery` по состоянию job.
-  6. `verified_at=datetime.now(UTC)` только при успешной проверке.
+  6. `verified_at=datetime.now(UTC)` только при успешной stat+read проверке.
 - Не менять cabinet `PlaybackPreparationState` и его контракт.
 
 #### A4. Sync-state builder and route
@@ -118,7 +118,7 @@ Phase B и Phase C могут разрабатываться в этом же п
 
 - Tenant-scoped DB (`get_request_db_session`), `Cache-Control: no-store`.
 - `access_mode=manage` только personal owner + workspace owner + payer match; иначе `read_only`.
-- Member: `used/reserved/capacity/available=null`, `threshold=unknown`, `action=none`.
+- Member: `used/reserved/capacity/available=null`, `threshold=unknown`, `action=none`. Corporate owner/admin: `read_only`, суммы видимы, `action=contact_owner`. Unknown role: safe member profile. Read-only does not imply null amounts for admin; only member has null amounts.
 - Threshold `normal/80%/95%/full/unknown`; action `none/open_billing_storage/contact_owner`.
 - Ошибка projection → `threshold=unknown`, без 5xx.
 
@@ -169,7 +169,7 @@ Phase B и Phase C могут разрабатываться в этом же п
   - `canProjectLocalPlayback`/`canOpenLocalPlayback` still true;
   - file size/hash match the profile.
 - Capture `activeDeletionScope` + `deletionScopeGeneration` before network; re-check before unlink.
-- Durable receipt: meeting/media/playback revision, verified_at, bytes, owner scope, app version, timestamp; no paths/titles.
+- Durable receipt: `pending` intent before unlink, `completed` after; meeting/media/playback revision, verified_at, bytes, owner scope, app version, timestamp; no paths/titles. On retry, a pending intent + missing WAV becomes `completed`/`noop`, never a second deletion.
 - Idempotent: already missing WAV → success/no-op; receipt appended once.
 - Queue row, `retentionDecision`, `serverTruth`, `finalizedAt` unchanged; no `UploadItemState` change.
 - UI: existing local recordings surface gets «Освободить место» with confirmation:
@@ -186,7 +186,7 @@ Phase B и Phase C могут разрабатываться в этом же п
 - Trigger: app launch, after upload finalization, after recording stop, after footprint refresh; debounced and single-flight; no timer in render path.
 - Only WAV; only `eligible` items; oldest `verified_at`/`finalized_at` first; stop at warning.
 - Never evict if kill switch off, proof missing/stale, archive false, retention unsafe, deletion/purge open, account mismatch, review/manifest missing.
-- Kill switch: `GRAF_DISABLE_LOCAL_CACHE_AUTO_EVICTION` + app setting; default enabled after contract; disabling stops future deletions only.
+- Kill switch: effective = persisted app setting (default true) AND not `GRAF_DISABLE_LOCAL_CACHE_AUTO_EVICTION`; read on every scheduler run, so disabling takes effect without restart. The first release starts with the operator env switch on until the production dry run is clean, then the operator removes it.
 - Receipts same as manual; idempotent; no queue schema/row changes.
 - UI: cache status + explanation + toggle; accessible; no scary/error styling for normal eviction.
 - Tests: thresholds, reserve, order, kill switch, fail-closed matrix, account switch, deletion race, performance (off-main, no render path), no double delete.

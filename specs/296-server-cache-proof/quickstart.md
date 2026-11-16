@@ -52,7 +52,7 @@ PYTHONPATH=src .venv/bin/python -m pytest -q \
 
 1. Remove the canonical object; rerun. Expected: `playback_not_verified` / `canonical_artifact_missing`, `keep`.
 2. Replace it with different-length bytes; rerun. Expected: `keep`.
-3. Make the storage stat raise/timeout; rerun. Expected: `keep`.
+3. Make the storage stat raise/timeout or the bounded read fail; rerun. Expected: `keep`.
 
 ## Scenario 4 — archive/retention/deletion gates
 
@@ -67,6 +67,7 @@ PYTHONPATH=src .venv/bin/python -m pytest -q \
 2. Confirm cleanup.
 3. Expected: only the WAV is gone; review and manifest remain; local playback works; queue row and `finalizedAt` unchanged; receipt written.
 4. Repeat cleanup. Expected: no-op, no duplicate receipt.
+5. Simulate a crash after unlink but before the completed receipt; rerun. Expected: pending intent becomes `completed`/`noop`, no second deletion and no duplicate receipt.
 
 ## Scenario 6 — automatic eviction and kill switch
 

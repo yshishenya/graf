@@ -4,18 +4,72 @@
   "title": "Local cache cleanup or eviction receipt",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "action", "localRecordingFingerprint", "meetingFingerprint", "mediaRevisionFingerprint", "bytes", "ownerScopeFingerprint", "appVersion", "createdAt"],
+  "required": [
+    "schemaVersion",
+    "action",
+    "state",
+    "localRecordingFingerprint",
+    "meetingFingerprint",
+    "mediaRevisionFingerprint",
+    "playbackRevisionFingerprint",
+    "verifiedAt",
+    "bytes",
+    "ownerScopeFingerprint",
+    "appVersion",
+    "createdAt"
+  ],
   "properties": {
-    "schemaVersion": {"const": "local-cache-cleanup-receipt.v1"},
-    "action": {"enum": ["manual_cleanup", "automatic_eviction"]},
-    "localRecordingFingerprint": {"type": "string", "minLength": 1},
-    "meetingFingerprint": {"type": "string", "minLength": 1},
-    "mediaRevisionFingerprint": {"type": "string", "minLength": 1},
-    "playbackRevisionFingerprint": {"type": ["string", "null"]},
-    "verifiedAt": {"type": ["string", "null"], "format": "date-time"},
-    "bytes": {"type": "integer", "minimum": 0},
-    "ownerScopeFingerprint": {"type": "string", "minLength": 1},
-    "appVersion": {"type": "string", "minLength": 1},
-    "createdAt": {"type": "string", "format": "date-time"}
+    "schemaVersion": {
+      "const": "local-cache-cleanup-receipt.v1"
+    },
+    "action": {
+      "enum": [
+        "manual_cleanup",
+        "automatic_eviction"
+      ]
+    },
+    "localRecordingFingerprint": {
+      "type": "string",
+      "minLength": 1
+    },
+    "meetingFingerprint": {
+      "type": "string",
+      "minLength": 1
+    },
+    "mediaRevisionFingerprint": {
+      "type": "string",
+      "minLength": 1
+    },
+    "playbackRevisionFingerprint": {
+      "type": "string",
+      "minLength": 1
+    },
+    "verifiedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "bytes": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "ownerScopeFingerprint": {
+      "type": "string",
+      "minLength": 1
+    },
+    "appVersion": {
+      "type": "string",
+      "minLength": 1
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "state": {
+      "enum": [
+        "pending",
+        "completed",
+        "noop"
+      ]
+    }
   }
 }

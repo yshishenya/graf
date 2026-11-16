@@ -20,7 +20,7 @@
 
 ## R3. What does `object_verified` mean?
 
-**Decision**: the canonical playback artifact resolved for the actual playback revision; storage `stat` succeeded; `stat.size == artifact.byte_length`. `verified_at` is the server UTC time of this response check. A bounded read probe may be added later; full hashing every poll is not required.
+**Decision**: the canonical playback artifact resolved for the actual playback revision; storage `stat` succeeded; `stat.size == artifact.byte_length`; and a bounded read probe of the first bytes (12–64 KiB) succeeded within the request timeout. `verified_at` is the server UTC time of this response check. Full hashing every poll is not required.
 
 **Rationale**: `_canonical_object_exists()` checks existence only; the playback route rejects a size mismatch later. The proof must fail closed before local deletion.
 
@@ -28,7 +28,7 @@
 
 ## R4. How are `archive_audio` and `finalized_at` resolved?
 
-**Decision**: from the latest `FINALIZED` upload session for the exact meeting media revision. Both are nullable; `archive_audio=null` or `false` means keep local. `finalized_at` from the server, not the client clock.
+**Decision**: from the latest `FINALIZED` upload session for the **playback revision being verified**, and the response exposes that revision as `upload_session.media_revision_id`. Both are nullable; `archive_audio=null` or `false` means keep local. `finalized_at` from the server, not the client clock. If custody and playback revisions differ, keep local.
 
 **Rationale**: sync-state currently loads only the active session, which excludes finalized sessions. `finalizedAt` in the client fingerprint is set with `Date()` after finalize and drives upload follow-up/custody; it must not be repurposed. `archive_audio=false` can still produce a canonical artifact, so playback proof must also require archive custody.
 
@@ -44,7 +44,7 @@
 
 ## R6. Storage status contract and roles
 
-**Decision**: `GET /api/v1/desktop/storage/status`, tenant-scoped, `no-store`. Owner/admin with management rights gets amounts/threshold/action; member gets read-only with null amounts. Thresholds `normal/80%/95%/full/unknown`; action `none/open_billing_storage/contact_owner`.
+**Decision**: `GET /api/v1/desktop/storage/status`, tenant-scoped, `no-store`. Personal owner with payer rights gets `manage`, amounts and `open_billing_storage`; corporate owner/admin gets `read_only`, visible amounts and `contact_owner`; member gets `read_only`, null amounts, `threshold=unknown`, `action=none`; unknown role gets the safe member profile. Thresholds `normal/80%/95%/full/unknown`. Missing DB session is 503; projection failure is 200 with `unknown`.
 
 **Rationale**: `/auth/me` hides member amounts and lacks a desktop-specific no-store/device contract. Billing tables are forced-RLS; a bare session returns no rows. Corporate owners map to `admin`, not `owner`; management requires personal owner + payer match.
 
@@ -84,7 +84,7 @@
 
 ## R11. Automatic eviction trigger and order
 
-**Decision**: single-flight, bounded, off-main; trigger on launch, after upload finalization, after recording stop, and after footprint refresh. Evict oldest verified WAVs first until under warning. Kill switch disables all future evictions; no restoration.
+**Decision**: single-flight, bounded, off-main; trigger on launch, after upload finalization, after recording stop, and after footprint refresh. Evict oldest verified WAVs first until under warning. Effective kill switch = persisted setting (default true) AND no operator env disable; read each run, so disabling takes effect without restart. No restoration.
 
 **Rationale**: a background timer in the render path or unbounded scans would hurt UX. Oldest-first is deterministic and matches LRU-like intent without tracking per-file access.
 
@@ -92,7 +92,7 @@
 
 ## R12. Receipt and idempotency
 
-**Decision**: durable receipt per cleanup/eviction in `<queue dir>/LocalCacheEviction/receipts/`, atomic 0600, keyed by local recording + revision + action. Repeated action on an already-missing WAV is a no-op.
+**Decision**: two-phase durable receipt per cleanup/eviction in `<queue dir>/LocalCacheEviction/receipts/`, atomic 0600, keyed by local recording + revision + action: `pending` intent before unlink, `completed` after. On retry, a pending intent + missing WAV becomes `completed`/`noop`; a missing WAV without intent is reported as unexpected, never silently claimed.
 
 **Rationale**: deletion reporting, support, and audit need evidence; queue rows are not pruned. The receipt must not contain paths/titles/transcripts.
 
@@ -116,7 +116,7 @@
 
 ## R15. Side effects of sync-state reads
 
-**Decision**: accept the existing idempotent upload-session expiry reconciliation in sync-state; it does not touch local files or the queue. The dry-run guarantee is local: no local file/queue mutation.
+**Decision**: accept the existing idempotent upload-session expiry reconciliation in sync-state as an explicit, tested exception to “no server mutation”. It must not delete meetings, objects or local files; the dry-run guarantee remains no local file/queue mutation and no destructive server mutation.
 
 **Rationale**: expiry restoration is existing server behavior needed for correct revision projection; removing it would change upload semantics. If a strict read-only mode is needed later, add a separate flag, not a behavior change in F296.
 
@@ -132,7 +132,7 @@
 
 ## R17. Release sequencing
 
-**Decision**: Phase A/B/C code may ship in one train, but manual cleanup and auto WAV eviction stay disabled until Phase A is deployed and a production dry run shows zero eligible false positives. Then enable Phase B, verify, and enable Phase C only if the full fail-closed matrix and production evidence are clean; otherwise keep Phase C off behind the kill switch and follow up.
+**Decision**: Phase A/B/C code may ship in one train, but manual cleanup and auto WAV eviction stay disabled until Phase A is deployed and a production dry run shows zero eligible false positives. The first release starts with the operator env kill switch on; after the dry run, enable Phase B, verify, then remove the operator switch to enable Phase C. If the fail-closed matrix or production evidence is not clean, keep the operator switch on and follow up.
 
 **Rationale**: the user wants full closure, but automatic deletion without production proof is the highest-risk step. The kill switch and phase gates preserve safety without another product cycle.
 

@@ -2,7 +2,7 @@
 
 **Review Ownership**: reviewer-owned. Mark `[x]` only with concrete evidence.
 
-- [ ] CHK001 Cleanup action explains that only the local transcription WAV is removed.
+- [ ] CHK001 Cleanup action uses the exact copy in `contracts/ux-copy.md` and explains that only the local transcription WAV is removed.
 - [ ] CHK002 Copy states that review audio, manifest and local playback remain.
 - [ ] CHK003 Copy states that the server meeting is not deleted.
 - [ ] CHK004 Confirmation is explicit and cannot be confused with server deletion.
@@ -10,7 +10,12 @@
 - [ ] CHK006 Ineligible items explain the reason without raw errors or internal codes.
 - [ ] CHK007 Automatic eviction is explained in plain language and can be disabled.
 - [ ] CHK008 Kill switch state is visible and takes effect without a restart.
-- [ ] CHK009 VoiceOver labels cover cleanup, confirmation, reasons, cache status and the toggle.
+- [ ] CHK009 VoiceOver labels cover cleanup, confirmation, reasons, cache status and the toggle, using `contracts/ux-copy.md`.
 - [ ] CHK010 Warning vs critical cache states are informational, not false errors.
-- [ ] CHK011 F284 local playback and local-only labels remain unchanged.
-- [ ] CHK012 No new library or duplicate local-recordings surface is introduced.
+- [x] CHK011 F284 local playback and local-only labels remain unchanged.
+- [x] CHK012 No new library or duplicate local-recordings surface is introduced.
+
+## Reviewer Notes
+
+- Review date: 2026-11-16. Totals: 2/12 checked, 10 unchecked. See `review-2026-11-16.md` for evidence and corrections.
+- The spec/plan state the required meaning of the cleanup copy and require accessibility, but they do not contain canonical visible strings, reason-to-copy mapping, or VoiceOver labels. The implementation and its copy tests are still pending.
