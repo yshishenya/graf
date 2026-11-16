@@ -853,9 +853,23 @@
   Сохранено в отдельной кодовой ветке6ecc73359; unknown HOLD и полные
   T112/T113/T098/restore/T0 остаются открытыми. Это прогресс диагностики,
   не работающий сбор и не внешний трафик. Новый87 не назначен.
-- [ ] Для следующего опыта установить раннюю предпосылку0proofs и предложить
-  наблюдение с меньшим вмешательством; получить независимый точный допуск
-  до новых HTTP/PG запусков. Не исправлять runtime по неизвестной причине.
+- [x] Получить независимый проект отдельного одного GET без global tracing:
+  семь редких границ, actual deadlines/тип исключений/len(dict),32records и
+  отдельная terminal summary. FINAL полностью прочитан; hash49fa99b0…,
+  18inputs SAME/checklist124/0. ElapsedV4 относился ко всему сценарию,
+  не к proof-проверке; tracing причиной не доказан.
+- [x] Подготовить draft prefix-only пробник по этому проекту и synthetic
+  selfcheck15PASS/EXIT0 без сети/БД: identity/args/одинcall, None/empty/count,
+  original error/cancel/context suppression/cleanup, cap/terminal summary.
+  Пробник не в обычном наборе, не conftest. Ruff/context/diff PASS.
+  [Код, проект и ограничения](https://github.com/yshishenya/graf/blob/ef9f5047a/specs/273-paid-traffic-analytics/validation/t112-early-proof-draft-validation-20261117.md).
+  Это черновик, не HTTP/PG-приёмка. Рабочий код/исходные тесты не менялись.
+- [ ] Реально передать точную реализацию существующему reviewer и получить
+  независимый PASS/HOLD ДО одного GET/PG опыта. Поручение
+  /private/tmp/graf-t112-early-proof-implementation-review-request-20261117.txt
+  пока только файл; доставки/живого ожидания/FINAL implementation нет.
+  Проект не принимает реализацию заранее, synthetic15 не проверяет GET.
+  Старый V4-допуск израсходован; runtime не менять по неизвестной причине.
 - [ ] Завершить чтение нового завершённого недельного отчёта Метрики. В IAB2
   авторизованный кабинет действительно открылся; показал предупреждение
   технических работ и возможной задержки. Единственный увиденный прямой визит
