@@ -192,6 +192,7 @@ services:
       - /var/lib/graf-posthog-runtime-guard:/run/graf-analytics-guard:ro
       - /var/lib/graf-posthog-backup:/run/graf-analytics-backup:ro
       - /var/lib/graf-posthog-retention:/run/graf-analytics-retention:ro
+      - /var/lib/graf-product-analytics-legal-basis:/var/lib/graf-product-analytics-legal-basis:ro
     healthcheck:
       test:
         - CMD-SHELL

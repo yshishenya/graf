@@ -17,6 +17,21 @@ from twobrain_rec_server.public.analytics import (
 pytestmark = pytest.mark.usefixtures("public_basis_register")
 
 
+def test_production_api_mounts_the_existing_basis_register_read_only() -> None:
+    from pathlib import Path
+
+    import yaml
+
+    from twobrain_rec_server.product_analytics.legal_basis_lifecycle import (
+        DEFAULT_BASIS_WITHDRAWAL_STATE_DIR,
+    )
+
+    compose_path = Path(__file__).resolve().parents[4] / "infra/docker-compose.yml"
+    api = yaml.safe_load(compose_path.read_text())["services"]["rec-api"]
+    directory = DEFAULT_BASIS_WITHDRAWAL_STATE_DIR
+    assert f"{directory}:{directory}:ro" in api["volumes"]
+
+
 def test_public_analytics_is_disabled_by_default() -> None:
     context = build_public_analytics_context(Settings(), "/")
 
@@ -392,6 +407,8 @@ def test_automatic_public_metrica_requires_fresh_basis(public_basis_register):
                         public_analytics_yandex_metrica_id='12345678',
                         public_analytics_validation_mode='provider_smoke')
     public_basis_register.write_text("legal_basis_state_version=1\nbasis_withdrawal level=provider_analytics state=withdrawn withdrawn_at=2026-09-18 reason=consent_withdrawn_by_visitors evidence_ref=ev-273-test\n")
+    assert build_public_analytics_context(settings, '/')['external_counter_allowed'] is False
+    public_basis_register.write_text("legal_basis_state_version=unsupported\n")
     assert build_public_analytics_context(settings, '/')['external_counter_allowed'] is False
     public_basis_register.unlink()
     assert build_public_analytics_context(settings, '/')['external_counter_allowed'] is False
