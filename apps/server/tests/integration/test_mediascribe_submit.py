@@ -1,4 +1,5 @@
 import asyncio
+import json
 from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
@@ -19,7 +20,9 @@ from twobrain_rec_server.db.models import (
     Meeting,
     PlaybackNormalizationJob,
     ProcessingWorkflow,
+    PurgeJournal,
     TrackArtifact,
+    Workspace,
 )
 from twobrain_rec_server.domain.statuses import MediaScribeJobStatus, ProcessingStatus
 from twobrain_rec_server.ingest.media_revisions import source_fingerprint_for_revision
@@ -36,6 +39,8 @@ from twobrain_rec_server.processing.submit import (
     ManualUploadNormalizationPending,
     submit_to_mediascribe,
 )
+from twobrain_rec_server.storage.recovery import read_with_storage_fence
+from twobrain_rec_server.storage.strict_upload_keys import STRICT_UPLOAD_ATTEMPT
 
 
 class StagingOnlyStorage:
@@ -1029,3 +1034,101 @@ def test_mediascribe_staging_rejects_same_size_source_object_digest_mismatch(cli
     assert status == ProcessingStatus.BLOCKED.value
     assert reason_code == BLOCKED_MISSING_ARTIFACTS
     assert fake_client.submissions == []
+
+
+@pytest.mark.parametrize("scenario", ["accepted", "missing_journal", "claim_replaced", "cancel_before_post"])
+def test_protected_submission_checks_exact_job_before_read(client, tmp_path, scenario) -> None:
+    finalized = create_finalized_meeting(client, f"strict-submit-{scenario}")
+    workspace_id = UUID(finalized["meeting"]["workspace_id"])
+    meeting_id = UUID(finalized["meeting"]["meeting_id"])
+    revision = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
+    attempt_id, recovery_id = uuid4(), uuid4()
+    settings = client.app.state.settings
+    recovery_file = tmp_path / "recovery"
+    recovery_file.with_suffix(".lock").touch()
+    recovery_file.write_text(json.dumps({
+        "schema": 1, "scope": "test-scope", "state": "reconciled", "recovery_id": str(recovery_id),
+    }))
+    settings.strict_storage_scope = "test-scope"
+    settings.strict_storage_recovery_id = recovery_id
+    settings.strict_storage_recovery_file = recovery_file
+    settings.strict_storage_read_fence_directory = tmp_path
+    fake_client = FakeMediaScribeClient(external_job_id="synthetic-strict-job")
+    sessions = client.app_state["sessionmaker"]
+    read_calls = []
+
+    async def exercise():
+        async with sessions() as db:
+            workflow = await store.upsert_processing_workflow(
+                db, workspace_id=workspace_id, meeting_id=meeting_id, media_revision_id=revision,
+                workflow_id=f"processing/{revision}", status=ProcessingStatus.WORKFLOW_STARTED,
+            )
+            owner = await db.get(Workspace, workspace_id)
+            source = await db.scalar(select(TrackArtifact).where(
+                TrackArtifact.meeting_id == meeting_id, TrackArtifact.track_role == "media",
+            ))
+            key = (
+                f"organizations/{owner.organization_id}/workspaces/{workspace_id}/meetings/{meeting_id}/"
+                f"artifacts/media-revisions/{revision}/attempts/1/2/tracks/media"
+            )
+            payload = client.app_state["storage"].objects[source.storage_object_key]
+            source.storage_object_key = key
+            if scenario != "missing_journal":
+                db.add(PurgeJournal(
+                    id=attempt_id, workspace_id=workspace_id, meeting_id=meeting_id,
+                    media_revision_id=revision, object_key=key, artifact_class=STRICT_UPLOAD_ATTEMPT,
+                    state="retained", write_state="accepted", multipart_upload_id="exact-upload",
+                    storage_scope="test-scope", storage_epoch=1, deletion_epoch=workflow.deletion_epoch_at_start,
+                ))
+            await db.commit()
+
+            class ExactStorage:
+                async def download_verified_to_path_async(self, *args, **kwargs):
+                    pytest.fail("Protected source fell back to ordinary storage")
+
+                async def download_strict_source_to_path_async(self, candidate, destination, **request):
+                    assert candidate == key and request["attempt_id"] == attempt_id
+                    assert request["epoch"] == 1 and request["expected_sha256"] == sha256(payload).hexdigest()
+
+                    async def admit():
+                        if scenario == "claim_replaced":
+                            async with sessions.begin() as other:
+                                job = await other.scalar(select(MediaScribeJob).where(
+                                    MediaScribeJob.meeting_id == meeting_id,
+                                ))
+                                job.submission_claim_token = "replacement-claim"
+                        return await request["admit"]()
+
+                    def read(_cancelled):
+                        read_calls.append(candidate)
+                        return destination.write_bytes(payload)
+
+                    if scenario == "cancel_before_post":
+                        assert await read_with_storage_fence(request["fence_path"], admit=admit, read=lambda _: 0) == 0
+                        raise asyncio.CancelledError()
+                    return await read_with_storage_fence(request["fence_path"], admit=admit, read=read)
+
+            call = submit_to_mediascribe(
+                db=db, settings=settings, storage=ExactStorage(),
+                mediascribe_client=fake_client, workflow=workflow,
+            )
+            if scenario == "accepted":
+                assert (await call).submitted
+                assert read_calls == [key] and len(fake_client.submissions) == 1
+            elif scenario == "claim_replaced":
+                with pytest.raises(MediaScribeClientError, match="mediascribe_submission_in_progress"):
+                    await call
+                assert not read_calls and not fake_client.submissions
+                assert workflow.status == ProcessingStatus.SUBMITTING.value
+            elif scenario == "cancel_before_post":
+                with pytest.raises(asyncio.CancelledError):
+                    await call
+                job = await db.scalar(select(MediaScribeJob).where(MediaScribeJob.meeting_id == meeting_id))
+                assert job.submission_claim_token is None and job.status == MediaScribeJobStatus.NOT_SUBMITTED.value
+                assert not read_calls and not fake_client.submissions
+            else:
+                with pytest.raises(ProcessingLifecycleBlocked, match="strict_source_not_retained"):
+                    await call
+                assert not read_calls and not fake_client.submissions
+
+    asyncio.run(exercise())

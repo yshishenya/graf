@@ -1,0 +1,4 @@
+# Preserve the exact pinned upstream bytes on Windows checkouts too.
+COPYING -text
+webrtc/** -text
+Abseil/LICENSE -text

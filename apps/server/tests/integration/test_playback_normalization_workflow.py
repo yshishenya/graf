@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import shutil
 from hashlib import sha256
 from pathlib import Path
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from fastapi.testclient import TestClient
@@ -22,15 +23,20 @@ from twobrain_rec_server.db.models import (
     Meeting,
     PlaybackNormalizationAttempt,
     PlaybackNormalizationJob,
+    PurgeJournal,
     RecordingCalendarContextLink,
     TrackArtifact,
 )
 from twobrain_rec_server.normalization.service import (
     CandidateRejected,
     FFmpegNormalizationPipeline,
+    NormalizationExecutionDeferred,
+    NormalizationExecutionFailure,
     NormalizedOutput,
     run_normalization_job,
 )
+from twobrain_rec_server.storage.recovery import read_with_storage_fence
+from twobrain_rec_server.storage.strict_upload_keys import STRICT_UPLOAD_ATTEMPT
 
 
 class FakeNormalizationPipeline:
@@ -125,6 +131,115 @@ def _normalized_output(
         fragmented=False,
         full_decode_passed=True,
     )
+
+
+@pytest.mark.parametrize("scenario", ["accepted", "lease_replaced", "missing_journal"])
+def test_normalization_checks_every_protected_input_with_media_role(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, scenario: str,
+) -> None:
+    meeting, result = _accept_first_party_recording(
+        client, local_recording_id=f"protected-normalization-{scenario}", include_playback=True,
+    )
+    assert result["status_code"] == 200
+    meeting_id = UUID(str(meeting["meeting_id"]))
+    pipeline = FakeNormalizationPipeline("invalid")
+    settings = client.app.state.settings
+    recovery_id = uuid4()
+    recovery_file = tmp_path / "recovery"
+    recovery_file.with_suffix(".lock").touch()
+    recovery_file.write_text(json.dumps({
+        "schema": 1, "scope": "test-scope", "state": "reconciled", "recovery_id": str(recovery_id),
+    }))
+    settings.strict_storage_scope = "test-scope"
+    settings.strict_storage_recovery_file = recovery_file
+    settings.strict_storage_recovery_id = recovery_id
+    settings.strict_storage_read_fence_directory = tmp_path
+    storage = client.app_state["storage"]
+    sessions = client.app_state["sessionmaker"]
+    actual_reads: list[str] = []
+    inputs = {}
+
+    async def exercise():
+        async with sessions.begin() as owner:
+            job = await owner.scalar(select(PlaybackNormalizationJob).where(
+                PlaybackNormalizationJob.meeting_id == meeting_id,
+            ))
+            assert job is not None
+            current = await owner.get(Meeting, meeting_id)
+            for source in await owner.scalars(select(TrackArtifact).where(
+                TrackArtifact.meeting_id == meeting_id,
+            )):
+                role = source.track_role
+                prefix = (
+                    f"organizations/{job.organization_id}/workspaces/{job.workspace_id}/"
+                    f"meetings/{meeting_id}/"
+                )
+                suffix = (
+                    f"sessions/{uuid4()}/tracks/media/parts/00000001/calendar-attempts/1/2"
+                    if role == "media"
+                    else f"artifacts/media-revisions/{job.media_revision_id}/attempts/1/3/tracks/{role}"
+                )
+                key, journal_id = prefix + suffix, uuid4()
+                inputs[key] = (journal_id, role, storage.objects[source.storage_object_key])
+                source.storage_object_key = key
+                if scenario == "missing_journal" and role == "media":
+                    continue
+                owner.add(PurgeJournal(
+                    id=journal_id, workspace_id=job.workspace_id, meeting_id=meeting_id,
+                    media_revision_id=job.media_revision_id, object_key=key,
+                    artifact_class=STRICT_UPLOAD_ATTEMPT, state="retained", write_state="accepted",
+                    storage_scope="test-scope", storage_epoch=1, deletion_epoch=current.deletion_epoch,
+                ))
+
+        async def ordinary_download(*args, **kwargs):
+            pytest.fail("Protected input used the ordinary storage path")
+
+        async def protected_download(key, destination, **request):
+            journal_id, role, body = inputs[key]
+            assert request["attempt_id"] == journal_id
+            assert request["epoch"] == 1
+            assert request["expected_sha256"] == sha256(body).hexdigest()
+            assert request["expected_length"] == len(body)
+            if role == "media" and scenario == "lease_replaced":
+                async with sessions.begin() as other:
+                    current_job = await other.get(PlaybackNormalizationJob, job.id)
+                    current_job.lease_owner_sha256 = sha256(b"replacement").hexdigest()
+
+            def read(_cancelled):
+                actual_reads.append(role)
+                return destination.write_bytes(body)
+
+            return await read_with_storage_fence(
+                request["fence_path"], admit=request["admit"], read=read,
+            )
+
+        monkeypatch.setattr(storage, "download_to_path_async", ordinary_download)
+        monkeypatch.setattr(storage, "download_strict_source_to_path_async", protected_download, raising=False)
+        async with client.app_state["media_sessionmaker"]() as db:
+            db.info["runtime_settings"] = settings
+            await apply_job_worker_scope(db, job)
+            execution = run_normalization_job(
+                db=db, storage=storage, job_id=job.id, work_directory=tmp_path, pipeline=pipeline,
+            )
+            if scenario == "accepted":
+                assert (await execution).derivation_kind == "single_source_transcode"
+                assert actual_reads == ["playback", "media"]
+                assert pipeline.calls == ["candidate", "single_source"]
+                return
+            if scenario == "lease_replaced":
+                with pytest.raises(NormalizationExecutionDeferred):
+                    await execution
+                assert not db.in_transaction()
+            else:
+                with pytest.raises(NormalizationExecutionFailure, match="source_missing"):
+                    await execution
+            assert actual_reads == ["playback"]
+            assert pipeline.calls == ["candidate"]
+        async with sessions() as check:
+            persisted = await check.get(PlaybackNormalizationJob, job.id)
+            assert persisted.canonical_track_artifact_id is None
+
+    asyncio.run(exercise())
 
 
 @pytest.mark.parametrize(

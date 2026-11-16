@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
@@ -1161,23 +1162,39 @@ def test_theme_only_form_survives_reload_without_changing_locale_or_timezone(cli
         follow_redirects=False,
     )
     assert initial.status_code == 303
-    for prefix in ("", "/desktop"):
+
+    async def stored_preferences() -> tuple[str, str | None, str]:
+        async with client.app_state["sessionmaker"]() as db:
+            user = await db.get(UserIdentity, USER_ID)
+            assert user is not None
+            return user.locale, user.timezone, user.theme
+
+    assert asyncio.run(stored_preferences()) == ("en-US", "UTC", "dark")
+    autosave_headers = {
+        **headers,
+        "X-Graf-Settings-Autosave": "true",
+        "X-Graf-Expected-Actor": str(USER_ID),
+        "X-Graf-Expected-Workspace": str(workspace_id),
+    }
+    for prefix, previous, theme in (("", "dark", "light"), ("/desktop", "light", "system")):
         saved = client.post(
-            f"{prefix}/settings/account/preferences", headers=headers,
-            data={"theme": "light"}, follow_redirects=False,
+            f"{prefix}/settings/account/preferences",
+            headers=autosave_headers,
+            data={"theme": theme, "expected_values": json.dumps({"theme": previous})},
+            follow_redirects=False,
         )
-        assert saved.status_code == 303
-        reloaded = client.get(f"{prefix}/settings/account")
-        assert reloaded.status_code == 200
-        assert 'data-theme="light"' in reloaded.text
-
-        async def persisted() -> None:
-            async with client.app_state["sessionmaker"]() as db:
-                user = await db.get(UserIdentity, USER_ID)
-                assert user is not None
-                assert (user.locale, user.timezone, user.theme) == ("en-US", "UTC", "light")
-
-        asyncio.run(persisted())
+        assert saved.status_code == 200, prefix
+        assert saved.json()["values"] == {"theme": theme}
+        assert asyncio.run(stored_preferences()) == ("en-US", "UTC", theme)
+        for path in ("/meetings", "/desktop/meetings"):
+            reloaded = client.get(path)
+            assert reloaded.status_code == 200
+            html_tag = reloaded.text.split("<html", 1)[1].split(">", 1)[0]
+            if theme == "system":
+                assert "data-theme=" not in html_tag
+            else:
+                assert f'data-theme="{theme}"' in html_tag
+            assert f'name="theme" value="{theme}" checked' in reloaded.text
 
 
 @pytest.mark.parametrize('prefix', ['', '/desktop'])

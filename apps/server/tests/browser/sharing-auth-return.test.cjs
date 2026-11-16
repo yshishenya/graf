@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const {chromium, webkit} = require(require.resolve('playwright', {paths:[process.env.GRAF_NODE_MODULES || process.cwd()]}));
 const script = path.join(__dirname, '../../src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js');
 const shared = '/shared-meetings/20000000-0000-0000-0000-000000000001?workspace_id=20000000-0000-0000-0000-000000000002';
+const versioned = shared+'&media_version='+'a'.repeat(24);
 (async () => {
   let nextTarget;
   const server = http.createServer((req,res) => {
@@ -19,15 +20,17 @@ const shared = '/shared-meetings/20000000-0000-0000-0000-000000000001?workspace_
   const browser = await (process.env.GRAF_BROWSER === 'webkit' ? webkit : chromium).launch();
   try {
     for (const [fragment, next, expected] of [
-      ['#recording?position_ms=15000', shared, shared+'#recording?position_ms=15000'],
-      ['#recording?position_ms=0', shared, shared+'#recording?position_ms=0'],
-      ['#recording?position_ms=86400000', shared, shared+'#recording?position_ms=86400000'],
+      ['#recording?position_ms=15000', shared, shared+'#recording'],
+      ['#recording?position_ms=0', versioned, versioned+'#recording?position_ms=0'],
+      ['#recording?position_ms=86400000', versioned, versioned+'#recording?position_ms=86400000'],
       ['#outcomes', shared, shared+'#outcomes'],
       ['#recording', shared, shared+'#recording'],
       ['#recording?position_ms=86400001', shared, shared],
       ['#recording?position_ms=-1', shared, shared],
       ['#recording?position_ms=15&next=https://evil.test', shared, shared],
-      ['#outcomes', shared+'#recording?position_ms=1000', shared+'#recording?position_ms=1000'],
+      ['#outcomes', versioned+'#recording?position_ms=1000', versioned+'#recording?position_ms=1000'],
+      ['', shared+'#recording?position_ms=0', shared+'#recording'],
+      ['#recording?position_ms=15000', versioned+'&media_version='+'a'.repeat(24), versioned+'&media_version='+'a'.repeat(24)+'#recording'],
       ['#recording?position_ms=15000', '/meetings', '/meetings'],
       ['#outcomes', 'https://evil.test'+shared, 'https://evil.test'+shared],
       ['#outcomes', '//evil.test'+shared, '//evil.test'+shared],
@@ -50,6 +53,6 @@ const shared = '/shared-meetings/20000000-0000-0000-0000-000000000001?workspace_
       assert.equal(await page.locator('#plain').getAttribute('href'),'/privacy');
       assert.deepEqual(errors,[]);await page.close();
     }
-    console.log('Addressed shared login: inherited context, email/OAuth/back, bounds and same-origin14 PASS');
+    console.log('Addressed shared login: inherited context, email/OAuth/back, bounds and same-origin PASS');
   } finally {await browser.close();await new Promise(resolve=>server.close(resolve));}
 })().catch(error=>{console.error(error);process.exitCode=1;});

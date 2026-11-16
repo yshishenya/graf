@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-MODE="dry-run"
+MODE=""
+FORWARD_ARGS=()
 SKIP_LOCAL_CI=0
 SKIP_LOCAL_CI_EVIDENCE="${GRAF_SKIP_LOCAL_CI_EVIDENCE:-}"
 BRANCH="${TWOBRAIN_DEPLOY_BRANCH:-$(git branch --show-current)}"
@@ -13,13 +14,29 @@ REUSE_AUTHORITATIVE_FULL=0
 
 while [[ "$#" -gt 0 ]]; do
   case "$1" in
-    --dry-run)
-      MODE="dry-run"
+    --dry-run|--execute|--forward-preflight|--forward-execute|--forward-confirm)
+      if [[ -n "$MODE" ]]; then
+        echo "reason=conflicting_release_modes" >&2
+        exit 2
+      fi
+      MODE="${1#--}"
       shift
-      ;;
-    --execute)
-      MODE="execute"
-      shift
+      if [[ "$MODE" == forward-* ]]; then
+        if [[ "$#" -lt 3 || ! "$1" =~ ^[a-f0-9]{32}$ || ! "$2" =~ ^[a-f0-9]{32}$ || "$3" != /* ]]; then
+          echo "reason=invalid_forward_preflight_arguments" >&2
+          exit 2
+        fi
+        FORWARD_ARGS=("$1" "$2" "$3")
+        shift 3
+        if [[ "$MODE" != "forward-preflight" ]]; then
+          if [[ "$#" -lt 4 || "$1" != /* || ! "$2" =~ ^sha256:[0-9a-f]{64}$ || "$3" != /* || "$4" != /* ]]; then
+            echo "reason=invalid_forward_channel_approval" >&2
+            exit 2
+          fi
+          FORWARD_ARGS+=("$1" "$2" "$3" "$4")
+          shift 4
+        fi
+      fi
       ;;
     --skip-local-ci)
       SKIP_LOCAL_CI=1
@@ -42,11 +59,20 @@ while [[ "$#" -gt 0 ]]; do
       shift 2
       ;;
     *)
-      echo "usage: $0 [--dry-run|--execute] [--skip-local-ci --skip-local-ci-evidence <json>] [--branch <name>] [--candidate <decision.json>] [--evidence <full-evidence.json>]" >&2
+      echo "usage: $0 [--dry-run|--execute|--forward-preflight <failed-id> <staged-id> <remote-archive>|--forward-execute/--forward-confirm <failed-id> <staged-id> <remote-archive> <remote-public-approval> <sha256:digest> <remote-decision> <remote-full-evidence>] [--skip-local-ci --skip-local-ci-evidence <json>] [--branch <name>] [--candidate <decision.json>] [--evidence <full-evidence.json>]" >&2
       exit 2
       ;;
   esac
 done
+MODE="${MODE:-dry-run}"
+
+if [[ "$MODE" == forward-* ]]; then
+  if [[ "$BRANCH" != "master" || -z "$CANDIDATE_PATH" || "$SKIP_LOCAL_CI" == "1" ]]; then
+    echo "${MODE//-/_}_result=blocked"
+    echo "reason=${MODE//-/_}_requires_master_candidate_and_full_ci"
+    exit 1
+  fi
+fi
 
 if [[ -z "$BRANCH" ]]; then
   echo "deploy_result=blocked"
@@ -114,7 +140,7 @@ fetch_origin_retry() {
   return 1
 }
 
-if [[ "$MODE" == "execute" ]]; then
+if [[ "$MODE" != "dry-run" ]]; then
   if ! WORKTREE_STATUS="$(git status --porcelain --untracked-files=all)"; then
     echo "deploy_result=blocked"
     echo "reason=worktree_status_failed"
@@ -127,7 +153,7 @@ if [[ "$MODE" == "execute" ]]; then
   fi
 
   CURRENT_BRANCH="$(git branch --show-current)"
-  if [[ "$CURRENT_BRANCH" != "$BRANCH" ]]; then
+  if [[ "$MODE" != "forward-confirm" && "$CURRENT_BRANCH" != "$BRANCH" ]]; then
     echo "deploy_result=blocked"
     echo "reason=branch_mismatch"
     echo "current_branch=$CURRENT_BRANCH"
@@ -135,15 +161,19 @@ if [[ "$MODE" == "execute" ]]; then
     exit 1
   fi
 
-  fetch_origin_retry origin "$BRANCH"
+  if [[ "$MODE" != "forward-confirm" ]]; then
+    fetch_origin_retry origin "$BRANCH"
+  fi
   EXPECTED_SHA="$(git rev-parse HEAD)"
-  ORIGIN_SHA="$(git rev-parse "origin/$BRANCH")"
-  if [[ "$EXPECTED_SHA" != "$ORIGIN_SHA" ]]; then
-    echo "deploy_result=blocked"
-    echo "reason=origin_sha_mismatch"
-    echo "local_sha=$EXPECTED_SHA"
-    echo "origin_sha=$ORIGIN_SHA"
-    exit 1
+  if [[ "$MODE" != "forward-confirm" ]]; then
+    ORIGIN_SHA="$(git rev-parse "origin/$BRANCH")"
+    if [[ "$EXPECTED_SHA" != "$ORIGIN_SHA" ]]; then
+      echo "deploy_result=blocked"
+      echo "reason=origin_sha_mismatch"
+      echo "local_sha=$EXPECTED_SHA"
+      echo "origin_sha=$ORIGIN_SHA"
+      exit 1
+    fi
   fi
 fi
 
@@ -192,10 +222,14 @@ import sys
 
 candidate_path, evidence_path = map(pathlib.Path, sys.argv[1:3])
 deploy_sha = sys.argv[3].lower()
-candidate = json.loads(candidate_path.read_text(encoding="utf-8"))
-evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+candidate_bytes = candidate_path.read_bytes()
+evidence_bytes = evidence_path.read_bytes()
+candidate = json.loads(candidate_bytes)
+evidence = json.loads(evidence_bytes)
+if candidate.get("status") != "go":
+    raise SystemExit("the exact release decision bytes do not grant go")
 expected = candidate.get("full_evidence_digest")
-actual = "sha256:" + hashlib.sha256(evidence_path.read_bytes()).hexdigest()
+actual = "sha256:" + hashlib.sha256(evidence_bytes).hexdigest()
 if expected != actual:
     raise SystemExit("authoritative Full CI evidence digest differs from the decision record")
 validator_path = pathlib.Path("scripts/validate-ci-evidence.py")
@@ -215,7 +249,7 @@ if deploy_sha and candidate.get("source_sha", "").lower() != deploy_sha:
     raise SystemExit("candidate source SHA differs from the deployed SHA")
 if evidence.get("lane") != "full" or evidence.get("authoritative_full") is not True:
     raise SystemExit("decision evidence is not an authoritative Full CI record")
-print(candidate["candidate_id"], "sha256:" + hashlib.sha256(candidate_path.read_bytes()).hexdigest(), actual)
+print(candidate["candidate_id"], "sha256:" + hashlib.sha256(candidate_bytes).hexdigest(), actual)
 PY
 )"; then
     echo "deploy_result=blocked"
@@ -283,6 +317,8 @@ expected_sha="$2"
 candidate_id="$3"
 decision_digest="$4"
 full_digest="$5"
+mode="$6"
+shift 6
 deploy_lock="$(git rev-parse --git-path twobrain-rec-deploy.lock)"
 exec 9>"$deploy_lock"
 if ! /usr/bin/flock -n 9; then
@@ -314,14 +350,22 @@ fetch_remote_origin_retry() {
   echo "deploy: remote git fetch failed after 5 attempts" >&2
   return 1
 }
-fetch_remote_origin_retry
-origin_sha="$(git rev-parse "origin/$branch")"
-if [ "$origin_sha" != "$expected_sha" ]; then
-  echo "deploy_result=blocked"
-  echo "reason=remote_origin_sha_mismatch"
-  echo "expected_sha=$expected_sha"
-  echo "origin_sha=$origin_sha"
-  exit 1
+if [ "$mode" = "forward-confirm" ]; then
+  if [ "$previous_sha" != "$expected_sha" ]; then
+    echo "forward_confirm_result=blocked"
+    echo "reason=remote_active_source_mismatch"
+    exit 1
+  fi
+else
+  fetch_remote_origin_retry
+  origin_sha="$(git rev-parse "origin/$branch")"
+  if [ "$origin_sha" != "$expected_sha" ]; then
+    echo "deploy_result=blocked"
+    echo "reason=remote_origin_sha_mismatch"
+    echo "expected_sha=$expected_sha"
+    echo "origin_sha=$origin_sha"
+    exit 1
+  fi
 fi
 remote_branch="$(git branch --show-current)"
 if [ "$remote_branch" != "$branch" ]; then
@@ -332,6 +376,87 @@ if [ "$remote_branch" != "$branch" ]; then
   exit 1
 fi
 git cat-file -e "$expected_sha^{commit}"
+release_images_source="$(git show "$expected_sha:infra/scripts/release-images.py")"
+if [[ "$mode" == forward-* ]]; then
+  forward_result="${mode//-/_}_result"
+  forward_args=(--deployment-lock-fd 9 --failed-attempt "$1" --attempt-id "$2" --backup-directory "$3"
+                --source-sha "$expected_sha" --candidate-id "$candidate_id"
+                --decision-digest "$decision_digest" --full-digest "$full_digest")
+  forward_run() {
+    set -e
+    python3 -c "$release_images_source" check-deployment-lock --deployment-lock-fd 9 >/dev/null
+    set -a
+    . ./.env >/dev/null 2>&1
+    set +a
+    if [ "$mode" = "forward-preflight" ]; then
+      checked="$(python3 -c "$release_images_source" check-forward-claim "${forward_args[@]}" --checkout-sha "$previous_sha")"
+      [ "$checked" = "forward_claim_verified" ]
+      echo "forward_preflight_result=pass"
+    else
+      forward_args+=(--public-channel "$4" --public-channel-digest "$5" --release-decision "$6" --full-evidence "$7")
+      if [ "$mode" = "forward-confirm" ]; then
+        TWOBRAIN_PRODUCTION_RELEASE_GATE=1 \
+          exec python3 infra/scripts/release-images.py confirm-forward "${forward_args[@]}"
+      fi
+      checked="$(python3 -c "$release_images_source" check-forward-execution "${forward_args[@]}" --checkout-sha "$previous_sha")"
+      [ "$checked" = "forward_execution_verified" ]
+      if [ "$previous_sha" != "$expected_sha" ]; then
+        git reset --hard "$expected_sha" >/dev/null
+      fi
+      TWOBRAIN_PRODUCTION_RELEASE_GATE=1 \
+        exec python3 infra/scripts/release-images.py start-forward "${forward_args[@]}"
+    fi
+  }
+  set +e
+  if [ "$mode" = "forward-preflight" ]; then
+    forward_output="$(forward_run "$@")"
+    forward_status=$?
+    if [ "$forward_status" -eq 0 ] && [ "$forward_output" = "$forward_result=pass" ]; then
+      printf '%s\n' "$forward_output"
+      exit 0
+    fi
+  else
+    forward_pid=
+    stop_forward_run() {
+      trap '' TERM HUP INT
+      if [ -n "$forward_pid" ]; then
+        kill -TERM "$forward_pid" 2>/dev/null || true
+        wait "$forward_pid" || true
+      fi
+      echo "$forward_result=blocked"
+      echo "reason=forward_execution_interrupted"
+      exit 1
+    }
+    trap stop_forward_run TERM HUP INT
+    forward_run "$@" &
+    forward_pid=$!
+    wait "$forward_pid"
+    forward_status=$?
+    trap - TERM HUP INT
+    if [ "$forward_status" -eq 0 ]; then
+      exit 0
+    fi
+  fi
+  echo "$forward_result=blocked"
+  echo "reason=forward_evidence_unverified"
+  exit 1
+fi
+set +e
+predecessor_check="$(
+  set -e
+  set -a
+  . ./.env >/dev/null 2>&1
+  set +a
+  python3 -c "$release_images_source" check-predecessor --previous-sha "$previous_sha" >/dev/null
+  echo "release_predecessor_verified"
+)"
+predecessor_status=$?
+set -e
+if [ "$predecessor_status" -ne 0 ] || [ "$predecessor_check" != "release_predecessor_verified" ]; then
+  echo "deploy_result=blocked"
+  echo "reason=release_predecessor_unverified"
+  exit 1
+fi
 git reset --hard "$expected_sha"
 TWOBRAIN_PRODUCTION_RELEASE_GATE=1 \
 TWOBRAIN_PRODUCTION_RELEASE_LOCK_HELD=1 \
@@ -340,7 +465,8 @@ SH
 )
 
 remote_payload="$(printf '%s' "$remote_script" | base64 | tr -d '\n')"
-remote_command="cd $(printf '%q' "$REMOTE_PATH") && tmp=\$(mktemp /tmp/twobrain-rec-deploy.XXXXXX) && trap 'rm -f \"\$tmp\"' EXIT && printf '%s' $(printf '%q' "$remote_payload") | base64 -d > \"\$tmp\" && $(printf '%q' bash) \"\$tmp\" $(printf '%q' "$BRANCH") $(printf '%q' "$EXPECTED_SHA") $(printf '%q' "$IMAGE_CANDIDATE_ID") $(printf '%q' "$IMAGE_DECISION_DIGEST") $(printf '%q' "$IMAGE_FULL_DIGEST")"
+remote_arguments="$(printf ' %q' "$BRANCH" "$EXPECTED_SHA" "$IMAGE_CANDIDATE_ID" "$IMAGE_DECISION_DIGEST" "$IMAGE_FULL_DIGEST" "$MODE" ${FORWARD_ARGS[@]+"${FORWARD_ARGS[@]}"})"
+remote_command="cd $(printf '%q' "$REMOTE_PATH") && tmp=\$(mktemp /tmp/twobrain-rec-deploy.XXXXXX) && trap 'rm -f \"\$tmp\"' EXIT && printf '%s' $(printf '%q' "$remote_payload") | base64 -d > \"\$tmp\" && bash \"\$tmp\"$remote_arguments"
 
 set +e
 remote_output="$(ssh "$REMOTE_HOST" "$remote_command" 2>&1)"
@@ -350,6 +476,16 @@ printf '%s\n' "$remote_output"
 
 if [[ "$remote_status" -ne 0 ]]; then
   exit "$remote_status"
+fi
+
+if [[ "$MODE" == forward-* ]]; then
+  forward_result="${MODE//-/_}_result"
+  if ! grep -Fxq "$forward_result=pass" <<<"$remote_output"; then
+    echo "$forward_result=blocked"
+    echo "reason=remote_${forward_result}_missing"
+    exit 1
+  fi
+  exit 0
 fi
 
 if ! printf '%s\n' "$remote_output" | grep -Eq '^deploy_result=(pass|blocked)$'; then

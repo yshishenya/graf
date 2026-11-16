@@ -71,9 +71,19 @@ def _retained_recording(client, *, historical: bool, suffix: str) -> UUID:
     return asyncio.run(seed_saved_artifacts())
 
 
-@pytest.mark.parametrize("historical", [False, True], ids=["canonical", "historical"])
-def test_source_retention_purge_requires_both_gates_and_records_exact_bytes(client, historical) -> None:
+@pytest.mark.parametrize(
+    ("historical", "reserved"),
+    [(False, False), (True, False), (False, True)],
+    ids=["canonical", "historical", "reserved"],
+)
+def test_source_retention_purge_requires_both_gates_and_records_exact_bytes(
+    client, historical, reserved
+) -> None:
     meeting_id = _retained_recording(client, historical=historical, suffix="source-retention-purge")
+    next_meeting_id = (
+        _retained_recording(client, historical=False, suffix="source-retention-after-reserved")
+        if reserved else None
+    )
     source_roles = ("microphone", "system") if historical else ("media",)
     now = datetime(2026, 8, 7, 9, 0, tzinfo=UTC)
 
@@ -138,6 +148,15 @@ def test_source_retention_purge_requires_both_gates_and_records_exact_bytes(clie
             assert all(source.status == "stored" for source in sources)
             for source in sources:
                 source.source_playback_verified_at = now - timedelta(days=8)
+                if reserved:
+                    key = (
+                        f"organizations/{uuid4()}/workspaces/{source.workspace_id}/"
+                        f"meetings/{meeting_id}/artifacts/media-revisions/"
+                        f"{source.media_revision_id}/attempts/1/2/tracks/{source.track_role}"
+                    )
+                    storage = client.app_state["storage"]
+                    storage.objects[key] = storage.objects[source.storage_object_key]
+                    source.storage_object_key = key
             await db.commit()
             purged = await reconcile_source_retention_purges(
                 db,
@@ -167,17 +186,57 @@ def test_source_retention_purge_requires_both_gates_and_records_exact_bytes(clie
             assert len(rows) == len(source_roles)
             assert len(journals) == len(source_roles)
             for row in rows:
+                receipt = next(item for item in journals if item.object_key == row.storage_object_key)
+                if reserved:
+                    assert row.status == "stored"
+                    assert row.storage_object_key in client.app_state["storage"].objects
+                    assert receipt.state == "terminal_unknown"
+                    assert receipt.completed_at is None
+                    assert receipt.attempt_count == 0
+                    continue
                 assert row.status == "purged"
                 assert row.storage_object_key not in client.app_state["storage"].objects
-                receipt = next(item for item in journals if item.object_key == row.storage_object_key)
                 assert receipt.state == "purged"
                 assert receipt.metadata_json["actual_primary_bytes"] == row.byte_length
             assert playback.storage_object_key in client.app_state["storage"].objects
             source = rows[0]
             journal = next(row for row in journals if row.object_key == source.storage_object_key)
+            if next_meeting_id is not None:
+                next_sources = list(await db.scalars(select(TrackArtifact).where(
+                    TrackArtifact.meeting_id == next_meeting_id,
+                    TrackArtifact.track_role.in_(("media", "playback")),
+                )))
+                assert {item.track_role for item in next_sources} == {"media", "playback"}
+                for item in next_sources:
+                    if item.track_role == "media":
+                        item.created_at = source.created_at + timedelta(seconds=1)
+                        item.source_transcript_imported_at = now - timedelta(days=8)
+                        item.source_playback_verified_at = now - timedelta(days=8)
+                    else:
+                        item.status = "stored"
+                        item.normalization_profile_version = CANONICAL_PLAYBACK_PROFILE
+                        item.validated_at = now - timedelta(days=8)
+                        item.derivation_kind = "uploaded_candidate"
+                        item.source_fingerprint_sha256 = "a" * 64
+                        item.validation_version = VALIDATION_VERSION
+                await db.commit()
+                assert await reconcile_source_retention_purges(
+                    db,
+                    storage=client.app_state["storage"],
+                    retention_period=timedelta(days=7),
+                    policy_version="source-audio-v1",
+                    backup_expiry_days=30,
+                    now=now,
+                    limit=1,
+                ) == 1
             return purged, source, journal
 
     purged, source, journal = asyncio.run(prepare_and_purge())
+    if reserved:
+        assert purged == 0
+        assert source.source_lifecycle_state == "purge_pending"
+        assert journal.safe_reason == "strict_upload_requires_dedicated_cleanup"
+        return
     assert purged == len(source_roles)
     assert source.status == "purged"
     assert source.source_lifecycle_state == "purged"

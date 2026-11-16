@@ -103,6 +103,10 @@ from twobrain_rec_server.processing.results import (
     effective_processing_result_query,
     result_lineage_is_current,
 )
+from twobrain_rec_server.storage.strict_upload_keys import (
+    is_strict_upload_key,
+    strict_upload_attempt_query,
+)
 
 ALLOWED_AUDIT_KEYS = {
     "artifact_class",
@@ -1220,6 +1224,14 @@ async def batch_normalization_jobs(
     return result
 
 
+def _review_audio_candidates():
+    return select(TrackArtifact).where(
+        ~strict_upload_attempt_query(
+            TrackArtifact.workspace_id, TrackArtifact.meeting_id, TrackArtifact.storage_object_key,
+        ).exists()
+    )
+
+
 async def batch_canonical_artifacts(
     db: AsyncSession,
     *,
@@ -1240,7 +1252,7 @@ async def batch_canonical_artifacts(
     artifacts: dict[UUID, TrackArtifact] = {}
     if artifact_ids:
         rows = await db.scalars(
-            select(TrackArtifact).where(
+            _review_audio_candidates().where(
                 TrackArtifact.workspace_id == workspace_id,
                 TrackArtifact.id.in_(artifact_ids),
             )
@@ -1570,6 +1582,7 @@ def _is_stored_review_m4a(
     source_fingerprint = artifact.source_fingerprint_sha256 or ""
     return (
         artifact.track_role == TrackRole.PLAYBACK.value
+        and not is_strict_upload_key(artifact.storage_object_key)
         and artifact.status == "stored"
         and artifact.media_revision_id is not None
         and artifact.codec == "m4a-aac-lc"
@@ -2071,7 +2084,7 @@ async def _validated_canonical_artifact(
     if job.canonical_track_artifact_id is None:
         return None
     artifact = await db.scalar(
-        select(TrackArtifact).where(
+        _review_audio_candidates().where(
             TrackArtifact.id == job.canonical_track_artifact_id,
             TrackArtifact.workspace_id == job.workspace_id,
             TrackArtifact.meeting_id == job.meeting_id,

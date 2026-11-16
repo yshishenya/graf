@@ -1,6 +1,9 @@
 import json
 import shlex
+import subprocess
+import sys
 import tomllib
+from fnmatch import fnmatchcase
 from pathlib import Path
 
 import yaml
@@ -32,6 +35,34 @@ def _compose() -> dict:
 
 def _dev_compose() -> dict:
     return yaml.load(DEV_COMPOSE_PATH.read_text(), Loader=_ComposeLoader)
+
+
+def test_recovery_state_is_one_read_only_volume_for_all_storage_consumers() -> None:
+    compose = _compose()
+    source = "rec-storage-recovery"
+    directory = "/run/graf-storage-recovery"
+    consumers = {"rec-api", "rec-processing-worker", "rec-media-worker", "rec-maintenance"}
+    assert compose["volumes"][source] == {"name": "twobrain-rec-storage-recovery", "external": True}
+    for name, service in compose["services"].items():
+        mounts = [
+            mount for mount in service.get("volumes", [])
+            if isinstance(mount, dict) and mount.get("source") == source
+        ]
+        environment = service.get("environment", {})
+        if name not in consumers:
+            assert not mounts
+            assert "TWOBRAIN_STRICT_STORAGE_RECOVERY_DIRECTORY" not in environment
+            continue
+        assert mounts == [{
+            "type": "volume", "source": source, "target": directory,
+            "read_only": True, "volume": {"nocopy": True},
+        }]
+        assert environment["TWOBRAIN_STRICT_STORAGE_RECOVERY_DIRECTORY"] == directory
+        assert environment["TWOBRAIN_STRICT_STORAGE_RECOVERY_ALLOW_LEGACY"] == (
+            "${TWOBRAIN_STRICT_STORAGE_RECOVERY_ALLOW_LEGACY:-false}"
+        )
+        for key in ("TWOBRAIN_STRICT_STORAGE_SCOPE", "TWOBRAIN_STRICT_STORAGE_RECOVERY_ID"):
+            assert environment[key] == "${" + key + ":-}"
 
 
 def _active_env_template_keys() -> set[str]:
@@ -610,7 +641,10 @@ def test_media_worker_is_isolated_non_root_and_has_no_mediascribe_secret() -> No
     } <= secret_sources
     assert "twobrain_minio_api_access_key" not in secret_sources
     assert "twobrain_minio_api_secret_key" not in secret_sources
-    assert worker["volumes"] == ["rec-media-work:/var/lib/twobrain-rec/playback-normalization"]
+    assert [
+        mount for mount in worker["volumes"]
+        if not isinstance(mount, dict) or mount["source"] != "rec-storage-recovery"
+    ] == ["rec-media-work:/var/lib/twobrain-rec/playback-normalization"]
     assert worker["depends_on"]["rec-temporal"]["condition"] == "service_healthy"
     assert worker["networks"] == ["rec-media-private"]
     assert compose["networks"]["rec-media-private"]["internal"] is True
@@ -706,10 +740,81 @@ def test_media_worker_minio_policy_is_prefix_scoped_without_bucket_listing() -> 
             assert resources_by_action[action] == {normalization_resource}
 
 
+def test_ordinary_storage_roles_keep_independent_strict_upload_denial() -> None:
+    policy = json.loads((REPO_ROOT / "infra/minio/strict-upload-protection.json").read_text())
+    objects, listing = policy["Statement"]
+    assert objects["Effect"] == listing["Effect"] == "Deny"
+    assert set(objects["Action"]) == {
+        "s3:PutObject", "s3:DeleteObject", "s3:DeleteObjectVersion",
+        "s3:AbortMultipartUpload", "s3:ListMultipartUploadParts",
+    }
+    assert listing["Action"] == ["s3:ListBucketMultipartUploads"]
+    bucket, = listing["Resource"]
+    meeting = f"{bucket}/organizations/org/workspaces/ws/meetings/meeting"
+    base = f"{meeting}/sessions/session/tracks/media/parts/00000000"
+    revision = f"{meeting}/artifacts/media-revisions/revision"
+    for protected in (f"{base}/calendar-attempts/2/1", f"{revision}/attempts/2/1/tracks/media"):
+        assert any(fnmatchcase(protected, glob) for glob in objects["Resource"])
+    for ordinary in (
+        f"{base}/ordinary", f"{revision}/tracks/media",
+        f"{meeting}/artifacts/playback-normalization/revisions/revision/attempts/id/meeting-review.m4a",
+    ):
+        assert not any(fnmatchcase(ordinary, glob) for glob in objects["Resource"])
+
+    for compose, accounts in (
+        (_compose(), ('"$$TWOBRAIN_MINIO_API_ACCESS_KEY"', '"$$TWOBRAIN_MINIO_MEDIA_ACCESS_KEY"')),
+        (_dev_compose(), ("twobrain_rec_api", "twobrain_rec_media")),
+    ):
+        init = compose["services"]["rec-minio-init"]
+        assert "./minio/strict-upload-protection.json:/config/strict-upload-protection.json:ro" in init["volumes"]
+        script = init["entrypoint"][-1]
+        name = "twobrain-rec-strict-upload-protection"
+        create = f"mc admin policy create rec {name} /config/strict-upload-protection.json || exit 1"
+        assert create in script and f"mc admin policy rm rec {name}" not in script
+        for role, account in zip(("api", "media"), accounts, strict=True):
+            attach = f"mc admin policy attach rec {name} --user {account} || exit 1"
+            assert script.index(create) < script.index(attach) < script.index(f"cat >/tmp/rec-{role}-policy.json")
+
+
+def test_strict_minio_role_generator_separates_epochs_and_actions() -> None:
+    command = [sys.executable, str(REPO_ROOT / "infra/scripts/strict-upload-minio-policy.py")]
+    writer, = json.loads(subprocess.check_output([*command, "writer", "--epoch", "17"]))["Statement"]
+    cleaner, = json.loads(subprocess.check_output([*command, "cleaner"]))["Statement"]
+    discovery, = json.loads(subprocess.check_output([*command, "discovery"]))["Statement"]
+    assert writer["Action"] == ["s3:PutObject"]
+    assert set(cleaner["Action"]) == {
+        "s3:GetObject", "s3:DeleteObject", "s3:AbortMultipartUpload", "s3:ListMultipartUploadParts",
+    }
+    assert discovery["Action"] == ["s3:ListBucketMultipartUploads"]
+    bucket, = discovery["Resource"]
+    meeting = f"{bucket}/organizations/org/workspaces/ws/meetings/meeting"
+    for suffix in (
+        "sessions/session/tracks/media/parts/00000000/calendar-attempts/{epoch}/1",
+        "artifacts/media-revisions/revision/attempts/{epoch}/1/tracks/media",
+    ):
+        active = f"{meeting}/{suffix.format(epoch=17)}"
+        inactive = f"{meeting}/{suffix.format(epoch=170)}"
+        assert any(fnmatchcase(active, glob) for glob in writer["Resource"])
+        assert not any(fnmatchcase(inactive, glob) for glob in writer["Resource"])
+        assert any(fnmatchcase(inactive, glob) for glob in cleaner["Resource"])
+    for invalid in (
+        ["writer"], ["writer", "--epoch", "0"], ["writer", "--epoch", str(2**63)], ["cleaner", "--epoch", "17"],
+    ):
+        assert subprocess.run([*command, *invalid], capture_output=True, check=False).returncode != 0
+
+
 def test_minio_init_publishes_storage_readiness_sentinel() -> None:
     for compose in (_compose(), _dev_compose()):
         script = compose["services"]["rec-minio-init"]["entrypoint"][-1]
-        assert "_system/readiness/ready" in script
+        assert script.startswith("set -eu\n")
+        marker = script.index("mc cp /tmp/storage-readiness ")
+        assert "_system/readiness/ready" in script[marker:]
+        commands = [
+            line for line in script.splitlines()
+            if line.startswith(("mc admin user add ", "mc admin policy create ", "mc admin policy attach "))
+        ]
+        assert len(commands) == 9
+        assert all("|| true" not in line and script.index(line) < marker for line in commands)
     assert compose["networks"]["rec-media-private"]["internal"] is True
 
 

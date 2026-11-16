@@ -39,9 +39,79 @@ async function target24(locator) {
  });
  assert(hit[0]>=24&&hit[1]>=24&&hit[2], `unreachable target: ${locator} ${hit}`);
 }
+async function checkPendingSeek(browser) {
+ const fixture=fs.readFileSync(process.argv[2],'utf8');
+ for (const early of [false,true]) for (const [hash,tab,ms,roundTrip=false] of [
+  ['#outcomes','outcomes',null],['#recording','recording',0],
+  ['#recording?position_ms=7000','recording',7000],['#recording?position_ms=0','recording',0],
+  ['#recording?position_ms=15000','recording',15000,true]
+ ]) {
+  const page=await browser.newPage();
+  let release;
+  const gate=new Promise(resolve=>{release=resolve;});
+  try {
+   await page.route('**/*',async route=>{
+    const {pathname}=new URL(route.request().url()),name=path.basename(pathname);
+    if(pathname==='/reader')return route.fulfill({contentType:'text/html',body:fixture});
+    if(pathname==='/audio') { await gate; return sendAudio(route); }
+    if(/\.(js|css)$/.test(name)&&fs.existsSync(path.join(assets,name)))return route.fulfill({
+     contentType:name.endsWith('.js')?'text/javascript':'text/css',body:fs.readFileSync(path.join(assets,name))
+    });
+    return route.fulfill({status:204});
+   });
+   await page.goto('https://graf.test/reader#recording?position_ms=15000',{waitUntil:'domcontentloaded'});
+   await page.getByRole('button',{name:'Посмотреть встречу',exact:true}).click();
+   assert.equal(await page.locator('audio').evaluate(a=>a.readyState),0);
+   await page.evaluate(({hash,early,roundTrip})=>{
+    const audio=document.querySelector('audio');
+    const time=Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype,'currentTime');
+    const probe=window.pendingSeekProbe={changes:0,writes:[]};
+    Object.defineProperty(audio,'currentTime',{get(){return time.get.call(this)},set(value){
+     probe.writes.push(value);time.set.call(this,value);
+    }});
+    function inspectLinks() {
+     return ['[data-public-native]','[data-public-auth="sign-in"]','[data-public-auth="sign-up"]'].map(selector=>{
+      const link=document.querySelector(selector);
+      link.addEventListener('click',event=>event.preventDefault(),{once:true});
+      link.click();
+      const url=new URL(link.href);
+      return ['tab','position_ms','action','media_version'].map(key=>url.searchParams.get(key));
+     });
+    }
+    addEventListener('hashchange',()=>{probe.changes++;probe.linksAfterChange=inspectLinks();});
+    function changeAndInspect() {
+     if(roundTrip) location.hash='#outcomes';
+     location.hash=hash;
+     probe.changesAtHandoff=probe.changes;
+     probe.links=inspectLinks();
+    }
+    audio.addEventListener('loadedmetadata',event=>{
+     probe.trusted=event.isTrusted;
+     probe.changesAtMetadata=probe.changes;
+     if(early) changeAndInspect();
+    },{capture:true,once:true});
+    if(!early) changeAndInspect();
+   },{hash,early,roundTrip});
+   const changes=roundTrip?2:1;
+   if(!early) await page.waitForFunction(count=>window.pendingSeekProbe.changes===count,changes);
+   release();
+   await page.waitForFunction(count=>window.pendingSeekProbe.trusted&&window.pendingSeekProbe.changes===count,changes);
+   const result=await page.locator('audio').evaluate(a=>({...window.pendingSeekProbe,time:a.currentTime,paused:a.paused}));
+   assert.equal(result.changesAtHandoff,0);
+   assert.equal(result.changesAtMetadata,early?0:changes);
+   const links=[null,'sign-in','sign-up'].map(action=>[tab,ms===null?null:String(ms),action,'a'.repeat(24)]);
+   assert.deepEqual(result.links,links);
+   assert.deepEqual(result.linksAfterChange,links);
+   assert.deepEqual(result.writes,hash.includes('?')?[ms/1000]:[]);
+   assert.equal(result.time,(ms??0)/1000);
+   assert.equal(result.paused,true);
+  } finally { release(); await page.close(); }
+ }
+}
 (async()=>{
  const browser=await (process.env.GRAF_BROWSER==='webkit'?webkit:chromium).launch({headless:true});
  try {
+  await checkPendingSeek(browser);
   for(const width of [320,390,1440]) for(const colorScheme of ['light','dark']){
    const context=await browser.newContext({viewport:{width,height:900},colorScheme});
    const page=await context.newPage(),errors=[],privateRequests=[];page.on('pageerror',e=>errors.push(e.message));
@@ -96,6 +166,43 @@ async function target24(locator) {
    assert.equal(new URL(page.url()).hash,'#recording?position_ms=14000');
    const audio=page.locator('[data-playback-player]');
    await page.waitForFunction(()=>document.querySelector('audio').readyState>=1);
+   if(width===1440&&colorScheme==='light') {
+    await audio.evaluate(a=>{a.currentTime=4;});
+    await page.locator('[data-public-seek]').first().click();
+    await page.waitForFunction(()=>document.querySelector('audio').currentTime===14);
+    await audio.evaluate(a=>{a.currentTime=4;});
+    await page.getByRole('link',{name:'Итоги',exact:true}).click();
+    await page.locator('#outcomes').waitFor({state:'visible'});
+    await page.getByRole('link',{name:'Расшифровка',exact:true}).click();
+    await page.locator('#recording').waitFor({state:'visible'});
+    await checkContext(page,'recording','4000');
+    await page.goBack();
+    await page.locator('#outcomes').waitFor({state:'visible'});
+    await page.goBack();
+    await page.waitForFunction(()=>location.hash==='#recording?position_ms=14000'&&document.querySelector('audio')?.currentTime===14);
+    await page.goForward();
+    await page.locator('#outcomes').waitFor({state:'visible'});
+    await page.goForward();
+    await page.locator('#recording').waitFor({state:'visible'});
+    assert.equal(await audio.evaluate(a=>a.currentTime),14);
+    await page.goBack();
+    await page.locator('#outcomes').waitFor({state:'visible'});
+    await page.goBack();
+    await page.waitForFunction(()=>location.hash==='#recording?position_ms=14000'&&document.querySelector('audio')?.currentTime===14);
+    const beforeHashChange=await audio.evaluate(a=>{
+     a.currentTime=20;
+     location.hash='#outcomes';
+     location.hash='#recording?position_ms=14000';
+     return ['[data-public-native]','[data-public-auth="sign-in"]','[data-public-auth="sign-up"]'].map(selector=>{
+      const link=document.querySelector(selector);
+      link.addEventListener('click',event=>event.preventDefault(),{once:true});
+      link.click();
+      return new URL(link.href).searchParams.get('position_ms');
+     });
+    });
+    assert.deepEqual(beforeHashChange,['14000','14000','14000']);
+    await page.waitForFunction(()=>document.querySelector('audio').currentTime===14);
+   }
    assert.equal(await page.locator('[data-speaker-lane]').count(),2);
    assert.deepEqual(await page.locator('[data-speaker-lane]').evaluateAll(rows=>rows.map(row=>row.dataset.speakerKey)),['speaker-1','speaker-2']);
    const waitForSharedPosition = seconds => page.waitForFunction(expected => {

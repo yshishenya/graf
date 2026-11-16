@@ -1,0 +1,101 @@
+{
+  "description": "Exact upstream notice bytes delivered with the Windows MSIX; paths are repository-relative. Microsoft redistribution rights and final package validation remain separate release evidence.",
+  "files": [
+    {
+      "path": "apps/windows/Native/GrafAEC3/notices/COPYING",
+      "package_path": "ThirdPartyNotices/GrafAEC3/COPYING",
+      "source": "https://raw.githubusercontent.com/okarlsen/webrtc-audio-processing/846fe90a289f58b7c9303a635142aa2c7caa93e5/COPYING",
+      "sha256": "9b79539028e216e813e152d45f5c1ed5fdd0554426ad50270fb03134e7082dac"
+    },
+    {
+      "path": "apps/windows/Native/GrafAEC3/notices/webrtc/LICENSE",
+      "package_path": "ThirdPartyNotices/GrafAEC3/webrtc/LICENSE",
+      "source": "https://raw.githubusercontent.com/okarlsen/webrtc-audio-processing/846fe90a289f58b7c9303a635142aa2c7caa93e5/webrtc/LICENSE",
+      "sha256": "ab00a482b6a3902e40211b43c5d0441962ea99b6cc7c25c0f243fa270b78d482"
+    },
+    {
+      "path": "apps/windows/Native/GrafAEC3/notices/webrtc/PATENTS",
+      "package_path": "ThirdPartyNotices/GrafAEC3/webrtc/PATENTS",
+      "source": "https://raw.githubusercontent.com/okarlsen/webrtc-audio-processing/846fe90a289f58b7c9303a635142aa2c7caa93e5/webrtc/PATENTS",
+      "sha256": "01462e2068d1a04c2274f3389773014c14ed9bc3446b28303543bd3e3c064145"
+    },
+    {
+      "path": "apps/windows/Native/GrafAEC3/notices/webrtc/common_audio/third_party/ooura/LICENSE",
+      "package_path": "ThirdPartyNotices/GrafAEC3/webrtc/common_audio/third_party/ooura/LICENSE",
+      "source": "https://raw.githubusercontent.com/okarlsen/webrtc-audio-processing/846fe90a289f58b7c9303a635142aa2c7caa93e5/webrtc/common_audio/third_party/ooura/LICENSE",
+      "sha256": "25b7731b70c77ecd5f3bb19303fbaa99be18860f81d44f71da670fdcd04829db"
+    },
+    {
+      "path": "apps/windows/Native/GrafAEC3/notices/webrtc/common_audio/third_party/spl_sqrt_floor/LICENSE",
+      "package_path": "ThirdPartyNotices/GrafAEC3/webrtc/common_audio/third_party/spl_sqrt_floor/LICENSE",
+      "source": "https://raw.githubusercontent.com/okarlsen/webrtc-audio-processing/846fe90a289f58b7c9303a635142aa2c7caa93e5/webrtc/common_audio/third_party/spl_sqrt_floor/LICENSE",
+      "sha256": "41d791701e3e1c1073470403de7e342442d1e6a2af72681023b13a2f45f2125c"
+    },
+    {
+      "path": "apps/windows/Native/GrafAEC3/notices/webrtc/modules/third_party/fft/LICENSE",
+      "package_path": "ThirdPartyNotices/GrafAEC3/webrtc/modules/third_party/fft/LICENSE",
+      "source": "https://raw.githubusercontent.com/okarlsen/webrtc-audio-processing/846fe90a289f58b7c9303a635142aa2c7caa93e5/webrtc/modules/third_party/fft/LICENSE",
+      "sha256": "6fdbabd2c95c5efc6f1e46175278239afb9343120a3022ed0e0cb04267a6aeb3"
+    },
+    {
+      "path": "apps/windows/Native/GrafAEC3/notices/webrtc/third_party/pffft/LICENSE",
+      "package_path": "ThirdPartyNotices/GrafAEC3/webrtc/third_party/pffft/LICENSE",
+      "source": "https://raw.githubusercontent.com/okarlsen/webrtc-audio-processing/846fe90a289f58b7c9303a635142aa2c7caa93e5/webrtc/third_party/pffft/LICENSE",
+      "sha256": "a46200592eb193853527250da098e6bb0c75424e7a2c7db8da526c4f301c3d88"
+    },
+    {
+      "path": "apps/windows/Native/GrafAEC3/notices/webrtc/third_party/rnnoise/COPYING",
+      "package_path": "ThirdPartyNotices/GrafAEC3/webrtc/third_party/rnnoise/COPYING",
+      "source": "https://raw.githubusercontent.com/okarlsen/webrtc-audio-processing/846fe90a289f58b7c9303a635142aa2c7caa93e5/webrtc/third_party/rnnoise/COPYING",
+      "sha256": "e2f59ff41d9d03adc3dcf3deff170f8c8cf4a6eb4a9b174762a7656d23200ffa"
+    },
+    {
+      "path": "apps/windows/Native/GrafAEC3/notices/Abseil/LICENSE",
+      "package_path": "ThirdPartyNotices/Abseil/LICENSE",
+      "source": "https://github.com/abseil/abseil-cpp/releases/download/20240722.0/abseil-cpp-20240722.0.tar.gz",
+      "archive_member": "abseil-cpp-20240722.0/LICENSE",
+      "archive_sha256": "f50e5ac311a81382da7fa75b97310e4b9006474f9560ac46f54a9967f07d4ae3",
+      "sha256": "c79a7fea0e3cac04cd43f20e7b648e5a0ff8fa5344e644b0ee09ca1162b62747"
+    },
+    {
+      "path": "apps/windows/Installer/ThirdPartyNotices/WebView2/LICENSE.txt",
+      "package_path": "ThirdPartyNotices/WebView2/LICENSE.txt",
+      "source": "https://api.nuget.org/v3-flatcontainer/microsoft.web.webview2/1.0.4129.50/microsoft.web.webview2.1.0.4129.50.nupkg",
+      "archive_member": "LICENSE.txt",
+      "archive_sha256": "d3934f482d484b89fb4825df720c710664e1143a1e90f7b3a60794ef33f473d2",
+      "sha256": "0af8f1b807512aae39c2ac1aa4d0cae65cabecb6fd554b8439a5162a0d6eca55"
+    },
+    {
+      "path": "apps/windows/Installer/ThirdPartyNotices/WebView2/NOTICE.txt",
+      "package_path": "ThirdPartyNotices/WebView2/NOTICE.txt",
+      "source": "https://api.nuget.org/v3-flatcontainer/microsoft.web.webview2/1.0.4129.50/microsoft.web.webview2.1.0.4129.50.nupkg",
+      "archive_member": "NOTICE.txt",
+      "archive_sha256": "d3934f482d484b89fb4825df720c710664e1143a1e90f7b3a60794ef33f473d2",
+      "sha256": "106423785c5b7eba0a8e61d1837f2132e9c828e20ad530f565d981c1df60dd90"
+    },
+    {
+      "path": "apps/windows/Installer/ThirdPartyNotices/CppWinRT/LICENSE",
+      "package_path": "ThirdPartyNotices/CppWinRT/LICENSE",
+      "source": "https://api.nuget.org/v3-flatcontainer/microsoft.windows.cppwinrt/3.0.260818.1/microsoft.windows.cppwinrt.3.0.260818.1.nupkg",
+      "archive_member": "LICENSE",
+      "archive_sha256": "a8993608ae9263a8288e1a1d9ee2684a5632f4acc59e1e89ddd86b3b889a7367",
+      "sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+    },
+    {
+      "path": "apps/windows/Installer/ThirdPartyNotices/WindowsAppSDK/license.txt",
+      "package_path": "ThirdPartyNotices/WindowsAppSDK/license.txt",
+      "source": "https://api.nuget.org/v3-flatcontainer/microsoft.windowsappsdk/2.4.0/microsoft.windowsappsdk.2.4.0.nupkg",
+      "archive_member": "license.txt",
+      "archive_sha256": "6ec2ebb6add33ecebac1f5773ad4cabe934b82fb18d7bea98e011bb0fc0a37b9",
+      "sha256": "5b11e6347756e40fe0274bc08c97f89201b94f0d50181a09a00f1f4740840501"
+    },
+    {
+      "path": "apps/windows/Installer/ThirdPartyNotices/WindowsAppSDK/NOTICE.txt",
+      "package_path": "ThirdPartyNotices/WindowsAppSDK/NOTICE.txt",
+      "source": "https://api.nuget.org/v3-flatcontainer/microsoft.windowsappsdk/2.4.0/microsoft.windowsappsdk.2.4.0.nupkg",
+      "archive_member": "NOTICE.txt",
+      "archive_sha256": "6ec2ebb6add33ecebac1f5773ad4cabe934b82fb18d7bea98e011bb0fc0a37b9",
+      "sha256": "572b43d41dea717dae7dc5de69acb20a74df025e8f5a3c0aa6f7bca02615e23c"
+    }
+  ]
+}

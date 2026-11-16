@@ -37,6 +37,7 @@ from twobrain_rec_server.db.models import (
     PlaybackNormalizationAttempt,
     PlaybackNormalizationJob,
     ProcessingWorkflow,
+    PurgeJournal,
     StorageReservation,
     TrackArtifact,
     WorkspaceSubscription,
@@ -650,6 +651,24 @@ async def test_runtime_role_bootstrap_is_idempotent_and_verifies_privileges(
             owner_url.set(drivername="postgresql").render_as_string(hide_password=False)
         )
         try:
+            await verification_connection.execute(
+                "grant update on sequence public.strict_upload_attempt_no to twobrain_rec_app"
+            )
+            with pytest.raises(RuntimeError, match="attempt sequence privileges are unsafe"):
+                await bootstrap._verify_runtime_roles(verification_connection, database_name=owner_url.database)
+            await bootstrap._bootstrap()
+            app_url = owner_url.set(
+                drivername="postgresql", username="twobrain_rec_app", password=app_password,
+            )
+            app_connection = await asyncpg.connect(app_url.render_as_string(hide_password=False))
+            try:
+                first = await app_connection.fetchval("select nextval('public.strict_upload_attempt_no')")
+                with pytest.raises(asyncpg.InsufficientPrivilegeError):
+                    await app_connection.fetchval("select setval('public.strict_upload_attempt_no', 1, false)")
+                second = await app_connection.fetchval("select nextval('public.strict_upload_attempt_no')")
+                assert second == first + 1
+            finally:
+                await app_connection.close()
             # Removing a required field must fail before accepting a runtime role.
             await verification_connection.execute(
                 "revoke select (plan_snapshot) on public.billing_invoices from twobrain_rec_media"
@@ -1904,6 +1923,16 @@ async def test_media_storage_columns_require_scope_and_forbid_financial_writes(
         other = await _seed_revision(owner)
         for tenant in (ids, other):
             await _seed_storage_rights(owner, tenant, case="active_addon", now=datetime.now(UTC))
+        async with async_sessionmaker(owner)() as db, db.begin():
+            db.add_all(
+                PurgeJournal(
+                    workspace_id=tenant["workspace_id"],
+                    meeting_id=tenant["meeting_id"],
+                    artifact_class="object_store",
+                    object_key="synthetic-media-scope",
+                )
+                for tenant in (ids, other)
+            )
         keys = ("organization_id", "workspace_id", "user_id", "device_id")
         scopes = (
             (None, None),
@@ -1933,6 +1962,7 @@ async def test_media_storage_columns_require_scope_and_forbid_financial_writes(
                     ), {"own": ids["workspace_id"], "other": other["workspace_id"]})).mappings().all()
                     assert {row["workspace_id"] for row in rows} == ({visible} if visible else set())
         forbidden = {
+            "meeting_purge_journal": "multipart_upload_id",
             "time_credit_ledger_entries": "source_ref",
             "billing_storage_entitlement_grants": "full_period_amount_minor",
             "billing_entitlement_grants": "provider_payment_id",

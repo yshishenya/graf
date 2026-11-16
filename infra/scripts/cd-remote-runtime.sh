@@ -35,8 +35,9 @@ image_candidate_id="${4:?candidate ID is required}"
 image_decision_digest="${5:?decision digest is required}"
 image_full_digest="${6:?Full digest is required}"
 export TWOBRAIN_PRODUCTION_RELEASE_GATE=1
-runtime_release_lock=""
+runtime_release_lock_fd=9
 if [[ "${TWOBRAIN_PRODUCTION_RELEASE_LOCK_HELD:-0}" != "1" ]]; then
+  runtime_release_lock_fd=8
   runtime_release_lock="$(git rev-parse --git-path twobrain-rec-deploy.lock)"
   exec 8>"$runtime_release_lock"
   if ! /usr/bin/flock -n 8; then
@@ -45,6 +46,7 @@ if [[ "${TWOBRAIN_PRODUCTION_RELEASE_LOCK_HELD:-0}" != "1" ]]; then
     exit 1
   fi
 fi
+python3 infra/scripts/release-images.py check-deployment-lock --deployment-lock-fd "$runtime_release_lock_fd"
 compose=(docker compose --profile operations -f infra/docker-compose.yml)
 image_attempt_id="$(python3 -c 'import uuid; print(uuid.uuid4().hex)')"
 image_state="$(git rev-parse --git-path graf-release-images)"
@@ -54,6 +56,7 @@ images_recovery_verified=0
 prompt_worker_was_running=""
 images_result_write_failed=0
 runtime_mutated=0
+runtime_up_attempted=0
 deployment_complete=0
 dispatch_opened=0
 previous_schema_head=""
@@ -412,8 +415,6 @@ PY
 }
 
 share_identity_hash_secret_file="${TWOBRAIN_SHARE_IDENTITY_HASH_SECRET_SECRET_FILE:-./secrets/graf_share_identity_hash_secret}"
-ensure_generated_secret "$share_identity_hash_secret_file" 32
-echo "share_identity_hash_secret_provision_result=pass"
 
 verify_api_dispatch_gate() {
   local expected_capability="$1"
@@ -830,9 +831,28 @@ restore_previous_safe_processing_runtime() {
   return "$rollback_failed"
 }
 
+storage_recovery_release_state() {
+  python3 "$image_helper" storage-state --image "$media_image"
+}
+
 restore_previous_runtime() {
-  local rollback_failed=0 media_container current_schema truth_count
+  local rollback_failed=0 media_container current_schema truth_count storage_recovery_now
   echo "rollback_result=started"
+  # No automatic downgrade or restart without proof this area was never activated.
+  if [[ "${storage_recovery_start_mode:-}" != "legacy" \
+    || -z "${image_attempt:-}" || -e "$image_attempt/no-rollback.json" \
+    || -L "$image_attempt/no-rollback.json" ]] \
+    || ! storage_recovery_now="$(storage_recovery_release_state 2>/dev/null)" \
+    || [[ "$storage_recovery_now" != "legacy" ]]; then
+    if ! "${compose[@]}" stop rec-api rec-processing-worker rec-media-worker rec-maintenance >/dev/null 2>&1; then
+      echo "rollback_storage_recovery_stop=failed"
+    fi
+    echo "rollback_result=blocked"
+    echo "rollback_target=forward_fix_required"
+    echo "rollback_reason=storage_recovery_compatibility_unverified"
+    echo "rollback_backup_reference=${backup_reference:-unavailable}"
+    return 1
+  fi
   # A failed forward stop must not leave an old queue consumer during recovery.
   if ! "${compose[@]}" stop rec-processing-worker rec-maintenance >/dev/null 2>&1; then
     echo "rollback_result=blocked"
@@ -895,7 +915,7 @@ restore_previous_runtime() {
 }
 
 rollback_on_exit() {
-  local status=$? public_download_restore_failed=0
+  local status=$? public_download_restore_failed=0 rollback_stop_failed=0
   trap - EXIT INT TERM
   if [[ "$status" == "0" || "$deployment_complete" == "1" ]]; then
     return
@@ -903,14 +923,29 @@ rollback_on_exit() {
   set +e
   echo "deploy_result=blocked"
   echo "reason=staged_rollout_failed"
+  if [[ "${runtime_up_attempted:-0}" == "1" && "${storage_recovery_start_mode:-}" == "reconciled" ]]; then
+    if ! timeout --kill-after=1s 5s python3 "$image_helper" observe-start --attempt-id "$image_attempt_id" \
+      --deployment-lock-fd "$runtime_release_lock_fd"; then
+      echo "runtime_start_observation=unconfirmed"
+    fi
+  fi
   if [[ "$runtime_mutated" == "1" ]]; then
-    "${compose[@]}" stop rec-api >/dev/null 2>&1 || true
+    if ! "${compose[@]}" stop rec-api rec-processing-worker rec-media-worker rec-maintenance >/dev/null 2>&1; then
+      echo "rollback_storage_recovery_stop=failed"
+      rollback_stop_failed=1
+    fi
   fi
   if ! restore_public_download; then
     echo "public_download_rollback_result=blocked"
     public_download_restore_failed=1
   elif [[ "$runtime_mutated" == "1" ]]; then
-    restore_previous_runtime
+    if [[ "$rollback_stop_failed" == "0" ]]; then
+      restore_previous_runtime
+    fi
+  elif [[ -n "${image_attempt:-}" \
+    && ( -e "$image_attempt/no-rollback.json" || -L "$image_attempt/no-rollback.json" ) ]]; then
+    echo "rollback_result=blocked"
+    echo "rollback_target=forward_fix_required"
   else
     if git reset --hard "$previous_sha" >/dev/null 2>&1; then
       images_recovery_verified=1
@@ -921,12 +956,13 @@ rollback_on_exit() {
       echo "rollback_backup_reference=${backup_reference:-unavailable}"
     fi
   fi
-  if [[ "$public_download_restore_failed" == "1" ]]; then
+  if [[ "$public_download_restore_failed" == "1" || "$rollback_stop_failed" == "1" ]]; then
     echo "rollback_result=blocked"
     echo "rollback_target=forward_fix_required"
     echo "rollback_backup_reference=${backup_reference:-unavailable}"
   fi
   if [[ "$images_recovery_verified" == "1" && "$public_download_restore_failed" == "0" \
+    && "$rollback_stop_failed" == "0" \
     && "$images_result_write_failed" == "0" && -f "$image_helper" ]]; then
     local image_outcome=unchanged
     if [[ "$runtime_mutated" == "1" ]]; then
@@ -990,6 +1026,49 @@ run_step_capture() {
   return "$step_status"
 }
 
+# Refuse old, unpublished F200 schemas before touching services or release state.
+if ! previous_schema_head="$("${compose[@]}" exec -T rec-postgres psql \
+  -U twobrain_rec -d twobrain_rec -Atc 'select version_num from alembic_version' | tr -d '\r')" \
+  || [[ ! "$previous_schema_head" =~ ^[0-9A-Za-z_]+$ ]]; then
+  echo "deploy_result=blocked"
+  echo "reason=previous_schema_head_unavailable"
+  exit 1
+fi
+case "$previous_schema_head" in
+  0110_calendar_upload_pin|0111_strict_upload_journal|0112_f200_calendar_upload_pin|0113_f200_strict_upload_journal|0113_f200_calendar_upload_pin|0114_f200_strict_upload_journal)
+    echo "deploy_result=blocked"
+    echo "reason=unpublished_f200_schema_revision"
+    exit 1
+    ;;
+esac
+
+if ! python3 - "$previous_schema_head" <<'PY_KNOWN_SCHEMA'
+import ast
+import sys
+from pathlib import Path
+
+revisions = set()
+for path in Path("apps/server/src/twobrain_rec_server/db/migrations/versions").glob("*.py"):
+    for statement in ast.parse(path.read_text()).body:
+        if isinstance(statement, ast.Assign):
+            targets, value = statement.targets, statement.value
+        elif isinstance(statement, ast.AnnAssign):
+            targets, value = [statement.target], statement.value
+        else:
+            continue
+        if any(isinstance(target, ast.Name) and target.id == "revision" for target in targets):
+            revision = ast.literal_eval(value)
+            if not isinstance(revision, str) or revision in revisions:
+                raise SystemExit(1)
+            revisions.add(revision)
+raise SystemExit(0 if sys.argv[1] in revisions else 1)
+PY_KNOWN_SCHEMA
+then
+  echo "deploy_result=blocked"
+  echo "reason=previous_schema_head_unavailable"
+  exit 1
+fi
+
 if ! validate_runtime_secret_group; then
   echo "deploy_result=blocked"
   echo "reason=runtime_secret_group_unsafe"
@@ -997,6 +1076,8 @@ if ! validate_runtime_secret_group; then
 fi
 export TWOBRAIN_RUNTIME_SECRET_GID="$runtime_secret_gid"
 echo "runtime_secret_group_result=pass"
+ensure_generated_secret "$share_identity_hash_secret_file" 32
+echo "share_identity_hash_secret_provision_result=pass"
 
 for runtime_service_secret in \
   "${GRAF_CREDENTIAL_ENCRYPTION_KEY_SECRET_FILE:-./secrets/graf_credential_encryption_key}" \
@@ -1162,15 +1243,13 @@ if grep -Eq 'TWOBRAIN_(POSTGRES_PASSWORD|MINIO_ROOT_USER|MINIO_ROOT_PASSWORD|MIN
   exit 1
 fi
 
-previous_schema_head="$("${compose[@]}" exec -T rec-postgres psql \
-  -U twobrain_rec -d twobrain_rec -Atc 'select version_num from alembic_version' | tr -d '\r')"
-if [[ ! "$previous_schema_head" =~ ^[0-9A-Za-z_]+$ ]]; then
+media_image="$(python3 "$image_helper" image candidate rec-media-worker)"
+if ! storage_recovery_start_mode="$(storage_recovery_release_state 2>/dev/null)" \
+  || [[ "$storage_recovery_start_mode" != "legacy" && "$storage_recovery_start_mode" != "reconciled" ]]; then
   echo "deploy_result=blocked"
-  echo "reason=previous_schema_head_unavailable"
+  echo "reason=storage_recovery_binding_unverified"
   exit 1
 fi
-
-media_image="$(python3 "$image_helper" image candidate rec-media-worker)"
 expected_schema_head="$(docker run --rm --pull never --network none --read-only "$media_image" \
   python -c 'from twobrain_rec_server.normalization.worker import packaged_schema_head; print(packaged_schema_head())')"
 if [[ ! "$expected_schema_head" =~ ^[0-9A-Za-z_]+$ ]]; then
@@ -1211,11 +1290,22 @@ if ! run_step billing_notification_preflight verify_billing_notification_runtime
   echo "deploy_result=blocked"
   exit 1
 fi
+if [[ "$storage_recovery_start_mode" == "reconciled" ]]; then
+  python3 "$image_helper" forbid-rollback --attempt-id "$image_attempt_id" \
+    --previous-schema "$previous_schema_head" --candidate-schema "$expected_schema_head" \
+    --backup-reference "$backup_reference"
+  python3 "$image_helper" record-start-intent --attempt-id "$image_attempt_id" \
+    --deployment-lock-fd "$runtime_release_lock_fd"
+fi
 runtime_mutated=1
 # Stop previous queue consumers before the maintenance worker takes ownership.
-"${compose[@]}" stop rec-api rec-processing-worker rec-maintenance >/dev/null
+"${compose[@]}" stop rec-api rec-processing-worker rec-media-worker rec-maintenance >/dev/null
 sync_public_download
-"${compose[@]}" stop rec-media-worker >/dev/null 2>&1 || true
+if [[ "$storage_recovery_start_mode" == "reconciled" ]]; then
+  timeout --kill-after=1s 5s python3 "$image_helper" record-start-boundary --attempt-id "$image_attempt_id" \
+    --deployment-lock-fd "$runtime_release_lock_fd"
+fi
+runtime_up_attempted=1
 run_step runtime_up env \
   TWOBRAIN_PLAYBACK_NORMALIZATION_ENABLED=false \
   TWOBRAIN_PLAYBACK_NORMALIZATION_AUTOMATIC_DISPATCH_ENABLED=false \
