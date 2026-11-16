@@ -17,4 +17,4 @@
 
 ## Reviewer Notes
 
-- **Implementation re-review 2026-11-16**: 12/12 checked. Evidence: `LocalCacheCleanupService` path/fingerprint/fence checks; `LocalCacheCleanupTests` symlink/preexisting-symlink/atomic-receipt/0600/concurrent tests; `test_sync_state_expires_old_session_and_allows_same_revision_retry`; `LocalCacheEvictionSchedulerTests` user/operator kill-switch tests. Full Swift suite has one stale static assertion, tracked in the review report; it is not a security behavior failure.
+- **Implementation re-review 2026-11-16**: 12/12 checked. Evidence: `LocalCacheCleanupService` path/fingerprint/fence checks; `LocalCacheCleanupTests` symlink/preexisting-symlink/atomic-receipt/0600/concurrent tests; `test_sync_state_expires_old_session_and_allows_same_revision_retry`; `LocalCacheEvictionSchedulerTests` user/operator kill-switch tests. Full Swift suite passes 1521 tests, 9 skipped, 0 failures; `InterfacePerformanceContractTests` passes 13/13.

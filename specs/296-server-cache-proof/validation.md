@@ -17,7 +17,7 @@
 |---|---|
 | Spec / plan / research / data-model / contracts | PASS |
 | Clarify recorded | PASS |
-| Independent checklist review | DESIGN-GO: 0 design blockers, 9 implementation-evidence items |
+| Independent checklist review | IMPLEMENTATION-GO after code review fixes; only production dry-run/release gates remain |
 | Analyze | PASS: 0 unresolved critical/high for F296 |
 | GitHub issues | umbrella #8063 + T001–T030 child issues #8064–#8093 |
 
@@ -25,13 +25,13 @@
 
 | Check | Result |
 |---|---|
-| Server focused pytest | pending |
-| OpenAPI drift | pending |
-| `swift build --package-path apps/macos` | pending |
-| Focused Swift tests | pending |
-| `apps/macos/Scripts/run-swift-tests.sh` | pending |
-| ContractValidation | pending |
-| `python3 scripts/validate-changelog-fragments.py` | pending |
+| Server focused pytest | PASS: 61 passed; OpenAPI drift `openapi_equal=True`; ruff PASS |
+| OpenAPI drift | PASS |
+| `swift build --package-path apps/macos` | PASS |
+| Focused Swift tests | PASS: LocalCache/Cleanup/Scheduler/Client/InterfacePerformance |
+| `apps/macos/Scripts/run-swift-tests.sh` | PASS: 1521 tests, 9 skipped, 0 failures |
+| ContractValidation | PASS |
+| `python3 scripts/validate-changelog-fragments.py` | PASS |
 
 ## Release checks
 
@@ -54,6 +54,9 @@
 
 ## Evidence
 
-- Pending implementation and release evidence.
+- Code review: P0 playback UUID/local revision and P1 finalized/active session mixing fixed; queue re-read, hash, starvation, truncation, scope fence, concurrent cleanup, UI availability and F284 checks added.
+- Full Swift suite after rebase: 1521 tests, 9 skipped, 0 failures.
+- Server focused Postgres lane after rebase: 61 passed; OpenAPI drift PASS; ruff PASS.
+- Exact implementation SHA before PR: `2408c668c` (will be updated to the PR SHA).
 - Real-queue dry run must record report SHA, before/after queue SHA256/mtime and recordings tree hashes.
 - No deletion in Phase A; Phase B/C enablement only after the production dry run is clean.
