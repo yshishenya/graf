@@ -728,6 +728,82 @@ CustodyContext context() {
     c.storeId[0] = 7; c.objectId[15] = 9;
     return c;
 }
+void externalReservationTests() {
+    using Memory = CustodyOwnedMemory;
+    constexpr auto limit = Memory::limit;
+    static_assert(noexcept(Memory::tryReserve(1)) && noexcept(Memory::release(1)));
+    assert(Memory::usedBytes() == 0);
+    assert(Memory::tryReserve(0) && Memory::usedBytes() == 0); Memory::release(0);
+    assert(!Memory::tryReserve(limit+1) && !Memory::tryReserve(std::numeric_limits<std::size_t>::max()));
+    assert(Memory::usedBytes() == 0);
+    assert(Memory::tryReserve(limit));
+    assert(!Memory::tryReserve(1) && Memory::usedBytes() == limit);
+    Memory::release(limit); assert(Memory::usedBytes() == 0);
+    {
+        CustodyAllocator<std::uint8_t> allocator;
+        auto* owned = allocator.allocate(4096);
+        assert(!Memory::tryReserve(limit-4096+1) && Memory::usedBytes() == 4096);
+        assert(Memory::tryReserve(limit-4096));
+        bool rejected = false;
+        try { (void)allocator.allocate(1); } catch (const std::bad_alloc&) { rejected = true; }
+        assert(rejected && Memory::usedBytes() == limit);
+        allocator.deallocate(owned,4096); assert(Memory::usedBytes() == limit-4096);
+        Memory::release(limit-4096); assert(Memory::usedBytes() == 0);
+        assert(Memory::tryReserve(limit-4096));
+        owned = allocator.allocate(4096);
+        assert(Memory::usedBytes() == limit && !Memory::tryReserve(1));
+        Memory::release(limit-4096); assert(Memory::usedBytes() == 4096);
+        allocator.deallocate(owned,4096);
+    }
+    assert(Memory::usedBytes() == 0);
+    {
+        // Genuine existing operator-new cut: no allocation succeeds, and the
+        // caller rolls back its external reservation, as on av_malloc OOM.
+        assert(Memory::tryReserve(1024)); failAllocationBytes = 1024;
+        bool rejected = false;
+        try { (void)::operator new(1024); }
+        catch (const std::bad_alloc&) { rejected = true; Memory::release(1024); }
+        assert(rejected && failAllocationBytes == 0 && Memory::usedBytes() == 0);
+        assert(Memory::tryReserve(32768)); failAllocationBytes = 1024; rejected = false;
+        try { (void)CustodyAllocator<std::uint8_t>{}.allocate(1024); }
+        catch (const std::bad_alloc&) { rejected = true; }
+        assert(rejected && failAllocationBytes == 0 && Memory::usedBytes() == 32768);
+        Memory::release(32768);
+        assert(Memory::tryReserve(32768));
+        auto* external = ::operator new(32768); std::memset(external,0x5a,32768);
+        wipeAllocation = external; wipeBytes = 32768; wipeOffset = 0; wipeObserved = false;
+        wipeCustodyMemory(external,32768); ::operator delete(external);
+        assert(wipeObserved && Memory::usedBytes() == 32768); // Free before charge release.
+        Memory::release(32768);
+    }
+    assert(Memory::usedBytes() == 0);
+    {
+        // Mix direct reservations and genuine allocator owners under one CAS.
+        // Hold all admitted charges until every competing attempt has finished.
+        constexpr auto capacity = limit/4;
+        std::atomic<unsigned> ready{0}, attempted{0}, accepted{0};
+        std::atomic<bool> start{false}, retire{false};
+        std::array<std::thread,12> threads;
+        for (std::size_t i = 0; i < threads.size(); ++i) threads[i] = std::thread([&,i] {
+            ++ready; while (!start.load()) std::this_thread::yield();
+            CustodyAllocator<std::uint8_t> allocator; std::uint8_t* owned = nullptr; bool reserved = false;
+            if (i%2) { try { owned = allocator.allocate(capacity); } catch (const std::bad_alloc&) {} }
+            else reserved = Memory::tryReserve(capacity);
+            if (owned || reserved) ++accepted;
+            ++attempted; while (!retire.load()) std::this_thread::yield();
+            if (owned) allocator.deallocate(owned,capacity);
+            if (reserved) Memory::release(capacity);
+        });
+        while (ready.load() != threads.size()) std::this_thread::yield();
+        start = true;
+        while (attempted.load() != threads.size()) std::this_thread::yield();
+        assert(accepted == 4 && Memory::usedBytes() == limit);
+        retire = true; for (auto& worker : threads) worker.join();
+    }
+    assert(Memory::usedBytes() == 0);
+    std::fputs("CUSTODY_EXTERNAL_RESERVATION limit_overlap_rollback_wipe_concurrent=passed\n",stderr);
+}
+
 void memoryBudgetTests(const CustodyContext& c) {
     using Memory = CustodyOwnedMemory;
     constexpr auto limit = Memory::limit;
@@ -766,8 +842,11 @@ void memoryBudgetTests(const CustodyContext& c) {
         bool rejected = false;
         try { CustodyBytes extra(1); } catch (const std::bad_alloc&) { rejected = true; }
         assert(rejected && Memory::usedBytes() == limit);
+        assert(Memory::peakBytes() == limit);
     }
     assert(Memory::usedBytes() == 0);
+    assert(Memory::peakBytes() == limit);
+    assert(!Memory::tryReserve(limit + 1) && Memory::peakBytes() == limit);
     bool overflow = false;
     try { (void)CustodyAllocator<CustodyIndexEntry>{}.allocate(std::numeric_limits<std::size_t>::max()); }
     catch (const std::bad_alloc&) { overflow = true; }
@@ -889,7 +968,11 @@ int main(int argc, char** argv) {
         stringMemoryBudgetTests<CustodyWideString>();
         return 0;
     }
+    if (argc == 2 && std::strcmp(argv[1], "--external-reservation") == 0) {
+        externalReservationTests(); return 0;
+    }
     if (argc == 2 && std::strcmp(argv[1], "--memory-budget") == 0) {
+        externalReservationTests();
         mutationBudgetTests<CustodyBytes>();
         mutationBudgetTests<CustodyString>();
         mutationBudgetTests<CustodyWideString>();
@@ -904,6 +987,7 @@ int main(int argc, char** argv) {
     }
     using Codec = ProtectedCustodyCodec;
     auto c = context();
+    externalReservationTests();
     entriesMoveBudgetTests();
     stringMemoryBudgetTests<CustodyString>();
     stringMemoryBudgetTests<CustodyWideString>();

@@ -111,7 +111,7 @@ jobs:
           $vs = & $vswhere -latest -products '*' -version '[17.0,18.0)' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
           if ($LASTEXITCODE -ne 0 -or !$vs) { throw 'MSVC for Visual Studio 2022 is missing.' }
           Import-Module "$vs\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
-          Enter-VsDevShell -VsInstallPath $vs -SkipAutomaticLocation -DevCmdArguments '-arch=x64 -host_arch=x64' | Out-Null
+          Enter-VsDevShell -VsInstallPath $vs -SkipAutomaticLocation -DevCmdArguments '-arch=x64 -host_arch=x64 -vcvars_ver=14.44.35207 -winsdk=10.0.26100.0' | Out-Null
           if ($env:VSCMD_ARG_TGT_ARCH -notin @('x64', 'amd64') -or $env:VSCMD_ARG_HOST_ARCH -notin @('x64', 'amd64')) {
             throw 'MSVC developer environment is not x64 to x64.'
           }
@@ -121,7 +121,11 @@ jobs:
             Set-Content "$env:REPORT_DIR/toolchain.txt"
           $tests = @($env:SELECTED_TESTS -split ',')
           if ($tests.Count -ne 5) { throw 'Missing test target list.' }
-          cmake -S apps/windows -B $env:BUILD_DIR -G Ninja -DCMAKE_BUILD_TYPE=Release "-DCMAKE_CXX_COMPILER=$($compiler.Source)"
+          $ffmpeg = "$env:RUNNER_TEMP/graf-ffmpeg-7.1.5-x64"
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File apps/windows/scripts/build-graf-ffmpeg.ps1 `
+            -InstallDirectory $ffmpeg -BuildDirectory "$env:RUNNER_TEMP/graf-ffmpeg-7.1.5-work"
+          if ($LASTEXITCODE -ne 0) { throw 'Ordinary FFmpeg dependency preparation failed.' }
+          cmake -S apps/windows -B $env:BUILD_DIR -G Ninja -DCMAKE_BUILD_TYPE=Release "-DCMAKE_CXX_COMPILER=$($compiler.Source)" "-DGRAF_FFMPEG_ROOT=$ffmpeg"
           if ($LASTEXITCODE -ne 0) { throw 'CMake configuration failed.' }
           cmake --build $env:BUILD_DIR --target @tests --parallel 2
           if ($LASTEXITCODE -ne 0) { throw 'Windows test build failed.' }

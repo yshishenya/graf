@@ -12,6 +12,9 @@
 #include <fstream>
 #include <limits>
 #include <regex>
+#ifdef GRAF_WINDOWS_TEST_INSPECTION_PHASES
+#include <cstdio>
+#endif
 
 #ifdef _WIN32
 #include <mfapi.h>
@@ -336,6 +339,17 @@ CustodyFileResult<CustodyBytes> protectedMetadata(IStream* stream, std::uint64_t
     return {std::move(bytes), CustodyFileError::none, 0};
 }
 
+bool validPlaybackAacUserData(const UINT8* config, UINT32 size) noexcept {
+    if (!config || (size != 14 && size != 17)) return false;
+    const auto profile = static_cast<UINT32>(config[2]) | (static_cast<UINT32>(config[3]) << 8);
+    // FFmpeg includes the explicit sync extension saying SBR is absent; both forms are AAC-LC.
+    return !config[0] && !config[1] &&
+        (profile == 0 || profile == 0xfe || profile == 0x29 || profile == 0x2a || profile == 0x2b) &&
+        std::all_of(config+4, config+12, [](UINT8 byte) { return byte == 0; }) &&
+        config[12] == 0x11 && config[13] == 0x88 &&
+        (size == 14 || (config[14] == 0x56 && config[15] == 0xe5 && config[16] == 0));
+}
+
 HRESULT decodePlayback(IMFSourceReader* reader, std::uint64_t durationMs,
     const std::shared_ptr<const std::atomic<bool>>& cancellation, LocalRecordingPackage::PlaybackEvidence& evidence) {
     using Microsoft::WRL::ComPtr;
@@ -366,15 +380,24 @@ HRESULT decodePlayback(IMFSourceReader* reader, std::uint64_t durationMs,
             if (FAILED(check)) return check;
         UINT32 configSize = 0;
         status = call([&] { return native->GetBlobSize(MF_MT_USER_DATA, &configSize); }); if (FAILED(status)) return status;
-        if (configSize != 14) return MF_E_INVALIDMEDIATYPE;
-        std::array<UINT8, 14> config{};
+#ifdef GRAF_WINDOWS_TEST_INSPECTION_PHASES
+        // Bounded codec metadata only; never emit decoded samples or recording content.
+        std::fprintf(stderr, "PLAYBACK_AAC_CONFIG bytes=%u hex=", configSize);
+        if (configSize <= 64) {
+            std::array<UINT8, 64> observed{}; UINT32 got = 0;
+            const auto metadata = native->GetBlob(MF_MT_USER_DATA, observed.data(), static_cast<UINT32>(observed.size()), &got);
+            if (SUCCEEDED(metadata) && got <= observed.size())
+                for (UINT32 i = 0; i < got; ++i) std::fprintf(stderr, "%02x", unsigned(observed[i]));
+        }
+        std::fputc('\n', stderr); std::fflush(stderr);
+#endif
+        if (configSize != 14 && configSize != 17) return MF_E_INVALIDMEDIATYPE;
+        const auto expectedConfigSize = configSize;
+        std::array<UINT8, 17> config{};
         status = call([&] { return native->GetBlob(MF_MT_USER_DATA, config.data(), static_cast<UINT32>(config.size()), &configSize); });
         if (FAILED(status)) return status;
         const auto profile = static_cast<UINT32>(config[2]) | (static_cast<UINT32>(config[3]) << 8);
-        if (configSize != config.size() || config[0] || config[1] ||
-            (profile != 0 && profile != 0xfe && profile != 0x29 && profile != 0x2a && profile != 0x2b) ||
-            std::any_of(config.begin()+4, config.begin()+12, [](UINT8 byte) { return byte != 0; }) ||
-            config[12] != 0x11 || config[13] != 0x88) return MF_E_INVALIDMEDIATYPE;
+        if (configSize != expectedConfigSize || !validPlaybackAacUserData(config.data(), configSize)) return MF_E_INVALIDMEDIATYPE;
         status = number(native.Get(), MF_MT_AAC_AUDIO_PROFILE_LEVEL_INDICATION, profile, true); if (FAILED(status)) return status;
         PROPVARIANT duration; PropVariantInit(&duration);
         status = call([&] { return reader->GetPresentationAttribute(static_cast<DWORD>(MF_SOURCE_READER_MEDIASOURCE), MF_PD_DURATION, &duration); });
@@ -448,6 +471,12 @@ CustodyFileResult<LocalRecordingPackage::PlaybackEvidence> decodeProtectedPlayba
         return status;
     }(); // All MF readers/samples/types/byte streams release before shutdown.
     if (runtime.started) { const auto shutdown = MFShutdown(); runtime.started = false; if (SUCCEEDED(hr)) hr = shutdown; }
+#ifdef GRAF_WINDOWS_TEST_INSPECTION_PHASES
+    std::fprintf(stderr, "PLAYBACK_DECODE native=%08lx expected_ms=%llu container_100ns=%llu decoded_frames=%llu\n",
+        static_cast<unsigned long>(hr), static_cast<unsigned long long>(durationMs),
+        static_cast<unsigned long long>(evidence.containerDuration100ns), static_cast<unsigned long long>(evidence.decodedFrames));
+    std::fflush(stderr);
+#endif
     if (FAILED(hr)) return {std::nullopt, hr == E_OUTOFMEMORY ? CustodyFileError::allocationFailed :
         hr == MF_E_INVALIDMEDIATYPE ? CustodyFileError::invalidContent : CustodyFileError::ioFailed,
         hr == HRESULT_FROM_WIN32(ERROR_OPERATION_ABORTED) ? ERROR_OPERATION_ABORTED : static_cast<std::uint32_t>(hr)};
@@ -456,6 +485,11 @@ CustodyFileResult<LocalRecordingPackage::PlaybackEvidence> decodeProtectedPlayba
     return {evidence, CustodyFileError::none, 0};
 } catch (const std::bad_alloc&) { return {std::nullopt, CustodyFileError::allocationFailed, ERROR_NOT_ENOUGH_MEMORY}; }
 } // namespace
+#ifdef GRAF_WINDOWS_TEST_INSPECTION_PHASES
+bool playbackAacUserDataForTest(const UINT8* config, UINT32 size) noexcept {
+    return validPlaybackAacUserData(config, size);
+}
+#endif
 LocalRecordingPackage::UnfinishedInspection::UnfinishedInspection(
     std::shared_ptr<const ProtectedCustodyPackagePair> pair, CustodyPackageReaders&& readers,
     std::shared_ptr<const std::atomic<bool>> cancellation, std::uint64_t frames)

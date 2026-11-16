@@ -81,11 +81,29 @@ static_assert(alignof(std::atomic<std::size_t>) >= alignof(std::size_t));
 class CustodyOwnedMemory final {
 public:
     static constexpr std::size_t limit = 64 * 1024 * 1024;
-    // Observation only: admission MUST use the allocator's atomic reservation.
+    // Observation only: admission MUST use tryReserve, shared with the allocator.
     [[nodiscard]] static std::size_t usedBytes() noexcept { return bytes_.load(std::memory_order_relaxed); }
+    // Lifetime high-water of admitted bytes, including allocations rolled back on OOM.
+    [[nodiscard]] static std::size_t peakBytes() noexcept { return peak_.load(std::memory_order_relaxed); }
+    // External caller-owned allocations reserve before allocation, roll back on
+    // OOM, and keep the charge through the actual full-capacity wipe and free.
+    [[nodiscard]] static bool tryReserve(std::size_t bytes) noexcept {
+        if (bytes > limit) return false;
+        auto used = bytes_.load(std::memory_order_relaxed);
+        do {
+            if (used > limit - bytes) return false;
+        } while (!bytes_.compare_exchange_weak(used, used + bytes, std::memory_order_relaxed));
+        const auto admitted = used + bytes;
+        auto peak = peak_.load(std::memory_order_relaxed);
+        while (peak < admitted && !peak_.compare_exchange_weak(peak, admitted, std::memory_order_relaxed)) {}
+        return true;
+    }
+    // Precondition: exactly these bytes are still held by a successful reserve.
+    // This releases accounting only; the caller has already wiped/freed storage.
+    static void release(std::size_t bytes) noexcept { bytes_.fetch_sub(bytes, std::memory_order_relaxed); }
 private:
-    template<class T> friend class CustodyAllocator;
     inline static std::atomic<std::size_t> bytes_{0};
+    inline static std::atomic<std::size_t> peak_{0};
 };
 
 // Standard vector ownership performs release only when storage is deallocated.
@@ -100,19 +118,16 @@ public:
     [[nodiscard]] T* allocate(std::size_t count) {
         if (count > CustodyOwnedMemory::limit / sizeof(T)) throw std::bad_alloc();
         const auto bytes = count * sizeof(T); // Bound checked before multiplication.
-        auto used = CustodyOwnedMemory::bytes_.load(std::memory_order_relaxed);
-        do {
-            if (used > CustodyOwnedMemory::limit - bytes) throw std::bad_alloc();
-        } while (!CustodyOwnedMemory::bytes_.compare_exchange_weak(used, used + bytes, std::memory_order_relaxed));
+        if (!CustodyOwnedMemory::tryReserve(bytes)) throw std::bad_alloc();
         try { return std::allocator<T>{}.allocate(count); }
-        catch (...) { CustodyOwnedMemory::bytes_.fetch_sub(bytes, std::memory_order_relaxed); throw; }
+        catch (...) { CustodyOwnedMemory::release(bytes); throw; }
     }
     void deallocate(T* memory, std::size_t count) noexcept {
         // Object lifetimes have ended; erase the entire retiring allocation,
         // including former tails, before releasing storage or its charge.
         wipeCustodyMemory(memory, count * sizeof(T));
         std::allocator<T>{}.deallocate(memory, count);
-        CustodyOwnedMemory::bytes_.fetch_sub(count * sizeof(T), std::memory_order_relaxed);
+        CustodyOwnedMemory::release(count * sizeof(T));
     }
     template<class U> bool operator==(const CustodyAllocator<U>&) const noexcept { return true; }
     template<class U> bool operator!=(const CustodyAllocator<U>&) const noexcept { return false; }

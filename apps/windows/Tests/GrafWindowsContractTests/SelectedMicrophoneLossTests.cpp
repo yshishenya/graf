@@ -25,6 +25,12 @@
 #include <limits>
 #include <cstdio>
 #include <future>
+#ifdef _MSC_VER
+#include <cstdlib>
+#ifdef _DEBUG
+#include <crtdbg.h>
+#endif
+#endif
 
 using namespace graf::windows;
 
@@ -643,6 +649,11 @@ void protectedContinuation() {
             assert(CaptureSessionTestPeer::enqueue(c, samples(AudioSource::microphone, 0, boundary)));
             CaptureSessionTestPeer::loss(c);
             waitFor([&] { return ended.load() == 1; }); finish(c);
+            std::fprintf(stderr, "SELECTED_MIC_SEAL error=%u storage=%u native=%08x semantic=%u prefix=%u phase=%u duration_ms=%llu\n",
+                unsigned(sealed.error), unsigned(sealed.storageError), sealed.nativeError,
+                unsigned(sealed.semanticVerified), unsigned(sealed.trustedPrefixRetained), unsigned(sealed.packagePhase),
+                static_cast<unsigned long long>(sealed.durationMs));
+            std::fflush(stderr);
             assert(sealed.ok() && sealed.semanticVerified && sealed.trustedPrefixRetained && !sealed.normalPackage());
             assert(sealed.packagePhase == CustodyPackagePhase::sealedDegraded && sealed.durationMs == 30);
             assert(sealed.captureFailure == ReasonCode::microphoneEndpointUnavailable && sealed.wavBytes == 1004 && sealed.playbackBytes);
@@ -798,6 +809,14 @@ void protectedFaults() {
 } // namespace
 
 int main() {
+#ifdef _MSC_VER
+    _set_error_mode(_OUT_TO_STDERR);
+    _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
+#ifdef _DEBUG
+    _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_FILE);
+    _CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);
+#endif
+#endif
     timelineBoundary();
     orderedContinuation();
     proofAndFaults();

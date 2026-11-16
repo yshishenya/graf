@@ -19,12 +19,11 @@
 #endif
 
 #ifdef _WIN32
+#include "FfmpegApi.h"
 #include "../Storage/ProtectedCustodyReader.h"
-#include <mfapi.h>
-#include <mfidl.h>
-#include <mfreadwrite.h>
+#include <cerrno>
+#include <cstdio>
 #include <windows.h>
-#include <wrl/client.h>
 #endif
 
 namespace graf::windows {
@@ -35,9 +34,11 @@ void observeStartBeforeCanonical(const ProtectedCustodyRecordingPackage&) noexce
 #define GRAF_WINDOWS_TEST_START_BEFORE_CANONICAL(package) observeStartBeforeCanonical(package)
 void endFinalizePhase(unsigned stage, bool returned) noexcept;
 HRESULT playbackReadForTest(IStream*, void*, ULONG, ULONG*);
-HRESULT playbackSampleForTest(IMFSinkWriter*, DWORD, IMFSample*, std::uint64_t);
+HRESULT playbackWriteForTest(IStream*, const void*, ULONG, ULONG*);
+HRESULT playbackSampleForTest(const float*, unsigned, std::uint64_t, HRESULT);
 #define GRAF_PLAYBACK_READ(stream, data, size, got) playbackReadForTest(stream,data,size,got)
-#define GRAF_PLAYBACK_SAMPLE(sink, index, sample, frame) playbackSampleForTest(sink,index,sample,frame)
+#define GRAF_PLAYBACK_WRITE(stream, data, size, written) playbackWriteForTest(stream,data,size,written)
+#define GRAF_PLAYBACK_SAMPLE(data, count, offset, status) playbackSampleForTest(data,count,offset,status)
 namespace {
 template<class Operation> auto measuredFinalize(unsigned stage, Operation operation) {
     struct Scope {
@@ -57,7 +58,8 @@ bool finalizePhaseAdapterForTest(bool (*operation)()) { return measuredFinalize(
 #else
 #define GRAF_FINALIZE_PHASE(stage, ...) (__VA_ARGS__)
 #define GRAF_PLAYBACK_READ(stream, data, size, got) (stream)->Read(data,size,got)
-#define GRAF_PLAYBACK_SAMPLE(sink, index, sample, frame) (sink)->WriteSample(index,sample)
+#define GRAF_PLAYBACK_WRITE(stream, data, size, written) (stream)->Write(data,size,written)
+#define GRAF_PLAYBACK_SAMPLE(data, count, offset, status) (status)
 #endif
 namespace {
 constexpr std::uint64_t lastPrivacyWallMs = 253402300799999; // ISO8601, year 9999.
@@ -137,10 +139,113 @@ public:
     CustodyBytes bytes;
 };
 #ifdef _WIN32
-struct MediaRuntime final {
-    HRESULT com = CoInitializeEx(nullptr,COINIT_MULTITHREADED);
-    bool started = false;
-    ~MediaRuntime() { if (started) MFShutdown(); if (SUCCEEDED(com)) CoUninitialize(); }
+HRESULT playbackAvError(int status) noexcept {
+    return status >= 0 ? S_OK : status == AVERROR(ENOMEM) ? E_OUTOFMEMORY : E_FAIL;
+}
+struct PlaybackAvio final {
+    ProtectedCustodyWriteStream& adapter;
+    const std::atomic<bool>& cancellation;
+    HRESULT failure = S_OK;
+    int reject(HRESULT hr) noexcept {
+        if (SUCCEEDED(failure)) failure = hr;
+        return AVERROR(EIO);
+    }
+    bool ready() noexcept {
+        if (FAILED(failure)) return false;
+        const auto hr = adapter.observedFailure();
+        if (FAILED(hr)) { reject(hr); return false; }
+        if (cancellation.load()) { reject(HRESULT_FROM_WIN32(ERROR_OPERATION_ABORTED)); return false; }
+        return true;
+    }
+    static int write(void* opaque, const std::uint8_t* data, int count) noexcept {
+        auto& out = *static_cast<PlaybackAvio*>(opaque);
+        if (!out.ready()) return AVERROR(EIO);
+        if (!data || count <= 0) return out.reject(STG_E_INVALIDPOINTER);
+        ULONG written = 0;
+        const auto hr = GRAF_PLAYBACK_WRITE(out.adapter.stream(),data,static_cast<ULONG>(count),&written);
+        if (FAILED(hr) || written != static_cast<ULONG>(count))
+            return out.reject(FAILED(hr) ? hr : STG_E_WRITEFAULT);
+        return out.ready() ? count : AVERROR(EIO);
+    }
+    static std::int64_t seek(void* opaque, std::int64_t offset, int whence) noexcept {
+        auto& out = *static_cast<PlaybackAvio*>(opaque);
+        if (!out.ready()) return AVERROR(EIO);
+        whence &= ~AVSEEK_FORCE;
+        constexpr auto limit = ProtectedPackedCustodyFormat::logicalLimit;
+        if (whence == AVSEEK_SIZE) {
+            STATSTG stat{};
+            const auto hr = out.adapter.stream()->Stat(&stat,STATFLAG_NONAME);
+            if (FAILED(hr) || stat.cbSize.QuadPart > limit)
+                return out.reject(FAILED(hr) ? hr : STG_E_MEDIUMFULL);
+            return out.ready() ? static_cast<std::int64_t>(stat.cbSize.QuadPart) : AVERROR(EIO);
+        }
+        if (whence != SEEK_SET && whence != SEEK_CUR && whence != SEEK_END)
+            return out.reject(STG_E_INVALIDFUNCTION);
+        LARGE_INTEGER zero{}; ULARGE_INTEGER position{};
+        std::uint64_t base = 0;
+        if (whence == SEEK_CUR) {
+            const auto hr = out.adapter.stream()->Seek(zero,STREAM_SEEK_CUR,&position);
+            if (FAILED(hr)) return out.reject(hr);
+            base = position.QuadPart;
+        } else if (whence == SEEK_END) {
+            STATSTG stat{};
+            const auto hr = out.adapter.stream()->Stat(&stat,STATFLAG_NONAME);
+            if (FAILED(hr)) return out.reject(hr);
+            base = stat.cbSize.QuadPart;
+        }
+        if (base > limit) return out.reject(STG_E_MEDIUMFULL);
+        std::uint64_t target = 0;
+        if (offset < 0) {
+            const auto magnitude = static_cast<std::uint64_t>(-(offset+1))+1;
+            if (magnitude > base) return out.reject(STG_E_INVALIDFUNCTION);
+            target = base-magnitude;
+        } else {
+            if (static_cast<std::uint64_t>(offset) > limit-base) return out.reject(STG_E_MEDIUMFULL);
+            target = base+static_cast<std::uint64_t>(offset);
+        }
+        LARGE_INTEGER to{}; to.QuadPart = static_cast<LONGLONG>(target);
+        const auto hr = out.adapter.stream()->Seek(to,STREAM_SEEK_SET,&position);
+        if (FAILED(hr) || position.QuadPart != target) return out.reject(FAILED(hr) ? hr : STG_E_SEEKERROR);
+        return out.ready() ? static_cast<std::int64_t>(target) : AVERROR(EIO);
+    }
+    static int denyOpen(AVFormatContext* format, AVIOContext**, const char*, int, AVDictionary**) noexcept {
+        return static_cast<PlaybackAvio*>(format->opaque)->reject(E_ACCESSDENIED);
+    }
+    static int denyClose(AVFormatContext* format, AVIOContext*) noexcept {
+        return static_cast<PlaybackAvio*>(format->opaque)->reject(E_ACCESSDENIED);
+    }
+};
+struct PlaybackAvResources final {
+    static constexpr int ioCapacity = 32768;
+    const FfmpegApi& api;
+    HRESULT& result;
+    PlaybackAvio& output;
+    AVFormatContext* format = nullptr;
+    AVCodecContext* codec = nullptr;
+    AVIOContext* io = nullptr;
+    AVFrame* frame = nullptr;
+    AVPacket* packet = nullptr;
+    unsigned char* supplied = nullptr; // Owning only until io is constructed.
+    bool charged = false;
+    bool fixedBuffer() const noexcept {
+        return !io || (io->buffer == supplied && io->buffer_size == ioCapacity);
+    }
+    ~PlaybackAvResources() {
+        api.av_packet_free(&packet); api.av_frame_free(&frame); api.avcodec_free_context(&codec);
+        // Muxer deinit still has a live bridge, custom pb and protected adapter.
+        if (format) api.avformat_free_context(format);
+        if (SUCCEEDED(result) && !output.ready()) result = output.failure;
+        if (!fixedBuffer() && SUCCEEDED(result)) result = E_UNEXPECTED;
+        if (io) {
+            // Never dereference a stale original if the pinned write-only route
+            // unexpectedly replaced it. Such a route can never publish normal.
+            if (io->buffer && io->buffer_size > 0) wipeCustodyMemory(io->buffer,static_cast<std::size_t>(io->buffer_size));
+            api.av_freep(&io->buffer); api.avio_context_free(&io);
+        } else if (supplied) {
+            wipeCustodyMemory(supplied,ioCapacity); api.av_free(supplied);
+        }
+        if (charged) CustodyOwnedMemory::release(ioCapacity);
+    }
 };
 #endif
 } // namespace
@@ -518,7 +623,6 @@ bool V5LocalRecordingWriter::writeWav() {
 
 bool V5LocalRecordingWriter::writePlayback() {
 #ifdef _WIN32
-    using Microsoft::WRL::ComPtr;
     if (state_->snapshots[2]) {
         auto opened=ProtectedCustodyWriter::open(state_->snapshots[2],state_->cancellation);
         if (!opened.ok()) { fail(V5WriterError::storageUnavailable,opened.error,opened.nativeError); return false; }
@@ -526,7 +630,7 @@ bool V5LocalRecordingWriter::writePlayback() {
             [](ProtectedCustodyWriter* p) { delete p; },CustodyAllocator<ProtectedCustodyWriter>{});
         // Full history/BOTH trees and bytewise WAV proof precede this effect.
         // Logical reset only: retain container identity, generations, all old
-        // records/orphans and actual physical EOF; the existing MF path rebuilds.
+        // records/orphans and actual physical EOF; the AAC path rebuilds.
         const auto reset=state_->writers[2]->setSize(0);
         if (!reset.ok()) { fail(V5WriterError::storageUnavailable,reset.error,reset.nativeError); return false; }
     } else {
@@ -539,111 +643,134 @@ bool V5LocalRecordingWriter::writePlayback() {
     auto adapter = ProtectedCustodyWriteStream::open(state_->writers[2],state_->cancellation);
     if (!adapter.ok()) { fail(V5WriterError::storageUnavailable,adapter.error,adapter.nativeError); return false; }
     {
-        // Canonical reads and MF output callbacks admit their actual IO through
+        // Canonical reads and AVIO callbacks admit their actual IO through
         // separate Guards; an aggregate slot would double-charge their overlap.
-        MediaRuntime runtime;
-        HRESULT hr = runtime.com;
-        const auto call = [&](auto operation) {
-            if (FAILED(hr)) return hr;
-            hr = (*adapter.value)->observedFailure();
-            if (FAILED(hr)) return hr;
-            if (state_->cancellation->load()) return hr = HRESULT_FROM_WIN32(ERROR_OPERATION_ABORTED);
-            hr = operation();
-            if (SUCCEEDED(hr)) hr = (*adapter.value)->observedFailure();
-            if (SUCCEEDED(hr) && state_->cancellation->load()) hr = HRESULT_FROM_WIN32(ERROR_OPERATION_ABORTED);
-            return hr;
-        };
-        ComPtr<IMFByteStream> bytes;
-        ComPtr<IMFSinkWriter> sink;
-        ComPtr<IMFAttributes> attributes;
-        ComPtr<IMFMediaType> output, input;
+        std::optional<FfmpegApi> library; // Unloaded last, after resource/adapter drain.
+        HRESULT hr = S_OK;
         try {
-            call([&] { const auto start = MFStartup(MF_VERSION); runtime.started = SUCCEEDED(start); return start; });
-            call([&] { return MFCreateMFByteStreamOnStream((*adapter.value)->stream(),&bytes); });
-            call([&] { return MFCreateAttributes(&attributes,1); });
-            call([&] { return attributes->SetGUID(MF_TRANSCODE_CONTAINERTYPE,MFTranscodeContainerType_MPEG4); });
-            call([&] { return attributes->SetUINT32(MF_SINK_WRITER_DISABLE_THROTTLING,TRUE); });
-            call([&] { return MFCreateSinkWriterFromURL(nullptr,bytes.Get(),attributes.Get(),&sink); });
-            call([&] { return MFCreateMediaType(&output); });
-            call([&] { return output->SetGUID(MF_MT_MAJOR_TYPE,MFMediaType_Audio); });
-            call([&] { return output->SetGUID(MF_MT_SUBTYPE,MFAudioFormat_AAC); });
-            call([&] { return output->SetUINT32(MF_MT_AUDIO_NUM_CHANNELS,1); });
-            call([&] { return output->SetUINT32(MF_MT_AUDIO_SAMPLES_PER_SECOND,48000); });
-            call([&] { return output->SetUINT32(MF_MT_AUDIO_BITS_PER_SAMPLE,16); });
-            call([&] { return output->SetUINT32(MF_MT_AUDIO_AVG_BYTES_PER_SECOND,12000); });
-            call([&] { return output->SetUINT32(MF_MT_AAC_PAYLOAD_TYPE,0); });
-            call([&] { return output->SetUINT32(MF_MT_AAC_AUDIO_PROFILE_LEVEL_INDICATION,0x29); });
-            DWORD index = 0;
-            call([&] { return sink->AddStream(output.Get(),&index); });
-            call([&] { return MFCreateMediaType(&input); });
-            call([&] { return input->SetGUID(MF_MT_MAJOR_TYPE,MFMediaType_Audio); });
-            call([&] { return input->SetGUID(MF_MT_SUBTYPE,MFAudioFormat_PCM); });
-            call([&] { return input->SetUINT32(MF_MT_AUDIO_NUM_CHANNELS,1); });
-            call([&] { return input->SetUINT32(MF_MT_AUDIO_SAMPLES_PER_SECOND,48000); });
-            call([&] { return input->SetUINT32(MF_MT_AUDIO_BITS_PER_SAMPLE,16); });
-            call([&] { return input->SetUINT32(MF_MT_AUDIO_BLOCK_ALIGNMENT,2); });
-            call([&] { return input->SetUINT32(MF_MT_AUDIO_AVG_BYTES_PER_SECOND,96000); });
-            call([&] { return sink->SetInputMediaType(index,input.Get(),nullptr); });
-            call([&] { return sink->BeginWriting(); });
-            // Same bounded, charged/wiped staging as WAV; MF still receives 10ms samples.
+            auto& api = library.emplace();
+            PlaybackAvio out{**adapter.value,*state_->cancellation};
             constexpr std::uint64_t batchFrames = 32;
-            CustodyBytes frame(1920*batchFrames);
-            for (std::uint64_t n = 0; SUCCEEDED(hr) && n < frameCount_; ++n) {
+            CustodyBytes canonicalBytes(1920*batchFrames);
+            // Non-refcounted input: send_frame makes its own library-owned copy.
+            // This caller-owned PCM allocation remains charged and fully wiped.
+            CustodyVector<float> pcm(1024+AV_INPUT_BUFFER_PADDING_SIZE/sizeof(float));
+            PlaybackAvResources resources{api,hr,out};
+            const auto check = [&](int status = 0) {
+                if (!out.ready()) hr = out.failure;
+                else if (!resources.fixedBuffer()) hr = E_UNEXPECTED;
+                else if (resources.io && resources.io->error < 0) hr = playbackAvError(resources.io->error);
+                else hr = playbackAvError(status);
+                if (FAILED(hr)) throw hr;
+            };
+            check();
+            check(api.avformat_alloc_output_context2(&resources.format,nullptr,"ipod",nullptr));
+            if (!resources.format || !resources.format->oformat ||
+                std::strcmp(resources.format->oformat->name,"ipod") != 0) throw E_UNEXPECTED;
+            // Retain the charged AVIO buffer instead of flushing each encoded packet.
+            resources.format->flush_packets = 0;
+            resources.format->opaque = &out;
+            resources.format->io_open = PlaybackAvio::denyOpen;
+            resources.format->io_close2 = PlaybackAvio::denyClose;
+            const auto encoder = api.avcodec_find_encoder_by_name("aac");
+            if (!encoder || !(encoder->capabilities & AV_CODEC_CAP_SMALL_LAST_FRAME)) throw E_UNEXPECTED;
+            resources.codec = api.avcodec_alloc_context3(encoder);
+            if (!resources.codec) throw E_OUTOFMEMORY;
+            auto* codec = resources.codec;
+            codec->sample_rate = 48000; codec->sample_fmt = AV_SAMPLE_FMT_FLTP;
+            codec->bit_rate = 96000; codec->profile = AV_PROFILE_AAC_LOW;
+            codec->time_base = AVRational{1,48000}; codec->thread_count = 1;
+            api.av_channel_layout_default(&codec->ch_layout,1);
+            if (resources.format->oformat->flags & AVFMT_GLOBALHEADER) codec->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
+            check(api.avcodec_open2(codec,encoder,nullptr));
+            if (codec->frame_size != 1024) throw E_UNEXPECTED;
+            auto* stream = api.avformat_new_stream(resources.format,nullptr);
+            if (!stream) throw E_OUTOFMEMORY;
+            stream->time_base = codec->time_base;
+            check(api.avcodec_parameters_from_context(stream->codecpar,codec));
+            if (!CustodyOwnedMemory::tryReserve(PlaybackAvResources::ioCapacity)) throw std::bad_alloc();
+            resources.charged = true;
+            resources.supplied = static_cast<unsigned char*>(api.av_malloc(PlaybackAvResources::ioCapacity));
+            if (!resources.supplied) throw E_OUTOFMEMORY;
+            resources.io = api.avio_alloc_context(resources.supplied,PlaybackAvResources::ioCapacity,1,&out,
+                nullptr,PlaybackAvio::write,PlaybackAvio::seek);
+            if (!resources.io) throw E_OUTOFMEMORY;
+            resources.io->seekable = AVIO_SEEKABLE_NORMAL;
+            resources.format->pb = resources.io; resources.format->flags |= AVFMT_FLAG_CUSTOM_IO;
+            check(api.avformat_write_header(resources.format,nullptr));
+            resources.frame = api.av_frame_alloc(); resources.packet = api.av_packet_alloc();
+            if (!resources.frame || !resources.packet) throw E_OUTOFMEMORY;
+            auto* frame = resources.frame;
+            frame->format = codec->sample_fmt; frame->sample_rate = codec->sample_rate;
+            check(api.av_channel_layout_copy(&frame->ch_layout,&codec->ch_layout));
+            frame->data[0] = reinterpret_cast<std::uint8_t*>(pcm.data());
+            frame->linesize[0] = 1024*sizeof(float);
+            const auto receive = [&](bool draining) {
+                for (;;) {
+                    check();
+                    const auto received = api.avcodec_receive_packet(codec,resources.packet);
+                    check();
+                    if (received == AVERROR_EOF) { if (!draining) throw E_UNEXPECTED; return; }
+                    if (received == AVERROR(EAGAIN)) { if (draining) throw E_UNEXPECTED; return; }
+                    check(received);
+                    if (resources.packet->size <= 0) throw E_UNEXPECTED;
+                    api.av_packet_rescale_ts(resources.packet,codec->time_base,stream->time_base);
+                    resources.packet->stream_index = stream->index;
+                    const auto muxed = api.av_interleaved_write_frame(resources.format,resources.packet);
+                    api.av_packet_unref(resources.packet);
+                    check(muxed);
+                }
+            };
+            std::uint64_t submitted = 0;
+            const auto submit = [&](unsigned count) {
+                check();
+                frame->nb_samples = static_cast<int>(count); frame->pts = static_cast<std::int64_t>(submitted);
+                const auto sent = api.avcodec_send_frame(codec,frame);
+                check(sent);
+                const auto observed = GRAF_PLAYBACK_SAMPLE(reinterpret_cast<const float*>(frame->data[0]),
+                    static_cast<unsigned>(frame->nb_samples),static_cast<std::uint64_t>(frame->pts),playbackAvError(sent));
+                if (FAILED(observed)) throw observed;
+                check(); // A genuine successful submit may trigger the test cancellation.
+                receive(false); submitted += count;
+            };
+            unsigned filled = 0;
+            for (std::uint64_t n = 0; n < frameCount_; ++n) {
+                check();
                 if (n%batchFrames == 0) {
                     const auto count = static_cast<ULONG>((std::min)(batchFrames,frameCount_-n)*1920);
                     ULONG got = 0;
-                    HRESULT read = S_OK; bool attempted = false;
-                    call([&] {
-                        attempted = true;
-                        return read = GRAF_PLAYBACK_READ(canonical.value->stream.Get(),frame.data(),count,&got);
-                    });
-                    if (attempted && (FAILED(read) || got != count)) {
+                    const auto read = GRAF_PLAYBACK_READ(canonical.value->stream.Get(),canonicalBytes.data(),count,&got);
+                    if (FAILED(read) || got != count) {
                         hr = FAILED(read) ? read : STG_E_READFAULT;
-                        fail(V5WriterError::integrityFailed,CustodyFileError::ioFailed,static_cast<std::uint32_t>(hr)); break;
+                        fail(V5WriterError::integrityFailed,CustodyFileError::ioFailed,static_cast<std::uint32_t>(hr));
+                        throw hr;
                     }
+                    check();
                 }
-                if (FAILED(hr)) break; // Output failure is not canonical corruption.
-                ComPtr<IMFMediaBuffer> buffer; ComPtr<IMFSample> sample;
-                call([&] { return MFCreateMemoryBuffer(960,&buffer); });
-                call([&] { return MFCreateSample(&sample); });
-                BYTE* destination = nullptr; DWORD maximum = 0, length = 0;
-                bool locked = false;
-                call([&] { const auto status = buffer->Lock(&destination,&maximum,&length); locked = SUCCEEDED(status); return status; });
-                if (locked) {
-                    if (SUCCEEDED(hr) && maximum < 960) hr = E_UNEXPECTED;
-                    if (SUCCEEDED(hr)) for (std::size_t at = 0; at < 480; ++at) {
-                        float value = 0; std::memcpy(&value,frame.data()+static_cast<std::size_t>(n%batchFrames)*1920+at*4,4);
-                        const auto pcm = static_cast<std::uint16_t>(toPcm16(value));
-                        destination[2*at] = static_cast<BYTE>(pcm); destination[2*at+1] = static_cast<BYTE>(pcm >> 8);
-                    }
-                    const auto unlock = buffer->Unlock(); if (SUCCEEDED(hr)) hr = unlock;
+                for (std::size_t at = 0; at < 480; ++at) {
+                    float value = 0;
+                    std::memcpy(&value,canonicalBytes.data()+static_cast<std::size_t>(n%batchFrames)*1920+at*4,4);
+                    pcm[filled++] = static_cast<float>(toPcm16(value))/32768.0F;
+                    if (filled == 1024) { submit(filled); filled = 0; }
                 }
-                call([&] { return buffer->SetCurrentLength(960); });
-                call([&] { return sample->AddBuffer(buffer.Get()); });
-                call([&] { return sample->SetSampleTime(static_cast<LONGLONG>(n*100000)); });
-                call([&] { return sample->SetSampleDuration(100000); });
-                // Never hold the adapter lock around an MF call; callbacks use it.
-                call([&] { return GRAF_PLAYBACK_SAMPLE(sink.Get(),index,sample.Get(),n); });
             }
-            call([&] { return sink->Finalize(); });
+            if (filled) submit(filled); // Actual small_last_frame; no padding or cropping.
+            check(api.avcodec_send_frame(codec,nullptr)); receive(true);
+            check(api.av_write_trailer(resources.format));
+            api.avio_flush(resources.io); check(); // flush is void: inspect sticky IO state.
         } catch (const std::bad_alloc&) { hr = E_OUTOFMEMORY; }
+          catch (HRESULT error) { hr = error; }
           catch (...) { hr = E_FAIL; }
-        // Serialized close drains active stream calls. Late COM references see a
-        // closed stream; the worker separately retains the actual writer/state.
+        // Serialized close drains actual stream calls before checkpoint/decode.
         const auto closed = (*adapter.value)->close();
         if (SUCCEEDED(hr) && FAILED(closed)) hr = closed;
-        sink.Reset(); bytes.Reset(); output.Reset(); input.Reset(); attributes.Reset();
-        adapter.value.reset(); // Worker-only wrapper release, before runtime shutdown.
-        if (runtime.started) {
-            const auto shutdown = MFShutdown(); runtime.started = false;
-            if (SUCCEEDED(hr)) hr = shutdown;
-        }
-        canonical.value.reset();
+        adapter.value.reset(); canonical.value.reset();
+        library.reset(); // Every FFmpeg free/callback has already returned.
         if (FAILED(hr)) {
             fail(V5WriterError::encodeFailed,hr == E_OUTOFMEMORY ? CustodyFileError::allocationFailed : CustodyFileError::ioFailed,
                 static_cast<std::uint32_t>(hr)); return false;
         }
-    } // Runtime/COM release precedes independent checkpoint/decode.
+    }
     if (!sealAudio(CustodyRole::playback)) return false;
     // Decode actual AAC payload/EOF/duration before publishing a sealed state;
     // encoder success and a container header are not semantic acceptance.

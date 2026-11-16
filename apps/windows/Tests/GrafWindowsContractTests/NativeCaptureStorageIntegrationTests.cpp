@@ -22,6 +22,7 @@ void observeStartBeforeFactory() noexcept;
 #undef GRAF_WINDOWS_TEST_START_BEFORE_FACTORY
 #include "../../RecApp/Recording/LocalRecordingPackage.h"
 #include "../../RecApp/Recording/ProtectedLocalRecordingPlayback.h"
+#include "../../RecApp/Recording/FfmpegApi.h"
 #include "../../RecApp/Storage/Sha256.h"
 #include "../GeneratedRecordingFixtures.h"
 #include <cassert>
@@ -38,8 +39,11 @@ void observeStartBeforeFactory() noexcept;
 #include <limits>
 #include <thread>
 #include <type_traits>
+#include <stdexcept>
+#include <tlhelp32.h>
 #include <mfapi.h>
 #include <mfreadwrite.h>
+#include <mftransform.h>
 #include <winternl.h>
 #include <shellapi.h>
 #include <aclapi.h>
@@ -314,9 +318,15 @@ std::atomic<bool> denyDeletionReadback{false}; // Armed only after the generated
 std::atomic<bool> denyShortBootstrap{false};
 std::atomic<unsigned> shortReadFailures{0};
 // Opt-in diagnostic of this worker's intercepted native metadata calls only.
+struct PlaybackWriteProfile {
+    std::uint64_t calls = 0, requested = 0, written = 0, failures = 0, partial = 0, nanoseconds = 0;
+    ULONG minBytes = 0, maxBytes = 0;
+    std::array<std::uint64_t,4> nativeCalls{}, nativeNanoseconds{};
+};
 struct StorageProfile {
     bool active = false;
     std::array<std::uint64_t,4> calls{}, nanoseconds{};
+    PlaybackWriteProfile playbackWrite;
 };
 thread_local StorageProfile storageProfile;
 struct FinalizePhaseProfile {
@@ -332,6 +342,8 @@ struct PlaybackProbe {
     bool armed = false, inStage = false;
     PlaybackCut cut = PlaybackCut::none;
     unsigned reads = 0, samples = 0, cutHits = 0;
+    std::uint64_t submittedSamples = 0;
+    unsigned lastSamples = 0;
     ULONG lastRead = 0;
     std::atomic<bool>* cancellation = nullptr;
 };
@@ -356,6 +368,30 @@ template<class Call> auto measuredStorageCall(std::size_t index, Call call) {
     if (inspectionProfileActive) {
         uploadStageProbe.nativeCalls[index].fetch_add(1, std::memory_order_relaxed);
         uploadStageProbe.nativeNs[index].fetch_add(nanoseconds, std::memory_order_relaxed);
+    }
+    SetLastError(outgoing);
+    return result;
+}
+template<class Call> HRESULT measuredPlaybackWrite(ULONG requested, ULONG* written, Call call) {
+    if (!storageProfile.active || !playbackProbe.inStage) return call();
+    const auto incoming = GetLastError();
+    const auto beforeCalls = storageProfile.calls, beforeNative = storageProfile.nanoseconds;
+    const auto before = std::chrono::steady_clock::now();
+    SetLastError(incoming);
+    const HRESULT result = call(); // Exactly one actual Write, including failure/partial outcomes.
+    const auto outgoing = GetLastError();
+    const auto after = std::chrono::steady_clock::now();
+    auto& observed = storageProfile.playbackWrite;
+    if (!observed.calls || requested < observed.minBytes) observed.minBytes = requested;
+    if (requested > observed.maxBytes) observed.maxBytes = requested;
+    ++observed.calls; observed.requested += requested;
+    if (written) { observed.written += *written; observed.partial += *written < requested; }
+    observed.failures += FAILED(result);
+    observed.nanoseconds += static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(after-before).count());
+    for (std::size_t i = 0; i < observed.nativeCalls.size(); ++i) {
+        observed.nativeCalls[i] += storageProfile.calls[i]-beforeCalls[i];
+        observed.nativeNanoseconds[i] += storageProfile.nanoseconds[i]-beforeNative[i];
     }
     SetLastError(outgoing);
     return result;
@@ -900,6 +936,7 @@ FARPROC WINAPI integrationProcedure(HMODULE module, LPCSTR name) {
 }
 namespace graf::windows {
 bool finalizePhaseAdapterForTest(bool (*operation)());
+bool playbackAacUserDataForTest(const UINT8*, UINT32) noexcept;
 void observeProtectedInspectionPhase(unsigned stage) noexcept {
     if (inspectionProfileActive) observeUploadStage(stage, 0, 0);
 }
@@ -961,24 +998,20 @@ HRESULT playbackReadForTest(IStream* stream, void* data, ULONG size, ULONG* got)
     }
     return hr;
 }
-HRESULT playbackSampleForTest(IMFSinkWriter* sink, DWORD index, IMFSample* sample, std::uint64_t frame) {
+HRESULT playbackWriteForTest(IStream* stream, const void* data, ULONG size, ULONG* written) {
+    return measuredPlaybackWrite(size,written,[&] { return stream->Write(data,size,written); });
+}
+HRESULT playbackSampleForTest(const float* pcm, unsigned count, std::uint64_t offset, HRESULT hr) {
     auto& probe = playbackProbe;
-    if (!probe.armed || !probe.inStage) return sink->WriteSample(index,sample);
-    assert(frame == probe.samples);
-    LONGLONG time = -1, duration = 0;
-    assert(sample->GetSampleTime(&time) == S_OK && time == static_cast<LONGLONG>(frame*100000));
-    assert(sample->GetSampleDuration(&duration) == S_OK && duration == 100000);
-    Microsoft::WRL::ComPtr<IMFMediaBuffer> buffer;
-    assert(sample->GetBufferByIndex(0,&buffer) == S_OK);
-    BYTE* pcm = nullptr; DWORD maximum = 0, length = 0;
-    assert(buffer->Lock(&pcm,&maximum,&length) == S_OK && length == 960 && maximum >= length);
-    for (std::size_t at=0; at<480; ++at) {
-        const auto expected = static_cast<std::uint16_t>(static_cast<std::int16_t>(generatedPlaybackValue(frame,at)*32767.0F));
-        assert(pcm[2*at] == static_cast<BYTE>(expected) && pcm[2*at+1] == static_cast<BYTE>(expected >> 8));
+    if (!probe.armed || !probe.inStage) return hr;
+    assert(SUCCEEDED(hr) && pcm && count && count <= 1024);
+    assert(offset == probe.submittedSamples);
+    for (unsigned at = 0; at < count; ++at) {
+        const auto sample = offset+at;
+        const auto expected = static_cast<std::int16_t>(generatedPlaybackValue(sample/480,sample%480)*32767.0F);
+        assert(pcm[at] == static_cast<float>(expected)/32768.0F);
     }
-    assert(buffer->Unlock() == S_OK);
-    const auto hr = sink->WriteSample(index,sample);
-    ++probe.samples;
+    ++probe.samples; probe.submittedSamples += count; probe.lastSamples = count;
     if (SUCCEEDED(hr) && probe.cut == PlaybackCut::cancel) {
         probe.cancellation->store(true); ++probe.cutHits;
     }
@@ -1199,8 +1232,13 @@ HRESULT WINAPI integrationPlaybackByteStream(IStream* input, IMFByteStream** out
     return result;
 }
 }
+namespace {
+HRESULT WINAPI mediaEngineWaveformCoCreateInstance(REFCLSID, LPUNKNOWN, DWORD, REFIID, LPVOID*);
+}
 #define MFCreateMFByteStreamOnStream integrationPlaybackByteStream
+#define CoCreateInstance mediaEngineWaveformCoCreateInstance
 #include "../../RecApp/Recording/ProtectedLocalRecordingPlayback.cpp"
+#undef CoCreateInstance
 #undef MFCreateMFByteStreamOnStream
 
 namespace graf::windows {
@@ -1570,7 +1608,13 @@ struct Fixture {
     ~Fixture() {
         // Cleanup must use the same long-path namespace as the generated native files.
         const auto path=parent.native().substr(0,4)==L"\\\\?\\" ? parent : std::filesystem::path(L"\\\\?\\"+parent.native());
-        std::error_code error; std::filesystem::remove_all(path, error); assert(!error);
+        std::error_code error; std::filesystem::remove_all(path, error);
+        if (error) {
+            std::fprintf(stderr, "NATIVE_STORAGE fixture_cleanup_error=%d category=%s parent=%ls\n",
+                error.value(), error.category().name(), parent.c_str());
+            std::fflush(stderr);
+        }
+        assert(!error);
     }
 };
 template<class Predicate> bool waitFor(Predicate predicate, std::chrono::seconds timeout = std::chrono::seconds(10)) {
@@ -6265,9 +6309,81 @@ void protectedLargeUploadParts() {
     worker.get(); // Every genuine native owner and generated file drains on this worker.
 }
 
+std::array<double,2> playbackTonesForTest(IStream* input, std::uint64_t durationMs, std::uint64_t expectedDecoded) {
+    using Microsoft::WRL::ComPtr;
+    constexpr double pi = 3.14159265358979323846;
+    const std::array<double,2> coefficients{2*std::cos(2*pi*1000/48000),2*std::cos(2*pi*2000/48000)};
+    std::array<double,2> previous{}, older{}, magnitudes{};
+    std::uint64_t decoded = 0;
+    const auto com = CoInitializeEx(nullptr,COINIT_MULTITHREADED); assert(SUCCEEDED(com));
+    assert(MFStartup(MF_VERSION) == S_OK);
+    {
+        LARGE_INTEGER zero{}; assert(input->Seek(zero,STREAM_SEEK_SET,nullptr) == S_OK);
+        ComPtr<IMFByteStream> bytes; ComPtr<IMFSourceReader> reader; ComPtr<IMFMediaType> pcm, actual;
+        assert(MFCreateMFByteStreamOnStream(input,&bytes) == S_OK);
+        assert(MFCreateSourceReaderFromByteStream(bytes.Get(),nullptr,&reader) == S_OK);
+        assert(MFCreateMediaType(&pcm) == S_OK);
+        assert(pcm->SetGUID(MF_MT_MAJOR_TYPE,MFMediaType_Audio) == S_OK);
+        assert(pcm->SetGUID(MF_MT_SUBTYPE,MFAudioFormat_PCM) == S_OK);
+        assert(pcm->SetUINT32(MF_MT_AUDIO_BITS_PER_SAMPLE,16) == S_OK);
+        assert(pcm->SetUINT32(MF_MT_AUDIO_NUM_CHANNELS,1) == S_OK);
+        assert(pcm->SetUINT32(MF_MT_AUDIO_SAMPLES_PER_SECOND,48000) == S_OK);
+        assert(reader->SetCurrentMediaType(0,nullptr,pcm.Get()) == S_OK);
+        assert(reader->GetCurrentMediaType(0,&actual) == S_OK);
+        UINT32 value = 0;
+        assert(actual->GetUINT32(MF_MT_AUDIO_BITS_PER_SAMPLE,&value) == S_OK && value == 16);
+        assert(actual->GetUINT32(MF_MT_AUDIO_NUM_CHANNELS,&value) == S_OK && value == 1);
+        assert(actual->GetUINT32(MF_MT_AUDIO_SAMPLES_PER_SECOND,&value) == S_OK && value == 48000);
+        for (;;) {
+            DWORD stream = 0, flags = 0; LONGLONG time = 0; ComPtr<IMFSample> sample;
+            assert(reader->ReadSample(0,0,&stream,&flags,&time,&sample) == S_OK);
+            assert(stream == 0 && !(flags & ~MF_SOURCE_READERF_ENDOFSTREAM));
+            if (sample) {
+                ComPtr<IMFMediaBuffer> buffer; assert(sample->ConvertToContiguousBuffer(&buffer) == S_OK);
+                BYTE* data = nullptr; DWORD capacity = 0, length = 0;
+                assert(buffer->Lock(&data,&capacity,&length) == S_OK && length && length <= capacity && !(length%2));
+                assert(decoded+length/2 <= (durationMs+100)*48);
+                for (DWORD at = 0; at < length; at += 2) {
+                    std::int16_t pcm16 = 0; std::memcpy(&pcm16,data+at,2);
+                    const auto amplitude = static_cast<double>(pcm16)/32768;
+                    for (std::size_t tone = 0; tone < 2; ++tone) {
+                        const auto next = amplitude+coefficients[tone]*previous[tone]-older[tone];
+                        older[tone] = previous[tone]; previous[tone] = next;
+                    }
+                }
+                decoded += length/2; assert(buffer->Unlock() == S_OK);
+            } else assert(flags & MF_SOURCE_READERF_ENDOFSTREAM);
+            if (flags & MF_SOURCE_READERF_ENDOFSTREAM) break;
+        }
+        assert(decoded && decoded == expectedDecoded); // Full actual EOF, including codec delay/tail.
+        for (std::size_t tone = 0; tone < 2; ++tone)
+            magnitudes[tone] = 2*std::sqrt((std::max)(0.0,previous[tone]*previous[tone]+older[tone]*older[tone]-
+                coefficients[tone]*previous[tone]*older[tone]))/static_cast<double>(decoded);
+    }
+    assert(MFShutdown() == S_OK); CoUninitialize();
+    return magnitudes;
+}
+
 void protectedPlaybackBatches() {
+    std::array<UINT8,17> config{};
+    config[12] = 0x11; config[13] = 0x88; config[14] = 0x56; config[15] = 0xe5;
+    for (const UINT32 size : {14U,17U}) {
+        for (const UINT8 profile : {UINT8{0},UINT8{0xfe},UINT8{0x29},UINT8{0x2a},UINT8{0x2b}}) {
+            config[2] = profile;
+            assert(playbackAacUserDataForTest(config.data(),size));
+            for (UINT32 at = 0; at < size; ++at) {
+                config[at] ^= 0x80;
+                assert(!playbackAacUserDataForTest(config.data(),size));
+                config[at] ^= 0x80;
+            }
+        }
+    }
+    for (UINT32 size = 0; size <= 64; ++size)
+        if (size != 14 && size != 17) assert(!playbackAacUserDataForTest(config.data(),size));
+    assert(!playbackAacUserDataForTest(nullptr,14));
+    std::fputs("PLAYBACK_AAC_CONFIG_GUARDS old14=1 extended17=1 malformed=refused\n",stderr);
     auto worker = std::async(std::launch::async, [] {
-        for (const unsigned frames : {31U,32U,33U,1000U}) {
+        for (const unsigned frames : {3U,31U,32U,33U,1000U}) {
             testing::GeneratedProtectedRecording capture("generated-playback-batch");
             CanonicalAudioFrame frame;
             for (unsigned n=0; n<frames; ++n) {
@@ -6278,15 +6394,55 @@ void protectedPlaybackBatches() {
             playbackProbe = {}; playbackProbe.armed = true;
             const auto sealed = capture.writer->finalize();
             playbackProbe.armed = false;
-            std::fprintf(stderr,"PLAYBACK_BATCH frames=%u reads=%u samples=%u last_bytes=%lu\n",
-                frames,playbackProbe.reads,playbackProbe.samples,playbackProbe.lastRead);
+            std::fprintf(stderr,"PLAYBACK_BATCH frames=%u reads=%u samples=%u last_bytes=%lu submitted=%llu tail=%u\n",
+                frames,playbackProbe.reads,playbackProbe.samples,playbackProbe.lastRead,
+                static_cast<unsigned long long>(playbackProbe.submittedSamples),playbackProbe.lastSamples);
+            std::fflush(stderr);
+            std::fprintf(stderr, "PLAYBACK_BATCH_SEAL error=%u storage=%u native=%08x semantic=%u prefix=%u phase=%u duration_ms=%llu\n",
+                unsigned(sealed.error), unsigned(sealed.storageError), sealed.nativeError,
+                unsigned(sealed.semanticVerified), unsigned(sealed.trustedPrefixRetained), unsigned(sealed.packagePhase),
+                static_cast<unsigned long long>(sealed.durationMs));
             std::fflush(stderr);
             assert(sealed.normalPackage() && sealed.durationMs == frames*10);
-            assert(playbackProbe.samples == frames && playbackProbe.reads == (frames+31)/32 &&
+            assert(playbackProbe.samples == (frames*480+1023)/1024 &&
+                playbackProbe.submittedSamples == frames*480 && playbackProbe.lastSamples == ((frames*480-1)%1024+1) &&
+                playbackProbe.reads == (frames+31)/32 &&
                 playbackProbe.lastRead == ((frames-1)%32+1)*1920);
             auto pair = capture.coldPair(); assert(pair.ok());
             auto inspected = LocalRecordingPackage::inspectProtected(capture.paths.root,*pair.value,capture.session,capture.cancel);
             assert(inspected.ok() && inspected.value.value()->evidence().playback.decodedFrames);
+        }
+        for (const unsigned frames : {3U,31U,32U,33U}) {
+            testing::GeneratedProtectedRecording capture("generated-playback-tones");
+            constexpr double pi = 3.14159265358979323846;
+            for (unsigned n = 0; n < frames; ++n) {
+                CanonicalAudioFrame frame; frame.ptsFrames = static_cast<std::int64_t>(n)*480;
+                for (std::size_t at = 0; at < 480; ++at) {
+                    const auto sample = n*480+at;
+                    const auto system = 0.3F*static_cast<float>(std::sin(2*pi*(sample < frames*240 ? 1000 : 2000)*
+                        static_cast<double>(sample)/48000));
+                    frame.mixed[at] = static_cast<float>(0.5*(static_cast<double>(system)+(sample < 719 ? 0.375F : 0.0F)));
+                }
+                assert(capture.writer->append(frame));
+            }
+            const auto sealed = capture.writer->finalize(); assert(sealed.normalPackage() && sealed.durationMs == frames*10);
+            auto pair = capture.coldPair(); assert(pair.ok());
+            auto inspected = LocalRecordingPackage::inspectProtected(capture.paths.root,*pair.value,capture.session,capture.cancel);
+            assert(inspected.ok());
+            const auto decoded = (*inspected.value)->evidence().playback.decodedFrames;
+            inspected.value.reset(); // Retire the first reader group before acquiring the tone decoder's group.
+            auto readers = openProtectedCustodyReaders(capture.paths.root,*pair.value,capture.cancel);
+            std::fprintf(stderr,"PLAYBACK_TONE_READERS error=%u native=%u owned=%zu\n",
+                unsigned(readers.error),readers.nativeError,CustodyOwnedMemory::usedBytes());
+            std::fflush(stderr); assert(readers.ok());
+            const auto& refs = (*pair.value)->current(); std::size_t ref = 0;
+            while (ref < refs.refCount && refs.refs[ref].role != CustodyRole::playback) ++ref;
+            assert(ref < refs.refCount);
+            const auto tones = playbackTonesForTest(readers.value->at((*pair.value)->selectedSlot()).at(ref).stream.Get(),frames*10,decoded);
+            std::fprintf(stderr,"PLAYBACK_TONE frames=%u decoded=%llu tone1000=%.17g tone2000=%.17g threshold=0.015 full_eof=1\n",
+                frames,static_cast<unsigned long long>(decoded),tones[0],tones[1]);
+            std::fflush(stderr);
+            assert(std::isfinite(tones[0]) && std::isfinite(tones[1]) && tones[0] > 0.015 && tones[1] > 0.015);
         }
         for (const auto cut : {PlaybackCut::shortRead,PlaybackCut::cancel,PlaybackCut::output}) {
             testing::GeneratedProtectedRecording capture("generated-playback-batch-cut");
@@ -6310,6 +6466,7 @@ void protectedPlaybackBatches() {
                 result.semanticVerified == retained && result.trustedPrefixRetained == retained &&
                 playbackProbe.reads == 1 && playbackProbe.cutHits == 1 &&
                 playbackProbe.samples == (cut == PlaybackCut::shortRead ? 0U : 1U) &&
+                playbackProbe.submittedSamples == (cut == PlaybackCut::shortRead ? 0U : 1024U) &&
                 result.nativeError == static_cast<std::uint32_t>(expected) &&
                 result.error == (cut == PlaybackCut::shortRead ? V5WriterError::integrityFailed : V5WriterError::encodeFailed));
             std::fprintf(stderr,"PLAYBACK_BATCH cut=%u refused=1 exact_failure=1\n",static_cast<unsigned>(cut));
@@ -6320,6 +6477,35 @@ void protectedPlaybackBatches() {
 
 void protectedStorageProfile() {
     auto worker = std::async(std::launch::async, [] {
+        for (const bool active : {false,true}) for (const bool inStage : {false,true}) {
+            storageProfile = {}; storageProfile.active = active; playbackProbe.inStage = inStage;
+            for (unsigned outcome = 0; outcome < 3; ++outcome) {
+                const ULONG requested = outcome == 0 ? 8 : outcome == 1 ? 16 : 4;
+                const ULONG expected = outcome == 0 ? 8 : outcome == 1 ? 7 : 1;
+                const HRESULT expectedResult = outcome == 2 ? STG_E_WRITEFAULT : S_OK;
+                unsigned called = 0; ULONG written = 99;
+                SetLastError(ERROR_ACCESS_DENIED);
+                const auto result = measuredPlaybackWrite(requested,&written,[&]() -> HRESULT {
+                    assert(GetLastError() == ERROR_ACCESS_DENIED && written == 99); ++called;
+                    for (std::size_t i = 0; i < storageProfile.calls.size(); ++i) {
+                        storageProfile.calls[i] += i+1; storageProfile.nanoseconds[i] += (i+1)*10;
+                    }
+                    written = expected; SetLastError(ERROR_WRITE_FAULT); return expectedResult;
+                });
+                assert(called == 1 && result == expectedResult && written == expected && GetLastError() == ERROR_WRITE_FAULT);
+            }
+            const auto& observed = storageProfile.playbackWrite;
+            const bool measured = active && inStage;
+            assert(observed.calls == (measured ? 3U : 0U) && observed.requested == (measured ? 28U : 0U) &&
+                observed.written == (measured ? 16U : 0U) && observed.failures == (measured ? 1U : 0U) &&
+                observed.partial == (measured ? 2U : 0U) && observed.minBytes == (measured ? 4U : 0U) &&
+                observed.maxBytes == (measured ? 16U : 0U) && (measured || !observed.nanoseconds));
+            for (std::size_t i = 0; i < observed.nativeCalls.size(); ++i)
+                assert(observed.nativeCalls[i] == (measured ? 3*(i+1) : 0) &&
+                    observed.nativeNanoseconds[i] == (measured ? 30*(i+1) : 0));
+        }
+        playbackProbe.inStage = false;
+        std::fputs("AVIO_WRITE_PROFILE adapter_selfcheck=pass\n",stderr);
         for (const bool active : {false,true}) {
             storageProfile = {}; storageProfile.active = active;
             unsigned called = 0;
@@ -6395,6 +6581,25 @@ void protectedStorageProfile() {
                     static_cast<unsigned long long>(observed.native[i]/1000));
                 std::fputc('\n',stderr);
             }
+            const auto& written = storageProfile.playbackWrite;
+            const auto& aac = finalizeProfile[2];
+            assert(written.calls <= 16); // Ten-second fixture: reject per-packet flushing.
+            assert(written.calls && written.minBytes && written.minBytes <= written.maxBytes &&
+                written.requested == written.written && !written.failures && !written.partial &&
+                written.nanoseconds <= aac.nanoseconds);
+            std::fprintf(stderr,"AVIO_WRITE_PROFILE scope=aac nested=1 calls=%llu min_bytes=%lu max_bytes=%lu requested_bytes=%llu written_bytes=%llu failures=%llu partial=%llu wall_us=%llu native_calls=",
+                static_cast<unsigned long long>(written.calls),written.minBytes,written.maxBytes,
+                static_cast<unsigned long long>(written.requested),static_cast<unsigned long long>(written.written),
+                static_cast<unsigned long long>(written.failures),static_cast<unsigned long long>(written.partial),
+                static_cast<unsigned long long>(written.nanoseconds/1000));
+            for (std::size_t i=0; i<written.nativeCalls.size(); ++i) {
+                assert(written.nativeCalls[i] <= aac.calls[i] && written.nativeNanoseconds[i] <= aac.native[i]);
+                std::fprintf(stderr,"%s%llu",i ? "," : "",static_cast<unsigned long long>(written.nativeCalls[i]));
+            }
+            std::fputs(" native_us=",stderr);
+            for (std::size_t i=0; i<written.nativeNanoseconds.size(); ++i)
+                std::fprintf(stderr,"%s%llu",i ? "," : "",static_cast<unsigned long long>(written.nativeNanoseconds[i]/1000));
+            std::fputc('\n',stderr);
             std::fflush(stderr);
         }
         phase("cleanup");
@@ -9464,6 +9669,7 @@ void protectedPrivacyDegradedCuts() {
     }
 }
 void protectedPrivacyCapacity(bool degraded = false) {
+    std::fprintf(stderr, "PRIVACY_CAPACITY phase=entry degraded=%u\n", degraded ? 1U : 0U); std::fflush(stderr);
     auto worker = std::async(std::launch::async, [degraded] {
         testing::GeneratedProtectedRecording recording("generated-privacy-capacity");
         unsigned count = 0;
@@ -9482,7 +9688,11 @@ void protectedPrivacyCapacity(bool degraded = false) {
             const auto closed = recording.writer->closePrivacy(wall, count*2+1);
             assert(closed.ok() && *closed.value); ++count;
             assert(count < 65536); // Test runaway guard only, never a product history cap.
+            if (count % 64 == 0) {
+                std::fprintf(stderr, "PRIVACY_CAPACITY phase=segments count=%u degraded=%u\n", count, degraded ? 1U : 0U); std::fflush(stderr);
+            }
         }
+        std::fprintf(stderr, "PRIVACY_CAPACITY phase=capacity_reached count=%u degraded=%u\n", count, degraded ? 1U : 0U); std::fflush(stderr);
         recording.append(100);
         const auto result = recording.writer->finalize(degraded ? ReasonCode::clockDiscontinuity : ReasonCode::none);
         assert(degraded ? result.trustedPrefixRetained && !result.normalPackage() : result.normalPackage());
@@ -9498,6 +9708,7 @@ void protectedPrivacyCapacity(bool degraded = false) {
         assert(json.find("1970-01-01T00:00:00Z") != std::string_view::npos);
         assert(json.find("9999-12-31T23:59:59Z") != std::string_view::npos);
         std::fprintf(stderr, "PRIVACY_HISTORY capacity_segments=%u bytes=%zu degraded=%u no_trim=1 finalization_reserved=1\n", count, bytes.size(),degraded ? 1U : 0U);
+        std::fflush(stderr);
     });
     worker.get();
     assert(waitFor([] { return CustodyOwnedMemory::usedBytes() == idleOwnedBytes; }));
@@ -10492,6 +10703,340 @@ void protectedShortMediaEngine() {
         assert(ready && before.durationSeconds>0 && before.durationSeconds<0.022 && SUCCEEDED(played) && ended && closed);
     }).get();
     assert(waitFor([] { return CustodyOwnedMemory::usedBytes()==idleOwnedBytes; }));
+}
+
+// Separate opt-in observation; never substitutes for protectedShortMediaEngine acceptance.
+[[maybe_unused]] void diagnosticShortMediaEngine() {
+    const auto baseline = CustodyOwnedMemory::usedBytes();
+    std::fputs("DIAGNOSTIC_ONLY strict_acceptance=0 SHORT_MEDIA_ENGINE begin input_frames=480 duration_ms=10\n", stderr);
+    std::fflush(stderr);
+    const bool completed = std::async(std::launch::async, [] {
+        testing::GeneratedProtectedRecording capture("generated-diagnostic-short-media-engine");
+        capture.append(1);
+        const auto sealed = capture.writer->finalize(ReasonCode::none, RecordingStopReason::interruption);
+        std::fprintf(stderr, "DIAGNOSTIC_ONLY strict_acceptance=0 SHORT_MEDIA_ENGINE seal normal=%u error=%u storage=%u native=%08x duration_ms=%llu\n",
+            unsigned(sealed.normalPackage()), unsigned(sealed.error), unsigned(sealed.storageError), sealed.nativeError,
+            static_cast<unsigned long long>(sealed.durationMs));
+        std::fflush(stderr);
+        if (!sealed.normalPackage() || sealed.durationMs != 10) return false;
+        auto pair = capture.coldPair();
+        std::fprintf(stderr, "DIAGNOSTIC_ONLY strict_acceptance=0 SHORT_MEDIA_ENGINE pair ok=%u error=%u native=%08x\n",
+            unsigned(pair.ok()), unsigned(pair.error), pair.nativeError);
+        std::fflush(stderr);
+        if (!pair.ok()) return false;
+        auto inspection = LocalRecordingPackage::inspectProtected(capture.paths.root, *pair.value, capture.session, capture.cancel);
+        std::fprintf(stderr, "DIAGNOSTIC_ONLY strict_acceptance=0 SHORT_MEDIA_ENGINE inspector ok=%u error=%u native=%08x\n",
+            unsigned(inspection.ok()), unsigned(inspection.error), inspection.nativeError);
+        std::fflush(stderr);
+        if (!inspection.ok()) return false;
+        const auto evidence = (*inspection.value)->evidence();
+        std::fprintf(stderr, "DIAGNOSTIC_ONLY strict_acceptance=0 SHORT_MEDIA_ENGINE raw_frames=%llu container_100ns=%llu logical_duration_ms=%llu\n",
+            static_cast<unsigned long long>(evidence.playback.decodedFrames),
+            static_cast<unsigned long long>(evidence.playback.containerDuration100ns),
+            static_cast<unsigned long long>(evidence.durationMs));
+        std::fflush(stderr);
+        auto opened = ProtectedLocalRecordingPlayback::open(std::move(*inspection.value), capture.cancel, true);
+        std::fprintf(stderr, "DIAGNOSTIC_ONLY strict_acceptance=0 SHORT_MEDIA_ENGINE open ok=%u error=%u native=%08x\n",
+            unsigned(opened.ok()), unsigned(opened.error), opened.nativeError);
+        std::fflush(stderr);
+        if (!opened.ok()) return false; // Failed/partial native initialization drains in production open().
+        auto player = std::move(*opened.value);
+        const bool ready = waitFor([&] { const auto state = player->observe(); return SUCCEEDED(state.error) && state.ready && state.muted; }, std::chrono::seconds(10));
+        const auto before = player->observe();
+        const auto played = ready ? player->play() : E_FAIL;
+        const bool ended = SUCCEEDED(played) && waitFor([&] { const auto state = player->observe(); return SUCCEEDED(state.error) && state.ended; }, std::chrono::seconds(10));
+        const auto after = player->observe();
+        const bool closed = waitFor([&] { return player->startClose() && player->drained(); }, std::chrono::seconds(30));
+        std::fprintf(stderr, "DIAGNOSTIC_ONLY strict_acceptance=0 SHORT_MEDIA_ENGINE ready=%u muted=%u duration_ms=%.3f play_hr=%08lx ended=%u native=%08lx closed=%u\n",
+            unsigned(ready), unsigned(before.muted), before.durationSeconds * 1000,
+            static_cast<unsigned long>(played), unsigned(ended), static_cast<unsigned long>(after.error), unsigned(closed));
+        std::fflush(stderr);
+        player.reset(); // Same worker backstop as strict: a timeout never permits releasing live owners.
+        return ready && before.durationSeconds > 0 && before.durationSeconds < 0.022 && SUCCEEDED(played) && ended && closed;
+    }).get(); // Generated fixture and all native owners retire on the worker before baseline observation.
+    const bool memoryReleased = waitFor([&] { return CustodyOwnedMemory::usedBytes() == baseline; });
+    std::fprintf(stderr, "DIAGNOSTIC_ONLY strict_acceptance=0 SHORT_MEDIA_ENGINE completed=%u owned_baseline=%zu owned_final=%zu memory_released=%u\n",
+        unsigned(completed), baseline, CustodyOwnedMemory::usedBytes(), unsigned(memoryReleased));
+    std::fflush(stderr);
+    assert(completed && memoryReleased); // Diagnostic execution only; strict acceptance remains separate.
+}
+
+// AAC alignment diagnostic core: fixed generated input, no audio retention or acceptance policy.
+constexpr std::uint64_t aacAlignmentFrames = 1440, aacAlignmentRawBound = (30+100)*48;
+std::uint64_t aacAlignmentBe(const std::uint8_t* bytes, unsigned count) noexcept {
+    std::uint64_t value = 0;
+    for (unsigned i = 0; i < count; ++i) value = (value << 8) | bytes[i];
+    return value;
+}
+bool aacAlignmentExactFrames(std::uint64_t time, std::uint32_t scale, std::uint64_t& frames) noexcept {
+    if (!scale || time > (std::numeric_limits<std::uint64_t>::max)()/48000) return false;
+    const auto scaled = time*48000;
+    if (scaled%scale) return false;
+    frames = scaled/scale; return true;
+}
+struct AacAlignmentTiming {
+    bool known = false;
+    std::uint32_t movieScale = 0, mediaScale = 0;
+    std::uint64_t movieDuration = 0, mediaDuration = 0, editDuration = 0, mediaTime = 0, offset = 0;
+};
+// Deliberately only one audio track / one rate-1 edit. Unsupported metadata stays unknown.
+template<class ReadAt> AacAlignmentTiming aacAlignmentTiming(std::uint64_t length, ReadAt read) {
+    AacAlignmentTiming timing;
+    if (!length || length > 16*1024*1024) return timing;
+    std::array<unsigned,8> seen{}; unsigned boxes = 0;
+    const auto walk = [&](auto&& self, std::uint64_t at, std::uint64_t limit, unsigned scope) -> bool {
+        while (at < limit) {
+            std::array<std::uint8_t,16> header{};
+            if (++boxes > 128 || limit-at < 8 || !read(at,header.data(),8)) return false;
+            auto size = aacAlignmentBe(header.data(),4); unsigned head = 8;
+            if (size == 1) {
+                if (limit-at < 16 || !read(at+8,header.data()+8,8)) return false;
+                size = aacAlignmentBe(header.data()+8,8); head = 16;
+            } else if (!size) {
+                if (scope != 0) return false; // Size-to-EOF is supported only at the file level.
+                size = limit-at;
+            }
+            if (size < head || size > limit-at) return false;
+            const auto body = at+head, end = at+size;
+            const auto type = [&](const char* name) { return std::memcmp(header.data()+4,name,4) == 0; };
+            unsigned child = 0, index = 0;
+            if (type("moov")) { if (scope != 0) return false; child = 1; index = 0; }
+            else if (type("trak")) { if (scope != 1) return false; child = 2; index = 2; }
+            else if (type("mdia")) { if (scope != 2) return false; child = 3; index = 3; }
+            else if (type("edts")) { if (scope != 2) return false; child = 4; index = 4; }
+            if (child) {
+                if (++seen[index] != 1 || !self(self,body,end,child)) return false;
+            } else if (type("mvhd") || type("mdhd") || type("hdlr") || type("elst")) {
+                std::array<std::uint8_t,32> data{};
+                const auto get = [&](unsigned count) { return count <= end-body && read(body,data.data(),count); };
+                if (!get(4) || data[1] || data[2] || data[3]) return false;
+                const auto version = data[0];
+                if (type("mvhd") || type("mdhd")) {
+                    const bool movie = type("mvhd");
+                    if (scope != (movie ? 1U : 3U) || ++seen[movie ? 1 : 5] != 1 || version > 1) return false;
+                    const unsigned minimum = movie ? (version ? 112 : 100) : (version ? 36 : 24);
+                    if (end-body < minimum || !get(version ? 32 : 20)) return false;
+                    const auto scale = static_cast<std::uint32_t>(aacAlignmentBe(data.data()+(version ? 20 : 12),4));
+                    const auto duration = aacAlignmentBe(data.data()+(version ? 24 : 16),version ? 8 : 4);
+                    if (!scale || !duration || duration == (version ? UINT64_MAX : UINT32_MAX)) return false;
+                    if (movie) { timing.movieScale = scale; timing.movieDuration = duration; }
+                    else { timing.mediaScale = scale; timing.mediaDuration = duration; }
+                } else if (type("hdlr")) {
+                    if (scope != 3 || ++seen[6] != 1 || version || end-body < 24 || !get(12) ||
+                        aacAlignmentBe(data.data()+4,4) || std::memcmp(data.data()+8,"soun",4)) return false;
+                } else {
+                    if (scope != 4 || ++seen[7] != 1 || version > 1 || !get(8) || aacAlignmentBe(data.data()+4,4) != 1) return false;
+                    if (end-body != (version ? 28U : 20U) || !get(version ? 28 : 20)) return false;
+                    const unsigned width = version ? 8 : 4;
+                    timing.editDuration = aacAlignmentBe(data.data()+8,width);
+                    if (data[8+width] & 0x80) return false; // Negative media_time / empty edits are unsupported.
+                    timing.mediaTime = aacAlignmentBe(data.data()+8+width,width);
+                    if (!timing.editDuration || aacAlignmentBe(data.data()+8+2*width,4) != 0x00010000) return false;
+                }
+            } // All other boxes, including mdat, are bounded skips, never payload allocations.
+            at = end;
+        }
+        return at == limit;
+    };
+    if (!walk(walk,0,length,0) || !std::all_of(seen.begin(),seen.end(),[](unsigned count) { return count == 1; })) return timing;
+    std::uint64_t source = 0, media = 0;
+    timing.known = aacAlignmentExactFrames(timing.editDuration,timing.movieScale,source) && source == aacAlignmentFrames &&
+        aacAlignmentExactFrames(timing.mediaTime,timing.mediaScale,timing.offset) && timing.offset <= aacAlignmentRawBound &&
+        aacAlignmentExactFrames(timing.mediaDuration,timing.mediaScale,media) && timing.offset <= media && source <= media-timing.offset &&
+        timing.movieDuration >= timing.editDuration;
+    return timing;
+}
+float aacAlignmentSource(std::uint64_t sample) noexcept {
+    constexpr double pi = 3.14159265358979323846;
+    const auto system = 0.3F*static_cast<float>(std::sin(2*pi*(sample < 720 ? 1000 : 2000)*static_cast<double>(sample)/48000));
+    return static_cast<float>(0.5*(static_cast<double>(system)+(sample < 719 ? 0.375F : 0.0F)));
+}
+double aacAlignmentReference(std::uint64_t sample) noexcept {
+    return static_cast<float>(static_cast<std::int16_t>(std::clamp(aacAlignmentSource(sample),-1.0F,1.0F)*32767.0F))/32768.0F;
+}
+struct AacAlignmentStats {
+    std::uint64_t count = 0;
+    double x = 0, y = 0, xx = 0, yy = 0, xy = 0, error2 = 0, maxError = 0;
+    std::array<double,2> real{}, imag{};
+    void add(std::uint64_t sample, double reference, double actual) noexcept {
+        ++count; x += reference; y += actual; xx += reference*reference; yy += actual*actual; xy += reference*actual;
+        const auto error = actual-reference; error2 += error*error; maxError = (std::max)(maxError,std::abs(error));
+        constexpr double pi = 3.14159265358979323846;
+        for (unsigned tone = 0; tone < 2; ++tone) {
+            const auto angle = 2*pi*(tone ? 2000 : 1000)*static_cast<double>(sample)/48000;
+            real[tone] += actual*std::cos(angle); imag[tone] += actual*std::sin(angle);
+        }
+    }
+};
+struct AacAlignmentModel {
+    static constexpr std::array<std::array<std::uint64_t,2>,6> bounds{{{0,1440},{0,720},{720,1440},{0,240},{480,960},{1200,1440}}};
+    std::array<AacAlignmentStats,6> windows{};
+    AacAlignmentStats prefix, tail;
+    void add(std::uint64_t raw, std::uint64_t offset, double actual) noexcept {
+        if (raw < offset) { prefix.add(raw,0,actual); return; }
+        const auto sample = raw-offset;
+        if (sample >= aacAlignmentFrames) { tail.add(raw,0,actual); return; }
+        const auto reference = aacAlignmentReference(sample);
+        for (std::size_t i = 0; i < bounds.size(); ++i)
+            if (sample >= bounds[i][0] && sample < bounds[i][1]) windows[i].add(sample,reference,actual);
+    }
+};
+// End AAC alignment diagnostic core; host selfcheck extracts the exact code above.
+
+void aacAlignmentPrint(const char* model, const char* window, const AacAlignmentStats& stats) {
+    const auto count = static_cast<double>(stats.count);
+    const auto variance = count ? stats.xx-stats.x*stats.x/count : 0;
+    const bool gainKnown = variance > 1e-12;
+    std::fprintf(stderr,"DIAGNOSTIC_ONLY strict_acceptance=0 AAC_ALIGNMENT model=%s window=%s count=%llu mean=%.17g rms=%.17g ref_rms=%.17g rmse=%.17g max_error=%.17g gain_known=%u gain=%.17g tone1000=%.17g tone2000=%.17g\n",
+        model,window,static_cast<unsigned long long>(stats.count),count ? stats.y/count : 0,
+        count ? std::sqrt(stats.yy/count) : 0,count ? std::sqrt(stats.xx/count) : 0,count ? std::sqrt(stats.error2/count) : 0,
+        stats.maxError,unsigned(gainKnown),gainKnown ? (stats.xy-stats.x*stats.y/count)/variance : 0,
+        count ? 2*std::hypot(stats.real[0],stats.imag[0])/count : 0,count ? 2*std::hypot(stats.real[1],stats.imag[1])/count : 0);
+}
+#include "MediaEngineWaveformProbe.h"
+} // anonymous namespace
+#include "MediaEngineProcessLoopbackProbe.h"
+namespace {
+
+HRESULT aacAlignmentDecode(IStream* input, const AacAlignmentTiming& timing, std::uint64_t expectedRaw,
+    const std::shared_ptr<const std::atomic<bool>>& cancel) {
+    using Microsoft::WRL::ComPtr;
+    const auto com = CoInitializeEx(nullptr,COINIT_MULTITHREADED); if (FAILED(com)) return com;
+    auto hr = MFStartup(MF_VERSION);
+    if (FAILED(hr)) { CoUninitialize(); return hr; }
+    hr = [&]() -> HRESULT {
+        LARGE_INTEGER zero{}; auto status = input->Seek(zero,STREAM_SEEK_SET,nullptr); if (status != S_OK) return FAILED(status) ? status : E_FAIL;
+        ComPtr<IMFByteStream> bytes; ComPtr<IMFSourceReader> reader; ComPtr<IMFMediaType> pcm, actual;
+        status = MFCreateMFByteStreamOnStream(input,&bytes); if (FAILED(status)) return status;
+        status = MFCreateSourceReaderFromByteStream(bytes.Get(),nullptr,&reader); if (FAILED(status)) return status;
+        status = MFCreateMediaType(&pcm); if (FAILED(status)) return status;
+        for (const auto set : {pcm->SetGUID(MF_MT_MAJOR_TYPE,MFMediaType_Audio),pcm->SetGUID(MF_MT_SUBTYPE,MFAudioFormat_PCM),
+            pcm->SetUINT32(MF_MT_AUDIO_BITS_PER_SAMPLE,16),pcm->SetUINT32(MF_MT_AUDIO_NUM_CHANNELS,1),pcm->SetUINT32(MF_MT_AUDIO_SAMPLES_PER_SECOND,48000)}) if (FAILED(set)) return set;
+        status = reader->SetCurrentMediaType(0,nullptr,pcm.Get()); if (FAILED(status)) return status;
+        status = reader->GetCurrentMediaType(0,&actual); if (FAILED(status)) return status;
+        GUID major{}, subtype{};
+        status = actual->GetGUID(MF_MT_MAJOR_TYPE,&major); if (FAILED(status)) return status;
+        status = actual->GetGUID(MF_MT_SUBTYPE,&subtype); if (FAILED(status)) return status;
+        if (major != MFMediaType_Audio || subtype != MFAudioFormat_PCM) return MF_E_INVALIDMEDIATYPE;
+        for (const auto attribute : {MF_MT_AUDIO_BITS_PER_SAMPLE,MF_MT_AUDIO_NUM_CHANNELS,MF_MT_AUDIO_SAMPLES_PER_SECOND,MF_MT_AUDIO_BLOCK_ALIGNMENT,MF_MT_AUDIO_AVG_BYTES_PER_SECOND}) {
+            UINT32 value = 0; status = actual->GetUINT32(attribute,&value); if (FAILED(status)) return status;
+            const auto expected = attribute == MF_MT_AUDIO_BITS_PER_SAMPLE ? 16U : attribute == MF_MT_AUDIO_NUM_CHANNELS ? 1U :
+                attribute == MF_MT_AUDIO_BLOCK_ALIGNMENT ? 2U : attribute == MF_MT_AUDIO_AVG_BYTES_PER_SECOND ? 96000U : 48000U;
+            if (value != expected) return MF_E_INVALIDMEDIATYPE;
+        }
+        std::array<AacAlignmentModel,2> models{}; AacAlignmentStats raw;
+        bool eos = false; LONGLONG previous = -1;
+        for (unsigned calls = 0; calls < 64 && !eos; ++calls) {
+            if (cancel->load()) return HRESULT_FROM_WIN32(ERROR_OPERATION_ABORTED);
+            DWORD stream = 0, flags = 0; LONGLONG timestamp = 0; ComPtr<IMFSample> sample;
+            status = reader->ReadSample(0,0,&stream,&flags,&timestamp,&sample); if (FAILED(status)) return status;
+            if (cancel->load()) return HRESULT_FROM_WIN32(ERROR_OPERATION_ABORTED);
+            if (stream || (flags & ~MF_SOURCE_READERF_ENDOFSTREAM)) return MF_E_INVALIDMEDIATYPE;
+            eos = (flags & MF_SOURCE_READERF_ENDOFSTREAM) != 0;
+            DWORD length = 0; LONGLONG time = 0, span = 0;
+            if (sample) {
+                status = sample->GetTotalLength(&length); if (FAILED(status)) return status;
+                status = sample->GetSampleTime(&time); if (FAILED(status)) return status;
+                status = sample->GetSampleDuration(&span); if (FAILED(status)) return status;
+            }
+            std::fprintf(stderr,"DIAGNOSTIC_ONLY strict_acceptance=0 AAC_ALIGNMENT sample=%u raw_begin=%llu bytes=%lu timestamp=%lld time=%lld span=%lld flags=%lu null=%u\n",
+                calls,static_cast<unsigned long long>(raw.count),length,timestamp,time,span,flags,unsigned(!sample));
+            std::fflush(stderr);
+            if (!sample) { if (!eos) return MF_E_INVALIDMEDIATYPE; continue; }
+            if (!length || length%2 || length/2 > aacAlignmentRawBound-raw.count || time != timestamp || time < 0 || time < previous || span <= 0) return MF_E_INVALIDMEDIATYPE;
+            previous = time;
+            ComPtr<IMFMediaBuffer> buffer; status = sample->ConvertToContiguousBuffer(&buffer); if (FAILED(status)) return status;
+            BYTE* data = nullptr; DWORD capacity = 0, size = 0;
+            status = buffer->Lock(&data,&capacity,&size); if (FAILED(status)) return status;
+            if (size != length || size > capacity || !data) { (void)buffer->Unlock(); return MF_E_INVALIDMEDIATYPE; }
+            for (DWORD at = 0; at < size; at += 2) {
+                std::int16_t value = 0; std::memcpy(&value,data+at,2);
+                const auto amplitude = static_cast<double>(value)/32768;
+                models[0].add(raw.count,0,amplitude);
+                if (timing.known) models[1].add(raw.count,timing.offset,amplitude);
+                raw.add(raw.count,0,amplitude);
+            }
+            status = buffer->Unlock(); if (FAILED(status)) return status;
+        }
+        aacAlignmentPrint("raw","all_raw",raw);
+        constexpr std::array<const char*,6> names{"all_source","first_half","second_half","first_0_240","transition_480_960","last_1200_1440"};
+        for (unsigned model = 0; model < (timing.known ? 2U : 1U); ++model) {
+            const auto* name = model ? "metadata_offset" : "no_offset";
+            std::fprintf(stderr,"DIAGNOSTIC_ONLY strict_acceptance=0 AAC_ALIGNMENT model=%s offset=%llu source_expected=1440 source_observed=%llu prefix=%llu tail=%llu\n",
+                name,static_cast<unsigned long long>(model ? timing.offset : 0),static_cast<unsigned long long>(models[model].windows[0].count),
+                static_cast<unsigned long long>(models[model].prefix.count),static_cast<unsigned long long>(models[model].tail.count));
+            aacAlignmentPrint(name,"prefix",models[model].prefix); aacAlignmentPrint(name,"tail",models[model].tail);
+            for (std::size_t i = 0; i < names.size(); ++i) aacAlignmentPrint(name,names[i],models[model].windows[i]);
+        }
+        std::fprintf(stderr,"DIAGNOSTIC_ONLY strict_acceptance=0 AAC_ALIGNMENT eos=%u raw_frames=%llu inspector_raw=%llu metadata_known=%u\n",
+            unsigned(eos),static_cast<unsigned long long>(raw.count),static_cast<unsigned long long>(expectedRaw),unsigned(timing.known));
+        return eos && raw.count == expectedRaw ? S_OK : MF_E_INVALIDMEDIATYPE;
+    }(); // All MF buffers/readers/types retire before MFShutdown.
+    const auto shutdown = MFShutdown(); if (SUCCEEDED(hr)) hr = shutdown;
+    CoUninitialize(); return hr;
+}
+[[maybe_unused]] void diagnosticAacAlignment() {
+    const auto baseline = CustodyOwnedMemory::usedBytes();
+    const bool completed = std::async(std::launch::async, [] {
+        testing::GeneratedProtectedRecording capture("generated-diagnostic-aac-alignment");
+        for (unsigned n = 0; n < 3; ++n) {
+            CanonicalAudioFrame frame; frame.ptsFrames = n*480;
+            for (unsigned at = 0; at < 480; ++at) frame.mixed[at] = aacAlignmentSource(n*480+at);
+            assert(capture.writer->append(frame));
+        }
+        const auto sealed = capture.writer->finalize();
+        std::fprintf(stderr,"DIAGNOSTIC_ONLY strict_acceptance=0 AAC_ALIGNMENT seal error=%u native=%08x duration_ms=%llu\n",
+            unsigned(sealed.error),sealed.nativeError,static_cast<unsigned long long>(sealed.durationMs)); std::fflush(stderr);
+        if (!sealed.normalPackage() || sealed.durationMs != 30) return false;
+        auto pair = capture.coldPair(); if (!pair.ok()) return false;
+        auto inspection = LocalRecordingPackage::inspectProtected(capture.paths.root,*pair.value,capture.session,capture.cancel);
+        std::fprintf(stderr,"DIAGNOSTIC_ONLY strict_acceptance=0 AAC_ALIGNMENT inspector ok=%u error=%u native=%08x\n",
+            unsigned(inspection.ok()),unsigned(inspection.error),inspection.nativeError); std::fflush(stderr);
+        if (!inspection.ok()) return false;
+        const auto evidence = (*inspection.value)->evidence(); inspection.value.reset();
+        auto readers = openProtectedCustodyReaders(capture.paths.root,*pair.value,capture.cancel); if (!readers.ok()) return false;
+        const auto slot = (*pair.value)->selectedSlot(); const auto& refs = (*pair.value)->current();
+        std::size_t canonical = refs.refCount, playback = refs.refCount;
+        for (std::size_t i = 0; i < refs.refCount; ++i) {
+            if (refs.refs[i].role == CustodyRole::canonical) canonical = i;
+            if (refs.refs[i].role == CustodyRole::playback) playback = i;
+        }
+        if (canonical == refs.refCount || playback == refs.refCount || !refs.refs[canonical].length ||
+            *refs.refs[canonical].length != aacAlignmentFrames*sizeof(float) || !refs.refs[playback].length) return false;
+        auto* source = readers.value->at(slot).at(canonical).stream.Get();
+        CustodyVector<float> chunk(480); std::uint64_t mismatched = 0;
+        const auto chunkBytes = static_cast<ULONG>(chunk.size()*sizeof(float));
+        for (unsigned batch = 0; batch < 3; ++batch) {
+            ULONG got = 0; const auto hr = source->Read(chunk.data(),chunkBytes,&got);
+            if (hr != S_OK || got != chunkBytes) return false;
+            for (unsigned i = 0; i < chunk.size(); ++i) if (chunk[i] != aacAlignmentSource(batch*480+i)) ++mismatched;
+        }
+        std::fprintf(stderr,"DIAGNOSTIC_ONLY strict_acceptance=0 AAC_ALIGNMENT canonical_frames=1440 mismatched=%llu container_100ns=%llu\n",
+            static_cast<unsigned long long>(mismatched),static_cast<unsigned long long>(evidence.playback.containerDuration100ns));
+        if (mismatched) return false;
+        auto* input = readers.value->at(slot).at(playback).stream.Get(); HRESULT metadataIo = S_OK;
+        const auto timing = aacAlignmentTiming(*refs.refs[playback].length,[&](std::uint64_t offset, std::uint8_t* data, unsigned count) {
+            LARGE_INTEGER position{}; position.QuadPart = static_cast<LONGLONG>(offset); ULONG got = 0; ULARGE_INTEGER actual{};
+            metadataIo = input->Seek(position,STREAM_SEEK_SET,&actual);
+            if (metadataIo == S_OK && actual.QuadPart != offset) metadataIo = STG_E_SEEKERROR;
+            if (metadataIo == S_OK) metadataIo = input->Read(data,count,&got);
+            if (SUCCEEDED(metadataIo) && (metadataIo != S_OK || got != count)) metadataIo = STG_E_READFAULT;
+            return metadataIo == S_OK;
+        });
+        if (timing.known) std::fprintf(stderr,"DIAGNOSTIC_ONLY strict_acceptance=0 AAC_ALIGNMENT metadata=known movie_scale=%u media_scale=%u movie_duration=%llu media_duration=%llu edit_duration=%llu media_time=%llu offset_frames=%llu candidate_only=1\n",
+            timing.movieScale,timing.mediaScale,static_cast<unsigned long long>(timing.movieDuration),static_cast<unsigned long long>(timing.mediaDuration),
+            static_cast<unsigned long long>(timing.editDuration),static_cast<unsigned long long>(timing.mediaTime),static_cast<unsigned long long>(timing.offset));
+        else std::fprintf(stderr,"DIAGNOSTIC_ONLY strict_acceptance=0 AAC_ALIGNMENT metadata=unknown_or_unsupported metadata_offset=unknown io_hr=%08lx\n",static_cast<unsigned long>(metadataIo));
+        std::fflush(stderr);
+        if (FAILED(metadataIo)) return false; // Unsupported metadata may be observed; actual protected IO failure may not be ignored.
+        const auto hr = aacAlignmentDecode(input,timing,evidence.playback.decodedFrames,capture.cancel);
+        std::fprintf(stderr,"DIAGNOSTIC_ONLY strict_acceptance=0 AAC_ALIGNMENT decode_hr=%08lx\n",static_cast<unsigned long>(hr)); std::fflush(stderr);
+        return SUCCEEDED(hr);
+    }).get();
+    const bool memoryReleased = waitFor([&] { return CustodyOwnedMemory::usedBytes() == baseline; });
+    std::fprintf(stderr,"DIAGNOSTIC_ONLY strict_acceptance=0 AAC_ALIGNMENT completed=%u owned_baseline=%zu owned_final=%zu memory_released=%u\n",
+        unsigned(completed),baseline,CustodyOwnedMemory::usedBytes(),unsigned(memoryReleased)); std::fflush(stderr);
+    assert(completed && memoryReleased); // Diagnostic execution, never strict audio acceptance.
 }
 
 void protectedMediaEngine() {
@@ -11897,6 +12442,911 @@ int queueGateBeforeOriginalRename() {
     return all ? 0 : 93;
 }
 }
+namespace {
+constexpr std::array<const wchar_t*, 3> loaderFaultNames{L"avutil-59.dll", L"avcodec-61.dll", L"avformat-61.dll"};
+constexpr std::array<std::string_view, 16> loaderFaultCases{
+    "positive", "missing-util", "missing-codec", "missing-format",
+    "tampered-util", "tampered-codec", "tampered-format",
+    "preloaded-foreign-util", "preloaded-foreign-codec", "preloaded-foreign-format",
+    "preloaded-same-group", "lock-util", "lock-codec", "lock-format", "live-locks", "writer-missing-format"};
+constexpr std::array<std::string_view, 4> loaderRawCases{
+    "raw-util", "raw-group-dos", "raw-group-canonical", "raw-group-double"};
+void loaderFaultRequire(bool valid, const char* stage) {
+    if (!valid) throw std::runtime_error(stage);
+}
+// Only actual calls lexically inside FfmpegApi.cpp are observed. Test preloads,
+// inventory/probe handles and foreign owners never enter this acquisition ledger.
+enum class LoaderNativeKind : unsigned { file, snapshot, load, temporary };
+struct LoaderNativeLedger {
+    struct Entry {
+        LoaderNativeKind kind{};
+        HANDLE value = nullptr;
+        unsigned owner = 0;
+        bool acquired = false, attempted = false, released = false;
+        DWORD acquireError = 0, releaseError = 0;
+    };
+    std::array<Entry, 512> entries{}; // Each acquisition is a generation, even for equal HMODULEs.
+    std::size_t size = 0;
+    unsigned overflow = 0, invalid = 0, releaseFailures = 0, loadCalls = 0;
+    HANDLE invalidValue = nullptr;
+    DWORD invalidError = 0;
+    bool cutSecondLoad = false, forced = false;
+    void acquire(LoaderNativeKind kind, HANDLE value, unsigned owner, bool success, DWORD error) noexcept {
+        if (size == entries.size()) { ++overflow; return; }
+        entries[size++] = {kind, value, owner, success, false, false, success ? ERROR_SUCCESS : error, 0};
+    }
+    void release(HANDLE value, unsigned owner, bool module, bool success, DWORD error) noexcept {
+        // Native release has already run exactly once. Never retry or repair it.
+        if (!success) ++releaseFailures;
+        for (std::size_t i = size; i; --i) {
+            auto& entry = entries[i - 1];
+            const bool isModule = entry.kind == LoaderNativeKind::load || entry.kind == LoaderNativeKind::temporary;
+            if (entry.acquired && !entry.attempted && entry.value == value && entry.owner == owner && isModule == module) {
+                entry.attempted = true; entry.released = success; entry.releaseError = success ? ERROR_SUCCESS : error;
+                return;
+            }
+        }
+        ++invalid; invalidValue = value; invalidError = success ? ERROR_SUCCESS : error;
+    }
+    unsigned count(LoaderNativeKind kind, unsigned owner, bool live) const noexcept {
+        unsigned result = 0;
+        for (std::size_t i = 0; i < size; ++i) {
+            const auto& entry = entries[i];
+            if (entry.kind == kind && (!owner || entry.owner == owner) && entry.acquired && (!live || !entry.released)) ++result;
+        }
+        return result;
+    }
+    void live(unsigned owner) const {
+        loaderFaultRequire(!overflow && !invalid && !releaseFailures && count(LoaderNativeKind::file, owner, true) >= 4 &&
+            count(LoaderNativeKind::load, owner, true) == 3 && count(LoaderNativeKind::snapshot, owner, false) >= 2 &&
+            count(LoaderNativeKind::temporary, owner, false) > 3 && !count(LoaderNativeKind::snapshot, owner, true) &&
+            !count(LoaderNativeKind::temporary, owner, true), "native_live_ownership");
+    }
+    void balanced(const char* phase) const {
+        bool valid = count(LoaderNativeKind::file, 0, false) && !overflow && !invalid && !releaseFailures;
+        for (unsigned kind = 0; kind < 4; ++kind) {
+            const auto type = static_cast<LoaderNativeKind>(kind);
+            const auto acquired = count(type, 0, false), outstanding = count(type, 0, true);
+            std::fprintf(stderr, "FFMPEG_NATIVE phase=%s kind=%u acquired=%u released=%u outstanding=%u\n",
+                phase, kind, acquired, acquired - outstanding, outstanding);
+            valid = valid && !outstanding;
+        }
+        for (std::size_t i = 0; i < size; ++i) {
+            const auto& entry = entries[i];
+            if (entry.kind == LoaderNativeKind::load || !entry.acquired || (entry.attempted && !entry.released))
+                std::fprintf(stderr, "FFMPEG_NATIVE phase=%s generation=%zu owner=%u kind=%u handle=%p acquired=%u acquire_native=%lu attempted=%u released=%u release_native=%lu\n",
+                    phase, i, entry.owner, unsigned(entry.kind), entry.value, unsigned(entry.acquired), entry.acquireError,
+                    unsigned(entry.attempted), unsigned(entry.released), entry.releaseError);
+        }
+        std::fprintf(stderr, "FFMPEG_NATIVE phase=%s records=%zu overflow=%u invalid=%u invalid_handle=%p invalid_native=%lu release_failures=%u balanced=%u\n",
+            phase, size, overflow, invalid, invalidValue, invalidError, releaseFailures, unsigned(valid));
+        loaderFaultRequire(valid, "native_ownership_balance");
+    }
+};
+thread_local LoaderNativeLedger* loaderNativeLedger = nullptr;
+thread_local unsigned loaderNativeOwner = 0;
+struct LoaderNativeScope {
+    LoaderNativeLedger* previous = loaderNativeLedger;
+    unsigned previousOwner = loaderNativeOwner;
+    explicit LoaderNativeScope(LoaderNativeLedger& ledger, unsigned owner = 1) noexcept {
+        loaderNativeLedger = &ledger; loaderNativeOwner = owner;
+    }
+    ~LoaderNativeScope() { loaderNativeLedger = previous; loaderNativeOwner = previousOwner; }
+    LoaderNativeScope(const LoaderNativeScope&) = delete;
+    LoaderNativeScope& operator=(const LoaderNativeScope&) = delete;
+};
+// Set the same observation owner for construction AND destruction, including an
+// exception in the surrounding test. No reference is moved between real APIs.
+struct LoaderNativeApi {
+    LoaderNativeLedger& ledger;
+    unsigned owner;
+    std::unique_ptr<FfmpegApi> value;
+    LoaderNativeApi(LoaderNativeLedger& observed, unsigned id) : ledger(observed), owner(id) {
+        LoaderNativeScope scope(ledger, owner); value = std::make_unique<FfmpegApi>();
+    }
+    void retire() noexcept { LoaderNativeScope scope(ledger, owner); value.reset(); }
+    ~LoaderNativeApi() { retire(); }
+};
+int loaderDirectoryPins();
+struct LoaderFaultHandle {
+    HANDLE value = INVALID_HANDLE_VALUE;
+    explicit LoaderFaultHandle(HANDLE handle = INVALID_HANDLE_VALUE) noexcept : value(handle) {}
+    ~LoaderFaultHandle() { if (value != INVALID_HANDLE_VALUE) CloseHandle(value); }
+    LoaderFaultHandle(const LoaderFaultHandle&) = delete;
+    LoaderFaultHandle& operator=(const LoaderFaultHandle&) = delete;
+};
+struct LoaderFaultModules {
+    std::array<HMODULE, 3> values{};
+    ~LoaderFaultModules() { for (std::size_t i = values.size(); i; --i) if (values[i-1]) FreeLibrary(values[i-1]); }
+};
+struct LoaderFaultChildOutput {
+    LoaderFaultHandle output, input;
+    std::vector<unsigned char> storage;
+    std::array<HANDLE, 2> inherited{};
+    STARTUPINFOEXW startup{};
+    ~LoaderFaultChildOutput() { if (startup.lpAttributeList) DeleteProcThreadAttributeList(startup.lpAttributeList); }
+    void open(const std::filesystem::path& path) {
+        SECURITY_ATTRIBUTES security{sizeof(SECURITY_ATTRIBUTES), nullptr, TRUE};
+        output.value = CreateFileW(path.c_str(), GENERIC_WRITE, FILE_SHARE_READ, &security, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
+        input.value = CreateFileW(L"NUL", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, &security, OPEN_EXISTING, 0, nullptr);
+        loaderFaultRequire(output.value != INVALID_HANDLE_VALUE && input.value != INVALID_HANDLE_VALUE, "child_stdio_open");
+        SIZE_T bytes = 0;
+        InitializeProcThreadAttributeList(nullptr, 1, 0, &bytes);
+        loaderFaultRequire(bytes != 0, "child_stdio_attribute_size");
+        storage.resize(bytes);
+        auto* attributes = reinterpret_cast<LPPROC_THREAD_ATTRIBUTE_LIST>(storage.data());
+        loaderFaultRequire(InitializeProcThreadAttributeList(attributes, 1, 0, &bytes) != FALSE, "child_stdio_attribute_init");
+        startup.lpAttributeList = attributes;
+        inherited = {output.value, input.value};
+        loaderFaultRequire(UpdateProcThreadAttribute(attributes, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
+            inherited.data(), sizeof(inherited), nullptr, nullptr) != FALSE, "child_stdio_handle_list");
+        startup.StartupInfo.cb = sizeof(startup);
+        startup.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
+        startup.StartupInfo.hStdInput = input.value;
+        startup.StartupInfo.hStdOutput = startup.StartupInfo.hStdError = output.value;
+    }
+};
+void loaderFaultPrintChildOutput(const std::filesystem::path& path, std::string_view selected) {
+    // Read only after terminal confirmation; keep the complete file in the owned fixture.
+    LoaderFaultHandle input(CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
+        nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
+    LARGE_INTEGER size{};
+    loaderFaultRequire(input.value != INVALID_HANDLE_VALUE && GetFileSizeEx(input.value, &size) && size.QuadPart >= 0, "child_stdio_read_open");
+    constexpr DWORD limit = 64 * 1024;
+    const auto shown = static_cast<DWORD>((std::min)(size.QuadPart, static_cast<LONGLONG>(limit)));
+    std::fprintf(stderr, "FFMPEG_LOADER child_log_begin case=%.*s bytes=%lld shown=%lu truncated=%u path=%ls\n",
+        int(selected.size()), selected.data(), size.QuadPart, shown, unsigned(size.QuadPart > limit), path.c_str());
+    std::array<char, 4096> buffer{};
+    for (DWORD at = 0; at < shown;) {
+        DWORD read = 0;
+        const auto wanted = (std::min)(shown - at, static_cast<DWORD>(buffer.size()));
+        loaderFaultRequire(ReadFile(input.value, buffer.data(), wanted, &read, nullptr) && read == wanted, "child_stdio_read");
+        loaderFaultRequire(std::fwrite(buffer.data(), 1, read, stderr) == read, "child_stdio_print");
+        at += read;
+    }
+    std::fprintf(stderr, "\nFFMPEG_LOADER child_log_end case=%.*s\n", int(selected.size()), selected.data());
+    std::fflush(stderr);
+}
+std::filesystem::path loaderFaultModulePath(HMODULE module) {
+    std::wstring path(32768, L'\0');
+    const auto n = GetModuleFileNameW(module, path.data(), static_cast<DWORD>(path.size()));
+    loaderFaultRequire(n && n < path.size(), "module_path"); path.resize(n);
+    return path;
+}
+std::array<HMODULE, 3> loaderFaultInventory() {
+    std::array<HMODULE, 3> result{};
+    LoaderFaultHandle snapshot(CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, GetCurrentProcessId()));
+    loaderFaultRequire(snapshot.value != INVALID_HANDLE_VALUE, "snapshot");
+    MODULEENTRY32W entry{}; entry.dwSize = sizeof(entry);
+    loaderFaultRequire(Module32FirstW(snapshot.value, &entry) != FALSE, "snapshot_first");
+    unsigned count = 0;
+    do {
+        loaderFaultRequire(++count <= 4096, "snapshot_bound");
+        for (std::size_t i = 0; i < result.size(); ++i) if (_wcsicmp(entry.szModule, loaderFaultNames[i]) == 0) {
+            loaderFaultRequire(!result[i], "duplicate_module"); result[i] = entry.hModule;
+            std::fprintf(stderr, "FFMPEG_LOADER module=%ls handle=%p\n", loaderFaultModulePath(entry.hModule).c_str(), static_cast<void*>(entry.hModule));
+        }
+    } while (Module32NextW(snapshot.value, &entry));
+    loaderFaultRequire(GetLastError() == ERROR_NO_MORE_FILES, "snapshot_end");
+    return result;
+}
+void loaderFaultModuleIdentity(HMODULE module, const std::filesystem::path& expected) {
+    loaderFaultRequire(module != nullptr, "module_absent");
+    const auto actual = loaderFaultModulePath(module);
+    LoaderFaultHandle a(CreateFileW(actual.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
+    LoaderFaultHandle b(CreateFileW(expected.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
+    const auto canonical = [](HANDLE file) {
+        std::wstring path(32768,L'\0');
+        const auto length = GetFinalPathNameByHandleW(file,path.data(),static_cast<DWORD>(path.size()),FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);
+        loaderFaultRequire(length && length < path.size(),"module_identity_path");
+        path.resize(length); return path;
+    };
+    FILE_ID_INFO ai{}, bi{};
+    loaderFaultRequire(a.value != INVALID_HANDLE_VALUE && b.value != INVALID_HANDLE_VALUE &&
+        GetFileInformationByHandleEx(a.value, FileIdInfo, &ai, sizeof(ai)) &&
+        GetFileInformationByHandleEx(b.value, FileIdInfo, &bi, sizeof(bi)) &&
+        ai.VolumeSerialNumber == bi.VolumeSerialNumber && std::memcmp(&ai.FileId, &bi.FileId, sizeof(ai.FileId)) == 0 &&
+        CompareStringOrdinal(canonical(a.value).c_str(), -1, canonical(b.value).c_str(), -1, TRUE) == CSTR_EQUAL, "module_identity");
+    std::fprintf(stderr, "FFMPEG_LOADER identity=%ls volume=%llu id=", expected.c_str(), static_cast<unsigned long long>(ai.VolumeSerialNumber));
+    for (const auto byte : ai.FileId.Identifier) std::fprintf(stderr, "%02x", static_cast<unsigned>(byte));
+    std::fputc('\n', stderr);
+}
+void loaderFaultAccess(const std::filesystem::path& path, DWORD access, bool blocked, bool diagnostic = false) {
+    LoaderFaultHandle file(CreateFileW(path.c_str(), access, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
+    const auto error = file.value == INVALID_HANDLE_VALUE ? GetLastError() : ERROR_SUCCESS;
+    std::fprintf(stderr, "FFMPEG_LOADER access=%lu blocked=%u native=%lu diagnostic_only=%u path=%ls\n", access, unsigned(blocked), error, unsigned(diagnostic), path.c_str());
+    if (!diagnostic) loaderFaultRequire(blocked ? error == ERROR_SHARING_VIOLATION : file.value != INVALID_HANDLE_VALUE, "file_access");
+}
+void loaderFaultRename(const std::filesystem::path& path, bool blocked) {
+    const auto destination = path.parent_path() / (path.filename().wstring() + L"-moved");
+    loaderFaultRequire(!std::filesystem::exists(destination), "rename_destination_exists");
+    const bool moved = MoveFileExW(path.c_str(), destination.c_str(), 0) != FALSE;
+    const auto error = moved ? ERROR_SUCCESS : GetLastError();
+    // Even a failing test restores its own namespace before reporting failure.
+    if (moved) loaderFaultRequire(MoveFileExW(destination.c_str(), path.c_str(), 0) != FALSE, "rename_restore");
+    std::fprintf(stderr, "FFMPEG_LOADER rename=%ls blocked=%u moved=%u native=%lu\n", path.c_str(), unsigned(blocked), unsigned(moved), error);
+    loaderFaultRequire(blocked ? !moved && error == ERROR_SHARING_VIOLATION : moved, "ancestor_rename");
+}
+void loaderFaultConstruct(HRESULT expected) {
+    HRESULT actual = S_OK;
+    try { FfmpegApi api; if (loaderNativeLedger) loaderNativeLedger->live(loaderNativeOwner); } catch (HRESULT error) { actual = error; }
+    std::fprintf(stderr, "FFMPEG_LOADER constructor=%08lx expected=%08lx\n", static_cast<unsigned long>(actual), static_cast<unsigned long>(expected));
+    loaderFaultRequire(actual == expected, "constructor_result"); // bad_alloc/unknown exceptions are not an expected refusal.
+}
+int loaderFaultCase(std::string_view selected) {
+    if (std::find(loaderFaultCases.begin(), loaderFaultCases.end(), selected) == loaderFaultCases.end()) return 96;
+    const auto baseline = CustodyOwnedMemory::usedBytes();
+    LoaderNativeLedger ledger;
+    LoaderNativeScope observation(ledger);
+    try {
+        loaderFaultRequire(loaderFaultInventory() == std::array<HMODULE, 3>{}, "entry_already_loaded");
+        const auto app = loaderFaultModulePath(nullptr).parent_path(), ancestor = app.parent_path(), control = ancestor.parent_path();
+        // Only the aggregate below births these roots. Never rename the build/app installation directory.
+        std::ifstream marker(control / L"loader-owned-stage.txt"); std::string line, extra;
+        loaderFaultRequire(app.filename() == L"app" && ancestor.filename() == L"ancestor" &&
+            control.filename().u8string() == selected &&
+            control.parent_path().filename().wstring().find(L"graf-storage-integration-") == 0 &&
+            std::getline(marker, line) && line == selected && !std::getline(marker, extra), "owned_stage");
+        std::array<std::filesystem::path, 3> paths;
+        for (std::size_t i = 0; i < paths.size(); ++i) paths[i] = app / loaderFaultNames[i];
+        std::size_t index = selected.find("codec") != std::string_view::npos ? 1 : selected.find("format") != std::string_view::npos ? 2 : 0;
+        if (selected == "writer-missing-format") {
+            loaderFaultRequire(!std::filesystem::exists(paths[2]), "writer_missing_setup");
+            auto worker = std::async(std::launch::async, [&ledger] {
+                LoaderNativeScope workerObservation(ledger); // TLS must arm the actual writer thread.
+                testing::GeneratedProtectedRecording capture("generated-loader-missing-format");
+                capture.append(3);
+                const auto result = capture.writer->finalize();
+                loaderFaultRequire(result.error == V5WriterError::encodeFailed && result.storageError == CustodyFileError::ioFailed &&
+                    result.nativeError == static_cast<std::uint32_t>(HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND)) &&
+                    !result.normalPackage() && !result.keepablePackage() && result.trustedPrefixRetained, "writer_failure_truth");
+                auto cold = capture.coldPair(); loaderFaultRequire(cold.ok(), "writer_cold_pair");
+                const auto& value = (*cold.value)->current();
+                loaderFaultRequire(value.phase == CustodyPackagePhase::sealedDegraded, "writer_cold_phase");
+                bool canonical = false, recovery = false;
+                for (std::size_t n = 0; n < value.refCount; ++n) {
+                    loaderFaultRequire(value.refs[n].role != CustodyRole::playback, "writer_no_playback_seal");
+                    canonical = canonical || value.refs[n].role == CustodyRole::canonical;
+                    recovery = recovery || value.refs[n].role == CustodyRole::recovery;
+                }
+                loaderFaultRequire(canonical && recovery, "writer_retained_prefix");
+                std::fprintf(stderr, "FFMPEG_LOADER writer_error=%u native=%u normal=0 keepable=0 cold_degraded=1 canonical=1 recovery=1 playback_ref=0\n",
+                    unsigned(result.error), result.nativeError);
+            });
+            worker.get(); // Actual writer/stream/native owners drain before the baseline check.
+        } else if (selected.substr(0, 8) == "missing-") {
+            loaderFaultRequire(!std::filesystem::exists(paths[index]), "missing_setup");
+            loaderFaultConstruct(HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND));
+        } else if (selected.substr(0, 9) == "tampered-") {
+            loaderFaultRequire(std::filesystem::exists(paths[index]), "tampered_setup");
+            loaderFaultConstruct(HRESULT_FROM_WIN32(ERROR_INVALID_DATA));
+        } else if (selected.substr(0, 5) == "lock-") {
+            {
+                LoaderFaultHandle writer(CreateFileW(paths[index].c_str(), GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                    nullptr, OPEN_EXISTING, 0, nullptr));
+                loaderFaultRequire(writer.value != INVALID_HANDLE_VALUE, "preheld_writer");
+                loaderFaultConstruct(HRESULT_FROM_WIN32(ERROR_SHARING_VIOLATION));
+                loaderFaultRequire(loaderFaultInventory() == std::array<HMODULE, 3>{}, "lock_refusal_loaded");
+            }
+            loaderFaultConstruct(S_OK);
+        } else if (selected.substr(0, 10) == "preloaded-") {
+            LoaderFaultModules refs;
+            std::array<LoaderFaultHandle, 3> files;
+            std::array<std::filesystem::path, 3> preload = paths;
+            const bool foreign = selected != "preloaded-same-group";
+            {
+                FfmpegApi checked; // Verify exact stock group BEFORE any explicit test preload/copy.
+                ledger.live(1);
+                if (foreign) {
+                    preload[index] = control / loaderFaultNames[index];
+                    loaderFaultRequire(CopyFileW(paths[index].c_str(), preload[index].c_str(), TRUE) != FALSE, "foreign_copy_new");
+                }
+                for (std::size_t i = 0; i < paths.size(); ++i) {
+                    files[i].value = CreateFileW(preload[i].c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+                    const auto hash = sha256File(paths[i]);
+                    loaderFaultRequire(files[i].value != INVALID_HANDLE_VALUE && hash.size() == 64 && sha256File(preload[i]) == hash, "preload_exact_bytes");
+                }
+            }
+            loaderFaultRequire(loaderFaultInventory() == std::array<HMODULE, 3>{}, "preload_validator_unloaded");
+            const auto count = foreign ? index + 1 : paths.size();
+            for (std::size_t i = 0; i < count; ++i) {
+                refs.values[i] = LoadLibraryExW(preload[i].c_str(), nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+                loaderFaultModuleIdentity(refs.values[i], preload[i]);
+            }
+            const auto before = loaderFaultInventory();
+            loaderFaultRequire(before == refs.values, "preload_dependency_closure");
+            loaderFaultConstruct(foreign ? HRESULT_FROM_WIN32(ERROR_INVALID_DATA) : S_OK);
+            loaderFaultRequire(loaderFaultInventory() == before, "preloaded_refs_preserved");
+            for (std::size_t i = 0; i < count; ++i) loaderFaultModuleIdentity(refs.values[i], preload[i]);
+        } else {
+            const bool locks = selected == "live-locks";
+            if (!locks) {
+                // All three files passed real verification; acquire the first real
+                // module, then inject only the second load failure. Cleanup stays real.
+                ledger.cutSecondLoad = true;
+                loaderFaultConstruct(HRESULT_FROM_WIN32(ERROR_OPERATION_ABORTED));
+                loaderFaultRequire(ledger.forced && ledger.loadCalls == 2 && std::count_if(ledger.entries.begin(),
+                    ledger.entries.begin() + ledger.size, [](const auto& entry) { return entry.kind == LoaderNativeKind::load && entry.acquired; }) == 1,
+                    "partial_real_load_cut");
+                ledger.balanced("partial_real_load");
+                loaderFaultRequire(loaderFaultInventory() == std::array<HMODULE, 3>{} && CustodyOwnedMemory::usedBytes() == baseline,
+                    "partial_real_load_unwind");
+                std::fprintf(stderr, "FFMPEG_LOADER partial_load actual_acquired=1 actual_released=1 injected_call=2 injected_native=%lu forced=%u\n",
+                    DWORD(ERROR_OPERATION_ABORTED), unsigned(ledger.forced));
+                ledger.cutSecondLoad = false;
+            }
+            {
+                LoaderNativeApi first(ledger, 1);
+                ledger.live(1);
+                const std::array<unsigned, 3> versions{first.value->avutil_version(), first.value->avcodec_version(), first.value->avformat_version()};
+                const auto modules = loaderFaultInventory();
+                for (std::size_t i = 0; i < modules.size(); ++i) loaderFaultModuleIdentity(modules[i], paths[i]);
+                std::fprintf(stderr, "FFMPEG_LOADER versions=%u,%u,%u\n", first.value->avutil_version(), first.value->avcodec_version(), first.value->avformat_version());
+                if (locks) {
+                    for (const auto& path : paths) { loaderFaultAccess(path, GENERIC_WRITE, true); loaderFaultAccess(path, DELETE, true); }
+                } else {
+                    LoaderNativeApi second(ledger, 2);
+                    ledger.live(2);
+                    first.retire();
+                    loaderFaultRequire(!ledger.count(LoaderNativeKind::file, 1, true) && !ledger.count(LoaderNativeKind::load, 1, true) &&
+                        loaderFaultInventory() == modules, "two_owners_first_released");
+                    ledger.live(2);
+                    for (std::size_t i = 0; i < modules.size(); ++i) loaderFaultModuleIdentity(modules[i], paths[i]);
+                    loaderFaultRequire(second.value->avutil_version() == versions[0] && second.value->avcodec_version() == versions[1] &&
+                        second.value->avformat_version() == versions[2], "two_owners_callable");
+                    for (const auto& path : paths) { loaderFaultAccess(path, GENERIC_WRITE, true); loaderFaultAccess(path, DELETE, true); }
+                    std::fputs("FFMPEG_LOADER two_owners=2 first_released=1 second_live=1 identity_pins_callable=1\n", stderr);
+                }
+            }
+            // The copied running image makes the old ancestor rename baseline
+            // invalid. Reuse B1: both runner/cwd are outside its fresh surrogate.
+            if (locks) loaderFaultRequire(loaderDirectoryPins() == 0, "live_locks_directory_pins");
+        }
+        ledger.balanced("case");
+        loaderFaultRequire(loaderFaultInventory() == std::array<HMODULE, 3>{}, "final_modules");
+        for (const auto& path : paths) if (std::filesystem::exists(path)) {
+            loaderFaultAccess(path, GENERIC_WRITE, false, true); loaderFaultAccess(path, DELETE, false);
+        }
+        loaderFaultRequire(waitFor([&] { return CustodyOwnedMemory::usedBytes() == baseline; }), "final_owned_baseline");
+        std::fprintf(stderr, "FFMPEG_LOADER case=%.*s result=PASS baseline=%zu final=%zu\n", int(selected.size()), selected.data(), baseline, CustodyOwnedMemory::usedBytes());
+        return 0;
+    } catch (HRESULT error) {
+        std::fprintf(stderr, "FFMPEG_LOADER unexpected_hresult=%08lx\n", static_cast<unsigned long>(error));
+    } catch (const std::exception& error) {
+        std::fprintf(stderr, "FFMPEG_LOADER failure=%s\n", error.what());
+    } catch (...) { std::fputs("FFMPEG_LOADER failure=unknown_exception\n", stderr); }
+    try { ledger.balanced("failed_case"); } catch (...) {} // Report actual unwind; never repair a failed release.
+    return 96;
+}
+
+// Diagnostic opens never write/delete. Close the metadata handle before either access probe.
+bool loaderRawFileProbe(const std::filesystem::path& path, std::string_view selected, const char* phase, bool accesses = true, bool writeDiagnostic = false) noexcept {
+    const auto attributes = GetFileAttributesW(path.c_str());
+    const DWORD attributesError = attributes == INVALID_FILE_ATTRIBUTES ? GetLastError() : ERROR_SUCCESS;
+    bool metadata = false;
+    {
+        LoaderFaultHandle file(CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
+        const DWORD openError = file.value == INVALID_HANDLE_VALUE ? GetLastError() : ERROR_SUCCESS;
+        FILE_ID_INFO id{}; LARGE_INTEGER bytes{}; IMAGE_DOS_HEADER dos{}; DWORD read = 0;
+        bool pe = false; WORD machine = 0;
+        const bool info = file.value != INVALID_HANDLE_VALUE && GetFileSizeEx(file.value, &bytes) &&
+            GetFileInformationByHandleEx(file.value, FileIdInfo, &id, sizeof(id));
+        if (info && ReadFile(file.value, &dos, sizeof(dos), &read, nullptr) && read == sizeof(dos) &&
+            dos.e_magic == IMAGE_DOS_SIGNATURE && dos.e_lfanew >= 0 && dos.e_lfanew <= 1024 * 1024 &&
+            bytes.QuadPart >= static_cast<LONGLONG>(dos.e_lfanew) + 6) {
+            LARGE_INTEGER offset{}; offset.QuadPart = dos.e_lfanew;
+            DWORD signature = 0;
+            pe = SetFilePointerEx(file.value, offset, nullptr, FILE_BEGIN) &&
+                ReadFile(file.value, &signature, sizeof(signature), &read, nullptr) && read == sizeof(signature) &&
+                signature == IMAGE_NT_SIGNATURE && ReadFile(file.value, &machine, sizeof(machine), &read, nullptr) && read == sizeof(machine);
+        }
+        metadata = attributes != INVALID_FILE_ATTRIBUTES && info && pe && machine == IMAGE_FILE_MACHINE_AMD64;
+        const unsigned exists = attributes != INVALID_FILE_ATTRIBUTES ? 1U :
+            (attributesError == ERROR_FILE_NOT_FOUND || attributesError == ERROR_PATH_NOT_FOUND ? 0U : 2U);
+        std::fprintf(stderr, "FFMPEG_RAW_PROBE case=%.*s phase=%s exists=%u attributes=%lu attributes_native=%lu read_native=%lu metadata=%u bytes=%lld pe=%u machine=%04x volume=%llu id=",
+            int(selected.size()), selected.data(), phase, exists, attributes, attributesError, openError,
+            unsigned(metadata), bytes.QuadPart, unsigned(pe), unsigned(machine), static_cast<unsigned long long>(id.VolumeSerialNumber));
+        for (const auto byte : id.FileId.Identifier) std::fprintf(stderr, "%02x", unsigned(byte));
+        std::fprintf(stderr, " path=%ls\n", path.c_str());
+    }
+    if (!accesses) return metadata;
+    bool accessible = metadata;
+    for (const DWORD access : {DWORD(GENERIC_WRITE), DWORD(DELETE)}) {
+        LoaderFaultHandle probe(CreateFileW(path.c_str(), access, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
+        const DWORD error = probe.value == INVALID_HANDLE_VALUE ? GetLastError() : ERROR_SUCCESS;
+        const bool diagnostic = writeDiagnostic && access == GENERIC_WRITE;
+        std::fprintf(stderr, "FFMPEG_RAW_PROBE case=%.*s phase=%s access=%lu opened=%u native=%lu diagnostic_only=%u path=%ls\n",
+            int(selected.size()), selected.data(), phase, access, unsigned(probe.value != INVALID_HANDLE_VALUE), error, unsigned(diagnostic), path.c_str());
+        if (!diagnostic) accessible = (probe.value != INVALID_HANDLE_VALUE) && accessible;
+    }
+    return accessible;
+}
+bool loaderRawSweep(const std::filesystem::path& app, std::string_view selected, const char* phase, bool executable) {
+    bool passed = true;
+    for (const auto name : loaderFaultNames)
+        passed = loaderRawFileProbe(app / name, selected, phase, true, std::strcmp(phase, "pre") != 0) && passed;
+    // The running-image EXE is not an FFmpeg DLL release criterion; keep its probes observable.
+    if (executable) {
+        const bool imageAccessible = loaderRawFileProbe(app / loaderFaultModulePath(nullptr).filename(), selected, phase);
+        std::fprintf(stderr, "FFMPEG_RAW_PROBE case=%.*s phase=%s exe_accessible=%u diagnostic_only=1\n",
+            int(selected.size()), selected.data(), phase, unsigned(imageAccessible));
+    }
+    std::fflush(stderr);
+    return passed;
+}
+bool loaderRawPlatform(std::string_view selected) {
+    // IsWow64Process2 UNKNOWN denotes no WOW64, not the executable machine type.
+    // Require our already pinned image's PE AMD64 header even for UNKNOWN/ARM64.
+    const bool ownAmd64 = loaderRawFileProbe(loaderFaultModulePath(nullptr), selected, "platform_exe", false);
+    static_assert(sizeof(void*) == 8, "raw_loader_requires_64_bit_process");
+    USHORT processMachine = 0, nativeMachine = 0;
+    const BOOL queried = IsWow64Process2(GetCurrentProcess(), &processMachine, &nativeMachine);
+    const DWORD error = queried ? ERROR_SUCCESS : GetLastError();
+    // RtlGetVersion avoids the compatibility version returned by unmanifested GetVersionEx.
+    using Version = LONG (WINAPI*)(OSVERSIONINFOW*);
+    const auto address = GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "RtlGetVersion");
+    Version version = nullptr; static_assert(sizeof(version) == sizeof(address));
+    std::memcpy(&version, &address, sizeof(version));
+    OSVERSIONINFOW os{}; os.dwOSVersionInfoSize = sizeof(os);
+    const LONG status = version ? version(&os) : -1;
+    std::fprintf(stderr, "FFMPEG_RAW platform queried=%u native_error=%lu process_machine=%04x native_machine=%04x version_status=%ld os=%lu.%lu.%lu own_pe_amd64=%u\n",
+        unsigned(queried != FALSE), error, unsigned(processMachine), unsigned(nativeMachine), status, os.dwMajorVersion, os.dwMinorVersion, os.dwBuildNumber, unsigned(ownAmd64));
+    return ownAmd64 && queried && status == 0 && (processMachine == IMAGE_FILE_MACHINE_AMD64 ||
+        (processMachine == IMAGE_FILE_MACHINE_UNKNOWN &&
+            (nativeMachine == IMAGE_FILE_MACHINE_AMD64 || nativeMachine == IMAGE_FILE_MACHINE_ARM64)));
+}
+struct LoaderRawRefs {
+    std::string_view selected;
+    std::array<HMODULE, 6> values{};
+    std::array<bool, 6> attempted{};
+    std::array<unsigned, 3> owned{}; // Explicit acquisitions only; NOT the Windows total reference count.
+    explicit LoaderRawRefs(std::string_view name) : selected(name) {}
+    bool release(std::size_t slot) noexcept {
+        if (!values[slot] || attempted[slot]) return true;
+        attempted[slot] = true; // Never retry an ambiguous/failed FreeLibrary in the destructor.
+        const auto index = slot % loaderFaultNames.size();
+        const auto before = owned[index];
+        const BOOL freed = FreeLibrary(values[slot]);
+        const DWORD error = freed ? ERROR_SUCCESS : GetLastError();
+        if (freed) --owned[index];
+        std::fprintf(stderr, "FFMPEG_RAW case=%.*s op=free slot=%zu module=%ls handle=%p returned=%u native=%lu owned_before=%u owned_refs=%u\n",
+            int(selected.size()), selected.data(), slot, loaderFaultNames[index], static_cast<void*>(values[slot]), unsigned(freed != FALSE), error, before, owned[index]);
+        return freed != FALSE;
+    }
+    ~LoaderRawRefs() { for (std::size_t i = values.size(); i; --i) (void)release(i - 1); }
+};
+int loaderRawCase(std::string_view selected) {
+    if (std::find(loaderRawCases.begin(), loaderRawCases.end(), selected) == loaderRawCases.end()) return 96;
+    const auto baseline = CustodyOwnedMemory::usedBytes();
+    try {
+        loaderFaultRequire(loaderFaultInventory() == std::array<HMODULE, 3>{}, "raw_entry_loaded");
+        const auto app = loaderFaultModulePath(nullptr).parent_path(), ancestor = app.parent_path(), control = ancestor.parent_path();
+        std::ifstream marker(control / L"loader-owned-stage.txt"); std::string line, extra;
+        loaderFaultRequire(app.filename() == L"app" && ancestor.filename() == L"ancestor" && control.filename().u8string() == selected &&
+            control.parent_path().filename().wstring().find(L"graf-storage-integration-") == 0 &&
+            std::getline(marker, line) && line == selected && !std::getline(marker, extra), "raw_owned_stage");
+        marker.close();
+        loaderFaultRequire(loaderRawPlatform(selected), "raw_platform");
+        bool passed = loaderRawSweep(app, selected, "pre", false);
+        std::array<std::filesystem::path, 3> paths;
+        for (std::size_t i = 0; i < paths.size(); ++i) {
+            paths[i] = app / loaderFaultNames[i];
+            if (selected == "raw-group-canonical") {
+                LoaderFaultHandle file(CreateFileW(paths[i].c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                    nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
+                loaderFaultRequire(file.value != INVALID_HANDLE_VALUE, "raw_canonical_open");
+                std::wstring path(32768, L'\0');
+                const auto length = GetFinalPathNameByHandleW(file.value, path.data(), static_cast<DWORD>(path.size()), FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);
+                loaderFaultRequire(length && length < path.size(), "raw_canonical_path"); path.resize(length); paths[i] = path;
+            } // No test file pin survives into LoadLibrary/unload/probes.
+        }
+        {
+            LoaderRawRefs refs(selected);
+            const std::size_t count = selected == "raw-util" ? 1 : 3;
+            const std::size_t rounds = selected == "raw-group-double" ? 2 : 1;
+            for (std::size_t round = 0; round < rounds; ++round) for (std::size_t i = 0; i < count; ++i) {
+                const auto slot = round * 3 + i;
+                refs.values[slot] = LoadLibraryExW(paths[i].c_str(), nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+                const DWORD error = refs.values[slot] ? ERROR_SUCCESS : GetLastError();
+                if (refs.values[slot]) ++refs.owned[i];
+                std::fprintf(stderr, "FFMPEG_RAW case=%.*s op=load slot=%zu module=%ls path=%ls flags=%lu handle=%p native=%lu owned_refs=%u\n",
+                    int(selected.size()), selected.data(), slot, loaderFaultNames[i], paths[i].c_str(), DWORD(LOAD_LIBRARY_SEARCH_SYSTEM32), static_cast<void*>(refs.values[slot]), error, refs.owned[i]);
+                loaderFaultRequire(refs.values[slot] != nullptr, "raw_load");
+                loaderFaultModuleIdentity(refs.values[slot], paths[i]);
+                if (round) loaderFaultRequire(refs.values[slot] == refs.values[i], "raw_double_identity");
+            }
+            std::array<HMODULE, 3> expected{};
+            for (std::size_t i = 0; i < count; ++i) expected[i] = refs.values[i];
+            loaderFaultRequire(loaderFaultInventory() == expected, "raw_loaded_inventory");
+            if (rounds == 2) {
+                for (std::size_t i = count; i; --i) passed = refs.release(3 + i - 1) && passed;
+                passed = (loaderFaultInventory() == expected) && passed;
+                for (std::size_t i = 0; i < count; ++i) passed = (refs.owned[i] == 1) && passed;
+            }
+            for (std::size_t i = count; i; --i) passed = refs.release(i - 1) && passed;
+            const bool empty = loaderFaultInventory() == std::array<HMODULE, 3>{};
+            std::fprintf(stderr, "FFMPEG_RAW phase=post_release inventory_empty=%u owned_refs=%u,%u,%u\n", unsigned(empty), refs.owned[0], refs.owned[1], refs.owned[2]);
+            passed = (refs.owned == std::array<unsigned, 3>{}) && empty && passed;
+        }
+        passed = loaderRawSweep(app, selected, "post_release", false) && passed;
+        passed = waitFor([&] { return CustodyOwnedMemory::usedBytes() == baseline; }) && passed;
+        std::fprintf(stderr, "FFMPEG_RAW case=%.*s result=%s baseline=%zu final=%zu\n", int(selected.size()), selected.data(), passed ? "PASS" : "FAIL", baseline, CustodyOwnedMemory::usedBytes());
+        return passed ? 0 : 96;
+    } catch (const std::exception& error) { std::fprintf(stderr, "FFMPEG_RAW failure=%s\n", error.what()); }
+      catch (...) { std::fputs("FFMPEG_RAW failure=unknown_exception\n", stderr); }
+    return 96;
+}
+
+// Consume a real terminal handle before probes. A failed close is reported, never retried.
+bool loaderRawCloseTerminal(LoaderFaultHandle& owner, std::string_view selected, const char* kind) noexcept {
+    const auto handle = owner.value;
+    owner.value = INVALID_HANDLE_VALUE;
+    const bool valid = handle != INVALID_HANDLE_VALUE && handle != nullptr;
+    const BOOL closed = valid ? CloseHandle(handle) : FALSE;
+    const DWORD error = !valid ? ERROR_INVALID_HANDLE : closed ? ERROR_SUCCESS : GetLastError();
+    std::fprintf(stderr, "FFMPEG_RAW_PARENT case=%.*s op=close kind=%s handle=%p attempted=%u returned=%u native=%lu\n",
+        int(selected.size()), selected.data(), kind, handle, unsigned(valid), unsigned(closed != FALSE), error);
+    return closed != FALSE;
+}
+
+int loaderFaultTests(bool raw = false) {
+    // Same executable/process pattern as protectedStartOwnerProcessDeath; never mutate the build prefix.
+    const auto* cases = raw ? loaderRawCases.data() : loaderFaultCases.data();
+    const auto caseCount = raw ? loaderRawCases.size() : loaderFaultCases.size();
+    auto fixture = std::make_unique<Fixture>();
+    try {
+        loaderFaultRequire(loaderFaultInventory() == std::array<HMODULE, 3>{}, "parent_already_loaded");
+        const auto executable = loaderFaultModulePath(nullptr), source = executable.parent_path();
+        const auto exeHash = sha256File(executable);
+        loaderFaultRequire(exeHash.size() == 64, "exe_hash");
+        LoaderNativeLedger parentLedger;
+        {
+            LoaderNativeScope observation(parentLedger);
+            FfmpegApi verified; // Holds source leaf/parent pins through ALL copying and controlled mutations.
+            parentLedger.live(1);
+            for (std::size_t caseIndex = 0; caseIndex < caseCount; ++caseIndex) {
+                const auto selected = cases[caseIndex];
+                const auto control = fixture->parent / std::string(selected), ancestor = control / L"ancestor", app = ancestor / L"app";
+                loaderFaultRequire(CreateDirectoryW(control.c_str(), nullptr) && CreateDirectoryW(ancestor.c_str(), nullptr) &&
+                    CreateDirectoryW(app.c_str(), nullptr), "stage_create_new");
+                { std::ofstream marker(control / L"loader-owned-stage.txt", std::ios::binary); marker << selected << '\n'; marker.close(); loaderFaultRequire(!marker.fail(), "stage_marker"); }
+                const auto copiedExe = app / executable.filename();
+                loaderFaultRequire(CopyFileW(executable.c_str(), copiedExe.c_str(), TRUE) && sha256File(copiedExe) == exeHash, "stage_exe");
+                const auto index = selected.find("codec") != std::string_view::npos ? 1U : selected.find("format") != std::string_view::npos ? 2U : 0U;
+                for (std::size_t i = 0; i < loaderFaultNames.size(); ++i) {
+                    const auto from = source / loaderFaultNames[i], to = app / loaderFaultNames[i];
+                    const auto original = sha256File(from);
+                    loaderFaultRequire(original.size() == 64 && CopyFileW(from.c_str(), to.c_str(), TRUE) && sha256File(to) == original, "stage_exact_dll");
+                    if (i == index && (selected.substr(0, 8) == "missing-" || selected == "writer-missing-format")) {
+                        loaderFaultRequire(DeleteFileW(to.c_str()) != FALSE, "stage_missing_dll");
+                    } else if (i == index && selected.substr(0, 9) == "tampered-") {
+                        std::fstream file(to, std::ios::binary | std::ios::in | std::ios::out);
+                        char byte = 0; file.seekg(0x1c); file.read(&byte, 1); loaderFaultRequire(file.good(), "tamper_read");
+                        const char changed = static_cast<char>(static_cast<unsigned char>(byte) ^ 1U);
+                        file.seekp(0x1c); file.write(&changed, 1); file.close(); loaderFaultRequire(!file.fail(), "tamper_write");
+                        loaderFaultRequire(std::filesystem::file_size(from) == std::filesystem::file_size(to) && sha256File(to) != original, "tamper_identity");
+                    }
+                    std::fprintf(stderr, "FFMPEG_LOADER stage=%.*s dll=%ls original_sha256=%s staged_sha256=%s\n", int(selected.size()), selected.data(), loaderFaultNames[i], original.c_str(),
+                        std::filesystem::exists(to) ? sha256File(to).c_str() : "absent");
+                }
+            }
+        }
+        parentLedger.balanced("parent_stage");
+        loaderFaultRequire(loaderFaultInventory() == std::array<HMODULE, 3>{}, "parent_validator_unloaded");
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(300);
+        unsigned passed = 0;
+        for (std::size_t caseIndex = 0; caseIndex < caseCount; ++caseIndex) {
+            const auto selected = cases[caseIndex];
+            const auto control = fixture->parent / std::string(selected), executableCopy = control / L"ancestor" / L"app" / executable.filename();
+            const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now()).count();
+            loaderFaultRequire(remaining > 0, "suite_deadline");
+            std::wstring command = L"\"" + executableCopy.wstring() + (raw ? L"\" --ffmpeg-loader-control " : L"\" --ffmpeg-loader-case ") + std::wstring(selected.begin(), selected.end());
+            const auto childLog = control / L"child-stdio.log";
+            LoaderFaultChildOutput output; output.open(childLog);
+            PROCESS_INFORMATION child{};
+            loaderFaultRequire(CreateProcessW(executableCopy.c_str(), command.data(), nullptr, nullptr, TRUE,
+                CREATE_NO_WINDOW | EXTENDED_STARTUPINFO_PRESENT, nullptr, control.c_str(), &output.startup.StartupInfo, &child) != FALSE, "child_start");
+            LoaderFaultHandle thread(child.hThread), process(child.hProcess);
+            const auto wait = WaitForSingleObject(process.value, static_cast<DWORD>((std::min)(remaining, std::int64_t{60000})));
+            auto terminal = wait;
+            if (wait != WAIT_OBJECT_0) { TerminateProcess(process.value, 96); terminal = WaitForSingleObject(process.value, 10000); }
+            if (terminal != WAIT_OBJECT_0) {
+                std::fprintf(stderr, "FFMPEG_LOADER unknown_child=%lu retained=%ls\n", child.dwProcessId, fixture->parent.c_str());
+                (void)fixture.release(); // Retain owned evidence/stages while a child may still use them.
+                return 96;
+            }
+            DWORD exit = 96; loaderFaultRequire(GetExitCodeProcess(process.value, &exit) != FALSE, "child_exit");
+            std::fprintf(stderr, "FFMPEG_LOADER child_case=%.*s pid=%lu wait=%lu terminal=%lu exit=%lu\n", int(selected.size()), selected.data(), child.dwProcessId, wait, terminal, exit);
+            const bool threadClosed = loaderRawCloseTerminal(thread, selected, "thread");
+            const bool processClosed = loaderRawCloseTerminal(process, selected, "process");
+            if (!threadClosed || !processClosed) {
+                std::fprintf(stderr, "FFMPEG_LOADER unknown_child=%lu reason=terminal_handle_close retained=%ls\n", child.dwProcessId, fixture->parent.c_str());
+                (void)fixture.release(); return 96;
+            }
+            // Metadata only: never change original16 status because a diagnostic probe failed.
+            bool postAccessible = false;
+            try { postAccessible = loaderRawSweep(executableCopy.parent_path(), selected, "post_exit", true); }
+            catch (...) { std::fputs("FFMPEG_RAW_PROBE phase=post_exit failure=metadata_exception\n", stderr); }
+            std::fprintf(stderr, "FFMPEG_RAW_PARENT case=%.*s phase=post_exit accessible=%u child_exit=%lu status_affects_case=%u\n",
+                int(selected.size()), selected.data(), unsigned(postAccessible), exit, unsigned(raw));
+            loaderFaultPrintChildOutput(childLog, selected);
+            if (raw && wait != WAIT_OBJECT_0) {
+                std::fprintf(stderr, "FFMPEG_RAW result=UNKNOWN wait=%lu terminal=%lu retained=%ls\n", wait, terminal, fixture->parent.c_str());
+                (void)fixture.release(); return 96;
+            }
+            if (wait == WAIT_OBJECT_0) {
+                const auto cleanupDeadline = (std::min)(deadline, std::chrono::steady_clock::now() + std::chrono::seconds(10));
+                bool deleted = false; DWORD deleteError = ERROR_SUCCESS; unsigned attempts = 0;
+                while (std::chrono::steady_clock::now() < cleanupDeadline) {
+                    ++attempts;
+                    deleted = DeleteFileW(executableCopy.c_str()) != FALSE;
+                    deleteError = deleted ? ERROR_SUCCESS : GetLastError();
+                    std::fprintf(stderr, "FFMPEG_LOADER exe_cleanup case=%.*s attempt=%u returned=%u native=%lu\n",
+                        int(selected.size()), selected.data(), attempts, unsigned(deleted), deleteError);
+                    if (deleted || (deleteError != ERROR_ACCESS_DENIED && deleteError != ERROR_SHARING_VIOLATION)) break;
+                    const auto sleepMs = std::chrono::duration_cast<std::chrono::milliseconds>(cleanupDeadline - std::chrono::steady_clock::now()).count();
+                    if (sleepMs <= 0) break;
+                    Sleep(static_cast<DWORD>((std::min)(sleepMs, std::int64_t{25})));
+                }
+                std::fprintf(stderr, "FFMPEG_LOADER exe_cleanup case=%.*s attempts=%u deleted=%u native=%lu\n",
+                    int(selected.size()), selected.data(), attempts, unsigned(deleted), deleteError);
+                loaderFaultRequire(deleted, "child_exe_delete");
+                const auto attributes = GetFileAttributesW(executableCopy.c_str());
+                const DWORD absenceError = attributes == INVALID_FILE_ATTRIBUTES ? GetLastError() : ERROR_SUCCESS;
+                std::fprintf(stderr, "FFMPEG_LOADER exe_cleanup case=%.*s attributes=%lu absence_native=%lu\n",
+                    int(selected.size()), selected.data(), attributes, absenceError);
+                loaderFaultRequire(attributes == INVALID_FILE_ATTRIBUTES && absenceError == ERROR_FILE_NOT_FOUND, "child_exe_absent");
+                loaderFaultRequire(std::chrono::steady_clock::now() < deadline, "suite_deadline");
+                loaderFaultRequire(std::chrono::steady_clock::now() < cleanupDeadline, "child_exe_cleanup_deadline");
+            }
+            if (wait == WAIT_OBJECT_0 && exit == 0 && (!raw || postAccessible)) ++passed;
+        }
+        std::fprintf(stderr, "%s completed=%u expected=%zu result=%s\n", raw ? "FFMPEG_RAW" : "FFMPEG_LOADER", passed, caseCount, passed == caseCount ? "PASS" : "FAIL");
+        return passed == caseCount ? 0 : 96;
+    } catch (const std::exception& error) { std::fprintf(stderr, "FFMPEG_LOADER parent_failure=%s\n", error.what()); }
+      catch (...) { std::fputs("FFMPEG_LOADER parent_failure=unknown_exception\n", stderr); }
+    return 96;
+}
+} // namespace
+
+// T116 directory-pin seam: preinclude every implementation dependency before macros.
+#include "../../RecApp/Storage/ProtectedCustodyMemory.h"
+#include <graf/GrafFFmpegBuildManifest.h>
+#include <bcrypt.h>
+#include <tlhelp32.h>
+#include <array>
+#include <cstring>
+#include <cwchar>
+#include <string>
+#include <utility>
+#include <vector>
+
+namespace {
+// Capture real entry points before the single implementation-only macro scope.
+constexpr auto loaderNativeCreateFileW = &::CreateFileW;
+constexpr auto loaderNativeSnapshot = &::CreateToolhelp32Snapshot;
+constexpr auto loaderNativeCloseHandle = &::CloseHandle;
+constexpr auto loaderNativeLoadLibraryExW = &::LoadLibraryExW;
+constexpr auto loaderNativeGetModuleHandleExW = &::GetModuleHandleExW;
+constexpr auto loaderNativeFreeLibrary = &::FreeLibrary;
+// Only this thread and this lexical scope may redirect the real constructor.
+struct LoaderDirectorySeam {
+    std::wstring executable, leaf;
+    std::filesystem::path app, ancestor;
+    void (*beforeLeaf)(LoaderDirectorySeam&) = nullptr;
+    unsigned pathHits = 0, leafHits = 0;
+    bool forced = false;
+};
+thread_local LoaderDirectorySeam* loaderDirectorySeam = nullptr;
+struct LoaderDirectoryScope {
+    explicit LoaderDirectoryScope(LoaderDirectorySeam& seam) {
+        loaderFaultRequire(!loaderDirectorySeam, "directory_scope_nested");
+        loaderDirectorySeam = &seam;
+    }
+    ~LoaderDirectoryScope() { loaderDirectorySeam = nullptr; }
+    LoaderDirectoryScope(const LoaderDirectoryScope&) = delete;
+    LoaderDirectoryScope& operator=(const LoaderDirectoryScope&) = delete;
+};
+DWORD WINAPI loaderDirectoryModulePath(HMODULE module, LPWSTR output, DWORD capacity) {
+    if (module || !loaderDirectorySeam) return GetModuleFileNameW(module, output, capacity);
+    auto& seam = *loaderDirectorySeam; ++seam.pathHits;
+    if (!capacity) { SetLastError(ERROR_INSUFFICIENT_BUFFER); return 0; }
+    if (!output) { SetLastError(ERROR_INVALID_PARAMETER); return 0; }
+    if (seam.executable.size() >= capacity) {
+        std::wmemcpy(output, seam.executable.c_str(), capacity - 1); output[capacity - 1] = L'\0';
+        SetLastError(ERROR_INSUFFICIENT_BUFFER); return capacity;
+    }
+    std::wmemcpy(output, seam.executable.c_str(), seam.executable.size() + 1);
+    return static_cast<DWORD>(seam.executable.size());
+}
+HANDLE WINAPI loaderDirectoryCreateFile(LPCWSTR path, DWORD access, DWORD share, LPSECURITY_ATTRIBUTES security,
+    DWORD creation, DWORD flags, HANDLE model) {
+    const DWORD incomingError = GetLastError();
+    if (loaderDirectorySeam && path && CompareStringOrdinal(path, -1, loaderDirectorySeam->leaf.c_str(), -1, TRUE) == CSTR_EQUAL) {
+        auto& seam = *loaderDirectorySeam; ++seam.leafHits;
+        loaderFaultRequire(seam.leafHits == 1 && seam.beforeLeaf && access == GENERIC_READ && share == FILE_SHARE_READ &&
+            !security && creation == OPEN_EXISTING && flags == (FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_SEQUENTIAL_SCAN) &&
+            !model, "directory_first_leaf_contract");
+        seam.beforeLeaf(seam); // A failed assertion propagates; it is never converted into the expected HRESULT.
+        seam.forced = true;
+        SetLastError(ERROR_OPERATION_ABORTED); return INVALID_HANDLE_VALUE;
+    }
+    SetLastError(incomingError);
+    const HANDLE result = loaderNativeCreateFileW(path, access, share, security, creation, flags, model);
+    const DWORD error = GetLastError();
+    if (loaderNativeLedger) loaderNativeLedger->acquire(LoaderNativeKind::file, result, loaderNativeOwner, result != INVALID_HANDLE_VALUE, error);
+    SetLastError(error); return result;
+}
+HANDLE WINAPI loaderObservedSnapshot(DWORD flags, DWORD process) {
+    const HANDLE result = loaderNativeSnapshot(flags, process);
+    const DWORD error = GetLastError();
+    if (loaderNativeLedger) loaderNativeLedger->acquire(LoaderNativeKind::snapshot, result, loaderNativeOwner, result != INVALID_HANDLE_VALUE, error);
+    SetLastError(error); return result;
+}
+BOOL WINAPI loaderObservedCloseHandle(HANDLE value) {
+    const BOOL result = loaderNativeCloseHandle(value);
+    const DWORD error = GetLastError();
+    if (loaderNativeLedger) loaderNativeLedger->release(value, loaderNativeOwner, false, result != FALSE, error);
+    SetLastError(error); return result;
+}
+HMODULE WINAPI loaderObservedLoadLibraryExW(LPCWSTR path, HANDLE file, DWORD flags) {
+    if (loaderNativeLedger) {
+        auto& ledger = *loaderNativeLedger; ++ledger.loadCalls;
+        if (ledger.cutSecondLoad && ledger.loadCalls == 2) {
+            const auto modules = loaderFaultInventory();
+            loaderFaultRequire(!ledger.forced && !file && flags == LOAD_LIBRARY_SEARCH_SYSTEM32 && modules[0] && !modules[1] && !modules[2] &&
+                ledger.count(LoaderNativeKind::load, loaderNativeOwner, true) == 1 &&
+                ledger.count(LoaderNativeKind::file, loaderNativeOwner, true) >= 4 &&
+                ledger.count(LoaderNativeKind::snapshot, loaderNativeOwner, false) == 1, "partial_real_load_precondition");
+            ledger.forced = true;
+            // No native acquisition event: this call is explicitly injected.
+            SetLastError(ERROR_OPERATION_ABORTED); return nullptr; // Only this labelled load cut is synthetic.
+        }
+    }
+    const HMODULE result = loaderNativeLoadLibraryExW(path, file, flags);
+    const DWORD error = GetLastError();
+    if (loaderNativeLedger) loaderNativeLedger->acquire(LoaderNativeKind::load, result, loaderNativeOwner, result != nullptr, error);
+    SetLastError(error); return result;
+}
+BOOL WINAPI loaderObservedGetModuleHandleExW(DWORD flags, LPCWSTR location, HMODULE* module) {
+    const BOOL result = loaderNativeGetModuleHandleExW(flags, location, module);
+    const DWORD error = GetLastError();
+    if (loaderNativeLedger) {
+        // The real implementation only takes ordinary FROM_ADDRESS references.
+        // A borrowed or pinned reference cannot silently become a tracked owner.
+        if (flags != GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS) ++loaderNativeLedger->invalid;
+        if (flags == GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS)
+            loaderNativeLedger->acquire(LoaderNativeKind::temporary, result && module ? *module : nullptr, loaderNativeOwner, result != FALSE, error);
+    }
+    SetLastError(error); return result;
+}
+BOOL WINAPI loaderObservedFreeLibrary(HMODULE value) {
+    const BOOL result = loaderNativeFreeLibrary(value);
+    const DWORD error = GetLastError();
+    if (loaderNativeLedger) loaderNativeLedger->release(value, loaderNativeOwner, true, result != FALSE, error);
+    SetLastError(error); return result;
+}
+static_assert(std::is_same_v<decltype(&loaderDirectoryModulePath), decltype(&GetModuleFileNameW)>);
+static_assert(std::is_same_v<decltype(&loaderDirectoryCreateFile), decltype(&CreateFileW)>);
+static_assert(std::is_same_v<decltype(&loaderObservedSnapshot), decltype(&CreateToolhelp32Snapshot)>);
+static_assert(std::is_same_v<decltype(&loaderObservedCloseHandle), decltype(&CloseHandle)>);
+static_assert(std::is_same_v<decltype(&loaderObservedLoadLibraryExW), decltype(&LoadLibraryExW)>);
+static_assert(std::is_same_v<decltype(&loaderObservedGetModuleHandleExW), decltype(&GetModuleHandleExW)>);
+static_assert(std::is_same_v<decltype(&loaderObservedFreeLibrary), decltype(&FreeLibrary)>);
+} // namespace
+#define GetModuleFileNameW loaderDirectoryModulePath
+#define CreateFileW loaderDirectoryCreateFile
+#define CreateToolhelp32Snapshot loaderObservedSnapshot
+#define CloseHandle loaderObservedCloseHandle
+#define LoadLibraryExW loaderObservedLoadLibraryExW
+#define GetModuleHandleExW loaderObservedGetModuleHandleExW
+#define FreeLibrary loaderObservedFreeLibrary
+#include "../../RecApp/Recording/FfmpegApi.cpp"
+#undef FreeLibrary
+#undef GetModuleHandleExW
+#undef LoadLibraryExW
+#undef CloseHandle
+#undef CreateToolhelp32Snapshot
+#undef CreateFileW
+#undef GetModuleFileNameW
+
+namespace {
+std::filesystem::path loaderDirectoryCanonical(const std::filesystem::path& path, bool directory) {
+    LoaderFaultHandle file(CreateFileW(path.c_str(), FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT | (directory ? FILE_FLAG_BACKUP_SEMANTICS : 0), nullptr));
+    loaderFaultRequire(file.value != INVALID_HANDLE_VALUE, "directory_canonical_open");
+    std::wstring value(32768, L'\0');
+    const auto length = GetFinalPathNameByHandleW(file.value, value.data(), static_cast<DWORD>(value.size()), FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);
+    loaderFaultRequire(length && length < value.size(), "directory_canonical_path"); value.resize(length);
+    return value; // No metadata handle survives into a rename control.
+}
+void loaderDirectoryBeforeLeaf(LoaderDirectorySeam& seam) {
+    loaderFaultRequire(loaderFaultInventory() == std::array<HMODULE, 3>{}, "directory_cut_loaded");
+    loaderFaultRename(seam.app, true); loaderFaultRename(seam.ancestor, true);
+    std::fprintf(stderr, "FFMPEG_DIRECTORY phase=cut inventory_empty=1 app_blocked=1 ancestor_blocked=1 callback_hits=%u\n", seam.leafHits);
+    std::fflush(stderr);
+}
+int loaderDirectoryPins() {
+    const auto baseline = CustodyOwnedMemory::usedBytes();
+    LoaderNativeLedger ledger;
+    LoaderNativeScope observation(ledger);
+    try {
+        loaderFaultRequire(!loaderDirectorySeam && loaderFaultInventory() == std::array<HMODULE, 3>{}, "directory_entry");
+        {
+            Fixture fixture;
+            const auto ancestor = fixture.parent / L"ancestor", app = ancestor / L"app";
+            loaderFaultRequire(CreateDirectoryW(ancestor.c_str(), nullptr) && CreateDirectoryW(app.c_str(), nullptr), "directory_stage_create");
+            const auto executable = loaderFaultModulePath(nullptr), source = executable.parent_path(), copiedExe = app / executable.filename();
+            const auto exeHash = sha256File(executable);
+            loaderFaultRequire(exeHash.size() == 64 && CopyFileW(executable.c_str(), copiedExe.c_str(), TRUE) &&
+                sha256File(copiedExe) == exeHash, "directory_stage_exe");
+            for (std::size_t i = 0; i < loaderFaultNames.size(); ++i) {
+                const auto& pin = graf::ffmpeg::modules[i]; std::string digest;
+                for (const auto byte : pin.sha256) { digest += "0123456789abcdef"[byte >> 4]; digest += "0123456789abcdef"[byte & 15]; }
+                const auto from = source / loaderFaultNames[i], to = app / loaderFaultNames[i];
+                loaderFaultRequire(std::filesystem::file_size(from) == pin.bytes && sha256File(from) == digest &&
+                    CopyFileW(from.c_str(), to.c_str(), TRUE) && sha256File(to) == digest, "directory_stage_dll");
+            }
+            const auto canonicalAncestor = loaderDirectoryCanonical(ancestor, true).native();
+            const auto outside = [&](const std::filesystem::path& path, bool directory) {
+                const auto value = loaderDirectoryCanonical(path, directory).native();
+                return value.size() < canonicalAncestor.size() ||
+                    CompareStringOrdinal(value.c_str(), static_cast<int>(canonicalAncestor.size()), canonicalAncestor.c_str(),
+                        static_cast<int>(canonicalAncestor.size()), TRUE) != CSTR_EQUAL ||
+                    (value.size() > canonicalAncestor.size() && value[canonicalAncestor.size()] != L'\\');
+            };
+            loaderFaultRequire(outside(executable, false) && outside(std::filesystem::current_path(), true), "directory_runner_outside");
+            LoaderDirectorySeam seam;
+            seam.executable = copiedExe.native(); seam.app = app; seam.ancestor = ancestor;
+            seam.leaf = (loaderDirectoryCanonical(app, true) / loaderFaultNames[0]).native(); seam.beforeLeaf = loaderDirectoryBeforeLeaf;
+            std::fprintf(stderr, "FFMPEG_DIRECTORY phase=baseline runner_outside=1 cwd_outside=1 surrogate=%ls\n", ancestor.c_str());
+            loaderFaultRename(app, false); loaderFaultRename(ancestor, false);
+            HRESULT actual = S_OK;
+            {
+                LoaderDirectoryScope scope(seam);
+                // A non-null HMODULE always queries the actual running image, even while armed.
+                std::array<wchar_t,32768> image{};
+                const auto length = loaderDirectoryModulePath(GetModuleHandleW(nullptr), image.data(), static_cast<DWORD>(image.size()));
+                loaderFaultRequire(length == executable.native().size() && std::wstring_view(image.data(), length) == executable.native() &&
+                    !seam.pathHits, "directory_hmodule_passthrough");
+                try { FfmpegApi api; } catch (HRESULT error) { actual = error; }
+            }
+            // Check unwind independently before classifying the constructor's return.
+            loaderFaultRequire(!loaderDirectorySeam && loaderFaultInventory() == std::array<HMODULE, 3>{}, "directory_unwind_loaded");
+            loaderFaultRename(app, false); loaderFaultRename(ancestor, false);
+            loaderFaultRequire(CustodyOwnedMemory::usedBytes() == baseline, "directory_unwind_memory");
+            std::fprintf(stderr, "FFMPEG_DIRECTORY phase=unwind constructor=%08lx expected=%08lx path_hits=%u callback_hits=%u forced=%u memory_released=1\n",
+                static_cast<unsigned long>(actual), static_cast<unsigned long>(HRESULT_FROM_WIN32(ERROR_OPERATION_ABORTED)),
+                seam.pathHits, seam.leafHits, unsigned(seam.forced));
+            loaderFaultRequire(actual == HRESULT_FROM_WIN32(ERROR_OPERATION_ABORTED) && seam.pathHits == 1 && seam.leafHits == 1 && seam.forced,
+                "directory_exact_cut");
+            {
+                FfmpegApi api; // Unarmed default must load the real runner group, never the surrogate.
+                ledger.live(1);
+                const auto modules = loaderFaultInventory();
+                for (std::size_t i = 0; i < modules.size(); ++i) loaderFaultModuleIdentity(modules[i], source / loaderFaultNames[i]);
+            }
+            loaderFaultRequire(!loaderDirectorySeam && seam.pathHits == 1 && seam.leafHits == 1 &&
+                loaderFaultInventory() == std::array<HMODULE, 3>{} && CustodyOwnedMemory::usedBytes() == baseline, "directory_default_release");
+            std::fputs("FFMPEG_DIRECTORY phase=unarmed runner_group=1 inventory_empty=1 memory_released=1\n", stderr);
+        } // All surrogate handles are retired before the existing Fixture cleanup/assertion.
+        ledger.balanced("directory_pins");
+        loaderFaultRequire(CustodyOwnedMemory::usedBytes() == baseline, "directory_final_memory");
+        std::fprintf(stderr, "FFMPEG_DIRECTORY result=PASS callback_hits=1 owned_baseline=%zu owned_final=%zu\n", baseline, CustodyOwnedMemory::usedBytes());
+        std::fflush(stderr); return 0;
+    } catch (HRESULT error) {
+        std::fprintf(stderr, "FFMPEG_DIRECTORY result=FAIL unexpected_hresult=%08lx\n", static_cast<unsigned long>(error));
+    } catch (const std::exception& error) {
+        std::fprintf(stderr, "FFMPEG_DIRECTORY result=FAIL failure=%s\n", error.what());
+    } catch (...) { std::fputs("FFMPEG_DIRECTORY result=FAIL failure=unknown_exception\n", stderr); }
+    try { ledger.balanced("failed_directory_pins"); } catch (...) {}
+    std::fflush(stderr); return 96;
+}
+} // namespace
+
 int main(int argc, char** argv) {
     winrt::init_apartment(); // Keep WinRT alive across repeated native sessions, as AppMain does.
 #ifdef _MSC_VER
@@ -11910,6 +13360,15 @@ int main(int argc, char** argv) {
     const auto baseline = CustodyOwnedMemory::usedBytes();
     idleOwnedBytes = baseline; // Empty optional cache entries retain no allocation.
     assert(CustodyOwnedMemory::usedBytes() == baseline);
+    if (argc == 2 && std::string_view(argv[1]) == "--ffmpeg-directory-pins") return loaderDirectoryPins();
+    if (argc == 2 && std::string_view(argv[1]) == "--diagnostic-media-engine-waveform") return diagnosticMediaEngineWaveform();
+    if (argc == 2 && std::string_view(argv[1]) == "--diagnostic-media-engine-process-loopback") return diagnosticMediaEngineProcessLoopback();
+    if (argc == 2 && std::string_view(argv[1]) == "--diagnostic-aac-alignment") { diagnosticAacAlignment(); return 0; }
+    if (argc == 2 && std::string_view(argv[1]) == "--diagnostic-short-media-engine") { diagnosticShortMediaEngine(); return 0; }
+    if (argc == 2 && std::string_view(argv[1]) == "--ffmpeg-loader-faults") return loaderFaultTests();
+    if (argc == 2 && std::string_view(argv[1]) == "--ffmpeg-loader-controls") return loaderFaultTests(true);
+    if (argc > 1 && std::string_view(argv[1]) == "--ffmpeg-loader-control") return argc == 3 ? loaderRawCase(argv[2]) : 96;
+    if (argc > 1 && std::string_view(argv[1]) == "--ffmpeg-loader-case") return argc == 3 ? loaderFaultCase(argv[2]) : 96;
     if (argc == 2 && std::string_view(argv[1]) == "--storage-warning") { protectedStorageWarning(); return 0; }
     if (argc==2 && std::string_view(argv[1])=="--queue-gate-before-rename") return queueGateBeforeOriginalRename();
     if (argc==2 && std::string_view(argv[1])=="--queue-gate-before-package-write") return queueGateBeforePackageWrite();

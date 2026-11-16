@@ -96,6 +96,22 @@
       "archive_member": "NOTICE.txt",
       "archive_sha256": "6ec2ebb6add33ecebac1f5773ad4cabe934b82fb18d7bea98e011bb0fc0a37b9",
       "sha256": "572b43d41dea717dae7dc5de69acb20a74df025e8f5a3c0aa6f7bca02615e23c"
+    },
+    {
+      "path": "apps/windows/Native/GrafFFmpeg/notices/COPYING.LGPLv2.1",
+      "package_path": "ThirdPartyNotices/FFmpeg/COPYING.LGPLv2.1",
+      "source": "https://ffmpeg.org/releases/ffmpeg-7.1.5.tar.xz",
+      "archive_member": "ffmpeg-7.1.5/COPYING.LGPLv2.1",
+      "archive_sha256": "de668509caf9e35e3cd162473441fdb29538c6d96ed080292b3cf9e6fc5d558f",
+      "sha256": "246041b6ecf9bc32d718a62c57877c78b5eb397b6467e74ed7ae2626ab189c30"
+    },
+    {
+      "path": "apps/windows/Native/GrafFFmpeg/notices/LICENSE.md",
+      "package_path": "ThirdPartyNotices/FFmpeg/LICENSE.md",
+      "source": "https://ffmpeg.org/releases/ffmpeg-7.1.5.tar.xz",
+      "archive_member": "ffmpeg-7.1.5/LICENSE.md",
+      "archive_sha256": "de668509caf9e35e3cd162473441fdb29538c6d96ed080292b3cf9e6fc5d558f",
+      "sha256": "cb48bf09a11f5fb576cddb0431c8f5ed0a60157a9ec942adffc13907cbe083f2"
     }
   ]
 }

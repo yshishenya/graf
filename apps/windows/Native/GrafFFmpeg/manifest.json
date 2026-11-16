@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "version": "7.1.5",
+  "architecture": "x64",
+  "owner": "F200/T116",
+  "pin_reason": "Unmodified AAC/IPOD build on the selected MSVC toolchain. FFmpeg 8.1.3 produced C1001 in libavformat/cbs.c both with and without optimizations; 7.1.5 built with normal optimization and passed the bounded synthetic AVIO consumer. This is not a claim that 7.1.5 is the latest overall FFmpeg release.",
+  "recheck_trigger": "A change of MSVC toolchain or a newer supported FFmpeg release fixing the selected MOV/CBS dependency graph; repeat source, build, licensing and audio validation before updating.",
+  "source": {
+    "name": "ffmpeg-7.1.5.tar.xz",
+    "url": "https://ffmpeg.org/releases/ffmpeg-7.1.5.tar.xz",
+    "bytes": 11050340,
+    "sha256": "de668509caf9e35e3cd162473441fdb29538c6d96ed080292b3cf9e6fc5d558f",
+    "signature_sha256": "7ce4b9d56e3ef0cd4c3a9c0b2c8a034ac91e6c4c011c1f10b05a8aa7292fca35",
+    "signer": "FCF986EA15E6E293A5644F10B4322F04D67658D8"
+  },
+  "toolchain": {
+    "vctools_version": "14.44.35207",
+    "windows_sdk": "10.0.26100.0",
+    "target": "x64"
+  },
+  "build_tools": [
+    {
+      "name": "msys2-base.tar.xz",
+      "url": "https://github.com/msys2/msys2-installer/releases/download/2026-09-27/msys2-base-x86_64-20260927.tar.xz",
+      "bytes": 42860696,
+      "sha256": "ea2f31a0b6ade63914ce441ffb022f0f6aa96982bfefa2326460a26d5fb01322"
+    },
+    {
+      "name": "make.pkg.tar.zst",
+      "url": "https://mirror.selfnet.de/msys2/msys/x86_64/make-4.4.1-2-x86_64.pkg.tar.zst",
+      "bytes": 519783,
+      "sha256": "2408af61717dae87b00c855b132769a125c708907fc94a46bb16dae076113e5c"
+    },
+    {
+      "name": "diffutils.pkg.tar.zst",
+      "url": "https://mirror.msys2.org/msys/x86_64/diffutils-3.12-1-x86_64.pkg.tar.zst",
+      "bytes": 394515,
+      "sha256": "7902c8ce3d4dd69a0f5e98dc9d5c83c17b23314ba486169db57ef6e2835ce3b6"
+    }
+  ],
+  "configure": [
+    "--toolchain=msvc", "--target-os=win32", "--arch=x86_64",
+    "--enable-cross-compile", "--host-cc=cl.exe",
+    "--enable-shared", "--disable-static", "--disable-asm",
+    "--disable-everything", "--disable-autodetect", "--disable-programs",
+    "--disable-doc", "--disable-debug", "--disable-network", "--disable-protocols",
+    "--disable-avdevice", "--disable-avfilter", "--disable-swscale", "--disable-swresample",
+    "--disable-gpl", "--disable-nonfree", "--disable-version3",
+    "--enable-avutil", "--enable-avcodec", "--enable-avformat",
+    "--enable-encoder=aac", "--enable-muxer=ipod"
+  ],
+  "dlls": [
+    { "name": "avutil-59.dll", "library": "avutil", "major": 59, "minor": 39, "micro": 100 },
+    { "name": "avcodec-61.dll", "library": "avcodec", "major": 61, "minor": 19, "micro": 101 },
+    { "name": "avformat-61.dll", "library": "avformat", "major": 61, "minor": 7, "micro": 103 }
+  ],
+  "notices": [
+    { "name": "COPYING.LGPLv2.1", "sha256": "246041b6ecf9bc32d718a62c57877c78b5eb397b6467e74ed7ae2626ab189c30" },
+    { "name": "LICENSE.md", "sha256": "cb48bf09a11f5fb576cddb0431c8f5ed0a60157a9ec942adffc13907cbe083f2" }
+  ]
+}

@@ -84,9 +84,37 @@
     <Content Include="Assets\Square150x150Logo.png" />
     <Content Include="Assets\Square44x44Logo.png" />
   </ItemGroup>
+  <PropertyGroup>
+    <GrafFFmpegRoot Condition="'$(GrafFFmpegRoot)' == '' and '$(GRAF_FFMPEG_ROOT)' != ''">$(GRAF_FFMPEG_ROOT)</GrafFFmpegRoot>
+    <GrafFFmpegRoot Condition="'$(GrafFFmpegRoot)' == ''">$(MSBuildThisFileDirectory)..\out\ffmpeg-7.1.5-x64</GrafFFmpegRoot>
+  </PropertyGroup>
   <!-- Exact upstream notices accompany every package; explicit items must not
        disappear silently when a source file is missing. -->
   <ItemGroup>
+    <Content Include="..\Native\GrafFFmpeg\notices\COPYING.LGPLv2.1">
+      <Link>ThirdPartyNotices\FFmpeg\COPYING.LGPLv2.1</Link>
+      <GrafRequiredNotice>true</GrafRequiredNotice>
+    </Content>
+    <Content Include="..\Native\GrafFFmpeg\notices\LICENSE.md">
+      <Link>ThirdPartyNotices\FFmpeg\LICENSE.md</Link>
+      <GrafRequiredNotice>true</GrafRequiredNotice>
+    </Content>
+    <Content Include="..\Native\GrafFFmpeg\README.md">
+      <Link>ThirdPartyNotices\FFmpeg\README.md</Link>
+      <GrafRequiredNotice>true</GrafRequiredNotice>
+    </Content>
+    <Content Include="..\Native\GrafFFmpeg\manifest.json">
+      <Link>ThirdPartyNotices\FFmpeg\manifest.json</Link>
+      <GrafRequiredNotice>true</GrafRequiredNotice>
+    </Content>
+    <Content Include="..\scripts\build-graf-ffmpeg.ps1">
+      <Link>ThirdPartyNotices\FFmpeg\build-graf-ffmpeg.ps1</Link>
+      <GrafRequiredNotice>true</GrafRequiredNotice>
+    </Content>
+    <Content Include="$(GrafFFmpegRoot)\share\graf\ffmpeg-7.1.5.tar.xz">
+      <Link>ThirdPartyNotices\FFmpeg\ffmpeg-7.1.5.tar.xz</Link>
+      <GrafRequiredNotice>true</GrafRequiredNotice>
+    </Content>
     <Content Include="..\Native\GrafAEC3\notices\COPYING">
       <Link>ThirdPartyNotices\GrafAEC3\COPYING</Link>
       <GrafRequiredNotice>true</GrafRequiredNotice>

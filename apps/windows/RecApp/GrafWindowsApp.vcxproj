@@ -44,6 +44,8 @@
     <GrafWebView2SdkVersion Condition="'$(GrafWebView2SdkVersion)' == ''">1.0.4129.50</GrafWebView2SdkVersion>
     <GrafWebView2NativeRoot Condition="'$(GrafWebView2NativeRoot)' == '' and '$(NuGetPackageRoot)' != ''">$(NuGetPackageRoot)\microsoft.web.webview2\$(GrafWebView2SdkVersion)\build\native</GrafWebView2NativeRoot>
     <GrafWebView2NativeRoot Condition="'$(GrafWebView2NativeRoot)' == ''">$(UserProfile)\.nuget\packages\microsoft.web.webview2\$(GrafWebView2SdkVersion)\build\native</GrafWebView2NativeRoot>
+    <GrafFFmpegRoot Condition="'$(GrafFFmpegRoot)' == '' and '$(GRAF_FFMPEG_ROOT)' != ''">$(GRAF_FFMPEG_ROOT)</GrafFFmpegRoot>
+    <GrafFFmpegRoot Condition="'$(GrafFFmpegRoot)' == ''">$(MSBuildThisFileDirectory)..\out\ffmpeg-7.1.5-x64</GrafFFmpegRoot>
     <!-- Prefer the verified checkout/build produced by build-graf-aec3.ps1.
          Environment overrides remain available for CI or an external cache. -->
     <GrafAEC3Root Condition="'$(GrafAEC3Root)' == '' and '$(GRAF_AEC3_ROOT)' != ''">$(GRAF_AEC3_ROOT)</GrafAEC3Root>
@@ -77,7 +79,7 @@
       <LanguageStandard>stdcpp17</LanguageStandard>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <CompileAsWinRT>false</CompileAsWinRT>
-      <AdditionalIncludeDirectories>$(MSBuildThisFileDirectory)Generated Files;$(GrafWebView2NativeRoot)\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(MSBuildThisFileDirectory)Generated Files;$(GrafWebView2NativeRoot)\include;$(GrafFFmpegRoot)\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalIncludeDirectories Condition="'$(GrafAEC3Available)' == 'true'">$(GrafAEC3Root)\webrtc;$(GrafAEC3Root)\subprojects\abseil-cpp-20240722.0;$(GrafAEC3BuildRoot);$(GrafAEC3BuildRoot)\subprojects\abseil-cpp-20240722.0;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PreprocessorDefinitions Condition="'$(GrafAEC3Available)' == 'true'">GRAF_AEC3_AVAILABLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <AdditionalOptions>/FS %(AdditionalOptions)</AdditionalOptions>
@@ -123,6 +125,7 @@
     <ClCompile Include="Recording\LocalRecordingPackage.cpp" />
     <ClCompile Include="Recording\ProtectedLocalRecordingPlayback.cpp" />
     <ClCompile Include="Recording\V5LocalRecordingWriter.cpp" />
+    <ClCompile Include="Recording\FfmpegApi.cpp" />
     <ClCompile Include="Shell\AutomaticRecordingPrompt.cpp" />
     <ClCompile Include="Shell\CabinetWindow.cpp" />
     <ClCompile Include="Shell\RecordingIndicator.cpp" />
@@ -173,6 +176,11 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <Content Include="$(GrafFFmpegRoot)\bin\avutil-59.dll;$(GrafFFmpegRoot)\bin\avcodec-61.dll;$(GrafFFmpegRoot)\bin\avformat-61.dll">
+      <Link>%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      <Visible>False</Visible>
+    </Content>
     <Content Include="$(GrafWebView2NativeRoot)\$(Platform)\WebView2Loader.dll" Condition="Exists('$(GrafWebView2NativeRoot)\$(Platform)\WebView2Loader.dll')">
       <Link>WebView2Loader.dll</Link>
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
@@ -194,6 +202,10 @@
     </Content>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <Target Name="ValidateGrafFFmpeg" BeforeTargets="PrepareForBuild" Condition="'$(DesignTimeBuild)' != 'true'">
+    <Error Condition="'$(Platform)' != 'x64'" Text="GRAF FFmpeg currently has only validated x64 build inputs." />
+    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\..\scripts\build-graf-ffmpeg.ps1&quot; -InstallDirectory &quot;$(GrafFFmpegRoot)&quot; -VerifyBuildArtifacts" />
+  </Target>
   <!-- An app without the real backend can open its cabinet but can never record.
        Portable test doubles belong to test targets, never to this executable. -->
   <Target Name="ValidateGrafAEC3" BeforeTargets="PrepareForBuild" Condition="'$(DesignTimeBuild)' != 'true'">

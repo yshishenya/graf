@@ -8,6 +8,38 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 if(WIN32)
     enable_language(RC)
     add_compile_definitions(WIN32_LEAN_AND_MEAN NOMINMAX UNICODE _UNICODE _WIN32_WINNT=0x0A00)
+    set(GRAF_FFMPEG_ROOT "$ENV{GRAF_FFMPEG_ROOT}" CACHE PATH "Verified ordinary FFmpeg 7.1.5 x64 install prefix")
+    if(NOT MSVC OR NOT CMAKE_CXX_COMPILER_ARCHITECTURE_ID STREQUAL "x64")
+        message(FATAL_ERROR "The FFmpeg recording dependency currently requires an MSVC x64 target.")
+    endif()
+    if(NOT GRAF_FFMPEG_ROOT)
+        message(FATAL_ERROR "Prepare ordinary FFmpeg with scripts/build-graf-ffmpeg.ps1 and set GRAF_FFMPEG_ROOT. No alternate encoder is used.")
+    endif()
+    set(GRAF_FFMPEG_VERIFY powershell.exe -NoProfile -ExecutionPolicy Bypass -File
+        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/build-graf-ffmpeg.ps1"
+        -InstallDirectory "${GRAF_FFMPEG_ROOT}" -VerifyBuildArtifacts)
+    execute_process(COMMAND ${GRAF_FFMPEG_VERIFY} RESULT_VARIABLE GRAF_FFMPEG_VERIFIED)
+    if(NOT GRAF_FFMPEG_VERIFIED STREQUAL "0")
+        message(FATAL_ERROR "The ordinary FFmpeg build provenance/artifacts did not verify.")
+    endif()
+    # Covers the writer object and its separately compiled integration-test TU.
+    include_directories(SYSTEM "${GRAF_FFMPEG_ROOT}/include")
+    set(GRAF_FFMPEG_RUNTIME_DIR "${CMAKE_CURRENT_BINARY_DIR}")
+    if(CMAKE_RUNTIME_OUTPUT_DIRECTORY)
+        set(GRAF_FFMPEG_RUNTIME_DIR "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
+    endif()
+    if(CMAKE_CONFIGURATION_TYPES)
+        string(APPEND GRAF_FFMPEG_RUNTIME_DIR "/$<CONFIG>")
+    endif()
+    add_custom_target(graf_ffmpeg_runtime
+        COMMAND ${GRAF_FFMPEG_VERIFY}
+        COMMAND "${CMAKE_COMMAND}" -E make_directory "${GRAF_FFMPEG_RUNTIME_DIR}"
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${GRAF_FFMPEG_ROOT}/bin/avutil-59.dll"
+            "${GRAF_FFMPEG_ROOT}/bin/avcodec-61.dll"
+            "${GRAF_FFMPEG_ROOT}/bin/avformat-61.dll"
+            "${GRAF_FFMPEG_RUNTIME_DIR}"
+        VERBATIM)
 endif()
 
 file(GLOB_RECURSE GRAF_WINDOWS_COMMON CONFIGURE_DEPENDS
@@ -25,12 +57,14 @@ list(REMOVE_ITEM GRAF_WINDOWS_COMMON "${CMAKE_CURRENT_SOURCE_DIR}/RecApp/Storage
 list(REMOVE_ITEM GRAF_WINDOWS_COMMON "${CMAKE_CURRENT_SOURCE_DIR}/RecApp/Recording/ProtectedLocalRecordingPlayback.cpp")
 list(REMOVE_ITEM GRAF_WINDOWS_COMMON "${CMAKE_CURRENT_SOURCE_DIR}/RecApp/Recording/V5LocalRecordingWriter.cpp")
 list(REMOVE_ITEM GRAF_WINDOWS_COMMON "${CMAKE_CURRENT_SOURCE_DIR}/RecApp/Recording/LocalRecordingPackage.cpp")
+list(REMOVE_ITEM GRAF_WINDOWS_COMMON "${CMAKE_CURRENT_SOURCE_DIR}/RecApp/Recording/FfmpegApi.cpp")
 
 set(GRAF_WINDOWS_TESTS
     "Tests/GrafWindowsCoreTests/ContractFixtures.cpp"
     "Tests/GrafWindowsCoreTests/CalendarMatchEnvelopeTests.cpp"
     "Tests/GrafWindowsCoreTests/Sha256Tests.cpp"
     "Tests/GrafWindowsCoreTests/ProtectedCustodyCodecTests.cpp"
+    "Tests/GrafWindowsContractTests/StockFFmpegMemoryTests.cpp"
     "Tests/GrafWindowsCoreTests/ProtectedCustodyPackageTests.cpp"
     "Tests/GrafWindowsCoreTests/ProtectedPackedCustodyFormatTests.cpp"
     "Tests/GrafWindowsCoreTests/ProtectedPackedCustodyCodecTests.cpp"
@@ -103,11 +137,18 @@ target_compile_options(graf_windows_api PRIVATE
     $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall;-Wextra;-Wpedantic;-Werror>)
 add_library(graf_windows_playback OBJECT "RecApp/Recording/ProtectedLocalRecordingPlayback.cpp")
 add_library(graf_windows_writer OBJECT "RecApp/Recording/V5LocalRecordingWriter.cpp")
+add_library(graf_windows_ffmpeg OBJECT "RecApp/Recording/FfmpegApi.cpp")
+if(WIN32)
+    add_dependencies(graf_windows_writer graf_ffmpeg_runtime)
+endif()
 add_library(graf_windows_package OBJECT "RecApp/Recording/LocalRecordingPackage.cpp")
 target_compile_options(graf_windows_package PRIVATE
     $<$<CXX_COMPILER_ID:MSVC>:/W4;/WX;/EHsc;/utf-8>
     $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall;-Wextra;-Wpedantic;-Werror>)
 target_compile_options(graf_windows_writer PRIVATE
+    $<$<CXX_COMPILER_ID:MSVC>:/W4;/WX;/EHsc;/utf-8>
+    $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall;-Wextra;-Wpedantic;-Werror>)
+target_compile_options(graf_windows_ffmpeg PRIVATE
     $<$<CXX_COMPILER_ID:MSVC>:/W4;/WX;/EHsc;/utf-8>
     $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall;-Wextra;-Wpedantic;-Werror>)
 target_compile_options(graf_windows_playback PRIVATE
@@ -155,6 +196,10 @@ target_compile_options(graf_windows_common PRIVATE
 foreach(test_source IN LISTS GRAF_WINDOWS_TESTS)
     get_filename_component(test_name "${test_source}" NAME_WE)
     add_executable("${test_name}" "${test_source}" $<TARGET_OBJECTS:graf_windows_common>)
+    # Only the integration TU wraps the real loader to observe pre-load directory pins.
+    if(NOT WIN32 OR NOT test_name STREQUAL "NativeCaptureStorageIntegrationTests")
+        target_sources("${test_name}" PRIVATE $<TARGET_OBJECTS:graf_windows_ffmpeg>)
+    endif()
     if(WIN32 AND test_name STREQUAL "RecordingIndicatorTests")
         target_sources("${test_name}" PRIVATE "RecApp/GrafWindowsApp.rc")
     endif()
@@ -208,6 +253,7 @@ foreach(test_source IN LISTS GRAF_WINDOWS_TESTS)
         $<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/W4;/WX;/EHsc;/utf-8>
         $<$<AND:$<COMPILE_LANGUAGE:CXX>,$<NOT:$<CXX_COMPILER_ID:MSVC>>>:-Wall;-Wextra;-Wpedantic;-Werror>)
     if(WIN32)
+        add_dependencies("${test_name}" graf_ffmpeg_runtime)
         target_link_libraries("${test_name}" PRIVATE windowsapp mfplat mfreadwrite mfuuid ole32 oleaut32 avrt advapi32 shell32 comctl32 gdi32 winhttp wintrust bcrypt crypt32 ws2_32 uiautomationcore)
         if(test_name STREQUAL "SelectedMicrophoneLossTests")
             target_link_libraries("${test_name}" PRIVATE shlwapi)
@@ -219,6 +265,9 @@ foreach(test_source IN LISTS GRAF_WINDOWS_TESTS)
     endif()
     if(WIN32 AND test_name STREQUAL "ProtectedCustodyFilesTests")
         add_test(NAME "${test_name}" COMMAND "${test_name}" --without-migration-pair)
+    elseif(test_name STREQUAL "StockFFmpegMemoryTests")
+        # Long synthetic runs are explicit executable invocations; this is the portable self-check.
+        add_test(NAME "${test_name}" COMMAND "${test_name}" --selfcheck)
     else()
         add_test(NAME "${test_name}" COMMAND "${test_name}")
     endif()
