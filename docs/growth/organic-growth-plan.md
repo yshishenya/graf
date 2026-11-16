@@ -338,6 +338,21 @@
   сохранён/pushed; remote readback совпал. Это приёмка ограниченного этапа,
   не полная T112, merge или выпуск.
   [Независимое заключение](https://github.com/yshishenya/graf/blob/662d07367937903cf95d677ddeaac90c00148719/specs/273-paid-traffic-analytics/validation/t112-init-review-20261116.md).
+- [x] Независимо принять только проект двух причинных проверок штатного
+  завершения соединения через public invalidate(None): P1=0/P2=0.
+  Основной агент прочитал весь новый `t112-driver-close-preflight-20261116.md`;
+  SHA-256 `a94840a222362b123096234fd72369461698d0b13ab10e3e505017b0421567cd`.
+  Проверяющий уточнил удержание серверного EOF, ёмкость отдельного пула
+  наблюдателя и доказательство завершённых задач/сокетов до снятия задержки.
+  Тесты, сетевые опыты и runtime правки на этом этапе не выполнялись;
+  прежний207 не повторялся. Это проект теста, не его успешный результат.
+  Отчёт сохранён/pushed `e9eb5076197bbac912aa0f5b9118ded0f35f6edd`,
+  remote readback совпал.
+  [Проект close-проверок](https://github.com/yshishenya/graf/blob/e9eb5076197bbac912aa0f5b9118ded0f35f6edd/specs/273-paid-traffic-analytics/validation/t112-driver-close-preflight-20261116.md).
+- [ ] Получить исходный результат двух согласованных close-проверок на
+  неизменном guard. Только после причинного результата решать, требуется ли
+  отдельный проект runtime исправления; обычный close/TLS/pool reset и
+  same-pool foreign coverage этим узким случаем не принимаются.
 - [ ] Выполнить полный source/audit/projection/proof, browser/native visibility, защищённый
   POST и общую admission boundary с причинной DB/browser/Swift/failure матрицей.
   Renderer использует общий чистый выбор строк и принимает необязательную карту
