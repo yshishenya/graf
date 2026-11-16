@@ -82,6 +82,93 @@ def test_cancelled_precheckout_terminates_only_its_exact_current_driver(case, mo
     asyncio.run(scenario())
 
 
+@pytest.mark.parametrize("case", [
+    "owned", "no_owner", "no_task", "task_context", "wrong_task", "not_in_use",
+    "callback_dbapi", "entry_dbapi", "entry_driver", "wrapper_driver", "driver_type",
+    "missing_lease", "missing_registry", "stale_registry", "foreign_owner", "lease_dbapi",
+    "lease_driver", "lease_entry", "initialization", "root", "active_transaction", "closed",
+    "other_reason", "cancelled_reason",
+])
+def test_hard_invalidation_aborts_only_an_exact_open_idle_owned_generation(case, monkeypatch):
+    async def scenario():
+        class Driver:
+            calls = 0
+
+            def is_closed(self):
+                checks.append("closed")
+                return case == "closed"
+
+            def is_in_transaction(self):
+                assert case != "closed", "must not read a released native protocol"
+                checks.append("transaction")
+                return case == "active_transaction"
+
+            def terminate(self):
+                self.calls += 1
+
+        class Entry:
+            pass
+
+        monkeypatch.setattr(guard_module, "AsyncpgConnection", Driver)
+        owner, foreign, entry, driver, checks = (guard_module._ResultViewOwner(),
+                                               guard_module._ResultViewOwner(), Entry(), Driver(), [])
+        wrapper = SimpleNamespace(driver_connection=driver)
+        task = asyncio.current_task()
+        lease = [owner, wrapper, driver, task, entry]
+        owner[entry] = lease
+        entry.info = {guard_module._RESULT_VIEW_CONNECTION_OWNER: lease}
+        entry.dbapi_connection, entry.driver_connection, entry.in_use = wrapper, driver, case != "not_in_use"
+        callback_dbapi = wrapper
+        if case == "callback_dbapi":
+            callback_dbapi = object()
+        if case == "entry_dbapi":
+            entry.dbapi_connection = object()
+        if case == "entry_driver":
+            entry.driver_connection = object()
+        if case == "wrapper_driver":
+            wrapper.driver_connection = object()
+        if case == "driver_type":
+            monkeypatch.setattr(guard_module, "AsyncpgConnection", type("Unsupported", (), {}))
+        if case == "missing_lease":
+            entry.info.clear()
+        if case == "missing_registry":
+            owner.clear()
+        if case == "stale_registry":
+            owner[entry] = lease.copy()
+        for name, index in [("foreign_owner", 0), ("lease_dbapi", 1), ("lease_driver", 2), ("lease_entry", 4)]:
+            if case == name:
+                lease[index] = foreign if index == 0 else object()
+        if case == "wrong_task":
+            lease[3] = object()
+        if case == "initialization":
+            entry.info[guard_module._RESULT_VIEW_INITIALIZATION_OWNER] = lease
+        if case == "root":
+            entry.info[guard_module._RESULT_VIEW_TRANSACTION_OWNER] = object()
+        token = guard_module._RESULT_VIEW_TASK_OWNER.set(None if case == "no_owner" else owner)
+        before_info, before_registry = entry.info.copy(), owner.copy()
+        try:
+            with monkeypatch.context() as patch:
+                if case == "no_task":
+                    patch.setattr(guard_module.asyncio, "current_task", lambda: None)
+                if case == "task_context":
+                    other = SimpleNamespace(get_context=lambda: Context())
+                    lease[3] = other
+                    patch.setattr(guard_module.asyncio, "current_task", lambda: other)
+                reason = (RuntimeError("synthetic") if case == "other_reason" else
+                          asyncio.CancelledError() if case == "cancelled_reason" else None)
+                guard_module._terminate_cancelled_result_connection(callback_dbapi, entry, reason)
+            assert driver.calls == (1 if case in {"owned", "cancelled_reason"} else 0)
+            assert entry.info == before_info and owner == before_registry and not foreign.failed
+            assert owner.failed is (case not in {
+                "owned", "no_owner", "active_transaction", "closed", "other_reason", "cancelled_reason",
+            })
+            assert checks == (["closed", "transaction"] if case in {"owned", "active_transaction"} else
+                              ["closed"] if case == "closed" else [])
+        finally:
+            guard_module._RESULT_VIEW_TASK_OWNER.reset(token)
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize("case", ["owned", "nested", "foreign", "close_in_another_context"])
 def test_session_root_owner_is_known_before_checkout_and_removed_at_its_exact_end(case):
     async def scenario():

@@ -224,7 +224,7 @@ def _forget_finished_result_transactions(owner):
 @event.listens_for(Pool, "invalidate")
 def _terminate_cancelled_result_connection(dbapi_connection, connection_record, exception):
     owner = _RESULT_VIEW_TASK_OWNER.get()
-    if owner is None or not isinstance(exception, asyncio.CancelledError):
+    if owner is None or (exception is not None and not isinstance(exception, asyncio.CancelledError)):
         return
     task = asyncio.current_task()
     driver = connection_record.driver_connection
@@ -234,8 +234,26 @@ def _terminate_cancelled_result_connection(dbapi_connection, connection_record, 
         or not isinstance(driver, AsyncpgConnection)
         or dbapi_connection.driver_connection is not driver
     ):
+        if exception is None:
+            owner.failed = True
         return
     lease = connection_record.info.get(_RESULT_VIEW_CONNECTION_OWNER)
+    if exception is None:
+        if (
+            task.get_context().get(_RESULT_VIEW_TASK_OWNER) is not owner
+            or not isinstance(lease, list) or len(lease) != 5
+            or lease[0] is not owner or lease[1] is not dbapi_connection or lease[2] is not driver
+            or lease[3] is not task or lease[4] is not connection_record
+            or owner.get(connection_record) is not lease
+            or _RESULT_VIEW_INITIALIZATION_OWNER in connection_record.info
+            or _RESULT_VIEW_TRANSACTION_OWNER in connection_record.info
+        ):
+            owner.failed = True
+            return
+        if not driver.is_closed() and not driver.is_in_transaction():
+            # Hard invalidation discards this idle connection before graceful close can stall.
+            driver.terminate()
+        return
     if lease is not None:
         owned = (lease[0] is owner and lease[1] is dbapi_connection and lease[2] is driver
                  and owner.get(connection_record) is lease)

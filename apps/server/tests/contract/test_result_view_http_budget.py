@@ -98,7 +98,7 @@ def _run(url, scenario, *, pool_size=1):
 
 
 @asynccontextmanager
-async def _postgres_response_gate(url):
+async def _postgres_response_gate(url, *, eof_gate=None, eof_seen=None):
     """Hold real PostgreSQL replies without replacing the driver's ping/close."""
     upstream = make_url(url)
     gate, tasks, relays, writers = asyncio.Event(), set(), set(), set()
@@ -127,6 +127,9 @@ async def _postgres_response_gate(url):
                         await gate.wait()
                     target.write(data)
                     await target.drain()
+                if held and eof_gate is not None:
+                    eof_seen.set()
+                    await eof_gate.wait()
 
             pumps = [start(copy(reader, upstream_writer)), start(copy(upstream_reader, writer, True))]
             await asyncio.wait(pumps, return_when=asyncio.FIRST_COMPLETED)
@@ -147,6 +150,8 @@ async def _postgres_response_gate(url):
         server.close()
         await server.wait_closed()
         gate.set()
+        if eof_gate is not None:
+            eof_gate.set()
         for writer in list(writers):
             writer.close()
         async with asyncio.timeout(2):
@@ -173,6 +178,159 @@ def test_bounded_alias_keeps_real_auth_csrf_and_committed_renewal(
             assert await db.scalar(select(func.count()).select_from(ProductActivationMilestone)) == 0
         assert engine.pool.checkedout() == 0
     _run(postgres_seeded_database_url, scenario)
+
+
+@pytest.mark.parametrize("fault", [False, True])
+def test_native_driver_close_finishes_with_its_socket_within_the_request_budget(
+    postgres_seeded_database_url, fault,
+):
+    async def scenario(engine):
+        eof_gate, eof_seen = asyncio.Event(), asyncio.Event()
+        eof_gate.set()
+        async with _postgres_response_gate(
+            postgres_seeded_database_url, eof_gate=eof_gate, eof_seen=eof_seen,
+        ) as (url, data_gate, relay_tasks):
+            request_engine = create_async_engine(url, pool_size=1, max_overflow=0, pool_pre_ping=True)
+            target, connections, invalidations, closes, observed = {}, [], [], [], {}
+            foreign = observer = watchdog = None
+            watchdog_fired = []
+
+            async def native_close():
+                async with request_engine.connect() as db:
+                    assert await db.scalar(text("SELECT 1")) == 1
+                    pid = await db.scalar(text("SELECT pg_backend_pid()"))
+                    await db.commit()
+                    proxy = db.sync_connection.connection
+                    owner = guard_module._RESULT_VIEW_TASK_OWNER.get()
+                    entry, lease = next((entry, lease) for entry, lease in owner.items()
+                                        if lease[1] is proxy.dbapi_connection)
+                    assert lease[2] is proxy.driver_connection and lease[3] is asyncio.current_task()
+                    assert not owner.transactions and not proxy.driver_connection.is_closed()
+                    assert not proxy.driver_connection.is_in_transaction()
+                    target.update(owner=owner, task=asyncio.current_task(), entry=entry, lease=lease,
+                                  dbapi=proxy.dbapi_connection, driver=proxy.driver_connection, pid=pid)
+                    if fault:
+                        eof_gate.clear()
+                    await db.invalidate(exception=None)
+                    target["invalidate_returned"] = True
+
+            app, sessions, session_id = await _setup(engine, before_response=native_close)
+
+            def connected(dbapi, entry):
+                connections.append(dbapi)
+
+            def invalidated(dbapi, entry, exception):
+                assert dbapi is target["dbapi"] and entry is target["entry"] and exception is None
+                invalidations.append(monotonic())
+
+            def closing(dbapi, entry):
+                if dbapi is not target.get("dbapi") or closes:
+                    return
+                assert entry is target["entry"] and connections == [dbapi]
+                assert entry.dbapi_connection is dbapi and entry.driver_connection is target["driver"]
+                assert guard_module._RESULT_VIEW_TASK_OWNER.get() is target["owner"]
+                assert asyncio.current_task() is target["task"] and entry.in_use
+                assert target["owner"].get(entry) is target["lease"]
+                assert entry.info[guard_module._RESULT_VIEW_CONNECTION_OWNER] is target["lease"]
+                target["preempted"] = target["driver"].is_closed()
+                if not target["preempted"]:
+                    assert not target["driver"].is_in_transaction()
+                assert len(invalidations) == 1
+                closes.append(monotonic())
+                if fault:
+                    eof_gate.clear()
+
+            async def observe():
+                assert guard_module._RESULT_VIEW_TASK_OWNER.get() is None
+                async with asyncio.timeout(1):
+                    # A client abort can finish both relay pumps before upstream EOF is published.
+                    while not eof_seen.is_set() and not (closes and not relay_tasks):
+                        await asyncio.sleep(0)
+                    assert data_gate.is_set() and (eof_gate.is_set() is not fault)
+                    async with engine.connect() as db:
+                        while await db.scalar(text("SELECT count(*) FROM pg_stat_activity WHERE pid=:pid"),
+                                              {"pid": target["pid"]}):
+                            await db.rollback()
+                            await asyncio.sleep(0)
+                        assert await db.scalar(text("SELECT count(*) FROM pg_locks WHERE pid=:pid"),
+                                               {"pid": target["pid"]}) == 0
+                    assert target["task"].cancelling() == 0
+                    observed.update(at=monotonic(), closed_flag=target["driver"].is_closed())
+                    if fault and not target["preempted"]:
+                        assert observed["closed_flag"] and relay_tasks
+                        assert not target["task"].done() and "invalidate_returned" not in target
+
+            event.listen(request_engine.sync_engine, "connect", connected)
+            event.listen(request_engine.sync_engine, "invalidate", invalidated)
+            event.listen(request_engine.sync_engine, "close", closing)
+            try:
+                foreign = await engine.connect()
+                foreign_pid = await foreign.scalar(text("SELECT pg_backend_pid()"))
+                observer = asyncio.create_task(observe(), context=Context())
+                before = set(asyncio.all_tasks())
+
+                def release_watchdog():
+                    watchdog_fired.append(True)
+                    eof_gate.set()
+
+                watchdog = asyncio.get_running_loop().call_later(3, release_watchdog)
+                async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="https://test") as client:
+                    began = monotonic()
+                    try:
+                        response = await client.post(f"/meetings/{MEETING_ID}/result-viewed",
+                                                     json={"proof": "synthetic"}, headers=_headers(session_id))
+                    finally:
+                        await observer
+                        assert len(invalidations) == len(closes) == 1 and observed["at"] >= closes[0]
+                        print({"native_close_fault": fault, "elapsed": round(monotonic() - began, 3),
+                               "upstream_eof": eof_seen.is_set(), "backend_gone_before_cancel": True,
+                               "close_path": "preemptive_abort" if target["preempted"] else "native_grace",
+                               "early_closed_flag": observed["closed_flag"],
+                               "watchdog_fired": bool(watchdog_fired)})
+                    async with asyncio.timeout_at(asyncio.get_running_loop().time() + max(0, 2 - (monotonic() - began))):
+                        while relay_tasks:
+                            await asyncio.sleep(0)
+                    assert monotonic() - began < 2 and not watchdog_fired
+                assert response.status_code == 200
+                assert target["preempted"]
+                assert response.json() in ([{"status": "accepted"}, {"status": "unavailable"}]
+                                           if fault else [{"status": "accepted"}])
+                assert data_gate.is_set() and (eof_gate.is_set() is not fault)
+                assert target["driver"].is_closed() and not target["owner"] and not target["owner"].transactions
+                assert not [task for task in asyncio.all_tasks()
+                            if task.get_context().get(guard_module._RESULT_VIEW_TASK_OWNER) is target["owner"]]
+                assert not relay_tasks and set(asyncio.all_tasks()) <= before
+                assert request_engine.pool.checkedout() == 0
+                if response.json() == {"status": "accepted"}:
+                    assert target["invalidate_returned"]
+                    assert "x-graf-auth-expires-at" in response.headers
+                async with sessions() as db:
+                    if response.json() == {"status": "accepted"}:
+                        expiry = await db.scalar(select(AuthSession.expires_at).where(AuthSession.id == session_id))
+                        assert expiry > datetime.now(UTC) + timedelta(days=29)
+                    assert await db.scalar(select(func.count()).select_from(ProductActivationMilestone)) == 0
+                assert await foreign.scalar(text("SELECT pg_backend_pid()")) == foreign_pid
+                assert await foreign.scalar(text("SELECT 1")) == 1
+                eof_gate.set()
+                async with request_engine.connect() as db:
+                    assert await db.scalar(text("SELECT 1")) == 1
+                    assert await db.scalar(text("SELECT pg_backend_pid()")) != target["pid"]
+                    assert db.sync_connection.connection.driver_connection is not target["driver"]
+            finally:
+                if watchdog is not None:
+                    watchdog.cancel()
+                eof_gate.set()
+                if observer is not None:
+                    observer.cancel()
+                    await asyncio.gather(observer, return_exceptions=True)
+                if "owner" in target:
+                    await asyncio.gather(*(task for task in asyncio.all_tasks() if task is not asyncio.current_task()
+                                           and task.get_context().get(guard_module._RESULT_VIEW_TASK_OWNER)
+                                           is target["owner"]), return_exceptions=True)
+                if foreign is not None:
+                    await foreign.close()
+                await request_engine.dispose()
+    _run(postgres_seeded_database_url, scenario, pool_size=3)
 
 
 @pytest.mark.parametrize("auth", ["missing", "csrf"])

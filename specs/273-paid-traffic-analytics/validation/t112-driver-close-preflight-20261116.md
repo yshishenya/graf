@@ -206,3 +206,174 @@ restore/runtime/T0, PR/CI/merge/release, рабочее измерение, тр
 Проверяющий создал только настоящий отчёт. Исходники, тесты, требования,
 checklist markers, Git/GitHub и рабочая среда не менялись. Тесты, сборки,
 старый207 профиль и сетевые эксперименты не запускались; чужая работа сохранена.
+
+## Дополнение — независимое ревью законченного baseline
+
+Поручение: `/private/tmp/graf-t112-driver-close-baseline-review-20261116.txt`.
+Основа по-прежнему `e9eb5076197bbac912aa0f5b9118ded0f35f6edd`; рабочий diff
+меняет только contract test. Runtime guard побайтово прежний. Прочитаны весь
+новый diff, relay/handler/observer и законченный итоговый журнал, включая
+traceback и квитанцию удаления контейнера. Новый исполнительский отчёт
+`t112-driver-close-validation-20261116.md` также сверён с этими входами.
+
+**Causal baseline принят как RED нужной фазы: P1=0, P2=1 (C1) в runtime.
+Блокирующих P1/P2 дефектов самого узкого теста не найдено.** Это не PASS
+реализации и не подтверждение поздних fault cleanup проверок.
+
+### C1 — native graceful close съедает весь срок ответа
+
+Normal прошёл; fault около2.004s закончил выполнение приложения без полного
+ASGI ответа, после чего HTTPX упал на `assert response_complete.is_set()`
+в `asgi.py:181`. Это не недостижение подготовительной стадии: public
+invalidate(None)/close callbacks проверяют exact owner/task/entry/lease/
+DBAPI/driver и одно целевое соединение; настоящий SELECT1/PID/commit уже
+завершён. Отдельный observer с пустым Context подтверждает upstream EOF,
+исчезновение target backend и locks до отмены request task. В fault EOF gate
+закрыт, data gate открыт, `is_closed=True`, invalidate ещё не вернулся и
+request/relay ещё pending. Watchdog не сработал.
+
+Сбой находится после штатной серверной обработки завершения соединения,
+в ожидании клиентского graceful close. Прочитанный library traceback ведёт
+через настоящий `AsyncAdapt_terminate.terminate` и shield native close.
+Закрытый флаг не доказывает release сокета; этот baseline причинно показывает
+именно различие. Исчезновение backend до отмены исключает объяснение
+незаконченным SQL/rollback/init. Действующий guard отменяет DB owner, затем
+присоединяет наследующие owner задачи; незаконченный shielded close не даёт
+достаточного резерва для конечного unavailable. После общего дедлайна
+`_result_view_unavailable` уже не отправляет ответ. Это нарушает §5 договора.
+
+### Достоверность и пределы теста
+
+Optional EOF параметры сохраняют прежний yield3 и callers. FIRST_COMPLETED
+не маскирует fault: в fault наблюдение действительно достигло удержанного EOF
+до отмены. Direct pool3 решает занятость foreign/observer/auth. Наблюдение
+Pool.close стало одноразовым, поэтому повторный dispose вне owner не
+подменяет итоговую ошибку; первоначальный журнал с такой ошибкой — история,
+не окончательный baseline.
+
+Normal прошёл все последующие условия: полный accepted0.103s, законченные
+relay/wait_closed и owner/pool/tasks до teardown, renewal сохранён, ledger0,
+foreign PID/SELECT1 сохранены, новый native driver/PID работает. В fault
+падение происходит раньше последующих условий. Его законченные task/socket/
+owner/pool cleanup, foreign readback и новый checkout **ещё не доказаны**;
+удаление контейнера и последующая fixture уборка ими не являются.
+
+Итоговый профиль: **1 passed,1 failed,25 deselected,1 старый fixture warning**,
+pytest5.49s, runner9s, `postgres_test_phase=focused status=fail`,
+`postgres_test_cleanup=isolated_container_removed`.
+Collection2/digest:
+`ccce981630874985a7e397fed77ddbffe162deaf84148862d8be5cf2021ba2d6`.
+
+| Проверенный baseline вход | SHA-256 |
+| --- | --- |
+| Guard, без изменения | `b22a95714a2e6d94ec1645bad0475e1b99b518386caa7ebab785fb0d42dd0088` |
+| Новый contract test | `084e0c3a561c982be062eab334de17985e8388737163f50198dc5b51b09c0e16` |
+| Итоговый baseline log | `c42b671864664f8bdce3b0f79ead32d39ff1819d0960bfd92992d324e956962d` |
+
+Новый запуск не выполнялся: фактический diff и законченный журнал достаточны
+для этой находки; прежний207 не повторялся.
+
+## Отдельное решение — минимальный public runtime проект после C1
+
+**PASS только следующего узкого проекта упреждающего завершения при hard
+invalidate(None), с обязательными проверками ниже; P1=0,P2=0 в проекте.
+Реализация, GREEN и весь raw close этим ещё не приняты.**
+
+Минимальный публичный путь не требует искать скрытую close task и менять
+порядок общей отмены. Существующий public Pool.invalidate callback вызывается
+до Pool.close и до native graceful close. Для обычной hard invalidation с
+причиной None точного собственного native соединения **без активной
+транзакции** допустимо один раз вызвать публичный `driver.terminate()` уже
+в этом callback. Hard invalidation всё равно окончательно выбрасывает это
+соединение; операция не возвращает его для дальнейшего использования.
+
+Это осознанное немедленное закрытие только такого выбрасываемого соединения,
+а не попытка повторно terminate уже closing driver. В проверенном asyncpg
+terminate до начала close вызывает abort открытого протокола. Последующий
+штатный SQLAlchemy graceful close видит уже закрытый driver и заканчивается.
+Пул и Connection продолжают собственные штатные bookkeeping/checkin действия;
+их поля, счётчики и состояние не переписываются агентским кодом. Новых SQL,
+retry, timers, конфигурационных параметров, factory или сервиса нет.
+
+### Обязательные отрицательные условия новой ветви
+
+Сохранить прежнюю CancelledError ветвь и её pre-ping/DB-first порядок отдельно,
+без расширения её fallback на причину None. Для **новой** ветви нужны все
+условия одновременно:
+
+1. Текущий Context содержит точный ограниченный owner; current task существует
+   и её Context принадлежит этому owner.
+2. Public entry.in_use=True; callback DBAPI, entry.dbapi_connection,
+   entry.driver_connection и wrapper.driver_connection совпадают по identity;
+   driver — поддерживаемый native AsyncpgConnection.
+3. Есть уже принятый обычный lease5: owner[entry] и normal-key указывают на тот
+   же объект, lease owner/DBAPI/driver/entry точны, lease task — текущая task
+   с тем же Context. Отсутствие lease **не** даёт права взять ресурс.
+4. Нет initialization marker и противоречивой/root association этого entry;
+   native driver открыт и `is_in_transaction()` ложно. Это не разрешение
+   прервать чужую транзакцию или выводить known commit из одного закрытого
+   флага. Уже начатый graceful close этим путём не принимается.
+
+При owner=None, другом owner/task, неизвестном/противоречивом поколении,
+другой причине, driver type, active transaction, закрытом driver или
+неполной metadata — никаких действий с driver/foreign lease. Не добавлять
+callback exception или retry. Противоречие текущего owner не должно
+впоследствии становиться accepted лишь из пустоты реестров; сохраняется
+принятая fail-closed семантика `owner.failed`, без присвоения чужого ресурса.
+
+Одного расширения `exception is None or isinstance(CancelledError)` вокруг
+прежнего менее строгого ownership predicate недостаточно: новой ветви нужны
+перечисленные task/lease/generation/transaction условия.
+
+### Почему не достаточно других коротких правок
+
+- Поздний `driver.terminate()` после is_closed=True не гарантирует abort:
+  public terminate проверяет is_closed, а native protocol уже closing.
+  Доступ к `_protocol`/transport и мутация закрытых состояний не допускаются.
+- Простое увеличение бюджета/возврат unavailable без join нарушает принятый
+  срок либо оставляет работу и сокет. Оно не исправляет C1.
+- Отмена всех owner children одновременно с DB owner может повторно прервать
+  SQLAlchemy bookkeeping через родительские task groups. Общая двухфазная
+  отмена потомков была бы более широким проектом с отдельным доказательством
+  порядка и точного владения. В этом минимальном срезе она не нужна и данным
+  решением не разрешается; прежний DB-first путь остаётся неизменным.
+
+### Изменение доказательства после упреждающего закрытия
+
+Этот проект намеренно предотвращает прежнее зависшее graceful ожидание,
+поэтому нельзя требовать, чтобы после исправления снова существовала pending
+native close task. Нельзя также просто удалить проверку фазы/сокета ради GREEN.
+Сохранить точный исходный RED и его test SHA выше. Новый тест должен различать
+два **наблюдаемых** пути, без флага доверия или подмены native методов:
+
+- Исходный путь: driver открыт перед invalidate и при входе close, upstream
+  EOF удержан, backend исчез, native ожидание ещё pending. На исходном guard
+  это по-прежнему обязано приводить к C1.
+- Исправленный путь: driver был открыт и без транзакции перед invalidate;
+  public cause=None и exact ownership подтверждены; уже при Pool.close он
+  закрыт вследствие новой ветви. Поздний ожидатель EOF не нужен для окончания
+  native driver, но реальное освобождение доказывается завершением relay root,
+  обоих pump и wait_closed, исчезновением backend/locks, пустыми owner/pool/tasks
+  до gate.set/teardown в том же2s. Событие server EOF может не успеть публиковаться
+  до client EOF/FIRST_COMPLETED; это не заменяет обязательные socket/task proof.
+
+Проверка `is_closed()` должна предшествовать `is_in_transaction()` с коротким
+замыканием. После публичного terminate asyncpg уже освободил protocol, поэтому
+повторный `is_in_transaction()` на таком driver в runtime или тестовом close
+callback недопустим; отсутствие транзакции фиксируется до завершения.
+
+Нужны normal/fault, renewal/ledger0, foreign PID/SELECT1 и новый checkout/
+generation. Нужны focused unit отрицательные случаи каждого нового identity,
+task, причинаNone/другая/CancelledError, active transaction, owner=None,
+initialization/root association и уже closing driver: никаких чужих terminate,
+мутации metadata или возврата failure в accepted. Причинные тесты положительного
+пути проверяют весь ответ и ресурсы, а не только вызов terminate в fake.
+После кода — законченный профиль затронутого поведения и независимое review;
+старый207 не является доказательством изменённого guard.
+
+Требования/spec/plan/tasks/contracts/checklists/analyze не менялись. Четыре
+списка повторно пересчитаны по принятым хешам:16/0+27/0+52/0+29/0=124/0;
+это по-прежнему качество требований. Полные T112/T113, TLS/обычный close/
+reset и остальные исходы, рабочее измерение/T0/restore, выпуск и трафик/
+продажи остаются открыты. Проверяющий только дополнил этот отчёт и сохранил
+параллельные изменения основного агента.
