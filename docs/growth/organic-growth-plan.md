@@ -423,12 +423,37 @@
   Отчёт и reviewer addendum committed/pushed в
   `3ab916f2439d86914c83d22a78d1a518a6b21ebf`.
   [Проверка проекта и ограничения](https://github.com/yshishenya/graf/blob/3ab916f2439d86914c83d22a78d1a518a6b21ebf/specs/273-paid-traffic-analytics/validation/t112-idle-close-design-validation-20261116.md).
-- [ ] Независимо исправить public root-предикат проекта и безопасную
-  диагностику раннего callback assertion; затем новая адресная native-проверка.
-  Готовое уточнение — `/private/tmp/graf-t112-idle-close-design-correction-20261116.txt`;
-  подтверждённой доставки и нового заключения пока нет, verified wait нет.
-  До нового допуска callback не возвращать, active-проверку ради PASS
-  не удалять. T112 и рабочий сбор остаются открытыми.
+- [x] Получить и прочитать исправленный независимый проект public root:
+  отдельный exact witness из after_transaction_create AUTOBEGIN с True/True,
+  необратимый отзыв при child/after_begin/commit/rollback/end и текущие
+  False/False только вместе с доказанной историей. Прежний DESIGN PASS,
+  требовавший True при checkout, отозван; простой отказ от active-проверки
+  не принят. Исправленный report SHA-2564b9b5f5a… прочитан до нового кода.
+- [x] Изолированно реализовать и проверить новый проект. Реальные public
+  Session/do_connect/after_begin события подтвердили переходы и отзыв,
+  включая partial rollback/чужой Context/no-rearm и прежний list3 lease.
+  Unit44 PASS, расширенный unit243 PASS; первый native observer дал2FAIL
+  на необязательном upstream EOF при POST~0.05s. Принятый проект допускает
+  client EOF/prevented wait; исправленный observer получил2PASS. Первый
+  FAIL сохранён отдельно и не выдаётся за PASS или новый runtime-дефект.
+- [x] Получить независимый разбор реализации: P1=0 новых runtime-дефектов,
+  P2=3, итог HOLD, checksum3653b057…. Он принял client EOF доказательство,
+  потребовал проверки формы root/witness и живой witness в finished-root
+  cleanup. Все три исправлены локально:59 адресных unit PASS и2 native PASS
+  с тем же исходным абсолютным2s; F/P сохраняют PID/SELECT1/commit,
+  старые backend/locks/relay/tasks завершены, новое T idle/noTX/no locks,
+  три reset/checkin, committed renewal и ledger0. Gate остаётся закрытым,
+  watchdog не срабатывал; затем reuse PASS. Собственные контейнеры удалены.
+  [История и точные входы](https://github.com/yshishenya/graf/blob/127a1ca5596df097526ef17d5a0ba282da3e12e4/specs/273-paid-traffic-analytics/validation/t112-root-history-validation-20261116.md).
+- [ ] Получить повторное независимое ревью последних исправлений P2,
+  затем затронутый общий regression-профиль и scoped converge. Последнее
+  независимое заключение остаётся HOLD; локальные GREEN его не заменяют.
+  Подготовлено `/private/tmp/graf-t112-root-history-review-update-20261116.txt`;
+  подтверждённой доставки нового поручения после3653b057 и verified wait нет.
+  Отчёты сохранены отдельным docs-only checkpoint127a1ca55. Код/тесты/fragment
+  остаются незакоммиченным кандидатом в изолированной рабочей копии;
+  свой patch дополнительно сохранён вне дерева, SHA-256c51af0f0….
+  PR/merge/выпуска/рабочего включения нет. T112/T113 открыты.
 - [ ] Проверить остальные реальные границы: обычный close/возврат в пул,
   TLS/reset/recycle и прочие commit/cleanup исходы. Упреждённый hard invalidate
   и foreign direct connection не доказывают ordinary close или same-pool
