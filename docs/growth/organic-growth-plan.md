@@ -499,8 +499,8 @@
   профиль61, тесты не повторял. Agent-context/changelog-fragments/diff PASS.
 - [x] Сохранить узкий проверенный кандидат commit/push с точным удалённым
   чтением: `13fde51d1dbda80d0b06279f44c2248e24c5d714`, ветка
-  `codex/f273-result-visibility-20261116`. Кодовая копия clean, удалённый SHA
-  совпал. [Итог и пределы](https://github.com/yshishenya/graf/blob/13fde51d1dbda80d0b06279f44c2248e24c5d714/specs/273-paid-traffic-analytics/validation/t112-projection-determinism-validation-20261116.md).
+  `codex/f273-result-visibility-20261116`. При сохранении копия была clean,
+  удалённый SHA совпал. [Итог и пределы](https://github.com/yshishenya/graf/blob/13fde51d1dbda80d0b06279f44c2248e24c5d714/specs/273-paid-traffic-analytics/validation/t112-projection-determinism-validation-20261116.md).
   Нового PR/слияния/выпуска нет; весь план не сливать.
   Полный T112/T113 остаётся открыт.
 - [ ] Реализовать следующий числовой raw-byte/raw-shape Session guard.
@@ -510,6 +510,27 @@
   затем обход исходной глубины/узлов до передачи частных полей драйверу.
   Эти опыты не являются испытанием ещё отсутствующей защиты приложения.
   `_result_period_context` остаётся yield None; HTTP/T113/сбор/T0 закрыты.
+- [x] Выполнить локальный профиль отдельного числового компонента до передачи
+  исходных данных Python:31PASS, затем независимый HOLD/P2=1 N1 обнаружил
+  недооценку Numeric выражений. Проверенная исходная константа пропустила
+  два настоящих превышения строки (coalesce и семь квадратов):2FAIL с
+  DID NOT RAISE. После измерения pg_catalog.numeric_send полный текущий
+  профиль34PASS/0skips/1прежний warning/11.68s/runner16s/EXIT0, свой контейнер
+  удалён. Ruff/context/fragment/diff PASS; прежние61/294/257/native2 не повторялись.
+  Кандидат с исходным HOLD и отчётом сохранён/pushed отдельно:
+  `78744cd6bf8a066201271ee3a1ec36b84be6c559`, удалённый SHA совпал,
+  файлы побайтно совпали с commit. Это сохранение для повторного ревью,
+  не независимая приёмка, PR merge или выпуск.
+- [ ] Получить независимое повторное ревью точных файлов числового компонента
+  в `/private/tmp/graf-f273-result-visibility-20261116`: module SHA-256
+  `3017498c3ae23d897671ae7cc67432b36ffcfbedc9b96a0ab442610b4ef2d18b`, test
+  `7b36f0c99cee98af4b867f05bd01ab2117ed589b0dbb8b8cc35531986ce9828a`.
+  Отчёт основного исполнителя `validation/t112-numeric-projection-validation-20261116.md`;
+  исходный reviewer HOLD сохранён в `validation/t112-numeric-projection-review-20261116.md`
+  с SHA-256 `8deb1db80100f28a22981b821eafb293edad2ef18cd76f6e49cf0cbd72e2946f`.
+  Готовый запрос повторного ревью сохранён отдельно; его доставку и новый
+  FINAL не утверждаем. Полная Session/RR/interception/bypass/SQL128/2s/
+  locks/freshness/очистка и обычный30–60мин путь не реализованы этим компонентом.
 - [x] Уточнить фактические чтения до кода: найден существующий ранний snapshot
   pattern `notification_snapshot_db`; previous-meeting revision/result и
   historical summary-attempt могут идти через `scalar()` без SQL LIMIT.
