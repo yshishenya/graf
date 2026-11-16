@@ -131,14 +131,22 @@ final class LocalRecordingFootprintProviderTests: XCTestCase {
     }
 
     func testInvalidateDuringMeasurementRejectsStaleResult() async {
+        let started = DispatchSemaphore(value: 0)
+        let release = DispatchSemaphore(value: 0)
         let provider = provider(timeout: 2, measure: { _ in
-            Thread.sleep(forTimeInterval: 0.1)
+            started.signal()
+            release.wait()
             return Self.snapshot(0)
         })
 
         let task = Task { await provider.refresh() }
-        try? await Task.sleep(nanoseconds: 20_000_000)
+        XCTAssertEqual(
+            started.wait(timeout: .now() + 1),
+            .success,
+            "measurement must start before invalidate; a sleep-only race is flaky under CI load"
+        )
         await provider.invalidate()
+        release.signal()
         let risk = await task.value
 
         XCTAssertEqual(risk, .mustDegradeOrStop)
