@@ -2,3 +2,5 @@
 COPYING -text
 webrtc/** -text
 Abseil/LICENSE -text
+# Keep the pinned publisher's final blank line.
+Abseil/LICENSE whitespace=-blank-at-eof
