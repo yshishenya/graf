@@ -217,12 +217,25 @@
   remote readback совпал; PR/merge/выпуска нет.
   [Проверки и границы](https://github.com/yshishenya/graf/blob/41fdf6c11475819993a3584aa869496034a391e2/specs/273-paid-traffic-analytics/validation/t112-account-pair-20261116.md),
   [независимое ревью](https://github.com/yshishenya/graf/blob/41fdf6c11475819993a3584aa869496034a391e2/specs/273-paid-traffic-analytics/validation/t112-account-pair-review-20261116.md).
+- [x] В том же общем admission добавить свежие session/membership/device locks,
+  штатный request tenant context и повторный общий review выбранного результата
+  под Meeting FOR UPDATE. Срок сессии перепроверяется перед INSERT/commit;
+  parent session lock защищает и появление новой device binding.
+  RED на отозванной session → итог190 PASS/1 прежний warning/0 skips,
+  включая реальный SQL-конфликт writers, истечение между вставками и
+  положительный сценарий ограниченной роли с RLS. Это синтетическая роль,
+  не доказательство прав рабочего login или всей межтенантной изоляции.
+  Независимое ревью P1=0/P2=0 именно этого изолированного шага.
+  Сохранено/pushed `9f37adc897217ea2416cf3ebeccb4373efbe1c70`, remote readback
+  совпал; новый код не включён в рабочий сбор, PR/merge/выпуска нет.
+  [Проверки и предел](https://github.com/yshishenya/graf/blob/9f37adc897217ea2416cf3ebeccb4373efbe1c70/specs/273-paid-traffic-analytics/validation/t112-fresh-access-20261116.md),
+  [ревью](https://github.com/yshishenya/graf/blob/9f37adc897217ea2416cf3ebeccb4373efbe1c70/specs/273-paid-traffic-analytics/validation/t112-fresh-verifier-review-20261116.md).
 - [ ] Выполнить полный source/audit/projection/proof, browser/native visibility, защищённый
   POST и общую admission boundary с причинной DB/browser/Swift/failure матрицей.
   Renderer использует общий чистый выбор строк и принимает необязательную карту
   для невидимых атрибутов; binding/proof и issuance ещё не подключены к рабочим
-  вызовам. Следующие шаги: защищённый серверный приём и выдача/обновление proof,
-  свежие проверки после общих fences и атомарная пара через T113. Source fact/подпись/
+  вызовам. Следующие шаги: защищённый HTTP-приём и выдача/обновление proof,
+  подключение свежего verifier и атомарной пары через настоящую T113. Source fact/подпись/
   snapshot не доказывают показ или свежий доступ после fences. T112/T113 и
   внешний счёт остаются открытыми; частичные шаги не закрывают задачу.
 
