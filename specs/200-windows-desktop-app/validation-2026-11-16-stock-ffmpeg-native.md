@@ -722,3 +722,80 @@ Build result SHA256
 Часовой полный цикл запущен отдельно; его результат ещё не принят.
 Установленная версия, реальный захват, SC-003 и оборудование остаются
 самостоятельными незакрытыми условиями выпуска.
+
+
+## R11 — часовой synthetic объём: actual terminal PASS, 16.11.2026
+
+На тех же замороженных R11 source276 и6 artifacts выполнен
+`StockFFmpegMemoryTests --synthetic-60min-accelerated`: CTest/JUnit1/1,
+exit0, task Ready/last0, процессов не осталось. 12/12 collected payloads
+сверены по длинам/SHA; source276/artifacts6 до/после совпали.
+Результат `.dev/t116-stock-ffmpeg-r11-memory60-20261116/main-terminal-review.json`,
+полные исходные квитанции сохранены отдельно.
+
+- 360000 blocks/172800000 исходных frames: весь canonical побайтно проверен.
+- Duration3600000ms, container36000000000ticks100ns, difference0.
+- Полный AAC EOS172801024frames, +1024raw; амплитуды контрольных тонов
+  0.149933587/0.099951072 при прежнем пороге0.015. Priming/presentation
+  metadata NOT_ASSESSED; этот результат не закрывает strict audio acceptance.
+- Пик commit56926208B, пик WS32239616B; post-warm WS growth1232896B.
+  Owned admitted lifetime peak1449286B при лимите67108864B; baseline/final0,
+  owners_released1. Sampling5ms, actual maxgap152368us,160076 samples, failures0.
+- Это ускоренный синтетический объём в Parallels x64 emulation: strict_SC003=0;
+  paced/hardware/installed и публичный выпуск не принимаются по этому тесту.
+
+**Открытая проблема производительности:** полный тест2671088ms; append792054ms,
+Stop/finalize1041244ms (17m21s), cold full inspect/canonical/AAC verify835764ms
+(13m56s). Целостность подтверждена, приемлемая задержка Stop не подтверждена.
+Нельзя объяснять это только VM без причинного профилирования; дальнейшая
+оптимизация сохраняет protected IO, hashes, full validation и memory limits.
+
+Exact result SHA2565706cb2bc03201227a814d2cd1fc509c278ed7a3c66ada44e8387e25d6f23e18;
+log b12eb5e177ca5aa5a7b5e3c0cb5c3f85c99583587bc489151b88b8d487c0b125;
+JUnit723747366d72142466269219c7f7fef09b55e03173f90121f81cc49f6d9da1d9.
+
+Отдельная actual read-only сверка после terminal: R11 temp существует и пуст,
+remaining_children0, actual_temp_absence=true; fixture outputs удалены RAII,
+процесс StockFFmpegMemoryTests отсутствует. Квитанция
+`.dev/t116-stock-ffmpeg-r11-memory60-20261116/main-temp-absence-result.json`,
+SHA256 68bec1936b749e2799e699e3d7698037662d4a074870fe699598d3952f7208fe.
+
+
+## R12 — короткие AAC: два actual native PASS, 16.11.2026
+
+После независимого ревью исправлены только положительные test-oracles:
+30ms → container300000/raw3072frames; 10ms → container100000/raw2048frames.
+Production reader/player не менялись. Исключение zero-container/exact1024,
+отрицательные проверки времени, EOF, flags и lifetime сохранены.
+
+Замороженный source manifest276 SHA256
+`7ecb9a47bdaf8dc1cf4dbb7767d632f5a27424048f218a3fc3cd3348be36e5ea`;
+actual Release build receipt
+`ffdf1b01d2dfd7d32d07b3871a6bb9874f2e02c08b0ed16ae8c406ef0f1dac95`.
+Main сверил22/22 build payloads, source276/artifacts6 до/после.
+
+- `NativeProtectedShortMediaEngine`: actual JUnit1/1,11799ms; playback ready,
+  play/end/close успешны. Подмена длительности для3072frames отвергнута.
+- `NativeProtectedShortAAC`: actual JUnit1/1,13479ms;10/20/30ms и холодное
+  восстановление прошли, повреждённый AAC отвергнут, missing/quarantined
+  migration resume прошёл.
+
+Main сверил19/19 runtime payloads по длинам/SHA, оба argv/exit/JUnit/logs,
+source276/artifacts6 до/после; task Ready/last0, процессов нет.
+Result SHA256 `84ffb26336823aee561d4d410de7c44a15846d795d8b2b416c7d92a32db15990`.
+JUnit MediaEngine `b535dda68e66b9b3ca64dbc9dd92d930d47f4bc65503f46710aca9bb55349416`;
+JUnit AAC `2369bf345ab41d51270fe71854425bff00e0a2b6fa5e107b1ed0f18355e66e62`.
+Квитанция Main сохранена в runtime collection как `main-terminal-review.json`.
+
+Один read-only status получил неопределённый ответ Parallels; отдельная
+сверка установила фактический terminal. Start/runtime не повторялись.
+В локальном build-status helper найдено undefined `here`; отдельный
+`status-main.py` добавляет только объявление этого имени. Независимая
+проверка остальных13 Python-файлов не нашла таких ошибок;29 sealed files
+сохранили исходные bytes/SHA. Это исправление оператора, не приложения.
+
+Данные относятся к замороженным276 inputs, а не ко всему текущему commit.
+Установка/UI, strict SC-003, AAC priming/presentation и физическая x64
+приёмка остаются открыты. Производительность Stop из R11 не принята:
+независимый причинный аудит C0/H1/M1 подтвердил высокую стоимость нескольких
+линейных проходов; доли protected IO, FFmpeg и Media Foundation ещё не измерены.

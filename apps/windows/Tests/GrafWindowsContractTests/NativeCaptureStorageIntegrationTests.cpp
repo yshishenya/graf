@@ -10667,7 +10667,8 @@ void protectedShortMediaEngine() {
         assert(sealed.normalPackage() && sealed.durationMs == 30);
         auto pair = capture.coldPair(); assert(pair.ok());
         const auto original = LocalRecordingPackage::readProtectedPlayback(capture.paths.root, *pair.value, 30, capture.cancel);
-        assert(original.ok() && original.value->containerDuration100ns > 0 && original.value->decodedFrames == 2048);
+        // Pinned stock encoder regression.
+        assert(original.ok() && original.value->containerDuration100ns == 300000 && original.value->decodedFrames == 3072);
         graf::windows::zeroPlaybackDurationArmed = true;
         const auto altered = LocalRecordingPackage::readProtectedPlayback(capture.paths.root, *pair.value, 10, capture.cancel);
         assert(!graf::windows::zeroPlaybackDurationArmed);
@@ -10684,7 +10685,8 @@ void protectedShortMediaEngine() {
         assert(sealed.normalPackage() && sealed.durationMs==10);
         auto pair=capture.coldPair(); assert(pair.ok());
         auto inspection=LocalRecordingPackage::inspectProtected(capture.paths.root,*pair.value,capture.session,capture.cancel);
-        assert(inspection.ok() && (*inspection.value)->evidence().playback.decodedFrames==1024);
+        assert(inspection.ok() && (*inspection.value)->evidence().playback.decodedFrames==2048 &&
+            (*inspection.value)->evidence().playback.containerDuration100ns==100000);
         auto opened=ProtectedLocalRecordingPlayback::open(std::move(*inspection.value),capture.cancel,true);
         if (!opened.ok()) std::fprintf(stderr,"SHORT_MEDIA_ENGINE open error=%u native=%u\n",
             static_cast<unsigned>(opened.error),opened.nativeError);
