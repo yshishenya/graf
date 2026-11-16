@@ -307,3 +307,202 @@ I1/C1/Session.close/pre-ping результаты. Новая работа не 
 отметки, Git/GitHub и рабочая среда не изменялись. Это проект эксперимента,
 не отчёт об успешном эксперименте и не разрешение публиковать сообщения до
 ранее согласованной приёмки измерения.
+
+## Дополнение — независимая приёмка baseline, checkpoint c420927
+
+16.11.2026. Новое отдельное поручение:
+`/private/tmp/graf-t112-pool-return-baseline-review-20261116.txt`, SHA-256
+`e8b3f7ef1cb703cdc27013d544ac81fa856c911e6de6ad3e317df6eb324406f4`.
+Проверена основа `c420927a7633596ca392799b61e46022ae7234d2` и фактический
+test diff от `3bb4f81cac072ead06f3498447d488d358a26d84`. Guard неизменён.
+До дополнения настоящий отчёт имел исходный SHA-256 `8eaed6fc94364e5be9f1584a820ed7804600c16538a33c03342e3f98846c04f0`.
+Повторных тестов, сетевых опытов и изменений runtime не выполнялось.
+
+**Причинный baseline: ACCEPTED RED. P1=1, P2=0 в проверенном объёме.**
+P1-R1: полный HTTP-ответ не завершается за исходные2s при задержанном EOF
+штатной замены старого поколения до checkout. Прежний P2-пробел доказательства
+получил наблюдаемый отрицательный результат; это не два разных дефекта.
+Исправление normal-ожидания с двух на три reset/checkin пары обосновано
+реальным дополнительным Session в `_validate_tenant_scope` и не ослабляет
+проверку fault. В принятом окончательном опыте отдельного дефекта теста P2
+не найдено. Локальный READ/DIFF подтверждает соответствие принятому проекту.
+
+Независимо проверены исходник нового теста/relay, окончательный журнал и
+`t112-pool-return-validation-20261116.md`, SHA-256
+`27105f1fff9780f8c1af87a0038a4f5ac3d6ec67a7476f765339dda449e5ad7d`.
+Журнал `/private/tmp/graf-t112-pool-return-baseline-final-20261116.log`, SHA-256
+`78a963b6003e48f426fd63bdbc593cde7bbb97cfaf2f31248c2400c15ddf907d`:
+1PASS/1FAIL/27deselected/один прежний fixture warning; pytest5.96s,
+runner9s, завершённый EXIT1, `isolated_container_removed`.
+Collection2/digest `94da71d53e9473cfe32a83d93c8ffff40b2fb548d2f10789ddf616e602e7daf5`.
+
+Почему RED принят как причинный:
+
+- Физическое прекращение P через собственный синтетический PID, реальный
+  pre-ping invalidate и новое P, законченный старый P relay, F/P удержаны,
+  единственный свободный старый T. Нет подмены native методов, private pool
+  state, timestamps или production-настроек.
+- T.close callback проверяет exact entry/wrapper/native generation, текущие
+  owner/task/Context, auth Session root и отсутствие entry lease/association,
+  `in_use=False`, driver open/noTX. Fault адресует EOF только этого stream.
+- Empty-Context observer действительно дошёл до наблюдения: upstream EOF,
+  старый backend и locks отсутствуют, target task ещё не отменена,
+  нового T поколения нет. Это подтверждается пройденными утверждениями перед
+  `target["observed"]=True` и итоговой диагностикой `backend_gone_before_cancel=True`.
+- Normal завершил ответ около0.064s и прошёл ранние owner/root/pool/socket,
+  idle нового T, три reset/checkin, committed renewal, ledger0, сохранность
+  F/P при исходном сроке и последующий checkout.
+- Fault завершил вызов ASGI без полного ответа около2.002s;
+  HTTPX `asgi.py:181` получил `response_complete=False`. Это не просто
+  превышение2s из-за измерительного округления: полного ответа вообще нет.
+  Watchdog3s не сработал. Журнал показывает отмену в настоящем
+  `AsyncAdapt_terminate.terminate → shield(_terminate_graceful_close)`.
+
+Из RED **не** выводится, какой exact child/lease оставался в момент2s:
+отдельного снимка этих структур при падении нет. Утверждения fault о root,
+F/P, pool return, ledger0 и следующем checkout не достигнуты. Открытие gates
+и освобождение fixture не доказывают их раннюю приёмку. Нет нового
+аналитического commit в этой фазе; повтор записи не нужен и не разрешается.
+
+18 неизменённых входов требований повторно сверены с картой чтения:
+расхождений нет. requirements16/0 + security27/0 + privacy52/0 + infra29/0
+=124/0; отметки не менялись. Прежний scoped analyze остаётся применим к
+неизменённым требованиям, но не объявляется приёмкой исправления.
+
+## Отдельный runtime DESIGN — предупреждение ожидания выбранного idle close
+
+**DESIGN PASS с обязательными ограничениями ниже; P1=0/P2=0 проекта.**
+Это разрешённый узкий проект для дальнейшей реализации/проверки, не готовый
+код и не доказанный GREEN. Устранённым P1-R1 станет только после проверки
+точной новой версии. Новых продуктовых требований/настроек для описанного
+предупреждения ожидания не нужно: SQLAlchemy уже решил закрыть физическое
+соединение, а незавершённая транзакция и чужое владение исключаются.
+
+Минимальная точка — отдельный короткий public `Pool.close` callback в
+существующем guard. До вызова библиотечного native graceful close он вправе
+вызвать публичный `asyncpg.Connection.terminate()` **только** для указанного
+самим Pool.close, уже предназначенного к закрытию, idle поколения при всех
+следующих доказанных условиях одновременно:
+
+1. Есть exact current request owner; current task существует, имеет тот же
+   owner в своём Context и ещё не отменяется. Owner не содержит connection
+   leases и не находится в failed-состоянии. Это предупреждение ожидания,
+   не новый обработчик поздней отмены.
+2. Exact callback entry имеет `in_use=False`; его текущий dbapi_connection
+   тождественен аргументу callback; текущий driver_connection тождественен
+   `dbapi_connection.driver_connection`, имеет проверенный тип AsyncpgConnection.
+   Нельзя получать соединение заново, делать checkout или читать private pool
+   queue/generation timestamps. Любое расхождение identity означает no-op.
+3. В entry.info отсутствуют все прежние connection/init/root guard keys;
+   entry не фигурирует ни в одном lease текущего owner. `owner` пустота также
+   исключает другое инициализируемое/выданное соединение этого же запроса.
+4. У owner ровно один действующий Session root: exact прежний список
+   `[owner, transaction, current_task]`, тождественен записи transactions;
+   transaction.parent=None, transaction.session находится в этой транзакции,
+   public session.get_transaction() возвращает её, transaction.is_active=True,
+   session.info хранит exact root. Нет Session root handoff к другой задаче,
+   чужой/законченной/вложенной/множественной транзакции.
+5. Только после identity/root проверок публичные driver.is_closed() и
+   driver.is_in_transaction() подтверждают ещё открытый native driver без TX.
+   Already-closing/closed и active TX не обрабатываются этим проектом.
+
+**О резервировании и границе полномочий.** `!in_use` не доказывает владение
+запроса резервом и само по себе никогда не разрешает terminate. Public
+Pool.close не сообщает reason/recycle и не предоставляет отдельный признак
+«этот entry уже вынут из очереди именно этим Session». В baseline резерв T
+доказан полной последовательностью стенда. В runtime нельзя выдумывать такой
+признак или создавать request lease задним числом.
+
+В проекте разрешение на прекращение exact idle generation даёт **сам
+синхронный public Pool.close: пул уже выбрал это конкретное соединение для
+физического закрытия до driver-вызова**. Current owner/root доказывают
+ограниченный контекст ожидания; identity + отсутствие любого lease/init/root
+на entry + noTX исключают вмешательство в работающий ресурс. Это не
+утверждение, что старая connection принадлежала данному account/request.
+Callback корректно именовать bounded idle pool close, а не proof of checkout
+reservation. Он не должен перечислять/закрывать остальные entries в пуле.
+
+Public событие не различает recycle и иные уже выбранные пулом idle closes.
+Если иной close намеренно выполняется в таком же ограниченном контексте при
+тех же строгих условиях, действие по смыслу такое же: сокет уже выбран для
+закрытия, незавершённой транзакции и чужого lease нет. Это явная граница
+проекта, а не скрытое предположение о reserve bit. **Вариант, требующий
+исключительно recycle-specific reservation ownership, на одном public
+Pool.close — HOLD:** публичного доказательства причины нет; нельзя заменять
+его чтением `entry._ConnectionRecord__pool` или других private полей.
+
+После terminate библиотечный путь продолжается штатно: Pool.close callback
+возвращает управление, SQLAlchemy сам выполняет dialect close/terminate,
+обнуляет старый dbapi, подключает новое поколение и проводит checkout/
+checkin. Прямых изменений entry/dbapi/owner/root registry нет; новый task,
+таймер, retry, callback admission или production-флаг не добавляются.
+Callback не бросает собственных исключений и не меняет owner.failed при
+отклонении чужого случая; ошибки библиотек остаются в существующем guard.
+
+Проверенный asyncpg public `terminate()` не ждёт pending data. Затем native
+close видит закрытое соединение и не начинает protocol-close ожидание.
+Это **предупреждение** задержки до начала graceful close, а не доказательство
+отмены уже зависшего graceful-close child. Последний вариант отдельной
+работой здесь не принимается. Нет утверждения rollback неизвестного commit.
+
+Существующие C1 None, CancelledError/pre-ping, I1 initialization cleanup,
+Session root handoff и DB-first cancellation менять не требуется. Новый
+callback обязан исключить их entry/lease/initialization состояния условиями
+выше. Нельзя расширять прежнюю ветвь invalidate снятием проверки in_use и
+объявлять этим доказанным владение старым резервом.
+
+## Доказательства после будущей реализации
+
+Сначала узкие unit-проверки самого решения (не подмена native API в DB опыте):
+один точный допустимый случай; no-owner/wrong-Context/cancelling; непустой
+owner/failed; in-use; другой wrapper/driver/тип; каждый connection/init/root
+key; отсутствующий/чужой/множественный/stale/ended/nested root, другая task
+или Session.info; active TX/already closed. Во всех отказах native terminate
+не вызывается, bookkeeping/чужие объекты не меняются. Проверки driver не
+читаются до подтверждения identity. Успех действует только на exact driver.
+
+Сохранить baseline test/log/SHA неизменяемыми историческими доказательствами.
+GREEN normal/fault использует тот же реальный pre-ping/поколения/синтетические
+F/P/T и адресный EOF, но обязан явно проверять **предупреждение ожидания**:
+
+- EOF gate T можно заранее закрыть после окончания primer, до POST: T idle и
+  единственный target, непустые данные/F/P не задерживаются. Так fault готов
+  ещё до production callback и не зависит от порядка позднего observer.
+- В следующем наблюдающем public Pool.close callback можно проверить уже
+  закрытый exact native driver до перехода SQLAlchemy к driver close;
+  не сохранять baseline-утверждение «после hook driver обязан быть open».
+  Не менять native методы/driver и не принуждать callback order скрытой
+  подменой. Если выбранный реальный порядок listener иной, доказательство
+  порядка нужно получить публичными маркерами и отразить явно.
+- Early empty-Context observer больше не обязан видеть старую task pending
+  до отмены или ровно4 поколения: предотвращённое ожидание позволяет сразу
+  создать новое T. Он подтверждает исчезновение старого backend/locks и
+  целевого relay/writers; отдельный trace доказывает close-before-checkout
+  старого entry и последующие новый connect/checkout/commit/return.
+- При успешном предупреждении нормален полный **accepted в обеих ветвях**,
+  с настоящим auth/tenant/renewal. Unavailable нельзя требовать только ради
+  прежнего RED ожидания. Accepted в стенде не доказывает рабочий ledger.
+- В исходном2s до открытия EOF gate/dispose повторно доказать весь прежний
+  набор: response complete, own tasks/owner/root чисты, checkedout=2, старые
+  T backend/locks/relay/pumps/wait_closed завершены, новый T idle/noTX/no locks,
+  три reset/checkin пары, F и новое P exact PID/SELECT1/commit, renewal и ledger0.
+  Затем следующий checkout/reuse, штатная очистка. Живой новый pooled socket
+  не утечка; F может сменить поколение после возвращения в пул.
+
+Если backend не получил Terminate при немедленном abort, EOF может прийти
+от закрытия клиентского направления: это допустимый настоящий cleanup и
+должен завершить relay через FIRST_COMPLETED. Нельзя искусственно удерживать
+этот pump, чтобы сохранить прежнюю pending-стадию. Раннее исчезновение
+backend/socket доказывается наблюдением, не одним driver.is_closed.
+
+Только после новых focused GREEN и независимого implementation review
+обоснован общий затронутый regression-профиль (включая принятые C1/I1/rollback/
+pre-ping/DB-first): runtime действительно изменён, поэтому это уже новое
+основание для проверки, в отличие от повторения старого233 без изменений.
+Реализация, converge, exact-SHA CI, T112/T113, restore/runtime/T0, выпуск,
+приёмка измерения и трафик/продажи данным дополнением не закрываются.
+
+Точные проверенные исходники дополнения: guard `eda3d18801b09b742ac3c21ac7bae6f68665dee7252f7074e100baa06e94ef14`,
+contract `7b0c4bb447cc66aa828be731c1c61c64fde0e1b8fcecd9987d49f553a4139269`.
+Library hashes/версии и требования в исходной таблице остались прежними.
+Изменён только настоящий отчёт; baseline не повторялся.
