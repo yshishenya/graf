@@ -245,6 +245,20 @@
   Это узкая внешняя граница: DB handler синтетический и не пишет ledger.
   Connect/pre-ping/slow-close, полная очистка ресурсов и настоящий HTTP-приём
   ещё не приняты; PR/CI/merge/выпуска этого шага нет. T112/T113 не закрываются.
+- [ ] Принять расширение отмены до получения DB-соединения: промежуточный код
+  сохранён/pushed отдельно `5ed913c6292c143f7d8799b6902c5406f39097f7`,
+  remote readback совпал. Публичные SessionEvents связывают корневую
+  транзакцию с её task до connect/pre-ping; точный invalidate завершает
+  только собственное соединение, после чего штатный checkin освобождает pool.
+  Настоящий сетевой сбой auth/renewal, независимое наблюдение PostgreSQL,
+  сохранение чужого соединения того же pool и один startup cancellation
+  входят в85 PASS/1 прежний warning/0 skips, runner42s/EXIT0;
+  изолированный контейнер штатно удалён. Полоса high-risk-product.
+  Независимое ревью реализации ещё ожидается: прежний preflight его
+  не заменяет, промежуточный код не готов к слиянию. Initialization,
+  slow rollback/close и остальные исходы commit/cleanup ещё открыты.
+  [Проверки и предел](https://github.com/yshishenya/graf/blob/5ed913c6292c143f7d8799b6902c5406f39097f7/specs/273-paid-traffic-analytics/validation/t112-precheckout-validation-20261116.md).
+  Рабочий сбор выключен; PR/CI/merge/выпуска этого расширения нет.
 - [ ] Выполнить полный source/audit/projection/proof, browser/native visibility, защищённый
   POST и общую admission boundary с причинной DB/browser/Swift/failure матрицей.
   Renderer использует общий чистый выбор строк и принимает необязательную карту
