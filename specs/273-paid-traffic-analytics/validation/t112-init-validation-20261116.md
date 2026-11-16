@@ -72,11 +72,67 @@ entry.in_use в прежнем invalidate callback не является доп�
 Подготовлен отдельный минимальный public проект ранней connect-event связи
 с прежним request owner и точным поколением DBAPI/driver, затем ограниченного
 завершения только этого соединения. Требуется независимый проектный допуск
-**до** runtime правки. После baseline его успешная отправка reviewer и новое
-заключение ещё не подтверждены; подготовленный текст не является живым
-ожиданием. Ранний test-design preflight не заменяет этот допуск.
+**до** runtime правки. После baseline получен отдельный runtime-design addendum (ниже). Ранний
+test-design preflight сам по себе этого допуска не давал.
 
 Весь T112/T113, pool reset, отдельный raw driver.close/TLS teardown,
 остальные commit/cleanup исходы, реальные endpoint/proof/render/ledger,
 browser/native, restore, PR/CI/merge/выпуск, runtime/T0 остаются открытыми.
 Ни визиты, ни регистрации, ни оплаты этим тестом не подтверждаются.
+
+
+## Исправление раннего владения и новый локальный профиль
+
+Независимый runtime-design addendum полностью прочитан до изменения кода;
+SHA-256 `4952a0e9fe19f4bb48e87cb7e4203d8c9e9a030577c37e13a985ac59ddba9bf8`.
+Он принял один дополнительный initialization marker того же lease5 и прежнего
+owner registry, без отдельной фабрики/реестра. Текущий guard использует public
+Pool.connect(insert=True), проверяет exact entry/DBAPI/native driver/task/context
+до initialization. На checkout/checkin marker проверяется до generic pop.
+До join прекращается только exact невыданный driver только что отменённой DB
+task; после успешного join удаляется только metadata того же closed/done lease.
+Обычная invalidate ветвь сохраняет in_use, исходная ошибка не превращается в
+accepted, нет повторных SQL/close/rollback/commit или retry.
+
+Причинные native4 стали **4 PASS /21 deselected /1 прежний warning**,
+7.33s/runner10s/EXIT0; isolated_container_removed. В transparent initialize
+теперь проверяется уже установленный runtime lease/оба ключа. Оба fault
+возвращают полный unavailable<2s; до gate.set проверены закрытый driver,
+исчезнувшие backend/locks, пустые owner/root/task/pool/relay. Normal controls
+подтверждают прежний initialize и committed renewal. Чужой direct backend
+сохранён; последующий checkout с новым driver/PID успешен.
+
+Весь изменённый профиль **197 PASS /0 skips /1 прежний warning**,
+47.93s/runner51s/terminal96024 EXIT0, isolated_container_removed/result pass.
+Состав:164 unit,25 contract,8 прежних integration. Collection197/digest
+`b2314f82ef8554b7858533c7aa0552305e2d03125d79014f8350e01c9f44b30a`.
+Новые73 unit проверяют exact owner/generation/keys/entry/task/context,
+not-in-use/cancelling/cancelled-set, done/closed cleanup и transition/reuse.
+Они сохраняют противоречивые mappings без частичной очистки. Full197 включает
+все прежние120; это новое исполнение изменённого общего профиля, не повтор
+неизменного старого результата.
+
+| Новый вход | SHA-256 |
+| --- | --- |
+| `api/product_analytics_guard.py` | `87af502348a246bbf2073fe53bfa09710533cc4c7d8e852bc84d2d0db0ead40f` |
+| `unit/test_result_view_http_guard.py` | `6e7136c5688661abc1a34548576af87254835c7ff0fbad84509134e265c8a17a` |
+| `contract/test_result_view_http_budget.py` | `45f937184fd0f3569ee385659fc3529d5af1a3acb8d8a5b12fd72fce7dfad2ac` |
+| `/private/tmp/graf-t112-init-full-20261116.log` | `11bbdad7a11cd0f4784a5dec757a2b94c9bf61ee230d94329da67e35979b1679` |
+| Native4 log | `6360e5cb090de5ac4ddc14c51cf7e2a15478c705618ba1d61fd58ac03bc39b4d` |
+
+Ruff/diff-check PASS. До запуска свободно150693760KiB (>80ГБ), архивы не
+копировались, изолированный контейнер удалён штатным runner. Reading restore
+`/private/tmp/graf-t112-init-reading-20261116.json` фиксирует собственные
+применимые разделы и18 неизменных input hashes; это указатель текущего
+same-thread targeted restore по разрешению владельца, не новая квитанция
+первого полного чтения исторического корпуса.
+
+Implementation review ещё открыто. Существующий reviewer получил поручение
+`/private/tmp/graf-t112-init-implementation-review-request-20261116.txt`;
+live agents snapshot подтвердил running. Отдельно требуется проверить,
+достаточно ли отказа мутации противоречивого marker для закрытого admission,
+если current owner не содержит чужой lease. Текущие unit negatives доказывают
+сохранность metadata, но сами по себе не доказывают отказ accepted во всех
+таких случаях. До заключения не выдавать197 за полную приёмку этой ветви.
+
+Все прежние ограничения полного T112/T113/HTTP/restore/runtime/T0 сохраняются.

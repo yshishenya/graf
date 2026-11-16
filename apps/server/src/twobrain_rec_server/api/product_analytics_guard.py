@@ -27,6 +27,7 @@ _RESULT_VIEW_PATH = re.compile(
 )
 _RESULT_VIEW_TASK_OWNER = ContextVar("result_view_task_owner", default=None)
 _RESULT_VIEW_CONNECTION_OWNER = "graf_result_view_owner"
+_RESULT_VIEW_INITIALIZATION_OWNER = "graf_result_view_initialization_owner"
 _RESULT_VIEW_TRANSACTION_OWNER = "graf_result_view_transaction_owner"
 
 
@@ -53,10 +54,52 @@ def _untrack_result_transaction(session, transaction):
         lease[0].transactions.pop(transaction, None)
 
 
+def _initializing_result_connection(owner, entry):
+    if owner is None or _RESULT_VIEW_TASK_OWNER.get() is not owner:
+        return None
+    lease = owner.get(entry)
+    if (
+        lease is None or entry.info.get(_RESULT_VIEW_INITIALIZATION_OWNER) is not lease
+        or entry.info.get(_RESULT_VIEW_CONNECTION_OWNER) is not lease
+        or _RESULT_VIEW_TRANSACTION_OWNER in entry.info
+        or lease[0] is not owner or lease[4] is not entry
+        or entry.dbapi_connection is not lease[1] or entry.driver_connection is not lease[2]
+        or not isinstance(lease[2], AsyncpgConnection) or lease[1].driver_connection is not lease[2]
+        or lease[3].get_context().get(_RESULT_VIEW_TASK_OWNER) is not owner
+    ):
+        return None
+    return lease
+
+
+@event.listens_for(Pool, "connect", insert=True)
 @event.listens_for(Pool, "checkout")
-def _track_result_connection(dbapi_connection, connection_record, connection_proxy):
-    connection_record.info.pop(_RESULT_VIEW_TRANSACTION_OWNER, None)
+def _track_result_connection(dbapi_connection, connection_record, connection_proxy=None):
     owner = _RESULT_VIEW_TASK_OWNER.get()
+    if connection_proxy is None:
+        if owner is None:
+            return
+        task = asyncio.current_task()
+        driver = connection_record.driver_connection
+        if (
+            task is None or task.get_context().get(_RESULT_VIEW_TASK_OWNER) is not owner
+            or connection_record.in_use or connection_record.dbapi_connection is not dbapi_connection
+            or not isinstance(driver, AsyncpgConnection) or dbapi_connection.driver_connection is not driver
+            or any(key in connection_record.info for key in (
+                _RESULT_VIEW_CONNECTION_OWNER, _RESULT_VIEW_INITIALIZATION_OWNER, _RESULT_VIEW_TRANSACTION_OWNER,
+            )) or connection_record in owner
+        ):
+            return
+        lease = [owner, dbapi_connection, driver, task, connection_record]
+        connection_record.info[_RESULT_VIEW_INITIALIZATION_OWNER] = lease
+        connection_record.info[_RESULT_VIEW_CONNECTION_OWNER] = lease
+        owner[connection_record] = lease
+        return
+    if _RESULT_VIEW_INITIALIZATION_OWNER in connection_record.info:
+        lease = _initializing_result_connection(owner, connection_record)
+        if lease is None or lease[1] is not dbapi_connection or lease[3] is not asyncio.current_task():
+            return
+        connection_record.info.pop(_RESULT_VIEW_INITIALIZATION_OWNER)
+    connection_record.info.pop(_RESULT_VIEW_TRANSACTION_OWNER, None)
     if owner is not None:
         lease = [owner, dbapi_connection, connection_record.driver_connection, asyncio.current_task(), connection_record]
         connection_record.info[_RESULT_VIEW_CONNECTION_OWNER] = lease
@@ -67,10 +110,35 @@ def _track_result_connection(dbapi_connection, connection_record, connection_pro
 
 @event.listens_for(Pool, "checkin")
 def _untrack_result_connection(dbapi_connection, connection_record):
+    if _RESULT_VIEW_INITIALIZATION_OWNER in connection_record.info:
+        lease = _initializing_result_connection(_RESULT_VIEW_TASK_OWNER.get(), connection_record)
+        if lease is None or lease[1] is not dbapi_connection:
+            return
+        connection_record.info.pop(_RESULT_VIEW_INITIALIZATION_OWNER)
     connection_record.info.pop(_RESULT_VIEW_TRANSACTION_OWNER, None)
     lease = connection_record.info.pop(_RESULT_VIEW_CONNECTION_OWNER, None)
     if lease is not None:
         lease[0].pop(connection_record, None)
+
+
+def _terminate_initializing_result_connections(owner, cancelled_tasks):
+    for entry in list(owner):
+        lease = _initializing_result_connection(owner, entry)
+        if (
+            lease is not None and not entry.in_use
+            and lease[3] in cancelled_tasks and lease[3].cancelling() > 0
+        ):
+            lease[2].terminate()
+
+
+def _forget_finished_result_initializations(owner):
+    for entry in list(owner):
+        lease = _initializing_result_connection(owner, entry)
+        if lease is not None and not entry.in_use and lease[3].done() and lease[2].is_closed():
+            # A failed entry constructor can finish without a checkin event.
+            entry.info.pop(_RESULT_VIEW_INITIALIZATION_OWNER)
+            entry.info.pop(_RESULT_VIEW_CONNECTION_OWNER)
+            owner.pop(entry)
 
 
 def _result_connection_lease(connection):
@@ -335,8 +403,10 @@ async def _run_result_view_app(app, scope, receive, send):
         db_tasks.update(lease[2] for lease in owner.transactions.values() if not lease[2].done())
         for child in db_tasks or {task}:
             child.cancel()
+        _terminate_initializing_result_connections(owner, db_tasks)
         # SQLAlchemy close uses shielded child tasks; join those as well as ASGI.
         await join()
+        _forget_finished_result_initializations(owner)
         _forget_finished_result_transactions(owner)
         raise
     finally:

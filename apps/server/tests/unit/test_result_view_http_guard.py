@@ -193,6 +193,176 @@ def test_global_connection_hooks_leave_synchronous_unowned_sessions_unchanged():
         engine.dispose()
 
 
+@pytest.mark.parametrize("phase", ["terminate", "cleanup"])
+@pytest.mark.parametrize("case", [
+    "owned", "no_owner", "no_init", "stale_init", "foreign_key", "stale_registry",
+    "foreign_owner", "wrong_entry", "other_dbapi", "other_driver", "wrapper_driver",
+    "unsupported_driver", "in_use", "foreign_task_context", "foreign_context", "root_association",
+    "not_cancelled", "outside_cancelled_set", "pending", "open",
+])
+def test_initialization_cancellation_and_cleanup_require_exact_ownership(phase, case, monkeypatch):
+    async def scenario():
+        class Driver:
+            calls = 0
+            closed = False
+
+            def terminate(self):
+                self.calls += 1
+
+            def is_closed(self):
+                return self.closed
+
+        class Entry:
+            pass
+
+        monkeypatch.setattr(guard_module, "AsyncpgConnection", Driver)
+        owner = guard_module._ResultViewOwner()
+        token = guard_module._RESULT_VIEW_TASK_OWNER.set(owner)
+        task = asyncio.create_task(asyncio.Event().wait(),
+                                   context=Context() if case == "foreign_task_context" else None)
+        await asyncio.sleep(0)
+        if case != "not_cancelled":
+            task.cancel()
+        if phase == "cleanup" and case != "pending":
+            if not task.cancelling():
+                task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+        driver = Driver()
+        driver.closed = phase == "cleanup" and case != "open"
+        wrapper = SimpleNamespace(driver_connection=driver)
+        entry = Entry()
+        lease = [owner, wrapper, driver, task, entry]
+        entry.dbapi_connection, entry.driver_connection, entry.in_use = wrapper, driver, case == "in_use"
+        entry.info = {guard_module._RESULT_VIEW_CONNECTION_OWNER: lease,
+                      guard_module._RESULT_VIEW_INITIALIZATION_OWNER: lease}
+        owner[entry] = lease
+        if case == "no_init":
+            entry.info.pop(guard_module._RESULT_VIEW_INITIALIZATION_OWNER)
+        if case == "stale_init":
+            entry.info[guard_module._RESULT_VIEW_INITIALIZATION_OWNER] = lease.copy()
+        if case == "foreign_key":
+            entry.info[guard_module._RESULT_VIEW_CONNECTION_OWNER] = lease.copy()
+        if case == "stale_registry":
+            owner[entry] = lease.copy()
+        if case == "foreign_owner":
+            lease[0] = guard_module._ResultViewOwner()
+        if case == "wrong_entry":
+            lease[4] = object()
+        if case == "other_dbapi":
+            entry.dbapi_connection = object()
+        if case == "other_driver":
+            entry.driver_connection = object()
+        if case == "wrapper_driver":
+            wrapper.driver_connection = object()
+        if case == "unsupported_driver":
+            monkeypatch.setattr(guard_module, "AsyncpgConnection", type("OtherDriver", (), {}))
+        if case == "root_association":
+            entry.info[guard_module._RESULT_VIEW_TRANSACTION_OWNER] = object()
+        if case in {"no_owner", "foreign_context"}:
+            guard_module._RESULT_VIEW_TASK_OWNER.set(None if case == "no_owner" else {})
+        before_info, before_registry = entry.info.copy(), owner.copy()
+        try:
+            if phase == "terminate":
+                guard_module._terminate_initializing_result_connections(
+                    owner, set() if case == "outside_cancelled_set" else {task},
+                )
+                allowed = case in {"owned", "pending", "open"}
+                assert driver.calls == int(allowed)
+                assert entry.info == before_info and owner == before_registry
+            else:
+                guard_module._forget_finished_result_initializations(owner)
+                allowed = case in {"owned", "not_cancelled", "outside_cancelled_set"}
+                assert driver.calls == 0
+                if allowed:
+                    assert not owner and not entry.info
+                    guard_module._forget_finished_result_initializations(owner)
+                else:
+                    assert entry.info == before_info and owner == before_registry
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+            guard_module._RESULT_VIEW_TASK_OWNER.reset(token)
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("phase", ["connect", "checkout", "checkin"])
+@pytest.mark.parametrize("case", [
+    "owned", "no_owner", "foreign_owner", "stale_init", "foreign_key", "stale_registry",
+    "other_dbapi", "other_driver", "wrapper_driver", "root_association", "wrong_task",
+])
+def test_early_initialization_hooks_preserve_contradictory_metadata(phase, case, monkeypatch):
+    async def scenario():
+        class Driver:
+            pass
+
+        class Entry:
+            pass
+
+        monkeypatch.setattr(guard_module, "AsyncpgConnection", Driver)
+        owner = guard_module._ResultViewOwner()
+        token = guard_module._RESULT_VIEW_TASK_OWNER.set(owner)
+        driver = Driver()
+        wrapper = SimpleNamespace(driver_connection=driver)
+        entry = Entry()
+        entry.info = {}
+        entry.dbapi_connection, entry.driver_connection, entry.in_use = wrapper, driver, False
+        lease = [owner, wrapper, driver, asyncio.current_task(), entry]
+        child = asyncio.create_task(asyncio.sleep(0))
+        if phase != "connect" or case != "owned":
+            entry.info = {guard_module._RESULT_VIEW_CONNECTION_OWNER: lease,
+                          guard_module._RESULT_VIEW_INITIALIZATION_OWNER: lease}
+            owner[entry] = lease
+        if case == "no_owner":
+            guard_module._RESULT_VIEW_TASK_OWNER.set(None)
+        if case == "foreign_owner":
+            lease[0] = {}
+        if case == "stale_init":
+            entry.info[guard_module._RESULT_VIEW_INITIALIZATION_OWNER] = lease.copy()
+        if case == "foreign_key":
+            entry.info[guard_module._RESULT_VIEW_CONNECTION_OWNER] = lease.copy()
+        if case == "stale_registry":
+            owner[entry] = lease.copy()
+        if case == "other_dbapi":
+            entry.dbapi_connection = object()
+        if case == "other_driver":
+            entry.driver_connection = object()
+        if case == "wrapper_driver":
+            wrapper.driver_connection = object()
+        if case == "root_association":
+            entry.info[guard_module._RESULT_VIEW_TRANSACTION_OWNER] = object()
+        if case == "wrong_task":
+            lease[3] = child
+        before_info, before_registry = entry.info.copy(), owner.copy()
+        try:
+            if phase == "checkin":
+                guard_module._untrack_result_connection(wrapper, entry)
+            else:
+                entry.in_use = phase == "checkout"
+                guard_module._track_result_connection(wrapper, entry, object() if entry.in_use else None)
+            allowed = case == "owned" or (phase == "checkin" and case == "wrong_task")
+            if not allowed:
+                assert entry.info == before_info and owner == before_registry
+            elif phase == "checkin":
+                assert not owner and not entry.info
+            else:
+                current = owner[entry]
+                assert entry.info[guard_module._RESULT_VIEW_CONNECTION_OWNER] is current
+                assert current[0] is owner and current[1] is wrapper and current[2] is driver
+                assert current[3] is asyncio.current_task() and current[4] is entry
+                if phase == "connect":
+                    assert entry.info[guard_module._RESULT_VIEW_INITIALIZATION_OWNER] is current
+                    entry.in_use = True
+                    guard_module._track_result_connection(wrapper, entry, object())
+                    assert owner[entry] is not current
+                assert guard_module._RESULT_VIEW_INITIALIZATION_OWNER not in entry.info
+                guard_module._untrack_result_connection(wrapper, entry)
+                assert not owner and not entry.info
+        finally:
+            await child
+            guard_module._RESULT_VIEW_TASK_OWNER.reset(token)
+    asyncio.run(scenario())
+
+
 def test_root_association_survives_nested_work_and_is_cleared_before_reuse_or_reconnect():
     async def scenario():
         engine = create_engine("sqlite://")

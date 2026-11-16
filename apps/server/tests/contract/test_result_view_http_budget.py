@@ -431,6 +431,10 @@ def test_cold_dialect_initialization_is_bounded_after_native_connect(
                     assert target["entry"].dbapi_connection is target["dbapi"]
                     assert asyncio.current_task() is target["task"]
                     assert guard_module._RESULT_VIEW_TASK_OWNER.get() is target["owner"]
+                    lease = target["owner"][target["entry"]]
+                    assert lease == [target["owner"], target["dbapi"], driver, target["task"], target["entry"]]
+                    assert target["entry"].info[guard_module._RESULT_VIEW_CONNECTION_OWNER] is lease
+                    assert target["entry"].info[guard_module._RESULT_VIEW_INITIALIZATION_OWNER] is lease
                     assert not checkouts
                 stages.append((driver, "entered"))
                 entered.set()
@@ -494,6 +498,8 @@ def test_cold_dialect_initialization_is_bounded_after_native_connect(
                     assert response.headers["cache-control"] == "private, no-store"
                     assert request_engine.pool.checkedout() == 0
                     assert not target["owner"] and not target["owner"].transactions
+                    assert guard_module._RESULT_VIEW_INITIALIZATION_OWNER not in target["entry"].info
+                    assert guard_module._RESULT_VIEW_CONNECTION_OWNER not in target["entry"].info
                     assert not target["session"].in_transaction()
                     assert guard_module._RESULT_VIEW_TRANSACTION_OWNER not in target["session"].info
                     assert not [task for task in asyncio.all_tasks()

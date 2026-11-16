@@ -186,3 +186,164 @@ event/marker evidence и cleanup receipt. Только затем возможе
 Проверяющий создал только настоящий отчёт. Код, требования, checklist, Git,
 GitHub, runtime и прежние accepted отчёты не менялись; тесты/сборки/сетевые
 эксперименты не выполнялись. Принятый120 не повторялся. Чужая работа сохранена.
+
+## Дополнение: проект точного владения до окончания initialization
+
+Поручение runtime-design прочитано до изменения runtime кода. Текущая основа
+`d4dc1bfb963a18a9e22c8680ff720ee8a31443da`. Прочитаны полный новый contract
+diff, законченный baseline и уточнённый public event/cancellation/cleanup
+проект. Дополнительно проверен фактический constructor/get_connection/checkin
+порядок SQLAlchemy2.0.51 и public asyncpg terminate/is_closed.
+
+**PASS минимального проекта одного initialization marker и общего lease
+registry с условиями ниже; P1=0, P2=0 в этой проектной области.** Допускается
+реализация только предложенной точной ранней ветви. Это не implementation
+PASS и не разрешение обходить отрицательные условия ради нового GREEN.
+Отдельный owner.initializing dict не нужен: стадия и identity могут храниться
+одним дополнительным entry.info ключом, указывающим на тот же lease5.
+
+### Законченный причинный baseline
+
+`/private/tmp/graf-t112-init-baseline-20261116.log` прочитан до конца:
+**2 controls PASS / 2 faults FAIL / 21 deselected / 1 старый fixture warning**,
+8.34s, runner12s, isolated_container_removed. Fault auth2.06s/renewal2.05s
+отказывают на HTTPX response_complete. Дополнительная note в обоих случаях
+подтверждает native DBAPI connect и вход в dialect.initialize; код test
+до повторного raise также дожидается независимого observer настоящей
+initialization transaction. Это доказанный RED нужной стадии, не handshake
+до создания DBAPI и не искусственный pg_sleep вместо native initialize.
+
+Поздние fault driver/backend/pool/tasks cleanup assertions этим baseline
+ещё не выполнены; они не принимаются на основании успешных controls.
+Новый код не добавлен, guard остался прежним. Сам120 не повторялся.
+
+| Прочитанный baseline вход | SHA-256 |
+| --- | --- |
+| Initialization baseline log | `c5466a4e03a0be5deae7420cc325bebb197686558827dd356fa915f380c4b60b` |
+| Неизменный guard | `4a20f7efbda819e774410b3907ac14c659d3e82b50dcf6b730ca506fd89c4509` |
+| Contract тест с четырьмя случаями | `35250db3f0995ff13abad7f15912bb3a8318acbd898f575c92dd13f15861f0e0` |
+
+Collection4/digest
+`cc2462890c57737cbaadb1d2c95f0dbded4aef46344a6a4a787cc478d6d74359`.
+Git diff требований/checklist/analyze от принятого test preflight пуст;
+прежние124/0 остаются качеством требований, без переотметок.
+
+### Почему public connect marker даёт отдельное точное основание
+
+Pool.connect callback получает конкретные DBAPI и entry непосредственно
+после native создания driver. В этой стадии ещё нет checkout proxy,
+entry.in_use=False. Предлагаемый ранний listener может сохранить task/owner,
+DBAPI/driver и сам entry в прежнем lease5, одновременно опубликовав один и
+тот же lease в owner[entry], обычном owner-key и новом initialization-key.
+Это явное владение ресурсом на конкретном public событии, не предположение
+по ContextVar либо по одному in_use=False.
+
+Один существующий handler с default connection_proxy=None допустим для
+connect/checkout: публичный checkout передаёт proxy, connect — только два
+аргумента. Регистрация connect с insert=True обязана происходить до native
+on_connect/initialize на рассмотренном engine. Положительный тест должен
+показать, что marker уже существует до transparent initialize wrapper.
+Не менять private event списки или once flags.
+
+На ранней регистрации нужны корректные current task/context того же owner,
+exact entry.dbapi/driver/wrapper driver, поддерживаемый AsyncpgConnection
+и отсутствие противоречивых прежних собственных ключей/generation.
+Owner=None возвращается без asyncio task обращения и без присвоения
+соединения. Нельзя перезаписать чужой/stale marker или root association,
+чтобы создать искусственно согласованный lease. Неизвестный случай оставляет
+измерение закрытым; продуктовый поток не получает нового обхода auth.
+
+### Переход initialization → checkout/checkin
+
+На обычном checkout снимается только exact current initialization lease
+после сверки marker/normal-key/owner registry/entry/DBAPI/driver поколения.
+После его точного снятия может создаваться обычный checkout lease по прежним
+правилам. В этот момент in_use уже True; отрицание in_use относится к раннему
+termination, не к успешному переходу checkout.
+
+Отдельно важен порядок проверок: наличие contradictory initialization key
+проверяется **до** прежних безусловных pop/overwrite generic checkout/checkin
+кода. Нельзя стереть marker, обновить обычный owner-key новым borrower и
+лишь потом пытаться проверить прежнюю identity. При несовпадении ни marker,
+ни прежний mapping не «усыновляются». Checkin удаляет только доказанную
+соответствующую initialization metadata, если она ещё присутствует.
+Обычный путь без initialization marker сохраняет прежнее поведение.
+
+Повторное физическое подключение/новый driver того же entry не наследует
+ранний lease прежнего поколения. При невозможности доказать переход нужно
+сохранить закрытый исход, а не ослаблять matching. Гарантия этого проекта
+пока относится к новому cold initialization, не всем reconnect/custom
+on_connect случаям; они не получают автоматический PASS из общего listener.
+
+### Прекращение только отменяемого раннего driver
+
+В exception/cancellation ветви сохраняется DB-tasks-first порядок. После
+синхронного cancel точных db_tasks, но до join, новый helper может прекратить
+только early lease, для которого одновременно подтверждены:
+
+- owner[entry] is lease; lease[0] is owner; lease[4] is entry; обычный owner-key
+  и initialization-key entry.info оба is lease;
+- entry.in_use=False, entry.dbapi_connection is lease[1],
+  entry.driver_connection is lease[2], wrapper.driver_connection is lease[2],
+  driver имеет поддерживаемый public native AsyncpgConnection тип;
+- lease task — именно одна из только что отменённых db_tasks, её task context
+  содержит этот owner и task.cancelling()>0. Owner Context текущего запроса
+  также совпадает. Не включать произвольную already-done, чужую или обычную
+  error task в список «отменённых» лишь ради этой ветви;
+- проверка и public driver.terminate выполняются синхронно без await между
+  поколением и действием. Никакого dispose/close/rollback/commit/retry.
+
+Это ограниченное расширение explicit lease cancellation. Прежняя invalidate
+ветвь обслуживает checked-out/pre-ping и не расширяется снятием in_use check.
+Нет early terminate для ordinary checkedout, noinit/foreign/stale marker,
+недоказанного поколения или noncancelled task. terminate не отменяет join и
+не подменяет native constructor bookkeeping; закрытый transport не объявляется
+known rollback/commit.
+
+### После join: только собственная metadata закрытого раннего driver
+
+В constructor-failure пути entry может не вернуться из Pool._do_get:
+обычный checkin callback тогда вообще не возникает. Поэтому один checkin
+listener не является полным механизмом удаления именно этой metadata.
+После успешно законченного join допустим синхронный ограниченный проход
+только собственного registry по still-exact initialization lease.
+
+Нужны тот же owner/context и lease identity во всех mappings/entry/DBAPI/driver,
+entry.in_use=False, done owner task и public driver.is_closed=True.
+Только тогда удалить свои initialization-key, normal-key и owner[entry].
+При любом mismatch сохранить все связи; не удалять всю entry.info, чужой root
+association или текущий lease нового поколения. Если штатный checkin уже
+снял связь, helper ничего повторно не делает. Если библиотека изменила
+поколение и точное доказательство исчезло, нельзя объявлять cleanup PASS.
+
+Это удаление metadata proven closed precheckout driver, а не изменение
+pool counters, entry state или SessionTransaction. После него существующий
+root metadata helper по-прежнему требует пустого owner connection registry.
+Нормальный путь сохраняет отказ при оставшихся registry, исходная ошибка
+не превращается в accepted. Если join не завершён, cleanup не вызывается из
+безусловного finally. Новых фоновых задач или SQL в helpers нет.
+
+### Проверки до implementation приёмки
+
+Unit negatives должны отдельно покрыть ownerNone, noinit, staleinit,
+foreign marker/normal-key/registry, другой entry, DBAPI/wrapper/driver,
+in_use=True, другую task/Context, отсутствие cancelling и task вне только
+что отменённого набора. При отказе нет terminate и нет частичного metadata
+удаления. Normal early→checkout/checkin и ownerNone синхронный путь сохраняют
+ожидаемое поведение; old marker не переносится новому driver/borrower.
+Cleanup negatives — pending task, открытый driver, in_use, другое поколение,
+foreign Context/ключи и уже сменившийся registry. Положительный cleanup
+удаляет только exact closed done early lease и идемпотентен.
+
+Затем нужны native4: marker уже действует до initialize, controls сохраняют
+normal initialization/checkout/committed renewal, faults дают полный
+unavailable<2s, driver closure/backend disappearance/tasks/pool/root/relay
+до gate.set и teardown. После этого — полный затронутый профиль с новыми
+hashes/collection/cleanup и независимое implementation review. Новый успешный
+профиль нельзя подменять прежними120 или одним focused4.
+
+Проект не покрывает custom initialization с произвольной передачей task,
+все reconnect/DNS/TLS/rawclose/poolreset/commit, полный HTTP/issuance/ledger,
+T112/T113/restore, runtime/T0 или коммерческий результат. Проверяющий только
+дополнил настоящий отчёт; код, требования, markers, Git/GitHub/runtime не
+менялись, тесты не запускались. Чужая работа сохранена.
