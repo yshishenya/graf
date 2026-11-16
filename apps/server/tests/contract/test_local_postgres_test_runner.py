@@ -1,5 +1,7 @@
+import hashlib
 import json
 import os
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -223,12 +225,12 @@ def record(request):
             + f"def test_{name}(): pass\n"
         )
 
-    def run(*args, fail_case="", addopts="", config_addopts="", tamper_phase="", full=False, fast=False):
+    def run(*args, fail_case="", addopts="", config_addopts="", tamper_phase="", full=False, fast=False, runner=RUNNER):
         if config_addopts:
             with (tmp_path / "pytest.ini").open("a") as output:
                 output.write("addopts = " + config_addopts + "\n")
         result = subprocess.run(
-            ["bash", str(RUNNER), "--fast" if fast else "--full" if full else "--focused", *args,
+            ["bash", str(runner), "--fast" if fast else "--full" if full else "--focused", *args,
              *([] if full or fast else [str(tmp_path)])], cwd=ROOT,
             env={**os.environ, "PATH": str(bin_dir) + os.pathsep + os.environ["PATH"],
                  "EVENTS": str(events), "DOCKER_CALLS": str(docker_calls), "FAIL_CASE": fail_case,
@@ -587,6 +589,23 @@ def test_fast_pure_pass_follows_cleanup_without_starting_docker(partition_run, t
 @pytest.fixture
 def minio_run(partition_run, tmp_path, monkeypatch):
     """Use the existing real collection harness with synthetic MinIO consumers."""
+    # Change only artifact inputs in a disposable copy: real wc/shasum still
+    # reject truncated/corrupt downloads, without fetching a 100 MB executable.
+    payloads = {arch: ("synthetic-minio-" + arch + "\n").encode() for arch in ("amd64", "arm64")}
+    script = RUNNER.read_text()
+    assignment = next(line for line in script.splitlines() if line.startswith("repo_root="))
+    script = script.replace(assignment, "repo_root=" + shlex.quote(str(ROOT)), 1)
+    for arch, digest, size in [
+        ("amd64", "fe8b37f38487b6caf758a71d6669a8c42a9a3ec88e7381cc24a39f067b0fa4c9", 110756024),
+        ("arm64", "1fdf97b30dbe10e13db00f1c405bf16935d7e1d530b537b4ebd2ed941457280c", 104988856),
+    ]:
+        assert script.count(digest) == script.count(str(size)) == 1
+        script = script.replace(digest, hashlib.sha256(payloads[arch]).hexdigest()).replace(str(size), str(len(payloads[arch])))
+    runner = tmp_path / "minio-runner.sh"
+    runner.write_text(script)
+    temporary = tmp_path / "runner-temp"
+    temporary.mkdir()
+    monkeypatch.setenv("TMPDIR", str(temporary))
     integration = tmp_path / "tests/integration"
     integration.mkdir(parents=True)
     check = '''import json, os, re, pytest
@@ -620,27 +639,38 @@ def test_interrupted_smoke_retains_unconfirmed_object_intent_and_preserves_neigh
     docker = tmp_path / "bin/docker"
     docker.write_text(f'''#!{sys.executable}
 import json, os, sys
+from pathlib import Path
 args = sys.argv[1:]
 path = os.environ["DOCKER_CALLS"]
 with open(path, "a") as output: output.write(json.dumps(args) + "\\n")
 calls = [json.loads(line) for line in open(path)]
 runs = [call for call in calls if call[0] == "run" and "--label" in call]
 fault = os.environ.get("MINIO_FAULT", "")
-if args[:2] == ["image", "inspect"]:
-    if fault == "image-missing" and not any(call[0] == "pull" for call in calls): sys.exit(1)
-    print("sha256:" + "a" * 64)
+if args[0] in ("pull", "build"): sys.exit(97)
+if args[:2] == ["image", "inspect"]: print(os.environ.get("MINIO_ARCH", "amd64"))
 if args[0] == "run" and "--label" in args:
+    mount = args[args.index("--mount") + 1]
+    binary = Path(next(field[7:] for field in mount.split(",") if field.startswith("source=")))
+    assert binary.is_file() and binary.stat().st_mode & 0o777 == 0o555
     with open(os.environ["MINIO_CREDENTIALS"], "w") as output:
         json.dump([os.environ["MINIO_ROOT_USER"], os.environ["MINIO_ROOT_PASSWORD"]], output)
     if fault == "start": sys.exit(9)
 if args[0] == "inspect":
-    if fault in ("inspect", "absent", "inventory"): sys.exit(1)
-    label = runs[-1][runs[-1].index("--label") + 1].split("=", 1)[1]
-    print("b" * 64 + " " + ("foreign-owner" if fault == "owner" else label))
+    if args[args.index("--format") + 1] == "{{{{.Image}}}}":
+        assert any(call[0] == "exec" and "psql" in call for call in calls)
+        print("not-an-image-id" if fault == "base-image" else "sha256:" + "a" * 64)
+    else:
+        if fault in ("inspect", "absent", "inventory"): sys.exit(1)
+        label = runs[-1][runs[-1].index("--label") + 1].split("=", 1)[1]
+        print("b" * 64 + " " + ("foreign-owner" if fault == "owner" else label))
 if args[0] == "ps":
     if fault == "inventory": sys.exit(1)
     if fault != "absent": print("b" * 64)
-if args[0] == "rm" and args[-1] == "b" * 64 and fault == "remove": sys.exit(9)
+if args[0] == "rm" and args[-1] == "b" * 64:
+    mount = runs[-1][runs[-1].index("--mount") + 1]
+    binary = Path(next(field[7:] for field in mount.split(",") if field.startswith("source=")))
+    assert binary.is_file(), "must unmount before deleting the binary"
+    if fault == "remove": sys.exit(9)
 if args[0] == "logs": print("PostgreSQL init process complete; ready for start up.")
 if args[0] == "port":
     print(os.environ.get("MINIO_PORT", "127.0.0.1:54900") if args[-1] == "9000/tcp" else "127.0.0.1:54329")
@@ -648,8 +678,18 @@ if args[0] == "port":
     curl = tmp_path / "bin/curl"
     curl.write_text(f'''#!{sys.executable}
 import json, os, sys
-with open(os.environ["CURL_CALLS"], "a") as output: output.write(json.dumps(sys.argv[1:]) + "\\n")
-sys.exit(7 if os.environ.get("MINIO_FAULT") == "readiness" else 0)
+from pathlib import Path
+args = sys.argv[1:]
+with open(os.environ["CURL_CALLS"], "a") as output: output.write(json.dumps(args) + "\\n")
+fault = os.environ.get("MINIO_FAULT", "")
+if "--output" in args:
+    arch = "arm64" if "linux-arm64." in args[-1] else "amd64"
+    payload = {payloads!r}[arch]
+    if fault == "size": payload = payload[:-1]
+    if fault == "checksum": payload = b"X" + payload[1:]
+    Path(args[args.index("--output") + 1]).write_bytes(payload)
+    sys.exit(22 if fault == "download" else 0)
+sys.exit(7 if fault == "readiness" else 0)
 ''')
     curl.chmod(0o755)
     sleep = tmp_path / "bin/sleep"
@@ -659,7 +699,7 @@ sys.exit(7 if os.environ.get("MINIO_FAULT") == "readiness" else 0)
     monkeypatch.setenv("MINIO_CREDENTIALS", str(tmp_path / "minio-credentials.json"))
     for key in ("ENDPOINT", "ACCESS", "SECRET"):
         monkeypatch.setenv("GRAF_TEST_STRICT_MINIO_" + key, "inherited-operator-value")
-    return partition_run
+    return lambda *args, **kwargs: partition_run(*args, runner=runner, **kwargs)
 
 
 @pytest.mark.parametrize("args,expected", [
@@ -677,9 +717,20 @@ def test_selected_minio_consumers_receive_an_owned_ready_store(minio_run, tmp_pa
     assert run[0][run[0].index("--tmpfs") + 1] == "/data:rw,size=256m"
     assert run[0][-3:] == ["sha256:" + "a" * 64, "server", "/data"]
     assert "--pull=never" in run[0]
+    assert run[0][run[0].index("--entrypoint") + 1] == "/graf-test-minio"
+    mount = run[0][run[0].index("--mount") + 1]
+    fields = mount.split(",")
+    assert len(fields) == 4 and fields[0] == "type=bind" and fields[2:] == ["target=/graf-test-minio", "readonly"]
+    assert not Path(fields[1].removeprefix("source=")).exists()
+    assert calls.index(run[0]) > next(i for i, call in enumerate(calls) if call[0] == "exec" and "psql" in call)
+    assert not any(call[0] in ("pull", "build") for call in calls)
     assert [run[0][i + 1] for i, arg in enumerate(run[0]) if arg == "--env"] == ["MINIO_ROOT_USER", "MINIO_ROOT_PASSWORD"]
-    assert [call for call in calls if call[0] == "rm"][0] == ["rm", "--force", "b" * 64]
-    curl = json.loads((tmp_path / "curl.jsonl").read_text())
+    assert [call for call in calls if call[0] == "rm"][0] == ["rm", "--force", "--volumes", "b" * 64]
+    curl_calls = [json.loads(line) for line in (tmp_path / "curl.jsonl").read_text().splitlines()]
+    download, curl = curl_calls
+    assert download[download.index("--proto") + 1] == download[download.index("--proto-redir") + 1] == "=https"
+    assert download[download.index("--max-time") + 1] == "120"
+    assert download[-1].startswith("https://github.com/minio/minio/releases/download/RELEASE.2025-05-24T17-08-30Z/minio.linux-")
     assert curl[curl.index("--noproxy") + 1] == "*"
     assert curl[curl.index("--max-time") + 1] == "1"
     assert curl[-1] == "http://127.0.0.1:54900/minio/health/ready"
@@ -695,7 +746,7 @@ def test_selected_minio_consumers_receive_an_owned_ready_store(minio_run, tmp_pa
     ("-k", "test_plain"),
     ("--partitioned", "--phases", "performance"),
     ("--partitioned", "--phases", "strict", "-k", "residue"),
-    # Sorted parallel inventory: plain, other, calendar[missing], calendar[valid].
+    # Sorted parallel inventory: other, plain, calendar[missing], calendar[valid].
     ("--partitioned", "--phases", "parallel", "--shard", "0/4"),
 ])
 def test_unselected_minio_consumers_never_start_minio(minio_run, tmp_path, args):
@@ -713,10 +764,12 @@ def test_minio_failures_never_pass_or_remove_unknown_containers(minio_run, tmp_p
     assert "postgres_test_result=pass" not in result.stdout
     removed = [call for call in calls if call[0] == "rm" and call[-1] == "b" * 64]
     assert bool(removed) == (fault in ("start", "readiness", "remove"))
+    assert bool(list((tmp_path / "runner-temp").glob("graf-postgres-test.*/minio"))) == (fault in ("owner", "inspect", "inventory", "remove"))
+    assert any(call[0] == "rm" and call[-1].startswith("graf-postgres-test-") for call in calls)
     if fault in ("start", "readiness"):
         assert not rows
     if fault == "readiness":
-        assert len((tmp_path / "curl.jsonl").read_text().splitlines()) == 60
+        assert len((tmp_path / "curl.jsonl").read_text().splitlines()) == 61
 
 
 @pytest.mark.parametrize("endpoint", ["0.0.0.0:54900", "127.0.0.1:0", "127.0.0.1:65536", "127.0.0.1:54900\n[::]:54900"])
@@ -724,8 +777,8 @@ def test_minio_refuses_unsafe_published_endpoints(minio_run, tmp_path, monkeypat
     monkeypatch.setenv("MINIO_PORT", endpoint)
     result, rows, calls = minio_run("-k", "strict_track_assembly", "-q")
     assert result.returncode != 0 and not rows, result.stdout + result.stderr
-    assert not (tmp_path / "curl.jsonl").exists()
-    assert ["rm", "--force", "b" * 64] in calls
+    assert len((tmp_path / "curl.jsonl").read_text().splitlines()) == 1  # download only
+    assert ["rm", "--force", "--volumes", "b" * 64] in calls
 
 
 @pytest.mark.parametrize("status", [17, 130, 143])
@@ -741,21 +794,37 @@ def test_minio_is_cleaned_after_pytest_failure_or_signal(minio_run, tmp_path, st
     result, rows, calls = minio_run("-k", "strict_track_assembly", "-q")
     assert result.returncode == status and not rows, result.stdout + result.stderr
     assert "postgres_test_result=pass" not in result.stdout
-    assert ["rm", "--force", "b" * 64] in calls
+    assert ["rm", "--force", "--volumes", "b" * 64] in calls
 
 
-def test_minio_pulls_only_the_existing_pinned_release(minio_run, monkeypatch):
-    monkeypatch.setenv("MINIO_FAULT", "image-missing")
+@pytest.mark.parametrize("arch", ["amd64", "arm64"])
+def test_minio_download_matches_the_resolved_postgres_architecture(minio_run, tmp_path, monkeypatch, arch):
+    monkeypatch.setenv("MINIO_ARCH", arch)
     result, _, calls = minio_run("-k", "strict_track_assembly", "-q")
     assert result.returncode == 0, result.stdout + result.stderr
-    assert [call for call in calls if call[0] == "pull"] == [["pull", "minio/minio:RELEASE.2025-05-24T17-08-30Z"]]
+    downloads = [json.loads(line) for line in (tmp_path / "curl.jsonl").read_text().splitlines() if "--output" in json.loads(line)]
+    assert len(downloads) == 1 and downloads[0][-1].endswith("minio.linux-" + arch + ".RELEASE.2025-05-24T17-08-30Z")
+    assert not any(call[0] in ("pull", "build") for call in calls)
+
+
+@pytest.mark.parametrize("fault", ["download", "size", "checksum", "base-image", "architecture"])
+def test_minio_invalid_artifact_or_base_never_starts_a_container(minio_run, tmp_path, monkeypatch, fault):
+    monkeypatch.setenv("MINIO_FAULT", fault)
+    if fault == "architecture":
+        monkeypatch.setenv("MINIO_ARCH", "unsupported")
+    result, rows, calls = minio_run("-k", "strict_track_assembly", "-q")
+    assert result.returncode != 0 and not rows, result.stdout + result.stderr
+    assert "postgres_test_result=pass" not in result.stdout
+    assert not any(call[0] == "run" and "--label" in call for call in calls)
+    assert not list((tmp_path / "runner-temp").iterdir())
+    assert any(call[0] == "rm" and call[-1].startswith("graf-postgres-test-") for call in calls)
 
 
 def test_full_runner_shares_one_minio_across_serial_and_parallel_consumers(minio_run):
     result, rows, calls = minio_run("-q", full=True)
     assert result.returncode == 0 and len(rows) == 9, result.stdout + result.stderr
     assert len([call for call in calls if call[0] == "run" and "--label" in call]) == 1
-    assert ["rm", "--force", "b" * 64] in calls
+    assert ["rm", "--force", "--volumes", "b" * 64] in calls
 
 
 def test_minio_cleanup_accepts_only_confirmed_absence(minio_run, monkeypatch):
@@ -764,4 +833,4 @@ def test_minio_cleanup_accepts_only_confirmed_absence(minio_run, monkeypatch):
     assert result.returncode == 0, result.stdout + result.stderr
     assert "minio_test_cleanup=container_absent" in result.stdout
     assert any(call[0] == "ps" for call in calls)
-    assert ["rm", "--force", "b" * 64] not in calls
+    assert ["rm", "--force", "--volumes", "b" * 64] not in calls
