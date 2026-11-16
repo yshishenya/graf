@@ -173,17 +173,36 @@
   `13edb699c1cee3c9b40808b44d3d8d3b0ba01852`.
   [Проверки и оставшийся объём](https://github.com/yshishenya/graf/blob/13edb699c1cee3c9b40808b44d3d8d3b0ba01852/specs/273-paid-traffic-analytics/validation/t112-proof-attributes-20261116.md),
   [независимое ревью](https://github.com/yshishenya/graf/blob/13edb699c1cee3c9b40808b44d3d8d3b0ba01852/specs/273-paid-traffic-analytics/validation/t112-proof-attributes-review-20261116.md).
+- [x] Реализовать и независимо проверить общий наблюдатель видимого тела и
+  узкую проверку текущего окна macOS. Только непустой body с подтверждением,
+  видимые предки/viewport/активный документ и два кадра; после асинхронного
+  ответа заново проверяются root, node, proof, CSRF, путь/query и native nonce.
+  Встроенный кабинет требует main-frame того же origin, canonical собственного
+  detail, текущую сессию после reconciliation cookies и активное видимое окно.
+  Старый клиент сохраняет просмотр без нового учёта. Нет timer retry, beacon,
+  постоянного хранения или очереди после ухода; одно renewal за настоящий
+  переход видимости. Рабочие callers ещё не выдают proof; серверный POST и
+  admission этим шагом не подключены.
+  Итог:158 серверных проверок PASS/1 прежний warning/0 skips, включая Chromium
+  и WebKit;69 Swift/WK тестов PASS/0 failures. Независимое ревью P1/P2=0,
+  семь точных хешей совпали, требования124/0 сохранены.12/24 HTML совпали
+  буквально;12 страниц отличаются только cache-version cabinet.js,
+  после нормализации этого URL24/24 равны исходным. Контент и вёрстка прежние.
+  Код сохранён/pushed `d6299eafc8f1453d63df5fd90653f81fa7745e0f`, итоговый
+  отчёт ревью — `a3ff5b8709dc5da61f4751c4eb3145eb84d9fc9e` в отдельной ветке.
+  [Проверки и оставшийся объём](https://github.com/yshishenya/graf/blob/a3ff5b8709dc5da61f4751c4eb3145eb84d9fc9e/specs/273-paid-traffic-analytics/validation/t112-observer-native-20261116.md),
+  [независимое ревью](https://github.com/yshishenya/graf/blob/a3ff5b8709dc5da61f4751c4eb3145eb84d9fc9e/specs/273-paid-traffic-analytics/validation/t112-observer-native-review-20261116.md).
 - [ ] Выполнить полный source/audit/projection/proof, browser/native visibility, защищённый
   POST и общую admission boundary с причинной DB/browser/Swift/failure матрицей.
   Renderer использует общий чистый выбор строк и принимает необязательную карту
   для невидимых атрибутов; binding/proof и issuance ещё не подключены к рабочим
-  вызовам. Следующие шаги: общий observer настоящей видимости и native foreground,
-  затем защищённый серверный приём/выдача proof. Source fact/подпись/
+  вызовам. Следующие шаги: защищённый серверный приём и выдача/обновление proof,
+  свежие проверки после общих fences и атомарная пара через T113. Source fact/подпись/
   snapshot не доказывают показ или свежий доступ после fences. T112/T113 и
   внешний счёт остаются открытыми; частичные шаги не закрывают задачу.
 
 Проверка первоначального проекта:11 путей только Markdown F273, локальные ссылки существуют,
-diff check PASS; в нём код не менялся. Последующие правки builder/source/proof/проекции
+diff check PASS; в нём код не менялся. Последующие правки builder/source/proof/проекции/наблюдателя
 описаны выше; рабочие настройки, контент и вёрстка сохраняются. Новый PR T112,
 Full/CD, повтор live-проверок, отправка событий и публикации не выполнялись.
 Это результат проектирования и частичной реализации, не проверенное ожидание и не трафик.
