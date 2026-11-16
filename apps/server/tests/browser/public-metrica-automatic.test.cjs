@@ -8,10 +8,12 @@ function page(options = {}) {
   const data = new Map(Object.entries(options.storage || {}));
   const handlers = {}, scripts = [], calls = [];
   const button = {textContent: '', addEventListener(n, f) { this[n] = f; }, setAttribute() {}};
-  const config = {automatic_enabled: true, external_counter_allowed: true, page_path: '/',
+  const config = {automatic_enabled: true, external_counter_allowed: true, page_path: '/', surface: 'public_landing',
     yandex_metrica_id: '12345678', replay_allowed: true, map_frame_origins: ['https://metrika.yandex.ru','https://metrika.yandex.by','https://metrica.yandex.com','https://metrica.yandex.com.tr','https://webvisor.com','https://*.webvisor.com'], campaign_attribution: {utm_source: 'yandex'},
     consent_storage_key: 'graf_public_cookie_consent', stable_labels: {cta_location: ['hero_download'], target_kind: ['download_page']},
-    event_catalog: [{event_name: 'public_landing_cta_clicked', stable_fields: ['cta_location', 'target_kind']}]};
+    event_catalog: [{event_name: 'public_landing_cta_clicked', stable_fields: ['cta_location', 'target_kind']},
+      {event_name: 'public_landing_viewed', surface: 'public_landing', stable_fields: []},
+      {event_name: 'public_download_viewed', surface: 'public_download', stable_fields: []}]};
   const add = (name, fn) => { (handlers[name] ||= []).push(fn); };
   const cta = {dataset: {analyticsCta:'hero_download',analyticsTarget:'download_page'}, addEventListener(n,f) {this[n]=f;}};
   const document = {referrer: options.referrer || 'https://example.org/private?secret=1',
@@ -69,6 +71,24 @@ test('campaign parameters use server-normalized allowlist; unknown values are bl
   assert.equal(page({url:'https://rec.example/?utm_source=yandex&yclid=12345'}).scripts.length, 1);
   assert.equal(page({url:'https://rec.example/?utm_source=someone'}).scripts.length, 0);
   assert.equal(page({url:'https://rec.example/?utm_source=yandex&utm_source=yandex'}).scripts.length, 0);
+});
+test('initial hit retains only accepted normalized campaign parameters and click IDs', () => {
+  const p = page({url:'https://rec.example/?utm_source=YaNdEx&utm_medium=cpc&utm_campaign=launch&yclid=12345&ysclid=abc123',
+    config:{campaign_attribution:{utm_source:'yandex',utm_medium:'cpc',utm_campaign:'launch'}}});
+  p.load();
+  const hit = p.calls.find(c => c[1] === 'hit');
+  assert.equal(hit[2], 'https://rec.example/?utm_source=yandex&utm_medium=cpc&utm_campaign=launch&yclid=12345&ysclid=abc123');
+});
+test('each public page preserves its existing entry goal exactly once', () => {
+  for (const [path, surface, event] of [['/', 'public_landing', 'public_landing_viewed'],
+    ['/download', 'public_download', 'public_download_viewed']]) {
+    const p = page({url:'https://rec.example'+path, config:{page_path:path,surface}});
+    p.load(); p.fire('pageshow'); p.fire('focus');
+    const goals = p.calls.filter(c => c[1] === 'reachGoal');
+    assert.equal(goals.length, 1);
+    assert.equal(goals[0][2], event);
+    assert.equal(p.calls.filter(c => c[1] === 'hit').length, 1);
+  }
 });
 
 test('storage refresh is read-only and unrelated probe notifications are ignored', () => {

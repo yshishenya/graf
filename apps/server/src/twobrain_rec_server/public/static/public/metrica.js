@@ -122,7 +122,12 @@
         active = true;
         var referer = "";
         try { referer = new URL(document.referrer).origin + "/"; } catch (_) {}
-        window.ym(config.yandex_metrica_id, "hit", window.location.origin + config.page_path, {referer: referer});
+        var address = new URL(window.location.origin + config.page_path);
+        new URL(window.location.href).searchParams.forEach(function (value, name) {
+          address.searchParams.set(name, name.indexOf("utm_") === 0 ? config.campaign_attribution[name] : value);
+        });
+        window.ym(config.yandex_metrica_id, "hit", address.href, {referer: referer});
+        goal(config.surface === "public_landing" ? "public_landing_viewed" : "public_download_viewed", {});
         observeSections();
       } catch (_) { stop(); }
     };
