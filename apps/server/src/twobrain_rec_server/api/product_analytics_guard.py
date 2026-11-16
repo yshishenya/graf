@@ -11,7 +11,7 @@ from typing import Any
 
 from asyncpg import Connection as AsyncpgConnection
 from sqlalchemy import Engine, event
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, SessionTransactionOrigin
 from sqlalchemy.pool import Pool
 
 PRODUCT_ANALYTICS_POST_PATHS = frozenset(
@@ -35,24 +35,91 @@ class _ResultViewOwner(dict):
     def __init__(self):
         super().__init__()
         self.transactions = {}
+        self.unbound_roots = {}
         self.failed = False
+
+
+@event.listens_for(Session, "before_commit")
+@event.listens_for(Session, "after_rollback")
+@event.listens_for(Session, "after_soft_rollback")
+def _revoke_unbound_result_root(session, *args):
+    lease = session.info.get(_RESULT_VIEW_TRANSACTION_OWNER)
+    if not isinstance(lease, list) or len(lease) != 3:
+        return
+    owner, transaction, _ = lease
+    if not isinstance(owner, _ResultViewOwner) or getattr(transaction, "session", None) is not session:
+        return
+    witness = owner.unbound_roots.get(transaction)
+    if (owner.transactions.get(transaction) is lease
+            and isinstance(witness, tuple) and len(witness) == 2 and witness[0] is lease):
+        owner.unbound_roots.pop(transaction)
 
 
 @event.listens_for(Session, "after_transaction_create")
 def _track_result_transaction(session, transaction):
+    if transaction.parent is not None:
+        _revoke_unbound_result_root(session)
+        return
     owner = _RESULT_VIEW_TASK_OWNER.get()
-    if owner is not None and transaction.parent is None:
-        lease = [owner, transaction, asyncio.current_task()]
+    if owner is not None and transaction not in owner.transactions:
+        task = asyncio.current_task()
+        lease = [owner, transaction, task]
         session.info[_RESULT_VIEW_TRANSACTION_OWNER] = lease
         owner.transactions[transaction] = lease
+        if (
+            task is not None and task.get_context().get(_RESULT_VIEW_TASK_OWNER) is owner
+            and not task.cancelling() and not transaction.nested
+            and transaction.origin is SessionTransactionOrigin.AUTOBEGIN
+            and transaction.session is session and session.get_transaction() is transaction
+            and session.in_transaction() and not session.in_nested_transaction()
+            and transaction.is_active and session.is_active
+        ):
+            owner.unbound_roots[transaction] = (lease, task)
 
 
 @event.listens_for(Session, "after_transaction_end")
 def _untrack_result_transaction(session, transaction):
     lease = session.info.get(_RESULT_VIEW_TRANSACTION_OWNER)
     if lease is not None and lease[1] is transaction:
+        _revoke_unbound_result_root(session)
         session.info.pop(_RESULT_VIEW_TRANSACTION_OWNER)
         lease[0].transactions.pop(transaction, None)
+
+
+@event.listens_for(Pool, "close")
+def _terminate_idle_result_generation(dbapi_connection, connection_record):
+    owner = _RESULT_VIEW_TASK_OWNER.get()
+    if not isinstance(owner, _ResultViewOwner) or owner.failed or owner or len(owner.transactions) != 1:
+        return
+    task = asyncio.current_task()
+    if task is None or task.cancelling() or task.get_context().get(_RESULT_VIEW_TASK_OWNER) is not owner:
+        return
+    transaction, lease = next(iter(owner.transactions.items()))
+    witness = owner.unbound_roots.get(transaction)
+    if (
+        not isinstance(lease, list) or len(lease) != 3
+        or lease[0] is not owner or lease[1] is not transaction or lease[2] is not task
+        or not isinstance(witness, tuple) or len(witness) != 2 or witness[0] is not lease or witness[1] is not task
+    ):
+        return
+    session = transaction.session
+    driver = connection_record.driver_connection
+    if (
+        session.info.get(_RESULT_VIEW_TRANSACTION_OWNER) is not lease
+        or session.get_transaction() is not transaction or not session.in_transaction()
+        or session.in_nested_transaction() or transaction.parent is not None or transaction.nested
+        or transaction.origin is not SessionTransactionOrigin.AUTOBEGIN
+        or transaction.is_active or session.is_active
+        or connection_record.in_use or connection_record.dbapi_connection is not dbapi_connection
+        or not isinstance(driver, AsyncpgConnection) or dbapi_connection.driver_connection is not driver
+        or any(key in connection_record.info for key in (
+            _RESULT_VIEW_CONNECTION_OWNER, _RESULT_VIEW_INITIALIZATION_OWNER, _RESULT_VIEW_TRANSACTION_OWNER,
+        ))
+    ):
+        return
+    if not driver.is_closed() and not driver.is_in_transaction():
+        # Pool.close already selected this idle generation for physical disposal.
+        driver.terminate()
 
 
 def _initializing_result_connection(owner, entry):
@@ -174,6 +241,7 @@ def _result_connection_lease(connection):
 
 @event.listens_for(Session, "after_begin")
 def _bind_result_transaction(session, transaction, connection):
+    _revoke_unbound_result_root(session)
     lease = _result_connection_lease(connection)
     root = session.info.get(_RESULT_VIEW_TRANSACTION_OWNER)
     if (
@@ -217,6 +285,7 @@ def _forget_finished_result_transactions(owner):
         if session.in_transaction() or session.info.get(_RESULT_VIEW_TRANSACTION_OWNER) is not lease:
             continue
         # Cancelled close can skip after_transaction_end after releasing its connection.
+        _revoke_unbound_result_root(session)
         session.info.pop(_RESULT_VIEW_TRANSACTION_OWNER)
         owner.transactions.pop(transaction)
 
@@ -418,7 +487,7 @@ async def _run_result_view_app(app, scope, receive, send):
     try:
         await asyncio.shield(task)
         await join()
-        if owner.failed or owner or owner.transactions:
+        if owner.failed or owner or owner.transactions or owner.unbound_roots:
             raise _ResultViewUnavailable
     except BaseException:
         # Cancel the DB owner first so parent task-group cancellation cannot

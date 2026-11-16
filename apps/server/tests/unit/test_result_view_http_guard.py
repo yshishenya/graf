@@ -11,7 +11,9 @@ import pytest
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy import create_engine, event, text
-from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import DeclarativeBase, Mapped, Session, SessionTransactionOrigin, mapped_column
+from sqlalchemy.pool import QueuePool
 
 from twobrain_rec_server.api import product_analytics_guard as guard_module
 from twobrain_rec_server.api.product_analytics_guard import ProductAnalyticsIngressGuard
@@ -21,6 +23,325 @@ PATHS = [
     "/meetings/70000000-0000-0000-0000-000000000001/result-viewed",
     "/desktop/meetings/70000000-0000-0000-0000-000000000001/result-viewed",
 ]
+
+
+@pytest.mark.parametrize("outcome", ["success", "error", "cancel"])
+def test_unbound_root_public_lifecycle_tracks_real_provisioning_and_cleans_every_exit(outcome):
+    async def scenario():
+        class Base(DeclarativeBase):
+            pass
+
+        class Row(Base):
+            __tablename__ = "synthetic_root"
+            id: Mapped[int] = mapped_column(primary_key=True)
+
+        engine = create_engine("sqlite://")
+        owner, observations = guard_module._ResultViewOwner(), []
+        token = guard_module._RESULT_VIEW_TASK_OWNER.set(owner)
+        db = Session(engine)
+
+        def snapshot(stage, root):
+            lease = owner.transactions[root]
+            witness = owner.unbound_roots.get(root)
+            observations.append((stage, root.is_active, db.is_active,
+                                 db.get_transaction() is root, db.in_transaction(),
+                                 root.parent is None, not db.in_nested_transaction(),
+                                 witness is not None and witness[0] is lease,
+                                 witness is not None and witness[1] is asyncio.current_task()))
+            assert len(lease) == 3
+
+        event.listen(db, "after_transaction_create", lambda session, root: snapshot("create", root))
+        event.listen(engine, "do_connect", lambda *args: snapshot("connect", db.get_transaction()))
+        event.listen(db, "after_begin", lambda session, root, connection: snapshot("begin", root))
+        try:
+            db.add(Row(id=1))
+            root = db.get_transaction()
+            assert root.origin is SessionTransactionOrigin.AUTOBEGIN
+            assert db.scalar(text("SELECT 1")) == 1
+            snapshot("returned", root)
+            assert observations == [
+                ("create", True, True, True, True, True, True, True, True),
+                ("connect", False, False, True, True, True, True, True, True),
+                ("begin", False, False, True, True, True, True, False, False),
+                ("returned", True, True, True, True, True, True, False, False),
+            ]
+            if outcome == "error":
+                raise RuntimeError("synthetic")
+            if outcome == "cancel":
+                asyncio.current_task().cancel()
+                await asyncio.sleep(0)
+        except (RuntimeError, asyncio.CancelledError):
+            pass
+        finally:
+            db.close()
+            assert not owner and not owner.transactions and not owner.unbound_roots
+            assert guard_module._RESULT_VIEW_TRANSACTION_OWNER not in db.info
+            guard_module._RESULT_VIEW_TASK_OWNER.reset(token)
+            engine.dispose()
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("phase", ["nested", "foreign_context_nested", "commit", "rollback", "partial_rollback"])
+def test_real_session_events_revoke_unbound_root_without_rearming_it(phase):
+    async def scenario():
+        class Base(DeclarativeBase):
+            pass
+
+        class Row(Base):
+            __tablename__ = "synthetic_root"
+            id: Mapped[int] = mapped_column(primary_key=True)
+
+        engine = create_engine("sqlite://")
+        Base.metadata.create_all(engine)
+        owner = guard_module._ResultViewOwner()
+        token = guard_module._RESULT_VIEW_TASK_OWNER.set(owner)
+        try:
+            with Session(engine, autoflush=False) as db:
+                db.add(Row(id=1))
+                root = db.get_transaction()
+                lease = owner.transactions[root]
+                assert owner.unbound_roots[root] == (lease, asyncio.current_task())
+                revoked = []
+
+                def observe(session, *args):
+                    revoked.append(root not in owner.unbound_roots)
+
+                name = ("after_transaction_create" if "nested" in phase or phase == "partial_rollback" else
+                        "before_commit" if phase == "commit" else "after_rollback")
+                event.listen(db, name, observe)
+                if "nested" in phase:
+                    async def nested():
+                        with db.begin_nested():
+                            pass
+                    if phase.startswith("foreign"):
+                        await asyncio.create_task(nested(), context=Context())
+                    else:
+                        await nested()
+                elif phase == "commit":
+                    db.commit()
+                elif phase == "rollback":
+                    db.rollback()
+                else:
+                    db.add(Row(id=1))
+                    with pytest.raises(IntegrityError):
+                        db.flush()
+                    assert not db.is_active and not root.is_active and db.get_transaction() is root
+                assert revoked and all(revoked) and root not in owner.unbound_roots
+                if db.get_transaction() is root:
+                    assert owner.transactions[root] is lease
+                    assert root not in owner.unbound_roots
+                db.rollback()
+                event.remove(db, name, observe)
+                db.add(Row(id=2))
+                replacement = db.get_transaction()
+                assert replacement is not root and owner.unbound_roots[replacement][0] is owner.transactions[replacement]
+                assert len(owner.transactions[replacement]) == 3
+            assert not owner and not owner.transactions and not owner.unbound_roots
+        finally:
+            guard_module._RESULT_VIEW_TASK_OWNER.reset(token)
+            engine.dispose()
+    asyncio.run(scenario())
+
+
+def test_real_begin_in_another_context_revokes_history_before_binding_can_return_early():
+    async def scenario():
+        class Base(DeclarativeBase):
+            pass
+
+        class Row(Base):
+            __tablename__ = "synthetic_root"
+            id: Mapped[int] = mapped_column(primary_key=True)
+
+        engine, owner = create_engine("sqlite://"), guard_module._ResultViewOwner()
+        token = guard_module._RESULT_VIEW_TASK_OWNER.set(owner)
+        try:
+            with Session(engine, autoflush=False) as db:
+                db.add(Row(id=1))
+                root = db.get_transaction()
+                lease = owner.transactions[root]
+                assert owner.unbound_roots[root][0] is lease
+
+                async def query():
+                    assert guard_module._RESULT_VIEW_TASK_OWNER.get() is None
+                    assert db.scalar(text("SELECT 1")) == 1
+
+                await asyncio.create_task(query(), context=Context())
+                assert owner.transactions[root] is lease and not owner.unbound_roots
+                assert guard_module._RESULT_VIEW_TRANSACTION_OWNER not in db.connection().info
+                # A late active snapshot or replayed callback cannot rearm this root.
+                assert root.is_active and db.is_active
+                guard_module._track_result_transaction(db, root)
+                assert not owner.unbound_roots and owner.transactions[root] is lease
+            assert not owner and not owner.transactions and not owner.unbound_roots
+        finally:
+            guard_module._RESULT_VIEW_TASK_OWNER.reset(token)
+            engine.dispose()
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("case", [
+    "owned", "no_owner", "failed", "connection_held", "two_roots", "no_task", "wrong_task",
+    "wrong_context", "cancelling", "stale_lease", "foreign_owner", "lease_root", "session_info",
+    "missing_witness", "stale_witness", "witness_task", "current_root", "other_session", "parent",
+    "short_lease", "tuple_lease", "nonsequence_lease", "short_witness", "list_witness", "nonsequence_witness",
+    "nested", "explicit_begin", "not_in_transaction", "nested_session", "active_root", "active_session",
+    "in_use", "callback_dbapi", "entry_dbapi", "entry_driver", "wrapper_driver", "driver_type",
+    "connection_key", "initialization_key", "root_key", "closed", "native_transaction",
+])
+def test_idle_pool_close_requires_exact_unbound_history_and_native_generation(case, monkeypatch):
+    async def scenario():
+        checks = []
+
+        class Driver:
+            calls = 0
+
+            def is_closed(self):
+                checks.append("closed")
+                return case == "closed"
+
+            def is_in_transaction(self):
+                checks.append("transaction")
+                return case == "native_transaction"
+
+            def terminate(self):
+                self.calls += 1
+
+        class Root:
+            parent, nested, origin = None, False, SessionTransactionOrigin.AUTOBEGIN
+            is_active = case == "active_root"
+
+        class Entry:
+            pass
+
+        monkeypatch.setattr(guard_module, "AsyncpgConnection", Driver)
+        task = asyncio.current_task()
+        owner, root, entry, driver = guard_module._ResultViewOwner(), Root(), Entry(), Driver()
+        session = SimpleNamespace(info={}, get_transaction=lambda: root, in_transaction=lambda: True,
+                                  in_nested_transaction=lambda: False, is_active=case == "active_session")
+        root.session = session
+        lease = [owner, root, task]
+        owner.transactions[root] = lease
+        owner.unbound_roots[root] = (lease, task)
+        session.info[guard_module._RESULT_VIEW_TRANSACTION_OWNER] = lease
+        wrapper = SimpleNamespace(driver_connection=driver)
+        entry.info, entry.dbapi_connection, entry.driver_connection, entry.in_use = {}, wrapper, driver, False
+        callback_dbapi = wrapper
+        if case == "failed":
+            owner.failed = True
+        if case == "connection_held":
+            owner[object()] = object()
+        if case == "two_roots":
+            owner.transactions[object()] = object()
+        if case == "wrong_task":
+            lease[2] = object()
+        if case == "stale_lease":
+            owner.transactions[root] = lease.copy()
+        for name, value in [("short_lease", lease[:1]), ("tuple_lease", tuple(lease)),
+                            ("nonsequence_lease", object())]:
+            if case == name:
+                owner.transactions[root] = value
+        for name, value in [("short_witness", (lease,)), ("list_witness", [lease, task]),
+                            ("nonsequence_witness", object())]:
+            if case == name:
+                owner.unbound_roots[root] = value
+        if case == "foreign_owner":
+            lease[0] = guard_module._ResultViewOwner()
+        if case == "lease_root":
+            lease[1] = object()
+        if case == "session_info":
+            session.info[guard_module._RESULT_VIEW_TRANSACTION_OWNER] = lease.copy()
+        if case == "missing_witness":
+            owner.unbound_roots.clear()
+        if case == "stale_witness":
+            owner.unbound_roots[root] = (lease.copy(), task)
+        if case == "witness_task":
+            owner.unbound_roots[root] = (lease, object())
+        if case == "current_root":
+            session.get_transaction = object
+        if case == "other_session":
+            session.get_transaction = lambda: None
+        if case == "parent":
+            root.parent = object()
+        if case == "nested":
+            root.nested = True
+        if case == "explicit_begin":
+            root.origin = SessionTransactionOrigin.BEGIN
+        if case == "not_in_transaction":
+            session.in_transaction = lambda: False
+        if case == "nested_session":
+            session.in_nested_transaction = lambda: True
+        if case == "in_use":
+            entry.in_use = True
+        if case == "callback_dbapi":
+            callback_dbapi = object()
+        if case == "entry_dbapi":
+            entry.dbapi_connection = object()
+        if case == "entry_driver":
+            entry.driver_connection = object()
+        if case == "wrapper_driver":
+            wrapper.driver_connection = object()
+        if case == "driver_type":
+            monkeypatch.setattr(guard_module, "AsyncpgConnection", type("Unsupported", (), {}))
+        for name, key in [("connection_key", guard_module._RESULT_VIEW_CONNECTION_OWNER),
+                          ("initialization_key", guard_module._RESULT_VIEW_INITIALIZATION_OWNER),
+                          ("root_key", guard_module._RESULT_VIEW_TRANSACTION_OWNER)]:
+            if case == name:
+                entry.info[key] = object()
+        token = guard_module._RESULT_VIEW_TASK_OWNER.set(None if case == "no_owner" else owner)
+        before = (owner.copy(), owner.transactions.copy(), owner.unbound_roots.copy(), entry.info.copy(), owner.failed)
+        try:
+            with monkeypatch.context() as patch:
+                if case == "no_task":
+                    patch.setattr(guard_module.asyncio, "current_task", lambda: None)
+                if case in {"wrong_context", "cancelling"}:
+                    other = SimpleNamespace(get_context=lambda: Context() if case == "wrong_context" else task.get_context(),
+                                            cancelling=lambda: int(case == "cancelling"))
+                    lease[2] = other
+                    owner.unbound_roots[root] = (lease, other)
+                    patch.setattr(guard_module.asyncio, "current_task", lambda: other)
+                    before = (owner.copy(), owner.transactions.copy(), owner.unbound_roots.copy(), entry.info.copy(), owner.failed)
+                QueuePool(lambda: None).dispatch.close(callback_dbapi, entry)
+            assert driver.calls == (1 if case == "owned" else 0)
+            assert (owner, owner.transactions, owner.unbound_roots, entry.info, owner.failed) == before
+            assert checks == (["closed"] if case == "closed" else ["closed", "transaction"]
+                              if case in {"owned", "native_transaction"} else [])
+        finally:
+            guard_module._RESULT_VIEW_TASK_OWNER.reset(token)
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("case", ["short_lease", "tuple_lease", "nonsequence_lease", "foreign_owner",
+                                  "wrong_root", "short_witness", "list_witness", "nonsequence_witness"])
+def test_public_revocation_rejects_malformed_history_without_touching_saved_state(case):
+    async def scenario():
+        owner, db = guard_module._ResultViewOwner(), Session()
+
+        class Root:
+            session = db
+
+        root = Root()
+        task = asyncio.current_task()
+        lease = [owner, root, task]
+        owner.transactions[root] = lease
+        owner.unbound_roots[root] = (lease, task)
+        db.info[guard_module._RESULT_VIEW_TRANSACTION_OWNER] = lease
+        for name, value in [("short_lease", lease[:1]), ("tuple_lease", tuple(lease)),
+                            ("nonsequence_lease", object())]:
+            if case == name:
+                db.info[guard_module._RESULT_VIEW_TRANSACTION_OWNER] = value
+        if case == "foreign_owner":
+            lease[0] = object()
+        if case == "wrong_root":
+            lease[1] = object()
+        for name, value in [("short_witness", (lease,)), ("list_witness", [lease, task]),
+                            ("nonsequence_witness", object())]:
+            if case == name:
+                owner.unbound_roots[root] = value
+        before = (owner.transactions.copy(), owner.unbound_roots.copy(), db.info.copy())
+        db.dispatch.before_commit(db)
+        assert (owner.transactions, owner.unbound_roots, db.info) == before
+        db.close()
+    asyncio.run(scenario())
 
 
 @pytest.mark.parametrize("case", [
@@ -180,6 +501,7 @@ def test_session_root_owner_is_known_before_checkout_and_removed_at_its_exact_en
                 assert len(owner.transactions) == (0 if case == "foreign" else 1)
                 if case != "foreign":
                     assert owner.transactions[transaction][2] is asyncio.current_task()
+                    assert not owner.unbound_roots  # Explicit BEGIN is never a mint event.
                     if case == "nested":
                         with db.begin_nested():
                             assert list(owner.transactions) == [transaction]
@@ -604,6 +926,7 @@ def test_cancelled_cleanup_forgets_only_finished_unbound_root_metadata(case):
         transaction.session = session
         lease = [owner, transaction, task]
         owner.transactions[transaction] = lease
+        owner.unbound_roots[transaction] = (lease, task)
         session.info[guard_module._RESULT_VIEW_TRANSACTION_OWNER] = lease
         if case == "connection_held":
             owner[object()] = object()
@@ -620,6 +943,7 @@ def test_cancelled_cleanup_forgets_only_finished_unbound_root_metadata(case):
         try:
             guard_module._forget_finished_result_transactions(owner)
             assert bool(owner.transactions) is (case != "owned")
+            assert bool(owner.unbound_roots) is (case != "owned")
             assert bool(session.info) is (case != "owned")
         finally:
             if not task.done():

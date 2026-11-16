@@ -202,3 +202,87 @@ watchdog False. Все ранние resource/F-P/newT/renewal/ledger0/reuse asse
 admission/ledger, остальные commit/cleanup исходы, browser/native acceptance,
 readiness/actual restore/ёмкость, T098, выпуск и коммерческая цель остаются
 открытыми. Новых визитов, регистраций, оплат или публичных сообщений нет.
+
+## Полный unit после окончательных N1–N3 — 16 ноября
+
+Терминальный журнал `/private/tmp/graf-t112-root-history-unit-final-all-20261116.log`
+подтверждает **257 PASS / 0 skips / 1 прежний fixture warning / 16.86s / EXIT0**.
+SHA-256 журнала:
+`020491b716bf258405c7b4e2220334fc80c93635007268b682cca254c4f4f703`.
+Повторный запуск не выполнялся. Все три текущих кодовых SHA-256 в таблице
+«Окончательные локальные входы» сверены и совпали. Предыдущие 243 PASS
+остаются исторической проверкой версии до окончательных проверок формы.
+
+Это полный unit-файл, а не общий профиль PostgreSQL. Общий профиль из
+257 unit + 29 contract + 8 integration (`test_product_activation_analytics_rollout.py`)
+ещё не запускался; он следует после повторного независимого заключения
+по исправлениям N1–N3. Подготовленный запрос обновлён реальным терминальным
+результатом: `/private/tmp/graf-t112-root-history-rereview-final-20261116.txt`.
+Подтверждённая доставка этого нового поручения и живое ожидание результата
+не установлены. Последнее независимое заключение по-прежнему HOLD
+`3653b0575a2d8212fb5fdd270fc4b921da5651bb9a989aae615f2d894f789c52`.
+
+Ошибочные обращения к `functions.wait` без действительного running cell ID
+не передали поручение, не проверили состояние агента и не доказывают отказ
+среды. Они не являются ожиданием ревью и не дают основания повторять тесты
+или обходить независимую проверку. Кодовой commit/push, PR, выпуска,
+рабочего включения, изменения сайта или почты не было. T112/T113 и
+коммерческая цель остаются открытыми.
+
+## Независимая приёмка и общий PostgreSQL-профиль — 16 ноября
+
+После предыдущей записи получено и полностью прочитано повторное независимое
+заключение: **SCOPED implementation PASS, P1=0, P2=0**. Все N1–N3 закрыты.
+Отчёт проверяющего `t112-pool-return-preflight-20261116.md`, SHA-256
+`1316131eedeccb03abc2f1333e3d86ae3daf0b74010db0568b429d1c9c554862`.
+Это подтверждает состоявшуюся доставку последнего поручения; прежняя запись
+об отсутствии подтверждения доставки описывает состояние до получения ответа.
+124 checked / 0 unchecked; 18 исходных хешей требований совпали.
+Проверяющий изменил только собственный отчёт. Кодовые SHA-256 остались теми же.
+Историческая причина P1-R1 устранена и принята только в проверенном idle
+precheckout Pool.close сценарии. Recycle reservation proof, уже начатый
+native graceful close и все прочие исходы этим не принимаются.
+
+После независимого допуска один раз запущен общий затронутый профиль:
+
+```sh
+UV_PROJECT_ENVIRONMENT=/Users/yshishenya/Documents/crisp/apps/server/.venv \
+UV_NO_SYNC=1 GRAF_TEST_WORKERS=1 \
+/opt/homebrew/bin/bash apps/server/scripts/run_local_postgres_tests.sh --focused \
+ tests/unit/test_result_view_http_guard.py \
+ tests/contract/test_result_view_http_budget.py \
+ tests/integration/test_product_activation_analytics_rollout.py -q
+```
+
+Итог: **294 PASS / 0 skips / 1 прежний fixture warning / 50.50s / EXIT0**;
+runner focused54s, `postgres_test_cleanup=isolated_container_removed`,
+`postgres_test_result=pass mode=focused partitioned=false shard=none`.
+Коллекция294=257unit+29contract+8integration, collection digest
+`8c4e6787e34cc23b0e2e3a77d64c9065cfea262520cf5cbef5b1067b94da385d`.
+Журнал `/private/tmp/graf-t112-root-history-regression294-20261116.log`, SHA-256
+`57900f094db18ab00e6e04934af61e0a64d740d7bb3e1b271d27a1836cc982e1`.
+Диск перед запуском146609904KiB, выше80ГБ. Рабочие сервисы не затрагивались.
+
+### Сверка завершения конкретного исправления
+
+Проверены текущие исходники, contract §5/7, spec FR-021/025/SC-006 и
+существующие T112/T113. Полоса реализации high-risk-product сохранена.
+
+| Обязательство этого исправления | Текущее подтверждение |
+| --- | --- |
+| Положительная public-история AUTOBEGIN и окончательный отзыв | Реальный Session lifecycle, unit257, независимый source review |
+| Непригодные root/witness не разрешают terminate и не повреждают metadata |14 отрицательных случаев, N2 scoped PASS |
+| Finished-root cleanup удаляет только собственный witness |Дополненный тест с живым witness, N3 scoped PASS |
+| Полный ответ и окончание собственных ресурсов в исходном2s |Native normal/fault и общий294; client EOF prevention, не held upstream EOF |
+| Сохранность чужих F/P в том же пуле и следующий checkout |Exact PID/SELECT1/commit, pool/reset/checkin и reuse assertions |
+| Сохранение закрытого рабочего измерения и прежних границ |Нет рабочего запуска, HTTP admission не подключён; T112/T113 открыты |
+
+В конкретном исправлении новых непокрытых обязательств не выявлено.
+Это ограниченная сверка завершения, не полная сходимость всей F273.
+Оставшаяся работа уже описана открытыми T112/T113: реальные proof issuance/
+renewal, общий защищённый POST/admission/ledger, карточность/размер входа,
+прочие close/commit/cleanup исходы, browser/native и recovery. Подтверждено
+по текущему `product_analytics/ingest.py`: `_result_period_context` остаётся
+закрытой заглушкой; один helper не подтверждает реальный HTTP-триггер.
+Новых дублирующих задач не добавлено; tasks/spec/plan/checklist неизменны.
+GitHub exact-SHA CI, PR/merge/выпуск и рабочая приёмка ещё не выполнены.

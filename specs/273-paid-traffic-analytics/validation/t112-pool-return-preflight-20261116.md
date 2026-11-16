@@ -863,3 +863,121 @@ T112/T113/restore/runtime/T0, PR/CI/release и цель трафика/прод�
 Полный разбор выше и журнал2FAIL относятся к `194065…`; новой полной
 implementation/native приёмки версии `c863b9…` это дополнение не заявляет.
 Открытые P2-N2/N3 guard/unit и общий HOLD сохраняются.
+
+## Окончательное повторное ревью N1–N3 — SCOPED implementation PASS
+
+16.11.2026. Отдельное поручение полностью прочитано:
+`/private/tmp/graf-t112-root-history-rereview-final-20261116.txt`, SHA-256
+`fba6a3775ada29393f4cd4f2dc642a7271b55eebc0ae2c5dd6e1eb09139a1c8d`.
+Рабочая копия прежняя, ветка `codex/f273-result-visibility-20261116`;
+HEAD `127a1ca5596df097526ef17d5a0ba282da3e12e4` — документальная основа.
+Guard/unit/contract и fragment являются незакоммиченным кандидатом;
+заключение привязано к точным содержимым ниже, а не объявляет HEAD версией кода.
+
+**SCOPED IMPLEMENTATION PASS: остающихся P1=0, P2=0 в объёме исправления
+idle Pool.close с положительной public-историей root. Все три N1/N2/N3
+независимо закрыты исходниками и законченными доказательствами.** Предыдущий
+HOLD данного кандидата снят в этой ограниченной области. Допустим следующий
+запланированный общий затронутый PostgreSQL regression-профиль; его результат
+настоящим отчётом не предрешён и ещё не принят.
+
+В том же диалоге восстановлены собственные применимые оригиналы по
+`document-reading.md`, а не чужое первое чтение: result-visibility §§5–7,
+spec clarify16.11/FR-021/025, plan T112, tasks T112/T113, quickstart T112,
+предыдущие независимые preflight/baseline/history/observer проекты. Для
+constitution/PRD/status/product-gates/activation lifecycle сохраняются
+проверенные неизменные scoped границы и происхождение прежнего собственного
+чтения, записанные выше; нового полного чтения всей истории не заявляется.
+18 входов по карте `graf-t112-root-history-reading-20261116.json` сверены:
+**18 совпадений / 0 расхождений**. Карта служит указателем. Scope не менялся,
+новых внешних полномочий/получателей/режимов/данных нет; настоящий gate закрыт.
+Прежний scoped analyze требований остаётся применим, не заменяет code review.
+
+### Закрытие конкретных замечаний
+
+| Замечание | Независимо проверенное исправление | Решение |
+| --- | --- | --- |
+| P2-N1: обязательный upstream EOF/новый observer timeout | Client marker выставляется только после реального client read()==b'', не из cancel/error/finally. FIRST_COMPLETED не задержан. Gate T вооружён до POST. Observer и ранние проверки используют один исходный deadline. Native normal/fault прошли client EOF и весь ранний набор | CLOSED в scoped объёме |
+| P2-N2: неверная форма lease/witness может бросить исключение | Новые callbacks проверяют list3/tuple2 до распаковки/индексов; revoke проверяет собственный owner type и exact Session binding до maps.6 close-shape +8 revoke-shape/foreign-root случаев проверяют no-op и неизменность metadata | CLOSED |
+| P2-N3: аварийный forget не содержит witness | Существующий тест теперь создаёт exact живое свидетельство. Owned finished удаляет его вместе с прежними структурами; pending/active/foreign/stale отказы сохраняют. Дополнительный реальный foreign-Context after_begin отзывает свидетельство до early-return binder и исключает rearm | CLOSED |
+
+Рассмотрена вся новая связка, а не только зелёные строки журнала:
+mint только корневого AUTOBEGIN с положительными public признаками при
+создании; exact исходная task отдельно от изменяемого root lease;
+окончательный revoke на child/commit/rollback/begin/end и cancel cleanup;
+прежний list3 lease; проверка пустого witness registry перед принятием ответа.
+Pool.close допускает текущие False/False только вместе с сохранённой
+историей, exact current root/task/Context/Session.info, пустым connection
+registry/no failed/no cancel, exact entry/wrapper/native generation,
+!in_use/noentrykeys/nativeopen/noTX. Противоречия не ремонтируются и не
+разрешают terminate. Записей в SQLAlchemy bookkeeping нет.
+
+Собственный callback действует только на idle driver, который Pool.close
+уже выбрал для физического закрытия. Ни `!in_use`, ни witness не превращены
+в request reservation lease. Recycle-specific reservation proof через
+данное событие остаётся вне утверждений. Native terminate до library close
+предупреждает ожидание; завершение ранее начатого graceful-close child этим
+исправлением не объявляется доказанным. По проверенному diff C1/I1/
+CancelledError/DB-first не расширены; private API/SQL retry/новых production
+таймеров нет. Чужие работающие ресурсы не выбираются перечислением пула.
+
+### Принятые законченные доказательства
+
+| Журнал | Проверенный итог | SHA-256 |
+| --- | --- | --- |
+| `graf-t112-root-history-shape-unit-20261116.log` |59PASS/198deselected/0skip/один прежний warning,0.21s | `f2d13d68492f4e7e763fdf69873ff497737b889dde32d5a18310aefe81dfce29` |
+| `graf-t112-root-history-native-reviewed-20261116.log` |2PASS/27deselected/0skip/один прежний warning,3.83s; runner7s/EXIT0; isolated_container_removed/result pass | `9a3aec477786216b669ae1b677c0c739ef03c3a2b6f7216e0895b1a6651f93e6` |
+| `graf-t112-root-history-unit-final-all-20261116.log` |257PASS/0skip/один прежний warning,16.86s; законченный полный unit-файл | `020491b716bf258405c7b4e2220334fc80c93635007268b682cca254c4f4f703` |
+
+Все три журнала находятся в `/private/tmp/`; суммы проверены непосредственно.
+257 — окончательный unit-файл текущей формы, а не перенос прежнего243.
+59 входит в257: складывать их как независимые316 проверок нельзя.
+Проверяющий повторно тесты не запускал; новой находки для повторения нет.
+
+В native normal/fault полный accepted прошёл, POST около0.052s/0.054s,
+actual root/Session False/False, все15 close checks True,
+native_closed=True, client EOF=True/upstream EOF=False, observer подтвердил
+исчезновение старого PID/locks при task.cancelling=0, watchdog не срабатывал.
+Это принятый **prevented wait через client EOF**, не held upstream EOF.
+
+По пройденным утверждениям текущего теста, до fault gate.set/dispose в
+исходном2s завершены старый relay/root/pumps/writers/wait_closed,
+own tasks/owner/transactions/unbound_roots/Session.info; checkedout=2.
+Удержанные F и новое P **в том же пуле** сохранили exact PID, SELECT1 и commit.
+Новый T вернулся idle/noTX/no locks с тремя reset/checkin auth/tenant/renewal
+парами; продление действительно committed, ledger0. Следующий checkout/
+SELECT/commit после ранней приёмки успешен. Живой новый pooled socket
+правильно сохранён. Наблюдающие close assertions вынесены из callback,
+snapshot одноразовый, Session owner сохранён заранее, POST имеет handle,
+own cleanup ограничен отдельно и не подменяет раннюю приёмку.
+
+### Точная версия и границы заключения
+
+| Исходник текущего кандидата | SHA-256 |
+| --- | --- |
+| `apps/server/src/twobrain_rec_server/api/product_analytics_guard.py` | `0ee850ee5310ff1c83d3c6e32d209ce8cee97951393863e937ac33f8e51421bc` |
+| `apps/server/tests/unit/test_result_view_http_guard.py` | `24aa677d108b6c19fd1dff6ac3a19c4ce9674e5ac8e7a43276721e5bce0d9107` |
+| `apps/server/tests/contract/test_result_view_http_budget.py` | `6c1274ef26d94df8caed306bf0e8b0cef5a81f45e0d2174726c149fbed9e45f5` |
+| Установленный `sqlalchemy/orm/session.py` | `b75a4e427f453c2eaf19f04d87f66c2da644698a14f3b11880f56a73e2a0760d` |
+
+Исторический P1-R1 сохранён как достоверный исходный RED; его конкретная
+причина в проверенном idle precheckout Pool.close сценарии **устранена и
+scoped принята**. Это не утверждение всех close/reset/recycle/TLS/commit
+исходов и не общая приёмка HTTP. Старые30/44/243 и прерванный native опыт
+сохраняют свои прежние пределы; ими новый PASS не подменён.
+
+Проверенные/открытые totals четырёх неизменённых reviewer-owned списков:
+requirements16/0, security27/0, privacy-measurement52/0, infra29/0 —
+**124 checked / 0 unchecked**. Отметки не менялись. Это приёмка требований,
+а не разрешение включить сбор.
+
+Общий профиль294=257unit+29contract+8integration ещё не выполнен/не принят
+этим ревью. T112/T113 и issue7698 остаются открытыми; реальные protected
+POST/выдача/обновление proof и общий admission/ledger/browser/native,
+остальные commit/cleanup исходы, actual restore/readiness/runtime/T0,
+converge/exact-SHA CI/merge/release и коммерческие AC не закрыты. Синтетический
+accepted/ledger0 не является новым клиентом или продажей. Никаких новых
+публичных сообщений или внешних действий это заключение не разрешает.
+
+Изменён только собственный отчёт. Чужие guard/unit/contract/fragment,
+требования/tasks/checklist, Git/GitHub и рабочая среда сохранены.
