@@ -589,11 +589,34 @@
   `45c068813ed7bdadbe5e90ab82b48cab0f28b1c9`, удалённый SHA совпал.
   [Полная история и границы](https://github.com/yshishenya/graf/blob/45c068813ed7bdadbe5e90ab82b48cab0f28b1c9/specs/273-paid-traffic-analytics/validation/t112-session-owner-r1-r3-validation-20261116.md).
   Ruff/context/fragment/diff PASS. Это сохранение кандидата, не приёмка к слиянию.
-- [ ] Получить повторное независимое заключение точных R1–R3 исправлений
-  от существующего `/root/public_counter_readiness_review`; новый отчёт
-  `validation/t112-session-owner-r1-r3-review-20261116.md` пока не получен.
-  В продукте компонент не подключён; полная сессия с двумя INSERT/commit,
-  readiness/freshness, HTTP/source/proof и максимальная нагрузка ещё открыты.
+- [x] Получить повторное независимое заключение точных R1–R3 исправлений:
+  все три закрыты; в настоящем отчёте `validation/t112-session-owner-rereview-20261116.md`
+  выявлен R4, HOLD P1=0/P2=1. Ошибка original SQL/JSON decoder, перехваченная
+  reader внутри контекста, позволяла продолжение. Прежний GREEN75 не покрывал
+  этот случай; отчёт сохранён без подмены предварительным именем.
+- [x] Исправить R4 в общем `_permit`: при любом BaseException сохранить оба
+  failed до повторной передачи исходной ошибки. Три новых случая на точном
+  source45c068813 дали **3 FAIL**,41deselected,4.87s/runner9s/EXIT1; после
+  исправления весь Session-файл дал **44 PASS/0 skips**,21.05s/runner25s/EXIT0.
+  Оба runner удалили свои контейнеры. В каждом случае reader действительно
+  перехватывает ValueError исходного JSON decoding после прошедших числовых
+  фаз; checkpoint, новое чтение и выход больше не позволяют успех.
+  Состояние и числовой расход проверяются за пределами sanitizing context.
+  Обычные полные readers сохранили ответ: review56SQL/bindings71SQL,
+  прежние строки/байты/JSON и600+600 сегментов. Пределы не повышены.
+  Неизменные34 numeric tests повторно не запускались; нового общего78PASS нет.
+- [x] Получить независимую приёмку R4 от существующего reviewer:
+  **scoped PASS, P1=0/P2=0**; точные source/test/log hashes совпали.
+  [Проверки и границы](https://github.com/yshishenya/graf/blob/c78a3222c/specs/273-paid-traffic-analytics/validation/t112-session-owner-r4-validation-20261116.md),
+  [независимое ревью](https://github.com/yshishenya/graf/blob/c78a3222c/specs/273-paid-traffic-analytics/validation/t112-session-owner-r4-review-20261116.md).
+  Код сохранён в `adb0329159ac495a13e129483762bdf08a06bd62`, заключение
+  в `c78a3222c5f3f5a622f7d9c4eb56aea29967d77e`; push и точное
+  удалённое чтение приняты.
+  Ruff/context/fragment/diff PASS,124checked/0unchecked и18inputs SAME.
+  Новый обработчик сохраняет тип отмены по коду; отдельной новой пробы
+  отмены внутри зависшего SQL нет. В продукте компонент не подключён;
+  полная сессия с двумя INSERT/commit, readiness/freshness, HTTP/source/proof
+  и максимальная нагрузка остаются открытыми. PR/merge/CI/release нет.
 - [ ] Продолжить реальные HTTP/source/proof/admission границы T112/T113 и
   остальные непокрытые close/commit/cleanup исходы; `_result_period_context`
   по-прежнему `yield None`, HTTP-триггер не подключён. PR/merge/выпуска/
