@@ -121,6 +121,8 @@ jobs:
             Set-Content "$env:REPORT_DIR/toolchain.txt"
           $tests = @($env:SELECTED_TESTS -split ',')
           if ($tests.Count -ne 5) { throw 'Missing test target list.' }
+          & powershell.exe -NoProfile -NonInteractive -File apps/windows/Tests/GrafWindowsPackageTests/FFmpegToolsExtractionTests.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'Native dependency extraction self-check failed.' }
           $ffmpeg = "$env:RUNNER_TEMP/graf-ffmpeg-7.1.5-x64"
           & powershell.exe -NoProfile -ExecutionPolicy Bypass -File apps/windows/scripts/build-graf-ffmpeg.ps1 `
             -InstallDirectory $ffmpeg -BuildDirectory "$env:RUNNER_TEMP/graf-ffmpeg-7.1.5-work"

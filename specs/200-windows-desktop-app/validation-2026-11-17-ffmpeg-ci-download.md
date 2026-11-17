@@ -117,3 +117,45 @@ Builder SHA-256 после правки:
 Достаточность нового бюджета, сборка и исполнение тестов в GitHub пока
 не подтверждены. Новый CI нужен на окончательном SHA; cancelled run остаётся
 cancelled и не служит приёмкой приложения.
+
+## Часовой запуск: bootstrap extraction и неоднозначный PATH
+
+Run [44109541353](https://github.com/yshishenya/graf/actions/runs/44109541353),
+head `0c99db6d456ce37d77b8eb8b7aaf9e24021c4684`, снова подтвердил все
+четыре загрузки. Последний этап до отмены:
+`FFmpeg stage start name=tools-extract`, 15:03:41 UTC; завершение не
+наблюдалось до отмены 16:01:48 UTC. Компиляция и CTest не подтверждены.
+Журнал находится в `.dev/ci-exact-0c99-20261117/windows-api.log`.
+Причина ожидания и фактически выбранный прежним PATH инструмент неизвестны.
+
+Для bootstrap явно выбран `System32\tar.exe`, принимающий Windows paths.
+После успешного `Process.Start` добавлено сообщение с PID. Остальные MSYS
+tar-вызовы, версии, архивы, size/SHA, provenance, наборы тестов и общий
+конечный бюджет 60 минут сохранены. Это устранение неоднозначного выбора
+инструмента, не доказательство причины прежнего ожидания.
+
+Новый `FFmpegToolsExtractionTests.ps1` извлекает только нужный bootstrap
+фрагмент и функции из действующего builder. В Windows PowerShell 5.1:
+
+- Прежний source при PATH-shadow из безопасного `where.exe` отказал.
+- Новый source проигнорировал shadow и распаковал настоящий малый xz-архив
+  в путь с пробелами; содержимое и SHA архива совпали, native exit 0.
+- Start/PID/terminal evidence проверены; временный каталог удалён, PATH
+  восстановлен. Шесть прежних Download mock cases также прошли без сети.
+- Доверие сертификатам и устройства не менялись; полный builder не запускался.
+
+Actual transport exit 0, без timeout/retry, stderr пустой:
+`.dev/ci-native-extraction-selfcheck-20261117/`. Независимое source review
+трёх файлов — C0/H0/M0:
+`.dev/ci-native-extraction-source-independent-20261117.md`.
+В Windows PR selfcheck включён перед полной подготовкой зависимости.
+
+Контрольные суммы проверенного candidate:
+
+- Builder: `207c71ea480bde5843a680a4535bf00f14c3619abfa4228f7f3bc09c1729b6a8`.
+- Workflow: `d65cf3e6a84aed4213ab23889a4bdfd10c0fd68084d8d6aee16adc3225073211`.
+- Test: `c217e7d550b036a6ee20d6521269a612a5666ba1901f8281657a114cc9c5503a`.
+
+Полный закреплённый архив MSYS2, актуальный exact-SHA CI и готовность
+приложения этим малым тестом не подтверждены. Старый cancelled результат
+сохранён; общий лимит повторно не увеличивался.
