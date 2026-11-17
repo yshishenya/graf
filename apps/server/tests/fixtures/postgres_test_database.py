@@ -378,7 +378,7 @@ def postgres_isolated_cluster_database_url() -> Iterator[str]:
     container = f"graf-postgres-test-bootstrap-{suffix}"
     database = f"{TEST_DATABASE_PREFIX}{suffix}"
     password = uuid4().hex
-    started = False
+    cleanup_needed = False
 
     def docker(*args: str, timeout: int = 5) -> subprocess.CompletedProcess[str]:
         try:
@@ -387,18 +387,49 @@ def postgres_isolated_cluster_database_url() -> Iterator[str]:
                 timeout=timeout, env={**os.environ, "POSTGRES_PASSWORD": password},
             )
         except (OSError, subprocess.TimeoutExpired):
-            pytest.fail("isolated bootstrap PostgreSQL command failed or timed out", pytrace=False)
+            pass
+        pytest.fail("isolated bootstrap PostgreSQL command failed or timed out", pytrace=False)
+
+    def remove_container() -> None:
+        nonlocal cleanup_needed
+        removed = docker("rm", "--force", "--volumes", container, timeout=30)
+        if removed.returncode:
+            remaining = docker(
+                "container", "ls", "--all", "--filter", f"name=^/{container}$", "--format", "{{.Names}}",
+            )
+            if remaining.returncode or remaining.stdout.strip():
+                pytest.fail("cannot confirm isolated bootstrap PostgreSQL cleanup", pytrace=False)
+        cleanup_needed = False
+        print("postgres_bootstrap stage=cleanup status=confirmed")
 
     try:
-        result = docker(
-            "run", "--detach", "--rm", "--name", container,
-            "--env", "POSTGRES_DB=postgres", "--env", "POSTGRES_USER=twobrain_rec",
-            "--env", "POSTGRES_PASSWORD", "--tmpfs", "/var/lib/postgresql/data:rw",
-            "--publish", "127.0.0.1::5432", "postgres:17-alpine", timeout=30,
-        )
-        if result.returncode:
-            pytest.fail("cannot start isolated bootstrap PostgreSQL", pytrace=False)
-        started = True
+        for attempt in (1, 2):
+            cleanup_needed = True
+            start_error = False
+            try:
+                result = subprocess.run(
+                    ["docker", "run", "--detach", "--rm", "--name", container,
+                     "--env", "POSTGRES_DB=postgres", "--env", "POSTGRES_USER=twobrain_rec",
+                     "--env", "POSTGRES_PASSWORD", "--tmpfs", "/var/lib/postgresql/data:rw",
+                     "--publish", "127.0.0.1::5432", "postgres:17-alpine"],
+                    capture_output=True, text=True, check=False, timeout=30,
+                    env={**os.environ, "POSTGRES_PASSWORD": password},
+                )
+            except subprocess.TimeoutExpired:
+                result = None
+            except OSError:
+                start_error = True
+            if start_error:
+                pytest.fail("cannot start isolated bootstrap PostgreSQL", pytrace=False)
+            if result is None:
+                print(f"postgres_bootstrap stage=start attempt={attempt} status=timeout")
+                remove_container()
+                if attempt == 2:
+                    pytest.fail("isolated bootstrap PostgreSQL start timed out twice", pytrace=False)
+                continue
+            if result.returncode:
+                pytest.fail("cannot start isolated bootstrap PostgreSQL", pytrace=False)
+            break
         deadline = time.monotonic() + 30
         while time.monotonic() < deadline:
             logs = docker("logs", container)
@@ -423,15 +454,5 @@ def postgres_isolated_cluster_database_url() -> Iterator[str]:
         prepare_schema(url)
         yield url
     finally:
-        # Attempt removal even if docker run timed out after creating the container.
-        try:
-            removed = subprocess.run(
-                ["docker", "rm", "--force", "--volumes", container],
-                capture_output=True, text=True, timeout=30, check=False,
-            )
-        except (OSError, subprocess.TimeoutExpired):
-            if started:
-                pytest.fail("cannot remove isolated bootstrap PostgreSQL", pytrace=False)
-        else:
-            if started and removed.returncode:
-                pytest.fail("cannot remove isolated bootstrap PostgreSQL", pytrace=False)
+        if cleanup_needed:
+            remove_container()
