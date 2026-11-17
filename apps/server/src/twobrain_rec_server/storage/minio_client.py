@@ -206,7 +206,8 @@ class MinioStorage:
             destination.unlink(missing_ok=True)
             raise
         except OSError as exc:
-            destination.unlink(missing_ok=True)
+            if descriptor >= 0:
+                destination.unlink(missing_ok=True)
             raise StorageTransferError("temporary_storage_unavailable") from exc
         finally:
             if descriptor >= 0:

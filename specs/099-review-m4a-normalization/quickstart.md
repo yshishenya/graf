@@ -494,3 +494,37 @@ local_preparing/uploaded с reservation; delayed job-wide/direct cleanup;
 исходных source bytes; все барьеры bounded, контейнер/temp очищены.
 Детерминированные часы/fake pipeline/storage/Temporal не доказывают живое
 автоматическое восстановление и post-deploy PASS. Никакой production записи.
+
+
+## 2026-11-17 — T014/#3361: матрица владения verified-download
+
+Активная узкая проверка FR-029/031/037/045, SC-025 после independent checklist
+PASS/analyze/issue sync. Старые media/Dev/production сценарии не повторяются
+без нового основания. Импортировать настоящий storage module и настоящие
+потребители; подменять только сетевой ответ и точку внедрения отказа. Файлы,
+ссылки и descriptor — настоящие, только в собственном `tmp_path`. Проверка
+AST от 2026-11-17 остаётся ограниченным RED, не доказательством полного импорта.
+
+| Сценарий | Измеримый результат |
+|---|---|
+| Existing regular → `EEXIST` | inode/байты/права файла прежние, unlink не вызывается, причина temporary_storage_unavailable |
+| Existing symlink → exclusive/no-follow отказ | сама ссылка/readlink и inode/байты/права target прежние, unlink не вызывается |
+| До-create `ENOSPC` или `EACCES`, с существующим leaf и без него | прежний leaf сохранён либо новый не возник, descriptor не закрывается как будто получен, ответ закрыт/released |
+| Fresh success, маленькие порции и payload больше 4 MiB | точные байты/размер/digest, режим 0600, read запросы положительные и ≤4 MiB по умолчанию; descriptor закрыт, ответ закрыт/released |
+| После-create ошибка write или fsync | причина temporary_storage_unavailable, только собственный partial удалён, descriptor закрыт, ответ закрыт/released |
+| После-create лишний/короткий payload, превышение max_bytes, неверный digest | причина source_mismatch, собственный partial удалён; те же resource assertions |
+| Async wrapper: existing leaf и fresh success | общий sync helper, прежний leaf сохранён/точные байты скачаны; те же причины и ресурсы |
+| Оба production consumers через настоящий verified helper | fresh success staging и сохранность existing leaf при отказе; normalization сохраняет StorageTransferError, submit отображает в TempStorageUnavailableError; прежние missing/mismatch mappings покрыты существующими либо focused тестами |
+| Ранние invalid input и missing/unavailable transport | прежние причины и отсутствие локальных побочных изменений; источник не модифицируется |
+
+Добавить постоянные регрессионные тесты в
+`apps/server/tests/unit/test_playback_normalization_storage.py`, сначала
+выполнить их на старом коде (ожидаемый RED из-за existing destination), затем
+после минимальной правки весь этот файл и выбранные submit/error tests.
+Подмены/границы каждого опыта обозначить в validation receipt. Проверять close
+и release раздельно, полученные descriptor через настоящий `fstat` после выхода;
+не выдавать фиктивные булевы признаки одного метода за проверку обоих.
+Сохранить Ruff, governance/diff, независимый review/converge и exact-SHA PR gates.
+Concurrent replacement после open и отказы самой cleanup/close/release этой
+матрицей не доказаны. MinIO integration, единственный GRAF Dev и production
+этими проверками не затрагиваются и принятыми не объявляются.

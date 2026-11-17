@@ -48,3 +48,20 @@
   performance receipts in `validation/traceability.md`.
 - Items validate requirement writing, not implementation behavior.
 - The user’s must-have is represented as a formal guarantee for every supported valid retained source, with no user or workspace-administrator repair action.
+
+## Независимое ревью 2026-11-17 — F099/T014/#3361
+
+Проверяющий: `/root/f099_download_requirements_review`; исходный HEAD `c22500f994a0dc5f951341e3c5f202d5d21ac8a2`.
+Каждый исходный вопрос заново сопоставлен с текущими документами; `[x]` означает качество требований в области вопроса, без runtime-приёмки. Исторические итоги выше сохранены как история.
+Итог этого файла: checked **20**, unchecked **0**, всего **20**. Общий допуск T014: **STOP**, пока не закрыты H1–H3.
+Неподтверждённых исходных пунктов этого файла нет; его вопросы не заменяют отсутствующий контракт локального destination в requirements/lifecycle.
+Полная построчная карта и минимальные правки: внешний отчёт `f099-t014-independent-requirements-review-20261117.md` в каталоге доказательств текущей задачи.
+
+## Повторное независимое ревью 2026-11-17 — T014/#3361
+
+Проверяющий: `/root/f099_download_requirements_review`; тот же reviewer-диалог, HEAD `c22500f994a0dc5f951341e3c5f202d5d21ac8a2`.
+Текущая spec SHA-256 `338751c8f41d766d8b09ec97a5cfc2a5beeb372e484d3b6273a396d5feff2136`; plan/tasks/quickstart и чтения привязаны в новом отчёте.
+Итог этого файла: checked **20**, unchecked **0**, всего **20**. Все исходные вопросы заново оценены; вопросы и прежние STOP-заметки сохранены как история.
+Все 20 исходных вопросов повторно сопоставлены с Spec FR-001–044, contracts profile/matrix/selection/full gate и Plan/Quickstart. Медиа-профиль/лимиты/владение source не изменены. Для CHK012 новый Session 2026-11-17 согласует 4 MiB default/действующих consumers с явным chunk_size без изменения API. Старые dual-source описания не разрешают возвращать удалённую отправку вместо текущей F275.
+Общий reviewer-owned requirements gate: **PASS, 100/100**, только качество требований. Известный дефект кода и открытая T014 остаются; выполнение, analyze/issue sync, регрессии, code review/converge, exact-SHA PR/base и выпуск/развёртывание проверяются отдельно.
+Полная карта каждого исходного пункта и текущие ограничения: внешний отчёт `f099-t014-independent-requirements-rereview-20261117.md` в каталоге доказательств текущей задачи.

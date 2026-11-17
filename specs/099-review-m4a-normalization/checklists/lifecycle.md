@@ -50,3 +50,22 @@
   `validation/traceability.md`.
 - Items validate the written lifecycle and operations contract, not implementation behavior.
 - Feature 097 remains deferred and untouched; this checklist does not claim completion of its standalone security scan.
+
+## Независимое ревью 2026-11-17 — F099/T014/#3361
+
+Проверяющий: `/root/f099_download_requirements_review`; исходный HEAD `c22500f994a0dc5f951341e3c5f202d5d21ac8a2`.
+Каждый исходный вопрос заново сопоставлен с текущими документами; `[x]` означает качество требований в области вопроса, без runtime-приёмки. Исторические итоги выше сохранены как история.
+Итог этого файла: checked **19**, unchecked **3**, всего **22**. Общий допуск T014: **STOP**, пока не закрыты H1–H3.
+- Пункт 01: H1: Model/Contract описывают DB/object ownership, но не границу владения локальным destination перед os.open и при его отказе.
+- Пункт 17: H1/H2: общие retryable temp/resource состояния есть, но safe outcome до-create ENOSPC/permission/EEXIST и cleanup только своего partial не заданы.
+- Пункт 20: H2: Quickstart не задаёт независимые проверки сохранности existing file/link, удаления only-own partial и освобождения transfer resources для T014.
+Полная построчная карта и минимальные правки: внешний отчёт `f099-t014-independent-requirements-review-20261117.md` в каталоге доказательств текущей задачи.
+
+## Повторное независимое ревью 2026-11-17 — T014/#3361
+
+Проверяющий: `/root/f099_download_requirements_review`; тот же reviewer-диалог, HEAD `c22500f994a0dc5f951341e3c5f202d5d21ac8a2`.
+Текущая spec SHA-256 `338751c8f41d766d8b09ec97a5cfc2a5beeb372e484d3b6273a396d5feff2136`; plan/tasks/quickstart и чтения привязаны в новом отчёте.
+Итог этого файла: checked **22**, unchecked **0**, всего **22**. Все исходные вопросы заново оценены; вопросы и прежние STOP-заметки сохранены как история.
+CHK001: FR-045 и Plan T014 определяют локальное владение после exclusive create отдельно от artifact registry. CHK017: Quickstart T014 различает EEXIST/ENOSPC/EACCES до create и write/fsync/size/digest после create, назначает safe outcome/reason/cleanup only-own partial. CHK020: inode/bytes/mode/link/target, descriptor fstat и раздельные response close/release — независимые утверждения; не один shared fake closed flag. Отказы самой cleanup/close/release и post-open pathname replacement прямо не объявлены проверенными.
+Общий reviewer-owned requirements gate: **PASS, 100/100**, только качество требований. Известный дефект кода и открытая T014 остаются; выполнение, analyze/issue sync, регрессии, code review/converge, exact-SHA PR/base и выпуск/развёртывание проверяются отдельно.
+Полная карта каждого исходного пункта и текущие ограничения: внешний отчёт `f099-t014-independent-requirements-rereview-20261117.md` в каталоге доказательств текущей задачи.
