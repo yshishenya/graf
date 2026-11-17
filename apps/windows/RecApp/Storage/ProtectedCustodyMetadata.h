@@ -383,6 +383,38 @@ struct CustodyPackageReference {
     std::optional<std::uint64_t> committedExtent;
     std::optional<ProtectedPackedCustodyFormat::Reference> rootRef;
 };
+// Historical structural receipt only; none of these fields grants current
+// proof, partial-reader admission, mutation or deletion authority.
+enum class CustodyLocalCacheAction { manualCleanup, automaticEviction };
+enum class CustodyLocalCacheState { pending, completed };
+struct CustodyLocalCacheBinding {
+    std::array<char, 301> ownerUserId{}, ownerWorkspaceId{}, deviceId{};
+    std::array<std::uint8_t, 32> originSha256{}, queueSha256{};
+    CustodyId queueObjectId{};
+    std::uint64_t queueGeneration = 0;
+};
+struct CustodyLocalCacheProof {
+    std::array<char, 37> meetingId{}, mediaRevisionId{}, finalizedUploadSessionId{};
+    std::uint64_t fetchedAtMs = 0, verifiedAtMs = 0, finalizedAtMs = 0,
+        deleteAfterMs = 0, admittedAtMs = 0;
+};
+struct CustodyLocalCachePhysical {
+    std::array<std::uint8_t, 8> volumeSerial{};
+    // Raw native FILE_ID_INFO bytes; packageFileId is the recording directory.
+    CustodyId packageFileId{}, mediaDirectoryFileId{}, idFileId{}, contentFileId{};
+    std::uint64_t contentLength = 0;
+    std::array<std::uint8_t, 32> contentSha256{};
+};
+struct CustodyLocalCacheCleanup {
+    CustodyId operationId{};
+    CustodyLocalCacheAction action = CustodyLocalCacheAction::manualCleanup;
+    CustodyLocalCacheState state = CustodyLocalCacheState::pending;
+    std::uint64_t baseGeneration = 0;
+    std::array<std::uint8_t, 32> baseSha256{};
+    CustodyLocalCacheBinding binding;
+    CustodyLocalCacheProof proof;
+    CustodyLocalCachePhysical physical;
+};
 // Fixed structural value only, not a proof, lease, verified directory or right
 // to upload/discard/GC. Actual member hashes, roots of BOTH metadata slots,
 // protected manifest/prefix and account/admission must be verified separately.
@@ -396,6 +428,7 @@ struct CustodyPackageValue {
     bool shortRecordingDiscarded = false;
     std::array<CustodyPackageReference, 5> refs{};
     std::size_t refCount = 0;
+    std::optional<CustodyLocalCacheCleanup> localCacheCleanup;
 };
 // Worker-only, borrowed input for this call, no IO/projection/effects. Expected
 // context/generation/directory come from an independently pinned own record,

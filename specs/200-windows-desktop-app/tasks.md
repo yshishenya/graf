@@ -879,3 +879,11 @@ Main 17.11.2026: **T128 implementation ready; tracker pending**. Локальн�
 PR SHA и merge. Зависимая T129 может продолжать отдельно принятый wire design
 и узкую реализацию структурного codec; первый v3 writer, partial consumers,
 удаление и native/installed приёмка этим результатом не разрешены.
+
+Main 17.11.2026: **T129 structural codec ready; partial consumers pending**.
+Независимый source review C0/H0/M0 и отдельная переносимая сборка 4/4
+подтвердили точный трёхфайловый срез: closed v3 codec, неизменные acceptance
+регрессии 36/776 и отказ полного reader. См.
+[промежуточный отчёт](validation-2026-11-17-t129-codec.md).
+Это не BOTH partial state machine, native/installed/rollback приёмка или
+разрешение writer v3/T130. Задача и #8108 остаются открытыми.

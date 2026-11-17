@@ -1,4 +1,6 @@
 #include "../../RecApp/Storage/ProtectedCustodyMetadata.h"
+#include "../../RecApp/Storage/Sha256.h"
+#include "../../RecApp/Upload/DesktopUploadQueueService.h"
 #ifdef NDEBUG
 #undef NDEBUG
 #endif
@@ -33,6 +35,17 @@ void operator delete(void* memory) noexcept { std::free(memory); }
 void operator delete(void* memory, std::size_t) noexcept { std::free(memory); }
 
 using namespace graf::windows;
+namespace graf::windows {
+// Existing data-only test peer: no Candidate, native lease or effect authority.
+struct ProtectedUploadQueueValueTestPeer {
+    static ProtectedUploadQueueValue snapshot(ProtectedUploadQueueValue::Item row) {
+        ProtectedUploadQueueValue value;
+        value.updatedAtMs_ = row.updatedAtMs;
+        value.items_.push_back(std::move(row));
+        return value;
+    }
+};
+}
 namespace {
 const CustodyContext own = [] { CustodyContext c{{}, {}, CustodyRole::packageState};
     c.storeId.fill(0x11); c.objectId.fill(0x22); return c; }();
@@ -666,6 +679,302 @@ void migrationTests(const std::string& birth, const CustodyContext& context, con
     std::printf("MIGRATION_WRITER_ALLOCATIONS schema=%u cuts=%zu reader_allocations=0 retry=1\n", schema, allocationCount);
     std::printf("MIGRATION_CODEC_MATRIX schema=%u accepted=%zu rejected=%zu cap=65536 allocation_refusal=1 retry=1\n",schema,accepted,rejected);
 }
+// T129 tests-first, contract SHA527627747ebfc0488af9483866c4c13b4b171013dc6052d1581ad6e6923c79d8.
+// Generated metadata only. No native files, trust, HTTP or cleanup effects.
+void localCacheCleanupPackageTests() {
+    using Fields = std::vector<std::string>;
+    const auto object = [](const auto& fields) {
+        std::string out = "{";
+        for (const auto& field : fields) if (!field.empty()) {
+            if (out.size() != 1) out += ',';
+            out += field;
+        }
+        return out + "}";
+    };
+    const auto hex = [](const auto& bytes) {
+        std::string out;
+        for (auto b : bytes) { out += "0123456789abcdef"[b >> 4]; out += "0123456789abcdef"[b & 15]; }
+        return out;
+    };
+    const auto field = [](std::string_view key, std::string_view value) {
+        return "\"" + std::string(key) + "\":\"" + std::string(value) + "\"";
+    };
+    CustodyPackageValue base;
+    base.schema = 2; base.context = own; base.generation = 5;
+    std::copy_n("test-package", 12, base.directory.begin());
+    base.phase = CustodyPackagePhase::sealedNormal; base.refCount = 5;
+    for (std::size_t i = 0; i < base.refCount; ++i) {
+        auto& r = base.refs[i]; r.role = static_cast<CustodyRole>(i+1);
+        r.objectId.fill(static_cast<std::uint8_t>(0x31+i)); r.sealed = true;
+        r.generation = 2; r.length = 96; r.sha256 = sha256Digest("synthetic-role-" + std::to_string(i));
+        if (i < 3) {
+            r.packed = true; r.containerId = CustodyId{};
+            r.containerId->fill(static_cast<std::uint8_t>(0x61+i));
+            r.committedExtent = ProtectedPackedCustodyFormat::appendOffset + 128;
+            r.rootRef = ProtectedPackedCustodyFormat::encodeReference(
+                {PackedRecordKind::nodeL2, 128, ProtectedPackedCustodyFormat::appendOffset, 2, 0, {}});
+            assert(r.rootRef);
+        }
+    }
+    // This is the only ref/base encoder: the existing production v2 writer.
+    const auto full = serialized(base);
+    assert(read(full).ok() && serialized(*read(full).value) == full);
+    const auto baseHash = sha256(full); assert(baseHash.size() == 64);
+    ProtectedUploadQueueValue::Item row;
+    row.localRecordingId = row.directoryId = row.sessionId = "test-package";
+    row.packageDirectory = "test-package"; row.status = UploadQueueStatus::uploaded;
+    row.ownerUserId = "owner_1"; row.ownerWorkspaceId = "workspace_1";
+    row.meetingId = "11111111-1111-4111-8111-111111111111";
+    row.mediaRevisionId = "22222222-2222-4222-8222-222222222222";
+    row.uploadSessionId = "33333333-3333-4333-8333-333333333333";
+    row.serverStatus = "processed"; row.processingStatus = "completed";
+    row.mediaRevisionStatus = "finalized"; row.accessState = "owner"; row.updatedAtMs = 1800000000000ULL;
+    const auto queue = ProtectedUploadQueueValueTestPeer::snapshot(row);
+    const auto cancel = std::make_shared<std::atomic<bool>>(false);
+    const auto queueBytes = queue.serialize(cancel); assert(queueBytes.ok());
+    const std::string queueJson(queueBytes.value->begin(), queueBytes.value->end());
+    const auto queueHash = sha256(queueJson);
+    assert(queueJson.find("\"access_state\":\"owner\"") != std::string::npos);
+    assert(queueJson.find("\"media_revision_status\":\"finalized\"") != std::string::npos);
+    // The local revision is derived from the same directory/session; it is not a server UUID.
+    assert(std::string(row.localRecordingId) + "--initial" == "test-package--initial");
+    const Fields binding{field("owner_user_id", row.ownerUserId), field("owner_workspace_id", row.ownerWorkspaceId),
+        field("device_id", "device_1"), field("origin_sha256", sha256("https://fixture.invalid")),
+        field("queue_object_id", std::string(32, '9')), "\"queue_generation\":7", field("queue_sha256", queueHash)};
+    const Fields proof{field("meeting_id", row.meetingId), field("media_revision_id", row.mediaRevisionId),
+        field("finalized_upload_session_id", row.uploadSessionId), "\"fetched_at_ms\":1800000000000",
+        "\"verified_at_ms\":1800000000000", "\"finalized_at_ms\":1799395200000",
+        "\"delete_after_ms\":1802592000000", "\"admitted_at_ms\":1800000000000"};
+    const Fields physical{field("volume_serial", "0123456789abcdef"), field("package_file_id", "0102030405060708090a0b0c0d0e0f10"),
+        field("media_directory_file_id", std::string(32, 'b')), field("id_file_id", std::string(32, 'c')),
+        field("content_file_id", std::string(32, 'd')), "\"content_length\":33024", field("content_sha256", sha256("synthetic-cipher"))};
+    const Fields receipt{field("schema", "graf.custody.local-cache-cleanup.v1"), field("operation_id", std::string(32, 'a')),
+        field("action", "manual_cleanup"), field("state", "pending"), "\"base_generation\":5", field("base_sha256", baseHash),
+        "\"binding\":" + object(binding), "\"proof\":" + object(proof), "\"physical\":" + object(physical)};
+    const auto receiptJson = object(receipt);
+    const auto withReceipt = [&](const std::string& v2, const std::string& receiptValue, std::uint64_t generation) {
+        auto v3 = replace(v2, "graf.custody.package.v2", "graf.custody.package.v3");
+        const auto start = v3.find("\"generation\":");
+        const auto end = v3.find(',', start); assert(start != std::string::npos && end != std::string::npos);
+        v3.replace(start, end-start, "\"generation\":" + std::to_string(generation));
+        v3.pop_back(); return v3 + ",\"local_cache_cleanup\":" + receiptValue + "}";
+    };
+    const auto valid = withReceipt(full, receiptJson, 6);
+    const auto refsAt = full.find("\"refs\":[") + 8;
+    const auto refs = full.substr(refsAt, full.size()-refsAt-2);
+    const Fields top{field("schema", "graf.custody.package.v3"), field("store_id", hex(own.storeId)),
+        field("object_id", hex(own.objectId)), "\"generation\":6", field("directory_id", "test-package"),
+        field("phase", "sealed_normal"), field("reason", ""), "\"short_recording_discarded\":false",
+        "\"refs\":[" + refs + "]", "\"local_cache_cleanup\":" + receiptJson};
+    assert(object(top) == valid && valid.size() < 65536);
+    std::size_t accepted = 0, rejected = 0, failures = 0;
+    const auto check = [&](std::string_view json, bool expected, std::uint64_t generation = 6) {
+        auto parsed = readCustodyPackage(json, own, generation, "test-package");
+        if (parsed.ok() != expected) {
+            ++failures;
+            std::printf("T129_V3_UNMET expected=%s generation=%llu error=%u\n", expected ? "accept" : "reject",
+                static_cast<unsigned long long>(generation), static_cast<unsigned>(parsed.error));
+        }
+        if (!expected) {
+            ++rejected;
+            assert(!parsed.ok() && !parsed.value && parsed.error == CustodyCodecError::invalidPlaintext);
+        } else {
+            ++accepted;
+            if (parsed.ok()) {
+                assert(parsed.value->schema == 3 && parsed.value->generation == generation);
+                const auto encoded = writeCustodyPackage(*parsed.value, own, generation, "test-package");
+                assert(encoded.ok());
+                // Canonical fixtures roundtrip EXACT receipt+refs; padded/permuted inputs canonicalize separately.
+                const std::string output(encoded.value->begin(), encoded.value->end());
+                const auto again = readCustodyPackage(output, own, generation, "test-package");
+                assert(again.ok());
+                return output;
+            }
+        }
+        return std::string{};
+    };
+    // Every key in all six closed objects: omission, duplicate (also decoded
+    // escaped alias), unknown replacement/addition and wrong JSON type.
+    const auto stress = [&](const Fields& fields, auto wrap) {
+        for (std::size_t i = 0; i < fields.size(); ++i) {
+            auto bad = fields; bad[i].clear(); check(wrap(object(bad)), false);
+            bad = fields; bad[i] += ',' + fields[i]; check(wrap(object(bad)), false);
+            bad = fields; const auto colon = fields[i].find(':');
+            const unsigned char c = static_cast<unsigned char>(fields[i][1]);
+            bad[i] += ",\"\\u00" + std::string(1, "0123456789abcdef"[c >> 4]) +
+                "0123456789abcdef"[c & 15] + fields[i].substr(2);
+            check(wrap(object(bad)), false);
+            bad = fields; bad[i] = "\"unknown_" + fields[i].substr(1); check(wrap(object(bad)), false);
+            for (const auto type : {"null", "[]", "{}", "true", "-1"}) {
+                // The one bool field has its own true semantic negative below.
+                bad = fields; bad[i] = fields[i].substr(0, colon+1) + type; check(wrap(object(bad)), false);
+            }
+        }
+        auto bad = fields; bad.push_back("\"extra\":null"); check(wrap(object(bad)), false);
+    };
+    stress(top, [](const auto& json) { return json; });
+    stress(receipt, [&](const auto& json) { return replace(valid, receiptJson, json); });
+    for (const auto* fields : {&binding, &proof, &physical})
+        stress(*fields, [&](const auto& json) { return replace(valid, object(*fields), json); });
+    const auto mediaBegin = refs.find("{\"role\":\"media\""); const auto mediaEnd = refs.find('}', mediaBegin);
+    assert(mediaBegin != std::string::npos && mediaEnd != std::string::npos);
+    const auto media = refs.substr(mediaBegin, mediaEnd-mediaBegin+1);
+    // Ref fields come from the production encoder, never a second ref codec.
+    Fields mediaFields; std::size_t at = 1;
+    while (at < media.size()-1) {
+        const auto end = media.find(',', at);
+        mediaFields.push_back(media.substr(at, (end == std::string::npos ? media.size()-1 : end)-at));
+        if (end == std::string::npos) break;
+        at = end+1;
+    }
+    assert(mediaFields.size() == 10);
+    stress(mediaFields, [&](const auto& json) { return replace(valid, media, json); });
+    for (const auto schema : {"graf.custody.package.v1", "graf.custody.package.v2", "graf.custody.package.v4"})
+        check(replace(valid, "graf.custody.package.v3", schema), false);
+    check(replace(valid, "local-cache-cleanup.v1", "local-cache-cleanup.v2"), false);
+    for (const auto state : {"unknown", "Pending", ""}) check(replace(valid, "\"pending\"", "\"" + std::string(state) + "\""), false);
+    check(replace(valid, "manual_cleanup", "purge"), false);
+    for (const auto phase : {"capturing", "finalizing", "sealed_degraded", "discard_pending"})
+        check(replace(valid, "sealed_normal", phase), false);
+    check(replace(valid, field("reason", ""), field("reason", "clock_discontinuity")), false);
+    check(replace(valid, "\"short_recording_discarded\":false", "\"short_recording_discarded\":true"), false);
+    for (const auto key : {"base_generation", "queue_generation", "content_length", "fetched_at_ms", "verified_at_ms",
+        "finalized_at_ms", "delete_after_ms", "admitted_at_ms"}) {
+        const auto marker = "\"" + std::string(key) + "\":"; const auto start = valid.find(marker);
+        const auto end = valid.find_first_of(",}", start); const auto original = valid.substr(start, end-start);
+        for (const auto n : {"0", "-1", "+1", "01", "1.0", "1e0", "\"1\"", "18446744073709551616"})
+            check(replace(valid, original, marker + n), false);
+    }
+    for (const auto* fields : {&receipt, &binding, &proof, &physical}) for (const auto& f : *fields) {
+        const auto colon = f.find(':');
+        if (f[colon+1] != '"') continue;
+        const auto key = f.substr(0, colon+1);
+        for (const auto bad : {"", "x/y", "x\\u0000y", "x\\u00e9", "x\\ud800", "x\\q"})
+            check(replace(valid, f, key + "\"" + bad + "\""), false);
+    }
+    for (const auto key : {"operation_id", "package_file_id", "media_directory_file_id", "id_file_id", "content_file_id"}) {
+        const auto marker = "\"" + std::string(key) + "\":\""; const auto start = valid.find(marker);
+        const auto original = valid.substr(start, marker.size()+33);
+        for (const auto& bad : {std::string(32, '0'), std::string(31, 'a'), std::string(33, 'a'), std::string(32, 'A'), std::string(32, 'g')})
+            check(replace(valid, original, marker + bad + "\""), false);
+    }
+    for (const auto* fields : {&receipt, &binding, &physical}) for (const auto& f : *fields)
+        if (f.find("sha256\":") != std::string::npos) for (const auto& bad : {std::string(63, 'a'), std::string(65, 'a'), std::string(64, 'A'), std::string(64, 'g')})
+            check(replace(valid, f, f.substr(0, f.find(':')+1) + "\"" + bad + "\""), false);
+    for (std::size_t i = 0; i < 3; ++i) {
+        check(replace(valid, binding[i], binding[i].substr(0, binding[i].find(':')+1) + "\"" + std::string(301, 'a') + "\""), false);
+        for (const auto n : {1U, 300U}) {
+            const auto bounded = replace(valid, binding[i], binding[i].substr(0, binding[i].find(':')+1) + "\"" + std::string(n, 'a') + "\"");
+            const auto output = check(bounded, true); if (!output.empty()) assert(output == bounded);
+        }
+    }
+    for (std::size_t i = 0; i < 3; ++i) for (const auto bad : {"11111111-1111-4111-8111-11111111111", "111111111111411181111111111111111", "ZZZZZZZZ-ZZZZ-ZZZZ-ZZZZ-ZZZZZZZZZZZZ"})
+        check(replace(valid, proof[i], proof[i].substr(0, proof[i].find(':')+1) + "\"" + bad + "\""), false);
+    for (const auto& f : {binding[4], physical[0]}) for (const auto& bad : {std::string(31, '9'), std::string(33, '9'), std::string(32, 'G')})
+        check(replace(valid, f, f.substr(0, f.find(':')+1) + "\"" + bad + "\""), false);
+    check(replace(valid, physical[0], field("volume_serial", "0123456789abcde")), false);
+    check(replace(valid, physical[0], field("volume_serial", "0123456789abcdeg")), false);
+    for (const auto n : {"32895", "33023", "9223372036854775808", "18446744073709551615"})
+        check(replace(valid, physical[5], "\"content_length\":" + std::string(n)), false);
+    for (std::size_t i = 3; i < proof.size(); ++i)
+        check(replace(valid, proof[i], proof[i].substr(0, proof[i].find(':')+1) + "253402300800000"), false); // year10000
+    check(replace(valid, receipt[5], field("base_sha256", sha256(valid))), false); // Hash of v3 is not base.
+    check(replace(valid, receipt[5], field("base_sha256", std::string(64, '0'))), false);
+    check(replace(valid, receipt[4], "\"base_generation\":0"), false);
+    for (const auto n : {"18446744073709551613", "18446744073709551614", "18446744073709551615"})
+        check(replace(valid, receipt[4], "\"base_generation\":" + std::string(n)), false);
+    check(replace(valid, "\"refs\":[" + refs + "]", "\"refs\":[" + refs + ',' + media + "]"), false);
+    check(replace(valid, "\"refs\":[" + refs + "]", "\"refs\":[]"), false);
+    check(replace(valid, media + ',', ""), false); // Historical media stamp cannot disappear.
+    check(replace(valid, mediaFields[2], "\"binding\":\"live\""), false);
+    for (const auto& f : mediaFields) if (f.find("sha256\":") != std::string::npos || f.find("root_ref\":") != std::string::npos)
+        check(replace(valid, f, f.substr(0, f.find(':')+1) + "null"), false);
+    for (unsigned mutation = 0; mutation < 6; ++mutation) {
+        auto changed = base; auto& r = changed.refs[1];
+        if (mutation == 0) r.sha256->at(0) ^= 1;
+        if (mutation == 1) ++*r.length;
+        if (mutation == 2) r.objectId[0] ^= 1;
+        if (mutation == 3) r.containerId->at(0) ^= 1;
+        if (mutation == 4) ++*r.generation;
+        if (mutation == 5) *r.committedExtent += 16;
+        const auto changedFull = serialized(changed);
+        // Isolate the base-hash negative: the cipher length must still cover the changed extent.
+        const auto changedReceipt = mutation == 5
+            ? replace(receiptJson, physical[5], "\"content_length\":" + std::to_string(*r.committedExtent)) : receiptJson;
+        check(withReceipt(changedFull, changedReceipt, 6), false); // Well-formed stamps, wrong canonical base hash.
+        const auto rebound = withReceipt(changedFull, replace(changedReceipt, baseHash, sha256(changedFull)), 6);
+        const auto output = check(rebound, true); if (!output.empty()) assert(output == rebound);
+        if (mutation == 5)
+            check(withReceipt(changedFull, replace(receiptJson, baseHash, sha256(changedFull)), 6), false); // Correct hash, short cipher length.
+    }
+    auto aliased = base; aliased.refs[1].objectId = aliased.refs[0].objectId;
+    const auto aliasFull = serialized(aliased);
+    check(withReceipt(aliasFull, replace(receiptJson, baseHash, sha256(aliasFull)), 6), false);
+    auto flatMedia = base; auto& flatRef = flatMedia.refs[1]; flatRef.packed = false;
+    flatRef.containerId.reset(); flatRef.committedExtent.reset(); flatRef.rootRef.reset();
+    const auto flatFull = serialized(flatMedia);
+    check(withReceipt(flatFull, replace(receiptJson, baseHash, sha256(flatFull)), 6), false);
+    for (const auto& bad : {std::string{}, valid + "x", "\xef\xbb\xbf" + valid, valid.substr(0, valid.size()-1) + ",}"}) check(bad, false);
+    check(replace(valid, object(binding), "{\"owner_user_id\":{\"nested\":{\"extra\":0}}}"), false);
+    check(replace(valid, "\"refs\":[", "\"refs\":[[[["), false);
+    auto padded = valid; padded.append(65536-padded.size(), ' ');
+    const auto canonicalPadded = check(padded, true); if (!canonicalPadded.empty()) assert(canonicalPadded == valid);
+    padded += ' '; check(padded, false);
+    for (unsigned component = 0; component < 3; ++component) {
+        auto other = own;
+        if (component == 0) other.storeId[0] ^= 1;
+        if (component == 1) other.objectId[0] ^= 1;
+        if (component == 2) other.role = CustodyRole::queue;
+        const auto parsed = readCustodyPackage(valid, other, 6, "test-package");
+        assert(!parsed.ok() && !parsed.value && parsed.error == CustodyCodecError::invalidPlaintext);
+    }
+    assert(!readCustodyPackage(valid, own, 7, "test-package").ok());
+    assert(!readCustodyPackage(valid, own, 6, "other-package").ok());
+    auto reversedTop = top; std::reverse(reversedTop.begin(), reversedTop.end());
+    const auto reordered = check(object(reversedTop), true); if (!reordered.empty()) assert(reordered == valid);
+    for (const auto* fields : std::array<const Fields*, 5>{&receipt, &binding, &proof, &physical, &mediaFields}) {
+        auto reversed = *fields; std::reverse(reversed.begin(), reversed.end());
+        const auto output = check(replace(valid, object(*fields), object(reversed)), true);
+        if (!output.empty()) assert(output == valid);
+    }
+    // Integer calendar endpoints with otherwise coherent historical ages/grace/retention.
+    for (const auto admitted : {604800001ULL, 253399708799999ULL}) {
+        auto p = proof;
+        for (const auto i : {3U, 4U, 7U}) p[i] = proof[i].substr(0, proof[i].find(':')+1) + std::to_string(admitted);
+        p[5] = "\"finalized_at_ms\":" + std::to_string(admitted-604800000ULL);
+        p[6] = "\"delete_after_ms\":" + std::to_string(admitted+2592000000ULL);
+        const auto json = replace(valid, object(proof), object(p));
+        const auto output = check(json, true); if (!output.empty()) assert(output == json);
+    }
+    // Payload generations only: BOTH-slot transitions/native absence need the
+    // genuine native pair reader later; this codec test grants no delete right.
+    for (const auto action : {"manual_cleanup", "automatic_eviction"}) for (std::uint64_t generation : {6ULL, 7ULL, 8ULL, 9ULL}) {
+        auto r = replace(receiptJson, "manual_cleanup", action);
+        if (generation >= 8) r = replace(r, "\"pending\"", "\"completed\"");
+        const auto json = withReceipt(full, r, generation);
+        const auto output = check(json, true, generation); if (!output.empty()) assert(output == json);
+    }
+    for (const auto generation : {4ULL, 5ULL, 8ULL}) check(withReceipt(full, receiptJson, generation), false, generation);
+    for (const auto generation : {6ULL, 7ULL}) check(withReceipt(full, replace(receiptJson, "\"pending\"", "\"completed\""), generation), false, generation);
+    const auto maximum = (std::numeric_limits<std::uint64_t>::max)();
+    for (const auto g : {std::uint64_t{1}, maximum-3}) {
+        auto boundedBase = base; boundedBase.generation = g;
+        const auto bytes = writeCustodyPackage(boundedBase, own, g, "test-package"); assert(bytes.ok());
+        const std::string boundedFull(bytes.value->begin(), bytes.value->end());
+        auto boundedReceipt = replace(replace(receiptJson, "\"base_generation\":5", "\"base_generation\":" + std::to_string(g)), baseHash, sha256(boundedFull));
+        for (std::uint64_t delta = 1; delta <= 3; ++delta) {
+            auto r = delta == 3 ? replace(boundedReceipt, "\"pending\"", "\"completed\"") : boundedReceipt;
+            const auto json = withReceipt(boundedFull, r, g+delta);
+            const auto output = check(json, true, g+delta); if (!output.empty()) assert(output == json);
+        }
+        check(withReceipt(boundedFull, boundedReceipt, 0), false, 0); // Never wrap exhausted generations.
+    }
+    const auto positive = check(valid, true);
+    if (!positive.empty()) assert(positive == valid); // REQUIRED v3 read/write roundtrip, expected RED until codec work.
+    std::printf("T129_V3_CODEC_MATRIX positive=%zu negative=%zu unmet=%zu expected_current_reader=RED\n", accepted, rejected, failures);
+    std::fflush(stdout);
+    assert(failures == 0); // Deliberately NOT XFAIL, skip, env-gated or accepted-as-rejection.
+}
 }
 int main() {
     const auto initialOwned = CustodyOwnedMemory::usedBytes();
@@ -799,5 +1108,7 @@ int main() {
     assert(read(package(true, ref(true, false, "manifest"), "discard_pending", "", true)).ok());
     reject(package(true, ref(true, false, "manifest"), "discard_pending"));
     reject(package(true, "", "discard_pending", "", true));
+    assert(CustodyOwnedMemory::usedBytes() == initialOwned);
+    localCacheCleanupPackageTests();
     assert(CustodyOwnedMemory::usedBytes() == initialOwned);
 }

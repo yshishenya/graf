@@ -77,7 +77,8 @@ CustodyFileResult<CustodyBytes> readMetadataValue(ProtectedCustodyFiles& files,
 constexpr std::array<std::string_view, 5> migrationStages{"prepared","copied_verified","switched","cleanup_pending","complete"};
 constexpr std::array<std::string_view, 6> migrationSources{"ledger","manifest","canonical","media","playback","recovery"};
 constexpr std::array<CustodyRole, 6> migrationRoles{CustodyRole::queue,CustodyRole::manifest,CustodyRole::canonical,CustodyRole::media,CustodyRole::playback,CustodyRole::recovery};
-std::string_view text(const std::array<char, 301>& value) noexcept {
+template<std::size_t N>
+std::string_view text(const std::array<char, N>& value) noexcept {
     return {value.data(), static_cast<std::size_t>(std::find(value.begin(), value.end(), '\0') - value.begin())};
 }
 bool identity(std::string_view value) noexcept {
@@ -214,8 +215,62 @@ std::optional<ReasonCode> packageReason(std::string_view text) noexcept {
     }
     return std::nullopt;
 }
+static_assert(std::is_trivially_copyable_v<CustodyPackageValue>);
+struct WipePackageValue {
+    CustodyPackageValue& value;
+    ~WipePackageValue() { wipeCustodyMemory(&value, sizeof(value)); }
+};
+bool nonzeroId(const CustodyId& id) noexcept {
+    return std::any_of(id.begin(), id.end(), [](auto b) { return b != 0; });
+}
+bool cleanupUuid(const std::array<char, 37>& value) noexcept {
+    return DesktopApiClient::accountId(text(value)); // Existing canonical, non-nil server UUID grammar.
+}
+bool cleanupShape(const CustodyPackageValue& v) noexcept {
+    if (!v.localCacheCleanup || v.phase != CustodyPackagePhase::sealedNormal ||
+        v.reason != ReasonCode::none || v.shortRecordingDiscarded) return false;
+    const auto& c = *v.localCacheCleanup;
+    const auto g = c.baseGeneration;
+    if (!nonzeroId(c.operationId) || !g || g > (std::numeric_limits<std::uint64_t>::max)()-3 ||
+        (c.action != CustodyLocalCacheAction::manualCleanup && c.action != CustodyLocalCacheAction::automaticEviction)) return false;
+    switch (c.state) {
+    case CustodyLocalCacheState::pending: if (v.generation != g+1 && v.generation != g+2) return false; break;
+    case CustodyLocalCacheState::completed: if (v.generation < g+3) return false; break;
+    default: return false;
+    }
+    const auto& b = c.binding;
+    if (!identity(text(b.ownerUserId)) || !identity(text(b.ownerWorkspaceId)) || !identity(text(b.deviceId)) ||
+        !nonzeroId(b.queueObjectId) || !b.queueGeneration) return false;
+    const auto& proof = c.proof;
+    if (!cleanupUuid(proof.meetingId) || !cleanupUuid(proof.mediaRevisionId) || !cleanupUuid(proof.finalizedUploadSessionId)) return false;
+    // Structural calendar bounds only. Fresh proof ages/scope/retention belong
+    // to future admission, never to this historical receipt codec.
+    for (const auto ms : {proof.fetchedAtMs, proof.verifiedAtMs, proof.finalizedAtMs, proof.deleteAfterMs, proof.admittedAtMs})
+        if (!ms || ms > 253402300799999ULL) return false;
+    const auto& physical = c.physical;
+    const std::array<const CustodyId*, 4> ids{&physical.packageFileId, &physical.mediaDirectoryFileId, &physical.idFileId, &physical.contentFileId};
+    for (std::size_t i = 0; i < ids.size(); ++i) {
+        if (!nonzeroId(*ids[i])) return false;
+        for (std::size_t j = 0; j < i; ++j) if (*ids[i] == *ids[j]) return false;
+    }
+    if (physical.contentLength < ProtectedPackedCustodyFormat::appendOffset ||
+        physical.contentLength > static_cast<std::uint64_t>((std::numeric_limits<std::int64_t>::max)())) return false;
+    bool media = false;
+    if (!nonzeroId(v.context.storeId) || !nonzeroId(v.context.objectId)) return false;
+    for (std::size_t i = 0; i < v.refCount; ++i) {
+        const auto& r = v.refs[i];
+        if (!r.sealed || !nonzeroId(r.objectId) || r.objectId == v.context.objectId || r.objectId == b.queueObjectId) return false;
+        for (std::size_t j = 0; j < i; ++j) if (r.objectId == v.refs[j].objectId) return false;
+        if (r.role == CustodyRole::media) {
+            if (!r.packed || !r.committedExtent || physical.contentLength < *r.committedExtent) return false;
+            media = true;
+        }
+    }
+    return media && b.queueObjectId != v.context.objectId;
+}
 bool packageShape(const CustodyPackageValue& v, const CustodyContext& own, std::uint64_t generation, std::string_view name) noexcept {
-    if ((v.schema != 1 && v.schema != 2) || own.role != CustodyRole::packageState || v.context.role != own.role ||
+    if ((v.schema != 1 && v.schema != 2 && v.schema != 3) ||
+        (v.schema == 3 ? !v.localCacheCleanup : v.localCacheCleanup.has_value()) || own.role != CustodyRole::packageState || v.context.role != own.role ||
         v.context.storeId != own.storeId || v.context.objectId != own.objectId || !generation || v.generation != generation ||
         !identity(name) || directory(v) != name || v.refCount > v.refs.size() ||
         static_cast<unsigned>(v.phase) >= packagePhases.size() || !packageReason(v.reason == ReasonCode::none ? "" : toString(v.reason))) return false;
@@ -235,7 +290,7 @@ bool packageShape(const CustodyPackageValue& v, const CustodyContext& own, std::
         }
         if (!r.packed) { if (r.containerId || r.committedExtent || r.rootRef) return false; }
         else {
-            if (v.schema != 2 || role > static_cast<unsigned>(CustodyRole::playback) || !r.containerId) return false;
+            if ((v.schema != 2 && v.schema != 3) || role > static_cast<unsigned>(CustodyRole::playback) || !r.containerId) return false;
             if (!r.sealed) { if (r.committedExtent || r.rootRef) return false; }
             else {
                 if (!r.committedExtent || !r.rootRef) return false;
@@ -245,14 +300,32 @@ bool packageShape(const CustodyPackageValue& v, const CustodyContext& own, std::
             }
         }
     }
+    if (v.schema == 3 && !cleanupShape(v)) return false;
     if (active) return liveCanonical && !v.shortRecordingDiscarded;
     if (v.phase == CustodyPackagePhase::sealedNormal) return v.reason == ReasonCode::none && !v.shortRecordingDiscarded &&
         (sealedRoles & 28U) == 28U; // media/playback/manifest.
     if (v.phase == CustodyPackagePhase::sealedDegraded) return v.reason != ReasonCode::none && !v.shortRecordingDiscarded;
     return v.shortRecordingDiscarded && v.reason == ReasonCode::none && (sealedRoles & (1U << static_cast<unsigned>(CustodyRole::manifest)));
 }
+// Reuse the canonical full v2 writer: no parallel base/ref encoder. The
+// recursion terminates at schema2, which cannot contain a cleanup receipt.
+CustodyCodecResult<bool> cleanupBaseHash(const CustodyPackageValue& value,
+    const CustodyContext& own, std::string_view name) {
+    if (value.schema != 3) return {true, CustodyCodecError::none, 0};
+    auto base = value;
+    WipePackageValue wipe{base};
+    base.schema = 2;
+    base.generation = value.localCacheCleanup->baseGeneration;
+    base.localCacheCleanup.reset();
+    auto bytes = writeCustodyPackage(base, own, base.generation, name);
+    if (!bytes.ok()) return {std::nullopt, bytes.error, bytes.nativeError};
+    const auto hash = custody_detail::digest(bytes.value->data(), bytes.value->size());
+    if (!hash) return {std::nullopt, CustodyCodecError::hashFailed, 0};
+    return {*hash == value.localCacheCleanup->baseSha256, CustodyCodecError::none, 0};
+}
 // Closed metadata shapes: no heap DOM, retained input views, unknown-key
-// skipping or recursive descent. Depth <=3, keys <=12, references <=6.
+// skipping or recursive descent. Package v3: depth <=3, keys <=10, refs <=5;
+// existing migration: keys <=12, sources <=6.
 class PackageJson final {
 public:
     explicit PackageJson(std::string_view input) noexcept : input_(input) {}
@@ -317,14 +390,15 @@ public:
         whitespace(); return cursor_ == input_.size();
     }
     bool read(CustodyPackageValue& v) noexcept {
-        constexpr std::array<std::string_view, 9> keys{"schema","store_id","object_id","generation","directory_id","phase","reason","short_recording_discarded","refs"};
+        constexpr std::array<std::string_view, 10> keys{"schema","store_id","object_id","generation","directory_id","phase","reason","short_recording_discarded","refs","local_cache_cleanup"};
         std::array<unsigned, 5> refFields{};
         unsigned fields = 0;
         if (!object(keys, fields, [&](std::size_t key) {
             switch (key) {
             case 0: { const auto s = string(); if (!s) return false;
                 if (*s == "graf.custody.package.v1") v.schema = 1;
-                else if (*s == "graf.custody.package.v2") v.schema = 2; else return false; return true; }
+                else if (*s == "graf.custody.package.v2") v.schema = 2;
+                else if (*s == "graf.custody.package.v3") v.schema = 3; else return false; return true; }
             case 1: return hex(v.context.storeId);
             case 2: return hex(v.context.objectId);
             case 3: return number(v.generation);
@@ -340,9 +414,10 @@ public:
                     if (!take(']')) return false;
                 }
                 return true;
+            case 9: v.localCacheCleanup.emplace(); return localCacheCleanup(*v.localCacheCleanup);
             }
             return false;
-        }) || fields != 511U) return false;
+        }) || fields != (v.schema == 3 ? 1023U : 511U)) return false;
         whitespace(); if (cursor_ != input_.size()) return false;
         for (std::size_t i = 0; i < v.refCount; ++i) if (refFields[i] != (v.schema == 1 ? 63U : 1023U)) return false;
         return true;
@@ -351,6 +426,77 @@ private:
     bool identityString(std::array<char, 301>& out) noexcept {
         const auto s = string(); if (!s || !identity(*s)) return false;
         std::copy(s->begin(), s->end(), out.begin()); return true;
+    }
+    bool uuid(std::array<char, 37>& out) noexcept {
+        const auto s = string(); if (!s || s->size() != 36) return false;
+        std::copy(s->begin(), s->end(), out.begin()); return cleanupUuid(out);
+    }
+    bool localCacheBinding(CustodyLocalCacheBinding& v) noexcept {
+        constexpr std::array<std::string_view, 7> keys{"owner_user_id","owner_workspace_id","device_id","origin_sha256","queue_object_id","queue_generation","queue_sha256"};
+        unsigned fields = 0;
+        return object(keys, fields, [&](std::size_t key) {
+            switch (key) {
+            case 0: return identityString(v.ownerUserId);
+            case 1: return identityString(v.ownerWorkspaceId);
+            case 2: return identityString(v.deviceId);
+            case 3: return hex(v.originSha256);
+            case 4: return hex(v.queueObjectId);
+            case 5: return number(v.queueGeneration);
+            case 6: return hex(v.queueSha256);
+            } return false;
+        }) && fields == 127U;
+    }
+    bool localCacheProof(CustodyLocalCacheProof& v) noexcept {
+        constexpr std::array<std::string_view, 8> keys{"meeting_id","media_revision_id","finalized_upload_session_id","fetched_at_ms","verified_at_ms","finalized_at_ms","delete_after_ms","admitted_at_ms"};
+        unsigned fields = 0;
+        return object(keys, fields, [&](std::size_t key) {
+            switch (key) {
+            case 0: return uuid(v.meetingId);
+            case 1: return uuid(v.mediaRevisionId);
+            case 2: return uuid(v.finalizedUploadSessionId);
+            case 3: return number(v.fetchedAtMs);
+            case 4: return number(v.verifiedAtMs);
+            case 5: return number(v.finalizedAtMs);
+            case 6: return number(v.deleteAfterMs);
+            case 7: return number(v.admittedAtMs);
+            } return false;
+        }) && fields == 255U;
+    }
+    bool localCachePhysical(CustodyLocalCachePhysical& v) noexcept {
+        constexpr std::array<std::string_view, 7> keys{"volume_serial","package_file_id","media_directory_file_id","id_file_id","content_file_id","content_length","content_sha256"};
+        unsigned fields = 0;
+        return object(keys, fields, [&](std::size_t key) {
+            switch (key) {
+            case 0: return hex(v.volumeSerial);
+            case 1: return hex(v.packageFileId);
+            case 2: return hex(v.mediaDirectoryFileId);
+            case 3: return hex(v.idFileId);
+            case 4: return hex(v.contentFileId);
+            case 5: return number(v.contentLength);
+            case 6: return hex(v.contentSha256);
+            } return false;
+        }) && fields == 127U;
+    }
+    bool localCacheCleanup(CustodyLocalCacheCleanup& v) noexcept {
+        constexpr std::array<std::string_view, 9> keys{"schema","operation_id","action","state","base_generation","base_sha256","binding","proof","physical"};
+        unsigned fields = 0;
+        return object(keys, fields, [&](std::size_t key) {
+            switch (key) {
+            case 0: { const auto s = string(); return s && *s == "graf.custody.local-cache-cleanup.v1"; }
+            case 1: return hex(v.operationId);
+            case 2: { const auto s = string(); if (!s) return false;
+                if (*s == "manual_cleanup") v.action = CustodyLocalCacheAction::manualCleanup;
+                else if (*s == "automatic_eviction") v.action = CustodyLocalCacheAction::automaticEviction; else return false; return true; }
+            case 3: { const auto s = string(); if (!s) return false;
+                if (*s == "pending") v.state = CustodyLocalCacheState::pending;
+                else if (*s == "completed") v.state = CustodyLocalCacheState::completed; else return false; return true; }
+            case 4: return number(v.baseGeneration);
+            case 5: return hex(v.baseSha256);
+            case 6: return localCacheBinding(v.binding);
+            case 7: return localCacheProof(v.proof);
+            case 8: return localCachePhysical(v.physical);
+            } return false;
+        }) && fields == 511U;
     }
     bool migrationAnchor(CustodyMigrationAnchor& v) noexcept {
         constexpr std::array<std::string_view, 4> keys{"object_id","generation","length","sha256"}; unsigned fields = 0;
@@ -818,15 +964,22 @@ CustodyCodecResult<CustodyBytes> writeCustodyBootstrap(const CustodyBootstrapVal
   catch (const std::length_error&) { return {std::nullopt, CustodyCodecError::invalidInput, 0}; }
 
 CustodyCodecResult<CustodyPackageValue> readCustodyPackage(std::string_view json, const CustodyContext& own,
-    std::uint64_t generation, std::string_view name) noexcept {
+    std::uint64_t generation, std::string_view name) noexcept try {
     CustodyPackageValue value;
+    WipePackageValue wipe{value};
     if (json.empty() || json.size() > packageLimit || !PackageJson(json).read(value) || !packageShape(value, own, generation, name))
         return {std::nullopt, CustodyCodecError::invalidPlaintext, 0};
+    const auto base = cleanupBaseHash(value, own, name);
+    if (!base.ok()) return {std::nullopt, base.error, base.nativeError};
+    if (!*base.value) return {std::nullopt, CustodyCodecError::invalidPlaintext, 0};
     return {value, CustodyCodecError::none, 0};
-}
+} catch (const std::bad_alloc&) { return {std::nullopt, CustodyCodecError::allocationFailed, 0}; }
 CustodyCodecResult<CustodyBytes> writeCustodyPackage(const CustodyPackageValue& value, const CustodyContext& own,
     std::uint64_t generation, std::string_view name) try {
     if (!packageShape(value, own, generation, name)) return {std::nullopt, CustodyCodecError::invalidInput, 0};
+    const auto base = cleanupBaseHash(value, own, name);
+    if (!base.ok()) return {std::nullopt, base.error, base.nativeError};
+    if (!*base.value) return {std::nullopt, CustodyCodecError::invalidInput, 0};
     CustodyBytes out;
     // Admit the fixed payload cap before plaintext; no vector growth can free
     // an unwiped previous plaintext buffer. All capacity is charged as usual.
@@ -835,7 +988,13 @@ CustodyCodecResult<CustodyBytes> writeCustodyPackage(const CustodyPackageValue& 
     const auto quoted = [&](std::string_view text) { emit("\""); emit(text); emit("\""); }; // Validated closed ASCII grammar; no escapes required.
     const auto hex = [&](const auto& bytes) { emit("\""); for (auto b : bytes) { const char chars[2]{"0123456789abcdef"[b >> 4], "0123456789abcdef"[b & 15]}; emit({chars, 2}); } emit("\""); };
     const auto number = [&](std::uint64_t n) { char chars[20]; const auto encoded = std::to_chars(chars, chars+20, n); emit({chars, static_cast<std::size_t>(encoded.ptr-chars)}); };
-    emit("{\"schema\":"); quoted(value.schema == 1 ? "graf.custody.package.v1" : "graf.custody.package.v2");
+    emit("{\"schema\":");
+    switch (value.schema) {
+    case 1: quoted("graf.custody.package.v1"); break;
+    case 2: quoted("graf.custody.package.v2"); break;
+    case 3: quoted("graf.custody.package.v3"); break;
+    default: return {std::nullopt, CustodyCodecError::invalidInput, 0};
+    }
     emit(",\"store_id\":"); hex(value.context.storeId); emit(",\"object_id\":"); hex(value.context.objectId);
     emit(",\"generation\":"); number(value.generation); emit(",\"directory_id\":"); quoted(name);
     emit(",\"phase\":"); quoted(packagePhases[static_cast<unsigned>(value.phase)]);
@@ -848,13 +1007,37 @@ CustodyCodecResult<CustodyBytes> writeCustodyPackage(const CustodyPackageValue& 
         emit("{\"role\":"); quoted(packageRoles[role-1]); emit(",\"object_id\":"); hex(r.objectId);
         emit(",\"binding\":"); quoted(r.sealed ? "sealed" : "live"); emit(",\"generation\":"); if (r.generation) number(*r.generation); else emit("null");
         emit(",\"length\":"); if (r.length) number(*r.length); else emit("null"); emit(",\"sha256\":"); if (r.sha256) hex(*r.sha256); else emit("null");
-        if (value.schema == 2) {
+        if (value.schema == 2 || value.schema == 3) {
             emit(",\"representation\":"); quoted(r.packed ? "packed_v2" : "flat_v1"); emit(",\"container_id\":"); if (r.containerId) hex(*r.containerId); else emit("null");
             emit(",\"committed_extent\":"); if (r.committedExtent) number(*r.committedExtent); else emit("null"); emit(",\"root_ref\":"); if (r.rootRef) hex(*r.rootRef); else emit("null");
         }
         emit("}");
     }
-    emit("]}"); return {std::move(out), CustodyCodecError::none, 0};
+    emit("]");
+    if (value.schema == 3) {
+        const auto& c = *value.localCacheCleanup;
+        emit(",\"local_cache_cleanup\":{\"schema\":\"graf.custody.local-cache-cleanup.v1\",\"operation_id\":"); hex(c.operationId);
+        emit(",\"action\":"); quoted(c.action == CustodyLocalCacheAction::manualCleanup ? "manual_cleanup" : "automatic_eviction");
+        emit(",\"state\":"); quoted(c.state == CustodyLocalCacheState::pending ? "pending" : "completed");
+        emit(",\"base_generation\":"); number(c.baseGeneration); emit(",\"base_sha256\":"); hex(c.baseSha256);
+        const auto& b = c.binding;
+        emit(",\"binding\":{\"owner_user_id\":"); quoted(text(b.ownerUserId));
+        emit(",\"owner_workspace_id\":"); quoted(text(b.ownerWorkspaceId)); emit(",\"device_id\":"); quoted(text(b.deviceId));
+        emit(",\"origin_sha256\":"); hex(b.originSha256); emit(",\"queue_object_id\":"); hex(b.queueObjectId);
+        emit(",\"queue_generation\":"); number(b.queueGeneration); emit(",\"queue_sha256\":"); hex(b.queueSha256); emit("}");
+        const auto& p = c.proof;
+        emit(",\"proof\":{\"meeting_id\":"); quoted(text(p.meetingId)); emit(",\"media_revision_id\":"); quoted(text(p.mediaRevisionId));
+        emit(",\"finalized_upload_session_id\":"); quoted(text(p.finalizedUploadSessionId));
+        emit(",\"fetched_at_ms\":"); number(p.fetchedAtMs); emit(",\"verified_at_ms\":"); number(p.verifiedAtMs);
+        emit(",\"finalized_at_ms\":"); number(p.finalizedAtMs); emit(",\"delete_after_ms\":"); number(p.deleteAfterMs);
+        emit(",\"admitted_at_ms\":"); number(p.admittedAtMs); emit("}");
+        const auto& physical = c.physical;
+        emit(",\"physical\":{\"volume_serial\":"); hex(physical.volumeSerial);
+        emit(",\"package_file_id\":"); hex(physical.packageFileId); emit(",\"media_directory_file_id\":"); hex(physical.mediaDirectoryFileId);
+        emit(",\"id_file_id\":"); hex(physical.idFileId); emit(",\"content_file_id\":"); hex(physical.contentFileId);
+        emit(",\"content_length\":"); number(physical.contentLength); emit(",\"content_sha256\":"); hex(physical.contentSha256); emit("}}");
+    }
+    emit("}"); return {std::move(out), CustodyCodecError::none, 0};
 } catch (const std::bad_alloc&) { return {std::nullopt, CustodyCodecError::allocationFailed, 0}; }
   catch (const std::length_error&) { return {std::nullopt, CustodyCodecError::invalidInput, 0}; }
 
@@ -1068,6 +1251,12 @@ CustodyFileResult<std::shared_ptr<const ProtectedCustodyPackagePair>> ProtectedC
         if (!plain.ok()) return reject(codecFileError(plain.error), plain.nativeError);
         auto parsed = readCustodyPackage({reinterpret_cast<const char*>(plain.value->data()), plain.value->size()}, own, index.generation, directory);
         if (!parsed.ok()) return reject(codecFileError(parsed.error), parsed.nativeError);
+        // This is exclusively a FULL pair. Cleanup requires a separate genuine
+        // typed partial state machine; no member may open through this proof.
+        if (parsed.value->schema == 3 || parsed.value->localCacheCleanup) {
+            SecureZeroMemory(&*parsed.value, sizeof(CustodyPackageValue));
+            return reject(CustodyFileError::invalidContent);
+        }
         values[slot] = *parsed.value;
         SecureZeroMemory(&*parsed.value, sizeof(CustodyPackageValue));
     }
@@ -1705,6 +1894,8 @@ CustodyFileResult<bool> ProtectedCustodyStoreOwner::revalidatePackageState(
             CustodyPackageValue& value;
             ~Wipe() { SecureZeroMemory(&value, sizeof(value)); }
         } wipe{*parsed.value};
+        if (parsed.value->schema == 3 || parsed.value->localCacheCleanup)
+            return {std::nullopt, CustodyFileError::invalidContent, 0};
         // Reuse the closed canonical codec rather than comparing struct padding
         // or duplicating its fields. CustodyAllocator wipes both retiring buffers.
         auto expected = writeCustodyPackage(held->slots()[slot], own, before.generation, name);
@@ -3600,6 +3791,10 @@ CustodyFileResult<bool> ProtectedCustodyMigration::migratePackage(
             auto bytes=readMetadataValue(*state,stateValue.context,head,cancellation); if (!bytes.ok()) return reject(bytes.error,bytes.nativeError);
             auto value=readCustodyPackage({reinterpret_cast<const char*>(bytes.value->data()),bytes.value->size()},stateValue.context,head.generation,name);
             if (!value.ok()) return reject(codecFileError(value.error),value.nativeError);
+            if (value.value->schema == 3 || value.value->localCacheCleanup) {
+                SecureZeroMemory(&*value.value,sizeof(CustodyPackageValue));
+                return reject(CustodyFileError::invalidContent);
+            }
             auto expected=stateValue; expected.generation=head.generation;
             auto encoding=writeCustodyPackage(expected,expected.context,head.generation,name);
             auto actual=writeCustodyPackage(*value.value,stateValue.context,head.generation,name);
