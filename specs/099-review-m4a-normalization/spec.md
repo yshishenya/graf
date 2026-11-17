@@ -2,7 +2,7 @@
 
 **Feature Branch**: `099-review-m4a-normalization`
 **Created**: 2026-07-09
-**Status**: Historical release validated; 2026-10-17 attempt-ownership repair in progress
+**Status**: Historical release evidence retained; 2026-11-17 T014/#3361 verified-download preservation repair in progress
 **Input**: User description: "Давай вариант 3. У нас всегда в записи должен быть m4a. Для загруженных записей будем транскодировать. Запиши это как отдельную будущую фичу 099 с подробным контекстом."
 
 ## Product Context
@@ -19,6 +19,24 @@
 Главный продуктовый принцип 099: каждая запись, которую пользователь может открыть в review, должна иметь один понятный playback artifact. UI и API не должны угадывать, из чего собирать звук в момент просмотра.
 
 ## Clarifications
+
+### Session 2026-11-17 — сохранность существующего пути, T014/#3361
+
+Уточняется действующая сохранность данных, без нового продуктового выбора;
+вопросов пользователю 0. Загрузка владеет локальным файлом только после
+успешного исключительного создания этим вызовом. При отказе создания
+(`EEXIST`, нехватка места, отказ доступа) прежний обычный файл, сама
+символическая ссылка и её цель остаются неизменными. После создания при
+ошибке записи, синхронизации, размера или digest удаляется собственный
+незавершённый файл; исходный объект не меняется. Чтение по умолчанию и у обоих production consumers ограничено порциями
+не более 4 MiB; явно переданный иной `chunk_size` сохраняет действующий контракт.
+Файл создаётся с `0600`, перезапись и следование ссылке запрещены. Полученный descriptor закрывается; ответ хранилища закрывается
+и соединение освобождается при успехе и перечисленных отказах. Существующие
+машинные причины ошибок и автоматические повторы сохраняются. Это общий
+контракт синхронного и асинхронного verified-download и обоих потребителей
+нормализации/отправки на обработку. Гонка замены пути другим процессом после
+успешного создания и ошибки самой очистки/закрытия не исследованы этим
+исправлением; их разрешение и фактическая производственная приёмка не заявлены.
 
 ### Session 2026-10-17 — защита повторной попытки
 
@@ -397,6 +415,8 @@ Source media становится пригодным для downstream processin
 - **FR-035**: Normalization MUST include conflict handling for concurrent automatic retry/backfill/worker attempts so only one active canonical playback artifact exists per recording.
 - **FR-036**: Deletion or retention actions that begin while normalization is preparing output MUST prevent newly prepared temporary output from becoming playback-ready after the lifecycle state becomes deleting, deleted or audio-purged.
 - **FR-037**: Resource and lifecycle failures MUST be observable through safe status/audit metadata without exposing raw file names, raw audio, object keys, signed URLs or private provider payloads.
+- **FR-045**: При проверяемой загрузке отказ создания локального файла MUST сохранять существующие обычный файл, символическую ссылку и её цель. Очистка MUST удалять только незавершённый файл, успешно созданный текущим вызовом. Успех и ошибки до/после создания MUST сохранять ограниченное чтение, `0600`, запрет перезаписи/следования ссылке, закрытие полученного descriptor и ответа хранилища с освобождением соединения; исходный объект MUST оставаться неизменным. Общие sync/async пути и оба потребителя MUST сохранять действующие причины ошибок.
+
 - **FR-038**: A manually uploaded M4A MUST be reused byte-for-byte only when validation proves full compliance with the canonical playback profile; any mismatch MUST trigger conversion, an audio-profile mismatch MUST trigger transcoding, a container-layout-only mismatch MAY use lossless remux, and the original MUST remain a separate source artifact.
 - **FR-039**: Normalization MUST use the only usable audio track or the single container-designated default when multiple usable tracks exist; if no unique track can be selected, it MUST fail with a clear ambiguous-track state and MUST NOT guess, mix tracks or expose a partial playback artifact.
 - **FR-040**: Every supported, valid accepted source with usable audio MUST automatically converge to one validated canonical playback m4a without user or workspace-administrator action; only objectively invalid, unsupported or missing-audio sources MAY end in a final non-ready state.
@@ -449,6 +469,8 @@ Source media становится пригодным для downstream processin
 - **SC-023**: 100% of eligible `worker_interrupted` retry-wait jobs selected during worker startup are automatically dispatched without a user/admin action, while retry-wait jobs with another reason remain deferred until their scheduled time.
 - **SC-024**: 0 active, unexpired normalization attempts are selected by automatic cleanup; expired or non-active attempts remain eligible for residue cleanup.
 
+- **SC-025**: 100% случаев матрицы T014 в Quickstart §2026-11-17 проходят на импортированном общем модуле и настоящей временной файловой системе: существующие файл/ссылка сохранены при отказе создания; собственный partial удалён при перечисленных ошибках после создания; ресурсы освобождены, границы чтения и права соблюдены. Sync/async и оба потребителя сохраняют согласованную классификацию. Синтетический транспорт не является приёмкой MinIO, приложения или production.
+
 ## Assumptions
 
 - `meeting-review.m4a` is the canonical review playback artifact for the foreseeable product direction.
@@ -493,12 +515,15 @@ Source media становится пригодным для downstream processin
 ## Legacy Impact
 
 - Classification: untouched
-- Текущий срез T125–T128 исправляет владение существующей попыткой обработки;
+- Исторический срез T125–T128 исправлял владение существующей попыткой обработки;
   он не добавляет совместимые псевдонимы, запасные механизмы, старые режимы,
   зависимости или параллельный путь обработки.
 - Существующие API, схема БД, accepted-source и playback contract, автоматические
   повторы, backfill и deletion остаются действующими. Новых исключений совместимости
   нет; owner/expiry/removal trigger/retirement task: N/A.
 - Историческая реализация F099 и её опубликованные результаты сохраняют свой
-  объём. Этот раздел описывает текущую поправку #7647 и не объявляет завершённой
-  новую производственную приёмку F290.
+  объём. Поправка #7647 не заменяет производственную приёмку F290.
+- Текущий T014/#3361 исправляет только владение локальным destination в общем
+  verified-download. API/схема/зависимости/объектные ключи/провайдер не меняются;
+  это сохранность данных, без нового совместимого или параллельного пути.
+  Историческая отметка T014 переоткрыта до новой проверки точного SHA.
