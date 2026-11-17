@@ -200,6 +200,70 @@ final class LocalRecordingWriterSystemAudioTests: XCTestCase {
         XCTAssertGreaterThan(try Data(contentsOf: directory.reviewAudioURL).count, 0)
     }
 
+    func testUnrecoverableContinuityBreakPublishesPartialUploadableRecording() async throws {
+        let root = makeSystemWriterRoot("v5-partial-continuity")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let microphone = BufferedLocalRecordingSampleSource(channelCount: 1)
+        let system = BufferedLocalRecordingSampleSource(channelCount: 1)
+        let writer = makeSystemV5Writer(root: root, microphone: microphone, system: system)
+
+        let directory = try writer.start(
+            sessionId: "partial-continuity",
+            startedAt: Date(timeIntervalSince1970: 10),
+            scopeApproval: systemScopeApproval(),
+            permissions: systemGrantedPermissions()
+        )
+        // Keep more than the one-second reorder window so the writer has
+        // already published a playable prefix before the source gap.
+        microphone.append(systemBatch(samples: Array(repeating: 0.4, count: 96_000), seconds: 100))
+        system.append(systemBatch(samples: Array(repeating: 0.2, count: 96_000), seconds: 100))
+
+        let readyDeadline = Date().addingTimeInterval(10)
+        var firstBatchObserved = false
+        while Date() < readyDeadline {
+            let levels = await writer.currentLevelsAsync()
+            if levels.microphoneUpdatedAt != nil {
+                firstBatchObserved = true
+                break
+            }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTAssertTrue(firstBatchObserved)
+        // Let the one-second reorder window publish a playable prefix.
+        try await Task.sleep(nanoseconds: 1_200_000_000)
+
+        // 3 s is above the 500 ms bridge bound and below the 15 s hard bound:
+        // the truthful outcome is a partial recording, not silence.
+        system.append(systemBatch(samples: Array(repeating: 0.2, count: 4_800), seconds: 103))
+
+        let failureDeadline = Date().addingTimeInterval(10)
+        var failureCode: String?
+        while Date() < failureDeadline {
+            failureCode = await writer.currentLevelsAsync().integrityFailureCode
+            if failureCode != nil { break }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTAssertNotNil(failureCode)
+
+        let manifest = try await writer.stopAsync(stoppedAt: Date(timeIntervalSince1970: 11))
+        XCTAssertEqual(manifest.status, .degraded)
+        XCTAssertEqual(manifest.failureReason, .timelineMisaligned)
+        XCTAssertEqual(manifest.partialContinuity, true)
+        XCTAssertFalse(manifest.isComplete)
+        XCTAssertTrue(manifest.tracks.allSatisfy { $0.status == .degraded })
+        XCTAssertTrue(manifest.tracks.allSatisfy { !$0.timelineAligned })
+
+        let profile = DesktopUploadQueueService.artifactProfile(
+            manifest: manifest,
+            manifestURL: directory.manifestURL,
+            microphoneURL: directory.directoryURL.appendingPathComponent("mic.wav"),
+            systemAudioURL: directory.directoryURL.appendingPathComponent("incoming.wav"),
+            reviewAudioURL: directory.reviewAudioURL,
+            transcriptionURL: directory.transcriptionAudioURL
+        )
+        XCTAssertTrue(profile.isUploadable)
+    }
+
     func testLegacyTimelineFailureKeepsAudioLocalButBlocksUpload() throws {
         let root = makeSystemWriterRoot("v5-timeline-warning")
         defer { try? FileManager.default.removeItem(at: root) }

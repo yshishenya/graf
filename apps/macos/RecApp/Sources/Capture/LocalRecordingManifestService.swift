@@ -118,12 +118,13 @@ public struct LocalRecordingManifestService: Sendable {
         meetingMuteTruthEvidence: [MeetingMuteTruthEvidence] = [],
         limitationCopyShownAt: Date? = nil,
         captureFailureCode: String? = nil,
+        partialContinuity: Bool = false,
         echoProcessor: EchoProcessorDescriptor,
         echoProcessingHealth: EchoProcessingHealth
     ) -> LocalRecordingManifest {
-        // `timeline_misaligned` is a legacy persisted value. Never create it
-        // for a new package, even if an older caller passes it through.
-        let persistedFailureReason = failureReason == .timelineMisaligned
+        // `timeline_misaligned` is a legacy persisted value. Only the explicit
+        // partial-continuity path may create it for a new package.
+        let persistedFailureReason = failureReason == .timelineMisaligned && !partialContinuity
             ? .captureFailed
             : failureReason
         let durationDifferenceSeconds = Self.v5DurationDifferenceSeconds(tracks: tracks)
@@ -142,6 +143,8 @@ public struct LocalRecordingManifestService: Sendable {
             .saved
         } else if Self.isBlockedFailure(persistedFailureReason) {
             .blocked
+        } else if partialContinuity {
+            .degraded
         } else if persistedFailureReason != .none || tracks.contains(where: { $0.status == .failed }) {
             .failed
         } else {
@@ -192,7 +195,8 @@ public struct LocalRecordingManifestService: Sendable {
             targetMuteCapability: targetMuteCapability,
             limitationCopyShownAt: limitationCopyShownAt,
             echoProcessor: echoProcessor,
-            echoProcessingHealth: echoProcessingHealth
+            echoProcessingHealth: echoProcessingHealth,
+            partialContinuity: partialContinuity ? true : nil
         )
     }
 

@@ -99,6 +99,11 @@ infra/scripts/rehearse-restore-scheduled.sh --dry-run
 infra/scripts/rehearse-restore-scheduled.sh --execute
 ```
 
+Срок хранения резервных копий обслуживает отдельный операторский prune:
+`infra/scripts/prune-rec-backups.sh` (dry-run по умолчанию, `--execute` явно,
+корень `TWOBRAIN_BACKUP_ROOT`) и `graf-rec-backup-prune.timer`. Инструкция:
+`docs/runbooks/backup-retention.md`.
+
 Запускать нужно с рабочей станции, у которой уже есть SSH-доступ к прод-хосту,
 как у `cd-remote.sh`: у GitHub Actions доступа к прод-хосту нет, поэтому
 запланированный workflow закрывается отказом с

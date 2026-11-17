@@ -165,6 +165,10 @@ RECEIPT_IDENTITIES_MIGRATION = (
     REPO_ROOT
     / "apps/server/src/twobrain_rec_server/db/migrations/versions/0110_billing_receipt_identities.py"
 )
+RETENTION_SCAN_MIGRATION = (
+    REPO_ROOT
+    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0114_retention_scan_maintenance.py"
+)
 
 
 def test_rls_migration_covers_every_current_tenant_table() -> None:
@@ -206,6 +210,7 @@ def test_rls_migration_covers_every_current_tenant_table() -> None:
         + RECEIPT_IDENTITIES_MIGRATION.with_name("0111_receipt_observation_deltas.py").read_text(encoding="utf-8")
         + RECEIPT_IDENTITIES_MIGRATION.with_name("0112_storage_notifications.py").read_text(encoding="utf-8")
         + RECEIPT_IDENTITIES_MIGRATION.with_name("0113_fair_use_operator_history.py").read_text(encoding="utf-8")
+        + RETENTION_SCAN_MIGRATION.read_text(encoding="utf-8")
     )
 
     for table_name in sorted(RLS_COVERED_TABLES):
@@ -232,6 +237,7 @@ def test_migration_and_contract_share_maintenance_operations() -> None:
         + BILLING_FOUNDATION_MIGRATION.read_text(encoding="utf-8")
         + ACCOUNT_AUTH_LINKING_MIGRATION.read_text(encoding="utf-8")
         + PROCESSING_RECOVERY_MIGRATION.read_text(encoding="utf-8")
+        + RETENTION_SCAN_MIGRATION.read_text(encoding="utf-8")
     )
 
     for operation_name in sorted(RLS_ALLOWED_MAINTENANCE_OPERATIONS):

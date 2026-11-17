@@ -2091,7 +2091,8 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                 reason: reason,
                 localArtifactsRetained: true,
                 policyReference: "local_buffer.retention_days.\(policy.retentionDays)"
-            )
+            ),
+            partialContinuity: manifest.partialContinuity
         )
     }
 
@@ -2154,6 +2155,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         merged.retryRecords = existing.retryRecords
         merged.createdAt = existing.createdAt
         merged.supportIncidentSubmission = existing.supportIncidentSubmission
+        merged.partialContinuity = existing.partialContinuity ?? refreshed.partialContinuity
         merged.calendarContextEventId = existing.calendarContextEventId ?? refreshed.calendarContextEventId
         merged.calendarMatchAttemptId = existing.calendarMatchAttemptId ?? refreshed.calendarMatchAttemptId
         if let existingMetadata = existing.recordingMetadata,
@@ -2604,7 +2606,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                 manifestTracksByRole[.reviewPlayback]?.byteCount == playbackTrack.byteCount &&
                 manifestTracksByRole[.reviewPlayback]?.sha256 == playbackTrack.sha256
             let uploadable = manifest.isServerUploadEligible &&
-                manifest.isComplete &&
+                (manifest.isComplete || manifest.partialContinuity == true) &&
                 integrityMatches &&
                 tracks.allSatisfy(\.uploadable)
             let savedDurationSeconds = max(

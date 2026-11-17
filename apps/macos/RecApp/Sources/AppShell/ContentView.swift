@@ -3384,7 +3384,10 @@ struct ContentView: View {
             guard localRecordingActive else { return nil }
             return .active(paused: captureSession?.state == .paused)
         }
-        return .from(manifest.status)
+        return .from(
+            manifest.status,
+            partialContinuity: manifest.partialContinuity == true
+        )
     }
 
     private var meetingMuteTruthWarningText: String? {
