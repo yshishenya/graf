@@ -33,7 +33,7 @@
     },
     {
       "name": "diffutils.pkg.tar.zst",
-      "url": "https://mirror.msys2.org/msys/x86_64/diffutils-3.12-1-x86_64.pkg.tar.zst",
+      "url": "https://mirror.selfnet.de/msys2/msys/x86_64/diffutils-3.12-1-x86_64.pkg.tar.zst",
       "bytes": 394515,
       "sha256": "7902c8ce3d4dd69a0f5e98dc9d5c83c17b23314ba486169db57ef6e2835ce3b6"
     }
