@@ -971,6 +971,43 @@ void localCacheCleanupPackageTests() {
     }
     const auto positive = check(valid, true);
     if (!positive.empty()) assert(positive == valid); // REQUIRED v3 read/write roundtrip, expected RED until codec work.
+    const auto parsed = readCustodyPackage(valid, own, 6, "test-package"); assert(parsed.ok());
+    const auto before = CustodyOwnedMemory::usedBytes();
+    const auto allocationCuts = [&](auto operation) {
+        const auto invoke = [&](std::size_t failAt) {
+            migrationAllocation = {true, false, 0, failAt};
+            auto result = operation();
+            migrationAllocation.active = false;
+            return result;
+        };
+        auto counted = invoke(0); assert(counted.ok());
+        const auto count = migrationAllocation.calls; assert(count > 0);
+        counted.value.reset(); assert(CustodyOwnedMemory::usedBytes() == before);
+        for (std::size_t cut = 1; cut <= count; ++cut) {
+            auto failed = invoke(cut);
+            assert(migrationAllocation.hit && !failed.ok() && !failed.value);
+            assert(failed.error == CustodyCodecError::allocationFailed || failed.error == CustodyCodecError::hashFailed);
+            assert(CustodyOwnedMemory::usedBytes() == before);
+            auto retry = invoke(0); assert(retry.ok());
+            retry.value.reset(); assert(CustodyOwnedMemory::usedBytes() == before);
+        }
+        return count;
+    };
+    const auto readCuts = allocationCuts([&] { return readCustodyPackage(valid, own, 6, "test-package"); });
+    const auto writeCuts = allocationCuts([&] { return writeCustodyPackage(*parsed.value, own, 6, "test-package"); });
+    {
+        CustodyAllocator<std::uint8_t> allocator;
+        const auto bytes = CustodyOwnedMemory::limit-before;
+        auto* pressure = allocator.allocate(bytes);
+        const auto readRefused = readCustodyPackage(valid, own, 6, "test-package");
+        const auto writeRefused = writeCustodyPackage(*parsed.value, own, 6, "test-package");
+        assert(!readRefused.ok() && readRefused.error == CustodyCodecError::allocationFailed);
+        assert(!writeRefused.ok() && writeRefused.error == CustodyCodecError::allocationFailed);
+        assert(CustodyOwnedMemory::usedBytes() == CustodyOwnedMemory::limit);
+        allocator.deallocate(pressure, bytes);
+    }
+    assert(CustodyOwnedMemory::usedBytes() == before);
+    std::printf("T129_V3_ALLOCATIONS read_cuts=%zu write_cuts=%zu budget_refusal=1 retry=1 restored=1\n", readCuts, writeCuts);
     std::printf("T129_V3_CODEC_MATRIX positive=%zu negative=%zu unmet=%zu expected_current_reader=RED\n", accepted, rejected, failures);
     std::fflush(stdout);
     assert(failures == 0); // Deliberately NOT XFAIL, skip, env-gated or accepted-as-rejection.
