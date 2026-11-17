@@ -186,8 +186,33 @@ function Run([string]$Exe, [string[]]$Arguments, [string]$Label) {
 }
 function Download($InputFile) {
     $path = Join-Path $work $InputFile.name
-    Invoke-WebRequest -UseBasicParsing -Uri $InputFile.url -OutFile $path -TimeoutSec 120
+    $url = ([uri]$InputFile.url).GetComponents(
+        ([UriComponents]::SchemeAndServer -bor [UriComponents]::Path), [UriFormat]::UriEscaped)
+    $elapsed = [Diagnostics.Stopwatch]::StartNew()
+    Write-Host ("FFmpeg download start name={0} url={1}" -f $InputFile.name, $url)
+    try {
+        Invoke-WebRequest -UseBasicParsing -Uri $InputFile.url -OutFile $path -TimeoutSec 120
+    } catch {
+        Write-Host ("FFmpeg download failed name={0} elapsed_ms={1}" -f $InputFile.name, $elapsed.ElapsedMilliseconds)
+        $cause = $_.Exception
+        for ($depth = 0; $null -ne $cause -and $depth -lt 4; $depth++) {
+            Write-Host ("FFmpeg download cause depth={0} type={1} hresult={2}" -f $depth, $cause.GetType().FullName, $cause.HResult)
+            if ($cause -is [Net.WebException]) {
+                Write-Host ("FFmpeg download web_status={0}" -f $cause.Status)
+                if ($cause.Response -is [Net.HttpWebResponse]) {
+                    Write-Host ("FFmpeg download http_status={0}" -f [int]$cause.Response.StatusCode)
+                }
+            }
+            if ($cause -is [Net.Sockets.SocketException]) {
+                Write-Host ("FFmpeg download socket_error={0} native_error={1}" -f [int]$cause.SocketErrorCode, $cause.NativeErrorCode)
+            }
+            $cause = $cause.InnerException
+        }
+        # Do not rethrow the original ErrorRecord: it may contain an HTTP error body.
+        throw [InvalidOperationException]::new('Pinned dependency download failed; see safe diagnostic above.')
+    }
     if ((Get-Item -LiteralPath $path).Length -ne $InputFile.bytes -or (Hash $path) -cne $InputFile.sha256) { throw 'Dependency download pin mismatch.' }
+    Write-Host ("FFmpeg download verified name={0} elapsed_ms={1}" -f $InputFile.name, $elapsed.ElapsedMilliseconds)
     return $path
 }
 
