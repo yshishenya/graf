@@ -53,3 +53,10 @@ so the owner review proof is still incomplete.
 | `T042` | [#1841](https://github.com/yshishenya/crisp/issues/1841) | CLOSED | closed | [052][P1][docs] Провести Ponytail review diff |
 | `T043` | [#1842](https://github.com/yshishenya/crisp/issues/1842) | CLOSED | closed | [052][P1][docs] Подготовить PR и release notes |
 | `T044` | [#1843](https://github.com/yshishenya/crisp/issues/1843) | CLOSED | closed | [052][P1][infra] Сделать merge release deploy proof |
+
+
+## Сверка продолжения — 2026-11-17
+
+В `yshishenya/graf` по явным полям `Spec tasks` найдены все 44 существующих владельца T001–T044. Текущий поиск открытых issues возвращает только T019/#1818 и T020/#1819, что совпадает с задачами. Остальные исторические строки выше сохраняют исходный смысл; старые ссылки относятся к прежнему названию репозитория. Новые issues и закрытия не выполнялись.
+
+Исходный body #1819 и все шесть комментариев перечитаны: требуется фактическая проверка свежего production candidate от установленного приложения. Ремонт probe и изолированные тесты входят в существующую T020, но не заменяют приёмку. Обязательные hooks ensure и validate пройдены; validate: 280 Spec Kit issues, PASS.

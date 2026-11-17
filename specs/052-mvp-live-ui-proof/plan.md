@@ -30,9 +30,9 @@ docs under `docs/evidence/052-mvp-live-ui-proof/`.
 
 **Testing**: Focused server `pytest` through `uv run --extra dev`, focused
 macOS `swift test`, browser runtime verifier, production health/probe checks,
-feature quickstart, and full `infra/scripts/ci-local.sh` before release.
+feature quickstart, and required GitHub `governance-fast`, `macos-pr`, `pr-metadata` on the exact head and checked base before merge. Local wide CI is diagnostic only; a frozen release candidate requires one authoritative GitHub `release-full`.
 
-**Target Platform**: Installed macOS app at `/Applications/2brain Rec.app`,
+**Target Platform**: Single local macOS acceptance app at `/Applications/GRAF Dev.app` through the existing dev-harness (availability/version/occupancy first),
 production web/API at `https://rec.2brain.pro`, deployment host `2brain.dev`.
 
 **Project Type**: Hybrid macOS desktop app, server-rendered web cabinet,
@@ -66,8 +66,8 @@ directly blocks the P1 owner journey claim.
 - **Deletion truth and lifecycle accounting**: PASS. Stored outcomes/playback
   proof must preserve existing deletion and denied/deleting/deleted boundaries.
 - **Spec-driven delivery**: PASS. The slice follows specify, clarify, plan,
-  checklist, tasks, analyze, issue sync, implement, validation, PR, release,
-  and deploy.
+  checklist, tasks, analyze, issue sync, implement, converge, validation, PR,
+  and separate release/deploy gates.
 - **Product URL governance**: PASS. Public URL remains
   `https://rec.2brain.pro`; deployment host remains `2brain.dev`.
 
@@ -168,3 +168,74 @@ See [data-model.md](./data-model.md),
 ## Complexity Tracking
 
 No constitution violations or extra architecture layers are introduced.
+
+## T020 continuation — 2026-11-17
+
+**Lane**: high-risk product / existing Active Spec Kit slice (diagnostic
+truth, privacy and auth metadata), not a low-risk standalone script change.
+**Scope**: repair the existing metadata probe and add one standard-library
+regression file beside it. No server schema, product status, service, provider,
+UI, dependency, capture or deployment change. Legacy Impact: remove the
+probe's false-positive classification and stale active instructions; archived
+receipts remain history, not a compatibility fallback.
+
+Clarification: current spec §Clarifications/FR-016–019 and the owner contract
+now separate API metadata observation from actual P1 acceptance. No unresolved
+product-owner decision is delegated to implementation. The response subset,
+source projection, category matrix, counter definitions, negative outcomes and
+exit codes are explicit in the contract.
+
+Pre-design constitution review: I/II preserve native capture/Stop and do not
+launch an app; III/IV preserve server boundaries, GET-only access and
+metadata-only evidence with deletion/denial states; VI requires independent
+checklist PASS, analyze and existing issue sync before code; VII follows the
+approved observable reference with independent code and asset rights. V public
+distribution is unchanged and is not implied by local Dev acceptance.
+
+Implementation, only after those gates:
+
+1. In `evidence/test_production_owner_journey_probe.py`, import the script
+   without invoking `main`; use synthetic response dictionaries and patched
+   request functions/environment. Add small table-driven standard-library
+   tests for the contract matrix, request/configuration failures, health,
+   aggregate/exit and privacy, including missing/malformed/different response
+   UUID and normalized equality. No network, app, real data or new dependency.
+2. In `evidence/production-owner-journey-probe.py`, reuse `_get_json`, `_health`,
+   `_owner_review`, `main`; validate the observed metadata subset, use nested
+   meeting projection, count transcript/lanes/intervals/seek/categories, and
+   emit only bounded metadata. Bind response meeting UUID to the requested UUID
+   without emitting either. Keep missing/negative evidence negative.
+3. Run the offline command in quickstart. Then converge the diff against
+   FR-016–019 and the unchanged original T020 acceptance. Record results in
+   `evidence/validation-log.md` and `changes/unreleased/F52.yaml`.
+4. Use the existing T020/#1819 link; no duplicate feature or issue. Required
+   PR checks must pass for the exact final source SHA and current checked base
+   through `scripts/validate-pr-checks.py`; review unresolved comments before
+   the normal linear merge and verify the result.
+5. Real production candidate evidence, Dev/UI proof, release and deployment
+   remain separate gates. Do not run them merely to repair this probe, mark
+   T020 complete from a mock, or raise `pilot_blocked` from API metadata.
+
+Post-design constitution review: the approach keeps the same boundaries and
+adds no generated-content semantics/judge or product state mutation. Safety
+checks at runtime input/HTTP boundaries prevent leaking cookies/private
+responses; standard-library tests contain only artificial sentinel content.
+This is a design assessment, not implementation or live acceptance. Existing
+checklist STOP38/8 remains until the independent reviewer records a new result;
+read-only analyze and tracker reconciliation also remain required.
+
+Second requirements correction resolves analyze U1/U2: explicit response UUID
+binding and preserved speaker-assignment/multi-speaker reference observations,
+without implementing editing. The subsequent independent result49/1 also
+remains STOP until a new review accepts these corrections. Focused unittest
+execution must be recorded against its actual source; generic PR check success
+does not establish that this evidence-directory test ran automatically.
+
+All existing task marks and historical validation receipts retain their
+original dated meaning. For continuation, active feature routing is the ignored
+`.specify/feature.json` and prerequisite output; root `AGENTS.md` stays stable.
+Feature authors write only `changes/unreleased/F52.yaml`; root `CHANGELOG.md`
+is assembled by the release operator. Release/production execution follows
+`docs/agent-guidance/release-and-validation.md` with an immutable candidate,
+authoritative exact-SHA evidence and decision, CD dry-run and separate deploy
+gate; healthy endpoints alone never authorize it.

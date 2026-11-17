@@ -33,9 +33,23 @@ The native shell must:
   list/detail route succeeds;
 - not hide local capture/upload truth when the server or session is unhealthy.
 
-## KRISP Clean-Room Reference
+## Approved Observable Krisp Reference
 
-KRISP may guide interaction expectations for transcript-first review,
-persistent playback, timestamp seek, speaker lanes, and speaker assignment.
-No KRISP asset, screenshot, brand color, proprietary copy, icon, or private
-content may be committed or copied.
+Observe transcript-first review, persistent playback, timestamp seek, speaker
+lanes, speaker assignment affordances and multi-speaker interaction patterns.
+Record whether assignment is offered, how the selected speaker is associated
+with transcript rows and activity lanes, and the visible unavailable state when
+it is not offered. For multiple speakers, record how labels and lanes remain
+distinguishable. These are reference observations, not an instruction to add a
+speaker editor or mutate real meeting data. Compare only existing permitted
+GRAF interactions; absent editing stays an explicit scope boundary, not a
+claimed implemented capability. Metadata counts do not prove these interactions.
+
+Review fidelity to the approved observable UX/UI/IA, including layout,
+interaction states and literal functional wording under Constitution VII and
+PRD §§29–30. Record deviations required for accessibility, localization,
+privacy, security, deletion truth or known defects. Code must be independent.
+Do not reuse source, extracted assets, binaries, private APIs, secrets or private
+content. Private screenshots stay outside git and never ship as assets.
+Third-party assets, logos and trademarks require documented usage rights;
+GRAF consent/legal/marketing claims remain independently true.
