@@ -431,3 +431,61 @@ release-and-validation.md: focused локально, три exact-SHA PR checks 
 regression/ruff/governance; независимый review и converge. Commit только
 после отдельного согласия, затем три exact-SHA PR checks и merge отдельно.
 Production требует нового frozen Full/dry-run/согласия и приёмки F290.
+
+
+## 2026-11-17 — T014/#3361: не удалять существующий destination
+
+Активный срез: **high-risk-product**, existing F099/T014/#3361, база
+`c22500f994a0dc5f951341e3c5f202d5d21ac8a2`. Исторические разделы выше и их
+ограничения разрешений не заменяют текущее поручение владельца; commit/push/PR/merge
+разрешены, выпуск и развёртывание имеют отдельные ворота.
+
+Constitution pre-design и post-design: I/II capture не меняется; III только
+безопасные метаданные и синтетические данные; IV исходник и чужой destination
+сохраняются; V нет выпуска/развёртывания; VI полный Spec Kit и точные SHA/base;
+VII UI не меняется. Исключений и новой сложности нет.
+
+Исследование: неизменённый метод из указанной базы в ограниченном AST probe
+удалил собственные заранее существовавшие файл и ссылку при `O_EXCL/EEXIST`.
+Fresh success и digest cleanup сработали. Это доказательство дефекта, не проверка
+полного модуля или рабочего провайдера. H1–H3 независимого ревью уточняются
+FR-045/SC-025 и матрицей Quickstart ниже. Новых зависимостей/API/схем/флагов нет.
+
+Owned code/test: `apps/server/src/twobrain_rec_server/storage/minio_client.py`,
+`apps/server/tests/unit/test_playback_normalization_storage.py`; документы
+этой F099, validation receipt и `changes/unreleased/F99.yaml`.
+Общий sync `MinioStorage.download_verified_to_path` вызывается async wrapper;
+production consumers — `processing.submit._stage_artifact` и
+`normalization.service._download_verified_artifact`. Иные download/copy helpers
+не исправляются автоматически. Точки проверки ниже используют реальные
+потребители с подменой только транспорта; production I/O не выполняется.
+
+Минимальный дизайн: существующий sentinel `descriptor = -1` отличает отказ
+exclusive create от владения своим partial. В обработчике `OSError` удалять
+partial только после успешного создания; сохранить очистку после ошибки
+проверки размера/digest, `finally`, `O_EXCL/O_NOFOLLOW`, `0600`, bounded reads,
+`fsync`, закрытие descriptor и response close/release. Не вводить дополнительную
+систему владения. Concurrent pathname replacement после open и сбои самого
+close/unlink/release остаются непроверенными; защита от них не заявляется.
+
+Порядок: уточнение spec/clarify → этот plan → независимая повторная проверка
+всех reviewer-owned списков → согласование существующей T014 → analyze →
+sync существующего #3361 со штатным canon → permanent regression RED на
+старом коде → общий guard → GREEN/ruff/governance → converge и независимое
+code review. До admission код/тесты не менять. Исторические marks и receipts
+не стирать. Объектные key builders проверяются существующим тестом.
+
+Приёмка FR-029/031/037/045 и SC-025: Quickstart §2026-11-17. Существующий
+`source_missing/source_mismatch/temporary_storage_unavailable/storage_unavailable`
+контракт сохранить. Processing по-прежнему отображает missing/mismatch в
+ArtifactStagingError, прочие storage ошибки в TempStorageUnavailableError;
+normalization передаёт StorageTransferError. Все проверки — синтетические
+байты и настоящие временные файлы, полный импорт production-модулей, без
+реальных записей, почты, платежей и production. Больших сборок нет.
+
+После проверки — commit/push/PR `Refs #3361` до доказанного полного закрытия,
+три штатных exact-head/current-base checks через validate-pr-checks.py и
+разбор открытых замечаний. Merge штатный, результат и ancestry проверить.
+Issue closeout отдельно сверяет исходные критерии T014, подробный русский
+комментарий, штатный validate-issue-closeout.py --verify-live и фактическое
+состояние. Выпуск/развёртывание/пользовательская приёмка не выводятся из unit PASS.
