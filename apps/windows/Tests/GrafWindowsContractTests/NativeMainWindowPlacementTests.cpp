@@ -41,6 +41,11 @@ void storage() {
     const auto store = winrt::make_self<FaultSettings>();
     const auto settings = store.as<MainWindowSettings>();
     assert(!readMainWindowPlacement(settings));
+    store->values.Insert(mainWindowPlacementKey, nullptr);
+    assert(settings.Size() == 1 && settings.HasKey(mainWindowPlacementKey) && !settings.Lookup(mainWindowPlacementKey));
+    assert(!readMainWindowPlacement(settings));
+    assert(store->inserts == 0 && settings.Size() == 1 &&
+        settings.HasKey(mainWindowPlacementKey) && !settings.Lookup(mainWindowPlacementKey));
     const MainWindowPlacement original{L"synthetic-interface", -41, 73, 903, 581, 144};
     assert(writeMainWindowPlacement(settings, original) && store->inserts == 1);
     assert(equal(*readMainWindowPlacement(settings), original));
@@ -71,6 +76,18 @@ void storage() {
         const auto corrupt = store->values.Lookup(mainWindowPlacementKey);
         assert(!readMainWindowPlacement(settings));
         assert(store->values.Lookup(mainWindowPlacementKey) == corrupt);
+    }
+    for (const auto field : {L"version", L"monitor", L"x", L"y", L"width", L"height", L"dpi"}) {
+        assert(writeMainWindowPlacement(settings, original));
+        const auto corrupt = store->values.Lookup(mainWindowPlacementKey);
+        auto composite = corrupt.as<winrt::Windows::Storage::ApplicationDataCompositeValue>();
+        // ApplicationDataCompositeValue removes the member when assigned nullptr.
+        composite.Insert(field, nullptr);
+        const auto beforeReadInserts = store->inserts;
+        assert(composite.Size() == 6 && !composite.HasKey(field) && !composite.Lookup(field));
+        assert(!readMainWindowPlacement(settings));
+        assert(store->inserts == beforeReadInserts && settings.Size() == 1 && settings.Lookup(mainWindowPlacementKey) == corrupt);
+        assert(composite.Size() == 6 && !composite.HasKey(field) && !composite.Lookup(field));
     }
 }
 

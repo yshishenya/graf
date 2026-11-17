@@ -146,7 +146,7 @@ std::optional<MainWindowPlacement> readMainWindowPlacement(MainWindowSettings co
     try {
         if (!settings) return std::nullopt;
         const auto composite = settings.Lookup(mainWindowPlacementKey).as<winrt::Windows::Storage::ApplicationDataCompositeValue>();
-        if (composite.Size() != 7 || winrt::unbox_value<std::int32_t>(composite.Lookup(L"version")) != 1) return std::nullopt;
+        if (!composite || composite.Size() != 7 || winrt::unbox_value<std::int32_t>(composite.Lookup(L"version")) != 1) return std::nullopt;
         MainWindowPlacement value{std::wstring(winrt::unbox_value<winrt::hstring>(composite.Lookup(L"monitor"))),
             winrt::unbox_value<std::int32_t>(composite.Lookup(L"x")), winrt::unbox_value<std::int32_t>(composite.Lookup(L"y")),
             winrt::unbox_value<std::int32_t>(composite.Lookup(L"width")), winrt::unbox_value<std::int32_t>(composite.Lookup(L"height")),
