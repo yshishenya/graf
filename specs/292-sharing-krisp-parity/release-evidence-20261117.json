@@ -46,7 +46,11 @@
     "production_full_recheck": "466df7f9e166f08afd2a2ffbcd804a68b433e8d6a39b9c977bd4b32dd2e57a45",
     "native_release_ui_equality": "9b35290bbbacdf0f962ba7fd3afa8ddc5cc8fa1b313424ba5e84bda0401cd652",
     "independent_final_acceptance_audit": "a88059c704994ca1a33ee57ee2e73df0dc4653534d330985b0930e52f259a7b8",
-    "owned_build_cleanup": "3bdd37dceb422210910d00982c1f08b9eaaee2520100c6d12e0c5d62b3040fcc"
+    "owned_build_cleanup": "3bdd37dceb422210910d00982c1f08b9eaaee2520100c6d12e0c5d62b3040fcc",
+    "final_cleanup": "a6bf196ec5f2549d4e2eb70b3674eabcf2485abe9e8814e12785384574de3bff",
+    "tracker_pre_close": "cafed5bb43c804facdd218b70dfed02f7e4087257a35dbdf4427da3b5a2db875",
+    "tracker_post_close": "cafed5bb43c804facdd218b70dfed02f7e4087257a35dbdf4427da3b5a2db875",
+    "tracker_closed_inventory": "8fd8fe2a473e70ecdff3de21800cb719783c5716b7784c9f2d04ed9b3d6f40b8"
   },
   "acceptance": {
     "native": "pass",
@@ -64,7 +68,30 @@
     ]
   },
   "temporary_computer_control_alias": "absent_verified",
-  "tracker": "pending",
+  "tracker": {
+    "status": "pass",
+    "tasks": 43,
+    "closed_issues": 43,
+    "open_issues": 0,
+    "orphan_issues": 0,
+    "duplicate_task_ownership": 0,
+    "umbrella_issue": 7899,
+    "umbrella_closed_at": "2026-11-17T20:57:27Z",
+    "umbrella_closed_last": true,
+    "release_full_required": true,
+    "pre_close": {
+      "status": "pass",
+      "exit_code": 0,
+      "allow_open_umbrella": true,
+      "log_sha256": "cafed5bb43c804facdd218b70dfed02f7e4087257a35dbdf4427da3b5a2db875"
+    },
+    "post_close": {
+      "status": "pass",
+      "exit_code": 0,
+      "allow_open_umbrella": false,
+      "log_sha256": "cafed5bb43c804facdd218b70dfed02f7e4087257a35dbdf4427da3b5a2db875"
+    }
+  },
   "native_owner_share_ui": {
     "accepted_native_source": "ee58f5fab349f3d2669cc9339f9edadc3a0bc030",
     "release_source": "2805b0f91d5c6d13aad13edb573274b8460e1d19",
@@ -83,5 +110,13 @@
       }
     ]
   },
-  "installed_signature_verified": true
+  "installed_signature_verified": true,
+  "cleanup": {
+    "synthetic_fixtures": "revoked_and_removed",
+    "existing_dev_grants": "preserved",
+    "krisp_training_access": "restored_invite_only",
+    "large_owned_temporary_builds": "removed",
+    "active_dev_and_rollback": "preserved",
+    "owned_sleep_prevention": "stopped"
+  }
 }

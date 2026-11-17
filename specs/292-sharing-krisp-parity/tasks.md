@@ -70,7 +70,7 @@ T014 выполняется до завершения T011–T013; требуе�
 
 - [X] T015 Подготовить новый CalVer серверный релиз по `docs/agent-guidance/release-and-validation.md`: завершить T012/T013, exact-SHA/base PR gates и линейный merge; `prepare-release.sh`, frozen train/candidate, один authoritative GitHub release-full, train-attest/decide, `cd-remote.sh --dry-run` и штатный execute/health/rollback evidence. [FR-027] (Issue #7916)
 - [X] T016 Выпустить macOS GRAF с того же frozen source по `docs/agent-guidance/macos-notarization.md`: Developer ID, hardened runtime/timestamp, Accepted notarization, staple/Gatekeeper, проверенный Sparkle archive/signature, tag/GitHub Release и публичный feed readback. Не публиковать ненотарифицированный пакет. [FR-027] (Issue #7917)
-- [ ] T017 Проверить опубликованные сервер, страницу получателя и версию приложения на синтетических материалах; записать metadata-only evidence в `validation.md`, сверить tasks/issues и закрыть task issues перед umbrella через live closeout validator с release-full. Очистить только собственные завершённые временные сборки, сохранить журналы и контрольные суммы. [FR-015/023/027] (Issue #7918)
+- [X] T017 Проверить опубликованные сервер, страницу получателя и версию приложения на синтетических материалах; записать metadata-only evidence в `validation.md`, сверить tasks/issues и закрыть task issues перед umbrella через live closeout validator с release-full. Очистить только собственные завершённые временные сборки, сохранить журналы и контрольные суммы. [FR-015/023/027] (Issue #7918)
 
 T015 после T012/T013; подготовка подписанного macOS-пакета T016 может идти параллельно authoritative full CI замороженного кандидата, публикация — после go/tag. T017 после обеих публикаций. Это расширение разрешения на выпуск, без изменения продуктового состава доступа.
 
@@ -115,7 +115,7 @@ T015 после T012/T013; подготовка подписанного macOS-�
 
 ## Phase 18: Convergence — итоговая связь с GitHub
 
-- [ ] T027 Подготовить итоговое закрытие F292: заменить резервное владение T000 реальной привязкой; после T017 проверить закрытие дочерних задач, уникальность task↔issue и отсутствие orphan issues; подготовить итоговый комментарий и получить live pre-close PASS с `--allow-open-umbrella` и `--require-release-full`. Само закрытие umbrella последней и повторная проверка без исключения остаются обязательными следующими действиями tracker policy. [FR-015/027; T017 prerequisite; missing canonical ownership, MEDIUM] (Issue #7899)
+- [X] T027 Подготовить итоговое закрытие F292: заменить резервное владение T000 реальной привязкой; после T017 проверить закрытие дочерних задач, уникальность task↔issue и отсутствие orphan issues; подготовить итоговый комментарий и получить live pre-close PASS с `--allow-open-umbrella` и `--require-release-full`. Само закрытие umbrella последней и повторная проверка без исключения остаются обязательными следующими действиями tracker policy. [FR-015/027; T017 prerequisite; missing canonical ownership, MEDIUM] (Issue #7899)
 
 ## Phase 19: Convergence — проверка накопленного релиза
 
@@ -193,3 +193,11 @@ Spec Kit, только тестовые материалы; focused PostgreSQL/�
 - [X] T043 Исправить только `apps/server/tests/fixtures/postgres_test_database.py:postgres_isolated_cluster_database_url` и существующий `apps/server/tests/contract/test_isolated_postgres_cluster.py`: сначала RED transient run timeout/обязательная cleanup, затем максимум 2 run ТОЛЬКО после первого TimeoutExpired и подтверждённого удаления собственного уникального контейнера либо достоверного отсутствия через bounded exact-name lookup. Обязанность cleanup устанавливать до run; ошибки/неопределённость очистки всегда fail, finally не скрывает уже возникший отказ. Сохранить 30 с run/remove, 5 с команды, 30 с ready, свежую БД/loopback/случайные секреты, готовность/port/schema/body без повторного запуска, миграцию и тело максимум один раз, все старые contract cases и collect-only без Docker. Новые сообщения только stage/attempt/cleanup. До кода независимый PASS `checklists/bootstrap-lifecycle.md`, analyze без C/H и issue sync; после GREEN реальные strict 9 bootstrap + 4 sender из quickstart, Ruff/diff check, независимый обзор/converge и новые exact-SHA/base PR gates. Выпуск только на новом frozen candidate с одним authoritative Full; failed 44067188639 не повторять, причина задержки Docker и фактическая утечка не установлены. [FR-027/T043-A–F; T016/T017 prerequisite; partial, HIGH] (Issue #8131)
 
 T043 добавлена по подтверждённому пробелу FR-027, не заменяет и не переписывает T016/T017 либо прежние отметки задач. Реализация BLOCKED до независимого reviewer PASS, чистого анализа и внешней привязки task↔issue; T043 синхронизирована с #8131; это не снимает независимый reviewer gate.
+
+## Итоговое завершение — 2026-11-17 UTC
+
+43/43 задач выполнены и 43/43 связанных issues закрыты. Индивидуальные
+live проверки и общие pre/post closeout с обязательным release-full прошли;
+umbrella #7899 закрыта последней. Подробности выпуска, установленной
+приёмки и уборки — в `validation.md` и `release-evidence-20261117.json`.
+Предыдущие промежуточные записи сохранены как история.
