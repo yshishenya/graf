@@ -1388,3 +1388,70 @@ AppMain; один getter не считается завершённым поль
 Независимый [чеклист T127](checklists/t127-storage-warning.md), analyze и связь
 задачи с GitHub выполняет Main до допуска к исходникам. Эта авторская подготовка
 не изменяет T088/B31 и не отмечает их проверки пройденными.
+
+
+### Session 2026-11-16 — F296: локальный кэш
+
+Срез T128–T133 продолжает US2/US3, FR-012/013/014/022, SC-005/008 внутри
+существующей F200. Lane: `high-risk-product` (storage/deletion/auth/UX).
+Авторский проект; [новый reviewer checklist](checklists/f296-local-cache-cleanup.md)
+не отмечен, старые acceptance/checkboxes не заменяются. Основание — прямое
+задание владельца от2026-11-16 о полном текущем Mac parity и F296 после master sync.
+Это требования будущей реализации, не approval удаления пользовательских данных.
+
+Уточнения из задания и проверенных источников (без вымышленных ответов владельца):
+разрешена подготовка только документов; нужен тот же смысл «Освободить место» и
+автоматической очистки, без production/server/Mac изменений на этом этапе.
+Точные guards/UX/receipt восстанавливаются из F296 и actual Mac; Windows partial
+protected package требует собственного совместимого reader/receipt решения.
+**Решение Windows:** оба local revision ID (playback и finalized_upload)
+обязательны и равны item local revision; missing/null/malformed/mismatch → keep.
+Это узкое защитное отклонение от optional guard Mac для legacy/unknown,
+согласно F296 wire §43 и exact server mapping, без optional bypass или
+подстановки из active session. При полном корректном proof parity сохраняется.
+Дополнительного выбора пользователя не требуется.
+
+- **F296-R01 — только WAV.** Действие удаляет exact protected media/WAV у подходящей
+  sealed-normal uploaded записи, сохраняя manifest/M4A/canonical/recovery/queue,
+  identities/hashes и серверную встречу. Это не Delete/purge, re-encode или repair.
+- **F296-R02 — свежая authority.** Один текущий owner/device/origin/context,
+  тот же meeting/local revision и finalized/playback server revision, archive=true,
+  available/canonical_ready/object_verified, owner/deletion=none/no conflict.
+  Обе freshness ages в[-60s,120s], finalized age≥7days, active retention remaining≥30days;
+  unknown/offline/error → keep. Точные границы и обязательное missing-local → keep правило —
+  [contract §2](contracts/windows-local-cache-cleanup.md#2-свежий-proof-и-единый-предикат).
+  Proof GET работает без WAV; persisted uploaded/serverTruth не выдаёт authority.
+- **F296-R03 — durable partial cleanup.** Защищённый pending ACK/readback до удаления,
+  exact held identity/inventory, повторная проверка epochs/proof/queue/pins, actual
+  absence и completed ACK до успеха. Ошибка/ambiguous/disk-full не разрешают delete
+  или ложный completed. Restart и обе slots отличают разрешённое отсутствие,
+  partial deletion, missing без receipt и подмену; один intent не удаляет повторно.
+- **F296-R04 — совместимые consumers.** Cold scan/restart и local playback принимают
+  только доказанное partial state с полным retained M4A validation. Это не full
+  upload proof: WAV-required upload/repair не стартует, manifest не переписывается,
+  новая revision не создаётся. Старые full/legacy readers и rollback не удаляют
+  неизвестный partial package и не достраивают WAV. Точный новый wire format
+  требует отдельного review T129 до writer change.
+- **F296-R05 — ручной путь.** Доступные «Освободить место», точные bytes и подтверждение
+  только локального файла транскрипции; Cancel ничего не меняет. Native capability,
+  nonce/auth epoch и worker повторно проверяют допуск; UI не выдаёт proof.
+  Показывать kept/unknown/failed/noop/completed честно, сохраняя indicator/Stop.
+- **F296-R06 — auto reuse.** Тот же primitive, local user toggle default=true и
+  operator disable; effective=user&&!operatorDisabled, перепроверка между deletes.
+  Oldest-first, bounded single-flight/debounce60s,20candidates/max50deletes,
+  scan200/proof5s/total120s; pressure start/stop и5GB/80/95%/reserve как contract §6.
+  Capture/Stop/finalizer приоритетны, active mutations не конкурируют с cleanup.
+- **F296-R07 — сохранение гарантий.** Protected IO/confinement/ACL, exact content,
+  logical/physical учёт, owned64MiB и existing factory admission неизменны.
+  Server quota не permission и не новый capture blocker; T127 остаётся предупреждением.
+- **F296-R08 — доказательства.** Регрессии full/partial/unknown, failure injection
+  каждого commit/delete cut, real native cold restart/playback/manual/auto и
+  installed UIA/account/purge/update regression до закрытия T128–T133.
+  Нужны независимые requirements/codec/source gates и Main issue sync; исторические
+  T116/T127 PASS не закрывают этот срез.
+
+Приёмка: (1) на всех отрицательных proof/identity/cancel cases0удалений; (2) после
+успеха отсутствует только exact media, retained hashes/queue identity неизменны,
+после каждого cut restart даёт один из contract outcomes без повторного delete;
+(3) manual/auto проходят один primitive, подтверждены playback/restart и доступный
+installed UI без снижения прежних допусков. Это дополняет SC-005/008, не PASS сейчас.

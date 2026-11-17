@@ -5675,3 +5675,108 @@ GRAF; FFmpeg заменяет только подтверждённо дефек
 новый формат хранения или копирование всей встречи в RAM. Длинная запись,
 установленный MSIX, x64 hardware/AEC и публичная подпись остаются отдельными
 непройденными воротами, пока нет соответствующих фактических результатов.
+
+
+### T116/T118: фазовый замер завершения — 2026-11-17
+
+High-risk-product; уточнение существующей диагностики FR-012/013 и SC-003/005/006,
+без нового формата или изменения продуктовых критериев. Часовой искусственный
+тест R11 показал finalize 1041244 ms; причина ещё не установлена. Сначала
+измеряется существующий путь, затем по результату выбирается исправление.
+
+Единственный изменяемый исходник —
+`apps/windows/Tests/GrafWindowsContractTests/NativeCaptureStorageIntegrationTests.cpp`:
+существующая `protectedStorageProfile` и её единственный CLI caller.
+Прежний selector без длительности сохраняет 1000 блоков / 10 секунд и
+`written.calls <= 16`. Дополнительные значения только 30/120/300 секунд
+соответствуют 3000/12000/30000 блокам по 10 ms; неверные аргументы дают exit 2
+до создания fixture. Используются прежний искусственный сигнал, один worker
+и один настоящий finalize, без микрофона, сети и дополнительного cold pass.
+
+Новый общий таймер охватывает только вызов writer finalize; сохраняет входной
+и выходной GetLastError. Четыре прежних непересекающихся этапа остаются
+canonical_seal/wav/aac/inspection. Их сумма проверяется до вычитания из общего
+времени; отрицательный остаток запрещён. AAC включает protected IO, sealing,
+hash и decode, а metadata counters — вложенные измерения. Их нельзя складывать
+с wall time или выдавать за чистое время кодека, DPAPI либо физического диска.
+Production hooks, guards, protected IO, owned64MiB/wipe и semantic decode не меняются.
+
+До применения: независимый checklist/analyze и актуальная связь T116/T118 с
+issues; затем отдельная проверка точного source diff и сборки. До выполнения —
+независимое ревью существующего runner с точными EXE/DLL/source/argv pins,
+180 s на case и 15 min на весь последовательный проход 30→120→300 с cleanup.
+FAILED/TIMEOUT/UNKNOWN останавливает проход до reconciliation; timeout не
+доказывает завершение worker и не разрешает удалять его активные файлы.
+Принимаются только реальные terminal/owned-idle/cleanup результаты. Сроки,
+длительность и критерии не расширяются ради PASS. Такой замер не закрывает
+T116/T118, installed Stop, SC-003, x64 hardware/AEC либо выпуск.
+
+## F296 parity — защищённый локальный кэш (T128–T133)
+
+Дата:2026-11-16. `high-risk-product`, существующий F200 US2/US3.
+Статус: авторский план для review, не implementation GO. Требования
+[F296-R01–R08](spec.md#session-2026-11-16--f296-локальный-кэш),
+[контракт](contracts/windows-local-cache-cleanup.md),
+[reviewer checklist](checklists/f296-local-cache-cleanup.md). Сначала независимо
+проверить strict missing finalized local ID → keep решение (contract §2);
+точный partial wire/rollback обязателен до T129 codec/readers/writers.
+После общих gates T128 разрешает только неразрушающий GET/parser/eligibility.
+Не отмечать reviewer boxes автором.
+
+### Основание и constitution check
+
+Точный parity audit: `.dev/t116-master-f296-windows-parity-audit-20261116.md`;
+после синхронизации server proof/storage уже сохранены, independent review
+`.dev/f200-master-sync-independent-review-20261116.md`. Actual Mac source:
+`apps/macos/Shared/Sources/Models/LocalCacheEligibility.swift`,
+`LocalCacheEvictionPolicy.swift`, `apps/macos/RecApp/Sources/Upload/LocalCacheCleanupService.swift`
+и `LocalCacheEvictionScheduler.swift`. Их source не означает installed F296 PASS.
+Применены Constitution storage/owner/deletion truth, protected exact bytes,
+metadata-only diagnostics, visible Stop и independent-review gates.
+Новых исключений конституции, quota gate или server/Mac feature не требуется.
+
+### Минимальные данные и путь
+
+Новый временный native proof содержит existing sync-state playback,
+finalized_upload, meeting.retention и scope/fetch time, bounded на существующем
+JSON/WinHTTP path `Upload/DesktopHttpTransport.*`. Read-only fetch не вызывает
+loadTracks, upload admission или новый session. `DesktopUploadQueueService.*`
+даёт held текущий snapshot/generation; cached history не permission.
+
+Durable partial state живёт в существующем protected package-state, не в queue
+флаге, JSON sidecar или второй базе. Нужна явная versioned codec extension
+`Storage/ProtectedCustodyMetadata.*` с intent/refs/bindings contract §3. До кода T129
+уточняет wire/version/size/оба slot roots/rollback и регрессии; v1/v2 field sets,
+DPAPI/packed representations не расширяются молча. `ProtectedCustodyFiles.*`
+удаляет только exact owned media inventory, не чужие containers/unknown names.
+
+`Recording/LocalRecordingPackage.*` различает full и verified partial evidence:
+полный upload validator прежний; local player получает purpose-bound retained
+manifest/M4A proof с exact receipt. `ProtectedLocalRecordingPlayback.*` сохраняет
+byte-stream/Clone/engine lifecycle, full EOF/time/flags/bounds и close/drain.
+Startup/scan в existing worker распознаёт authorized missing WAV до generic
+corruption/repair; свежий sync refresh и full purge остаются совместимыми.
+
+Один worker command cleanup, existing typed persistence ACK и package/root leases;
+никакого нового scanner/process framework. Сначала regression и primitive,
+затем `Recording/NativeCapture.h`, `AppMain.cpp`, `Web/WebView2Host.*`: native
+capability, confirmation/results/cache surface, user toggle и existing auth fence.
+UI не выполняет filesystem/network I/O и не получает reusable proof.
+
+Auto подключается к тем же worker commands после manual primitive: объединённые
+launch/Stop/upload-finalized/pressure triggers, actual Mac bounded settings из
+contract §6, priority capture/Stop/finalizer. Operator toggle перечитывается;
+неизвестное давление/невозможность durable intent сохраняют WAV. Порог95% и reserve
+не ослабляются ради записи receipt; cleanup не обещается при disk-full.
+
+### Последовательность и пределы параллельной работы
+
+T128 read-only proof/regressions → T129 exact wire review, затем codec/consumers → T130 actual cleanup/
+recovery → T131 manual UI и T132 auto → T133 native/installed acceptance.
+T131/T132 не помечены [P]: используют shared NativeCapture/AppMain, сначала
+развести ownership Main. Checklists/analyze/Main issue sync до production edits;
+самостоятельных issues/commit/VM эта подготовка не выполняет. Точная wire review
+T129 — обязательный дополнительный gate перед его codec/reader/writer исходниками,
+не prerequisite неразрушающего T128 и не permission на missing WAV.
+Validation: [Quickstart F296](quickstart.md#f296--защищённая-очистка-локального-wav).
+Main native validation2026-11-16-stock-ffmpeg файл и активные R11/R12 bytes не менять.

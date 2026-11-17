@@ -3507,3 +3507,97 @@ T088/B31, аппаратную или выпускную приёмку и не 
 Решение о внутренней памяти FFmpeg не отменяет SC-003: рост резидентной памяти
 после прогрева остаётся ограничен 128 MiB; фиксировать его отдельно от
 абсолютного пика процесса и лимита собственных буферов GRAF 64 MiB.
+
+
+### T116/T118: ограниченный фазовый замер завершения
+
+Область и ограничения — [план фазового замера](plan.md#t116t118-фазовый-замер-завершения--2026-11-17).
+Это будущая диагностика причины задержки R11, не ослабление приёмки.
+
+1. После независимых requirements/source/runner gates собрать одну закреплённую
+   Debug native сборку с прежними target-private counters. Сохранить source,
+   EXE/DLL hashes, архитектуру и наличие эмуляции. До крупной сборки проверить
+   запас Mac не менее 80 ГБ; параллельные VM/runtime проверки исключить.
+2. На той же сборке отдельно сохранить прежний 10-секундный selector и отказ
+   неверной длительности/лишнего аргумента до создания fixture. Затем один
+   последовательный проход `--protected-storage-profile 30`, `120`, `300`:
+   180 s на каждый процесс, 15 min вместе с cleanup, без повторов ради PASS.
+3. Для каждой длительности сохранить exit/terminal/owned-idle и общий finalize,
+   четыре этапа, их сумму и остаток, metadata calls/time и AVIO bytes/calls.
+   Проверки normalPackage, точной duration, full-write/no-error/no-partial,
+   entered/returned/unwound и памяти сохраняются. Старый bound 16 относится
+   только к прежним 10 секундам; для новых длительностей порог не выдумывается.
+4. При FAILED/TIMEOUT/UNKNOWN остановить последовательность, установить
+   фактическое состояние собственного Job/process/worker и сохранить данные
+   активной проверки. Удалять только точно принадлежащий завершённой проверке
+   generated root; отсутствие процесса и результат очистки подтвердить отдельно.
+5. Сравнить wall/sample, calls/block, metadata time/call и AVIO bytes/calls.
+   Вложенные интервалы не складывать; неизмеренные механизмы — NOT_MEASURED.
+   Три точки одного прохода не доказывают сложность O(n²), причину VM или чистый
+   encoder CPU. Installed Stop, 60 min/x64/AEC, память и все T118 gates остаются.
+
+## F296 — защищённая очистка локального WAV
+
+Будущая приёмка T128–T133; требований к коду/VM действий здесь не исполняли.
+Общие prerequisites: независимые [reviewer checklist](checklists/f296-local-cache-cleanup.md),
+analyze/Main issue sync. После них T128 допускает только read-only GET/parser/eligibility
+и неразрушающие регрессии, без partial writers/активации consumers/delete/upload/WAV effects.
+T129 сначала определяет exact wire/version/limits/BOTH slots/old-reader refusal/rollback
+и получает независимый codec/consumer GO до своих codec/reader/writer изменений.
+Frozen full+partial source/artifacts нужны для соответствующих native/installed
+сценариев T129–T133, не для начала T128. Использовать существующие generated
+protected fixtures и native suites/CTest/installed harness; не новый runner.
+Серверные ответы и время подменяются в deterministic tests, без ожидания7/30дней.
+Реальные файлы пользователей не являются test fixture; native запуск поручает Main.
+
+1. **Proof/границы (T128, F296-R02).** Existing DesktopUploadRecovery/QueueV2
+   tests: full old/new sync response, actual playback revision vs active upload,
+   UUID/local namespaces, present/missing/mismatched fields. Otherwise-valid proof
+   с missing, null или mismatched finalized local ID → keep/0effects; полный exact
+   proof → eligible. Не подставлять ID из playback/active session. Для fetched и verified age отдельно проверить
+   -60s/120s и±1ms, finalized age7days±1ms, retention30days±1ms; fractional UTC,
+   malformed/unknown/duplicate/overflow/null/offline/401/403/404/409/5xx.
+   Все недопустимые исходы→keep/0deletions. Refresh после partial не открывает WAV,
+   не создаёт session/revision и не запускает upload. Нет cached uploaded proof.
+2. **Codec/полный пакет (T129, R01/R03/R04).** Existing ProtectedCustodyCodec/Files:
+   точная новая wire version, limits/unknown/foreign binding, две slots/generation,
+   старый full v1/packed package остаётся full. Missing media без receipt/corrupt
+   receipt не допускает partial playback или repair. Точная retained manifest/M4A/
+   canonical/recovery hash equality. Full upload validator не ослаблен.
+3. **Destructive cuts (T130, R03).** Generated media object со своим exact ID:
+   inject до pending, flush, ambiguous/readback, после ACK до delete, частичное
+   удаление owned inventory, после actual absence до completed, completed commit/
+   callback loss. После каждого cut новый cold owner/restart и проверка таблицы
+   contract §4. Проверить foreign/replaced/symlink object, очередь/аккаунт/deletion
+   epoch change после await, live reader, disk-full/no metadata space, cancellation.
+   Нет extra delete, force-unload/ACL/attributes bypass, unknown-file удаления,
+   ложного success или утраты retained bytes. Ошибка actual cleanup остаётся FAIL.
+4. **Partial consumers (T129–T130, R04).** Настоящий cold inspect purpose-bound
+   retained playback → protected MediaEngine open/play/pause/seek/end/close и reader/
+   owned baseline; bounds/EOS/time/flags unchanged. Full upload/retry не отправляет
+   отсутствующий WAV и не re-encode/revision. Fresh sync GET, account switch,
+   confirmed delete/full purge и update/old-reader refusal работают без потери
+   данных и без generic quarantine partial. Actual result/exit, не один token.
+5. **Manual UI (T131, R05).** На точном installed MSIX и GRAF Dev: действие и
+   доступное подтверждение роли/bytes, Cancel0effects, confirm→same primitive,
+   cold restart/local listening после успеха, repeat noop. Old document/nonce/auth
+   capability не действует. Keyboard/UIA, reason/error/unknown, indicator/Stop;
+   WebView reload/offline не создают permission. UI не обещает server deletion.
+6. **Auto (T132, R06).** Fake clock и реальные generated objects: default=true,
+   user off/operator true (1/true/yes), disable во время proof/pending, single-flight,
+   debounce60s, candidates20/deletes50/scan200/proof5s/total120s. Oldest finalized_at
+   и tie-break; physical pressure≥80% или free≤reserve старт, stop при used<80%
+   и free>reserve. Ни95%, ни неизвестное место не обходят proof/metadata admission.
+   Queued capture/Stop/finalizer приоритетны; manual/auto race→один intent/удаление.
+   Если защищённый intent нельзя durable записать, WAV остаётся и показан отказ.
+7. **Итог T133.** Existing CMake registrations до запуска сверить с actual build;
+   применять существующий bounded CTest verbose/JUnit, записать actual exits,
+   tests/skips, cleanup, immutable source/artifact hashes и fresh installed evidence.
+   Core, native, UI и release outcomes раздельны. Серверные137PASS подтверждают
+   server merge, но не Windows F296. Старые diagnostics/UNKNOWN и reviewer отметки
+   не переписываются; отсутствие environment/native/installed proof остаётся OPEN.
+
+Предел: тесты оценивают WAV-only space cleanup и retained compatibility; не меняют
+AAC decoder/presentation oracle, T116 thresholds, T127 warning/factory/5GB policy,
+T088 DOM/profile, server quota или public release gates. Сначала различимое
+partial состояние, затем destructive path, затем UI/auto — не unlink прежде reader.
