@@ -915,19 +915,38 @@
   совпал. Независимо подтверждены14 обратимых правок/45 await/18 SAME/124/0,
   итоговый pure selfcheck EXIT0 принят. Сохранено в кодовой ветке151480320;
   это приёмка инструмента, ещё не запуск GET/POST/PG.
-- [ ] Принять отдельную invocation: подготовлен инертный рецепт
-  `/private/tmp/graf-t112-native-normal-invocation-20261117.py`, SHA
-  `bbe0e009f93ace302d1c01c212275ce97cff56b08da4d00ab9e0a87b82742f49`;
-  parse/Ruff PASS, не исполнен. Запрос существующему reviewer:
-  `/private/tmp/graf-t112-native-normal-invocation-review-request-20261117.txt`;
-  наличие файла не означает доставку/verified wait. Нужен отдельный FINAL
-  invocation gate: ровно один False/явный -p tests.conftest, сначала
-  collect-only/inventory1/container_not_started, затем один normal-запуск.
-  Рецепт сверяет9pins, эксклюзивные логи/копию и предыдущий сбор; сохраняет
-  безопасную квитанцию и очистку. True/M1/87/повторы не назначены;
-  прежние normal POST2/fault response_held/repeatedHOLD не объяснены.
-  Успех normal сам по себе не установит их причину; runtime по догадке
-  не менять. Рабочий period сохраняет yield None.
+- [x] Получить отдельный действительный FINAL invocation review:
+  **SCOPED INVOCATION PASS/P1=0/P2=0**, отчётdce7edb8… полностью прочитан.
+  Приняты точный рецептbbe0e009…/9pins/4зависимости/окружениебездобавлений,
+  один False/-p tests.conftest и раздельный порядок collection→native.
+  Ревью сохранило исходные сроки/ограничения и отдельную приёмку результата;
+  никакого исполнения проверяющий не выполнял.
+- [x] По этому допуску выполнить один collect-only: EXIT0/collection1/False,
+  digest08511b1a…/inventory_only/container_not_started/observationsпуст/
+  TEMPremoved. Полная квитанция и журнал приняты до единственного native.
+  Один normal `[False]` **PASS/EXIT0**, pytest1PASS1warning8.06s,
+  phase13s/wrapper19.160003s;28records/dropped0/исключений0. GET200/2HTMLproof;
+  обаPOST start200/terminalbodycompleted/appreturn/postreturn, исходные
+  accepted/writes2/commits1/ранняяcleanup/F/B/POST2JSON/fullsavedpair/provider0/
+  pool0 assertions прошли, watchdogfalse. POST1 и POST2 имели разные actual
+  deadlines; остатки в finalsnapshot work/hard0.058190/0.558190 и
+  0.822613/1.322613s. Snapshotnormalstreamdonefalse доfinally — здоровое
+  поколение, не fault/M1/утечка. Runner удалил ownPG, TEMP снятfinally,
+  9pins послеSAME, runtime/исходныйтест/changes не менялись.
+  [Доказательство и пределы](https://github.com/yshishenya/graf/blob/734ffb1509e88e7ea0f2f59bc19b4f3e48e23cde/specs/273-paid-traffic-analytics/validation/t112-native-normal-validation-20261117.md).
+  Native receipt9596a6f6…/log1b4fe28a… сохранены внеGit; допуск использован.
+  Это проход normal в одном опыте, не объяснение старого repeatedHOLD и
+  не browser/native/production/внешняя приёмка. True/M1/V4/87 не запускались.
+- [ ] Независимо прочитать новый normal-результат и выбрать один следующий
+  необходимый опыт для оставшегося полного fault/M1/unknown-COMMIT.
+  Подготовлен запрос `/private/tmp/graf-t112-native-normal-review-next-design-request-20261117.txt`;
+  наличие файла не означает доставку/verifiedwait. Нужен отдельный проект
+  существующего reviewer, затем точная реализация/selfcheck/review/invocation;
+  без автоматического True/повтораnormal/87. Весь causalM1 до исходного окна
+  и отмены, закрытый реальный streamgate, exactdurable/backend/F и полный
+  возврат/новыеB/F/POST2 сохраняются. Не сокращать ворота радиPASS.
+  Исторические normalPOST2/faultresponseheld/repeatedHOLD остаются
+  необъяснёнными; рабочий period сохраняет yield None.
 - [ ] Завершить чтение нового завершённого недельного отчёта Метрики. В IAB2
   авторизованный кабинет действительно открылся; показал предупреждение
   технических работ и возможной задержки. Единственный увиденный прямой визит
