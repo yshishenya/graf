@@ -225,6 +225,9 @@ def _review_metadata(payload):
         for segment in segments
     )
     truth = _object(payload["notes_action_truth"])
+    protocol = truth.get("protocol")
+    if protocol is not None:
+        _object(protocol)
     basis = _enum(
         truth["source_basis"],
         {
@@ -258,9 +261,6 @@ def _review_metadata(payload):
             {"closes_gap", "keeps_gap_open", "non_blocking"},
         )
         counts[name] = len(_objects(category["items"]))
-        protocol = category.get("protocol")
-        if protocol is not None:
-            _object(protocol)
         category_ready = (
             impacts[name] == "closes_gap"
             and (

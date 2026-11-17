@@ -419,11 +419,11 @@ class ProbeTests(unittest.TestCase):
     def test_protocol_exception_is_bounded(self):
         for category in CATEGORIES:
             data = ready_payload()
+            data["notes_action_truth"]["protocol"] = {"private": PRIVATE}
             data["notes_action_truth"][category].update(
                 state="unavailable",
                 readiness_impact="non_blocking",
                 items=[],
-                protocol={"private": PRIVATE},
             )
             self.assert_classification(
                 data,
@@ -434,17 +434,45 @@ class ProbeTests(unittest.TestCase):
             )
         for protocol in (None, PRIVATE, [], 1):
             data = ready_payload()
+            data["notes_action_truth"]["protocol"] = protocol
             data["notes_action_truth"]["risks"].update(
                 state="unavailable",
                 readiness_impact="non_blocking",
                 items=[],
-                protocol=protocol,
             )
             self.assert_classification(
                 data,
                 "blocked" if protocol is None else "fail",
                 "review_metadata_incomplete" if protocol is None else "schema_mismatch",
             )
+
+    def test_protocol_optional_type_and_wrong_nesting(self):
+        for protocol in (None, {}, {"private": PRIVATE}, PRIVATE, [], True, 1):
+            data = ready_payload()
+            data["notes_action_truth"]["protocol"] = protocol
+            valid = protocol is None or isinstance(protocol, dict)
+            self.assert_classification(
+                data,
+                "pass" if valid else "fail",
+                "review_metadata_available" if valid else "schema_mismatch",
+            )
+        for protocol in ({}, {"private": PRIVATE}, PRIVATE):
+            data = ready_payload()
+            data["notes_action_truth"]["risks"]["protocol"] = protocol
+            self.assert_classification(data, "pass", "review_metadata_available")
+            data["notes_action_truth"]["risks"].update(
+                state="unavailable", readiness_impact="non_blocking", items=[]
+            )
+            self.assert_classification(data, "blocked", "review_metadata_incomplete")
+        data = ready_payload()
+        data["notes_action_truth"]["risks"].update(
+            state="unavailable", readiness_impact="non_blocking", items=[]
+        )
+        self.assert_classification(data, "blocked", "review_metadata_incomplete")
+        data["notes_action_truth"]["protocol"] = {}
+        self.assert_classification(data, "pass", "review_metadata_available")
+        data["notes_action_truth"]["source_basis"] = "blocked"
+        self.assert_classification(data, "blocked", "review_metadata_incomplete")
 
     def test_category_schema_and_source_basis(self):
         for category in CATEGORIES:

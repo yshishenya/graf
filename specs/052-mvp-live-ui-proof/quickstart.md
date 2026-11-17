@@ -33,6 +33,9 @@ request/configuration/health/aggregate/exit/privacy cases pass. Tests must
 also reject missing/malformed/different response meeting IDs and accept equal
 normalized UUIDs without printing either ID. This focused command is separate
 from GitHub's diff-based test selection; retain its actual source identity.
+Protocol cases must use the actual `notes_action_truth.protocol` sibling field:
+object/null/absent/malformed and wrongly nested category-only protocol. Only a
+truth-level object can enable the bounded risks exception.
 Import must
 not invoke main; request functions/environment are patched with synthetic
 values. No network, real session, real meeting, app, database, mail, payment,

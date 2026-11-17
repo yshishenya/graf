@@ -118,6 +118,13 @@ validation; a different valid UUID fails with a fixed candidate_mismatch reason.
 - Change server readiness or generate missing artifacts. Rejected; this repair
   changes only how the evidence tool reports its existing observation.
 
+PR #8126 review identified that protocol was initially read at the category
+level. The actual `NotesActionTruthState.protocol` and
+`stored_outcome_truth_state` put it at `notes_action_truth.protocol`, alongside
+categories. The contract now uses this source explicitly; a category-only
+protocol cannot enable the exception. Earlier passing synthetic fixtures used
+the wrong nesting and do not prove this real response case.
+
 ## Decision: Separate requirement quality from live acceptance
 
 **Rationale**: historical requirements checklist R15 literally asks whether

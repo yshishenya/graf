@@ -100,7 +100,7 @@ Known source bases are `stored_output`, `processing_status`, `transcript_only`,
 |---|---|
 | state `available`, impact `closes_gap`, nonempty items | pass |
 | state `not_found` or `not_inferable`, impact `closes_gap`, empty items | pass; zero stays zero |
-| risks only: state `unavailable`, impact `non_blocking`, empty items, `protocol` is an object | pass for this current projection; protocol content is neither printed nor semantically revalidated |
+| risks only: state `unavailable`, impact `non_blocking`, empty items, `notes_action_truth.protocol` is an object | pass for this current projection; protocol content is neither printed nor semantically revalidated |
 | known state/impact but any other combination, including `available` with zero items | blocked; record the state/count without inventing content |
 | missing/unknown/wrongly typed state, impact, items, source basis; protocol neither null nor object | fail / schema_mismatch |
 
@@ -108,6 +108,14 @@ All category passes also require `source_basis=stored_output`. Other known
 bases keep stored-outcomes proof blocked. The special risks case follows
 `stored_outcome_truth_state`; it must not become a blanket non-blocking bypass.
 A negative category is an honest observation, not a successful P1 launch gate.
+
+`protocol` belongs to `NotesActionTruthState`, alongside the eight categories,
+at `notes_action_truth.protocol`; it is not a category field. This optional
+field may be absent or null; any non-null value must be an object, otherwise
+the subset fails with `schema_mismatch`, even when categories are positive.
+A nested category `protocol` is an unused field and cannot authorize the risks
+exception. Its content is never emitted. The server schema and
+`stored_outcome_truth_state` are authoritative for this JSON location.
 
 ### Decision order, aggregate and process result
 
@@ -155,7 +163,9 @@ response UUID and equivalent normalized UUID spelling; all projected meeting sta
 team/shared/denied/limited/conflicting access; empty and nested-ready incomplete
 HTTP 200 responses; malformed JSON, null/scalar/list objects, wrong boolean and
 array types, unknown enums; every category's empty/blocking/state/source cases
-and the bounded protocol-risks exception; zero timeline and seek counters;
+and the bounded protocol-risks exception at the truth object's top level,
+including absent/null/malformed protocol and a wrongly nested category-only
+protocol that cannot pass; zero timeline and seek counters;
 transport/HTTP/redirect/health errors; absent owner inputs; aggregate/exit codes;
 private sentinel values excluded from stdout and errors. No network, real
 cookies, real candidate, server, app, database or mail is needed for these tests.

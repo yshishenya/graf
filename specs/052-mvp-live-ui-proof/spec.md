@@ -27,6 +27,9 @@ original live acceptance in US1, SC-001/003/004 and T019/T020 remains required.
 - Outcome evidence is state-based. Honest `not_found`/`not_inferable` with zero
   items stays valid; the current stored protocol's separate non-blocking risks
   projection is handled explicitly, without requiring fabricated category text.
+- The protocol projection is the sibling `notes_action_truth.protocol` field
+  from the actual server schema, not a field inside the risks category. A
+  wrongly nested protocol cannot make otherwise unavailable risks pass.
 - Current operational instructions use the single GRAF Dev, ignored feature
   pointer, feature changelog fragment and separate exact-SHA PR/release gates.
   Historical evidence is retained with its original meaning.

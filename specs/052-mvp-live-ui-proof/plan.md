@@ -185,6 +185,11 @@ product-owner decision is delegated to implementation. The response subset,
 source projection, category matrix, counter definitions, negative outcomes and
 exit codes are explicit in the contract.
 
+PR review corrected the protocol source to `notes_action_truth.protocol`, the
+optional sibling of the categories in `NotesActionTruthState`. Regression must
+use that server shape and reject a category-only protocol as an exception;
+malformed non-null truth-level protocol fails schema validation.
+
 Pre-design constitution review: I/II preserve native capture/Stop and do not
 launch an app; III/IV preserve server boundaries, GET-only access and
 metadata-only evidence with deletion/denial states; VI requires independent
