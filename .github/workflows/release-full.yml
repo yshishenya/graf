@@ -226,7 +226,7 @@ jobs:
   server-phases:
     name: Ubuntu postgres strict and performance
     needs: reserve
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
       CANDIDATE_ID: ${{ inputs.candidate_id }}
@@ -370,7 +370,7 @@ jobs:
   server-parallel:
     name: Ubuntu postgres parallel shard
     needs: reserve
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 40
     # Every part keeps running after a sibling fails so the aggregating job can
     # always check the coverage proof of all parts at once.

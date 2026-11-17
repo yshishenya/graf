@@ -263,7 +263,7 @@ services:
 
   rec-postgres:
     labels: *dev-labels
-    image: "${GRAF_DEV_DATABASE_IMAGE:-postgres:17-alpine}"
+    image: "${GRAF_DEV_DATABASE_IMAGE:-postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24}"
     environment:
       POSTGRES_DB: twobrain_rec
       POSTGRES_USER: twobrain_rec

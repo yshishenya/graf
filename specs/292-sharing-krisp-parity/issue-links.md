@@ -41,3 +41,7 @@
 - T036 (Issue #8036): https://github.com/yshishenya/graf/issues/8036
 - T037 (Issue #8039): https://github.com/yshishenya/graf/issues/8039
 - T038 (Issue #8045): https://github.com/yshishenya/graf/issues/8045
+
+- T040: #8119 — Ubuntu 24.04 для заданий подготовки APT.
+
+- T039: #8117 — длительность новой записи и полная проекция после замены.

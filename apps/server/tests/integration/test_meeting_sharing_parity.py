@@ -163,7 +163,30 @@ def test_public_playback_ranges_revoke_and_media_fence(client, tmp_path):
     assert client.get(path).status_code == 404
 
 
-def test_public_playback_uses_the_versioned_revision_before_outcomes(client, tmp_path):
+@pytest.mark.parametrize(("revision_duration", "expected"), [(None, 60), (0, 0), (24, 24), (90, 90)])
+def test_full_reader_uses_revision_duration_with_legacy_fallback(client, tmp_path, revision_duration, expected):
+    meeting, template = prepare(client, tmp_path)
+    add_retained_playback_m4a(client, meeting, b"synthetic-duration")
+
+    async def set_duration():
+        async with client.app_state["sessionmaker"]() as db:
+            from twobrain_rec_server.cabinet.public_sharing import current_media
+            row = await db.get(Meeting, meeting)
+            row.duration_seconds = 60
+            revision, _, _ = await current_media(db, meeting=row)
+            assert revision is not None
+            revision.duration_seconds = revision_duration
+            await db.commit()
+
+    asyncio.run(set_duration())
+    _, path = publish(client, meeting, template)
+    response = client.get(path)
+    assert response.status_code == 200
+    assert response.json()["duration_seconds"] == expected
+
+
+@pytest.mark.parametrize("duration", [24, 90])
+def test_public_playback_uses_the_versioned_revision_before_outcomes(client, tmp_path, duration):
     meeting, template = prepare(client, tmp_path)
     async def align_fixture_duration():
         async with client.app_state["sessionmaker"]() as db:
@@ -211,14 +234,21 @@ def test_public_playback_uses_the_versioned_revision_before_outcomes(client, tmp
         json={
             "local_media_revision_id": "f292-t004-synthetic-b",
             "source_kind": "reprocess",
-            "duration_seconds": 60,
+            "duration_seconds": duration,
             "expected_tracks": ["manifest", "media"],
         },
     )
     assert session.status_code == 202, (session.status_code, session.json().get("code"))
     session_id = session.json()["upload_session"]["session_id"]
+    async def assert_revision_duration():
+        async with client.app_state["sessionmaker"]() as db:
+            row = await db.get(MediaRevision, session.json()["media_revision"]["media_revision_id"])
+            assert row.duration_seconds == duration
+            assert (await db.get(Meeting, meeting)).duration_seconds == 60
+
+    asyncio.run(assert_revision_duration())
     replacement_audio = tmp_path / "replacement.wav"
-    _run_ffmpeg(["-f", "lavfi", "-i", "sine=frequency=660:sample_rate=16000:duration=60",
+    _run_ffmpeg(["-f", "lavfi", "-i", f"sine=frequency=660:sample_rate=16000:duration={duration}",
                  "-c:a", "pcm_s16le", str(replacement_audio)])
     tracks = []
     for role, data in {
@@ -231,7 +261,7 @@ def test_public_playback_uses_the_versioned_revision_before_outcomes(client, tmp
             content=data,
         )
         assert upload.status_code == 200, (role, upload.status_code)
-        tracks.append(track_descriptor(role, data=data, duration_seconds=60))
+        tracks.append(track_descriptor(role, data=data, duration_seconds=duration))
     accepted = client.post(
         f"/api/v1/upload-sessions/{session_id}/finalize",
         headers=auth_headers(),
@@ -241,7 +271,9 @@ def test_public_playback_uses_the_versioned_revision_before_outcomes(client, tmp
     revision_b = accepted.json()["meeting"]["media_revision"]
     assert revision_b["revision_number"] == 2 and revision_b["status"] == "accepted"
 
+    asyncio.run(assert_revision_duration())
     pending = client.get(path).json()
+    assert pending["duration_seconds"] == duration
     version_b = pending["media_version"]
     assert version_b != version_a
     assert_blocked(version_a, "shared_media_changed")
@@ -273,13 +305,15 @@ def test_public_playback_uses_the_versioned_revision_before_outcomes(client, tmp
             assert revision.revision_number == 2 and revision.status == "accepted"
             assert canonical.status == "stored" and canonical.validated_at is not None
             assert canonical.derivation_kind == "single_source_transcode"
-            assert canonical.duration_seconds == 60
+            assert canonical.duration_seconds == duration
+            assert revision.duration_seconds == duration
             body = client.app_state["storage"].get_bytes(canonical.storage_object_key)
             assert body[4:8] == b"ftyp" and body != original_bytes
             assert sha256(body).hexdigest() == canonical.sha256
             return body
     replacement_bytes = asyncio.run(published_artifact())
     ready = client.get(path).json()
+    assert ready["duration_seconds"] == duration
     assert ready["media_version"] == version_b and ready["playback_available"]
     assert not ready["transcript"] and not ready["speakers"]
     assert_playback(version_b, replacement_bytes)
@@ -311,7 +345,7 @@ def test_public_playback_uses_the_versioned_revision_before_outcomes(client, tmp
             db.add(result)
             await db.flush()
             segment = {"workspace_id": canonical.workspace_id, "meeting_id": meeting, "processing_result_id": result.id,
-                       "sequence": 0, "start_seconds": Decimal("0"), "end_seconds": Decimal("1"),
+                       "sequence": 0, "start_seconds": Decimal(duration - 3), "end_seconds": Decimal(duration - 2),
                        "text": "Проверка новой версии.", "source_role": "mixed"}
             transcript = TranscriptSegment(**segment)
             db.add_all([transcript, DiarizationSegment(**segment, speaker_label="Speaker 1")])
@@ -336,6 +370,7 @@ def test_public_playback_uses_the_versioned_revision_before_outcomes(client, tmp
     with_old_outcomes = client.get(path).json()
     version_result_b = with_old_outcomes["media_version"]
     assert version_result_b not in (version_a, version_b)
+    assert with_old_outcomes["transcript"][0]["start_ms"] == (duration - 3) * 1000
     assert with_old_outcomes["transcript"][0]["text"] == "Проверка новой версии."
     assert with_old_outcomes["summary_sections"] or with_old_outcomes["protocol"]
     assert with_old_outcomes["summary_source_stale"] is True
@@ -357,7 +392,7 @@ def test_public_playback_uses_the_versioned_revision_before_outcomes(client, tmp
     aligned = client.get(path).json()
     assert aligned["media_version"] == version_result_b and aligned["summary_source_stale"] is False
     assert aligned["summary_sections"] == [
-        {"category": "summary", "text": "Новый итог.", "sources": [{"start_ms": 0, "time": "0:00"}]},
+        {"category": "summary", "text": "Новый итог.", "sources": [{"start_ms": (duration - 3) * 1000, "time": f"{(duration - 3) // 60}:{(duration - 3) % 60:02d}"}]},
     ]
     assert "По предыдущей версии расшифровки" not in client.get(
         path, headers={"Accept": "text/html"},

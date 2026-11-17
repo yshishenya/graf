@@ -2,6 +2,32 @@
 
 Date: 2026-11-10
 
+Дополнение F296 от 2026-11-17: выпуск `v2026.11.16.2` опубликован:
+https://github.com/yshishenya/graf/releases/tag/v2026.11.16.2. Source
+`387c3290ae2d36f35fb67d7bf432e4a5873466e0`; PR #8099 (F296), #8106
+(session-ready dry-run), #8102 (release prep), #8103 (pr-metadata cache reset).
+`release-full` PASS (run 43940278450, candidate
+`rc-20261116T193149Z-1333b9d48a24`), `deploy_result=pass`, runtime SHA совпадает,
+health `live`/`ready` 200, backup `/opt/projects/2brain-rec/backups/20261116T202646Z`.
+Приложение подписано Developer ID, нотаризовано, stapled, принято Gatekeeper;
+Sparkle/live appcast предлагают `2026.11.16.2`. F296 сделал серверную копию
+доказуемой: sync-state отдаёт playback с фактической ревизией и локальным ID,
+отдельный `finalized_upload`, retention и storage status; клиент строит чистый
+fail-closed предикат и сухой отчёт. Добавлены ручная очистка только
+`meeting-transcription.wav` и автоматический eviction WAV по политике
+5 ГБ / 80% / 95% / min(10 ГБ, 10%) / 7 дней с kill switch; review-аудио,
+manifest, local-only режим и F284 fallback сохраняются. Production dry-run:
+74 записи, 24 eligible (819 998 720 байт), 39 not_uploaded, 6
+playback_not_available, 4 sync_conflict, 1 grace_not_elapsed; повторный прогон
+не изменил очередь и 37 WAV. Отчёт
+`7a95ad3e61f93559b799f63218063150e799f32f692c084b1d5eecaac1a5b635`. Финальный
+PKG `GRAF-2026.11.16.2.pkg` (10 661 294 байт, SHA256
+`91351b42ea6f3de146eedd1e3b8bb1de869a55b20e19ffe8712923f9d35eebed`) загружен
+в GitHub Release и на сайт; `graf.pkg` отдаёт HTTP 200, прежний файл сохранён
+как `graf.pkg.pre-2026.11.16.2-20261116T205951Z`. Ограничение: отдельная кнопка
+очистки в web-списке кабинета не добавлялась; используется нативная панель
+«Локальный кэш». F273 `v2026.11.16.1` остаётся отдельным выпуском.
+
 Дополнение F295/F292 от 2026-11-15: выпуск `v2026.11.12.6` опубликован:
 https://github.com/yshishenya/graf/releases/tag/v2026.11.12.6. Source
 `e44aae0a3c174249b72db77894ff761e67e2d962`; PR #8050 (F295), #8051 (release),

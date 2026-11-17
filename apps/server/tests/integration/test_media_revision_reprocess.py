@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from datetime import UTC, datetime, timedelta
 
+import pytest
 from sqlalchemy import select
 
 from tests.contract.test_ingest_openapi_contract import auth_headers
@@ -15,13 +16,14 @@ from twobrain_rec_server.domain.statuses import (
 )
 
 
-def test_reprocess_upload_creates_revision_scoped_session_and_reuses_idempotency(client) -> None:
+@pytest.mark.parametrize("duration", [24, 90])
+def test_reprocess_upload_creates_revision_scoped_session_and_reuses_idempotency(client, duration) -> None:
     finalized = create_finalized_meeting(client, "revision-reprocess-api")
     meeting_id = finalized["meeting"]["meeting_id"]
     payload = {
         "local_media_revision_id": "revision-reprocess-api--second",
         "source_kind": "reprocess",
-        "duration_seconds": 60,
+        "duration_seconds": duration,
         "expected_tracks": ["manifest", "media"],
         "expected_track_sizes": {"manifest": 2, "media": 4},
     }
@@ -46,6 +48,15 @@ def test_reprocess_upload_creates_revision_scoped_session_and_reuses_idempotency
     assert first_payload["media_revision"]["status"] == "pending_upload"
     assert first_payload["upload_session"]["media_revision_id"] == first_payload["media_revision"]["media_revision_id"]
     assert second_payload["upload_session"]["session_id"] == first_payload["upload_session"]["session_id"]
+
+    async def inspect_durations():
+        async with client.app_state["sessionmaker"]() as db:
+            meeting = await db.get(Meeting, meeting_id)
+            revision = await db.get(MediaRevision, first_payload["media_revision"]["media_revision_id"])
+            assert meeting.duration_seconds == 60
+            assert revision.duration_seconds == duration
+
+    asyncio.run(inspect_durations())
 
 
 def test_reprocess_revision_and_session_are_isolated_from_initial_revision(client) -> None:
@@ -109,7 +120,8 @@ def test_reprocess_upload_rejects_second_active_revision_for_same_meeting(client
     assert second.json()["code"] == "active_upload_session_exists"
 
 
-def test_aborting_reprocess_restores_previous_accepted_revision(client) -> None:
+@pytest.mark.parametrize("duration", [24, 90])
+def test_aborting_reprocess_restores_previous_accepted_revision(client, duration) -> None:
     finalized = create_finalized_meeting(client, "revision-reprocess-abort")
     meeting_id = finalized["meeting"]["meeting_id"]
     previous_revision_id = finalized["meeting"]["media_revision"]["media_revision_id"]
@@ -119,7 +131,7 @@ def test_aborting_reprocess_restores_previous_accepted_revision(client) -> None:
         json={
             "local_media_revision_id": "revision-reprocess-abort--second",
             "source_kind": "reprocess",
-            "duration_seconds": 60,
+            "duration_seconds": duration,
         },
     )
     assert response.status_code == 202
@@ -133,6 +145,8 @@ def test_aborting_reprocess_restores_previous_accepted_revision(client) -> None:
 
     async def inspect() -> tuple[object, object, object]:
         async with client.app_state["sessionmaker"]() as db:
+            replacement = await db.get(MediaRevision, response.json()["media_revision"]["media_revision_id"])
+            assert replacement.duration_seconds == duration
             return (
                 await db.get(Meeting, meeting_id),
                 await db.get(UploadSession, session_id),
@@ -144,9 +158,11 @@ def test_aborting_reprocess_restores_previous_accepted_revision(client) -> None:
     assert meeting.status == MeetingStatus.INGESTED_PENDING_PROCESSING.value
     assert session is not None and session.status == UploadSessionStatus.ABORTED.value
     assert revision is not None and revision.status == MediaRevisionStatus.ACCEPTED.value
+    assert revision.duration_seconds == 60
 
 
-def test_expiring_reprocess_restores_previous_accepted_revision(client) -> None:
+@pytest.mark.parametrize("duration", [24, 90])
+def test_expiring_reprocess_restores_previous_accepted_revision(client, duration) -> None:
     finalized = create_finalized_meeting(client, "revision-reprocess-expire")
     meeting_id = finalized["meeting"]["meeting_id"]
     previous_revision_id = finalized["meeting"]["media_revision"]["media_revision_id"]
@@ -157,7 +173,7 @@ def test_expiring_reprocess_restores_previous_accepted_revision(client) -> None:
         json={
             "local_media_revision_id": local_revision_id,
             "source_kind": "reprocess",
-            "duration_seconds": 60,
+            "duration_seconds": duration,
         },
     )
     assert response.status_code == 202
@@ -180,6 +196,8 @@ def test_expiring_reprocess_restores_previous_accepted_revision(client) -> None:
 
     async def inspect() -> tuple[object, object, object]:
         async with client.app_state["sessionmaker"]() as db:
+            replacement = await db.get(MediaRevision, response.json()["media_revision"]["media_revision_id"])
+            assert replacement.duration_seconds == duration
             return (
                 await db.get(Meeting, meeting_id),
                 await db.get(UploadSession, session_id),
@@ -191,6 +209,7 @@ def test_expiring_reprocess_restores_previous_accepted_revision(client) -> None:
     assert meeting.status == MeetingStatus.INGESTED_PENDING_PROCESSING.value
     assert session is not None and session.status == UploadSessionStatus.EXPIRED.value
     assert revision is not None and revision.status == MediaRevisionStatus.ACCEPTED.value
+    assert revision.duration_seconds == 60
 
 
 def test_reprocess_upload_enforces_recording_duration_limit(client) -> None:

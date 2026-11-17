@@ -392,7 +392,7 @@ async def persist_meeting(db: AsyncSession | None, meeting: MeetingRecord, *, co
             if not media_revision.immutable or media_revision.status != MediaRevisionStatus.ACCEPTED.value:
                 media_revision.source_kind = meeting.media_revision_source_kind.value
                 media_revision.status = meeting.media_revision_status.value
-                media_revision.duration_seconds = meeting.duration_seconds
+                # Duration belongs to the revision; meeting snapshots may describe an older recording.
         existing.status = meeting.status.value
         existing.processing_status = meeting.processing_status.value
         # Title writers own these fields; a stale ingest snapshot must not restore them.
