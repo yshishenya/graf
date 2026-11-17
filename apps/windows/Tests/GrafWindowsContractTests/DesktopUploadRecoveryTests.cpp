@@ -25,6 +25,164 @@ namespace {
 const graf::windows::DesktopAccountIdentity owner{
     "11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"};
 
+void testLocalCacheProof() {
+    using namespace graf::windows;
+    using Clock = std::chrono::steady_clock;
+    const auto baseline = CustodyOwnedMemory::usedBytes();
+    {
+        constexpr std::uint64_t now = 1'763'337'600'000ULL; // 2025-11-17T08:00:00Z, synthetic.
+        auto cancel = std::make_shared<std::atomic<bool>>(false);
+        ProtectedDesktopHttpConfig config;
+        config.baseOrigin = "https://example.test";
+        config.workspaceId = owner.workspaceId; config.deviceId = "33333333-3333-4333-8333-333333333333";
+        config.sessionToken = "synthetic-local-cache-session"; config.cancellation = cancel;
+        config.confirmedIdentity = BasicDesktopAccountIdentity<CustodyString>{CustodyString(owner.userId),
+            CustodyString(owner.workspaceId), config.deviceId};
+        LocalCacheProofQuery query{config.baseOrigin, owner.userId, owner.workspaceId, config.deviceId,
+            "44444444-4444-4444-8444-444444444444", "44444444-4444-4444-8444-444444444444--initial",
+            "55555555-5555-4555-8555-555555555555"};
+        const auto instant = [](std::uint64_t ms) {
+            auto text = DesktopApiClient::formatUtcInstant<std::string>(ms); text.pop_back();
+            return text + "." + std::to_string(1000 + ms % 1000).substr(1) + "Z";
+        };
+        const auto bodyFor = [&](std::uint64_t verified, std::uint64_t finalized, std::uint64_t retained) {
+            return std::string(R"({"local_recording_id":")") + std::string(query.recordingId) +
+                R"(","local_media_revision_id":")" + std::string(query.revisionId) +
+                R"(","meeting":{"meeting_id":")" + std::string(query.meetingId) +
+                R"(","access_state":"owner","deletion_state":"none","retention":{"policy_state":"active","delete_after":")" + instant(retained) +
+                R"("}},"conflict":{"state":"none"},"upload_session":{"status":"uploading","session_id":"active-is-not-finalized"},"media_revision":{"media_revision_id":"77777777-7777-4777-8777-777777777777"},"playback":{"state":"available","can_play":true,"reason_code":"canonical_ready","object_verified":true,"media_revision_id":"66666666-6666-4666-8666-666666666666","local_media_revision_id":")" + std::string(query.revisionId) +
+                R"(","verified_at":")" + instant(verified) +
+                R"("},"finalized_upload":{"session_id":"88888888-8888-4888-8888-888888888888","status":"finalized","archive_audio":true,"media_revision_id":"66666666-6666-4666-8666-666666666666","local_media_revision_id":")" + std::string(query.revisionId) +
+                R"(","finalized_at":")" + instant(finalized) + R"("}})";
+        };
+        auto body = bodyFor(now, now - 604'800'000, now + 2'592'000'000);
+        const auto good = body;
+        std::uint32_t status = 200, nativeError = 0; bool transportFailed = false, cancelAfterGet = false;
+        CustodyString cacheControl = "no-store";
+        unsigned sends = 0;
+        const auto deadline = Clock::now() + std::chrono::seconds(4);
+        const auto get = [&](const auto& scoped, const auto& request, auto bound) {
+            ++sends;
+            assert(bound == deadline && request.method == "GET" && request.body.empty() && !request.protectedBody &&
+                request.idempotencyKey.empty() && !request.byteOffset && request.contentSha256.empty());
+            assert(request.path == "/api/v1/desktop/recordings/44444444-4444-4444-8444-444444444444/"
+                "sync-state?local_media_revision_id=44444444-4444-4444-8444-444444444444--initial");
+            assert(scoped.scopedAccount && std::string_view(scoped.scopedAccount->userId) == owner.userId &&
+                std::string_view(scoped.scopedAccount->workspaceId) == owner.workspaceId && scoped.cancellation == cancel);
+            if (cancelAfterGet) cancel->store(true);
+            return DesktopHttpTransport::ProtectedUploadResponse{status, CustodyString(body), transportFailed, {}, {}, nativeError, cacheControl};
+        };
+        const auto fetch = [&] { return DesktopHttpTransport::localCacheProof(config, query, deadline, get, [now = now] { return now; }); };
+        const auto verdict = [&](const LocalCacheServerProof& proof, std::uint64_t at) {
+            return DesktopHttpTransport::localCacheProofEligibility(config, query, proof, at);
+        };
+        auto proof = fetch();
+        assert(verdict(proof, now) == "potentially_eligible" && sends == 1); // Different active revision/session is intentional.
+        assert(proof.serverMediaRevisionId() == "66666666-6666-4666-8666-666666666666" &&
+            proof.finalizedUploadSessionId() == "88888888-8888-4888-8888-888888888888");
+        for (const auto age : {-60'001LL, -60'000LL, 120'000LL, 120'001LL}) {
+            const auto at = static_cast<std::uint64_t>(static_cast<std::int64_t>(now) + age);
+            body = bodyFor(now, now - 604'800'000 - 120'001, now + 2'592'000'000 + 120'001);
+            proof = fetch();
+            assert((verdict(proof, at) == "potentially_eligible") == (age >= -60'000 && age <= 120'000));
+        }
+        for (const auto age : {-60'001LL, -60'000LL, 120'000LL, 120'001LL}) {
+            body = bodyFor(static_cast<std::uint64_t>(static_cast<std::int64_t>(now) - age),
+                now - 604'800'000, now + 2'592'000'000);
+            assert((verdict(fetch(), now) == "potentially_eligible") == (age >= -60'000 && age <= 120'000));
+        }
+        for (const auto delta : {-1LL, 0LL, 1LL}) {
+            body = bodyFor(now, static_cast<std::uint64_t>(static_cast<std::int64_t>(now - 604'800'000) + delta), now + 2'592'000'000);
+            assert((verdict(fetch(), now) == "potentially_eligible") == (delta <= 0));
+            body = bodyFor(now, now - 604'800'000, static_cast<std::uint64_t>(static_cast<std::int64_t>(now + 2'592'000'000) + delta));
+            assert((verdict(fetch(), now) == "potentially_eligible") == (delta >= 0));
+        }
+        const auto replace = [&](std::string_view before, std::string_view after) {
+            body = good; const auto at = body.find(before); assert(at != std::string::npos);
+            body.replace(at, before.size(), after);
+        };
+        for (const auto& replacement : {std::string(""), std::string("null"), std::string("42"),
+            std::string(R"("other--initial")")}) {
+            body = good; const auto start = body.find("\"local_media_revision_id\":", body.find("\"finalized_upload\""));
+            const auto end = body.find(",\"finalized_at\"", start); assert(start != std::string::npos && end != std::string::npos);
+            body.replace(start, end - start + (replacement.empty() ? 1 : 0),
+                replacement.empty() ? "" : "\"local_media_revision_id\":" + replacement);
+            assert(verdict(fetch(), now) != "potentially_eligible");
+        }
+        for (const auto& change : std::vector<std::pair<std::string, std::string>>{
+            {R"("archive_audio":true)", R"("archive_audio":false)"},
+            {R"("object_verified":true)", R"("object_verified":false)"},
+            {R"("can_play":true)", R"("can_play":"true")"},
+            {R"("policy_state":"active")", R"("policy_state":"unknown")"},
+            {R"("access_state":"owner")", R"("access_state":"revoked")"},
+            {R"("deletion_state":"none")", R"("deletion_state":"deleting")"},
+            {R"("conflict":{"state":"none"})", R"("conflict":{"state":"future"})"},
+            {R"("object_verified":true)", R"("object_verified":true,"object_verified":true)"},
+            {R"("object_verified":true)", R"("object_verified":true,"object_\u0076erified":true)"},
+            {"\"verified_at\":\"" + instant(now) + "\"", R"("verified_at":"2025-02-29T08:00:00Z")"},
+            {"\"verified_at\":\"" + instant(now) + "\"", R"("verified_at":18446744073709551616)"},
+            {R"("finalized_upload":{)", R"("finalized_upload":null,"ignored":{)"}}) {
+            replace(change.first, change.second); assert(verdict(fetch(), now) != "potentially_eligible");
+        }
+        replace("\"verified_at\":\"" + instant(now) + "\"", "\"verified_at\":\"" + instant(now).substr(0, 19) + ".000000001+00:00\"");
+        assert(verdict(fetch(), now) == "potentially_eligible");
+        replace("\"verified_at\":\"" + instant(now) + "\"", "\"verified_at\":\"" + instant(now + 60'000).substr(0, 19) + ".000000001Z\"");
+        assert(verdict(fetch(), now) != "potentially_eligible");
+        replace("\"finalized_at\":\"" + instant(now - 604'800'000) + "\"", "\"finalized_at\":\"" + instant(now - 604'800'000).substr(0, 19) + ".000000001Z\"");
+        assert(verdict(fetch(), now) != "potentially_eligible");
+        replace("\"delete_after\":\"" + instant(now + 2'592'000'000) + "\"", "\"delete_after\":\"" + instant(now + 2'592'000'000 - 1000).substr(0, 19) + ".999999999Z\"");
+        assert(verdict(fetch(), now) != "potentially_eligible");
+        for (const auto bad : {401U, 403U, 404U, 409U, 429U, 500U, 302U}) {
+            body = good; status = bad; assert(verdict(fetch(), now) != "potentially_eligible");
+        }
+        status = 200; body = good; transportFailed = true; assert(verdict(fetch(), now) != "potentially_eligible"); transportFailed = false;
+        nativeError = 5; assert(verdict(fetch(), now) != "potentially_eligible"); nativeError = 0;
+        cancelAfterGet = true; assert(verdict(fetch(), now) != "potentially_eligible"); cancel->store(false); cancelAfterGet = false;
+        cacheControl.clear(); assert(verdict(fetch(), now) != "potentially_eligible"); cacheControl = "private, no-store";
+        proof = fetch(); assert(verdict(proof, now) == "potentially_eligible");
+        config.sessionToken = "other-synthetic-session"; assert(verdict(proof, now) != "potentially_eligible");
+        config.sessionToken = "synthetic-local-cache-session";
+        const auto switched = DesktopHttpTransport::localCacheProof(config, query, deadline,
+            [&](const auto& sent, const auto&, auto) {
+                assert(sent.sessionToken == "synthetic-local-cache-session");
+                config.sessionToken = "changed-during-get";
+                return DesktopHttpTransport::ProtectedUploadResponse{200, CustodyString(good), false, {}, {}, 0, "no-store"};
+            }, [now = now] { return now; });
+        assert(verdict(switched, now) == "account_scope_mismatch");
+        config.sessionToken = "synthetic-local-cache-session";
+        for (unsigned badScope = 0; badScope < 6; ++badScope) {
+            auto changed = config; auto expected = query;
+            if (badScope == 0) changed.confirmedIdentity.reset();
+            if (badScope == 1) changed.confirmedIdentity->sessionDeviceId.reset();
+            if (badScope == 2) changed.baseOrigin = "http://localhost";
+            if (badScope == 3) changed.cancellation.reset();
+            if (badScope == 4) changed.sessionToken.clear();
+            if (badScope == 5) expected.revisionId = "66666666-6666-4666-8666-666666666666";
+            const auto before = sends;
+            const auto refused = DesktopHttpTransport::localCacheProof(changed, expected, deadline, get, [now = now] { return now; });
+            assert(DesktopHttpTransport::localCacheProofEligibility(changed, expected, refused, now) != "potentially_eligible" && sends == before);
+        }
+        auto wrong = query; wrong.meetingId = "99999999-9999-4999-8999-999999999999";
+        assert(DesktopHttpTransport::localCacheProofEligibility(config, wrong, proof, now) != "potentially_eligible");
+        for (const auto& header : {CustodyString("no-cache"), CustodyString("no-store\r\n"), CustodyString(257, 'x')}) {
+            cacheControl = header; assert(verdict(fetch(), now) != "potentially_eligible");
+        }
+        cacheControl = "PRIVATE, NO-STORE";
+        body = good + std::string(65536 - good.size(), ' '); assert(verdict(fetch(), now) == "potentially_eligible");
+        body = good + std::string(65536, ' '); assert(verdict(fetch(), now) != "potentially_eligible"); body = good;
+        const auto available = CustodyOwnedMemory::limit - CustodyOwnedMemory::usedBytes();
+        assert(CustodyOwnedMemory::tryReserve(available)); const auto sentBeforeOom = sends;
+        const auto refused = fetch(); CustodyOwnedMemory::release(available);
+        assert(verdict(refused, now) != "potentially_eligible" && sends == sentBeforeOom);
+        cancel->store(true); const auto before = sends;
+        assert(verdict(fetch(), now) != "potentially_eligible" && sends == before);
+        cancel->store(false);
+        auto expired = DesktopHttpTransport::localCacheProof(config, query, Clock::now() - std::chrono::seconds(1), get);
+        assert(verdict(expired, now) != "potentially_eligible" && sends == before);
+    }
+    assert(CustodyOwnedMemory::usedBytes() == baseline);
+}
+
 std::string meResponse(std::string_view user, std::string_view workspace) {
     return "{\"user_id\":\"" + std::string(user) + "\",\"workspace_id\":\"" + std::string(workspace) +
         R"(","active_session_id":"33333333-3333-4333-8333-333333333333","policy":{"future":[true,false,null,1.2e-3]},"registered_devices":[]})";
@@ -1961,8 +2119,66 @@ void testConfirmedIdentitySnapshot() {
     assert(DesktopHttpTransport::ownerBlockReason(foreign, snapshot.identity) == "account_mismatch");
 }
 
+int runLocalCacheHttpsFixture() {
+#ifdef _WIN32
+#ifdef _MSC_VER
+    _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
+    _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_FILE);
+    _CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);
+#endif
+    using namespace graf::windows;
+    const auto baseline = CustodyOwnedMemory::usedBytes();
+    {
+        constexpr std::uint64_t now = 1'794'902'400'000ULL; // 2026-11-17T08:00:00Z, synthetic.
+        ProtectedDesktopHttpConfig config;
+        config.baseOrigin = "https://localhost:49318";
+        config.workspaceId = owner.workspaceId;
+        config.deviceId = "33333333-3333-4333-8333-333333333333";
+        config.sessionToken = "synthetic-local-cache-https-session";
+        config.clientVersion = "t128-local-cache-https-fixture";
+        config.cancellation = std::make_shared<std::atomic<bool>>(false);
+        config.confirmedIdentity = BasicDesktopAccountIdentity<CustodyString>{CustodyString(owner.userId),
+            CustodyString(owner.workspaceId), config.deviceId};
+        unsigned cases = 0;
+        for (const auto recording : {"44444444-4444-4444-8444-444444444441",
+                                    "44444444-4444-4444-8444-444444444442",
+                                    "44444444-4444-4444-8444-444444444443"}) {
+            const auto caseBaseline = CustodyOwnedMemory::usedBytes();
+            {
+                const auto revision = std::string(recording) + "--initial";
+                const LocalCacheProofQuery query{config.baseOrigin, owner.userId, owner.workspaceId, config.deviceId,
+                    recording, revision, "55555555-5555-4555-8555-555555555555"};
+                // Empty GET callback exercises production WinHTTP, including normal TLS verification.
+                const auto proof = DesktopHttpTransport::localCacheProof(config, query,
+                    std::chrono::steady_clock::now() + std::chrono::seconds(5), {}, [now = now] { return now; });
+                const auto verdict = DesktopHttpTransport::localCacheProofEligibility(config, query, proof, now);
+                assert(verdict == (cases == 0 ? "potentially_eligible" : "proof_missing"));
+                if (cases == 0) {
+                    assert(proof.serverMediaRevisionId() == "66666666-6666-4666-8666-666666666666");
+                    assert(proof.finalizedUploadSessionId() == "88888888-8888-4888-8888-888888888888");
+                } else {
+                    assert(proof.serverMediaRevisionId().empty() && proof.finalizedUploadSessionId().empty());
+                }
+            }
+            assert(CustodyOwnedMemory::usedBytes() == caseBaseline);
+            ++cases;
+        }
+        assert(cases == 3);
+    }
+    assert(CustodyOwnedMemory::usedBytes() == baseline);
+    std::fputs("LOCAL_CACHE_HTTPS cases=3 owned_memory_baseline=pass\n", stderr);
+    return 0;
+#else
+    std::fputs("LOCAL_CACHE_HTTPS unavailable: Windows WinHTTP required\n", stderr);
+    return 2;
+#endif
+}
+
 int main(int argc, char** argv) {
     using namespace graf::windows;
+    if (argc == 2 && std::string_view(argv[1]) == "--local-cache-https-fixture") {
+        return runLocalCacheHttpsFixture();
+    }
     if (argc == 2 && std::string_view(argv[1]) == "--calendar-match-receipt") {
         testCalendarMatchReceipt();
         testScopedCalendarMatchReceipt();
@@ -1982,6 +2198,7 @@ int main(int argc, char** argv) {
         std::filesystem::remove_all(root);
         return 0;
     }
+    testLocalCacheProof();
     testSyncAccessDecoder();
     testSyncDecoder();
     testAccountIdentity();

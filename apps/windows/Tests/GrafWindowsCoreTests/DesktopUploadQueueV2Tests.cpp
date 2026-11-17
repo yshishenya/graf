@@ -83,10 +83,65 @@ struct ProtectedUploadQueueValueTestPeer {
         value.items_[0].status = UploadQueueStatus::uploaded;
         value.acknowledgements_.clear();
     }
+    static void cacheDeletion(ProtectedUploadQueueValue& value, const ProtectedUploadQueueValue::Item& row,
+        DeletionOperationPhase phase) {
+        ProtectedUploadQueueValue::Operation operation;
+        operation.target = DeletionTarget::meeting; operation.targetId = row.meetingId;
+        operation.actorUserId = row.ownerUserId; operation.workspaceId = row.ownerWorkspaceId; operation.phase = phase;
+        value.operations_.clear(); value.operations_.push_back(std::move(operation));
+    }
 };
 }
 
 namespace {
+void testLocalCacheCandidate(std::string_view source) {
+    using namespace graf::windows;
+    const auto baseline = CustodyOwnedMemory::usedBytes();
+    {
+        auto cancel = std::make_shared<std::atomic<bool>>(false);
+        auto decoded = ProtectedUploadQueueValueTestPeer::decode(source, cancel.get()); assert(decoded.ok());
+        auto value = **decoded.value;
+        auto row = value.items().front();
+        row.localRecordingId = row.directoryId = row.sessionId = "44444444-4444-4444-8444-444444444444";
+        row.status = UploadQueueStatus::uploaded; row.safeReason.clear(); row.accessState = "owner";
+        row.meetingId = "55555555-5555-4555-8555-555555555555";
+        ProtectedUploadQueueValueTestPeer::manualFixture(value, row);
+        const auto before = value.serialize(cancel); assert(before.ok());
+        const auto candidate = [&] { return value.canInspectLocalCache(0, row.ownerUserId, row.ownerWorkspaceId); };
+        assert(candidate()); // Local queue gate only; cached uploaded is never a server proof.
+        for (const auto state : {UploadQueueStatus::pending, UploadQueueStatus::uploading, UploadQueueStatus::retry,
+            UploadQueueStatus::needsAuth, UploadQueueStatus::blocked, UploadQueueStatus::quarantined}) {
+            auto changed = row; changed.status = state; ProtectedUploadQueueValueTestPeer::replaceFirst(value, changed);
+            assert(!candidate());
+        }
+        for (const auto access : {"", "unknown", "access_revoked", "owner"}) {
+            auto changed = row; changed.accessState = *access ? std::optional<CustodyString>(access) : std::nullopt;
+            ProtectedUploadQueueValueTestPeer::replaceFirst(value, changed); assert(candidate() == (std::string_view(access) == "owner"));
+        }
+        for (const auto reason : {"local_delete_pending", calendarServerPurgePending, calendarReplayRequired}) {
+            auto changed = row; changed.safeReason = reason; ProtectedUploadQueueValueTestPeer::replaceFirst(value, changed);
+            assert(!candidate());
+        }
+        auto changed = row; changed.sessionId = "other-session"; ProtectedUploadQueueValueTestPeer::replaceFirst(value, changed); assert(!candidate());
+        changed = row; changed.meetingId.clear(); ProtectedUploadQueueValueTestPeer::replaceFirst(value, changed); assert(!candidate());
+        ProtectedUploadQueueValueTestPeer::replaceFirst(value, row);
+        for (const auto phase : {DeletionOperationPhase::queued, DeletionOperationPhase::sending,
+            DeletionOperationPhase::accepted, DeletionOperationPhase::verified, DeletionOperationPhase::rejected}) {
+            ProtectedUploadQueueValueTestPeer::cacheDeletion(value, row, phase);
+            assert(candidate() == (phase == DeletionOperationPhase::rejected));
+        }
+        ProtectedUploadQueueValueTestPeer::manualFixture(value, row);
+        failAllocationMin = 1; failAllocationMax = (std::numeric_limits<std::size_t>::max)();
+        const auto noAllocation = candidate();
+        failAllocationMin = failAllocationMax = 0;
+        assert(noAllocation);
+        assert(!value.canInspectLocalCache(1, row.ownerUserId, row.ownerWorkspaceId));
+        assert(!value.canInspectLocalCache(0, "99999999-9999-4999-8999-999999999999", row.ownerWorkspaceId));
+        const auto after = value.serialize(cancel); assert(after.ok() && *before.value == *after.value);
+    }
+    assert(CustodyOwnedMemory::usedBytes() == baseline);
+}
+
 void testProtectedPurgeIntent(std::string_view source) {
     using namespace graf::windows;
     const auto baseline = CustodyOwnedMemory::usedBytes();
@@ -1264,6 +1319,7 @@ void testLoadCandidate(const std::filesystem::path& root) {
     testProtectedDeletionIntent(withAck);
     testCalendarQueueMarker(withAck);
     testProtectedDeletionAnswer(withAck);
+    testLocalCacheCandidate(withAck);
     testProtectedPurgeIntent(withAck);
 
     const auto assertRetained = [&] {

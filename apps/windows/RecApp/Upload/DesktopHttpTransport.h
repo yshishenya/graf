@@ -156,6 +156,36 @@ struct CalendarMatchReceiptQuery {
 
 struct CalendarMatchReplay;
 
+struct LocalCacheProofQuery {
+    std::string_view origin, userId, workspaceId, deviceId, recordingId, revisionId, meetingId;
+};
+
+// Response-scoped server evidence only. No package/queue/effect authority and
+// no serialization; the worker still owes current local integrity/lifecycle gates.
+class LocalCacheServerProof final {
+public:
+    LocalCacheServerProof() = default;
+    [[nodiscard]] std::string_view serverMediaRevisionId() const noexcept {
+        return evidence_ ? std::string_view(evidence_->serverRevision) : std::string_view{};
+    }
+    [[nodiscard]] std::string_view finalizedUploadSessionId() const noexcept {
+        return evidence_ ? std::string_view(evidence_->finalizedSession) : std::string_view{};
+    }
+private:
+    friend class DesktopHttpTransport;
+    struct Evidence {
+        std::array<CustodyString, 7> scope;
+        CustodyString serverRevision, finalizedSession;
+        std::array<std::uint8_t, 32> sessionDigest;
+        std::shared_ptr<const std::atomic<bool>> cancellation;
+        std::uint64_t fetchedAtMs;
+        std::chrono::steady_clock::time_point fetchedAt;
+        // UTC seconds and nanoseconds; do not round freshness/retention bounds.
+        std::array<std::array<std::uint64_t, 2>, 3> times;
+    };
+    std::optional<Evidence> evidence_;
+};
+
 class DesktopHttpTransport final {
 public:
     explicit DesktopHttpTransport(DesktopHttpConfig config = {});
@@ -187,6 +217,7 @@ public:
         String retryAfter = {};
         String authExpiresAt = {};
         std::uint32_t nativeError = 0;
+        String cacheControl = {};
     };
     using UploadResponse = BasicUploadResponse<std::string>;
     using ProtectedUploadResponse = BasicUploadResponse<CustodyString>;
@@ -197,6 +228,13 @@ public:
         const std::atomic<bool>* cancellation = nullptr);
     using ProtectedCalendarReceiptGet = std::function<ProtectedUploadResponse(
         const ProtectedDesktopHttpConfig&, const ProtectedUploadRequest&, std::chrono::steady_clock::time_point)>;
+    // Same authenticated bounded GET transport, independent of upload/loadTracks.
+    [[nodiscard]] static LocalCacheServerProof localCacheProof(
+        const ProtectedDesktopHttpConfig&, const LocalCacheProofQuery&, std::chrono::steady_clock::time_point,
+        const ProtectedCalendarReceiptGet& get = {}, const std::function<std::uint64_t()>& utcNowMs = {});
+    // Server half of eligibility only; potentially_eligible is never delete permission.
+    [[nodiscard]] static std::string_view localCacheProofEligibility(
+        const ProtectedDesktopHttpConfig&, const LocalCacheProofQuery&, const LocalCacheServerProof&, std::uint64_t nowMs);
     [[nodiscard]] static CalendarMatchReceipt calendarMatchReceipt(
         const ProtectedDesktopHttpConfig&, const CalendarMatchReceiptQuery&, std::chrono::steady_clock::time_point,
         const ProtectedCalendarReceiptGet& get = {});

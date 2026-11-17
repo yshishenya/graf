@@ -312,7 +312,7 @@ Response request(const Config& config, const CustodyWideString& method, const Cu
                      std::optional<std::chrono::steady_clock::time_point> operationDeadline = {},
                      std::chrono::steady_clock::time_point (*now)() = std::chrono::steady_clock::now,
                      std::size_t deadlineResponseLimit = 65536,
-                     std::optional<std::uint64_t> sendBeforeUtcMs = {}) {
+                     std::optional<std::uint64_t> sendBeforeUtcMs = {}, bool readCacheControl = false) {
     Response result;
     if (body.size() > std::numeric_limits<DWORD>::max()) { result.transportFailed = true; return result; }
     const auto deadline = operationDeadline.value_or(now() + std::chrono::seconds(30));
@@ -487,6 +487,22 @@ Response request(const Config& config, const CustodyWideString& method, const Cu
                 if (digestible) {
                     result.authExpiresAt.reserve(raw.size());
                     for (const auto character : raw) result.authExpiresAt.push_back(static_cast<char>(character));
+                }
+            }
+        }
+        if (readCacheControl) {
+            DWORD cacheSize = 0;
+            phase([&] { return WinHttpQueryHeaders(handle, WINHTTP_QUERY_CUSTOM, L"Cache-Control",
+                WINHTTP_NO_OUTPUT_BUFFER, &cacheSize, WINHTTP_NO_HEADER_INDEX) != FALSE; }, handle);
+            if (cacheSize > sizeof(wchar_t) && cacheSize <= 514) {
+                CustodyWideString raw(cacheSize / sizeof(wchar_t), L'\0');
+                if (phase([&] { return WinHttpQueryHeaders(handle, WINHTTP_QUERY_CUSTOM, L"Cache-Control", raw.data(),
+                        &cacheSize, WINHTTP_NO_HEADER_INDEX) != FALSE; }, handle)) {
+                    raw.resize(CustodyWideString::traits_type::length(raw.c_str()));
+                    for (const auto c : raw) {
+                        if (c < 0x20 || c > 0x7e) { result.cacheControl.clear(); break; }
+                        result.cacheControl.push_back(static_cast<char>(c));
+                    }
                 }
             }
         }
@@ -841,7 +857,158 @@ CalendarMatchReceipt decodeCalendarMatchReceiptEvidence(
     }
 }
 
+// UTC-only server instants. Keep submillisecond precision at inclusive gates;
+// no locale/time-zone/OS calendar conversion or floating-point rounding.
+std::optional<std::array<std::uint64_t, 2>> localCacheInstant(std::string_view text) {
+    if (text.size() < 20 || text.size() > 35 || text[4] != '-' || text[7] != '-' || text[10] != 'T' ||
+        text[13] != ':' || text[16] != ':') return std::nullopt;
+    const auto number = [&](std::size_t at, std::size_t count) -> unsigned {
+        unsigned result = 0;
+        for (std::size_t i = at; i < at + count; ++i) {
+            if (text[i] < '0' || text[i] > '9') return 10000;
+            result = result * 10 + static_cast<unsigned>(text[i] - '0');
+        }
+        return result;
+    };
+    const auto year = number(0, 4), month = number(5, 2), day = number(8, 2);
+    const auto hour = number(11, 2), minute = number(14, 2), second = number(17, 2);
+    constexpr std::array<unsigned, 12> days{31,28,31,30,31,30,31,31,30,31,30,31};
+    const auto leap = [](unsigned y) { return y % 4 == 0 && (y % 100 != 0 || y % 400 == 0); };
+    if (year < 1970 || year > 9999 || month < 1 || month > 12 || !day ||
+        day > days[month-1] + (month == 2 && leap(year) ? 1U : 0U) || hour > 23 || minute > 59 || second > 59) return std::nullopt;
+    std::size_t at = 19; std::uint64_t nanos = 0;
+    if (text[at] == '.') {
+        const auto start = ++at;
+        while (at < text.size() && text[at] >= '0' && text[at] <= '9') {
+            if (at - start == 9) return std::nullopt;
+            nanos = nanos * 10 + static_cast<unsigned>(text[at++] - '0');
+        }
+        if (at == start) return std::nullopt;
+        for (auto count = at - start; count < 9; ++count) nanos *= 10;
+    }
+    if (text.substr(at) != "Z" && text.substr(at) != "+00:00") return std::nullopt;
+    const auto beforeYear = [](std::uint64_t y) { --y; return 365*y + y/4 - y/100 + y/400; };
+    auto elapsedDays = beforeYear(year) - beforeYear(1970) + day - 1;
+    for (unsigned m = 1; m < month; ++m) elapsedDays += days[m-1] + (m == 2 && leap(year) ? 1U : 0U);
+    return std::array<std::uint64_t, 2>{elapsedDays*86400 + hour*3600 + minute*60 + second, nanos};
+}
+
+bool localCacheNoStore(std::string_view header) {
+    if (header.empty() || header.size() > 256) return false;
+    if (std::any_of(header.begin(), header.end(), [](unsigned char c) { return c < 0x20 || c > 0x7e; })) return false;
+    while (!header.empty()) {
+        const auto end = header.find(',');
+        auto part = header.substr(0, end);
+        while (!part.empty() && part.front() == ' ') part.remove_prefix(1);
+        while (!part.empty() && part.back() == ' ') part.remove_suffix(1);
+        if (part.size() == 8 && std::equal(part.begin(), part.end(), "no-store",
+            [](unsigned char a, unsigned char b) { return std::tolower(a) == b; })) return true;
+        if (end == std::string_view::npos) break;
+        header.remove_prefix(end + 1);
+    }
+    return false;
+}
+
 } // namespace
+
+LocalCacheServerProof DesktopHttpTransport::localCacheProof(const ProtectedDesktopHttpConfig& config,
+    const LocalCacheProofQuery& query, std::chrono::steady_clock::time_point deadline,
+    const ProtectedCalendarReceiptGet& get, const std::function<std::uint64_t()>& utcNowMs) {
+    using Clock = std::chrono::steady_clock;
+    using Reader = UploadJsonReader<CustodyString>;
+    deadline = std::min(deadline, Clock::now() + std::chrono::seconds(5));
+    const auto active = [&] { return config.cancellation && !cancelled(config) && Clock::now() < deadline; };
+    if (!active() || !protectedCalendarScopeMatches(config, query.origin, query.userId, query.workspaceId, query.deviceId) ||
+        !isSafeIdentifier(query.recordingId) || !isSafeIdentifier(query.revisionId) || !DesktopApiClient::accountId(query.meetingId) ||
+        query.revisionId.size() != query.recordingId.size() + 9 ||
+        query.revisionId.substr(0, query.recordingId.size()) != query.recordingId ||
+        query.revisionId.substr(query.recordingId.size()) != "--initial") return {};
+    try {
+        auto scoped = config;
+        scoped.scopedAccount = BasicDeletionScope<CustodyString>{CustodyString(query.userId), CustodyString(query.workspaceId)};
+        LocalCacheServerProof result;
+        result.evidence_.emplace(LocalCacheServerProof::Evidence{{CustodyString(query.origin), CustodyString(query.userId),
+            CustodyString(query.workspaceId), CustodyString(query.deviceId), CustodyString(query.recordingId),
+            CustodyString(query.revisionId), CustodyString(query.meetingId)}, {}, {}, sha256Digest(scoped.sessionToken),
+            scoped.cancellation, 0, {}, {}});
+        auto& evidence = *result.evidence_;
+        ProtectedUploadRequest call{"GET", "/api/v1/desktop/recordings/", ""};
+        call.path += query.recordingId; call.path += "/sync-state?local_media_revision_id="; call.path += query.revisionId;
+        const auto response = [&]() -> ProtectedUploadResponse {
+            if (get) return get(scoped, call, deadline);
+#ifdef _WIN32
+            return request<ProtectedUploadResponse>(scoped, L"GET", utf8ToWide(call.path), {}, true,
+                {}, {}, {}, deadline, Clock::now, 65536, {}, true);
+#else
+            return {0, {}, true};
+#endif
+        }();
+        if (!active() || response.transportFailed || response.nativeError || response.status != 200 ||
+            response.body.size() > 65536 || !localCacheNoStore(response.cacheControl)) return {};
+        const auto fetchedAt = Clock::now();
+        const auto fetchedMs = utcNowMs ? utcNowMs() : static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count());
+        const auto token = scoped.cancellation.get();
+        const auto raw = [](const Reader::Fields& fields, std::string_view key) -> std::string_view {
+            const auto it = fields.find(key); return it == fields.end() ? std::string_view{} : it->second;
+        };
+        const auto value = [&](const Reader::Fields& fields, std::string_view key) {
+            CustodyString result;
+            if (!json_detail::decodeString(raw(fields, key), 300*6+2, false,
+                [&](char c) { result += c; }) || result.size() > 300) return CustodyString{};
+            return result;
+        };
+        Reader rootReader(response.body, 32, true, token); const auto root = rootReader.read(); if (!root) return {};
+        if (value(*root, "local_recording_id") != evidence.scope[4] || value(*root, "local_media_revision_id") != evidence.scope[5]) return {};
+        Reader meetingReader(raw(*root, "meeting"), 32, true, token), conflictReader(raw(*root, "conflict"), 32, true, token),
+            playbackReader(raw(*root, "playback"), 32, true, token), finalizedReader(raw(*root, "finalized_upload"), 32, true, token);
+        const auto meeting = meetingReader.read(), conflict = conflictReader.read(), playback = playbackReader.read(), finalized = finalizedReader.read();
+        if (!meeting || !conflict || !playback || !finalized) return {};
+        Reader retentionReader(raw(*meeting, "retention"), 32, true, token); const auto retention = retentionReader.read();
+        if (!retention || value(*meeting, "meeting_id") != evidence.scope[6] || value(*meeting, "access_state") != "owner" ||
+            value(*meeting, "deletion_state") != "none" || value(*conflict, "state") != "none" ||
+            value(*playback, "state") != "available" || raw(*playback, "can_play") != "true" ||
+            value(*playback, "reason_code") != "canonical_ready" || raw(*playback, "object_verified") != "true" ||
+            value(*playback, "local_media_revision_id") != evidence.scope[5] ||
+            value(*finalized, "local_media_revision_id") != evidence.scope[5] || value(*finalized, "status") != "finalized" ||
+            raw(*finalized, "archive_audio") != "true" || !DesktopApiClient::accountId(value(*finalized, "session_id")) ||
+            value(*retention, "policy_state") != "active") return {};
+        const auto revision = value(*playback, "media_revision_id");
+        if (!DesktopApiClient::accountId(revision) || revision != value(*finalized, "media_revision_id")) return {};
+        const std::array<CustodyString, 3> textTimes{value(*playback, "verified_at"), value(*finalized, "finalized_at"), value(*retention, "delete_after")};
+        std::array<std::array<std::uint64_t, 2>, 3> times{};
+        for (std::size_t i = 0; i < times.size(); ++i) {
+            const auto parsed = localCacheInstant(textTimes[i]); if (!parsed) return {}; times[i] = *parsed;
+        }
+        evidence.serverRevision = revision; evidence.finalizedSession = value(*finalized, "session_id");
+        evidence.fetchedAtMs = fetchedMs; evidence.fetchedAt = fetchedAt; evidence.times = times;
+        if (!active()) return {};
+        return result;
+    } catch (...) { return {}; }
+}
+
+std::string_view DesktopHttpTransport::localCacheProofEligibility(const ProtectedDesktopHttpConfig& config,
+    const LocalCacheProofQuery& query, const LocalCacheServerProof& proof, std::uint64_t nowMs) {
+    if (!proof.evidence_) return "proof_missing";
+    const auto& e = *proof.evidence_;
+    if (!config.cancellation || cancelled(config) || config.cancellation != e.cancellation ||
+        !protectedCalendarScopeMatches(config, query.origin, query.userId, query.workspaceId, query.deviceId)) return "account_scope_mismatch";
+    const std::array<std::string_view, 7> scope{query.origin, query.userId, query.workspaceId, query.deviceId, query.recordingId, query.revisionId, query.meetingId};
+    for (std::size_t i = 0; i < scope.size(); ++i) if (std::string_view(e.scope[i]) != scope[i]) return "account_scope_mismatch";
+    try { if (e.sessionDigest != sha256Digest(config.sessionToken)) return "account_scope_mismatch"; }
+    catch (...) { return "dependency_unavailable"; }
+    if (nowMs < 604'800'000 || nowMs / 1000 > 253'402'300'799ULL - 2'592'000 ||
+        std::chrono::steady_clock::now() - e.fetchedAt > std::chrono::seconds(120)) return "proof_stale";
+    const std::array<std::uint64_t, 2> now{nowMs / 1000, (nowMs % 1000) * 1'000'000};
+    const auto shifted = [&](std::int64_t seconds) { return std::array<std::uint64_t, 2>{
+        static_cast<std::uint64_t>(static_cast<std::int64_t>(now[0]) + seconds), now[1]}; };
+    const std::array<std::uint64_t, 2> fetched{e.fetchedAtMs / 1000, (e.fetchedAtMs % 1000) * 1'000'000};
+    if (fetched < shifted(-120) || fetched > shifted(60)) return "proof_stale";
+    if (e.times[0] < shifted(-120) || e.times[0] > shifted(60)) return "verification_stale";
+    if (e.times[1] > shifted(-604800)) return "grace_not_elapsed";
+    if (e.times[2] < shifted(2592000)) return "retention_too_close";
+    return "potentially_eligible";
+}
 
 CalendarMatchReceipt DesktopHttpTransport::decodeCalendarMatchReceipt(
     const ProtectedUploadResponse& response, std::string_view recordingId, std::string_view revisionId,

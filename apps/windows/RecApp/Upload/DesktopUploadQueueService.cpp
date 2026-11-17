@@ -1142,6 +1142,16 @@ bool ProtectedUploadQueueValue::canManualSend(std::size_t index, std::string_vie
         (retryableStatus(row) && std::string_view(row.ownerUserId) == user && std::string_view(row.ownerWorkspaceId) == workspace);
 }
 
+bool ProtectedUploadQueueValue::canInspectLocalCache(std::size_t index, std::string_view user,
+    std::string_view workspace) const noexcept {
+    if (index >= items_.size() || !DesktopApiClient::accountId(user) || !DesktopApiClient::accountId(workspace)) return false;
+    const auto& row = items_[index];
+    return row.status == UploadQueueStatus::uploaded && row.ownerUserId == user && row.ownerWorkspaceId == workspace &&
+        DesktopUploadQueueService::validIdentity(row.localRecordingId) && row.directoryId == row.localRecordingId &&
+        row.sessionId == row.localRecordingId && DesktopApiClient::accountId(row.meetingId) &&
+        row.accessState && *row.accessState == "owner" && row.safeReason.empty() && !deletionBlocks(row);
+}
+
 bool ProtectedUploadQueueValue::prepareManualSend(std::size_t index, std::string_view user,
     std::string_view workspace, bool confirmUnowned, std::uint64_t now, const std::atomic<bool>* cancellation) {
     if (!cancellation) return false;

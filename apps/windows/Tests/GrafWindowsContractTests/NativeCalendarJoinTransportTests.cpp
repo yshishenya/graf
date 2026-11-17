@@ -52,6 +52,8 @@ std::size_t uploadLength = 0;
 bool exhaustAtOption = false;
 const wchar_t* retryHeader = nullptr;
 const wchar_t* expiryHeader = nullptr;
+const wchar_t* cacheHeader = nullptr;
+unsigned cacheProbes = 0, cacheCopies = 0;
 bool exhaustAtHeader = false;
 bool exhaustAtAvailable = false;
 struct QuotaPressure {
@@ -149,7 +151,16 @@ BOOL WINAPI testHeaders(HINTERNET h, DWORD level, LPCWSTR name, LPVOID buffer, L
         assert(buffer && *size == sizeof(DWORD)); *static_cast<DWORD*>(buffer) = wireStatus; return TRUE;
     }
     assert(level == WINHTTP_QUERY_CUSTOM);
-    const auto value = std::wstring_view(name) == L"Retry-After" ? retryHeader : expiryHeader;
+    const auto header = std::wstring_view(name);
+    const wchar_t* value = nullptr;
+    if (header == L"Retry-After") value = retryHeader;
+    else if (header == L"X-GRAF-Auth-Expires-At") value = expiryHeader;
+    else {
+        assert(header == L"Cache-Control");
+        value = cacheHeader;
+        if (buffer) ++cacheCopies; else ++cacheProbes;
+        if (!boundary(buffer ? "cache_read" : "cache_probe")) return FALSE;
+    }
     if (value) {
         const auto bytes = static_cast<DWORD>((std::char_traits<wchar_t>::length(value) + 1) * sizeof(wchar_t));
         if (!buffer) {
@@ -185,7 +196,8 @@ BOOL WINAPI testClose(HINTERNET h) {
 }
 void reset(std::string body) {
     assert(!quotaPressure.bytes && !quotaPressure.installed); exhaustAtOption = false;
-    retryHeader = expiryHeader = nullptr; exhaustAtHeader = exhaustAtAvailable = false;
+    retryHeader = expiryHeader = cacheHeader = nullptr; exhaustAtHeader = exhaustAtAvailable = false;
+    cacheProbes = cacheCopies = 0;
     responseBody = std::move(body); wireCursor = 0; chunk = 4096; wireStatus = 200;
     prematureZeroAt = std::string::npos;
     opens = sends = receives = queries = reads = timeouts = options = 0;
@@ -404,6 +416,81 @@ int main() {
         checkCalendarPost = {};
         calendarUtc.reset();
         advanceUtcAtPostOption.reset();
+    }
+
+    // T128: no ready-response callback. Only WinHTTP is replaced; the real
+    // response-header reader must propagate no-store into proof eligibility.
+    {
+        const LocalCacheProofQuery query{receiptQuery.origin, receiptQuery.userId, receiptQuery.workspaceId,
+            receiptQuery.deviceId, receiptQuery.recordingId, strictQuery.revisionId,
+            "66666666-6666-4666-8666-666666666666"};
+        const std::string body = R"({
+            "local_recording_id":"44444444-4444-4444-8444-444444444444",
+            "local_media_revision_id":"44444444-4444-4444-8444-444444444444--initial",
+            "meeting":{"meeting_id":"66666666-6666-4666-8666-666666666666","access_state":"owner",
+                "deletion_state":"none","retention":{"policy_state":"active","delete_after":"2025-12-17T00:00:00Z"}},
+            "conflict":{"state":"none"},
+            "playback":{"state":"available","can_play":true,"reason_code":"canonical_ready","object_verified":true,
+                "media_revision_id":"77777777-7777-4777-8777-777777777777",
+                "local_media_revision_id":"44444444-4444-4444-8444-444444444444--initial","verified_at":"2025-11-17T00:00:00Z"},
+            "finalized_upload":{"session_id":"88888888-8888-4888-8888-888888888888","status":"finalized","archive_audio":true,
+                "media_revision_id":"77777777-7777-4777-8777-777777777777",
+                "local_media_revision_id":"44444444-4444-4444-8444-444444444444--initial","finalized_at":"2025-11-10T00:00:00Z"}
+        })";
+        const auto check = [&](bool eligible, unsigned copies) {
+            receiptConfig.cancellation = cancel;
+            const auto baseline = CustodyOwnedMemory::usedBytes();
+            {
+                const auto result = DesktopHttpTransport::localCacheProof(receiptConfig, query,
+                    Clock::now() + std::chrono::seconds(5), {}, [] { return 1'763'337'600'000ULL; });
+                assert(DesktopHttpTransport::localCacheProofEligibility(receiptConfig, query, result, 1'763'337'600'000ULL) ==
+                    (eligible ? "potentially_eligible" : "proof_missing"));
+                assert(result.serverMediaRevisionId() == (eligible ? "77777777-7777-4777-8777-777777777777" : ""));
+                assert(result.finalizedUploadSessionId() == (eligible ? "88888888-8888-4888-8888-888888888888" : ""));
+            }
+            assert(CustodyOwnedMemory::usedBytes() == baseline);
+            assert(cacheProbes == 1 && cacheCopies == copies);
+            assert(opens == 1 && sends == 1 && receives == 1 && options == 1 && closes.size() == 3);
+            for (const auto& entry : closes) assert(entry.second == 1);
+            assert(wireVerb == L"GET" && wirePath ==
+                L"/api/v1/desktop/recordings/44444444-4444-4444-8444-444444444444/"
+                L"sync-state?local_media_revision_id=44444444-4444-4444-8444-444444444444--initial");
+            assert(wireHeaders.find(L"Cache-Control: no-cache, no-store\r\n") != std::wstring::npos);
+            assert(wireHeaders.find(L"X-Graf-Expected-Actor: 11111111-1111-4111-8111-111111111111\r\n") != std::wstring::npos);
+            assert(wireHeaders.find(L"X-Graf-Expected-Workspace: 22222222-2222-4222-8222-222222222222\r\n") != std::wstring::npos);
+            assert(wireHeaders.find(L"Idempotency-Key:") == std::wstring::npos &&
+                wireHeaders.find(L"X-Byte-Offset:") == std::wstring::npos && !uploadData && !callerBody);
+        };
+        for (const auto* value : {L"no-store", L"private, no-store", L"PRIVATE, NO-STORE"}) {
+            reset(body); cacheHeader = value; check(true, 1);
+        }
+        reset(body); check(false, 0); // Missing header cannot inherit request no-store.
+        reset(body); cacheHeader = L""; check(false, 0);
+        for (const auto* value : {L"no-cache", L"no-store=1", L"xno-store", L"no-store\r\n", L"no-store,\u00e9"}) {
+            reset(body); cacheHeader = value; check(false, 1);
+        }
+        const std::wstring limit = std::wstring(248, L' ') + L"no-store";
+        assert(limit.size() == 256 && (limit.size() + 1) * sizeof(wchar_t) == 514);
+        reset(body); cacheHeader = limit.c_str(); check(true, 1);
+        const auto oversized = L" " + limit;
+        reset(body); cacheHeader = oversized.c_str(); check(false, 0); // 516 UTF-16 bytes: no copy.
+        for (const auto* point : {"cache_probe", "cache_read"}) {
+            reset(body); cacheHeader = L"no-store"; failAt = point;
+            check(false, std::string_view(point) == "cache_read" ? 1U : 0U);
+        }
+        reset(body); cacheHeader = L"no-store"; interruptAt = "cache_read";
+        check(false, 1); assert(cancel->load() && reads == 0);
+        reset(body); cacheHeader = L"no-store"; throwAt = "cache_read";
+        check(false, 1); assert(reads == 0);
+        // The header option stays off for existing callers, even if supplied.
+        reset("{}"); cacheHeader = L"no-store"; receiptConfig.cancellation = cancel;
+        const auto baseline = CustodyOwnedMemory::usedBytes();
+        {
+            const auto response = request<DesktopHttpTransport::ProtectedUploadResponse>(receiptConfig, L"GET", L"/synthetic", {}, true);
+            assert(!response.transportFailed && response.cacheControl.empty() && cacheProbes == 0 && cacheCopies == 0);
+        }
+        assert(CustodyOwnedMemory::usedBytes() == baseline);
+        std::fputs("local_cache_winhttp_header_stub=pass real_https_fixture=open\n", stderr);
     }
 
     reset(target);

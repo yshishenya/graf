@@ -280,6 +280,9 @@ public:
         std::string_view workspace, std::string_view origin, std::uint64_t nowMs, ProtectedDeletionPlan&,
         bool& changed, const std::atomic<bool>* cancellation);
     [[nodiscard]] bool deletionBlocks(const Item&) const noexcept;
+    // Read-only local queue half; uploaded alone is not a fresh server/local proof.
+    [[nodiscard]] bool canInspectLocalCache(std::size_t index, std::string_view user,
+        std::string_view workspace) const noexcept;
     [[nodiscard]] bool canPurgeServerLocalRow(const Item&, const BasicLocalPurgeTask<CustodyString>&,
         std::string_view user, std::string_view workspace, std::string_view origin) const noexcept;
     // Domain intent only. Neither this marker nor a no-op ticket proves absence.
