@@ -528,3 +528,50 @@ AST от 2026-11-17 остаётся ограниченным RED, не дока
 Concurrent replacement после open и отказы самой cleanup/close/release этой
 матрицей не доказаны. MinIO integration, единственный GRAF Dev и production
 этими проверками не затрагиваются и принятыми не объявляются.
+
+
+## 2026-11-17 — T014: настоящая автоматическая серверная приёмка
+
+Следующий шаг после guard #8128 —
+[контракт этапов A/B/C](./contracts/real-transport-acceptance.md).
+Исходные §§3–9/11–15 сохраняют полный объём; новые источники соответствуют F275,
+без создания старых dual-source upload. До implementation admission commands
+ниже — план, не выполненные проверки; требуется независимый reviewer всех
+применимых списков, analyze и sync существующего #3361.
+
+Запускатель создаётся при реализации, это не существующая команда:
+
+```sh
+python3 apps/server/scripts/run_playback_normalization_real_transport.py
+```
+
+Он до первого collection проверяет отсутствие `.env`/symlinks, готовые frozen
+зависимости и явный локальный Docker socket, CLI checksum, FFmpeg/ffprobe,
+локальные image IDs и свободное место; создаёт собственные temp/Docker config,
+очищает env и вызывает штатный `run_local_postgres_tests.sh --focused -q -n 0
+ acceptance/playback_normalization_real_transport.py` с собственным заранее
+записанным PG resource manifest. Точная схема, actual image/label/ID до SQL,
+сроки/аварийный handoff и проверки отказов определены в контракте H1.
+Прямой pytest с унаследованным окружением не является допустимой командой.
+
+Приёмочный файл находится вне обычного discovery. До A contract tests
+отдельно доказывают неизменный ordinary collection/execution без CLI/MinIO,
+отсутствие импорта/ресурсов нового опыта и FAIL явного вызова без контекста
+до app imports/миграций. Ни skip, ни изменение общей CI selection не нужны.
+Новый обычный contract test stdlib-запускателя и существующий runner contract
+проверяют H1/H2 на doubles; это не настоящая transport acceptance.
+Недостающий evaluation extra/gepa0.1.4 готовится явно до опыта по frozen lock,
+проверяется отдельно; автоматической установки при collection нет.
+
+A-success: HTTP202 accepted WAV, автоматический workflow/worker, restricted
+media-role, наблюдённый verified source helper, ready canonical, независимые
+size/digest/profile/BMFF/full decode скачанного объекта и Range206.
+A-corrupt: HTTP202 принятого непустого источника, terminal/corrupt_source,
+нет canonical/публикации/повтора, исходник сохранён. Сроки/cleanup обязательны
+по контракту; skip/setup failure/иной reason/неполная очистка — FAIL.
+
+Receipt перечисляет только исполненные строки A/B/C и явно все открытые.
+Повторно запускать прежние50 guard/общие3132 CIunit без изменения их входов
+не нужно. Новый код требует собственных focused/lint/process проверок,
+converge/code review и свежих точных SHA/base PR gates. Два A не дают права
+закрыть T014/#3361 или заявить production/UI acceptance.

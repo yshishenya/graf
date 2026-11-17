@@ -14,6 +14,15 @@ container_started=false
 metadata_directory=""
 media_password=""
 result_marker=""
+postgres_resource_directory="${GRAF_TEST_POSTGRES_RESOURCE_DIR:-}"
+resource_context=false
+resource_run_token=""
+resource_image_id=""
+resource_container_id=""
+resource_manifest=""
+resource_cid_file=""
+resource_state_file=""
+resource_attempted=false
 
 if [[ ! "$test_database" =~ ^twobrain_rec_test_[a-z0-9_]+$ ]] \
   || [[ ! "$rls_database" =~ ^twobrain_rec_test_[a-z0-9_]+$ ]]; then
@@ -21,13 +30,122 @@ if [[ ! "$test_database" =~ ^twobrain_rec_test_[a-z0-9_]+$ ]] \
   exit 2
 fi
 
+resource_state_write() {
+  local phase="$1"
+  local container_id="${2:-}"
+  local temporary="$resource_state_file.tmp.$$"
+  python3 - "$resource_state_file" "$temporary" "$phase" "$container_id" "$resource_run_token" <<'PY_STATE'
+import json
+import os
+import sys
+import time
+
+path, temporary, phase, container_id, token = sys.argv[1:6]
+payload = {
+    "schema_version": 1,
+    "phase": phase,
+    "run_token": token,
+    "container_id": container_id or None,
+    "monotonic_ms": int(time.monotonic() * 1000),
+}
+descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+with os.fdopen(descriptor, "w", encoding="utf-8") as output:
+    json.dump(payload, output, sort_keys=True, separators=(",", ":"))
+    output.write("\n")
+os.replace(temporary, path)
+PY_STATE
+}
+
+remove_resource_handoff_files() {
+  if [[ -f "$resource_cid_file" && ! -L "$resource_cid_file" ]]; then
+    rm -f "$resource_cid_file"
+  fi
+  if [[ -n "$resource_state_file" && -f "$resource_state_file" && ! -L "$resource_state_file" ]]; then
+    resource_state_write removed ""
+  fi
+}
+
+container_identity() {
+  docker inspect --format '{{.Id}}|{{.Name}}|{{index .Config.Labels "pro.2brain.graf.f099.run"}}|{{.Image}}' "$1" 2>/dev/null
+}
+
+remove_verified_container() {
+  # Removes only the caller-owned container. An empty result is not proof of
+  # absence: only a successful exact-name lookup may establish that.
+  local candidate_id="${1:-}"
+  local identity=""
+  local ids=""
+  local actual_id=""
+  local actual_name=""
+  local actual_token=""
+  local actual_image=""
+  if [[ -n "$candidate_id" ]]; then
+    identity="$(container_identity "$candidate_id")" || identity=""
+  fi
+  if [[ -z "$identity" ]]; then
+    if ! ids="$(docker ps -aq --no-trunc --filter "name=^/${postgres_container}$")"; then
+      printf 'postgres_test_resource_cleanup=lookup_failed\n' >&2
+      return 1
+    fi
+    if [[ -z "$ids" ]]; then
+      remove_resource_handoff_files
+      printf 'postgres_test_resource_cleanup=confirmed_absent\n'
+      return 0
+    fi
+    if [[ "$(printf '%s\n' "$ids" | wc -l | tr -d ' ')" != "1" ]]; then
+      printf 'postgres_test_resource_cleanup=ambiguous_lookup\n' >&2
+      return 1
+    fi
+    candidate_id="$ids"
+    identity="$(container_identity "$candidate_id")" || identity=""
+  fi
+  if [[ -z "$identity" ]]; then
+    printf 'postgres_test_resource_cleanup=identity_unreadable\n' >&2
+    return 1
+  fi
+  IFS='|' read -r actual_id actual_name actual_token actual_image <<< "$identity"
+  if [[ "$actual_name" != "/$postgres_container" \
+    || "$actual_token" != "$resource_run_token" \
+    || "$actual_image" != "$resource_image_id" ]]; then
+    printf 'postgres_test_resource_cleanup=foreign_or_mismatched_container\n' >&2
+    return 1
+  fi
+  if ! docker rm --force --volumes "$actual_id" >/dev/null 2>&1; then
+    printf 'postgres_test_resource_cleanup=remove_failed\n' >&2
+    return 1
+  fi
+  if container_identity "$actual_id" >/dev/null 2>&1; then
+    printf 'postgres_test_resource_cleanup=still_present_after_remove\n' >&2
+    return 1
+  fi
+  if ! ids="$(docker ps -aq --no-trunc --filter "name=^/${postgres_container}$")"; then
+    printf 'postgres_test_resource_cleanup=absence_lookup_failed\n' >&2
+    return 1
+  fi
+  if [[ -n "$ids" ]]; then
+    printf 'postgres_test_resource_cleanup=name_still_present\n' >&2
+    return 1
+  fi
+  remove_resource_handoff_files
+  printf 'postgres_test_resource_cleanup=removed\n'
+  return 0
+}
+
 cleanup() {
   local exit_status=$?
   trap - EXIT INT TERM
   if [[ -n "$metadata_directory" ]]; then
     rm -rf "$metadata_directory"
   fi
-  if [[ "$container_started" == true ]]; then
+  if [[ "$resource_context" == true ]]; then
+    if [[ "$resource_attempted" == true && "$collect_only" != true ]]; then
+      if ! remove_verified_container "$resource_container_id"; then
+        if (( exit_status == 0 )); then exit_status=1; fi
+      fi
+    else
+      printf 'postgres_test_resource_cleanup=not_started\n'
+    fi
+  elif [[ "$container_started" == true ]]; then
     if docker rm --force --volumes "$postgres_container" >/dev/null 2>&1; then
       printf 'postgres_test_cleanup=isolated_container_removed\n'
     else
@@ -185,6 +303,87 @@ for argument in "${pytest_args[@]}"; do
   fi
 done
 
+validate_postgres_resource_context() {
+  if [[ -z "$postgres_resource_directory" ]]; then
+    return 0
+  fi
+  if [[ "$requested_mode" != "focused" ]]; then
+    printf 'GRAF_TEST_POSTGRES_RESOURCE_DIR requires explicit --focused\n' >&2
+    exit 2
+  fi
+  local output
+  if ! output="$(python3 - "$postgres_resource_directory" <<'PY_RESOURCE'
+import json
+import os
+import stat
+import sys
+
+root = sys.argv[1]
+if not os.path.isabs(root):
+    raise SystemExit("resource directory must be an absolute path")
+metadata = os.lstat(root)
+if not stat.S_ISDIR(metadata.st_mode) or stat.S_ISLNK(metadata.st_mode):
+    raise SystemExit("resource directory must be a real directory")
+if metadata.st_mode & 0o077:
+    raise SystemExit("resource directory mode must be 0700")
+if metadata.st_uid != os.geteuid():
+    raise SystemExit("resource directory owner is invalid")
+
+manifest_path = os.path.join(root, "postgres-resource.json")
+manifest_metadata = os.lstat(manifest_path)
+if not stat.S_ISREG(manifest_metadata.st_mode) or stat.S_ISLNK(manifest_metadata.st_mode):
+    raise SystemExit("resource manifest must be a regular non-symlink file")
+if manifest_metadata.st_mode & 0o177:
+    raise SystemExit("resource manifest mode must be 0600")
+if manifest_metadata.st_uid != os.geteuid():
+    raise SystemExit("resource manifest owner is invalid")
+if manifest_metadata.st_size > 4096:
+    raise SystemExit("resource manifest is too large")
+with open(manifest_path, "r", encoding="utf-8") as source:
+    document = json.load(source)
+if not isinstance(document, dict) or set(document) != {
+    "schema_version",
+    "run_token",
+    "container_name",
+    "image_id",
+}:
+    raise SystemExit("resource manifest must contain exactly schema_version, run_token, container_name, image_id")
+if type(document["schema_version"]) is not int or document["schema_version"] != 1:
+    raise SystemExit("resource manifest schema_version must be 1")
+token = document["run_token"]
+if not isinstance(token, str) or len(token) != 32 or any(ch not in "0123456789abcdef" for ch in token):
+    raise SystemExit("resource manifest run_token must be 32 lowercase hex characters")
+expected_name = "graf-postgres-test-f099-" + token
+if document["container_name"] != expected_name:
+    raise SystemExit("resource manifest container_name does not match its run_token")
+image_id = document["image_id"]
+if (
+    not isinstance(image_id, str)
+    or not image_id.startswith("sha256:")
+    or len(image_id) != 71
+    or any(ch not in "0123456789abcdef" for ch in image_id[7:])
+):
+    raise SystemExit("resource manifest image_id must be a sha256 image ID")
+print(token)
+print(image_id)
+print(expected_name)
+PY_RESOURCE
+  )"; then
+    printf 'invalid GRAF_TEST_POSTGRES_RESOURCE_DIR context; refusing to start\n' >&2
+    exit 2
+  fi
+  resource_run_token="$(sed -n '1p' <<< "$output")"
+  resource_image_id="$(sed -n '2p' <<< "$output")"
+  resource_container_name="$(sed -n '3p' <<< "$output")"
+  postgres_container="$resource_container_name"
+  resource_manifest="$postgres_resource_directory/postgres-resource.json"
+  resource_cid_file="$postgres_resource_directory/postgres.cid"
+  resource_state_file="$postgres_resource_directory/postgres-state.json"
+  resource_context=true
+}
+
+validate_postgres_resource_context
+
 workers="${GRAF_TEST_WORKERS:-4}"
 if [[ ! "$workers" =~ ^[1-9][0-9]*$ ]] || (( workers > 8 )); then
   printf 'GRAF_TEST_WORKERS must be an integer from 1 through 8.\n' >&2
@@ -241,7 +440,147 @@ run_phase() {
   fi
 }
 
+start_postgres_resource() {
+  if ! docker info >/dev/null 2>&1; then
+    printf 'Docker Engine is unavailable. Start Docker Desktop, wait until it is ready, then retry.\n' >&2
+    exit 1
+  fi
+  local image_actual
+  if ! image_actual="$(docker image inspect --format '{{.Id}}' "$resource_image_id" 2>/dev/null)"; then
+    printf 'Admitted PostgreSQL image ID is unavailable locally.\n' >&2
+    exit 1
+  fi
+  if [[ "$image_actual" != "$resource_image_id" ]]; then
+    printf 'Admitted PostgreSQL image ID does not match the local image.\n' >&2
+    exit 1
+  fi
+  if [[ -e "$resource_cid_file" || -L "$resource_cid_file" || -e "$resource_state_file" || -L "$resource_state_file" ]]; then
+    printf 'PostgreSQL resource handoff already exists; refusing to create.\n' >&2
+    exit 1
+  fi
+  resource_attempted=true
+  resource_state_write starting ""
+  local bootstrap_deadline=$((SECONDS + 60))
+
+  postgres_initialized=false
+  for start_attempt in 1 2; do
+    if (( SECONDS >= bootstrap_deadline )); then
+      printf 'postgres_test_bootstrap_timeout=1\n' >&2
+      break
+    fi
+    postgres_ready=false
+    if docker run --detach --rm --pull=never --name "$resource_container_name" \
+      --label "pro.2brain.graf.f099.run=$resource_run_token" \
+      --cidfile "$resource_cid_file" \
+      --env POSTGRES_DB=postgres \
+      --env POSTGRES_USER=twobrain_rec \
+      --env POSTGRES_PASSWORD=twobrain_rec \
+      --tmpfs /var/lib/postgresql/data:rw \
+      --publish 127.0.0.1::5432 \
+      "$resource_image_id" >/dev/null; then
+      :
+    fi
+    local identity=""
+    identity="$(container_identity "$resource_container_name")" || identity=""
+    if [[ -n "$identity" ]]; then
+      local actual_id="" actual_name="" actual_token="" actual_image=""
+      IFS='|' read -r actual_id actual_name actual_token actual_image <<< "$identity"
+      if [[ "$actual_name" != "/$resource_container_name" \
+        || "$actual_token" != "$resource_run_token" \
+        || "$actual_image" != "$resource_image_id" ]]; then
+        printf 'PostgreSQL container identity does not match the admitted resource.\n' >&2
+        exit 1
+      fi
+      resource_container_id="$actual_id"
+      container_started=true
+    else
+      container_started=false
+    fi
+    if [[ "$container_started" == true ]]; then
+      for _attempt in {1..240}; do
+        if (( SECONDS >= bootstrap_deadline )); then
+          printf 'postgres_test_bootstrap_timeout=1\n' >&2
+          break
+        fi
+        if docker logs "$resource_container_name" 2>&1 \
+          | grep -q "PostgreSQL init process complete; ready for start up." \
+          && docker exec "$resource_container_name" \
+            pg_isready --username=twobrain_rec --dbname=postgres >/dev/null 2>&1; then
+          postgres_ready=true
+          break
+        fi
+        sleep 0.25
+      done
+    fi
+    if [[ "$postgres_ready" == true ]]; then
+      # Re-prove ownership immediately before the first SQL statement.
+      identity="$(container_identity "$resource_container_id")" || identity=""
+      IFS='|' read -r actual_id actual_name actual_token actual_image <<< "$identity"
+      if [[ -z "$identity" \
+        || "$actual_id" != "$resource_container_id" \
+        || "$actual_name" != "/$resource_container_name" \
+        || "$actual_token" != "$resource_run_token" \
+        || "$actual_image" != "$resource_image_id" ]]; then
+        printf 'PostgreSQL container identity changed before the first SQL statement.\n' >&2
+        exit 1
+      fi
+      for _db_attempt in {1..20}; do
+        if docker exec "$resource_container_id" \
+          psql --set=ON_ERROR_STOP=1 --username=twobrain_rec --dbname=postgres \
+          --command "create database \"${rls_database}\"" >/dev/null; then
+          postgres_initialized=true
+          break 2
+        fi
+        sleep 0.25
+      done
+    fi
+    if [[ "$container_started" == true ]]; then
+      if ! remove_verified_container "$resource_container_id"; then
+        printf 'postgres_test_container_start_cleanup=failed\n' >&2
+        exit 1
+      fi
+      resource_container_id=""
+      container_started=false
+    fi
+    if (( start_attempt < 2 )); then
+      printf 'postgres_test_container_start_retry=1\n' >&2
+    fi
+  done
+  if [[ "$postgres_initialized" != true ]]; then
+    printf 'Disposable PostgreSQL test container did not become ready.\n' >&2
+    exit 1
+  fi
+
+  postgres_port="$(docker port "$resource_container_id" 5432/tcp | awk -F: 'NR == 1 { print $NF }')"
+  if [[ ! "$postgres_port" =~ ^[0-9]+$ ]]; then
+    printf 'Disposable PostgreSQL test container did not expose a safe loopback port.\n' >&2
+    exit 1
+  fi
+
+  test_url="postgresql+asyncpg://twobrain_rec:twobrain_rec@127.0.0.1:${postgres_port}/${test_database}"
+  rls_url="postgresql+asyncpg://twobrain_rec:twobrain_rec@127.0.0.1:${postgres_port}/${rls_database}"
+  admin_url="postgresql+asyncpg://twobrain_rec:twobrain_rec@127.0.0.1:${postgres_port}/postgres"
+  media_password="$(openssl rand -hex 24)"
+  if [[ ! "$media_password" =~ ^[a-f0-9]{48}$ ]]; then
+    printf 'Unable to generate an ephemeral PostgreSQL media-role credential.\n' >&2
+    exit 1
+  fi
+  rls_media_url="postgresql+asyncpg://twobrain_rec_media:${media_password}@127.0.0.1:${postgres_port}/${rls_database}"
+
+  export TWOBRAIN_DATABASE_URL="$test_url"
+  export RLS_TEST_DATABASE_URL="$rls_url"
+  export GRAF_TEST_DATABASE_PREFIX="$test_database"
+  export GRAF_TEST_POSTGRES_ADMIN_URL="$admin_url"
+  export GRAF_TEST_POSTGRES_MEDIA_PASSWORD="$media_password"
+  export RLS_TEST_MEDIA_DATABASE_URL="$rls_media_url"
+  resource_state_write ready "$resource_container_id"
+}
+
 start_postgres() {
+  if [[ "$resource_context" == true ]]; then
+    start_postgres_resource
+    return 0
+  fi
   if ! docker info >/dev/null 2>&1; then
     printf 'Docker Engine is unavailable. Start Docker Desktop, wait until it is ready, then retry.\n' >&2
     exit 1
@@ -344,8 +683,11 @@ metadata_directory="$(mktemp -d "${TMPDIR:-/tmp}/graf-postgres-test.XXXXXX")"
 selection=("${pytest_args[@]}")
 if [[ "$mode" == fast ]]; then selection=(-q tests/unit); fi
 collection_args=()
+if [[ "$partitioned" == true || "$resource_context" == true ]]; then
+  collection_args=(-p tests.fixtures.test_resources)
+fi
 if [[ "$partitioned" == true ]]; then
-  collection_args=(-p tests.fixtures.test_resources --graf-partition-preflight)
+  collection_args+=(--graf-partition-preflight)
 fi
 if uv run --extra dev --extra evaluation pytest -c "$repo_root/apps/server/pyproject.toml" --collect-only \
   "${collection_args[@]}" --graf-collection-file "$metadata_directory/collection.json" "${selection[@]}" \

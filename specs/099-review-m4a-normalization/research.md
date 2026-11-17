@@ -453,3 +453,78 @@ SE01: stale catch(job_id) выбрал B и очистил её lease. SE02: cle
 путей cleanup прослежены. Решение — существующие scalar номер/owner под
 job lock и защита последней активной попытки в общей cleanup; без схемы
 и нового runtime. F290 frozen CI не меняется. SE03 не признан дефектом.
+
+
+## 2026-11-17 — настоящий transport для T014/#3361
+
+**Decision**: существующие API post-commit → Temporal workflow/factory Worker →
+production activity → MinioStorage/FFmpeg пригодны для проверки без изменения
+продуктового кода. Отдельная async-петля с ASGITransport сохраняет client/Worker
+в одной петле. Напрямую job/dispatcher/workflow из теста не запускаются.
+**Rationale**: прежние doubles/direct-job проверки не доказывают настоящий
+транспорт и автоматическое получение задания. Отдельные real FFmpeg проверки
+сохраняют свой действительный охват. **Alternatives**: fake transport и прямой
+вызов job отклонены как недостаточное доказательство автоматичности.
+
+**Decision**: очистить окружение до collection и миграций; остановиться на `.env`,
+включая symlink; явные синтетические Settings/endpoints и отключённые интеграции.
+**Rationale**: 5 отдельных синтетических опытов настоящего config.py подтвердили,
+что `_env_file=None` не отключает inherited env, а get_settings читает dotenv.
+Это не означает, что любое наследование уже прочитало production secrets.
+**Alternatives**: менять общий config или только очищать env внутри fixture
+отклонено: поздно для collection/Alembic и шире необходимого.
+
+**Decision**: SDK1.30.0 `start_local(dev_server_existing_path=...)` использует
+заранее проверенный CLI1.8.2 с SHA из нового контракта, без SDK default download.
+**Rationale**: SDK default не закрепляет CLI bytes, existing_path исключает
+скачивание. На Mac уже есть Homebrew bottle; проверены обычный файл, checksum
+и `--version` (Server1.31.2). Совместимость запуска ещё не исполнена.
+**Alternatives**: скачивание latest/default и новый Python wrapper-package
+отклонены; при несовпадении версия не подменяется автоматически.
+
+**Decision**: второй A-case — непустой один нулевой байт через обычный HTTP upload,
+ожидаемый `terminal/corrupt_source`. **Rationale**: пустой файл отклоняется до
+acceptance, а непустой проходит custody; источник _probe_source отображает
+обычный ненулевой ffprobe exit в corrupt_source. Это source-backed ожидание,
+а не выполненный приёмочный опыт; иной reason не считается PASS.
+
+**Decision**: loopback одноразовый MinIO по проверенному image ID с pull=never;
+existing PG runner, проверка его реально использованного image ID перед данными.
+**Rationale**: mutable PostgreSQL tag не доказывает закрепление; Docker context
+и прикладное окружение не наследуются. Cleanup имеет внешнего владельца и
+ограниченный срок, а не только необязательный async-context exit.
+**Alternatives**: общие Dev volumes/remote daemon/перезапуск служб запрещены.
+
+**Уточнение H1 после independent review106/14**: исходный PG runner не выдаёт
+внешнему владельцу name/label/cidfile и запускает tag; родитель не может
+безопасно восстановить ownership одной разницей docker ps. Выбран один
+служебный GRAF_TEST_POSTGRES_RESOURCE_DIR с заранее сохранённым typed manifest,
+известными name/token/image, label/cidfile/state и сверкой actual identity
+до SQL; ограниченный parent supervisor остаётся владельцем cleanup после
+смерти child. Это явно разрешённое изменение общего test runner/его contract
+tests, без продуктового runtime. Обычный режим сохраняется. PID/prefix scan,
+перехват Docker и копия PG runner отвергнуты: хуже доказательство владения
+или дублирование. SIGKILL supervisor оставляет заранее известный
+cleanup_required следующему основному агенту/оператору, без ложного PASS.
+
+**Уточнение H2**: обычный test_*.py под tests автоматически обнаруживается
+release-full до нового launcher. Выбран acceptance/playback_normalization_real_transport.py
+вне testpaths и filename pattern, только явный запуск. Ранний stdlib guard
+предшествует подключению tests.conftest как plugin; родительского server
+conftest нет. В собственном режиме PG runner до CLI parsing загружает
+resource plugin для inventory options. Обычный CI не меняет collection/набор
+и не стартует эти ресурсы; contract tests проверяют оба режима. Skip/xfail,
+общие ignore/workflow changes и поздний fixture guard отвергнуты.
+
+Read-only inventory: локальные images PG/MinIO и FFmpeg8.1.2 доступны;
+из25 прямых distribution24 совпали с lock, evaluation/gepa0.1.4 отсутствует.
+Это не transitively frozen environment и не runtime acceptance. Подготовка
+extra должна быть явной до опыта. Новый master2805 изменил отдельный
+isolated PG bootstrap; используемая worker/media часть fixture не изменилась.
+
+Подробные границы/этапы A/B/C:
+[real-transport-acceptance.md](./contracts/real-transport-acceptance.md).
+Внешние source-verification/settings/runtime-prerequisite receipts сохраняют
+точный SHA193e01b296 и контрольные суммы. Исследователь работал только на чтение;
+root проверил ключевые исходные ветвления и SDK original. Ни A/B/C, ни миграции,
+ни worker/MinIO/Temporal не запускались в этом planning этапе.
