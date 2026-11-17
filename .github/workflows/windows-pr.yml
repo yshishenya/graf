@@ -60,7 +60,7 @@ jobs:
     needs: scope
     if: always()
     runs-on: windows-2022
-    timeout-minutes: 25
+    timeout-minutes: 60
     env:
       PR_HEAD: ${{ github.event.pull_request.head.sha }}
       PR_BASE: ${{ github.event.pull_request.base.sha }}

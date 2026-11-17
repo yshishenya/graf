@@ -167,6 +167,8 @@ $null = New-Item -ItemType Directory -Path "$prefix\share\graf", "$prefix\includ
 function Run([string]$Exe, [string[]]$Arguments, [string]$Label) {
     # All arguments are fixed flags/validated paths; no command string or stdin.
     Write-Utf8 "$prefix\share\graf\$Label.command.json" (Json ([ordered]@{ executable = $Exe; sha256 = Hash $Exe; arguments = $Arguments }))
+    $elapsed = [Diagnostics.Stopwatch]::StartNew()
+    Write-Host ("FFmpeg stage start name={0}" -f $Label)
     $process = New-Object Diagnostics.Process
     try {
         $process.StartInfo.FileName = $Exe
@@ -178,6 +180,7 @@ function Run([string]$Exe, [string[]]$Arguments, [string]$Label) {
         $stdout = $process.StandardOutput.ReadToEndAsync()
         $stderr = $process.StandardError.ReadToEndAsync()
         $process.WaitForExit()
+        Write-Host ("FFmpeg stage terminal name={0} exit={1} elapsed_ms={2}" -f $Label, $process.ExitCode, $elapsed.ElapsedMilliseconds)
         Write-Utf8 "$prefix\share\graf\$Label.stdout.log" ($stdout.GetAwaiter().GetResult())
         Write-Utf8 "$prefix\share\graf\$Label.stderr.log" ($stderr.GetAwaiter().GetResult())
         Write-Utf8 "$prefix\share\graf\$Label.terminal.json" (Json ([ordered]@{ exit = $process.ExitCode }))
