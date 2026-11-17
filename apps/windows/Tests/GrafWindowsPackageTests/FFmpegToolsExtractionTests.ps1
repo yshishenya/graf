@@ -16,16 +16,15 @@ $utf8=[Text.UTF8Encoding]::new($false)
 $fixture=Join-Path $env:TEMP ('Graf Tools Check '+[guid]::NewGuid().ToString('N'))
 $work=Join-Path $fixture 'work space'
 $prefix=Join-Path $fixture 'install'
-$inputRoot=Join-Path $fixture 'input'
 $shadow=Join-Path $fixture 'path'
 $nativeTar=Join-Path $env:SystemRoot 'System32\tar.exe'
 $originalPath=$env:PATH
 try{
- $null=New-Item -ItemType Directory -Path $work,"$prefix\share\graf","$inputRoot\msys64\usr\bin",$shadow
- [IO.File]::WriteAllText("$inputRoot\msys64\usr\bin\synthetic.txt",'synthetic-tools',$utf8)
- & $nativeTar -cJf "$work\msys2-base.tar.xz" -C $inputRoot msys64
- if($LASTEXITCODE -ne 0){throw 'ARCHIVE_CREATE'}
+ $null=New-Item -ItemType Directory -Path $work,"$prefix\share\graf",$shadow
+ # Windows Server 2022 tar reads xz but cannot create it; use a fixed USTAR/xz fixture.
+ [IO.File]::WriteAllBytes("$work\msys2-base.tar.xz",[Convert]::FromBase64String('/Td6WFoAAATm1rRGAgAhARYAAAB0L+Wj4Cf/AHldADacy5LCwWSwCMBtry7meD8E1S2qu90lLCn16I/gXZVai0QGjMzVzhcE0QgI78KHSEcjrx+snxZLVWkfzFOyxfj3ezm+4AuDElhBDkkh25rsHINOmfcIKFqWjIrO+aWBy32SpfFrOy+h3Mfkd2n0GN0cf42ObCCzwAAAAAAANO/hmMivFWoAAZUBgFAAABbiezKxxGf7AgAAAAAEWVo='))
  $before=Hash "$work\msys2-base.tar.xz"
+ if($before -cne '5bd8ea5eb26c41f74ebf8dcfc611bd23194edcccd156b5bba2382fc828c331e5'){throw 'ARCHIVE_HASH'}
  # A real harmless executable shadows tar; bootstrap must ignore it.
  Copy-Item -LiteralPath "$env:SystemRoot\System32\where.exe" -Destination "$shadow\tar.exe"
  $env:PATH="$shadow;$originalPath"
