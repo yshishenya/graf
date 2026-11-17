@@ -48,9 +48,10 @@ metadata-only evidence records and existing product state.
 ## Reference Observation
 
 - **reference_surface**: `krisp_web` or `krisp_app`.
-- **interaction_pattern**: short clean-room note.
+- **interaction_pattern**: metadata-only note of approved observable reference fidelity.
 - **applies_to_2brain**: `yes`, `no`, or `later`.
-- **brand_distance_risk**: `none`, `low`, `medium`, or `high`.
+- **deviation_reason**: accessibility, localization, privacy, security, known defect, or none.
+- **asset_provenance**: GRAF-owned, licensed, or unverified; no extracted/private assets.
 
 ## Validation Rules
 
@@ -61,3 +62,20 @@ metadata-only evidence records and existing product state.
 - A short timing candidate cannot set the timing gate to `pass`.
 - Local fixture evidence can support UI/runtime quality but cannot by itself
   pass production owner journey gates.
+
+## T020 API Metadata Observation
+
+- **proof_scope**: fixed `owner_review_api_metadata`.
+- **owner_journey_status**: fixed `unproven`; no full P1 pass inferred.
+- **owner_review.status / overall_status**: pass, blocked or fail, according to
+  the owner contract's ordered response/type/access/state/category rules.
+- **reason**: fixed bounded code, never a server-provided private string.
+- **candidate_ref**: fixed redacted runtime-input reference.
+- **candidate binding**: response meeting UUID equals the requested UUID after
+  normalization; IDs are validated in memory and never emitted.
+- **counts**: transcript segments, speaker lanes, lane intervals, seek targets,
+  eight category item counts. Missing/malformed is not coerced to zero.
+
+This is transient evidence metadata, not a database migration. Detailed source
+paths, enum/type rules, aggregate and exit codes are defined once in
+`contracts/owner-journey-proof-contract.md`.

@@ -52,17 +52,25 @@ requires representative long-audio timing, or the gate stays open.
 - Local-only timing benchmark. Rejected as insufficient for production MVP
   readiness, though it may be useful as supporting evidence.
 
-## Decision: Use KRISP as clean-room interaction reference only
+## Decision: Follow the approved observable Krisp reference
 
-**Rationale**: KRISP helps define owner expectations for transcript-first
-review, persistent bottom playback, speaker lanes, timestamp seek, and assign
-speaker affordances. 2brain Rec must stay original and must not copy KRISP
-assets, colors, icons, private content, wording, or brand expression.
+**Rationale**: Constitution VII and PRD §§29–30 supersede the original June
+brand-distance rule. Observable UX/UI/IA and functional wording may match
+literally. Code stays independent; extracted assets, source, binaries, private
+APIs, secrets and private content are prohibited. Third-party assets and marks
+need documented rights. Accessibility, localization and GRAF trust gates may
+require documented deviations.
+
+The original speaker-assignment and multi-speaker observation scope is retained:
+inspect assignment affordances, association of labels with transcript/lanes,
+and unavailable states under the interface contract. This does not add a
+post-MVP editor or authorize changes to real meetings.
 
 **Alternatives considered**:
-- Copy KRISP layout directly. Rejected by brand-distance rules.
-- Ignore the reference. Rejected because the user explicitly asked to inspect
-  and compare web/app reference behavior.
+- Preserve the old blanket color/layout/wording prohibition. Rejected because
+  it contradicts the current product decision.
+- Copy competitor code/assets/private content. Rejected; reference permission
+  does not grant those rights.
 
 ## Decision: Auth/session blockers do not become green UI
 
@@ -86,3 +94,49 @@ pass. Any failed, blocked, or unproven P1 gate keeps the claim at
 **Alternatives considered**:
 - Raise readiness with caveats. Rejected because the project uses explicit
   launch gates to avoid ambiguous claims.
+
+## Decision: T020 reports scoped API metadata
+
+**Rationale**: the existing probe returns pass after any successful JSON and
+reads top-level status although the route returns `MeetingReviewResponse` with
+`meeting.status`. Current API models and stored outcome mapper define the
+observed fields; the owner contract now fixes their strict types, counts,
+positive/negative classification, health aggregate and exit behavior. An API
+observation cannot attest to fresh capture, UI seek/visibility or timing.
+
+The response meeting UUID must match the requested UUID before metadata can
+pass. This is the API identity already exposed by MeetingListItem, not proof of
+freshness or persisted revision lineage. Missing/malformed identity fails schema
+validation; a different valid UUID fails with a fixed candidate_mismatch reason.
+
+**Alternatives considered**:
+- Keep HTTP200 or nested-ready alone as pass. Rejected by the reproduced
+  empty/processing/ready-without-artifacts false positives.
+- Require positive text in every outcome. Rejected: stored not_found and
+  not_inferable are honest empty states; protocol risks have an explicit
+  non-blocking projection. A generic non_blocking flag is insufficient.
+- Change server readiness or generate missing artifacts. Rejected; this repair
+  changes only how the evidence tool reports its existing observation.
+
+PR #8126 review identified that protocol was initially read at the category
+level. The actual `NotesActionTruthState.protocol` and
+`stored_outcome_truth_state` put it at `notes_action_truth.protocol`, alongside
+categories. The contract now uses this source explicitly; a category-only
+protocol cannot enable the exception. Earlier passing synthetic fixtures used
+the wrong nesting and do not prove this real response case.
+
+## Decision: Separate requirement quality from live acceptance
+
+**Rationale**: historical requirements checklist R15 literally asks whether
+measurable product outcomes already hold. That is an acceptance gate, while
+pre-implementation checklists test the completeness of the requirements. The
+owner proposes explicit wording about defined acceptance evidence, keeping
+actual outcomes in SC-001/003/004, T019/T020 and the P1 gate table unchanged.
+The original R15 wording and STOP remain recorded in the review history; only
+the independent reviewer may assess the revised item and change its mark.
+
+**Alternatives considered**:
+- Mark historical R15 complete from source/tests. Rejected: no fresh live
+  acceptance exists.
+- Remove fresh journey or UI acceptance. Rejected: repairing a probe cannot
+  finish those original criteria.

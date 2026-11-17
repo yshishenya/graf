@@ -1,138 +1,140 @@
 # Quickstart: MVP Live Owner Journey And UI Proof
 
-Run commands from the repository root.
+Run from the repository root. The active T020 continuation is a repair of the
+metadata probe. Historical June validation receipts remain historical; this
+guide does not authorize repeating their old app, signing or deployment path.
 
-## 1. Prerequisites
-
-```sh
-SPECIFY_FEATURE_DIRECTORY=specs/052-mvp-live-ui-proof \
-  .specify/scripts/bash/check-prerequisites.sh --json --require-tasks --include-tasks
-```
-
-Expected: JSON points to `specs/052-mvp-live-ui-proof`.
-
-## 2. Focused Server Readiness, Outcomes, And Cabinet Tests
+## 1. Active context and gates
 
 ```sh
-cd apps/server && PYTHONPATH=src uv run --extra dev pytest -q \
-  tests/contract/test_mvp_launch_proof_contract.py \
-  tests/integration/test_mvp_loop_readiness_report.py \
-  tests/unit/test_mvp_launch_proof_readiness.py \
-  tests/integration/test_mvp_launch_status_truth.py \
-  tests/unit/test_cabinet_web_shell.py \
-  tests/integration/test_cabinet_meeting_outcomes.py \
-  tests/integration/test_cabinet_playback_route.py \
-  tests/integration/test_cabinet_meeting_detail.py
+.specify/scripts/bash/check-prerequisites.sh --json --paths-only
 ```
 
-Expected: all tests pass after 052 updates.
+Expected: F052 from the owned ignored `.specify/feature.json`; root AGENTS.md
+stays stable. Read the current spec/plan/contracts/tasks and project guidance.
+Before code, independent requirements checklists must pass, read-only analyze
+must meet the zero critical/high threshold, and existing T020/#1819 mapping
+must be reconciled without a duplicate issue. A STOP is not implementation
+permission. Requirement-quality approval is separate from actual acceptance.
 
-## 3. Production Owner Journey Probe
+## 2. Focused offline T020 regression
+
+After the implementation gate opens, add the regression first, reproduce the
+false pass, then repair the existing probe and rerun:
+
+```sh
+python3 -m unittest discover \
+  -s specs/052-mvp-live-ui-proof/evidence \
+  -p 'test_production_owner_journey_probe.py' -v
+```
+
+Expected: all owner-contract negative/positive/type/access/category/count,
+request/configuration/health/aggregate/exit/privacy cases pass. Tests must
+also reject missing/malformed/different response meeting IDs and accept equal
+normalized UUIDs without printing either ID. This focused command is separate
+from GitHub's diff-based test selection; retain its actual source identity.
+Protocol cases must use the actual `notes_action_truth.protocol` sibling field:
+object/null/absent/malformed and wrongly nested category-only protocol. Only a
+truth-level object can enable the bounded risks exception.
+Import must
+not invoke main; request functions/environment are patched with synthetic
+values. No network, real session, real meeting, app, database, mail, payment,
+provider or dependency installation. This establishes tool regression only.
+
+## 3. Production candidate metadata — separate actual acceptance
+
+Only with an authorized current candidate and runtime owner context:
 
 ```sh
 python3 specs/052-mvp-live-ui-proof/evidence/production-owner-journey-probe.py
 ```
 
-Expected: metadata-only output classifies each P1 owner journey gate as
-`pass`, `fail`, `blocked`, or `unproven`. No raw content or secrets are printed
-or committed.
+Expected: bounded metadata under
+`contracts/owner-journey-proof-contract.md`. No input values or response content
+are printed. Without both owner inputs the result is blocked and exit1, even
+when health is green. Exit0 means healthy requests and positive scoped API
+metadata; `owner_journey_status` remains unproven. This is an intentional
+change from the old health-only exit0 behavior. Real observed states/counts
+must be recorded before T020 can complete; tests and merge do not replace them.
 
-## 4. Browser Runtime UI Proof
+## 4. Web/embedded UI acceptance — separate from API metadata
 
-```sh
-NODE_PATH="${CODEX_NODE_MODULES:-node_modules}" \
-  "${CODEX_NODE_BIN:-node}" \
-  specs/052-mvp-live-ui-proof/evidence/browser-runtime-check.cjs
-```
+Use the existing `evidence/browser-runtime-check.cjs` for its fixture runtime
+scope only. Actual owner acceptance must inspect the current authenticated
+web desktop/compact and embedded review of the same fresh candidate: playback,
+working timestamp seek, visible speaker activity lanes, transcript, outcomes,
+auth/unavailable states, keyboard/focus/accessibility and absence of critical
+layout/false-ready findings. Local fixtures cannot prove production/UI use.
+Reference observations include assignment affordances, label/row/lane
+association and multiple-speaker distinguishability under the interface
+contract. Observe existing permitted GRAF interactions without adding editing
+or changing real meeting data; unavailable editing remains explicitly outside
+the implemented scope.
+The API interval/seek counters prove neither visible lanes nor working seek.
 
-Expected: web desktop, web compact, and embedded review checks report
-`failures=[]`, no horizontal overflow, no blocking console errors, visible
-speaker lanes, visible outcome states, and working timestamp seek.
+## 5. Native checks
 
-## 5. macOS Tests
+The probe-only repair does not change native code. Do not run native builds or
+suites without an applicable change/new reason; required GitHub macos-pr still
+selects the exact diff under project policy. If native code is later needed,
+classify/read its full dependencies and use its focused tests first.
 
-```sh
-swift test --package-path apps/macos --disable-swift-testing \
-  --filter 'DesktopCabinet|CaptureControl|DesktopUploadQueue|EmbeddedCabinet'
-```
+## 6. Single local application
 
-Expected: focused macOS tests pass.
+Before any app build, launch or manual/end-to-end acceptance, read
+`docs/agent-guidance/local-development.md` and follow the existing dev-harness
+for `/Applications/GRAF Dev.app` only. Check availability, source/version,
+signing and occupancy; unknown occupancy blocks updates/restarts/UI mutation.
+Do not launch another bundle or executable, bypass a lock or disturb a recording.
+Local Dev proof does not establish notarized public distribution acceptance.
 
-Run the full macOS suite when native code changes:
+## 7. Reference review
 
-```sh
-swift test --package-path apps/macos --disable-swift-testing
-```
+Follow Constitution VII, PRD §§29–30 and the interface contract: reference
+fidelity, documented trust/accessibility/localization/defect deviations,
+independent code and asset rights. Functional wording may match literally.
+Private screenshots/content stay outside git; extracted assets are forbidden.
+No reference UI inspection is required merely to repair the metadata probe.
 
-## 6. Installed App Check
+## 8. PR validation
 
-```sh
-defaults read "/Applications/2brain Rec.app/Contents/Info" CFBundleShortVersionString
-codesign --verify --deep --strict "/Applications/2brain Rec.app"
-pgrep -fl "2brain Rec|TwoBrainRecApp" || true
-```
-
-Expected: installed app version matches the release under validation, signing
-verification passes for the local build, and process state is recorded without
-interrupting an active recording.
-
-## 7. KRISP Reference And 2brain UI Review
-
-Inspect KRISP web/app reference and 2brain web/desktop review surfaces without
-committing private screenshots or content. Record only clean-room interaction
-findings in:
-
-```text
-specs/052-mvp-live-ui-proof/evidence/ui-reference-review.md
-```
-
-Expected: speaker timeline, playback, timestamp seek, transcript, outcomes,
-auth/unavailable states, and brand-distance notes are classified without
-private content.
-
-## 8. Production Health And Deployment Truth
+After focused validation and convergence, record lane, exact SHA, checked base,
+review and limits. Write `changes/unreleased/F52.yaml`; root CHANGELOG.md is
+reserved for the release operator. Required GitHub checks are governance-fast,
+macos-pr and pr-metadata on the exact final PR head and checked base. Use:
 
 ```sh
-curl -fsS https://rec.2brain.pro/api/v1/health/live
-curl -fsS https://rec.2brain.pro/api/v1/health/ready
-ssh 2brain.dev 'cd /opt/projects/2brain-rec && git rev-parse --abbrev-ref HEAD && git rev-parse HEAD'
+python3 scripts/validate-pr-checks.py --repository yshishenya/graf --pr <number>
 ```
 
-Expected: live/ready are healthy and remote SHA matches the intended release.
+Review unresolved comments and verify the normal linear merge. No local full
+suite or repeated historical checks are required without a new reason; local
+ci-local.sh --fast/--full is diagnostic, never authoritative release evidence.
 
-## 9. Full Local Gate
+## 9. Release gate
 
-```sh
-infra/scripts/ci-local.sh
-```
+A release is separate: latest published GitHub Release, reviewed/merged exact
+source, operator-assembled changelog, immutable frozen candidate and one
+successful authoritative GitHub release-full for that candidate, immutable go
+decision, tag and Russian GitHub Release. Follow release-and-validation.md;
+health or the metadata probe alone cannot pass this gate.
 
-Expected: `ci_local_result=pass`.
+## 10. Deployment gate
 
-## 10. Deploy Gate
+Only in an approved release operation after its gates, use the documented CD
+dry-run and candidate/authoritative-evidence execute sequence from
+`docs/agent-guidance/release-and-validation.md`. Preserve backup, migration,
+rollback, health and smoke requirements. Do not deploy or restart a service to
+repair/run an offline evidence tool.
 
-```sh
-infra/scripts/cd-remote.sh --dry-run
-```
+## 11. Evidence privacy and closeout
 
-Expected: `deploy_result=dry_run`.
-
-Run execute only after PR/release gate is ready:
-
-```sh
-infra/scripts/cd-remote.sh --execute
-```
-
-Expected: `deploy_result=pass` and production smoke returns a bounded
-readiness verdict.
-
-## 11. Forbidden Content Scan
-
-```sh
-rg -n -i \
-  'transcript text|signed url|secret|token|password|cookie|set-cookie|authorization:|object key|/(Users|home)/[^ ]+|private meeting|private outcome' \
-  specs/052-mvp-live-ui-proof docs/evidence/052-mvp-live-ui-proof docs/current-product-status.md CHANGELOG.md
-```
-
-Expected: no forbidden private content in committed evidence. Literal policy
-phrases in contracts/specs are allowed only when they describe forbidden
-classes, not live values.
+Review the diff and scan new evidence for real cookies, tokens, account IDs,
+signed URLs, private paths, raw audio, transcript/generated text and private
+meeting titles. Fixed artificial regression sentinels and policy literals must
+be distinguishable from real data; stdout/error tests must reject sentinels.
+Retain metadata logs, checksums and version links outside heavy build folders.
+T019/T020 stay open until original live criteria pass. Closing any issue still
+requires its detailed Russian closeout, stock validate-issue-closeout.py
+--verify-live, and actual final-state verification. No closeout is performed by
+this offline quickstart.
