@@ -1,4 +1,5 @@
 """Offline contract checks; every identifier and content value is artificial."""
+
 from __future__ import annotations
 
 import contextlib
@@ -469,9 +470,10 @@ class ProbeTests(unittest.TestCase):
 
     def test_configuration_and_absent_context(self):
         for key in ("OWNER_MEETING_ID", "OWNER_SESSION_COOKIE"):
-            with patch.dict(os.environ, {key: ""}), patch.object(
-                probe, "_get_json"
-            ) as request:
+            with (
+                patch.dict(os.environ, {key: ""}),
+                patch.object(probe, "_get_json") as request,
+            ):
                 result = probe._owner_review()
                 self.assertEqual(
                     (result["status"], result["reason"]),
@@ -497,9 +499,10 @@ class ProbeTests(unittest.TestCase):
             ("OWNER_JOURNEY_PROBE_TIMEOUT", (PRIVATE, "0", "-1", "inf", "nan")),
         ):
             for value in values:
-                with patch.dict(os.environ, {key: value}), patch.object(
-                    probe, "_get_json"
-                ) as request:
+                with (
+                    patch.dict(os.environ, {key: value}),
+                    patch.object(probe, "_get_json") as request,
+                ):
                     result = probe._owner_review()
                     self.assertEqual(
                         (result["status"], result["reason"]),
@@ -512,15 +515,18 @@ class ProbeTests(unittest.TestCase):
             for owner_status in ("ready", "processing", PRIVATE):
                 data = ready_payload()
                 data["meeting"]["status"] = owner_status
-                with patch.object(
-                    probe,
-                    "_get_json",
-                    side_effect=[
-                        response({"status": health}),
-                        response({"status": "ready"}),
-                        response(data),
-                    ],
-                ), contextlib.redirect_stdout(io.StringIO()) as output:
+                with (
+                    patch.object(
+                        probe,
+                        "_get_json",
+                        side_effect=[
+                            response({"status": health}),
+                            response({"status": "ready"}),
+                            response(data),
+                        ],
+                    ),
+                    contextlib.redirect_stdout(io.StringIO()) as output,
+                ):
                     code = probe.main()
                 result = json.loads(output.getvalue())
                 expected = (
@@ -537,11 +543,15 @@ class ProbeTests(unittest.TestCase):
                 self.assertNotIn(PRIVATE, output.getvalue())
                 self.assertNotIn(MEETING, output.getvalue())
                 self.assertNotIn("example.invalid", output.getvalue())
-        with patch.dict(os.environ, {"OWNER_SESSION_COOKIE": ""}), patch.object(
-            probe,
-            "_get_json",
-            side_effect=[response({"status": "ok"}), response({"status": "ready"})],
-        ), contextlib.redirect_stdout(io.StringIO()):
+        with (
+            patch.dict(os.environ, {"OWNER_SESSION_COOKIE": ""}),
+            patch.object(
+                probe,
+                "_get_json",
+                side_effect=[response({"status": "ok"}), response({"status": "ready"})],
+            ),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
             self.assertEqual(probe.main(), 1)
 
     def test_http_and_health_failures(self):
@@ -567,9 +577,10 @@ class ProbeTests(unittest.TestCase):
                 self.assertNotIn(PRIVATE, json.dumps(health))
 
     def test_import_does_not_parse_runtime_configuration_or_run_main(self):
-        with patch.dict(
-            os.environ, {"OWNER_JOURNEY_PROBE_TIMEOUT": PRIVATE}
-        ), contextlib.redirect_stdout(io.StringIO()) as output:
+        with (
+            patch.dict(os.environ, {"OWNER_JOURNEY_PROBE_TIMEOUT": PRIVATE}),
+            contextlib.redirect_stdout(io.StringIO()) as output,
+        ):
             module = importlib.util.module_from_spec(SPEC)
             SPEC.loader.exec_module(module)
         self.assertEqual(output.getvalue(), "")
