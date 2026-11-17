@@ -8,6 +8,14 @@
 
 **Organization**: Tasks are grouped by independently testable user story. Do not mark a task `[X]` until direct evidence exists.
 
+**Continuation 2026-11-17**: Completed June tasks/commands below are historical
+receipts, not instructions to repeat them against current governance. T003's
+root pointer, T004/T036's root changelog writes, old app paths and bare/full
+local CI do not govern new work. Current routing, fragment, single Dev and
+exact-SHA PR/release gates are specified in plan §T020 continuation and the
+current quickstart. Original T019/T020 remain open; no old mark proves current
+production acceptance.
+
 ## Phase 1: Setup And Governance
 
 **Purpose**: Lock the active 052 context, evidence locations, and product truth boundaries.
@@ -56,7 +64,7 @@
 - [X] T017 [US1] Verify `/Applications/2brain Rec.app` version, launch/code-sign state, and active recording safety; record result in `specs/052-mvp-live-ui-proof/evidence/installed-app-check.md`
 - [X] T018 [US1] Run production health/deployed SHA checks and record release/deploy truth in `specs/052-mvp-live-ui-proof/evidence/validation-log.md`
 - [ ] T019 [US1] Run or collect current installed-app record/stop/upload-to-review metadata and record gate states in `specs/052-mvp-live-ui-proof/evidence/mvp-closeout-report.md`
-- [ ] T020 [US1] Run production candidate metadata probe through `specs/052-mvp-live-ui-proof/evidence/production-owner-journey-probe.py` and record stored outcome/transcript/playback/timeline counts in `specs/052-mvp-live-ui-proof/evidence/mvp-closeout-report.md`
+- [ ] T020 [US1] After current clarification/design, independent checklist PASS, analyze and existing #1819 tracker reconciliation, add offline contract regressions in `specs/052-mvp-live-ui-proof/evidence/test_production_owner_journey_probe.py` before repairing false pass/status/counters in `specs/052-mvp-live-ui-proof/evidence/production-owner-journey-probe.py`; record validation in `specs/052-mvp-live-ui-proof/evidence/validation-log.md` and `changes/unreleased/F52.yaml`. Then run the production candidate metadata probe and record real stored outcome/transcript/playback/timeline counts in `specs/052-mvp-live-ui-proof/evidence/mvp-closeout-report.md`. Offline success or merging the repair does not complete this task; original current-candidate acceptance still applies.
 - [X] T021 [US1] Fix any discovered normal-path owner journey blocker in `apps/server/src/twobrain_rec_server/`, `apps/macos/RecApp/Sources`, or `infra/docker-compose.yml`
 - [X] T022 [US1] If any owner journey gate fails or is unproven, add the exact P1 launch gap and next action to `docs/evidence/052-mvp-live-ui-proof/launch-gap-register.md`
 

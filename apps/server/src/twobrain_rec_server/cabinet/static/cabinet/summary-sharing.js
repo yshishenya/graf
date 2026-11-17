@@ -353,9 +353,15 @@
       if(mode==='export'&&!exportForm){exportForm=document.querySelector('[data-content-export-dialog] [data-content-export-form]');if(exportForm){exportParent=exportForm.parentNode;exportNext=exportForm.nextSibling;exportForm.querySelectorAll('.content-export-header,[data-export-dialog-cancel]').forEach(el=>{el.hidden=true;el.dataset.sharingExportHidden='true';});find('[data-sharing-export-host]').append(exportForm);find('[data-sharing-export-empty]').hidden=true;}}
     }
     dialog.querySelectorAll('[data-meeting-sharing-tab]').forEach(button=>{button.addEventListener('click',()=>mainTab(button.dataset.meetingSharingTab));button.addEventListener('keydown',event=>{if(['ArrowLeft','ArrowRight','Home','End'].includes(event.key)){event.preventDefault();mainTab(event.key==='Home'?'share':event.key==='End'?'export':button.dataset.meetingSharingTab==='share'?'export':'share',true);}});});
+    const placementMain=opener?.closest('main'),heading=find('.sharing-dialog-heading'),footer=find('.sharing-dialog-actions'),control=find('[data-sharing-audience]');
     function place(){
       const rect=opener?.getBoundingClientRect();if(!rect)return;
-      const bottom=Math.min(window.innerHeight,opener.closest('main')?.getBoundingClientRect().bottom??window.innerHeight);
+      const mainBottom=Math.min(window.innerHeight,placementMain?.getBoundingClientRect().bottom??window.innerHeight);
+      const surface=getComputedStyle(find('.share-dialog__surface'));
+      const minimumHeight=heading.offsetHeight+footer.offsetHeight+Math.max(44,control.offsetHeight)
+        +parseFloat(surface.paddingTop)+parseFloat(surface.paddingBottom)+2*parseFloat(surface.rowGap)+24;
+      // A tall player must not leave the pinned edges covering every control.
+      const bottom=mainBottom<minimumHeight?window.innerHeight:mainBottom;
       dialog.style.maxHeight=`${Math.max(0,bottom-24)}px`;
       dialog.style.margin='0';dialog.style.position='fixed';
       dialog.style.left=`${Math.max(12,Math.min(window.innerWidth-dialog.offsetWidth-12,rect.right-dialog.offsetWidth))}px`;
@@ -365,7 +371,7 @@
     document.addEventListener('pointerdown',event=>{if(dialog.open&&!dialog.contains(event.target)&&!opener?.contains(event.target))close();},{signal:eventSignal});
     window.addEventListener('resize',()=>{if(dialog.open)place();},{signal:eventSignal});
     const placement=new ResizeObserver(()=>{if(dialog.open)place();});
-    placement.observe(dialog);
+    for(const target of [dialog,placementMain,heading,footer,control])if(target)placement.observe(target);
     dialog.addEventListener('close',()=>placement.disconnect(),{once:true});
     eventSignal.addEventListener('abort',()=>placement.disconnect(),{once:true});
     async function open(mode='link') {

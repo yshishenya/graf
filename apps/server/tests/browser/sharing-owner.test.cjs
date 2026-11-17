@@ -286,6 +286,7 @@ const assets = path.join(__dirname, '../../src/twobrain_rec_server/cabinet/stati
       }
       // The populated state from the user's report must fit inside each row, not just the dialog.
       for (const pendingCount of [3,15]) {
+        audience='invite_only';
         const longName='Учебный участник с очень длинным именем для проверки переноса';
         grants=[{grant_id:'long-person',version:1,display_name:longName,content_scope:'full_meeting'}];
         invitations=Array.from({length:pendingCount},(_,index)=>({invitation_id:'pending-'+index,
@@ -333,6 +334,59 @@ const assets = path.join(__dirname, '../../src/twobrain_rec_server/cabinet/stati
         assert(focusedAction.y+focusedAction.height<=fixedCopy.y+1,'Pinned footer must not hide the focused invitation action');
         const fixedHeading=await page.locator('.sharing-dialog-heading').boundingBox();
         assert(focusedAction.y>=fixedHeading.y+fixedHeading.height-1,'Pinned heading must not hide the focused invitation action');
+        if(width===480){
+          await page.evaluate(()=>Object.defineProperty(navigator,'clipboard',{value:{writeText:async text=>{window.copied=text;}}}));
+          const player=page.locator('.playback-bar');
+          await player.evaluate(el=>{
+            el.innerHTML='<audio data-audio-player></audio><details open data-speaker-tracks><summary>Спикеры</summary><input type="checkbox" checked data-speaker-selected></details>';
+            const audio=el.querySelector('audio');audio.currentTime=15;audio.playbackRate=1.5;
+          });
+          const playerState=()=>player.evaluate(el=>({html:el.innerHTML,time:el.querySelector('audio').currentTime,rate:el.querySelector('audio').playbackRate,paused:el.querySelector('audio').paused,selected:el.querySelector('[data-speaker-selected]').checked}));
+          const originalPlayer=await playerState(),beforeGeometry=mutations.length;
+          const settle=()=>page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+          await player.evaluate(el=>el.style.height='260px');
+          await page.setViewportSize({width:400,height:300});await settle();
+          const tightMain=await page.locator('main').boundingBox(),tightPanel=await panel.boundingBox();
+          assert(tightMain.height<60,'Fixture must reproduce a small main with expanded tracks, not enlarged text');
+          assert(tightPanel.y>=12&&tightPanel.y+tightPanel.height<=288+1,'Tight panel must stay inside the viewport margins');
+          const tightHeading=await page.locator('.sharing-dialog-heading').boundingBox(),tightFooter=await page.locator('.sharing-dialog-actions').boundingBox();
+          assert(tightFooter.y-tightHeading.y-tightHeading.height>=44,'A high player must leave at least one usable control row between pinned edges');
+          assert(tightPanel.y+tightPanel.height>tightMain.y+tightMain.height,'Only insufficient main space permits overlaying the player');
+          const exposed=async (target,pinned=false)=>{
+            await target.focus();await settle();
+            assert(await target.evaluate((el,pinned)=>{
+              const rect=el.getBoundingClientRect(),dialog=el.closest('dialog'),heading=dialog.querySelector('.sharing-dialog-heading').getBoundingClientRect(),footer=dialog.querySelector('.sharing-dialog-actions').getBoundingClientRect();
+              const hit=document.elementFromPoint(rect.x+rect.width/2,rect.y+rect.height/2);
+              return (hit===el||el.contains(hit))&&rect.y>=12&&rect.bottom<=innerHeight-12+1&&(pinned||(rect.y>=heading.bottom-1&&rect.bottom<=footer.y+1));
+            },pinned),'Focused control must be unobscured and reachable by pointer');
+            await target.click({trial:true});
+          };
+          await exposed(page.locator('[data-sharing-person]'));
+          await exposed(page.locator('[data-sharing-access-list] .share-viewer-row').first().getByRole('button'));
+          await exposed(lastAction);
+          await page.getByText('Дополнительные настройки',{exact:true}).click();
+          await exposed(page.locator('[data-summary-share-expiry]'));
+          await exposed(page.locator('[data-summary-share-copy]'),true);
+          await page.locator('[data-summary-share-copy]').click();
+          await page.getByText('Ссылка скопирована',{exact:true}).waitFor();
+          assert(await panel.evaluate(el=>el.scrollWidth<=el.clientWidth+1),'Tight viewport must not create horizontal overflow');
+          assert(await panel.evaluate(el=>[...el.querySelectorAll('*')].every(child=>!['auto','scroll'].includes(getComputedStyle(child).overflowY)||child.scrollHeight<=child.clientHeight+1)),'Only the panel may scroll');
+          await exposed(page.locator('[data-summary-share-close]'),true);
+          assert.equal(mutations.length,beforeGeometry,'Placement, focus and copy must not change access');
+          assert.deepEqual(await playerState(),originalPlayer,'Placement must preserve playback and expanded speaker tracks');
+          // Changing track height without a window resize must also recompute placement.
+          await player.evaluate(el=>el.style.height='40px');await settle();
+          assert.equal(await panel.evaluate(el=>Number.parseFloat(el.style.maxHeight)),236,'Collapsing tracks must restore the main boundary without a window resize');
+          await player.evaluate(el=>el.style.height='260px');await settle();
+          assert.equal(await panel.evaluate(el=>Number.parseFloat(el.style.maxHeight)),276,'Expanding tracks must restore the viewport boundary without a window resize');
+          await page.setViewportSize({width:480,height:800});await settle();
+          await player.evaluate(el=>el.style.height='180px');await settle();
+          const restoredMain=await page.locator('main').boundingBox(),restoredPanel=await panel.boundingBox();
+          assert(restoredPanel.y+restoredPanel.height<=restoredMain.y+restoredMain.height+1,'Restoring space must restore above-player placement');
+          assert.equal(await panel.evaluate(el=>Number.parseFloat(el.style.maxHeight)),Math.max(0,restoredMain.y+restoredMain.height-24));
+          assert.deepEqual(await playerState(),originalPlayer);
+          assert.equal(mutations.length,beforeGeometry);
+        }
         const firstPending=page.locator('[data-sharing-access-list] .share-viewer-row').nth(1);
         assert((await firstPending.innerText()).includes('Просмотр встречи'));
         assert((await page.locator('[data-sharing-access-list]').innerText()).includes('Только итоги'));
@@ -377,8 +431,9 @@ const assets = path.join(__dirname, '../../src/twobrain_rec_server/cabinet/stati
       await page.locator('[data-summary-share-send]').click();
       await page.locator('[data-summary-share-result-title]').getByText('Итоги отправлены',{exact:true}).waitFor();
       assert.equal(await page.locator('[data-summary-share-copy]').isVisible(),false,'Pinned copy must be hidden while showing the delivery result');
+      assert.deepEqual(errors,[],'Placement observers and interactions must not report browser errors');
       await page.close();
     }
-    console.log('Owner sharing: explicit publication, stable copy, narrowed scope/roles, revoke, export restore, Escape/focus, populated 3/15, 320/390/480/1440 both themes and 200% PASS');
+    console.log('Owner sharing: explicit publication, stable copy, narrowed scope/roles, revoke, export restore, Escape/focus, populated 3/15, 320/390/480/1440 both themes, 200% text and tall-player 400x300 recovery PASS');
   } finally {await browser.close();}
 })().catch(error=>{console.error(error);process.exitCode=1;});
