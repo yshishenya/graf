@@ -57,16 +57,22 @@ public:
 #ifdef _WIN32
         using namespace winrt::Windows;
         if (operation_) {
-            if (operation_.Status() == Foundation::AsyncStatus::Started) return std::nullopt;
-            const auto answer = operation_.GetResults();
-            if (FAILED(answer.ExtendedError())) return AppUpdateResult{AppUpdateState::error};
-            switch (answer.Availability()) {
-            case ApplicationModel::PackageUpdateAvailability::NoUpdates: return AppUpdateResult{AppUpdateState::current};
-            case ApplicationModel::PackageUpdateAvailability::Available: return AppUpdateResult{AppUpdateState::available};
-            case ApplicationModel::PackageUpdateAvailability::Required: return AppUpdateResult{AppUpdateState::required};
-            case ApplicationModel::PackageUpdateAvailability::Error: return AppUpdateResult{AppUpdateState::error};
-            default: return AppUpdateResult{AppUpdateState::unknown};
-            }
+            const auto status = operation_.Status();
+            if (status == Foundation::AsyncStatus::Started) return std::nullopt;
+            if (status == Foundation::AsyncStatus::Canceled) return AppUpdateResult{AppUpdateState::cancelled};
+            if (status == Foundation::AsyncStatus::Error) return AppUpdateResult{AppUpdateState::error};
+            if (status != Foundation::AsyncStatus::Completed) return std::nullopt;
+            try {
+                const auto answer = operation_.GetResults();
+                if (FAILED(answer.ExtendedError())) return AppUpdateResult{AppUpdateState::error};
+                switch (answer.Availability()) {
+                case ApplicationModel::PackageUpdateAvailability::NoUpdates: return AppUpdateResult{AppUpdateState::current};
+                case ApplicationModel::PackageUpdateAvailability::Available: return AppUpdateResult{AppUpdateState::available};
+                case ApplicationModel::PackageUpdateAvailability::Required: return AppUpdateResult{AppUpdateState::required};
+                case ApplicationModel::PackageUpdateAvailability::Error: return AppUpdateResult{AppUpdateState::error};
+                default: return AppUpdateResult{AppUpdateState::unknown};
+                }
+            } catch (...) { return AppUpdateResult{AppUpdateState::error}; }
         }
 #endif
         return result_;
@@ -314,6 +320,9 @@ void WindowsAppUpdateController::tick(Clock::time_point now, bool workDrained,
         if (!discardResult_) result_ = *answer;
     } catch (...) {
         if (!discardResult_) result_ = {AppUpdateState::error};
+        cancel(); // Unknown OS state: request cancellation, retain until terminal.
+        nativeCallInProgress_ = false;
+        return;
     }
     operation_.reset();
     nativeCallInProgress_ = false;
@@ -356,6 +365,8 @@ void WindowsAppUpdateController::close() noexcept {
 std::wstring appUpdateDetail(AppUpdateResult result, bool operationPending) {
     if (result.state == AppUpdateState::idle && operationPending)
         return L"Завершаем предыдущую проверку… После этого можно будет проверить обновления снова.";
+    if (result.state == AppUpdateState::error && result.reason == AppUpdateReason::none && operationPending)
+        return L"Не удалось получить состояние проверки. Ожидаем завершения запроса Windows; затем можно будет повторить.";
     switch (result.reason) {
     case AppUpdateReason::noPackage: return L"Проверка доступна в установленном пакете GRAF. Запустите установленное приложение и повторите проверку.";
     case AppUpdateReason::noAssociation: return L"Для этой установки не настроен источник обновлений. Узнать, есть ли новая версия, пока нельзя. Обратитесь к поставщику приложения.";

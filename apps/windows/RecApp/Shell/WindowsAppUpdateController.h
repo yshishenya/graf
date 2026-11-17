@@ -24,6 +24,7 @@ struct AppUpdateResult {
 class AppUpdateCheckOperation {
 public:
     virtual ~AppUpdateCheckOperation() = default;
+    // A value proves OS terminal state. A throw does NOT prove completion.
     virtual std::optional<AppUpdateResult> poll() = 0;
     virtual void cancel() noexcept = 0;
 };

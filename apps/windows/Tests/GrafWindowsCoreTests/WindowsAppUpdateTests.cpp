@@ -83,6 +83,63 @@ AppUpdateApprovedRelease approvedRelease() {
             L"https://updates.example.invalid/approved.appinstaller"};
 }
 
+void testCheckPollException() {
+    using namespace std::chrono_literals;
+    const auto now = WindowsAppUpdateController::Clock::time_point{};
+    for (const auto lateState : {AppUpdateState::available, AppUpdateState::required}) {
+        // Open, previously closed, timed out, close in poll, close in Cancel.
+        for (const int scenario : {0, 1, 2, 3, 4}) {
+            Probe probe;
+            WindowsAppUpdateController controller([&] { return std::make_unique<Operation>(probe); },
+                approvedRelease());
+            assert(controller.check(now));
+            probe.onCancel = [&] {
+                assert(probe.cancels == 1 && probe.destroyed == 0);
+                const auto polls = probe.polls;
+                controller.tick(now);
+                if (scenario == 4) controller.close();
+                assert(probe.polls == polls && probe.destroyed == 0);
+                assert(controller.busy() && !controller.blocksNewWork());
+                assert(!controller.check(now) && !controller.beginInstall(now, false, true));
+            };
+            probe.onPoll = [&] {
+                const auto polls = probe.polls;
+                controller.tick(now);
+                if (scenario == 3) controller.close();
+                assert(probe.polls == polls && probe.destroyed == 0);
+                assert(controller.busy() && !controller.blocksNewWork());
+                assert(!controller.check(now) && !controller.beginInstall(now, false, true));
+                throw std::runtime_error("synthetic unknown check status");
+            };
+            if (scenario == 1) controller.close();
+            controller.tick(scenario == 2 ? now + 30s : now);
+            const auto expected = controller.result();
+            assert(expected.state == (scenario == 0 || scenario == 2
+                ? AppUpdateState::error : AppUpdateState::idle));
+            assert(expected.reason == (scenario == 2 ? AppUpdateReason::timeout : AppUpdateReason::none));
+            if (scenario == 0)
+                assert(appUpdateDetail(expected, true).find(L"Ожидаем завершения") != std::wstring::npos);
+            controller.tick(now + 31s); // Repeated exception cannot replace close/timeout/error.
+            assert(probe.polls == 2 && probe.cancels == 1 && probe.destroyed == 0);
+            probe.onPoll = {};
+            controller.tick(now + 32s); // Cancellation may remain pending after the exception.
+            assert(controller.busy() && !controller.blocksNewWork());
+            assert(!controller.check(now) && !controller.beginInstall(now, false, true));
+            probe.result = AppUpdateResult{lateState};
+            controller.tick(now + 33s);
+            assert(!controller.busy() && probe.destroyed == 1 && probe.cancels == 1);
+            assert(controller.result().state == expected.state && controller.result().reason == expected.reason);
+            assert(!controller.available() && !controller.canInstall());
+            assert(controller.check(now + 34s));
+            assert(probe.starts == 2);
+            probe.result = AppUpdateResult{AppUpdateState::current};
+            controller.tick(now + 34s);
+            assert(!controller.busy() && probe.destroyed == 2);
+            assert(controller.result().state == AppUpdateState::current);
+        }
+    }
+}
+
 struct InstallProbe {
     AppUpdateReason preparation = AppUpdateReason::none;
     std::optional<AppUpdateResult> result;
@@ -430,6 +487,7 @@ int main(int argc, char** argv) {
     reentrant.tick(now);
     assert(!reentrant.busy() && !reentrant.available());
     testCheckPollReentrancy();
+    testCheckPollException();
     testInstall();
     return 0;
 }
