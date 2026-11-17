@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "feature": 292,
+  "version": "2026.11.17.1",
+  "released_source_sha": "2805b0f91d5c6d13aad13edb573274b8460e1d19",
+  "candidate_id": "rc-20261117T145605Z-5fbe09a3fe72",
+  "train_id": "train-20261117T145316Z-2805b0f91d5c",
+  "release_url": "https://github.com/yshishenya/graf/releases/tag/v2026.11.17.1",
+  "release_full": {
+    "run_id": 44108566842,
+    "conclusion": "success",
+    "authoritative_full": true,
+    "url": "https://github.com/yshishenya/graf/actions/runs/44108566842"
+  },
+  "packages": {
+    "pkg": {
+      "sha256": "5e540d6cd7467592d415b5145fe6f6648bf99ee1c0c8740dc0253c14e1a51de9",
+      "bytes": 10661944
+    },
+    "sparkle_zip": {
+      "sha256": "4747a9c8f6a123d045303864f03075917cefeb53c90b574c1e79e6d0c2614eb0",
+      "bytes": 10857355
+    }
+  },
+  "notarization": {
+    "pkg": "a88de79b-1280-4a26-a919-d0cc7a778db0",
+    "app_zip": "01f8d4ff-bf90-456a-b7ae-c2e019e8783f",
+    "status": "Accepted",
+    "stapled": true,
+    "distribution_check": "pass",
+    "system_gatekeeper": "assessments_disabled_unchanged"
+  },
+  "deployed_sha": "2805b0f91d5c6d13aad13edb573274b8460e1d19",
+  "installed_version": "2026.11.17.1",
+  "evidence_sha256": {
+    "dev_native_zoom": "649ff6b9763cb6099ea3dee3099809e5a029401ec723f3812cb09e89f4effe80",
+    "dev_owned_cleanup": "614884d826c2a8267ad721765d50cf9b007fc412468e725d3bd965f867057d1e",
+    "dev_abc_cleanup": "6b62991a34fbfc6d51a3b5d7b930cb747212300ae2a5699366aa9571181f9102",
+    "production_native": "d75aa4179d23800757241971a35dce32cb4c3a3f5715faf4260c1291761c5f7c",
+    "production_initial": "6991379a3fc118b2ef0f8cb163b2d5e396ca48fa10267f6a53da3b7362e00220",
+    "guest_welcome_rechecks": "fa52d2a5ac3d8ade7a5f839bedc34a89b0df392109990bd491de1e3d4f72b8ba",
+    "deploy": "795748e4dfb6469bb6748ab89e045fe20a91715795fe79cb3a3f9be0b6b07320",
+    "site_package": "71466da22a42d5da909476c071c3fd7a47dd812b18daf41b9e111efba9f77fe2",
+    "sparkle_publication": "8b0ac940ed36d7738467a22432f5aa86aeb68dbe808f8653c0c2f923be363980",
+    "sparkle_live": "e718edc352ef934e2aa10194300058f388f0f5fb0d959c18bb3e5ce9996929b6",
+    "production_full_recheck": "466df7f9e166f08afd2a2ffbcd804a68b433e8d6a39b9c977bd4b32dd2e57a45",
+    "native_release_ui_equality": "9b35290bbbacdf0f962ba7fd3afa8ddc5cc8fa1b313424ba5e84bda0401cd652",
+    "independent_final_acceptance_audit": "a88059c704994ca1a33ee57ee2e73df0dc4653534d330985b0930e52f259a7b8",
+    "owned_build_cleanup": "3bdd37dceb422210910d00982c1f08b9eaaee2520100c6d12e0c5d62b3040fcc"
+  },
+  "acceptance": {
+    "native": "pass",
+    "production_initial_wrapper": "failed_browser_1_timeout_preserved",
+    "production_browser_second_pass": "pass",
+    "welcome_isolated_rechecks": 2,
+    "expired_resume_revoke_cleanup": "pass",
+    "fresh_full_recheck": "pass_exit_0"
+  },
+  "reference": {
+    "krisp_guest_notes_transcript_audio_growth": "observed",
+    "krisp_training_access_restored": "invite_only",
+    "limits": [
+      "Native Krisp complete matrices and real third-party account registration not replayed"
+    ]
+  },
+  "temporary_computer_control_alias": "absent_verified",
+  "tracker": "pending",
+  "native_owner_share_ui": {
+    "accepted_native_source": "ee58f5fab349f3d2669cc9339f9edadc3a0bc030",
+    "release_source": "2805b0f91d5c6d13aad13edb573274b8460e1d19",
+    "byte_equal": [
+      {
+        "path": "apps/server/src/twobrain_rec_server/cabinet/static/cabinet/summary-sharing.js",
+        "sha256": "46470f284a0e2ea30b75ec9e72d89a77d64e2f4e4a6f8374e28b20a16a6a0841"
+      },
+      {
+        "path": "apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css",
+        "sha256": "426968dd3d5e60a58738b0d88fb616b79a62a7fc88991052e7fbbb5f0fac2d85"
+      },
+      {
+        "path": "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/fragments/meeting_share.html",
+        "sha256": "55522a5df977701d8d51106dd08a670b7ad20d2f1c2d86b6455ad40883365c94"
+      }
+    ]
+  },
+  "installed_signature_verified": true
+}
