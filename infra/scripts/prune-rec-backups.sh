@@ -60,12 +60,22 @@ def main(argv: list[str]) -> int:
 
     candidates: list[Path] = []
     skipped = 0
+    # A dated directory is GRAF-owned only when the backup contract is
+    # present. A foreign directory with a timestamp-shaped name must never be
+    # deleted.
+    required_owned_files = (
+        "postgres.dump",
+        "schema.sql",
+        "inventory.jsonl",
+        "checksums.sha256",
+    )
+    required_owned_dir = "minio-objects"
     try:
         entries = list(root.iterdir())
     except OSError:
         return fail("backup_root_unreadable")
 
-    parsed: list[tuple[datetime, Path]] = []
+    parsed: list[tuple[datetime, Path, bool]] = []
     for entry in entries:
         if entry.is_symlink() or not entry.is_dir():
             skipped += 1
@@ -78,7 +88,10 @@ def main(argv: list[str]) -> int:
         if entry.name != stamp.strftime(NAME_FORMAT):
             skipped += 1
             continue
-        parsed.append((stamp, entry))
+        owned = all((entry / name).is_file() for name in required_owned_files) and (
+            entry / required_owned_dir
+        ).is_dir()
+        parsed.append((stamp, entry, owned))
 
     if not parsed:
         print("prune_result=pass")
@@ -88,13 +101,17 @@ def main(argv: list[str]) -> int:
         print("reason=no_candidates")
         return 0
 
-    # Never delete the newest backup, even if it is older than the retention
-    # window (for example after a long outage).
+    # Keep both the newest directory overall and the newest verified backup.
+    # A failed newest backup must not cause the last good backup to be pruned.
     parsed.sort(key=lambda item: item[0], reverse=True)
-    newest = parsed[0][0]
+    newest_overall = parsed[0][1]
+    newest_owned = next((entry for _, entry, owned in parsed if owned), None)
     now = datetime.now(timezone.utc)
-    for stamp, entry in parsed:
-        if stamp == newest:
+    for stamp, entry, owned in parsed:
+        if not owned:
+            skipped += 1
+            continue
+        if entry == newest_overall or entry == newest_owned:
             skipped += 1
             continue
         age_days = (now - stamp).total_seconds() / 86_400
@@ -105,7 +122,8 @@ def main(argv: list[str]) -> int:
 
     print(f"candidate_count={len(candidates)}")
     for entry in candidates:
-        print(f"candidate={entry}")
+        # Metadata-only output: a basename is enough to identify the candidate.
+        print(f"candidate={entry.name}")
 
     if not args.execute:
         print("prune_result=dry_run")

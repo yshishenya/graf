@@ -220,8 +220,20 @@ async def run_retention_once(
 async def run_retention_reconciler(settings: Settings) -> None:
     """Daily, bounded retention scan; one workspace failure does not stop the loop."""
     if not getattr(settings, "retention_scheduler_enabled", False):
+        logger.info("retention scheduler disabled by configuration")
         return
-    engine = create_engine(settings)
+    engine = None
+    while engine is None:
+        try:
+            engine = create_engine(settings)
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:
+            logger.error(
+                "retention engine unavailable; error_type=%s; retry_in=60s",
+                type(error).__name__,
+            )
+            await asyncio.sleep(60)
     sessions = create_sessionmaker(engine)
     context = MaintenanceTenantContext(
         operation_name="retention_scan",

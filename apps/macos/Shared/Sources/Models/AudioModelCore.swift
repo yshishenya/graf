@@ -1826,6 +1826,7 @@ public struct DesktopUploadQueueItem: Codable, Equatable, Identifiable, Sendable
         case failureCategory
         case failureReason
         case captureFailureCode
+        case partialContinuity
         case retryMode
         case attemptCount
         case nextRetryAt
@@ -1887,7 +1888,8 @@ public struct DesktopUploadQueueItem: Codable, Equatable, Identifiable, Sendable
             supportIncidentSubmission: try container.decodeIfPresent(
                 DesktopSupportIncidentSubmissionState.self,
                 forKey: .supportIncidentSubmission
-            )
+            ),
+            partialContinuity: try container.decodeIfPresent(Bool.self, forKey: .partialContinuity)
         )
         ownerScope = try container.decodeIfPresent(RecordingDeletionScope.self, forKey: .ownerScope)
         isLocalUnbound = try container.decodeIfPresent(Bool.self, forKey: .isLocalUnbound)

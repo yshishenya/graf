@@ -250,7 +250,9 @@ class Settings(BaseSettings):
     share_identity_hash_secret_file: Path | None = None
     auth_callback_state_ttl_seconds: PositiveInt = Field(default=900)
     legacy_header_auth_enabled: bool = False
-    retention_scheduler_enabled: bool = True
+    # Opt-in. The first deployment must run a per-workspace dry-run and verify
+    # a fresh backup before an operator enables destructive retention.
+    retention_scheduler_enabled: bool = False
     retention_meeting_delete_after_days: PositiveInt | None = Field(default=365)
     retention_backup_expiry_days: PositiveInt | None = Field(default=30)
     retention_local_buffer_expiry_days: PositiveInt | None = Field(default=7)

@@ -549,6 +549,19 @@ final class LocalCacheEligibilityTests: XCTestCase {
         ])
     }
 
+    func testPartialContinuityIsNeverEligibleForEviction() {
+        let decision = evaluate(
+            item: makeItem(partialContinuity: true),
+            proof: makeProof(),
+            facts: makeFacts(),
+            proofFetchedAt: now
+        )
+
+        XCTAssertEqual(decision.verdict, .keep)
+        XCTAssertEqual(decision.primaryReason, .localIntegrityUnverified)
+        XCTAssertTrue(decision.allReasons.contains(.localIntegrityUnverified))
+    }
+
     // MARK: - Fixtures
 
     private func assertKeep(
@@ -688,7 +701,8 @@ final class LocalCacheEligibilityTests: XCTestCase {
         failureReason: String? = nil,
         meetingId: String? = "meeting-1",
         mediaBytes: Int64 = 1_000,
-        schemaVersion: String = LocalRecordingManifest.schemaVersion
+        schemaVersion: String = LocalRecordingManifest.schemaVersion,
+        partialContinuity: Bool? = nil
     ) -> DesktopUploadQueueItem {
         var item = DesktopUploadQueueItem(
             id: "queue-item-1",
@@ -757,7 +771,8 @@ final class LocalCacheEligibilityTests: XCTestCase {
                 reason: "test",
                 localArtifactsRetained: true,
                 policyReference: "test"
-            )
+            ),
+            partialContinuity: partialContinuity
         )
         item.ownerScope = ownerScope ?? scopeA
         item.isLocalUnbound = isLocalUnbound

@@ -231,6 +231,138 @@ final class RecordingAudioTimelineTests: XCTestCase {
         XCTAssertTrue(timeline.finishPreservingAvailableAudio())
     }
 
+    func testRouteChangeDoesNotCompressMaterialSystemAudioGap() throws {
+        let timeline = makeTimeline(
+            configuration: .init(reorderWindowFrames: 0, maximumKnownGapSeconds: 15)
+        )
+        try timeline.append(
+            source: .microphone,
+            batch: batch(samples: Array(repeating: 0.4, count: 192_000), at: 0)
+        )
+        try timeline.append(
+            source: .systemAudio,
+            batch: batch(
+                samples: Array(repeating: 0.2, count: 480),
+                at: 0,
+                observedHostTimeSeconds: 0,
+                routeGeneration: 1
+            )
+        )
+        XCTAssertNoThrow(
+            try timeline.append(
+                source: .systemAudio,
+                batch: routeMarker(at: 0.01, routeGeneration: 1)
+            )
+        )
+        // The new stream continues 3 seconds later. The route marker must not
+        // compress that gap to zero and shift the system reference.
+        XCTAssertThrowsError(
+            try timeline.append(
+                source: .systemAudio,
+                batch: batch(
+                    samples: Array(repeating: 0.2, count: 480),
+                    at: 3.01,
+                    observedHostTimeSeconds: 3.01,
+                    routeGeneration: 2
+                )
+            )
+        ) {
+            XCTAssertEqual($0 as? RecordingAudioTimelineError, .renderReferenceMissing)
+        }
+        XCTAssertEqual(timeline.metrics.continuityGapBridgedFrames, 0)
+        XCTAssertTrue(timeline.finishPreservingAvailableAudio())
+    }
+
+    func testRouteChangeWithResetClockUsesHostGap() throws {
+        let timeline = makeTimeline(
+            configuration: .init(reorderWindowFrames: 0, maximumKnownGapSeconds: 15)
+        )
+        try timeline.append(
+            source: .microphone,
+            batch: batch(samples: Array(repeating: 0.4, count: 192_000), at: 0)
+        )
+        try timeline.append(
+            source: .systemAudio,
+            batch: batch(
+                samples: Array(repeating: 0.2, count: 480),
+                at: 0,
+                observedHostTimeSeconds: 0,
+                routeGeneration: 1
+            )
+        )
+        XCTAssertNoThrow(
+            try timeline.append(
+                source: .systemAudio,
+                batch: routeMarker(at: 0.01, routeGeneration: 1)
+            )
+        )
+        // A reset PTS alone would look like zero gap. The host clock proves the
+        // three-second loss, so the timeline must keep the prefix and fail
+        // closed instead of claiming a full recording.
+        XCTAssertThrowsError(
+            try timeline.append(
+                source: .systemAudio,
+                batch: batch(
+                    samples: Array(repeating: 0.2, count: 480),
+                    at: 0,
+                    observedHostTimeSeconds: 3.01,
+                    routeGeneration: 2
+                )
+            )
+        ) {
+            XCTAssertEqual($0 as? RecordingAudioTimelineError, .renderReferenceMissing)
+        }
+        XCTAssertTrue(timeline.finishPreservingAvailableAudio())
+    }
+
+    func testSecondRouteChangeIsAccepted() throws {
+        let timeline = makeTimeline(
+            configuration: .init(reorderWindowFrames: 0, maximumKnownGapSeconds: 15)
+        )
+        try timeline.append(
+            source: .microphone,
+            batch: batch(samples: Array(repeating: 0.4, count: 192_000), at: 0)
+        )
+        try timeline.append(
+            source: .systemAudio,
+            batch: batch(samples: Array(repeating: 0.2, count: 480), at: 0, routeGeneration: 1)
+        )
+        XCTAssertNoThrow(try timeline.append(
+            source: .systemAudio,
+            batch: routeMarker(at: 0.01, routeGeneration: 1)
+        ))
+        XCTAssertNoThrow(try timeline.append(
+            source: .systemAudio,
+            batch: batch(samples: Array(repeating: 0.2, count: 480), at: 0, routeGeneration: 2)
+        ))
+        XCTAssertNoThrow(try timeline.append(
+            source: .systemAudio,
+            batch: routeMarker(at: 0.02, routeGeneration: 2)
+        ))
+        XCTAssertNoThrow(try timeline.append(
+            source: .systemAudio,
+            batch: batch(samples: Array(repeating: 0.2, count: 480), at: 0, routeGeneration: 3)
+        ))
+        XCTAssertEqual(timeline.metrics.continuityRouteChangeCount, 2)
+        XCTAssertTrue(timeline.finishPreservingAvailableAudio())
+    }
+
+    private func routeMarker(
+        at seconds: Double,
+        routeGeneration: Int
+    ) -> RecordingAudioBatch {
+        RecordingAudioBatch(
+            samples: [],
+            format: RecordingAudioFormat(sampleRate: 48_000, channelCount: 1),
+            presentationTime: RecordingAudioPresentationTimestamp(
+                seconds: seconds,
+                clockDomain: .wallClock
+            ),
+            discontinuity: .routeChanged,
+            routeGeneration: routeGeneration
+        )
+    }
+
     func testRouteChangeAllowsNewSampleRateAfterRebase() throws {
         let timeline = makeTimeline(configuration: .init(reorderWindowFrames: 0))
         try timeline.append(

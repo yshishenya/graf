@@ -126,3 +126,18 @@ async def test_retention_once_uses_isolated_session_per_workspace(monkeypatch):
     assert len(sessions.instances) == 2
     assert sessions.instances[0] is not sessions.instances[1]
     assert sessions.instances[1].commits == 1
+
+
+def test_retention_scheduler_is_opt_in_by_default() -> None:
+    from twobrain_rec_server.config import Settings
+
+    assert Settings().retention_scheduler_enabled is False
+
+
+@pytest.mark.asyncio
+async def test_disabled_retention_reconciler_never_opens_storage() -> None:
+    # The disabled path must return before create_engine/get_storage; a missing
+    # engine here would fail the test with an unrelated error.
+    await maintenance_worker.run_retention_reconciler(
+        SimpleNamespace(retention_scheduler_enabled=False)
+    )

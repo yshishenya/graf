@@ -21,6 +21,17 @@ def run(*args: str) -> subprocess.CompletedProcess[str]:
 def dated(root: Path, name: str) -> Path:
     path = root / name
     path.mkdir()
+    (path / "postgres.dump").write_text("dump", encoding="utf-8")
+    (path / "schema.sql").write_text("schema", encoding="utf-8")
+    (path / "inventory.jsonl").write_text("{}\n", encoding="utf-8")
+    (path / "checksums.sha256").write_text("checksum", encoding="utf-8")
+    (path / "minio-objects").mkdir()
+    return path
+
+
+def unowned_dated(root: Path, name: str) -> Path:
+    path = root / name
+    path.mkdir()
     (path / "marker").write_text("x", encoding="utf-8")
     return path
 
@@ -57,6 +68,33 @@ def test_execute_removes_only_old_owned_directory(tmp_path: Path) -> None:
     assert foreign.is_dir()
     assert outside.is_dir()
     assert link.is_symlink()
+
+
+def test_dated_foreign_directory_is_not_removed(tmp_path: Path) -> None:
+    old_owned = dated(tmp_path, "20200101T000000Z")
+    newest_owned = dated(tmp_path, "20210101T000000Z")
+    foreign = unowned_dated(tmp_path, "20190101T000000Z")
+
+    result = run("--execute", "--backup-root", str(tmp_path), "--older-than-days", "30")
+
+    assert result.returncode == 0, result.stderr
+    assert not old_owned.exists()
+    assert newest_owned.is_dir()
+    assert foreign.is_dir()
+    assert str(tmp_path) not in result.stdout
+
+
+def test_failed_newest_backup_keeps_newest_verified(tmp_path: Path) -> None:
+    oldest = dated(tmp_path, "20190101T000000Z")
+    newest_verified = dated(tmp_path, "20200101T000000Z")
+    failed_newest = unowned_dated(tmp_path, "20210101T000000Z")
+
+    result = run("--execute", "--backup-root", str(tmp_path), "--older-than-days", "30")
+
+    assert result.returncode == 0, result.stderr
+    assert failed_newest.is_dir()
+    assert newest_verified.is_dir()
+    assert not oldest.exists()
 
 
 def test_invalid_root_returns_two(tmp_path: Path) -> None:

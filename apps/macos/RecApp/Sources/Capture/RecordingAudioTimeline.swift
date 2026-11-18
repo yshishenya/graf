@@ -524,6 +524,10 @@ public final class RecordingAudioTimeline: @unchecked Sendable {
         }
 
         state.routeGeneration = batch.routeGeneration
+        let previousObservedHostTime = state.lastObservedHostTimeSeconds
+        if let observedHostTime = batch.presentationTime.observedHostTimeSeconds {
+            state.lastObservedHostTimeSeconds = observedHostTime
+        }
 
         if routeRebasePending.contains(source) {
             try flushConverterForRouteChange(source: source, state: state)
@@ -537,8 +541,69 @@ public final class RecordingAudioTimeline: @unchecked Sendable {
         )
         if routeRebasePending.contains(source) {
             let expectedStart = state.lastInputEndFrame ?? 0
-            let (offset, overflow) = requestedStart.subtractingReportingOverflow(expectedStart)
-            guard !overflow else { throw RecordingAudioTimelineError.invalidTimestamp }
+            let previousOffset = routeOffsets[source] ?? 0
+            let (expectedRawStart, expectedOverflow) = expectedStart.addingReportingOverflow(previousOffset)
+            guard !expectedOverflow else { throw RecordingAudioTimelineError.invalidTimestamp }
+            let (ptsDelta, ptsOverflow) = requestedStart.subtractingReportingOverflow(expectedRawStart)
+            guard !ptsOverflow else { throw RecordingAudioTimelineError.invalidTimestamp }
+
+            // ScreenCaptureKit may continue the same media clock or reset it
+            // after a route change. Use the media delta when it is meaningful;
+            // otherwise use the observed host-clock delta. Never assume that a
+            // reset means "no time passed".
+            let hostDeltaFrames: Int64?
+            if let previousObservedHostTime,
+               let observedHostTime = batch.presentationTime.observedHostTimeSeconds,
+               observedHostTime.isFinite,
+               previousObservedHostTime.isFinite,
+               observedHostTime >= previousObservedHostTime {
+                let seconds = observedHostTime - previousObservedHostTime
+                hostDeltaFrames = seconds <= configuration.maximumKnownGapSeconds + 1
+                    ? Int64((seconds * Self.canonicalSampleRate).rounded())
+                    : maximumKnownGapFrames + 1
+            } else {
+                hostDeltaFrames = nil
+            }
+
+            let gapFrames: Int64
+            if ptsDelta > 0 {
+                gapFrames = ptsDelta
+            } else if ptsDelta == 0, let hostDeltaFrames, hostDeltaFrames > 0 {
+                gapFrames = hostDeltaFrames
+            } else if ptsDelta == 0 {
+                gapFrames = 0
+            } else if let hostDeltaFrames {
+                gapFrames = max(0, hostDeltaFrames)
+            } else {
+                // A negative media delta with no host observation is the
+                // established clock-reset convention: rebase without inventing
+                // a gap. Production system audio always supplies host time, so
+                // a real gap after a device switch is still measured.
+                diagnosticLogger?("recording_timeline_route_clock_reset_without_host_time source=\(source.rawValue)")
+                gapFrames = 0
+            }
+            guard gapFrames <= maximumKnownGapFrames else {
+                throw RecordingAudioTimelineError.gapExceedsBound
+            }
+            guard gapFrames <= maximumBridgedGapFrames else {
+                // A material gap after a device switch must stay visible. Keep
+                // the prefix and let the writer persist a truthful partial
+                // recording instead of shifting later audio earlier.
+                throw RecordingAudioTimelineError.renderReferenceMissing
+            }
+            if gapFrames > 0 {
+                canonicalSamples.insert(
+                    contentsOf: repeatElement(Float.zero, count: Int(gapFrames)),
+                    at: 0
+                )
+                metrics.continuityGapBridgedFrames += gapFrames
+                metrics.gapFramesBySource[source, default: 0] += gapFrames
+                metrics.ptsGapCount += 1
+            }
+            let (targetStart, targetOverflow) = expectedStart.addingReportingOverflow(gapFrames)
+            guard !targetOverflow else { throw RecordingAudioTimelineError.invalidTimestamp }
+            let (offset, offsetOverflow) = requestedStart.subtractingReportingOverflow(targetStart)
+            guard !offsetOverflow else { throw RecordingAudioTimelineError.invalidTimestamp }
             routeOffsets[source] = offset
             routeRebasePending.remove(source)
             requestedStart = expectedStart
@@ -818,6 +883,7 @@ private struct TimelineSegment {
 
 private final class SourceState {
     var routeGeneration: Int?
+    var lastObservedHostTimeSeconds: Double?
     var inputFormat: RecordingAudioFormat?
     var lastInputEndFrame: Int64?
     var lastRequestedStartFrame: Int64?

@@ -3075,7 +3075,8 @@ final class DesktopUploadQueueTests: XCTestCase {
         meetingId: String? = nil,
         serverTruth: ServerTruthFingerprint = ServerTruthFingerprint(),
         createdAt: Date = Date(timeIntervalSince1970: 1),
-        updatedAt: Date = Date(timeIntervalSince1970: 1)
+        updatedAt: Date = Date(timeIntervalSince1970: 1),
+        partialContinuity: Bool? = nil
     ) -> DesktopUploadQueueItem {
         let profile = ArtifactCompletenessProfile(
             schemaVersion: LocalRecordingManifest.schemaVersion,
@@ -3138,8 +3139,22 @@ final class DesktopUploadQueueTests: XCTestCase {
                 reason: "test",
                 localArtifactsRetained: true,
                 policyReference: "test"
-            )
+            ),
+            partialContinuity: partialContinuity
         )
+    }
+
+    func testPartialContinuityRoundTripsInQueueDocument() throws {
+        let item = makeQueueItem(state: .uploaded, partialContinuity: true)
+        let data = try JSONEncoder.uploadQueueTestEncoder.encode(
+            DesktopUploadQueueDocument(updatedAt: item.updatedAt, items: [item])
+        )
+        let decoded = try JSONDecoder.uploadQueueTestDecoder.decode(
+            DesktopUploadQueueDocument.self,
+            from: data
+        )
+
+        XCTAssertEqual(decoded.items.first?.partialContinuity, true)
     }
 
     private func makeSupportIncidentItem(id: String) -> DesktopUploadQueueItem {
