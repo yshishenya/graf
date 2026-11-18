@@ -7,9 +7,11 @@ Feature: `297-launch-capture-retention`.
 - `graf-rec-backup-prune.timer` runs daily at 04:20 UTC.
 - It calls `infra/scripts/prune-rec-backups.sh --execute --older-than-days 30`.
 - The script removes only direct child directories of `TWOBRAIN_BACKUP_ROOT`
-  whose name is exactly `YYYYMMDDTHHMMSSZ` and whose age is greater than 30
-  days. It never removes the newest backup, symlinks, foreign directories or
-  files outside the root.
+  whose name is exactly `YYYYMMDDTHHMMSSZ`, whose age is greater than 30 days,
+  and which contain the full GRAF backup contract: `backup.passed`,
+  `postgres.dump`, `schema.sql`, `inventory.jsonl`, `checksums.sha256` and
+  `minio-objects/`. It never removes the newest directory overall, the newest
+  verified backup, symlinks, foreign directories or files outside the root.
 
 ## Install (operator)
 
@@ -30,6 +32,28 @@ TWOBRAIN_BACKUP_ROOT=/opt/projects/2brain-rec/backups \
 
 If you use a different root, update both `Environment=TWOBRAIN_BACKUP_ROOT=` and
 `ReadWritePaths=` in the service before enabling it.
+
+## Retention scheduler enablement
+
+The meeting-retention scheduler is deliberately two-key:
+
+```sh
+TWOBRAIN_RETENTION_SCHEDULER_ENABLED=false
+TWOBRAIN_RETENTION_SCHEDULER_DRY_RUN_ONLY=true
+```
+
+1. Deploy with both safe defaults.
+2. Verify a fresh backup contains `backup.passed` and all required artifacts.
+3. Run the existing per-workspace retention dry-run and review the counts and
+   metadata-only audit.
+4. Set `TWOBRAIN_RETENTION_SCHEDULER_ENABLED=true` while keeping
+   `TWOBRAIN_RETENTION_SCHEDULER_DRY_RUN_ONLY=true`; observe at least one pass.
+5. Only after that review set `TWOBRAIN_RETENTION_SCHEDULER_DRY_RUN_ONLY=false`.
+6. Monitor the first destructive pass and keep the backup/prune evidence.
+
+Do not enable destructive retention before the public policy and support flow
+have been checked. The privacy page only promises automatic deletion after the
+operator enables it.
 
 ## Disable
 
