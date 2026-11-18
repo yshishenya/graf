@@ -158,7 +158,12 @@ After publication, download the public artifacts again and verify:
 - feed version, HTTPS URL, enclosure length, XML, and SHA-256;
 - Sparkle signature and `validate-app-updates.sh` against the prior app;
 - installed `/Applications/GRAF.app` version matches the live feed;
-- app and package pass stapler validation and Gatekeeper.
+- app and package pass stapler validation and Gatekeeper;
+- the `GRAF.app` **inside** the installer PKG passes `stapler validate` and
+  `syspolicy_check distribution`, not only the outer PKG. The release gate runs
+  `validate-pkg-payload.sh`; if the current builder order produced an
+  unstapled payload, run `restaple-pkg-payload.sh` before publication, or
+  preferably build the PKG from the already stapled app.
 
 The release driver performs the publication and then the same live-feed check;
 for a resumed local signing-only operation, the read-only check remains:
