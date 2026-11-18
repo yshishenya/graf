@@ -110,7 +110,7 @@ Still open: T010 hardware QA, T019 live render, T022 live referral, T023 converg
 
 ## Dev stand live evidence (2026-11-18)
 
-- F297 built and promoted on the single Dev stand: manifest `dev-e8c5bae08079`, source `e8c5bae080791259b76bfcd95dcafb23c9b27b11`, migration head `0114_retention_scan_maintenance`.
+- F297 built and promoted on the single Dev stand: manifest `dev-a7d2b1a565cb`, source `a7d2b1a565cb5ddd16e81ed01e0b35523f2c15f3`, migration head `0114_retention_scan_maintenance`.
 - `dev-harness.sh smoke --json --live`: pass; all 13 checks pass, including app identity/presentation, exact SHA, backend, database, migration, storage, Temporal, processing/media workers.
 - `GET /` and `GET /offer`: 200. The landing and offer contain the real 4-hour limit; the offer says auto-renewal is checked by default and removable before payment; the old false phrases are absent.
 - `GET /r/unknown-token` and `GET /referral/unknown-token`: 410 with no 500.
