@@ -35,7 +35,7 @@ WHOLE_RUN_SECONDS = 600
 RESOURCE_OPERATION_SECONDS = 30
 TERM_GRACE_SECONDS = 5
 KILL_GRACE_SECONDS = 5
-MINIMUM_FREE_BYTES = 7 * 1024 * 1024 * 1024
+MINIMUM_FREE_BYTES = 10 * 1024 * 1024 * 1024
 RESOURCE_LABEL = "pro.2brain.graf.f099.run"
 CONTEXT_SCHEMA_VERSION = 1
 ACCEPTANCE_PATH = "acceptance/playback_normalization_real_transport.py"
@@ -168,12 +168,33 @@ def _image_id(docker: list[str], reference: str, environment: dict[str, str]) ->
     return image_id
 
 
+def _bounded_command(
+    arguments: list[str],
+    environment: dict[str, str],
+    *,
+    timeout: int = RESOURCE_OPERATION_SECONDS,
+) -> subprocess.CompletedProcess[str] | None:
+    """Run a cleanup probe without turning a timeout into process-wide exit."""
+    try:
+        return subprocess.run(
+            arguments,
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+            env=environment,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return None
+
+
 def _container_identity(
     docker: list[str],
     reference: str,
     environment: dict[str, str],
 ) -> str | None:
-    completed = _run(
+    completed = _bounded_command(
         [
             *docker,
             "inspect",
@@ -183,10 +204,9 @@ def _container_identity(
             + '"}}|{{.Image}}',
             reference,
         ],
-        environment=environment,
-        check=False,
+        environment,
     )
-    if completed.returncode != 0:
+    if completed is None or completed.returncode != 0:
         return None
     identity = completed.stdout.strip()
     return identity or None
@@ -196,11 +216,13 @@ def _exact_container_ids(
     docker: list[str],
     name: str,
     environment: dict[str, str],
-) -> list[str]:
-    completed = _run(
+) -> list[str] | None:
+    completed = _bounded_command(
         [*docker, "ps", "-aq", "--no-trunc", "--filter", f"name=^/{name}$"],
-        environment=environment,
+        environment,
     )
+    if completed is None or completed.returncode != 0:
+        return None
     return [line.strip() for line in completed.stdout.splitlines() if line.strip()]
 
 
@@ -217,9 +239,8 @@ def _remove_verified_container(
     if candidate_id:
         identity = _container_identity(docker, candidate_id, environment)
     if identity is None:
-        try:
-            candidates = _exact_container_ids(docker, name, environment)
-        except (subprocess.TimeoutExpired, OSError):
+        candidates = _exact_container_ids(docker, name, environment)
+        if candidates is None:
             return False, "lookup_failed"
         if not candidates:
             return True, "confirmed_absent"
@@ -239,28 +260,28 @@ def _remove_verified_container(
         or actual_image != image_id
     ):
         return False, "foreign_or_mismatched_container"
-    try:
-        completed = _run(
-            [*docker, "rm", "--force", "--volumes", actual_id],
-            environment=environment,
-            check=False,
-        )
-    except (subprocess.TimeoutExpired, OSError):
-        return False, "remove_failed"
-    if completed.returncode != 0:
+    completed = _bounded_command(
+        [*docker, "rm", "--force", "--volumes", actual_id],
+        environment,
+    )
+    if completed is None or completed.returncode != 0:
         return False, "remove_failed"
     if _container_identity(docker, actual_id, environment) is not None:
         return False, "still_present_after_remove"
-    try:
-        remaining = _exact_container_ids(docker, name, environment)
-    except (subprocess.TimeoutExpired, OSError):
+    remaining = _exact_container_ids(docker, name, environment)
+    if remaining is None:
         return False, "absence_lookup_failed"
     if remaining:
         return False, "name_still_present"
     return True, "removed"
 
 
-def _terminate_process_group(process: subprocess.Popen[bytes]) -> None:
+def _terminate_process_group(
+    process: subprocess.Popen[bytes],
+    *,
+    term_grace: float = TERM_GRACE_SECONDS,
+    kill_grace: float = KILL_GRACE_SECONDS,
+) -> None:
     if process.poll() is not None:
         return
     try:
@@ -268,14 +289,72 @@ def _terminate_process_group(process: subprocess.Popen[bytes]) -> None:
     except ProcessLookupError:
         return
     with suppress(subprocess.TimeoutExpired):
-        process.wait(timeout=TERM_GRACE_SECONDS)
+        process.wait(timeout=term_grace)
+        return
+    if process.poll() is not None:
         return
     try:
         os.killpg(process.pid, signal.SIGKILL)
     except ProcessLookupError:
         return
     with suppress(subprocess.TimeoutExpired):
-        process.wait(timeout=KILL_GRACE_SECONDS)
+        process.wait(timeout=kill_grace)
+
+
+def _wait_for_child(
+    process: subprocess.Popen[bytes],
+    timeout: int,
+) -> tuple[bytes, bool]:
+    try:
+        output, _ = process.communicate(timeout=timeout)
+        return output, False
+    except subprocess.TimeoutExpired:
+        _terminate_process_group(process)
+        try:
+            output, _ = process.communicate(timeout=KILL_GRACE_SECONDS + 1)
+        except subprocess.TimeoutExpired:
+            output = b""
+        return output, True
+
+
+def _monitor_postgres_bootstrap(
+    process: subprocess.Popen[bytes],
+    state_file: Path,
+    stop_event: threading.Event,
+    *,
+    limit_ms: int = 60_000,
+    term_grace: float = TERM_GRACE_SECONDS,
+    kill_grace: float = KILL_GRACE_SECONDS,
+) -> bool:
+    while not stop_event.wait(0.5):
+        try:
+            state = json.loads(state_file.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if state.get("phase") == "ready":
+            return False
+        started_at = state.get("started_ms") or state.get("monotonic_ms")
+        if not isinstance(started_at, int):
+            continue
+        if time.monotonic() * 1000 - started_at <= limit_ms:
+            continue
+        if process.poll() is not None:
+            return False
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            return True
+        time.sleep(term_grace)
+        if process.poll() is not None:
+            return True
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            return True
+        with suppress(subprocess.TimeoutExpired):
+            process.wait(timeout=kill_grace)
+        return True
+    return False
 
 
 def _clean_environment(
@@ -386,6 +465,44 @@ def _verify_media_tool(configured: str | None, name: str, environment: dict[str,
     return path, _sha256_file(path), first_line
 
 
+def _safe_acceptance(summary: dict[str, Any]) -> dict[str, Any]:
+    scenarios = []
+    for scenario in summary.get("scenarios") or []:
+        if not isinstance(scenario, dict):
+            continue
+        scenarios.append(
+            {
+                key: scenario.get(key)
+                for key in (
+                    "name",
+                    "status",
+                    "job_state",
+                    "reason_code",
+                    "attempts",
+                    "published_attempts",
+                    "canonical_artifacts",
+                    "next_attempt_at",
+                    "canonical",
+                    "source",
+                    "range",
+                    "elapsed_seconds",
+                )
+                if key in scenario
+            }
+        )
+    checks = summary.get("checks") if isinstance(summary.get("checks"), dict) else {}
+    safe_checks = {
+        key: checks.get(key)
+        for key in ("media_role", "media_visibility", "synthetic_source_sha256")
+        if key in checks
+    }
+    return {
+        "status": str(summary.get("status", "invalid")),
+        "scenarios": scenarios,
+        "checks": safe_checks,
+    }
+
+
 def _parse_arguments(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Run the isolated F099 T014 real-transport acceptance.",
@@ -448,14 +565,6 @@ def main(argv: list[str] | None = None) -> int:
         postgres_resource_dir / "postgres-resource.json", postgres_manifest
     )
     postgres_receipt = run_directory / "postgres-resource-cleanup.json"
-    _atomic_write_json(
-        postgres_receipt,
-        {
-            **postgres_manifest,
-            "state": "cleanup_required",
-            "created_at": _utc_now(),
-        },
-    )
     acceptance_context = run_directory / "acceptance-context.json"
     result_file = work_directory / "acceptance-result.json"
     minio_resource = work_directory / "minio-resource.json"
@@ -503,6 +612,9 @@ def main(argv: list[str] | None = None) -> int:
         "ffmpeg_sha256": ffmpeg_sha256,
         "ffprobe_sha256": ffprobe_sha256,
         "free_bytes_at_start": free_bytes,
+        "supervisor_sha256": _sha256_file(Path(__file__)),
+        "acceptance_sha256": _sha256_file(server_root / ACCEPTANCE_PATH),
+        "postgres_runner_sha256": _sha256_file(server_root / TEST_RUNNER),
         "started_at": _utc_now(),
     }
     supervisor_receipt = run_directory / "supervisor-result.json"
@@ -513,6 +625,14 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(safe_receipt, ensure_ascii=True, sort_keys=True))
         return 0
 
+    _atomic_write_json(
+        postgres_receipt,
+        {
+            **postgres_manifest,
+            "state": "cleanup_required",
+            "created_at": _utc_now(),
+        },
+    )
     child_environment = dict(environment)
     command = [
         "bash",
@@ -534,43 +654,18 @@ def main(argv: list[str] | None = None) -> int:
     )
     bootstrap_timed_out = False
     stop_monitor = threading.Event()
+    state_file = postgres_resource_dir / "postgres-state.json"
 
     def monitor_bootstrap() -> None:
         nonlocal bootstrap_timed_out
-        state_file = postgres_resource_dir / "postgres-state.json"
-        while not stop_monitor.wait(0.5):
-            try:
-                state = json.loads(state_file.read_text(encoding="utf-8"))
-            except (OSError, ValueError):
-                continue
-            if state.get("phase") != "starting":
-                continue
-            started_at = state.get("monotonic_ms")
-            if not isinstance(started_at, int):
-                continue
-            if time.monotonic() * 1000 - started_at <= 60_000:
-                continue
-            bootstrap_timed_out = True
-            try:
-                os.killpg(process.pid, signal.SIGTERM)
-            except ProcessLookupError:
-                return
-            time.sleep(TERM_GRACE_SECONDS)
-            try:
-                os.killpg(process.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                return
-            return
+        bootstrap_timed_out = _monitor_postgres_bootstrap(
+            process, state_file, stop_monitor
+        )
 
     monitor = threading.Thread(target=monitor_bootstrap, daemon=True)
     monitor.start()
-    timed_out = False
     try:
-        output, _ = process.communicate(timeout=WHOLE_RUN_SECONDS)
-    except subprocess.TimeoutExpired:
-        timed_out = True
-        _terminate_process_group(process)
-        output, _ = process.communicate()
+        output, timed_out = _wait_for_child(process, WHOLE_RUN_SECONDS)
     finally:
         stop_monitor.set()
         monitor.join(timeout=1)
@@ -589,7 +684,10 @@ def main(argv: list[str] | None = None) -> int:
     candidate_id = postgres_state.get("container_id") if isinstance(postgres_state.get("container_id"), str) else None
     cid_path = postgres_resource_dir / "postgres.cid"
     if candidate_id is None and cid_path.is_file() and not cid_path.is_symlink():
-        cid_text = cid_path.read_text(encoding="utf-8", errors="ignore").strip()
+        try:
+            cid_text = cid_path.read_text(encoding="utf-8", errors="ignore").strip()
+        except OSError:
+            cid_text = ""
         if cid_text and "\n" not in cid_text:
             candidate_id = cid_text
     postgres_cleanup = _remove_verified_container(
@@ -636,13 +734,22 @@ def main(argv: list[str] | None = None) -> int:
             "updated_at": _utc_now(),
         },
     )
+    try:
+        shutil.rmtree(work_directory)
+        work_cleanup = "removed"
+    except OSError:
+        work_cleanup = "failed"
     safe_receipt.update(
         {
+            "acceptance": _safe_acceptance(acceptance_summary),
+            "work_directory_cleanup": work_cleanup,
             "status": "pass"
             if process.returncode == 0
             and not timed_out
+            and not bootstrap_timed_out
             and acceptance_status == "pass"
             and cleanup_clean
+            and work_cleanup == "removed"
             else "fail",
             "child_exit_code": process.returncode,
             "timed_out": timed_out or bootstrap_timed_out,
@@ -657,7 +764,6 @@ def main(argv: list[str] | None = None) -> int:
         }
     )
     _atomic_write_json(supervisor_receipt, safe_receipt)
-    shutil.rmtree(work_directory, ignore_errors=True)
     print(json.dumps(safe_receipt, ensure_ascii=True, sort_keys=True))
     if safe_receipt["status"] != "pass":
         return 1

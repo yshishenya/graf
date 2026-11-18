@@ -84,8 +84,10 @@ def test_full_runner_keeps_strict_rls_tests_and_uses_a_bounded_parallel_lane() -
     script = RUNNER.read_text(encoding="utf-8")
 
     phase = script.split("run_phase() {", 1)[1].split("start_postgres() {", 1)[0]
-    assert 'uv run --extra dev --extra evaluation pytest "${report_args[@]}" "$@"' in phase
-    assert 'uv run --extra dev --extra evaluation pytest -c "$repo_root/apps/server/pyproject.toml" --collect-only' in script
+    assert 'uv "${uv_run[@]}" --extra dev --extra evaluation pytest "${report_args[@]}" "$@"' in phase
+    assert 'uv "${uv_collection[@]}" --extra dev --extra evaluation pytest -c "$repo_root/apps/server/pyproject.toml" --collect-only' in script
+    assert 'uv_run+=(--no-sync)' in script
+    assert 'uv_collection+=(--no-sync)' in script
     assert "GRAF_TEST_WORKERS" in script
     assert 'workers="${GRAF_TEST_WORKERS:-4}"' in script
     assert "GRAF_TEST_WORKERS must be an integer from 1 through 8." in script
@@ -849,3 +851,26 @@ def test_resource_context_stops_after_a_failed_cleanup_without_retrying(resource
     assert [call[0] for call in resource_run.calls()].count("run") == 1
     assert "postgres_test_resource_cleanup=remove_failed" in result.stderr
     assert "postgres_test_result=pass" not in result.stdout
+
+
+def test_resource_context_adopts_a_container_when_the_create_response_is_lost(resource_run):
+    result = resource_run(
+        "-q", "tests/unit/test_acceptance.py", env={"RUN_FAIL_AFTER_CREATE": "1"}
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    calls = resource_run.calls()
+    assert [call[0] for call in calls].count("run") == 1
+    assert any(call[0] == "inspect" for call in calls)
+    assert [call for call in calls if call[0] == "rm"] == [["rm", "--force", "--volumes", "container-1"]]
+    assert "postgres_test_result=pass mode=focused" in result.stdout
+
+
+def test_resource_context_cleans_by_identity_when_the_cidfile_is_missing(resource_run):
+    result = resource_run(
+        "-q", "tests/unit/test_acceptance.py", env={"CIDFILE": "0"}
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert not (resource_run.context / "postgres.cid").exists()
+    assert [call for call in resource_run.calls() if call[0] == "rm"] == [
+        ["rm", "--force", "--volumes", "container-1"]
+    ]

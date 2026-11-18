@@ -1,6 +1,6 @@
 # T014/#3361 — настоящая автоматическая серверная приёмка, этап A
 
-Дата: 2026-11-17. Lane: `high-risk-product`. Ветка:
+Дата: 2026-11-18 UTC. Lane: `high-risk-product`. Ветка:
 `codex/099-real-transport-acceptance`. Проверенная база:
 `2805b0f91d5c6d13aad13edb573274b8460e1d19`.
 
@@ -8,6 +8,23 @@
 [real-transport-acceptance.md](../contracts/real-transport-acceptance.md).
 Этапы B и C, startup/container/UI/release/deploy и production-приёмка остаются
 открытыми. Успех A не закрывает T014 и #3361.
+
+## Допуск и привязка к коду
+
+Implementation admission выдан после независимого reviewer PASS 120/0,
+analyze без CRITICAL/HIGH и sync существующего #3361. Reviewer-owned checklist
+не редактировался основным агентом.
+
+Финальный прогон: run token **`098af0b4671aa3ecd59c7368584da649`**,
+`started_at=2026-11-18T00:13:43Z`, `finished_at=2026-11-18T00:14:02Z`.
+
+Receipt привязан к исполненным файлам:
+
+| Артефакт | SHA-256 |
+|---|---|
+| supervisor | `b214f4efc6729c3bd1a0b7db3111a46289fe60fdfff03d9713bb9afb6831c9ce` |
+| acceptance | `4636408b15ffcc71bceb132bff9644892e64aff4b0a121efdd5cce0b2c06356b` |
+| PostgreSQL runner | `3f55b37506594453e80fd5f5801114f2faf71020aa2f41e1401b18f0d0f366a2` |
 
 ## Что исполнено
 
@@ -20,12 +37,12 @@ apps/server/.venv/bin/python apps/server/scripts/run_playback_normalization_real
 ```
 
 Запускатель до collection проверил отсутствие `.env`, локальный Docker unix
-socket, свободное место, локальные image ID, checksum Temporal CLI, наличие
-FFmpeg/ffprobe и frozen-зависимости. Затем он передал существующему
-`run_local_postgres_tests.sh --focused` собственный PostgreSQL resource context,
-очистил окружение, ограничил дочерний процесс 600 секундами, контролировал 60-секундную фазу
-`starting` PostgreSQL по внешнему state и выполнил проверяемую очистку по
-сохранённым identity.
+socket, свободное место не меньше 10 GiB, локальные image ID, checksum Temporal
+CLI, наличие FFmpeg/ffprobe и frozen-зависимости. Затем он передал
+существующему `run_local_postgres_tests.sh --focused` собственный PostgreSQL
+resource context, очистил окружение, ограничил дочерний процесс 600 секундами,
+контролировал 60-секундную фазу `starting` PostgreSQL по внешнему state и
+выполнил проверяемую очистку по сохранённым identity.
 
 Приёмочный файл выбран явно:
 
@@ -47,13 +64,13 @@ acceptance/playback_normalization_real_transport.py
 | Temporal Python SDK | `1.30.0` |
 | FFmpeg | `8.1.2`, SHA-256 `2ce81b92499c1b6b96eb060c69723114bd0da13f1bfbd9da26dee24d099e644a` |
 | ffprobe | `8.1.2`, SHA-256 `c806a3513d745902058911abf087d7dd26bcc7c1e62e5133e36a37eb42ae72b0` |
-| PostgreSQL run token | `90ccc58c9292e730a9270f231fb8f7bd` |
 
 Temporal запускался `start_local` с `dev_server_existing_path`, `ip=127.0.0.1`,
 случайным портом, `ui=False`, in-memory SQLite и настоящими часами. MinIO
 запускался из принятого image ID с `--pull=never`, случайным loopback-портом,
 синтетическими credentials и без именованных томов. Media-role проверена как
-`NOSUPERUSER`, `NOBYPASSRLS`, `row_security=on`; чужой tenant дал 0 строк.
+`NOSUPERUSER`, `NOBYPASSRLS`, `row_security=on`. После появления meeting та же
+роль видела ровно 1 строку своего tenant и 0 строк чужого.
 
 ## Источники
 
@@ -65,15 +82,18 @@ Temporal запускался `start_local` с `dev_server_existing_path`, `ip=1
 Оба источника отправлены только через настоящий `POST /api/v1/media-uploads`.
 Приёмочный код не вызывал dispatcher, `start_workflow`, reconciliation или
 `run_normalization_job`. Workflow handle использовался только для наблюдения.
+Durable job и отсутствие canonical проверены до старта worker, поэтому результат
+не зависит от гонки с обработкой.
 
 ## Результаты этапа A
 
 | Проверка | Результат |
 |---|---|
 | A-success HTTP | `202`, один record/revision/job |
+| A-success barrier | ровно один job, canonical ещё отсутствует, worker не запущен |
 | A-success job | `ready`, `canonical_track_artifact_id` заполнен |
 | A-success attempt | ровно одна `published`, `full_decode_passed=true`, `moov_before_mdat=true` |
-| A-success canonical | 9 268 байт, `sha256:8d8d66826212e6895cec89ea2c8e0c23df70f051179571d15eb99be747f04895` |
+| A-success canonical | ровно один validated/stored playback, 9 268 байт, `sha256:8d8d66826212e6895cec89ea2c8e0c23df70f051179571d15eb99be747f04895` |
 | A-success profile/BMFF | AAC-LC 48 kHz mono, `moov` до `mdat`, не fragmented, полный decode PASS |
 | A-success source | 32 078 байт и исходный SHA-256 сохранены |
 | A-success verified source download | подтверждён вызов helper с исходным SHA-256 |
@@ -83,12 +103,26 @@ Temporal запускался `start_local` с `dev_server_existing_path`, `ip=1
 | A-corrupt retry | `next_attempt_at=null` |
 | A-corrupt canonical | 0 playback artifacts |
 | A-corrupt attempt | 0 `uploaded`/`published`; объекты попытки отсутствуют |
-| A-corrupt source | 1 байт и исходный SHA-256 сохранены |
+| A-corrupt source | 1 байт и исходный SHA-256 сохранены, байты скачаны и сверены |
+| A-corrupt work directory | нормализационная рабочая папка пуста |
 
-A-success занял 0,62 с, A-corrupt — 0,68 с; общий дочерний запуск — около 20 с.
+A-success занял 0,6 с, A-corrupt — 0,7 с; общий дочерний запуск — около 20 с.
 Пределы контракта (60/120/60/30/600 секунд) не нарушены; 60-секундная фаза
-`starting` дополнительно ограничена внешним monitor-потоком запускателя, а не
-только внутренним циклом runner.
+`starting` дополнительно ограничена внешним monitor-потоком запускателя.
+
+## Проверки запускателя и обычного CI
+
+- `pytest tests/contract/test_local_postgres_test_runner.py tests/contract/test_playback_normalization_real_transport_runner.py` — **124 passed**.
+- H1 doubles: malformed/symlink manifest, image mismatch до SQL, потеря ответа
+  create после появления контейнера, отсутствие cidfile, foreign/unknown
+  ownership, cleanup failure, повтор только после подтверждённого удаления,
+  TERM/KILL, whole-run timeout и 60-секундный bootstrap monitor.
+- H2: обычный `testpaths=[tests]` не импортирует acceptance; явный выбор без
+  контекста падает до application imports; реальный pytest discovery проверен
+  на синтетическом проекте.
+- Ruff по изменённым Python-файлам — PASS; `bash -n` — PASS.
+- Обычный runner без `GRAF_TEST_POSTGRES_RESOURCE_DIR` сохраняет прежние
+  selection/режимы; `--no-sync` включается только в resource context.
 
 ## Очистка
 
@@ -97,26 +131,33 @@ A-success занял 0,62 с, A-corrupt — 0,68 с; общий дочерний
 - После запуска не осталось контейнеров `f099`, `graf-postgres-test-*` или
   `graf-minio-test-*`.
 - `docker prune` не выполнялся; чужие ресурсы не затрагивались.
+- Supervisor receipt: `work_directory_cleanup=removed`, `scenario_count=2`,
+  `bootstrap_timed_out=false`.
 
+## Analyze и ревью
+
+`$speckit-analyze` по spec/plan/tasks/contract: CRITICAL — 0, HIGH — 0;
+T014 имеет task-покрытие, новые пути перечислены в Plan и Tasks, противоречий с
+конституцией и F275 нет.
+
+Независимые ревью выявили и заставили исправить:
+
+- cleanup timeout больше не прерывает очистку остальных ресурсов;
+- tenant isolation проверяется после появления meeting, а не на пустой таблице;
+- barrier вынесен до старта worker, чтобы не было ложного FAIL/Pass из-за гонки;
+- добавлены отсутствовавшие H1-doubles и проверка байтов повреждённого source;
+- receipt привязан к SHA supervisor/acceptance/runner и содержит acceptance summary.
 
 ## SHA изменённых файлов
 
 | Файл | SHA-256 |
 |---|---|
-| `apps/server/acceptance/playback_normalization_real_transport.py` | `2b18eb53ff269acdd31d01900f0993492e1f2cd8d7812822dfbc21c172d37b95` |
-| `apps/server/scripts/run_playback_normalization_real_transport.py` | `2e86027bdeaa4af9d290c50a2cb935a287c5d597db523f4ffb8c87095ba13993` |
-| `apps/server/scripts/run_local_postgres_tests.sh` | `5586db56dcb615828936ef160c338e779561bdbf1157182f3dafd13664cf8348` |
-| `apps/server/tests/contract/test_local_postgres_test_runner.py` | `7ad1d51dd3dcc740f5fab0ed407c150ee9a5867cf088c6af86c294305727c600` |
-| `apps/server/tests/contract/test_playback_normalization_real_transport_runner.py` | `5629ede639c792ba3aa19d775c707ee67c2201c77a679abf168f350f4ddf8268` |
-| `specs/099-review-m4a-normalization/contracts/real-transport-acceptance.md` | `dedc092e7071c60e54c71c37bb3fbae47130a472d9ba025d301caaea055626f0` |
-
-## Analyze
-
-`$speckit-analyze` выполнен по spec/plan/tasks/contract после согласования T014:
-CRITICAL — 0, HIGH — 0. T014 имеет task-покрытие; новые пути реализации
-перечислены в Plan и Tasks; противоречий с конституцией и F275 не найдено.
-Замечания ограничены уже описанной открытой областью B/C и отдельными
-startup/container/UI/release/deploy воротами.
+| `apps/server/acceptance/playback_normalization_real_transport.py` | `4636408b15ffcc71bceb132bff9644892e64aff4b0a121efdd5cce0b2c06356b` |
+| `apps/server/scripts/run_playback_normalization_real_transport.py` | `b214f4efc6729c3bd1a0b7db3111a46289fe60fdfff03d9713bb9afb6831c9ce` |
+| `apps/server/scripts/run_local_postgres_tests.sh` | `3f55b37506594453e80fd5f5801114f2faf71020aa2f41e1401b18f0d0f366a2` |
+| `apps/server/tests/contract/test_local_postgres_test_runner.py` | `49d66d3d085ae0c588e10a75efb04891d4dc48c81b0a5500ebe41e1562ebf0c5` |
+| `apps/server/tests/contract/test_playback_normalization_real_transport_runner.py` | `267e7c59ec6e3ad781ab074a971f6cdbfda1cbb033d664d40bc7a52cda28eeb0` |
+| `specs/099-review-m4a-normalization/contracts/real-transport-acceptance.md` | `3cace5eb63fc16ebfb20f6c7c657deffea420124e25b8e67dd5b96411d8f8a50` |
 
 ## Что остаётся открытым
 

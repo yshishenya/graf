@@ -478,15 +478,14 @@ production activity → MinioStorage/FFmpeg пригодны для провер
 заранее проверенный CLI1.8.2 с SHA из нового контракта, без SDK default download.
 **Rationale**: SDK default не закрепляет CLI bytes, existing_path исключает
 скачивание. На Mac уже есть Homebrew bottle; проверены обычный файл, checksum
-и `--version` (Server1.31.2). Совместимость запуска ещё не исполнена.
+и `--version` (Server1.31.2). Совместимость запуска подтверждена прогоном этапа A 2026-11-17.
 **Alternatives**: скачивание latest/default и новый Python wrapper-package
 отклонены; при несовпадении версия не подменяется автоматически.
 
 **Decision**: второй A-case — непустой один нулевой байт через обычный HTTP upload,
 ожидаемый `terminal/corrupt_source`. **Rationale**: пустой файл отклоняется до
 acceptance, а непустой проходит custody; источник _probe_source отображает
-обычный ненулевой ffprobe exit в corrupt_source. Это source-backed ожидание,
-а не выполненный приёмочный опыт; иной reason не считается PASS.
+обычный ненулевой ffprobe exit в corrupt_source. Это source-backed ожидание; этап A исполнен 2026-11-17, иной reason не считается PASS.
 
 **Decision**: loopback одноразовый MinIO по проверенному image ID с pull=never;
 existing PG runner, проверка его реально использованного image ID перед данными.
@@ -526,5 +525,4 @@ isolated PG bootstrap; используемая worker/media часть fixture 
 [real-transport-acceptance.md](./contracts/real-transport-acceptance.md).
 Внешние source-verification/settings/runtime-prerequisite receipts сохраняют
 точный SHA193e01b296 и контрольные суммы. Исследователь работал только на чтение;
-root проверил ключевые исходные ветвления и SDK original. Ни A/B/C, ни миграции,
-ни worker/MinIO/Temporal не запускались в этом planning этапе.
+root проверил ключевые исходные ветвления и SDK original. В planning этапе A/B/C, миграции и worker/MinIO/Temporal не запускались; этап A исполнен позже, 2026-11-17.

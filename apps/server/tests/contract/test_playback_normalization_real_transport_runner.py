@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import json
 import os
 import subprocess
 import sys
@@ -187,3 +188,192 @@ def test_explicit_selection_without_context_fails_before_application_imports(tmp
     assert "explicit F099 supervisor context" in result.stdout + result.stderr
     assert not sentinel.exists()
     assert not docker_calls.exists()
+
+
+FAKE_CLEANUP_DOCKER = r'''#!{python}
+import json, os, sys
+from pathlib import Path
+
+mode = os.environ["FAKE_CLEANUP_MODE"]
+calls = Path(os.environ["DOCKER_CALLS"])
+args = sys.argv[1:]
+with calls.open("a") as output:
+    output.write(json.dumps(args) + "\n")
+token = "b" * 32
+image = "sha256:" + "a" * 64
+state = Path(os.environ["DOCKER_STATE"])
+removed = state.exists()
+if args[0] == "inspect":
+    if mode == "unknown":
+        sys.exit(1)
+    if mode == "foreign":
+        print("foreign|/container|" + "c" * 32 + "|" + image)
+        sys.exit(0)
+    if removed:
+        sys.exit(1)
+    print("container|/container|" + token + "|" + image)
+    sys.exit(0)
+if args[0] == "ps":
+    if mode == "unknown":
+        sys.exit(1)
+    if mode == "owned" and not removed:
+        print("container")
+    sys.exit(0)
+if args[0] == "rm":
+    state.write_text("removed")
+    sys.exit(0)
+sys.exit(2)
+'''
+
+
+@pytest.fixture
+def cleanup_docker(tmp_path):
+    docker = tmp_path / "docker"
+    docker.write_text(FAKE_CLEANUP_DOCKER.format(python=sys.executable))
+    docker.chmod(0o755)
+    calls = tmp_path / "calls.jsonl"
+    state = tmp_path / "removed"
+
+    def invoke(mode: str):
+        sys.path.insert(0, str(SERVER_ROOT / "scripts"))
+        try:
+            from run_playback_normalization_real_transport import (
+                _remove_verified_container,
+            )
+        finally:
+            sys.path.pop(0)
+        result = _remove_verified_container(
+            [str(docker)],
+            name="container",
+            run_token="b" * 32,
+            image_id="sha256:" + "a" * 64,
+            candidate_id="container" if mode in {"owned", "foreign"} else None,
+            environment={
+                **os.environ,
+                "PATH": str(tmp_path) + os.pathsep + os.environ.get("PATH", ""),
+                "FAKE_CLEANUP_MODE": mode,
+                "DOCKER_CALLS": str(calls),
+                "DOCKER_STATE": str(state),
+            },
+        )
+        logged = [json.loads(line) for line in calls.read_text().splitlines()] if calls.exists() else []
+        return result, logged
+
+    return invoke
+
+
+def test_cleanup_refuses_unknown_absence(cleanup_docker):
+    result, calls = cleanup_docker("unknown")
+    assert result == (False, "lookup_failed")
+    assert not any(call[0] == "rm" for call in calls)
+
+
+def test_cleanup_does_not_remove_a_foreign_container(cleanup_docker):
+    result, calls = cleanup_docker("foreign")
+    assert result == (False, "foreign_or_mismatched_container")
+    assert not any(call[0] == "rm" for call in calls)
+
+
+def test_cleanup_removes_an_owned_container_by_id(cleanup_docker):
+    result, calls = cleanup_docker("owned")
+    assert result == (True, "removed")
+    assert [call for call in calls if call[0] == "rm"] == [
+        ["rm", "--force", "--volumes", "container"]
+    ]
+
+
+def test_process_group_is_terminated_and_escalates_to_kill() -> None:
+    sys.path.insert(0, str(SERVER_ROOT / "scripts"))
+    try:
+        from run_playback_normalization_real_transport import _terminate_process_group
+    finally:
+        sys.path.pop(0)
+    process = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            "import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)",
+        ],
+        start_new_session=True,
+    )
+    started = __import__("time").monotonic()
+    _terminate_process_group(process, term_grace=0.2, kill_grace=2)
+    assert process.poll() is not None
+    assert __import__("time").monotonic() - started < 5
+
+
+def test_whole_run_wait_enforces_the_deadline() -> None:
+    sys.path.insert(0, str(SERVER_ROOT / "scripts"))
+    try:
+        from run_playback_normalization_real_transport import _wait_for_child
+    finally:
+        sys.path.pop(0)
+    process = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(60)"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        start_new_session=True,
+    )
+    started = __import__("time").monotonic()
+    output, timed_out = _wait_for_child(process, 0.2)
+    assert timed_out is True
+    assert output == b""
+    assert process.poll() is not None
+    assert __import__("time").monotonic() - started < 5
+
+
+def test_bootstrap_monitor_kills_an_overdue_start(tmp_path) -> None:
+    import json as json_module
+    import threading
+    import time as time_module
+
+    sys.path.insert(0, str(SERVER_ROOT / "scripts"))
+    try:
+        from run_playback_normalization_real_transport import (
+            _monitor_postgres_bootstrap,
+        )
+    finally:
+        sys.path.pop(0)
+    process = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(60)"],
+        start_new_session=True,
+    )
+    state = tmp_path / "postgres-state.json"
+    state.write_text(json_module.dumps({
+        "phase": "starting",
+        "started_ms": int(time_module.monotonic() * 1000) - 120_000,
+    }))
+    timed_out = _monitor_postgres_bootstrap(
+        process,
+        state,
+        threading.Event(),
+        limit_ms=1_000,
+        term_grace=0.2,
+        kill_grace=2,
+    )
+    assert timed_out is True
+    assert process.poll() is not None
+
+
+def test_bootstrap_monitor_stops_after_ready(tmp_path) -> None:
+    import json as json_module
+    import threading
+
+    sys.path.insert(0, str(SERVER_ROOT / "scripts"))
+    try:
+        from run_playback_normalization_real_transport import (
+            _monitor_postgres_bootstrap,
+        )
+    finally:
+        sys.path.pop(0)
+    process = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(60)"],
+        start_new_session=True,
+    )
+    try:
+        state = tmp_path / "postgres-state.json"
+        state.write_text(json_module.dumps({"phase": "ready", "started_ms": 0}))
+        assert _monitor_postgres_bootstrap(process, state, threading.Event()) is False
+    finally:
+        process.terminate()
+        process.wait(timeout=5)

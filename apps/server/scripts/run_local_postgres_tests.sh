@@ -23,6 +23,7 @@ resource_manifest=""
 resource_cid_file=""
 resource_state_file=""
 resource_attempted=false
+resource_bootstrap_started_ms=""
 
 if [[ ! "$test_database" =~ ^twobrain_rec_test_[a-z0-9_]+$ ]] \
   || [[ ! "$rls_database" =~ ^twobrain_rec_test_[a-z0-9_]+$ ]]; then
@@ -33,20 +34,23 @@ fi
 resource_state_write() {
   local phase="$1"
   local container_id="${2:-}"
+  local started_ms="${3:-}"
   local temporary="$resource_state_file.tmp.$$"
-  python3 - "$resource_state_file" "$temporary" "$phase" "$container_id" "$resource_run_token" <<'PY_STATE'
+  python3 - "$resource_state_file" "$temporary" "$phase" "$container_id" "$resource_run_token" "$started_ms" <<'PY_STATE'
 import json
 import os
 import sys
 import time
 
-path, temporary, phase, container_id, token = sys.argv[1:6]
+path, temporary, phase, container_id, token, started_ms = sys.argv[1:7]
+now_ms = int(time.monotonic() * 1000)
 payload = {
     "schema_version": 1,
     "phase": phase,
     "run_token": token,
     "container_id": container_id or None,
-    "monotonic_ms": int(time.monotonic() * 1000),
+    "started_ms": int(started_ms) if started_ms else now_ms,
+    "monotonic_ms": now_ms,
 }
 descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
 with os.fdopen(descriptor, "w", encoding="utf-8") as output:
@@ -61,7 +65,7 @@ remove_resource_handoff_files() {
     rm -f "$resource_cid_file"
   fi
   if [[ -n "$resource_state_file" && -f "$resource_state_file" && ! -L "$resource_state_file" ]]; then
-    resource_state_write removed ""
+    resource_state_write removed "" "$resource_bootstrap_started_ms"
   fi
 }
 
@@ -426,7 +430,11 @@ run_phase() {
     mkdir -p "$GRAF_TEST_REPORT_DIR"
     report_args+=(--graf-report-file "$GRAF_TEST_REPORT_DIR/$phase.jsonl")
   fi
-  if uv run --extra dev --extra evaluation pytest "${report_args[@]}" "$@"; then
+  local uv_run=("run")
+  if [[ "$resource_context" == true ]]; then
+    uv_run+=(--no-sync)
+  fi
+  if uv "${uv_run[@]}" --extra dev --extra evaluation pytest "${report_args[@]}" "$@"; then
     completed_at="$(date +%s)"
     duration_seconds=$((completed_at - started_at))
     printf 'postgres_test_phase=%s status=pass duration_seconds=%s\n' "$phase" "$duration_seconds"
@@ -459,7 +467,8 @@ start_postgres_resource() {
     exit 1
   fi
   resource_attempted=true
-  resource_state_write starting ""
+  resource_bootstrap_started_ms="$(python3 -c 'import time; print(int(time.monotonic() * 1000))')"
+  resource_state_write starting "" "$resource_bootstrap_started_ms"
   local bootstrap_deadline=$((SECONDS + 60))
 
   postgres_initialized=false
@@ -495,6 +504,10 @@ start_postgres_resource() {
       container_started=true
     else
       container_started=false
+      if ! remove_verified_container ""; then
+        printf 'postgres_test_container_identity_unreadable=1\n' >&2
+        exit 1
+      fi
     fi
     if [[ "$container_started" == true ]]; then
       for _attempt in {1..240}; do
@@ -541,6 +554,7 @@ start_postgres_resource() {
       fi
       resource_container_id=""
       container_started=false
+      resource_state_write starting "" "$resource_bootstrap_started_ms"
     fi
     if (( start_attempt < 2 )); then
       printf 'postgres_test_container_start_retry=1\n' >&2
@@ -573,7 +587,7 @@ start_postgres_resource() {
   export GRAF_TEST_POSTGRES_ADMIN_URL="$admin_url"
   export GRAF_TEST_POSTGRES_MEDIA_PASSWORD="$media_password"
   export RLS_TEST_MEDIA_DATABASE_URL="$rls_media_url"
-  resource_state_write ready "$resource_container_id"
+  resource_state_write ready "$resource_container_id" "$resource_bootstrap_started_ms"
 }
 
 start_postgres() {
@@ -689,7 +703,11 @@ fi
 if [[ "$partitioned" == true ]]; then
   collection_args+=(--graf-partition-preflight)
 fi
-if uv run --extra dev --extra evaluation pytest -c "$repo_root/apps/server/pyproject.toml" --collect-only \
+uv_collection=(run)
+if [[ "$resource_context" == true ]]; then
+  uv_collection+=(--no-sync)
+fi
+if uv "${uv_collection[@]}" --extra dev --extra evaluation pytest -c "$repo_root/apps/server/pyproject.toml" --collect-only \
   "${collection_args[@]}" --graf-collection-file "$metadata_directory/collection.json" "${selection[@]}" \
   > "$metadata_directory/collection.log" 2>&1; then
   :

@@ -107,7 +107,6 @@ from temporalio.testing import WorkflowEnvironment  # noqa: E402
 
 pytest_plugins = ("tests.conftest",)
 
-from tests.contract.test_ingest_openapi_contract import auth_headers  # noqa: E402
 from tests.fakes.auth_contexts import (
     AUTH_BOOTSTRAP_WORKSPACE_ID,
     DEVICE_ID,
@@ -148,6 +147,15 @@ DOWNLOAD_SECONDS = 60
 RESOURCE_SECONDS = 60
 TEARDOWN_SECONDS = 30
 PROFILE_VERSION = "review_m4a_aac_lc_48k_mono_64k_v1"
+def _auth_headers() -> dict[str, str]:
+    return {
+        "X-Organization-Id": str(ORG_ID),
+        "X-Workspace-Id": str(WORKSPACE_ID),
+        "X-User-Id": str(USER_ID),
+        "X-Device-Id": str(DEVICE_ID),
+    }
+
+
 SCOPE = TenantScope(
     organization_id=ORG_ID,
     workspace_id=WORKSPACE_ID,
@@ -303,7 +311,6 @@ def _start_minio() -> dict[str, str]:
             "state": "cleanup_required",
         },
     )
-    port = _free_port()
     access_key = "graf" + token[:12]
     secret_key = token * 2
     bucket = "graf-f099-" + token[:16]
@@ -323,7 +330,7 @@ def _start_minio() -> dict[str, str]:
             "--env",
             f"MINIO_ROOT_PASSWORD={secret_key}",
             "--publish",
-            f"127.0.0.1:{port}:9000",
+            "127.0.0.1::9000",
             "--memory",
             "512m",
             "--cpus",
@@ -357,6 +364,10 @@ def _start_minio() -> dict[str, str]:
             "state": "running",
         },
     )
+    port_line = _docker(["port", actual_id, "9000/tcp"]).stdout.strip().splitlines()
+    if len(port_line) != 1 or ":" not in port_line[0]:
+        raise RuntimeError("MinIO did not expose exactly one loopback port")
+    port = int(port_line[0].rsplit(":", 1)[1])
     _wait_for_http(
         f"http://127.0.0.1:{port}/minio/health/ready",
         deadline=time.monotonic() + RESOURCE_SECONDS,
@@ -445,6 +456,24 @@ async def _assert_media_role(media_sessionmaker: Any) -> dict[str, str]:
     if str(row_security).lower() != "on":
         raise RuntimeError("media role must run with row_security=on")
 
+    return {
+        "current_user": "twobrain_rec_media",
+        "row_security": "on",
+    }
+
+
+async def _assert_media_tenant_visibility(
+    media_sessionmaker: Any, meeting_id: uuid.UUID
+) -> dict[str, str]:
+    async with media_sessionmaker() as session:
+        await apply_tenant_scope(session, SCOPE, context_kind="worker")
+        visible = await session.scalar(
+            select(func.count())
+            .select_from(Meeting)
+            .where(Meeting.id == meeting_id, Meeting.workspace_id == WORKSPACE_ID)
+        )
+    if visible != 1:
+        raise RuntimeError("media role cannot see its own tenant meeting")
     async with media_sessionmaker() as session:
         foreign = TenantScope(
             organization_id=ORG_ID,
@@ -453,14 +482,10 @@ async def _assert_media_role(media_sessionmaker: Any) -> dict[str, str]:
             device_id=DEVICE_ID,
         )
         await apply_tenant_scope(session, foreign, context_kind="worker")
-        count = await session.scalar(select(func.count()).select_from(Meeting))
-        if count:
-            raise RuntimeError("media role leaked another tenant")
-    return {
-        "current_user": "twobrain_rec_media",
-        "row_security": "on",
-        "foreign_tenant_rows": "0",
-    }
+        leaked = await session.scalar(select(func.count()).select_from(Meeting))
+    if leaked:
+        raise RuntimeError("media role leaked another tenant")
+    return {"own_tenant_rows": "1", "foreign_tenant_rows": "0"}
 
 
 async def _wait_job(
@@ -494,7 +519,7 @@ async def _upload(
 ) -> dict[str, Any]:
     response = await client.post(
         "/api/v1/media-uploads",
-        headers=auth_headers(),
+        headers=_auth_headers(),
         data={
             "duration_seconds": "1",
             "local_recording_id": local_recording_id,
@@ -631,7 +656,7 @@ async def _range_check(
     end = min(99, len(canonical) - 1)
     response = await client.get(
         f"/api/v1/cabinet/meetings/{meeting_id}/playback",
-        headers={**auth_headers(), "Range": f"bytes=0-{end}"},
+        headers={**_auth_headers(), "Range": f"bytes=0-{end}"},
     )
     if response.status_code != 206:
         raise RuntimeError(f"authorized Range returned HTTP {response.status_code}")
@@ -655,19 +680,12 @@ async def _prepare_success_upload(
     )
 
 
-async def _run_success_scenario(
+async def _observe_success_barrier(
     *,
-    client: httpx.AsyncClient,
     app: Any,
-    storage: Any,
-    observed_downloads: list[dict[str, Any]],
-    ffmpeg: str,
-    ffprobe: str,
-    work_directory: Path,
-    wav_bytes: bytes,
+    media_sessionmaker: Any,
     payload: dict[str, Any],
-) -> dict[str, Any]:
-    started = time.monotonic()
+) -> tuple[uuid.UUID, uuid.UUID, dict[str, str]]:
     meeting_id = uuid.UUID(payload["meeting"]["meeting_id"])
     revision_id = uuid.UUID(payload["upload_session"]["media_revision_id"])
     async with app.state.db_sessionmaker() as session:
@@ -696,7 +714,24 @@ async def _run_success_scenario(
         raise RuntimeError("accepted success source did not create exactly one durable job")
     if canonical_count:
         raise RuntimeError("canonical playback was exposed before worker processing")
+    visibility = await _assert_media_tenant_visibility(media_sessionmaker, meeting_id)
+    return meeting_id, revision_id, visibility
 
+
+async def _run_success_scenario(
+    *,
+    client: httpx.AsyncClient,
+    app: Any,
+    storage: Any,
+    observed_downloads: list[dict[str, Any]],
+    ffmpeg: str,
+    ffprobe: str,
+    work_directory: Path,
+    wav_bytes: bytes,
+    meeting_id: uuid.UUID,
+    revision_id: uuid.UUID,
+) -> dict[str, Any]:
+    started = time.monotonic()
     job = await _wait_job(app, revision_id, deadline=started + SCENARIO_SECONDS)
     if job.state != "ready" or job.canonical_track_artifact_id is None:
         raise RuntimeError(f"success source reached {job.state}/{job.reason_code}")
@@ -727,6 +762,22 @@ async def _run_success_scenario(
         raise RuntimeError("canonical playback was not validated")
     if canonical.media_revision_id != revision_id or canonical.meeting_id != meeting_id:
         raise RuntimeError("canonical playback lineage is incorrect")
+    async with app.state.db_sessionmaker() as session:
+        await apply_tenant_scope(session, SCOPE, context_kind="worker")
+        validated_count = await session.scalar(
+            select(func.count())
+            .select_from(TrackArtifact)
+            .where(
+                TrackArtifact.workspace_id == WORKSPACE_ID,
+                TrackArtifact.media_revision_id == revision_id,
+                TrackArtifact.track_role == "playback",
+                TrackArtifact.status == "stored",
+                TrackArtifact.normalization_profile_version == PROFILE_VERSION,
+                TrackArtifact.validated_at.is_not(None),
+            )
+        )
+    if validated_count != 1:
+        raise RuntimeError("success source did not produce exactly one validated playback")
     if len(attempts) != 1:
         raise RuntimeError("success source did not converge to exactly one attempt")
     published = [attempt for attempt in attempts if attempt.state == "published"]
@@ -785,6 +836,7 @@ async def _run_corrupt_scenario(
     app: Any,
     storage: Any,
     corrupt_bytes: bytes,
+    work_directory: Path,
 ) -> dict[str, Any]:
     started = time.monotonic()
     payload = await _upload(
@@ -836,6 +888,12 @@ async def _run_corrupt_scenario(
         raise RuntimeError("accepted corrupt source was not preserved")
     if source.sha256 != _sha256_bytes(corrupt_bytes):
         raise RuntimeError("accepted corrupt source digest changed")
+    source_facts = await _prove_source_preserved(
+        storage=storage,
+        artifact=source,
+        expected_bytes=corrupt_bytes,
+        work_directory=work_directory,
+    )
     for attempt in attempts:
         if await storage.object_exists_async(attempt.storage_object_key):
             raise RuntimeError("corrupt source left an unowned attempt object")
@@ -847,7 +905,7 @@ async def _run_corrupt_scenario(
         "next_attempt_at": None,
         "canonical_artifacts": 0,
         "published_attempts": len([a for a in attempts if a.state == "published"]),
-        "source_sha256": source.sha256,
+        "source": source_facts,
         "elapsed_seconds": round(time.monotonic() - started, 2),
     }
 
@@ -872,6 +930,7 @@ async def _run_acceptance(
         "cleanup": {},
     }
     media_engine = None
+    completed = False
     try:
         media_engine = create_async_engine(media_database_url, poolclass=NullPool)
         media_sessionmaker = async_sessionmaker(media_engine, expire_on_commit=False)
@@ -885,7 +944,10 @@ async def _run_acceptance(
             ui=False,
             dev_server_database_filename=None,
         ) as environment:
+            normalization_work_directory = work_directory / "normalization"
+            normalization_work_directory.mkdir(mode=0o700)
             settings = Settings(
+                _env_file=None,
                 env="development",
                 database_url=postgres_database_url,
                 minio_endpoint=minio["endpoint"],
@@ -898,7 +960,7 @@ async def _run_acceptance(
                 playback_normalization_enabled=True,
                 playback_normalization_automatic_dispatch_enabled=True,
                 playback_normalization_task_queue=f"graf-f099-{token}",
-                playback_normalization_work_directory=work_directory,
+                playback_normalization_work_directory=normalization_work_directory,
                 playback_normalization_ffmpeg_path=Path(ffmpeg),
                 playback_normalization_ffprobe_path=Path(ffprobe),
                 processing_enabled=False,
@@ -945,6 +1007,14 @@ async def _run_acceptance(
                 success_payload = await _prepare_success_upload(
                     client=client, wav_bytes=wav_bytes
                 )
+                success_meeting_id, success_revision_id, visibility = (
+                    await _observe_success_barrier(
+                        app=app,
+                        media_sessionmaker=media_sessionmaker,
+                        payload=success_payload,
+                    )
+                )
+                result["checks"]["media_visibility"] = visibility
                 async with normalization_worker, readiness_worker:
                     success = await _run_success_scenario(
                         client=client,
@@ -955,10 +1025,10 @@ async def _run_acceptance(
                         ffprobe=ffprobe,
                         work_directory=work_directory,
                         wav_bytes=wav_bytes,
-                        payload=success_payload,
+                        meeting_id=success_meeting_id,
+                        revision_id=success_revision_id,
                     )
                     canonical_artifact_id = success.pop("_canonical_artifact_id")
-                    success_meeting_id = success.pop("_meeting_id")
                     canonical_temporary = work_directory / "canonical-range.m4a"
                     async with app.state.db_sessionmaker() as session:
                         await apply_tenant_scope(session, SCOPE, context_kind="worker")
@@ -977,7 +1047,7 @@ async def _run_acceptance(
                     try:
                         success["range"] = await _range_check(
                             client,
-                            meeting_id=uuid.UUID(success_meeting_id),
+                            meeting_id=success_meeting_id,
                             canonical_path=canonical_temporary,
                         )
                     finally:
@@ -989,9 +1059,12 @@ async def _run_acceptance(
                             app=app,
                             storage=storage,
                             corrupt_bytes=b"\x00",
+                            work_directory=work_directory,
                         )
                     )
-        result["status"] = "pass"
+                    if list(normalization_work_directory.iterdir()):
+                        raise RuntimeError("normalization work directory is not clean")
+                    completed = True
     except Exception as error:
         result["failure_type"] = type(error).__name__
         result["failure_message"] = str(error)[:300]
@@ -1003,6 +1076,9 @@ async def _run_acceptance(
             result["cleanup"]["minio"] = f"cleanup_error_{type(error).__name__}"
         if media_engine is not None:
             await media_engine.dispose()
+        minio_clean = result["cleanup"].get("minio") in {"removed", "confirmed_absent"}
+        if completed and minio_clean:
+            result["status"] = "pass"
         _private_json(result_file, result)
 
 

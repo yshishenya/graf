@@ -2,7 +2,7 @@
 
 **Input**: Design documents from `specs/099-review-m4a-normalization/`
 
-**Prerequisites**: `plan.md`, `spec.md`, `research.md`, `data-model.md`, `contracts/`, `quickstart.md`, `checklists/requirements.md`, `checklists/media.md`, `checklists/automation.md`, `checklists/lifecycle.md`
+**Prerequisites**: `plan.md`, `spec.md`, `research.md`, `data-model.md`, `contracts/` (including `real-transport-acceptance.md`), `quickstart.md`, `checklists/requirements.md`, `checklists/media.md`, `checklists/automation.md`, `checklists/lifecycle.md`, `checklists/real-transport-acceptance.md`
 
 **Tests**: Required. Feature 099 is a high-risk active Spec Kit slice touching untrusted media, accepted-source custody, PostgreSQL/MinIO/Temporal, CPU/disk subprocess work, RLS, deletion, diagnostics, browser playback and production backfill. Test tasks precede implementation in every phase.
 

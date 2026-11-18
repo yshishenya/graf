@@ -1,6 +1,6 @@
 # Implementation Plan: Review M4A Normalization
 
-**Branch**: `codex/099-review-m4a-normalization` | **Date**: 2026-07-14 | **Spec**: [spec.md](./spec.md)
+**Branch**: `codex/099-real-transport-acceptance` | **Date**: 2026-07-14 | **Spec**: [spec.md](./spec.md)
 
 **Input**: Feature specification from `specs/099-review-m4a-normalization/spec.md`
 
@@ -226,14 +226,17 @@ specs/099-review-m4a-normalization/
 ├── data-model.md
 ├── quickstart.md
 ├── checklists/
-│   └── requirements.md
+│   ├── requirements.md
+│   └── real-transport-acceptance.md
 ├── contracts/
 │   ├── playback-normalization-contract.md
 │   ├── playback-status-contract.md
 │   ├── automatic-backfill-contract.md
-│   └── lifecycle-operations-contract.md
+│   ├── lifecycle-operations-contract.md
+│   └── real-transport-acceptance.md
 ├── tasks.md
 └── validation/
+    └── t014-real-transport-20261117.md
 ```
 
 ### Source Code (repository root)
@@ -278,6 +281,13 @@ apps/server/src/twobrain_rec_server/
 │   ├── minio_client.py                  # bounded attempt upload/stat helpers
 │   └── object_keys.py                   # UUID normalization object keys
 └── support/                              # metadata-only stalled-job incident reuse
+
+apps/server/acceptance/
+└── playback_normalization_real_transport.py  # explicit real-transport acceptance
+
+apps/server/scripts/
+├── run_playback_normalization_real_transport.py  # isolated acceptance supervisor
+└── run_local_postgres_tests.sh                  # H1 resource ownership context
 
 apps/server/tests/
 ├── unit/test_playback_normalization_*.py
@@ -540,10 +550,10 @@ track-selection матрицу, C — failure/limits/retry/recovery/backfill/lif
 legacy v3/v4 upload или provider submission после F275.
 
 Post-design constitution check: те же I–VII соблюдены по описанному контракту,
-нарушений/исключений нет. Реализация пока не допущена: обязательны reviewer
-всех применимых списков, согласование T014, analyze и sync существующего #3361.
-После admission — сначала проверки изоляции/cleanup запускателя, затем real
-A без fake fallback, focused lint/governance, converge и independent code review.
+нарушений/исключений нет. Допуск реализации выдан после reviewer PASS 120/0,
+analyze без CRITICAL/HIGH и sync существующего #3361. Проверки изоляции/cleanup
+запускателя и real A без fake fallback исполнены 2026-11-17; B/C, focused
+governance, converge и independent code review остаются отдельными воротами.
 Любой setup/skip/cleanup failure сохраняет FAIL. Перед PR проверить свежую
 base, изменившиеся зависимости и exact SHA; штатные три checks обязательны.
 Новый frozen Full, выпуск/развёртывание и фактическая приёмка — отдельно по
@@ -557,6 +567,6 @@ images и FFmpeg/ffprobe8.1.2, но это не запуск ресурсов. �
 окружения и проверка его готовности, без скрытой установки при collection.
 Online master продвинулся до2805b0f91d5c6d13aad13edb573274b8460e1d19:
 delta общего PG fixture затрагивает только отдельный isolated bootstrap;
-используемый worker/media prefix побайтно сохранён. HEAD193e сохранён до
-окончания review; до реализации/PR требуется актуализация собственной базы
-и зависимых документов/evidence без потери текущих изменений.
+используемый worker/media prefix побайтно сохранён. Ветка актуализирована на
+этот master, затем на неё добавлены требования и реализация этапа A; точный
+финальный SHA, версии и receipt — в validation/t014-real-transport-20261117.md.

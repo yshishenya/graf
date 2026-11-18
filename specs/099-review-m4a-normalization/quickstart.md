@@ -535,11 +535,10 @@ Concurrent replacement после open и отказы самой cleanup/close/
 Следующий шаг после guard #8128 —
 [контракт этапов A/B/C](./contracts/real-transport-acceptance.md).
 Исходные §§3–9/11–15 сохраняют полный объём; новые источники соответствуют F275,
-без создания старых dual-source upload. До implementation admission commands
-ниже — план, не выполненные проверки; требуется независимый reviewer всех
-применимых списков, analyze и sync существующего #3361.
-
-Запускатель создаётся при реализации, это не существующая команда:
+без создания старых dual-source upload. Implementation admission выдан после
+независимого PASS 120/0, analyze без CRITICAL/HIGH и sync существующего #3361.
+Этап A исполнен 2026-11-17; команды ниже — действующий запускатель, B/C
+остаются открытыми:
 
 ```sh
 python3 apps/server/scripts/run_playback_normalization_real_transport.py
