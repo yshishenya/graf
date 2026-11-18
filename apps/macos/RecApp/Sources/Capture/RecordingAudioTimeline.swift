@@ -524,9 +524,8 @@ public final class RecordingAudioTimeline: @unchecked Sendable {
         }
 
         state.routeGeneration = batch.routeGeneration
-        let previousObservedHostTime = state.lastObservedHostTimeSeconds
-        if let observedHostTime = batch.presentationTime.observedHostTimeSeconds {
-            state.lastObservedHostTimeSeconds = observedHostTime
+        let previousObservedHostEnd: Double? = state.lastObservedHostTimeSeconds.map {
+            $0 + (state.lastObservedHostDurationSeconds ?? 0)
         }
 
         if routeRebasePending.contains(source) {
@@ -535,6 +534,11 @@ public final class RecordingAudioTimeline: @unchecked Sendable {
 
         var canonicalSamples = try state.convert(batch: batch)
         guard !canonicalSamples.isEmpty else { return }
+        if let observedHostTime = batch.presentationTime.observedHostTimeSeconds {
+            state.lastObservedHostTimeSeconds = observedHostTime
+            state.lastObservedHostDurationSeconds = Double(canonicalSamples.count)
+                / Self.canonicalSampleRate
+        }
         var requestedStart = try Self.canonicalFrameIndex(
             for: batch.presentationTime,
             relativeTo: epoch
@@ -549,15 +553,14 @@ public final class RecordingAudioTimeline: @unchecked Sendable {
 
             // ScreenCaptureKit may continue the same media clock or reset it
             // after a route change. Use the media delta when it is meaningful;
-            // otherwise use the observed host-clock delta. Never assume that a
-            // reset means "no time passed".
+            // otherwise use the observed host-clock delta from the end of the
+            // previous batch. Never assume that a reset means "no time passed".
             let hostDeltaFrames: Int64?
-            if let previousObservedHostTime,
+            if let previousObservedHostEnd,
                let observedHostTime = batch.presentationTime.observedHostTimeSeconds,
                observedHostTime.isFinite,
-               previousObservedHostTime.isFinite,
-               observedHostTime >= previousObservedHostTime {
-                let seconds = observedHostTime - previousObservedHostTime
+               previousObservedHostEnd.isFinite {
+                let seconds = max(0, observedHostTime - previousObservedHostEnd)
                 hostDeltaFrames = seconds <= configuration.maximumKnownGapSeconds + 1
                     ? Int64((seconds * Self.canonicalSampleRate).rounded())
                     : maximumKnownGapFrames + 1
@@ -884,6 +887,7 @@ private struct TimelineSegment {
 private final class SourceState {
     var routeGeneration: Int?
     var lastObservedHostTimeSeconds: Double?
+    var lastObservedHostDurationSeconds: Double?
     var inputFormat: RecordingAudioFormat?
     var lastInputEndFrame: Int64?
     var lastRequestedStartFrame: Int64?
