@@ -108,7 +108,7 @@ docs/
 
 1. **Gap bridge**: короткий forward gap системного звука (<= 500 мс) закрывается ограниченной тишиной; разрыв 500 мс–15 с не маскируется и даёт partial/stop; реальная потеря сверх `maximumKnownGapSeconds` остаётся fail-closed. Это соответствует стандартной практике audio capture: silence insertion только для короткого reference-разрыва и сохранение timestamp continuity.
 2. **Route change**: новый SCK stream ре-базируется на текущий output frame; AEC3 продолжает работу без нового процессора; при невозможности — partial upload с явным статусом. Альтернатива «останавливать запись» отклонена как потеря встречи.
-3. **Retention**: использовать существующий `run_retention_scan`, добавить ежедневный maintenance-loop; не создавать новый deletion algorithm.
+3. **Retention**: использовать существующий `run_retention_scan`, добавить ежедневный maintenance-loop; не создавать новый deletion algorithm. Планировщик по умолчанию выключен и включается оператором после dry-run и проверенной резервной копии.
 4. **Backup prune**: отдельный host script с dry-run по умолчанию, `TWOBRAIN_BACKUP_ROOT` (корень, не полный путь копии), строгим именем каталога, запретом symlink/чужих путей и exit codes 0/2/3; systemd timer — операторский, отключается остановкой timer.
 5. **Offer**: автопродление остаётся checked; правдивый текст важнее «красивой» формулировки. Лимит 4 часа берётся из `max_recording_duration_seconds`.
 6. **Referral 500**: причина — отсутствующий `public_analytics` при StrictUndefined; чинится явной передачей контекста и безопасным default в шаблоне.
@@ -128,7 +128,7 @@ No constitution violations. The capture change is the only high-complexity part;
 ## Implementation Strategy
 
 1. Capture gap bridge (<= 500 ms) + route rebase + partial fallback; update tests and accessibility status.
-2. Retention maintenance loop + tenant context + `TWOBRAIN_RETENTION_SCHEDULER_ENABLED`; focused tests.
+2. Retention maintenance loop + tenant context + `TWOBRAIN_RETENTION_SCHEDULER_ENABLED` (default `false`, operator enables after dry-run and verified backup); focused tests.
 3. Backup prune script (`TWOBRAIN_BACKUP_ROOT`, exit codes 0/2/3) + systemd timer + install/disable/rollback runbook.
 4. Offer/landing copy and referral fix; preserve checkout CSRF/auth/routes; focused HTTP/render tests.
 5. Run focused validation and hardware QA matrix; then exact-SHA PR checks and full release gates.
@@ -136,6 +136,6 @@ No constitution violations. The capture change is the only high-complexity part;
 ## Risks
 
 - AEC3 quality after route change: mitigate with a short rebase and a non-blocking accessible warning; hardware test required.
-- Retention automation is destructive: mitigate with existing snapshot/fences, bounded limit, dry-run and tests, `TWOBRAIN_RETENTION_SCHEDULER_ENABLED=false`, and restore from backup; production enablement is a deployment action.
+- Retention automation is destructive: mitigate with existing snapshot/fences, bounded limit, dry-run and tests, `TWOBRAIN_RETENTION_SCHEDULER_ENABLED=false` by default, and restore from backup; production enablement is a deployment action after a per-workspace dry-run and verified fresh backup.
 - Backup prune can delete data: dry-run default, strict path/name checks, no symlinks, no wildcard outside `TWOBRAIN_BACKUP_ROOT`, exit codes 0/2/3, timer stop as disable.
 - Copy changes can drift from checkout: one source of truth in templates and a contract test that also covers CSRF/auth/routes.

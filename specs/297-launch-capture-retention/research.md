@@ -59,9 +59,9 @@
 
 ## 5. Retention scheduler
 
-**Decision**: Add a maintenance-loop reconciler that runs `run_retention_scan` for every active workspace once per 24 hours. Use `MaintenanceTenantContext` with a new `retention_scan` operation; process bounded batches (100 per workspace); commit per workspace; log only counts and safe reasons.
+**Decision**: Add a maintenance-loop reconciler that runs `run_retention_scan` for every active workspace once per 24 hours after an operator explicitly enables it. The scheduler is opt-in (`TWOBRAIN_RETENTION_SCHEDULER_ENABLED=false` by default); the operator first runs a per-workspace dry-run and verifies a fresh backup, then enables it. Use `MaintenanceTenantContext` with a new `retention_scan` operation; process bounded batches (100 per workspace); commit per workspace; log only counts and safe reasons.
 
-**Rationale**: The scan already implements deletion fences, policy snapshots, processing/deleting/policy-blocked skips, local purge reconciliation and audit. Reusing it avoids a second deletion path. A daily cadence matches the 365-day policy and is cheap. Legal hold is not implemented in the current server and is explicitly out of F297.
+**Rationale**: The scan already implements deletion fences, policy snapshots, processing/deleting/policy-blocked skips, local purge reconciliation and audit. Reusing it avoids a second deletion path. A daily cadence matches the 365-day policy and is cheap. Destructive deletion is opt-in so a first deployment cannot delete unseen data before backup verification. Legal hold is not implemented in the current server and is explicitly out of F297.
 
 **Alternatives considered**:
 - Temporal schedule: more moving parts; the maintenance worker already owns reconcilers.
@@ -70,7 +70,7 @@
 
 ## 6. Backup retention / prune
 
-**Decision**: Add `infra/scripts/prune-rec-backups.sh` with dry-run by default, `--execute`, `--older-than-days` (default 30), `--backup-root` default `/opt/projects/2brain-rec/backups` from `TWOBRAIN_BACKUP_ROOT`, and strict checks: only directories whose name matches `YYYYMMDDTHHMMSSZ`, no symlinks, no `.`/`..`, no path outside root, never the newest/current backup. Exit codes: `0` success/no candidates, `2` invalid root/arguments, `3` partial deletion failure. Add `infra/systemd/graf-rec-backup-prune.{service,timer}` daily; operator stops the timer to disable. Document production enablement and rollback from the newest backup.
+**Decision**: Add `infra/scripts/prune-rec-backups.sh` with dry-run by default, `--execute`, `--older-than-days` (default 30), `--backup-root` default `/opt/projects/2brain-rec/backups` from `TWOBRAIN_BACKUP_ROOT`, and strict checks: only directories whose name matches `YYYYMMDDTHHMMSSZ`, complete GRAF backup contract (`postgres.dump`, `schema.sql`, `inventory.jsonl`, `checksums.sha256`, `minio-objects/`), no symlinks, no `.`/`..`, no path outside root, never the newest overall or newest verified backup. Exit codes: `0` success/no candidates, `2` invalid root/arguments, `3` partial deletion failure. Add `infra/systemd/graf-rec-backup-prune.{service,timer}` daily; operator stops the timer to disable. Document production enablement and rollback from the newest backup.
 
 **Rationale**: The privacy policy promises 30-day backup expiry; a host script with dry-run and strict path checks is the smallest safe mechanism. It does not require database access or a new service inside the API container.
 

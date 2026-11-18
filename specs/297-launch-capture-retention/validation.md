@@ -57,6 +57,29 @@ deployment checks and release gates remain open.
 - Referral auth shell uses a safe `public_analytics` default and the route passes the real context; unit rendering no longer raises.
 - A real database failure during the referral lookup is mapped to the retryable 503 page (`OperationalError`/`InterfaceError`/pool timeout), not to a 500. Unit tests force the outage and cover 410/200; live confirmation remains part of T022.
 
+## Safety fix after council review (2026-11-18)
+
+The council review produced `SAFE WITH CONDITIONS` for audio and retention and found two P0/P1 issues that were fixed in `08b6e4eab`, `59e45fcde`, `51d6b1592` and `70446a715`:
+
+- **Route-change honesty.** A route marker no longer forces the next batch to the previous end frame. The timeline measures the media delta first, then the observed host-clock delta from the **end** of the previous batch when the media clock resets. A gap `<= 500 ms` is bridged with bounded silence; a gap `> 500 ms` produces `renderReferenceMissing` and a truthful partial prefix. PTS continuity wins over callback latency; split batches advance the remainder host time; multiple route changes are allowed; a microphone disconnect is `.sourceStopped`.
+- **Partial recordings stay local.** `partialContinuity` is durable in the queue document, F296 eligibility and the manual cleanup candidate policy keep partial WAVs, and server-initiated `purgeLocalBuffers` now also refuses to delete a partial recording.
+- **Retention has two keys.** `retention_scheduler_enabled` defaults to `false`, and `retention_scheduler_dry_run_only` defaults to `true`. Even after the operator enables the scheduler, the first passes remain dry-run until the second key is explicitly cleared. The env template keeps both safe defaults.
+- **Prune ownership.** A dated directory is deletable only when `backup.passed`, `postgres.dump`, `schema.sql`, `inventory.jsonl`, `checksums.sha256` and `minio-objects/` are present. The newest directory overall and the newest verified backup are both kept, so a minio-stage failure cannot protect itself as the newest verified backup. Output is metadata-only.
+- **Maintenance RLS is proven.** A real PostgreSQL test runs the retention scan under `MaintenanceTenantContext(operation_name="retention_scan")` against two workspaces; fake-session-only coverage is no longer the only evidence.
+
+Focused validation for this fix:
+
+| Check | Result |
+|---|---|
+| `swift build --package-path apps/macos --build-tests` | PASS |
+| `swift test --filter 'RecordingAudioTimelineTests\|LocalRecordingWriterTests\|LocalCacheEligibilityTests\|DesktopUploadQueueTests'` | PASS: 185 tests |
+| `pytest tests/unit/test_retention_reconciler.py` | PASS: 5 tests |
+| `pytest tests/governance/test_prune_rec_backups.py` | PASS: 7 tests |
+| `run_local_postgres_tests.sh --focused tests/integration/test_retention_maintenance_rls.py` | PASS: 1 test |
+| `git diff --check` | PASS |
+
+Still open: T010 hardware QA, T019 live render, T022 live referral, T023 convergence, T024 release gates. The fix commits are not yet a release candidate.
+
 ## Checklist and governance
 
 - Independent reviewer-owned checklist review: PASS 40/40 (audio 10/10, security 10/10, infra 10/10, UX 10/10).
