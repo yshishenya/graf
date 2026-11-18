@@ -59,7 +59,7 @@
 
 ## 5. Retention scheduler
 
-**Decision**: Add a maintenance-loop reconciler that runs `run_retention_scan` for every active workspace once per 24 hours after an operator explicitly enables it. The scheduler is opt-in (`TWOBRAIN_RETENTION_SCHEDULER_ENABLED=false` by default); the operator first runs a per-workspace dry-run and verifies a fresh backup, then enables it. Use `MaintenanceTenantContext` with a new `retention_scan` operation; process bounded batches (100 per workspace); commit per workspace; log only counts and safe reasons.
+**Decision**: Add a maintenance-loop reconciler that runs `run_retention_scan` for every active workspace once per 24 hours after an operator explicitly enables it. The scheduler is opt-in (`TWOBRAIN_RETENTION_SCHEDULER_ENABLED=false` by default); even after enabling, `TWOBRAIN_RETENTION_SCHEDULER_DRY_RUN_ONLY=true` keeps the first passes dry-run until the operator explicitly allows destructive deletion. The operator first runs a per-workspace dry-run and verifies a fresh backup. Use `MaintenanceTenantContext` with a new `retention_scan` operation; process bounded batches (100 per workspace); commit per workspace; log only counts and safe reasons.
 
 **Rationale**: The scan already implements deletion fences, policy snapshots, processing/deleting/policy-blocked skips, local purge reconciliation and audit. Reusing it avoids a second deletion path. A daily cadence matches the 365-day policy and is cheap. Destructive deletion is opt-in so a first deployment cannot delete unseen data before backup verification. Legal hold is not implemented in the current server and is explicitly out of F297.
 

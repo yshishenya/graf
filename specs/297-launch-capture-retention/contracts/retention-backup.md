@@ -3,7 +3,7 @@
 ## Daily meeting retention
 
 - Trigger: maintenance worker loop, after an operator explicitly enables it; at most once per 24 hours. Immediate first pass is allowed.
-- Default: `TWOBRAIN_RETENTION_SCHEDULER_ENABLED=false`. Enable only after a per-workspace dry-run and a verified fresh backup.
+- Default: `TWOBRAIN_RETENTION_SCHEDULER_ENABLED=false`. Enable only after a per-workspace dry-run and a verified fresh backup. `TWOBRAIN_RETENTION_SCHEDULER_DRY_RUN_ONLY=true` keeps the first enabled passes dry-run until the operator explicitly clears it.
 - Scope: every active workspace with meeting retention configured.
 - Operation: existing `run_retention_scan(db, settings, workspace_id, limit=100, dry_run=False)`.
 - Context: `MaintenanceTenantContext(operation_name="retention_scan", feature_area="deletion", ...)`; add `retention_scan` to the allowed maintenance operations.

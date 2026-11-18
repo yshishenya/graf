@@ -14,7 +14,7 @@ deployment checks and release gates remain open.
 | `swift build --package-path apps/macos` | PASS |
 | `swift test --package-path apps/macos --filter 'RecordingAudioTimeline\|LocalRecordingWriterSystemAudio'` | PASS: 63 tests, 0 failures |
 | `swift test --package-path apps/macos --filter 'CanonicalRecordingManifestTests\|CaptureControlV5Tests'` | PASS: 9 tests, 0 failures |
-| Full `apps/macos/Scripts/run-swift-tests.sh` | PASS: 1538 tests, 9 skipped, 0 failures |
+| Full `apps/macos/Scripts/run-swift-tests.sh` | PASS: 1540 tests, 9 skipped, 0 failures |
 | `swift run --package-path apps/macos ContractValidation` | PASS |
 | `pytest tests/unit/test_retention_reconciler.py tests/unit/test_referral_landing.py` | PASS: 12 tests |
 | `pytest tests/governance/test_prune_rec_backups.py` | PASS: 7 tests |
@@ -107,3 +107,13 @@ Still open: T010 hardware QA, T019 live render, T022 live referral, T023 converg
   candidate.
 - Production retention/prune enablement is an operator action; no production
   deploy was performed in this branch.
+
+## Dev stand live evidence (2026-11-18)
+
+- F297 built and promoted on the single Dev stand: manifest `dev-e8c5bae08079`, source `e8c5bae080791259b76bfcd95dcafb23c9b27b11`, migration head `0114_retention_scan_maintenance`.
+- `dev-harness.sh smoke --json --live`: pass; all 13 checks pass, including app identity/presentation, exact SHA, backend, database, migration, storage, Temporal, processing/media workers.
+- `GET /` and `GET /offer`: 200. The landing and offer contain the real 4-hour limit; the offer says auto-renewal is checked by default and removable before payment; the old false phrases are absent.
+- `GET /r/unknown-token` and `GET /referral/unknown-token`: 410 with no 500.
+- `GET /billing/checkout` after Dev login redirects to the tariff page because the Dev runtime intentionally has `TWOBRAIN_BILLING_CHECKOUT_ENABLED=false`; the live checkout checkbox cannot be exercised there. The checkout checkbox/routes are covered by contract tests.
+- Valid referral 200 and DB-unavailable 503 require a billing-enabled stand; they are covered by unit tests but remain live T022 checks after a billing-enabled deployment.
+- T010 hardware QA remains blocked: the Mac currently exposes only built-in speakers, Krisp virtual devices and a multi-output device; no AirPods, wired headphones or dock. Screen capture permission is unavailable to the agent, so the Dev menu-bar UI cannot be driven for the manual route/sleep/lid matrix.
