@@ -1371,6 +1371,12 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         item: DesktopUploadQueueItem,
         task: DesktopLocalPurgeTask
     ) -> Bool {
+        // A partial recording's WAV is the only transcription-grade copy of the
+        // preserved prefix. Server-initiated local purge is a different path
+        // from F296 cache eviction and must respect the same guard.
+        guard item.partialContinuity != true else {
+            return false
+        }
         guard reconciliation.serverTruth.meetingId == task.meetingId else {
             return false
         }

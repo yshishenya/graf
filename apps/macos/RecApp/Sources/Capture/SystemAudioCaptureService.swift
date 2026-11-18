@@ -563,6 +563,7 @@ public final class ScreenCaptureKitSystemAudioRuntime: NSObject, SystemAudioCapt
     private var stream: SCStream?
     private var routeGeneration = RecordingAudioRouteGeneration.next()
     private var lastPresentationTime: RecordingAudioPresentationTimestamp?
+    private var lastFormat: RecordingAudioFormat?
     private var outputRouteListener: AudioObjectPropertyListenerBlock?
     private var lastRouteChangeHostTime: Double?
     // Only accessed on outputQueue; retained for one bounded diagnostic per recording.
@@ -684,6 +685,7 @@ public final class ScreenCaptureKitSystemAudioRuntime: NSObject, SystemAudioCapt
         streamLock.lock()
         let generation = routeGeneration
         lastPresentationTime = batch.presentationTime
+        lastFormat = batch.format
         streamLock.unlock()
         let routedBatch = RecordingAudioBatch(
             samples: batch.samples,
@@ -701,16 +703,18 @@ public final class ScreenCaptureKitSystemAudioRuntime: NSObject, SystemAudioCapt
         clearCurrentStreamIfSame(stream)
         streamLock.lock()
         let presentationTime = lastPresentationTime
+        let format = lastFormat ?? RecordingAudioFormat(sampleRate: 48_000, channelCount: 1)
+        let generation = routeGeneration
         streamLock.unlock()
         sampleHandler(RecordingAudioBatch(
             samples: [],
-            format: RecordingAudioFormat(sampleRate: 48_000, channelCount: 1),
+            format: format,
             presentationTime: presentationTime ?? RecordingAudioPresentationTimestamp(
                 seconds: ProcessInfo.processInfo.systemUptime,
                 clockDomain: .hostTime
             ),
             discontinuity: .sourceStopped,
-            routeGeneration: routeGeneration
+            routeGeneration: generation
         ))
     }
 
@@ -775,10 +779,11 @@ public final class ScreenCaptureKitSystemAudioRuntime: NSObject, SystemAudioCapt
         routeGeneration = RecordingAudioRouteGeneration.next()
         let generation = routeGeneration
         let presentationTime = lastPresentationTime
+        let format = lastFormat ?? RecordingAudioFormat(sampleRate: 48_000, channelCount: 1)
         streamLock.unlock()
         sampleHandler(RecordingAudioBatch(
             samples: [],
-            format: RecordingAudioFormat(sampleRate: 48_000, channelCount: 1),
+            format: format,
             presentationTime: presentationTime ?? RecordingAudioPresentationTimestamp(
                 seconds: now,
                 clockDomain: .hostTime

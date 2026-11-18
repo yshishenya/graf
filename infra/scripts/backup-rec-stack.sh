@@ -122,6 +122,13 @@ docker compose -f infra/docker-compose.yml exec -T rec-postgres \
   sh -c 'umask 077; rm -rf -- "$1"' sh "$staging" >/dev/null 2>&1 \
   || fail postgres_staging_cleanup_failed
 staging=""
+# The marker is written only after every artifact and cleanup succeeded. The
+# prune script requires it, so a partially failed backup can never protect
+# itself as the newest verified backup and unlock pruning of the last good one.
+marker="$backup_dir/backup.passed"
+printf 'backup_result=pass\nbackup_reference=%s\n' "$backup_dir" >"$marker" \
+  || fail backup_marker_failed
+chmod 600 "$marker" 2>/dev/null || fail backup_marker_failed
 cat <<EOF
 backup_result=pass
 backup_reference=$backup_dir

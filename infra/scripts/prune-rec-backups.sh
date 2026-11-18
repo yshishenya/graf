@@ -64,6 +64,7 @@ def main(argv: list[str]) -> int:
     # present. A foreign directory with a timestamp-shaped name must never be
     # deleted.
     required_owned_files = (
+        "backup.passed",
         "postgres.dump",
         "schema.sql",
         "inventory.jsonl",

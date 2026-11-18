@@ -571,9 +571,10 @@ public final class RecordingAudioTimeline: @unchecked Sendable {
             let gapFrames: Int64
             if ptsDelta > 0 {
                 gapFrames = ptsDelta
-            } else if ptsDelta == 0, let hostDeltaFrames, hostDeltaFrames > 0 {
-                gapFrames = hostDeltaFrames
             } else if ptsDelta == 0 {
+                // Media PTS is exactly contiguous. Callback host time includes
+                // queue latency and must not manufacture silence where the
+                // media clock proves there is no gap.
                 gapFrames = 0
             } else if let hostDeltaFrames {
                 gapFrames = max(0, hostDeltaFrames)

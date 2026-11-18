@@ -21,6 +21,20 @@ def run(*args: str) -> subprocess.CompletedProcess[str]:
 def dated(root: Path, name: str) -> Path:
     path = root / name
     path.mkdir()
+    (path / "backup.passed").write_text("pass", encoding="utf-8")
+    (path / "postgres.dump").write_text("dump", encoding="utf-8")
+    (path / "schema.sql").write_text("schema", encoding="utf-8")
+    (path / "inventory.jsonl").write_text("{}\n", encoding="utf-8")
+    (path / "checksums.sha256").write_text("checksum", encoding="utf-8")
+    (path / "minio-objects").mkdir()
+    return path
+
+
+def partial_backup(root: Path, name: str) -> Path:
+    """The real shape after a minio-stage failure: artifacts but no marker."""
+
+    path = root / name
+    path.mkdir()
     (path / "postgres.dump").write_text("dump", encoding="utf-8")
     (path / "schema.sql").write_text("schema", encoding="utf-8")
     (path / "inventory.jsonl").write_text("{}\n", encoding="utf-8")
@@ -94,6 +108,19 @@ def test_failed_newest_backup_keeps_newest_verified(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stderr
     assert failed_newest.is_dir()
     assert newest_verified.is_dir()
+    assert not oldest.exists()
+
+
+def test_minio_stage_failure_does_not_unlock_last_good_backup(tmp_path: Path) -> None:
+    oldest = dated(tmp_path, "20190101T000000Z")
+    last_good = dated(tmp_path, "20200101T000000Z")
+    partial_newest = partial_backup(tmp_path, "20210101T000000Z")
+
+    result = run("--execute", "--backup-root", str(tmp_path), "--older-than-days", "30")
+
+    assert result.returncode == 0, result.stderr
+    assert partial_newest.is_dir()
+    assert last_good.is_dir()
     assert not oldest.exists()
 
 

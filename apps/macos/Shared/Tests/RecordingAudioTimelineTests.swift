@@ -283,6 +283,47 @@ final class RecordingAudioTimelineTests: XCTestCase {
         XCTAssertTrue(timeline.finishPreservingAvailableAudio())
     }
 
+    func testContiguousPTSIgnoresCallbackLatency() throws {
+        let timeline = makeTimeline(
+            configuration: .init(reorderWindowFrames: 0, maximumKnownGapSeconds: 15)
+        )
+        try timeline.append(
+            source: .microphone,
+            batch: batch(samples: Array(repeating: 0.4, count: 192_000), at: 0)
+        )
+        try timeline.append(
+            source: .systemAudio,
+            batch: batch(
+                samples: Array(repeating: 0.2, count: 4_800),
+                at: 0,
+                observedHostTimeSeconds: 100,
+                routeGeneration: 1
+            )
+        )
+        XCTAssertNoThrow(
+            try timeline.append(
+                source: .systemAudio,
+                batch: routeMarker(at: 0.01, routeGeneration: 1)
+            )
+        )
+        // PTS is exactly contiguous at 0.1 s; the callback arrives 100 ms late.
+        // Host latency must not manufacture silence in the media timeline.
+        XCTAssertNoThrow(
+            try timeline.append(
+                source: .systemAudio,
+                batch: batch(
+                    samples: Array(repeating: 0.2, count: 480),
+                    at: 0.1,
+                    observedHostTimeSeconds: 100.2,
+                    routeGeneration: 2
+                )
+            )
+        )
+        XCTAssertEqual(timeline.metrics.continuityGapBridgedFrames, 0)
+        XCTAssertEqual(timeline.metrics.outputFrameCount, 5_280)
+        XCTAssertTrue(timeline.finishPreservingAvailableAudio())
+    }
+
     func testRouteChangeDoesNotCompressMaterialSystemAudioGap() throws {
         let timeline = makeTimeline(
             configuration: .init(reorderWindowFrames: 0, maximumKnownGapSeconds: 15)

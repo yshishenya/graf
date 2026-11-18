@@ -761,15 +761,15 @@ public final class LocalRecordingWriter: @unchecked Sendable {
         return switch error {
         case RecordingAudioTimelineError.routeGenerationChanged,
              RecordingAudioTimelineError.renderReferenceMissing,
-             RecordingAudioTimelineError.sourceStopped:
-            // A continuity break or a stopped source with a playable prefix is
-            // a truthful partial recording, not a dead capture. Without a
-            // prefix it stays failed.
+             RecordingAudioTimelineError.sourceStopped,
+             RecordingAudioTimelineError.gapExceedsBound,
+             RecordingAudioTimelineError.lateBatch:
+            // A continuity break, a stopped source, or an unrecoverable
+            // timestamp jump with a playable prefix is a truthful partial
+            // recording, not a dead capture. Without a prefix it stays failed.
             hasOutput ? .timelineMisaligned : .captureFailed
         case RecordingAudioTimelineError.uncomparablePresentationTimes,
              RecordingAudioTimelineError.formatChanged,
-             RecordingAudioTimelineError.gapExceedsBound,
-             RecordingAudioTimelineError.lateBatch,
              RecordingAudioTimelineError.echoProcessingFailed(_),
              RecordingAudioTimelineError.echoProcessingOutputInvalid:
             .captureFailed
