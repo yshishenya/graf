@@ -325,6 +325,7 @@ def _monitor_postgres_bootstrap(
     limit_ms: int = 60_000,
     term_grace: float = TERM_GRACE_SECONDS,
     kill_grace: float = KILL_GRACE_SECONDS,
+    timeout_signal: threading.Event | None = None,
 ) -> bool:
     while not stop_event.wait(0.5):
         try:
@@ -340,6 +341,8 @@ def _monitor_postgres_bootstrap(
             continue
         if process.poll() is not None:
             return False
+        if timeout_signal is not None:
+            timeout_signal.set()
         try:
             os.killpg(process.pid, signal.SIGTERM)
         except ProcessLookupError:
@@ -653,13 +656,17 @@ def main(argv: list[str] | None = None) -> int:
         start_new_session=True,
     )
     bootstrap_timed_out = False
+    bootstrap_timeout_event = threading.Event()
     stop_monitor = threading.Event()
     state_file = postgres_resource_dir / "postgres-state.json"
 
     def monitor_bootstrap() -> None:
         nonlocal bootstrap_timed_out
         bootstrap_timed_out = _monitor_postgres_bootstrap(
-            process, state_file, stop_monitor
+            process,
+            state_file,
+            stop_monitor,
+            timeout_signal=bootstrap_timeout_event,
         )
 
     monitor = threading.Thread(target=monitor_bootstrap, daemon=True)
@@ -668,7 +675,8 @@ def main(argv: list[str] | None = None) -> int:
         output, timed_out = _wait_for_child(process, WHOLE_RUN_SECONDS)
     finally:
         stop_monitor.set()
-        monitor.join(timeout=1)
+        monitor.join(timeout=TERM_GRACE_SECONDS + 1)
+        bootstrap_timed_out = bootstrap_timed_out or bootstrap_timeout_event.is_set()
     if output:
         sys.stdout.write(output.decode("utf-8", "replace"))
         sys.stdout.flush()
@@ -739,6 +747,18 @@ def main(argv: list[str] | None = None) -> int:
         work_cleanup = "removed"
     except OSError:
         work_cleanup = "failed"
+    acceptance_scenarios = (
+        acceptance_summary.get("scenarios")
+        if isinstance(acceptance_summary.get("scenarios"), list)
+        else []
+    )
+    scenarios_pass = (
+        len(acceptance_scenarios) == 2
+        and all(
+            isinstance(scenario, dict) and scenario.get("status") == "pass"
+            for scenario in acceptance_scenarios
+        )
+    )
     safe_receipt.update(
         {
             "acceptance": _safe_acceptance(acceptance_summary),
@@ -748,6 +768,7 @@ def main(argv: list[str] | None = None) -> int:
             and not timed_out
             and not bootstrap_timed_out
             and acceptance_status == "pass"
+            and scenarios_pass
             and cleanup_clean
             and work_cleanup == "removed"
             else "fail",
@@ -757,9 +778,7 @@ def main(argv: list[str] | None = None) -> int:
             "acceptance_status": acceptance_status,
             "postgres_cleanup": postgres_cleanup[1],
             "minio_cleanup": minio_cleanup[1],
-            "scenario_count": len(acceptance_summary.get("scenarios", []))
-            if isinstance(acceptance_summary.get("scenarios"), list)
-            else 0,
+            "scenario_count": len(acceptance_scenarios),
             "finished_at": _utc_now(),
         }
     )

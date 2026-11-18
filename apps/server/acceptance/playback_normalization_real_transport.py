@@ -195,7 +195,7 @@ def _docker_command() -> list[str]:
     return [docker]
 
 
-def _docker(arguments: list[str], *, timeout: int = RESOURCE_SECONDS) -> subprocess.CompletedProcess[str]:
+def _docker(arguments: list[str], *, timeout: int = TEARDOWN_SECONDS) -> subprocess.CompletedProcess[str]:
     completed = subprocess.run(
         [*_docker_command(), *arguments],
         stdin=subprocess.DEVNULL,

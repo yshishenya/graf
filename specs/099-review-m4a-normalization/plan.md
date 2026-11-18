@@ -550,9 +550,9 @@ track-selection матрицу, C — failure/limits/retry/recovery/backfill/lif
 legacy v3/v4 upload или provider submission после F275.
 
 Post-design constitution check: те же I–VII соблюдены по описанному контракту,
-нарушений/исключений нет. Допуск реализации выдан после reviewer PASS 120/0,
+нарушений/исключений нет. Допуск реализации выдал владелец/основной агент после reviewer PASS 120/0,
 analyze без CRITICAL/HIGH и sync существующего #3361. Проверки изоляции/cleanup
-запускателя и real A без fake fallback исполнены 2026-11-17; B/C, focused
+запускателя и real A без fake fallback исполнены 2026-11-18 UTC; B/C, focused
 governance, converge и independent code review остаются отдельными воротами.
 Любой setup/skip/cleanup failure сохраняет FAIL. Перед PR проверить свежую
 base, изменившиеся зависимости и exact SHA; штатные три checks обязательны.
