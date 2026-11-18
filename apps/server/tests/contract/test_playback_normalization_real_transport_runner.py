@@ -404,11 +404,24 @@ def test_process_group_kills_descendant_after_the_leader_exits(tmp_path) -> None
     assert pidfile.exists()
     descendant = int(pidfile.read_text().strip())
     _terminate_process_group(process, term_grace=0.2, kill_grace=2)
+    def running(pid: int) -> bool:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        completed = subprocess.run(
+            ["ps", "-o", "stat=", "-p", str(pid)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        state = completed.stdout.strip()
+        # A killed orphan may remain as a zombie when PID 1 does not reap it.
+        return bool(state) and not state.startswith("Z")
+
     deadline = time_module.monotonic() + 5
     while time_module.monotonic() < deadline:
-        try:
-            os.kill(descendant, 0)
-        except ProcessLookupError:
+        if not running(descendant):
             break
         time_module.sleep(0.05)
     else:
