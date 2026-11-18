@@ -1,6 +1,6 @@
 # Implementation Plan: Review M4A Normalization
 
-**Branch**: `codex/099-review-m4a-normalization` | **Date**: 2026-07-14 | **Spec**: [spec.md](./spec.md)
+**Branch**: `codex/099-real-transport-acceptance` | **Date**: 2026-07-14 | **Spec**: [spec.md](./spec.md)
 
 **Input**: Feature specification from `specs/099-review-m4a-normalization/spec.md`
 
@@ -226,14 +226,17 @@ specs/099-review-m4a-normalization/
 ├── data-model.md
 ├── quickstart.md
 ├── checklists/
-│   └── requirements.md
+│   ├── requirements.md
+│   └── real-transport-acceptance.md
 ├── contracts/
 │   ├── playback-normalization-contract.md
 │   ├── playback-status-contract.md
 │   ├── automatic-backfill-contract.md
-│   └── lifecycle-operations-contract.md
+│   ├── lifecycle-operations-contract.md
+│   └── real-transport-acceptance.md
 ├── tasks.md
 └── validation/
+    └── t014-real-transport-20261117.md
 ```
 
 ### Source Code (repository root)
@@ -278,6 +281,13 @@ apps/server/src/twobrain_rec_server/
 │   ├── minio_client.py                  # bounded attempt upload/stat helpers
 │   └── object_keys.py                   # UUID normalization object keys
 └── support/                              # metadata-only stalled-job incident reuse
+
+apps/server/acceptance/
+└── playback_normalization_real_transport.py  # explicit real-transport acceptance
+
+apps/server/scripts/
+├── run_playback_normalization_real_transport.py  # isolated acceptance supervisor
+└── run_local_postgres_tests.sh                  # H1 resource ownership context
 
 apps/server/tests/
 ├── unit/test_playback_normalization_*.py
@@ -489,3 +499,74 @@ normalization передаёт StorageTransferError. Все проверки —
 Issue closeout отдельно сверяет исходные критерии T014, подробный русский
 комментарий, штатный validate-issue-closeout.py --verify-live и фактическое
 состояние. Выпуск/развёртывание/пользовательская приёмка не выводятся из unit PASS.
+
+
+## 2026-11-17 — T014/#3361: настоящая автоматическая серверная цепочка
+
+Продолжение существующей F099, lane **high-risk-product**, исходная база
+`193e01b2963700aaff9ed8e3f2fcabcd2e72083d`, ветка
+`codex/099-real-transport-acceptance`. Guard сохранности destination уже слит
+в #8128. Его 50 тестов и 100/0 reviewer gate не допускают новый этап.
+
+Clarify: Spec §«фактическая автоматическая обработка»; вопросов 0, продуктовые
+границы исходные. Конституция до design: I/II не меняются capture/Stop/индикатор;
+III только синтетические данные, очищенное окружение и локальные зависимости;
+IV immutable source/attempt и deletion fence; V выпуск отдельно; VI полный
+Spec Kit и независимые ворота; VII интерфейс не меняется. Исключений нет.
+
+Решение Phase 0/1: [контракт настоящей цепочки](./contracts/real-transport-acceptance.md)
+фиксирует изоляцию до collection/Alembic, реальные зависимости, media-role,
+наблюдение исходного verified-download и скачанного результата, сроки/cleanup.
+Переиспользуются create_app, post-commit dispatcher, Temporal SDK/factory,
+production activity, MinioStorage, FFmpeg и PostgreSQL runner. Новый runtime
+сервис, схема, product config или Python dependency не нужны.
+
+Owned implementation paths после admission:
+`apps/server/acceptance/playback_normalization_real_transport.py`,
+`apps/server/scripts/run_playback_normalization_real_transport.py`,
+`apps/server/scripts/run_local_postgres_tests.sh`,
+`apps/server/tests/contract/test_local_postgres_test_runner.py` и
+`apps/server/tests/contract/test_playback_normalization_real_transport_runner.py`.
+Первый содержит собственную MinIO fixture и наблюдение настоящего API/worker;
+второй очищает окружение до collection, проверяет зависимости и владеет
+процессным пределом/очисткой, делегируя штатному PostgreSQL runner.
+Независимое ревью106/14 выявило H1: у прежнего runner нет передачи identity
+внешнему владельцу. Разрешено только дополнение служебного контекста
+GRAF_TEST_POSTGRES_RESOURCE_DIR по точной схеме нового контракта, image ID /
+label/cidfile/state handoff, проверка до SQL и безопасная очистка; обычный
+runner contract сохраняется. H2 решается явным acceptance-путём вне обычного
+discovery, ранним stdlib guard и подключением существующих fixtures после него;
+общие CI/pytest config не меняются. Оба вида управления проверяются отдельными
+ограниченными contract tests до настоящего A. Runtime код продукта не меняется;
+новые дефекты за этой границей требуют отдельного описания и ревью.
+Документы F099 и новый F99 fragment после архивации прежнего fragment свои.
+
+Объём первого независимо проверяемого шага — этап A: положительный WAV и
+отрицательный принятый непустой файл. B сохраняет полную format/copy/remux/
+track-selection матрицу, C — failure/limits/retry/recovery/backfill/lifecycle.
+Все строки B/C и отдельные startup/container/UI/release/deploy ворота остаются
+открытыми до собственных доказательств. Два A не являются полным T014 closeout.
+Устаревшие dual-source примеры выше — исторические; новые fixtures не создают
+legacy v3/v4 upload или provider submission после F275.
+
+Post-design constitution check: те же I–VII соблюдены по описанному контракту,
+нарушений/исключений нет. Допуск реализации выдал владелец/основной агент после reviewer PASS 120/0,
+analyze без CRITICAL/HIGH и sync существующего #3361. Проверки изоляции/cleanup
+запускателя и real A без fake fallback исполнены 2026-11-18 UTC; B/C, focused
+governance, converge и independent code review остаются отдельными воротами.
+Любой setup/skip/cleanup failure сохраняет FAIL. Перед PR проверить свежую
+base, изменившиеся зависимости и exact SHA; штатные три checks обязательны.
+Новый frozen Full, выпуск/развёртывание и фактическая приёмка — отдельно по
+актуальной release guidance. Исторические широкие local-CI указания не требуют
+слепого повторения завершённых проверок.
+
+На planning-этапе read-only inventory подтвердил локальные PostgreSQL/MinIO
+images и FFmpeg/ffprobe8.1.2, но это не запуск ресурсов. В собственной venv
+24 прямых зависимости совпали с lock, evaluation/gepa0.1.4 отсутствует;
+штатный runner требует этот extra. Перед опытом нужна явная подготовка frozen
+окружения и проверка его готовности, без скрытой установки при collection.
+Online master продвинулся до2805b0f91d5c6d13aad13edb573274b8460e1d19:
+delta общего PG fixture затрагивает только отдельный isolated bootstrap;
+используемый worker/media prefix побайтно сохранён. Ветка актуализирована на
+этот master, затем на неё добавлены требования и реализация этапа A; точный
+финальный SHA, версии и receipt — в validation/t014-real-transport-20261117.md.

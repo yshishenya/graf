@@ -84,8 +84,10 @@ def test_full_runner_keeps_strict_rls_tests_and_uses_a_bounded_parallel_lane() -
     script = RUNNER.read_text(encoding="utf-8")
 
     phase = script.split("run_phase() {", 1)[1].split("start_postgres() {", 1)[0]
-    assert 'uv run --extra dev --extra evaluation pytest "${report_args[@]}" "$@"' in phase
-    assert 'uv run --extra dev --extra evaluation pytest -c "$repo_root/apps/server/pyproject.toml" --collect-only' in script
+    assert 'uv "${uv_run[@]}" --extra dev --extra evaluation pytest "${report_args[@]}" "$@"' in phase
+    assert 'uv "${uv_collection[@]}" --extra dev --extra evaluation pytest -c "$repo_root/apps/server/pyproject.toml" --collect-only' in script
+    assert 'uv_run+=(--no-sync)' in script
+    assert 'uv_collection+=(--no-sync)' in script
     assert "GRAF_TEST_WORKERS" in script
     assert 'workers="${GRAF_TEST_WORKERS:-4}"' in script
     assert "GRAF_TEST_WORKERS must be an integer from 1 through 8." in script
@@ -582,3 +584,293 @@ def test_fast_pure_pass_follows_cleanup_without_starting_docker(partition_run, t
     assert len(rows) == 3 and not calls
     assert result.stdout.count("postgres_test_result=pass mode=fast") == 1
     assert result.stdout.index("postgres_test_cleanup=container_not_started") < result.stdout.index("postgres_test_result=pass")
+
+
+FAKE_DOCKER = r'''#!{python}
+import json, os, sys
+from pathlib import Path
+
+state_path = Path(os.environ["DOCKER_STATE"])
+calls_path = Path(os.environ["DOCKER_CALLS"])
+state = json.loads(state_path.read_text()) if state_path.exists() else {{"runs": 0, "containers": {{}}}}
+def save():
+    state_path.write_text(json.dumps(state))
+def log(args):
+    with calls_path.open("a") as output:
+        output.write(json.dumps(args) + "\n")
+def find(reference):
+    for container in state["containers"].values():
+        if reference in (container["id"], container["name"], "/" + container["name"]):
+            return container
+    return None
+
+args = sys.argv[1:]
+log(args)
+command = args[0] if args else ""
+if command == "info":
+    sys.exit(0)
+if command == "image":
+    if os.environ.get("IMAGE_OK", "1") != "1":
+        sys.exit(1)
+    print(os.environ["FAKE_IMAGE_ID"])
+    sys.exit(0)
+if command == "inspect":
+    container = find(args[-1])
+    if container is None:
+        sys.exit(1)
+    print("|".join([container["id"], "/" + container["name"], container["token"], container["image"]]))
+    sys.exit(0)
+if command == "ps":
+    pattern = None
+    for index, value in enumerate(args):
+        if value == "--filter" and index + 1 < len(args) and args[index + 1].startswith("name=^/"):
+            pattern = args[index + 1][6:]
+            if pattern.endswith("$"):
+                pattern = pattern[:-1]
+    for container in state["containers"].values():
+        if pattern is not None and "/" + container["name"] != pattern:
+            continue
+        print(container["id"])
+    sys.exit(0)
+if command == "run":
+    if os.environ.get("RUN_FAIL_BEFORE_CREATE") == "1":
+        sys.exit(125)
+    state["runs"] += 1
+    name = None
+    token = None
+    cidfile = None
+    image = args[-1]
+    index = 1
+    while index < len(args):
+        value = args[index]
+        if value == "--name":
+            index += 1; name = args[index]
+        elif value == "--label":
+            index += 1
+            label = args[index]
+            if label.startswith("pro.2brain.graf.f099.run="):
+                token = label.split("=", 1)[1]
+        elif value == "--cidfile":
+            index += 1; cidfile = args[index]
+        elif value in ("--env", "--tmpfs", "--publish"):
+            index += 1
+        index += 1
+    container_id = "container-" + str(state["runs"])
+    state["containers"][container_id] = {{
+        "id": container_id,
+        "name": name,
+        "token": token,
+        "image": image,
+        "ready": state["runs"] >= int(os.environ.get("READY_AFTER", "1")),
+    }}
+    if os.environ.get("CIDFILE", "1") == "1" and cidfile:
+        Path(cidfile).write_text(container_id)
+    save()
+    if os.environ.get("RUN_FAIL_AFTER_CREATE") == "1":
+        sys.exit(125)
+    print(container_id)
+    sys.exit(0)
+if command == "logs":
+    container = find(args[-1])
+    if container is None:
+        sys.exit(1)
+    print("PostgreSQL init process complete; ready for start up." if container["ready"] else "starting")
+    sys.exit(0)
+if command == "exec":
+    container = find(args[1])
+    if container is None:
+        sys.exit(1)
+    if "psql" in args and os.environ.get("SQL_FAIL") == "1":
+        sys.exit(1)
+    if (
+        "psql" in args
+        and os.environ.get("SQL_FAIL_FIRST") == "1"
+        and container["id"] == "container-1"
+    ):
+        sys.exit(1)
+    sys.exit(0)
+if command == "port":
+    print("127.0.0.1:54329")
+    sys.exit(0)
+if command == "rm":
+    if os.environ.get("RM_FAIL") == "1":
+        sys.exit(1)
+    container = find(args[-1])
+    if container is not None:
+        state["containers"].pop(container["id"], None)
+        save()
+    sys.exit(0)
+sys.exit(2)
+'''
+
+
+@pytest.fixture
+def resource_run(tmp_path):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    calls = tmp_path / "docker-calls.jsonl"
+    state = tmp_path / "docker-state.json"
+    image_id = "sha256:" + "a" * 64
+    docker = bin_dir / "docker"
+    docker.write_text(FAKE_DOCKER.format(python=sys.executable))
+    docker.chmod(0o755)
+    uv = bin_dir / "uv"
+    uv.write_text(f'''#!{sys.executable}
+import json, sys
+from pathlib import Path
+args = sys.argv[sys.argv.index("pytest") + 1:]
+if "--collect-only" in args:
+    path = Path(args[args.index("--graf-collection-file") + 1])
+    nodes = ["acceptance/playback_normalization_real_transport.py::test_real"]
+    path.write_text(json.dumps({{"baseline": nodes, "parallel": nodes, "performance": [], "strict": [], "pure": nodes, "resource": []}}))
+sys.exit(0)
+''')
+    uv.chmod(0o755)
+    context = tmp_path / "postgres-context"
+    context.mkdir(mode=0o700)
+    manifest = context / "postgres-resource.json"
+    manifest.write_text(json.dumps({
+        "schema_version": 1,
+        "run_token": "b" * 32,
+        "container_name": "graf-postgres-test-f099-" + "b" * 32,
+        "image_id": image_id,
+    }))
+    manifest.chmod(0o600)
+
+    def run(*args, env=None, mode="--focused"):
+        return subprocess.run(
+            ["bash", str(RUNNER), mode, *args], cwd=ROOT,
+            env={
+                **os.environ,
+                "PATH": str(bin_dir) + os.pathsep + os.environ["PATH"],
+                "DOCKER_CALLS": str(calls),
+                "DOCKER_STATE": str(state),
+                "FAKE_IMAGE_ID": image_id,
+                "GRAF_TEST_POSTGRES_RESOURCE_DIR": str(context),
+                **(env or {}),
+            },
+            capture_output=True, text=True, check=False, timeout=60,
+        )
+
+    run.context = context
+    run.image_id = image_id
+    run.calls = lambda: [json.loads(line) for line in calls.read_text().splitlines()] if calls.exists() else []
+    run.state = state
+    return run
+
+
+def test_resource_context_requires_an_admitted_manifest_before_docker(resource_run):
+    manifest = resource_run.context / "postgres-resource.json"
+    manifest.write_text(json.dumps({"schema_version": 1, "run_token": "b" * 32}))
+    manifest.chmod(0o600)
+    result = resource_run("-q", "tests/unit/test_acceptance.py")
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "invalid GRAF_TEST_POSTGRES_RESOURCE_DIR" in result.stderr
+    assert resource_run.calls() == []
+
+
+def test_resource_context_rejects_symlinked_manifest(resource_run, tmp_path):
+    manifest = resource_run.context / "postgres-resource.json"
+    target = tmp_path / "manifest.json"
+    target.write_text(manifest.read_text())
+    target.chmod(0o600)
+    manifest.unlink()
+    manifest.symlink_to(target)
+    result = resource_run("-q", "tests/unit/test_acceptance.py")
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert resource_run.calls() == []
+
+
+def test_collect_only_validates_context_without_docker(resource_run):
+    result = resource_run("--collect-only", "-q", "tests/unit/test_acceptance.py")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert resource_run.calls() == []
+    assert not (resource_run.context / "postgres-state.json").exists()
+
+
+def test_resource_context_runs_the_admitted_image_and_cleans_by_id(resource_run):
+    result = resource_run("-q", "tests/unit/test_acceptance.py")
+    assert result.returncode == 0, result.stdout + result.stderr
+    calls = resource_run.calls()
+    run_call = next(call for call in calls if call[0] == "run")
+    assert "--pull=never" in run_call
+    assert run_call[-1] == resource_run.image_id
+    assert "--label" in run_call and f"pro.2brain.graf.f099.run={'b' * 32}" in run_call
+    assert any(call[:2] == ["image", "inspect"] for call in calls)
+    assert any(call[0] == "inspect" for call in calls)
+    removals = [call for call in calls if call[0] == "rm"]
+    assert removals == [["rm", "--force", "--volumes", "container-1"]]
+    assert "postgres_test_resource_cleanup=removed" in result.stdout
+    assert "postgres_test_result=pass mode=focused" in result.stdout
+    state = json.loads((resource_run.context / "postgres-state.json").read_text())
+    assert state["phase"] == "removed"
+
+
+def test_resource_context_stops_before_sql_when_the_image_changed(resource_run):
+    result = resource_run("-q", "tests/unit/test_acceptance.py", env={"IMAGE_OK": "0"})
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "Admitted PostgreSQL image ID is unavailable" in result.stderr
+    assert not any(call[0] == "run" for call in resource_run.calls())
+    assert not any(call[0] == "exec" for call in resource_run.calls())
+
+
+def test_resource_context_does_not_remove_a_foreign_container(resource_run):
+    resource_run.state.write_text(json.dumps({
+        "runs": 0,
+        "containers": {
+            "foreign": {
+                "id": "foreign", "name": "graf-postgres-test-f099-" + "b" * 32,
+                "token": "c" * 32, "image": resource_run.image_id, "ready": True,
+            }
+        },
+    }))
+    result = resource_run("-q", "tests/unit/test_acceptance.py", env={"RUN_FAIL_BEFORE_CREATE": "1"})
+    assert result.returncode != 0, result.stdout + result.stderr
+    assert "foreign_or_mismatched_container" in result.stderr
+    assert not any(call[0] == "rm" for call in resource_run.calls())
+    preserved = json.loads(resource_run.state.read_text())
+    assert "foreign" in preserved["containers"]
+
+
+def test_resource_context_retries_only_after_confirmed_removal(resource_run):
+    result = resource_run(
+        "-q", "tests/unit/test_acceptance.py",
+        env={"SQL_FAIL_FIRST": "1"},
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert [call[0] for call in resource_run.calls()].count("run") == 2
+    assert "postgres_test_container_start_retry=1" in result.stderr
+
+
+def test_resource_context_stops_after_a_failed_cleanup_without_retrying(resource_run):
+    result = resource_run(
+        "-q", "tests/unit/test_acceptance.py",
+        env={"SQL_FAIL_FIRST": "1", "RM_FAIL": "1"},
+    )
+    assert result.returncode != 0, result.stdout + result.stderr
+    assert [call[0] for call in resource_run.calls()].count("run") == 1
+    assert "postgres_test_resource_cleanup=remove_failed" in result.stderr
+    assert "postgres_test_result=pass" not in result.stdout
+
+
+def test_resource_context_adopts_a_container_when_the_create_response_is_lost(resource_run):
+    result = resource_run(
+        "-q", "tests/unit/test_acceptance.py", env={"RUN_FAIL_AFTER_CREATE": "1"}
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    calls = resource_run.calls()
+    assert [call[0] for call in calls].count("run") == 1
+    assert any(call[0] == "inspect" for call in calls)
+    assert [call for call in calls if call[0] == "rm"] == [["rm", "--force", "--volumes", "container-1"]]
+    assert "postgres_test_result=pass mode=focused" in result.stdout
+
+
+def test_resource_context_cleans_by_identity_when_the_cidfile_is_missing(resource_run):
+    result = resource_run(
+        "-q", "tests/unit/test_acceptance.py", env={"CIDFILE": "0"}
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert not (resource_run.context / "postgres.cid").exists()
+    assert [call for call in resource_run.calls() if call[0] == "rm"] == [
+        ["rm", "--force", "--volumes", "container-1"]
+    ]

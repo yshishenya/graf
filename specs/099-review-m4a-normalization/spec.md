@@ -2,7 +2,7 @@
 
 **Feature Branch**: `099-review-m4a-normalization`
 **Created**: 2026-07-09
-**Status**: Historical release evidence retained; 2026-11-17 T014/#3361 verified-download preservation repair in progress
+**Status**: Historical release evidence retained; T014/#3361 destination-preservation repair merged in #8128; real automatic accepted-source stage A passed 2026-11-17, format matrix B and failure/lifecycle C remain open
 **Input**: User description: "Давай вариант 3. У нас всегда в записи должен быть m4a. Для загруженных записей будем транскодировать. Запиши это как отдельную будущую фичу 099 с подробным контекстом."
 
 ## Product Context
@@ -19,6 +19,35 @@
 Главный продуктовый принцип 099: каждая запись, которую пользователь может открыть в review, должна иметь один понятный playback artifact. UI и API не должны угадывать, из чего собирать звук в момент просмотра.
 
 ## Clarifications
+
+### Session 2026-11-17 — фактическая автоматическая обработка, T014/#3361
+
+Продолжение исходных FR-026–030/FR-040/FR-042 и SC-013/015/020/022;
+новых продуктовых решений и вопросов пользователю нет. Исправление
+сохранности destination из #8128 принято только в его проверенной области.
+Настоящая серверная приёмка должна начинаться с обычного принятия собственного
+синтетического источника. После этого GRAF сам получает задание и публикует
+один полностью проверенный результат, независимо от готовности расшифровки.
+Ручной запуск обработки из проверки не подтверждает эту автоматичность.
+
+Для каждого заявленного успешного случая проверяется сам сохранённый
+результат, включая полное декодирование после его скачивания, а не только
+статус записи. Для отказов проверяется отсутствие доступного частичного или
+непроверенного аудио. Сохраняются вся исходная матрица поддерживаемых форматов,
+правила copy/remux/transcode, выбор дорожки, ограничения, автоматические
+повторы, восстановление, backfill и приоритет удаления. Первый короткий WAV
+может подтвердить связность серверных компонентов, но не всю эту матрицу.
+Для каждого ещё не проверенного условия сохраняется явный открытый результат;
+оно не исключается из приёмки ради успешного отчёта.
+
+Проверки используют только собственные временные данные и изолированные
+ресурсы. Они не наследуют адреса, секреты или включённые интеграции рабочих
+сред. Новые записи приложения следуют действующему single-source контракту
+F275 и паре canonical WAV/playback M4A; исторические описания отдельных
+microphone/system источников ниже не разрешают создавать или повторно
+отправлять старые пакеты. Серверный опыт не подтверждает автоматически
+запуск производственного worker, его контейнерные ограничения, интерфейс,
+установленное приложение, выпуск или развёртывание.
 
 ### Session 2026-11-17 — сохранность существующего пути, T014/#3361
 
@@ -323,13 +352,14 @@ Source media становится пригодным для downstream processin
 **Acceptance Scenarios**:
 
 1. **Given** manual upload produced one accepted source artifact, **When** normalization starts, **Then** the normalization work references that accepted source artifact and does not create a second source artifact for the same logical upload.
-2. **Given** first-party recording produced accepted microphone/system source artifacts, **When** playback m4a is created, **Then** the playback artifact is attached to the same recording lineage and does not replace source artifact truth.
+2. **Given** a first-party recording produced accepted source artifacts under the currently supported ingest contract, **When** playback m4a is created, **Then** the playback artifact is attached to the same recording lineage and does not replace source artifact truth. Historical microphone/system examples do not authorize new legacy uploads after F275.
 3. **Given** source media is not finalized, failed, aborted, expired or marked unsafe, **When** normalization is considered, **Then** no playback artifact is created from that unaccepted source.
 4. **Given** transcript processing succeeds while playback normalization fails, **When** the user opens the list or review page, **Then** transcript status and playback status are shown as separate truthful states.
 5. **Given** playback normalization succeeds while transcript processing is still pending or failed, **When** the user opens review, **Then** playback can be ready without pretending transcript/summary processing succeeded.
 6. **Given** deletion starts while normalization is preparing a playback artifact, **When** lifecycle state is evaluated, **Then** the temporary output is blocked or cleaned up and no new playback-ready artifact is exposed after deletion begins.
 7. **Given** backfill evaluates older records, **When** it finds records with missing or unsafe source lineage, **Then** those records receive explicit skip reasons rather than creating replacement source media.
 8. **Given** a future implementation proposes a direct original-file playback path, **When** requirements are reviewed against 099, **Then** the proposal is rejected unless it is explicitly moved to a separate approved feature that changes the canonical playback contract.
+9. **Given** a supported synthetic source is accepted through the ordinary user path, **When** GRAF receives the resulting work automatically, **Then** exactly one validated stored playback artifact becomes available without the check directly starting normalization; the downloaded stored result passes full decode. A single source case proves only that case, and unexecuted format, failure, recovery and lifecycle cases remain open.
 
 ## Edge Cases
 
@@ -523,7 +553,9 @@ Source media становится пригодным для downstream processin
   нет; owner/expiry/removal trigger/retirement task: N/A.
 - Историческая реализация F099 и её опубликованные результаты сохраняют свой
   объём. Поправка #7647 не заменяет производственную приёмку F290.
-- Текущий T014/#3361 исправляет только владение локальным destination в общем
-  verified-download. API/схема/зависимости/объектные ключи/провайдер не меняются;
-  это сохранность данных, без нового совместимого или параллельного пути.
-  Историческая отметка T014 переоткрыта до новой проверки точного SHA.
+- Исправление владения локальным destination в общем verified-download слито
+  в #8128. Следующий этап T014/#3361 проверяет существующую автоматическую
+  серверную цепочку на синтетических accepted sources. Новый совместимый или
+  параллельный путь обработки и создание старых пакетов не разрешены.
+  T014 остаётся открытой до исходных критериев и применимых проверок;
+  исторические результаты и границы отдельных исправлений сохраняются.

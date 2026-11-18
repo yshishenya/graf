@@ -2,7 +2,7 @@
 
 **Input**: Design documents from `specs/099-review-m4a-normalization/`
 
-**Prerequisites**: `plan.md`, `spec.md`, `research.md`, `data-model.md`, `contracts/`, `quickstart.md`, `checklists/requirements.md`, `checklists/media.md`, `checklists/automation.md`, `checklists/lifecycle.md`
+**Prerequisites**: `plan.md`, `spec.md`, `research.md`, `data-model.md`, `contracts/` (including `real-transport-acceptance.md`), `quickstart.md`, `checklists/requirements.md`, `checklists/media.md`, `checklists/automation.md`, `checklists/lifecycle.md`, `checklists/real-transport-acceptance.md`
 
 **Tests**: Required. Feature 099 is a high-risk active Spec Kit slice touching untrusted media, accepted-source custody, PostgreSQL/MinIO/Temporal, CPU/disk subprocess work, RLS, deletion, diagnostics, browser playback and production backfill. Test tasks precede implementation in every phase.
 
@@ -46,7 +46,7 @@
 - [X] T011 Add canonical validation/derivation fields to `TrackArtifact` and create normalization job/attempt/backfill models in `apps/server/src/twobrain_rec_server/db/models/ingest.py`, `apps/server/src/twobrain_rec_server/db/models/normalization.py`, and `apps/server/src/twobrain_rec_server/db/models/__init__.py`
 - [X] T012 Implement additive portable migration `0022`, partial canonical uniqueness, force-RLS policies and reversible downgrade in `apps/server/src/twobrain_rec_server/db/migrations/versions/0022_playback_normalization.py`
 - [X] T013 Register new tables and narrow `playback_normalization_inventory`/`playback_normalization_dispatch` operations in `apps/server/src/twobrain_rec_server/db/rls_validation.py`, `apps/server/src/twobrain_rec_server/db/tenant_context.py`, `apps/server/tests/fixtures/rls.py`, and `specs/031-rls-hardening/contracts/rls-policy-matrix.md`
-- [ ] T014 Add immutable attempt/canonical key builders and chunked file-object transfer helpers in `apps/server/src/twobrain_rec_server/storage/object_keys.py` and `apps/server/src/twobrain_rec_server/storage/minio_client.py` — переоткрыта 2026-11-17: #3361, FR-045/SC-025, прежний destination удаляется при отказе exclusive create; историческая реализация/receipts сохранены. Текущий порядок проверки и исправления — Plan/Quickstart §2026-11-17.
+- [ ] T014 Add immutable attempt/canonical key builders and chunked file-object transfer helpers in `apps/server/src/twobrain_rec_server/storage/object_keys.py` and `apps/server/src/twobrain_rec_server/storage/minio_client.py` — #3361 открыта: guard FR-045/SC-025 слит в #8128; исходная автоматическая accepted-source приёмка остаётся. Исторические реализации/receipts сохранены. Текущий порядок — Plan/Quickstart и contracts/real-transport-acceptance.md, включая H1/H2.
 - [X] T015 Implement the strict normalization audit allowlist and safe event receipts in `apps/server/src/twobrain_rec_server/normalization/audit.py`
 - [X] T016 Implement bounded no-shell process execution, protocol restriction, cancellation, output caps and typed probe parsing in `apps/server/src/twobrain_rec_server/normalization/media.py`
 - [X] T017 Implement stdlib BMFF validation, canonical profile validation and deterministic single-stream/dual-source selection in `apps/server/src/twobrain_rec_server/normalization/media.py`
@@ -392,3 +392,48 @@ expiry/deletion/late PUT сохраняются. Последовательно,
 
 Зависимости: reviewer requirements → T125 → T126 → T127 → T128.
 Первый CI срез F290 и его pending approval не изменяются.
+
+
+## 2026-11-17 — продолжение T014/#3361, без нового task/issue
+
+Зависимости: existing specify/clarify → plan/research/model/contract/quickstart →
+reviewer-owned checklist → $speckit-tasks (согласование существующей T014) →
+analyze → штатный sync существующего issue →
+implementation. Ниже порядок существующей T014, без новых отметок выполнения:
+
+1. Сначала в `apps/server/scripts/run_playback_normalization_real_transport.py`
+   закрепить fail-closed preflight, чистое окружение до collection, внешний
+   deadline и ownership cleanup. Для подтверждённого H1 дополнить
+   `apps/server/scripts/run_local_postgres_tests.sh` только служебным resource
+   manifest/label/cidfile/state/image guard и проверяемой очисткой по контракту;
+   сохранить обычный runner. Сначала закрепить ограниченные H1/H2 проверки
+   в `apps/server/tests/contract/test_local_postgres_test_runner.py` и
+   `apps/server/tests/contract/test_playback_normalization_real_transport_runner.py`.
+   Продуктовый runtime не менять.
+2. В `apps/server/acceptance/playback_normalization_real_transport.py`
+   добавить настоящие одноразовые зависимости и A-success/A-corrupt по новому
+   контракту; stdlib guard до imports/fixtures, явный запуск вне обычного CI
+   discovery. Сначала подтвердить изоляцию/аварийную очистку и явную frozen
+   готовность dependencies, затем исполнить A без fake fallback.
+3. В `validation/t014-real-transport-20261117.md` записать реальные результаты,
+   hashes/versions/image IDs, ограничения media-role/API и cleanup. Сохранить
+   всю B/C матрицу открытой до доказательств; далее последовательно B, затем C.
+4. Focused lint/process, независимый code review/converge, свой F99 fragment,
+   exact-SHA/current-base PR gates и штатное merge отдельно. Полный closeout
+   требует исходных критериев, русского комментария и --verify-live.
+
+127 исторических checked tasks сохраняют свои markers; T014[ ] открыта.
+Новый reviewer gate оценивает требования и не объявляет A/B/C выполненными.
+
+### 2026-11-17/18 UTC — этап A исполнен, T014 остаётся открытой
+
+- Запускатель и приёмочный файл добавлены; явный запуск вне обычного CI,
+  stdlib guard до application imports, отдельные H1/H2 contract tests.
+- Реальный прогон: A-success (`ready`, одна published attempt, canonical
+  9 268 байт, полный decode/profile/BMFF, Range 206) и A-corrupt
+  (`terminal/corrupt_source`, без canonical и retry) — PASS.
+- PostgreSQL и MinIO удалены по проверенным identity; контейнеров не осталось.
+- Полный receipt: [validation/t014-real-transport-20261117.md](./validation/t014-real-transport-20261117.md).
+- B (форматы/copy/remux/track-selection), C (limits/failure/retry/recovery/
+  backfill/concurrency/deletion/retention/Range-состояния), startup/container/
+  UI/release/deploy остаются открытыми. T014[ ] и #3361 не закрываются этапом A.
