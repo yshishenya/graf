@@ -12,16 +12,16 @@ deployment checks and release gates remain open.
 | Check | Result |
 |---|---|
 | `swift build --package-path apps/macos` | PASS |
-| `swift test --package-path apps/macos --filter 'RecordingAudioTimeline\|LocalRecordingWriterSystemAudio'` | PASS: 59 tests, 0 failures |
+| `swift test --package-path apps/macos --filter 'RecordingAudioTimeline\|LocalRecordingWriterSystemAudio'` | PASS: 63 tests, 0 failures |
 | `swift test --package-path apps/macos --filter 'CanonicalRecordingManifestTests\|CaptureControlV5Tests'` | PASS: 9 tests, 0 failures |
-| Full `apps/macos/Scripts/run-swift-tests.sh` | PASS: 1532 tests, 9 skipped, 0 failures |
+| Full `apps/macos/Scripts/run-swift-tests.sh` | PASS: 1538 tests, 9 skipped, 0 failures |
 | `swift run --package-path apps/macos ContractValidation` | PASS |
-| `pytest tests/unit/test_retention_reconciler.py tests/unit/test_referral_landing.py` | PASS: 10 tests |
-| `pytest tests/governance/test_prune_rec_backups.py` | PASS: 4 tests |
+| `pytest tests/unit/test_retention_reconciler.py tests/unit/test_referral_landing.py` | PASS: 12 tests |
+| `pytest tests/governance/test_prune_rec_backups.py` | PASS: 7 tests |
 | `bash apps/server/scripts/run_local_postgres_tests.sh --fast` | PASS: 189 unit tests |
 | Postgres focused: migrations, RLS, retention | PASS: 61 tests |
 | Postgres focused: fair-use, billing monitoring, backup snapshot | PASS: 277 tests |
-| Postgres focused: full `tests/contract` | PASS: 2390 tests, 84 skipped |
+| Postgres focused: full `tests/contract` | PASS: 2402 tests, 84 skipped |
 | `pytest tests/contract/test_rls_policy_matrix_contract.py tests/contract/test_playback_normalization_rls_contract.py` | PASS: 11 tests |
 | `ruff check` on changed Python files | PASS |
 | `python -m compileall` on changed Python files | PASS |
@@ -73,6 +73,8 @@ Focused validation for this fix:
 |---|---|
 | `swift build --package-path apps/macos --build-tests` | PASS |
 | `swift test --filter 'RecordingAudioTimelineTests\|LocalRecordingWriterTests\|LocalCacheEligibilityTests\|DesktopUploadQueueTests'` | PASS: 185 tests |
+| full `apps/macos/Scripts/run-swift-tests.sh` | PASS: 1540 tests, 9 skipped, 0 failures |
+| `swift run ContractValidation` | PASS |
 | `pytest tests/unit/test_retention_reconciler.py` | PASS: 5 tests |
 | `pytest tests/governance/test_prune_rec_backups.py` | PASS: 7 tests |
 | `run_local_postgres_tests.sh --focused tests/integration/test_retention_maintenance_rls.py` | PASS: 1 test |
