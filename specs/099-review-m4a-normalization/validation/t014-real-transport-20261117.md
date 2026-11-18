@@ -15,14 +15,14 @@ Implementation admission выдан после независимого reviewer
 analyze без CRITICAL/HIGH и sync существующего #3361. Reviewer-owned checklist
 не редактировался основным агентом.
 
-Финальный прогон: run token **`8dd7e51d42aeac4d647ee626689c3ef2`**,
-`started_at=2026-11-18T00:21:00Z`, `finished_at=2026-11-18T00:21:24Z`.
+Финальный прогон: run token **`d19bfc2be7182526cf3119dd29377617`**,
+`started_at=2026-11-18T00:33:31Z`, `finished_at=2026-11-18T00:33:49Z`.
 
 Receipt привязан к исполненным файлам:
 
 | Артефакт | SHA-256 |
 |---|---|
-| supervisor | `60394508975a2d1e03acf31537d9fd16c5d9eff4f398b65100c804bbc35f1b2e` |
+| supervisor | `139c6a928653ca6e86721609becd53ec1a03e44de75519d6648b3781acb76c20` |
 | acceptance | `9d99d7f483d80c4b761d2118e3d21b4dfba28d0c8427b1ab2ad3a13461241c76` |
 | PostgreSQL runner | `3f55b37506594453e80fd5f5801114f2faf71020aa2f41e1401b18f0d0f366a2` |
 
@@ -106,13 +106,13 @@ Durable job и отсутствие canonical проверены до старт
 | A-corrupt source | 1 байт и исходный SHA-256 сохранены, байты скачаны и сверены |
 | A-corrupt work directory | нормализационная рабочая папка пуста |
 
-A-success занял 0,68 с, A-corrupt — 0,71 с; общий дочерний запуск — около 20 с.
+A-success занял 0,6 с, A-corrupt — 0,65 с; общий дочерний запуск — около 20 с.
 Пределы контракта (60/120/60/30/600 секунд) не нарушены; 60-секундная фаза
 `starting` дополнительно ограничена внешним monitor-потоком запускателя.
 
 ## Проверки запускателя и обычного CI
 
-- `pytest tests/contract/test_local_postgres_test_runner.py tests/contract/test_playback_normalization_real_transport_runner.py` — **124 passed**.
+- `pytest tests/contract/test_local_postgres_test_runner.py tests/contract/test_playback_normalization_real_transport_runner.py` — **125 passed**.
 - H1 doubles: malformed/symlink manifest, image mismatch до SQL, потеря ответа
   create после появления контейнера, отсутствие cidfile, foreign/unknown
   ownership, cleanup failure, повтор только после подтверждённого удаления,
@@ -132,7 +132,7 @@ A-success занял 0,68 с, A-corrupt — 0,71 с; общий дочерний
   `graf-minio-test-*`.
 - `docker prune` не выполнялся; чужие ресурсы не затрагивались.
 - Supervisor receipt: `work_directory_cleanup=removed`, `scenario_count=2`,
-  `bootstrap_timed_out=false`.
+  `bootstrap_timed_out=false`, `interrupted=false`.
 
 ## Analyze и ревью
 
@@ -153,10 +153,10 @@ T014 имеет task-покрытие, новые пути перечислен�
 | Файл | SHA-256 |
 |---|---|
 | `apps/server/acceptance/playback_normalization_real_transport.py` | `9d99d7f483d80c4b761d2118e3d21b4dfba28d0c8427b1ab2ad3a13461241c76` |
-| `apps/server/scripts/run_playback_normalization_real_transport.py` | `60394508975a2d1e03acf31537d9fd16c5d9eff4f398b65100c804bbc35f1b2e` |
+| `apps/server/scripts/run_playback_normalization_real_transport.py` | `139c6a928653ca6e86721609becd53ec1a03e44de75519d6648b3781acb76c20` |
 | `apps/server/scripts/run_local_postgres_tests.sh` | `3f55b37506594453e80fd5f5801114f2faf71020aa2f41e1401b18f0d0f366a2` |
 | `apps/server/tests/contract/test_local_postgres_test_runner.py` | `49d66d3d085ae0c588e10a75efb04891d4dc48c81b0a5500ebe41e1562ebf0c5` |
-| `apps/server/tests/contract/test_playback_normalization_real_transport_runner.py` | `267e7c59ec6e3ad781ab074a971f6cdbfda1cbb033d664d40bc7a52cda28eeb0` |
+| `apps/server/tests/contract/test_playback_normalization_real_transport_runner.py` | `fc7efe1722514169837594c3000eaffe7261dcb6a3f4d7637df30711fce2256b` |
 | `specs/099-review-m4a-normalization/contracts/real-transport-acceptance.md` | `92434fee5a77bde54a9cc1e0cbd1a84dd72ea30434b46f49f6ddce95963015c7` |
 
 ## Что остаётся открытым

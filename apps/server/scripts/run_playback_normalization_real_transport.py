@@ -276,25 +276,37 @@ def _remove_verified_container(
     return True, "removed"
 
 
+def _process_group_exists(pgid: int) -> bool:
+    try:
+        os.killpg(pgid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+
+
 def _terminate_process_group(
     process: subprocess.Popen[bytes],
     *,
     term_grace: float = TERM_GRACE_SECONDS,
     kill_grace: float = KILL_GRACE_SECONDS,
 ) -> None:
-    if process.poll() is not None:
+    pgid = process.pid
+    if not _process_group_exists(pgid):
+        with suppress(subprocess.TimeoutExpired):
+            process.wait(timeout=0)
         return
     try:
-        os.killpg(process.pid, signal.SIGTERM)
+        os.killpg(pgid, signal.SIGTERM)
     except ProcessLookupError:
         return
     with suppress(subprocess.TimeoutExpired):
         process.wait(timeout=term_grace)
-        return
-    if process.poll() is not None:
+    if not _process_group_exists(pgid):
         return
     try:
-        os.killpg(process.pid, signal.SIGKILL)
+        os.killpg(pgid, signal.SIGKILL)
     except ProcessLookupError:
         return
     with suppress(subprocess.TimeoutExpired):
@@ -637,6 +649,12 @@ def main(argv: list[str] | None = None) -> int:
         },
     )
     child_environment = dict(environment)
+    previous_term_handler = signal.getsignal(signal.SIGTERM)
+
+    def handle_term(_signum: int, _frame: object) -> None:
+        raise KeyboardInterrupt
+
+    signal.signal(signal.SIGTERM, handle_term)
     command = [
         "bash",
         str(server_root / TEST_RUNNER),
@@ -671,12 +689,20 @@ def main(argv: list[str] | None = None) -> int:
 
     monitor = threading.Thread(target=monitor_bootstrap, daemon=True)
     monitor.start()
+    interrupted = False
     try:
-        output, timed_out = _wait_for_child(process, WHOLE_RUN_SECONDS)
+        try:
+            output, timed_out = _wait_for_child(process, WHOLE_RUN_SECONDS)
+        except KeyboardInterrupt:
+            interrupted = True
+            timed_out = False
+            _terminate_process_group(process)
+            output = b""
     finally:
         stop_monitor.set()
         monitor.join(timeout=TERM_GRACE_SECONDS + 1)
         bootstrap_timed_out = bootstrap_timed_out or bootstrap_timeout_event.is_set()
+        signal.signal(signal.SIGTERM, previous_term_handler)
     if output:
         sys.stdout.write(output.decode("utf-8", "replace"))
         sys.stdout.flush()
@@ -766,6 +792,7 @@ def main(argv: list[str] | None = None) -> int:
             "status": "pass"
             if process.returncode == 0
             and not timed_out
+            and not interrupted
             and not bootstrap_timed_out
             and acceptance_status == "pass"
             and scenarios_pass
@@ -774,6 +801,7 @@ def main(argv: list[str] | None = None) -> int:
             else "fail",
             "child_exit_code": process.returncode,
             "timed_out": timed_out or bootstrap_timed_out,
+            "interrupted": interrupted,
             "bootstrap_timed_out": bootstrap_timed_out,
             "acceptance_status": acceptance_status,
             "postgres_cleanup": postgres_cleanup[1],

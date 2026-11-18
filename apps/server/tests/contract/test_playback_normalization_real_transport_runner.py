@@ -377,3 +377,39 @@ def test_bootstrap_monitor_stops_after_ready(tmp_path) -> None:
     finally:
         process.terminate()
         process.wait(timeout=5)
+
+
+def test_process_group_kills_descendant_after_the_leader_exits(tmp_path) -> None:
+    import os
+    import time as time_module
+
+    sys.path.insert(0, str(SERVER_ROOT / "scripts"))
+    try:
+        from run_playback_normalization_real_transport import _terminate_process_group
+    finally:
+        sys.path.pop(0)
+    pidfile = tmp_path / "descendant.pid"
+    process = subprocess.Popen(
+        [
+            "sh",
+            "-c",
+            "python3 -c 'import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)' & "
+            f"echo $! > {pidfile}; wait",
+        ],
+        start_new_session=True,
+    )
+    deadline = time_module.monotonic() + 5
+    while time_module.monotonic() < deadline and not pidfile.exists():
+        time_module.sleep(0.05)
+    assert pidfile.exists()
+    descendant = int(pidfile.read_text().strip())
+    _terminate_process_group(process, term_grace=0.2, kill_grace=2)
+    deadline = time_module.monotonic() + 5
+    while time_module.monotonic() < deadline:
+        try:
+            os.kill(descendant, 0)
+        except ProcessLookupError:
+            break
+        time_module.sleep(0.05)
+    else:
+        raise AssertionError("descendant process survived SIGKILL escalation")
