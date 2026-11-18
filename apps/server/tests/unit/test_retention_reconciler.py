@@ -61,7 +61,8 @@ async def test_retention_once_runs_each_workspace_and_isolates_failure(monkeypat
     async def apply_context(_db, _context):
         return None
 
-    async def fake_scan(_db, *, settings, workspace_id, limit, storage):
+    async def fake_scan(_db, *, settings, workspace_id, limit, storage, dry_run):
+        assert dry_run is True
         calls.append((workspace_id, limit, storage))
         if workspace_id == second:
             raise RuntimeError("workspace failed")
@@ -110,7 +111,8 @@ async def test_retention_once_uses_isolated_session_per_workspace(monkeypatch):
     async def apply_context(_db, _context):
         return None
 
-    async def fake_scan(_db, *, settings, workspace_id, limit, storage):
+    async def fake_scan(_db, *, settings, workspace_id, limit, storage, dry_run):
+        assert dry_run is True
         return SimpleNamespace(evaluated=0, created_requests=0, skipped=0, blocked=0)
 
     monkeypatch.setattr(maintenance_worker, "apply_tenant_context", apply_context)
@@ -131,7 +133,9 @@ async def test_retention_once_uses_isolated_session_per_workspace(monkeypatch):
 def test_retention_scheduler_is_opt_in_by_default() -> None:
     from twobrain_rec_server.config import Settings
 
-    assert Settings().retention_scheduler_enabled is False
+    settings = Settings()
+    assert settings.retention_scheduler_enabled is False
+    assert settings.retention_scheduler_dry_run_only is True
 
 
 @pytest.mark.asyncio

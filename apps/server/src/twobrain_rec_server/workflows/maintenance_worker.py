@@ -195,16 +195,21 @@ async def run_retention_once(
         try:
             async with sessions() as db:
                 await apply_tenant_context(db, context)
+                dry_run = bool(
+                    getattr(settings, "retention_scheduler_dry_run_only", True)
+                )
                 result = await run_retention_scan(
                     db,
                     settings=settings,
                     workspace_id=workspace_id,
                     limit=100,
+                    dry_run=dry_run,
                     storage=storage,
                 )
                 await db.commit()
                 logger.info(
-                    "retention scan: evaluated=%s created=%s skipped=%s blocked=%s",
+                    "retention scan: dry_run=%s evaluated=%s created=%s skipped=%s blocked=%s",
+                    dry_run,
                     result.evaluated,
                     result.created_requests,
                     result.skipped,
