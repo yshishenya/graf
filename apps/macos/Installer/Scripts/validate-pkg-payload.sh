@@ -7,6 +7,7 @@ set -eu
 
 fail() {
   echo "pkg_payload_validation=failed reason=$1" >&2
+  echo "pkg_payload_validation_hint=build the PKG from the already stapled app (two-phase: build+sign app, notarize+staple app, then pkgbuild/productbuild, notarize+staple the PKG); do not flatten an --expand-full tree" >&2
   exit 1
 }
 

@@ -161,9 +161,20 @@ After publication, download the public artifacts again and verify:
 - app and package pass stapler validation and Gatekeeper;
 - the `GRAF.app` **inside** the installer PKG passes `stapler validate` and
   `syspolicy_check distribution`, not only the outer PKG. The release gate runs
-  `validate-pkg-payload.sh`; if the current builder order produced an
-  unstapled payload, run `restaple-pkg-payload.sh` before publication, or
-  preferably build the PKG from the already stapled app.
+  `validate-pkg-payload.sh` and fails closed.
+
+Required build order (the current builder still builds the PKG before stapling,
+so `v2026.11.17.1` has an unstapled payload):
+
+1. build and sign the app;
+2. submit the app to notarization, wait, staple and validate it;
+3. build the PKG from the **stapled** app;
+4. sign, notarize and staple the PKG;
+5. run `validate-pkg-payload.sh` on the final PKG.
+
+Do not try to repair the package with `pkgutil --expand-full` followed by
+`pkgutil --flatten`: the flatten does not re-archive the component `Payload`
+directory, so the result is not installable.
 
 The release driver performs the publication and then the same live-feed check;
 for a resumed local signing-only operation, the read-only check remains:

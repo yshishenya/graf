@@ -121,22 +121,9 @@ def test_release_validates_the_app_inside_the_pkg():
     assert 'xcrun stapler validate' in text
     assert 'syspolicy_check distribution' in text
     assert 'fail syspolicy' in text
-
-
-def test_pkg_payload_repair_is_bounded_and_verified():
-    script = SCRIPT.with_name('restaple-pkg-payload.sh')
-    assert script.is_file()
-    text = script.read_text()
-    for step in (
-        'stapler staple "$APP"',
-        'productsign --sign',
-        'notarytool submit',
-        'stapler validate "$TMP_DIR/rebuilt.pkg"',
-        'validate-pkg-payload.sh',
-    ):
-        assert step in text
-    # The original is replaced only after the new bytes are verified.
-    assert 'cp "$TMP_DIR/rebuilt.pkg" "$PKG"' in text
+    # The gate must fail closed and point at the correct build order; a
+    # pkgutil --flatten repair of an --expand-full tree is not installable, so
+    # it is deliberately not offered as a shortcut.
 
 
 def test_app_update_helper_keeps_signing_stage_separate_from_publication():
