@@ -1,4 +1,4 @@
-{% if public_analytics and public_analytics.get('consent_ui_enabled', false) %}
+{% if public_analytics|default({}) and public_analytics.get('consent_ui_enabled', false) %}
   <footer class="auth-legal-footer" aria-label="Юридическая информация">
     <a href="/privacy">Конфиденциальность</a>
     <a href="/cookies">Cookies</a>
