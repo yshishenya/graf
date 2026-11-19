@@ -556,3 +556,32 @@ normal deployment backup/restore boundary.
 и lease expiry; ошибка до prepare привязана к исходному scalar count.
 Текущий активный immutable attempt защищён direct cleanup под Job→Attempt
 lock. Старые attempt ID допускают очистку независимо от работы новой B.
+
+
+## 2026-11-17 — модель наблюдения настоящей цепочки T014
+
+Новой схемы или сущности в runtime нет. Проверка использует действующие
+Meeting → accepted MediaRevision → source TrackArtifact → NormalizationJob →
+NormalizationAttempt → canonical TrackArtifact. HTTP acceptance создаёт эту
+lineage; тест её не фабрикует и не запускает job самостоятельно. Новые
+first-party источники следуют single-source F275; dual-source описание выше
+сохраняется как история, а не разрешение создавать legacy upload.
+
+Отдельные соединения API/worker/observer имеют свои lifecycle и tenant context.
+Worker обязан использовать restricted media role; owner-backed API fixture
+не доказывает production API grants. Read-only наблюдение содержит только
+состояния/связи, counts и synthetic source/output integrity, без media content.
+
+Для A-success: один accepted revision/job, ready canonical с тем же source
+fingerprint, published attempt, сохранённый source, независимо декодируемый
+скачанный canonical. Для A-corrupt: terminal/corrupt_source, next_attempt_at и
+canonical pointer отсутствуют, published/validated playback отсутствует,
+source сохранён. Temporary attempt не становится egress-visible. Полная
+матрица B/C и правила гонок/удаления выше сохраняются; A их не закрывает.
+
+Служебный manifest опыта не является новой runtime-сущностью или таблицей:
+его schema_version/run_token/container_name/image_id заранее связывают
+внешнего владельца с временным PG. До create известны name/label/image,
+после create сверяется actual ID; missing cidfile не теряет эту связь.
+Отдельные starting/ready и cleanup_required/confirmed состояния относятся
+только к управлению опытом. Обычный CI не создаёт эту модель или её ресурсы.

@@ -3,6 +3,19 @@
 **Rule**: A task becomes `[X]` only after its outcome and focused evidence are
 current. Green infrastructure health alone is never playback or user-path proof.
 
+## Current correction — 2026-11-17
+
+Исторические строки и счётчики ниже относятся к закрытию июля 2026 и сохранены
+как evidence того периода. Для текущего состояния они переопределены:
+
+- `T014` снова открыта: destination guard #8128 слит, этап A настоящей
+  автоматической приёмки PASS, но B/C и отдельные ворота не исполнены.
+- Issue `#3361` **открыт**; строка «zero open task-backed issues» и отметка
+  `T014 … closed` ниже — исторические.
+- В `tasks.md` 128 задач: 127 `[X]`, `T014 [ ]`; reviewer-owned checklists —
+  120/120 по 7 файлам.
+- Актуальный receipt этапа A: [t014-real-transport-20261117.md](./t014-real-transport-20261117.md).
+
 ## Requirement coverage
 
 | Requirement set | Primary task/evidence owner |

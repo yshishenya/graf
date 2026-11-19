@@ -41,3 +41,17 @@ It does not claim runtime validation.
 Все 8 исходных вопросов повторно сопоставлены с FR-043/SC-023 и Plan Production Recovery Hotfix. Worker-interrupted startup trigger, same lineage, non-preemption других reasons, lock/audit/lease/dispatch и отсутствие user repair остаются прежними; T014 не добавляет restart или runtime действие.
 Общий reviewer-owned requirements gate: **PASS, 100/100**, только качество требований. Известный дефект кода и открытая T014 остаются; выполнение, analyze/issue sync, регрессии, code review/converge, exact-SHA PR/base и выпуск/развёртывание проверяются отдельно.
 Полная карта каждого исходного пункта и текущие ограничения: внешний отчёт `f099-t014-independent-requirements-rereview-20261117.md` в каталоге доказательств текущей задачи.
+
+## Независимое ревью нового real-transport scope — 2026-11-17
+
+Проверяющий `/root/f099_download_requirements_review`; HEAD `193e01b2963700aaff9ed8e3f2fcabcd2e72083d`, ветка `codex/099-real-transport-acceptance`. Все исходные вопросы заново оценены по текущим требованиям. Старые STOP/PASS выше сохранены как история guard; новый общий допуск **STOP, implementation_admission=false**.
+Итог файла: checked **8**, unchecked **0**, всего **8**. `[x]` означает только качество требований, не выполнение A/B/C и не закрытие T014.
+Полная карта всех 120 вопросов, исходники и H1/H2: внешний `f099-t014-real-transport-independent-requirements-review-20261117.md`. Неподтверждённые пункты блокируют реализацию; A/B/C остаются неисполненными независимо от отметок.
+
+
+## Повторное независимое ревью real-transport — H1/H2, 2026-11-17
+
+Проверяющий `/root/f099_download_requirements_review`; HEAD `193e01b2963700aaff9ed8e3f2fcabcd2e72083d`, ветка `codex/099-real-transport-acceptance`. Все исходные вопросы повторно сопоставлены с текущими оригиналами; прежние вопросы и заметки сохранены.
+Итог файла: проверено **8**, непроверено **0**, всего **8**. Общий результат качества требований — **PASS, 120/0**. Это не допуск реализации: `implementation_admission=false` сохраняется; A/B/C не исполнены и T014 открыта.
+Каждый вопрос проверен заново; изменённые требования не нарушают его исходные границы. Подробное основание каждого пункта приведено в новом отчёте.
+Полная карта 120 вопросов, контрольные суммы, собственные чтения и сохранность: новый внешний `f099-t014-real-transport-independent-requirements-rereview-20261117.md`. После этого назначения автоматического перехода к реализации нет.

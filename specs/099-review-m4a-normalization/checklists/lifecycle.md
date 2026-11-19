@@ -69,3 +69,22 @@
 CHK001: FR-045 и Plan T014 определяют локальное владение после exclusive create отдельно от artifact registry. CHK017: Quickstart T014 различает EEXIST/ENOSPC/EACCES до create и write/fsync/size/digest после create, назначает safe outcome/reason/cleanup only-own partial. CHK020: inode/bytes/mode/link/target, descriptor fstat и раздельные response close/release — независимые утверждения; не один shared fake closed flag. Отказы самой cleanup/close/release и post-open pathname replacement прямо не объявлены проверенными.
 Общий reviewer-owned requirements gate: **PASS, 100/100**, только качество требований. Известный дефект кода и открытая T014 остаются; выполнение, analyze/issue sync, регрессии, code review/converge, exact-SHA PR/base и выпуск/развёртывание проверяются отдельно.
 Полная карта каждого исходного пункта и текущие ограничения: внешний отчёт `f099-t014-independent-requirements-rereview-20261117.md` в каталоге доказательств текущей задачи.
+
+## Независимое ревью нового real-transport scope — 2026-11-17
+
+Проверяющий `/root/f099_download_requirements_review`; HEAD `193e01b2963700aaff9ed8e3f2fcabcd2e72083d`, ветка `codex/099-real-transport-acceptance`. Все исходные вопросы заново оценены по текущим требованиям. Старые STOP/PASS выше сохранены как история guard; новый общий допуск **STOP, implementation_admission=false**.
+Итог файла: checked **19**, unchecked **3**, всего **22**. `[x]` означает только качество требований, не выполнение A/B/C и не закрытие T014.
+- CHK015: H1: Продуктовые recovery пути описаны, но новый outer runner после смерти child не получает подтверждённую identity своего PG и не может доказать orphan cleanup.
+- CHK017: H1: Cleanup failure назван FAIL, но не задан исполнимый владелец PG cleanup/ID handoff и безопасный bounded сценарий его аварийного окончания.
+- CHK020: H1: Независимая RLS/host/container граница ясна, но zero-residue нового запуска нельзя доказать без надёжно полученного собственного PG ID.
+Полная карта всех 120 вопросов, исходники и H1/H2: внешний `f099-t014-real-transport-independent-requirements-review-20261117.md`. Неподтверждённые пункты блокируют реализацию; A/B/C остаются неисполненными независимо от отметок.
+
+
+## Повторное независимое ревью real-transport — H1/H2, 2026-11-17
+
+Проверяющий `/root/f099_download_requirements_review`; HEAD `193e01b2963700aaff9ed8e3f2fcabcd2e72083d`, ветка `codex/099-real-transport-acceptance`. Все исходные вопросы повторно сопоставлены с текущими оригиналами; прежние вопросы и заметки сохранены.
+Итог файла: проверено **22**, непроверено **0**, всего **22**. Общий результат качества требований — **PASS, 120/0**. Это не допуск реализации: `implementation_admission=false` сохраняется; A/B/C не исполнены и T014 открыта.
+- CHK015: PASS: Контракт H1 закрывает аварийное окно PG: имя/token/image известны и сохранены до Docker; потеря ответа create и отсутствие cidfile не теряют связь. Отдельные bounded проверки покрывают смерть child и повтор только после доказанного отсутствия.
+- CHK017: PASS: H1 назначает parent supervisor владельцем очистки после child error/TERM/KILL/timeout; TERM и KILL ожидание по 5 секунд, операция очистки до 30 секунд. SIGKILL supervisor оставляет cleanup_required и FAIL следующему основному агенту/оператору.
+- CHK020: PASS: Точная проверка name/label/image/ID и успешный lookup отсутствия отделены от RLS и остальных утверждений; ошибка Docker не считается отсутствием. Contract tests обязаны независимо проверять zero residue и сохранность чужих ресурсов; исполнение ещё открыто.
+Полная карта 120 вопросов, контрольные суммы, собственные чтения и сохранность: новый внешний `f099-t014-real-transport-independent-requirements-rereview-20261117.md`. После этого назначения автоматического перехода к реализации нет.
