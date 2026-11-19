@@ -60,7 +60,10 @@ jobs:
     needs: scope
     if: always()
     runs-on: windows-2022
-    timeout-minutes: 60
+    # The pinned FFmpeg dependency is built from source inside this lane; the
+    # hosted runner needs more than one hour for build plus CTest without
+    # dropping any native check.
+    timeout-minutes: 120
     env:
       PR_HEAD: ${{ github.event.pull_request.head.sha }}
       PR_BASE: ${{ github.event.pull_request.base.sha }}

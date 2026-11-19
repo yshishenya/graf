@@ -31,6 +31,8 @@ The physical Codex worktree folder name is not a source of truth.
 - `release-and-validation.md`: local CI, deployment, changelog, release, and
   evidence rules.
 - `local-development.md` — обязательный путь перед сборкой, запуском и проверкой macOS: один GRAF Dev.
+- `windows-development.md`: Windows x64 lane, общие файлы macOS/Windows и
+  границы Windows-приёмки.
 - `macos-notarization.md`: detailed Developer ID, Apple notarization, stapling,
   Sparkle publication, and closeout recipe; read only for macOS release work.
 - `legacy-audio-driver-cleanup.md`: read-only inspection and explicit,
