@@ -83,6 +83,19 @@ Focused validation for this fix:
 
 Still open: T010 hardware QA, T019 live render, T022 live referral, T023 convergence, T024 release gates. The fix commits are not yet a release candidate.
 
+## Post-rebase validation (2026-11-19)
+
+After rebasing onto `origin/master` (`80551e1c5`) the branch was re-validated, because
+master advanced by 13 commits since the original base:
+
+| Check | Result |
+|---|---|
+| full `apps/macos/Scripts/run-swift-tests.sh` | PASS: 1545 tests, 9 skipped, 0 failures |
+| `swift run --package-path apps/macos ContractValidation` | PASS |
+| focused PostgreSQL: `test_retention_reconciler.py`, `test_retention_maintenance_rls.py` | PASS: 8 tests |
+| `pytest tests/governance/test_prune_rec_backups.py` | PASS: 9 tests |
+| `python3 scripts/validate-legacy-impact.py --feature specs/297-launch-capture-retention/spec.md` | PASS |
+
 ## Checklist and governance
 
 - Independent reviewer-owned checklist review: PASS 40/40 (audio 10/10, security 10/10, infra 10/10, UX 10/10).
