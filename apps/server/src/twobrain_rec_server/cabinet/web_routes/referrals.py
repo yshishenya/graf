@@ -7,6 +7,8 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.exc import InterfaceError, OperationalError
+from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal, TenantScope
@@ -49,6 +51,7 @@ from twobrain_rec_server.db.tenant_context import (
 from twobrain_rec_server.product_analytics.browser_context import (
     build_request_browser_provider_context,
 )
+from twobrain_rec_server.public.templates import public_analytics_page_context
 
 router = APIRouter(tags=["cabinet-web"])
 
@@ -277,7 +280,12 @@ async def issue_referral_link(
     return RedirectResponse("/referrals?result=issued", status_code=303)
 
 
-def _referral_landing_html(*, state: str, expires_at_label: str | None = None) -> str:
+def _referral_landing_html(
+    *,
+    state: str,
+    expires_at_label: str | None = None,
+    public_analytics: dict[str, object] | None = None,
+) -> str:
     content = render_template(
         "cabinet/auth/referral_landing.html",
         state=state,
@@ -287,6 +295,7 @@ def _referral_landing_html(*, state: str, expires_at_label: str | None = None) -
         "cabinet/base.html",
         title="Приглашение в GRAF",
         surface_mode="auth",
+        public_analytics=public_analytics,
         content=trusted_component_html(content, source="auth.shell"),
     )
 
@@ -305,7 +314,13 @@ async def referral_landing(
     db: AsyncSession | None = PublicDbDependency,
 ) -> HTMLResponse:
     if not request.app.state.settings.billing_checkout_enabled:
-        response = cabinet_html_response(_referral_landing_html(state="invalid"), status_code=410)
+        response = cabinet_html_response(
+            _referral_landing_html(
+                state="invalid",
+                public_analytics=public_analytics_page_context(request, "/referral"),
+            ),
+            status_code=410,
+        )
         response.delete_cookie("graf_referral_token")
         response.headers["Cache-Control"] = "private, no-store"
         response.headers["X-Robots-Tag"] = "noindex, nofollow"
@@ -313,31 +328,53 @@ async def referral_landing(
     try:
         normalized_token = validate_referral_token(token)
     except ValueError:
-        response = cabinet_html_response(_referral_landing_html(state="invalid"), status_code=410)
+        response = cabinet_html_response(
+            _referral_landing_html(
+                state="invalid",
+                public_analytics=public_analytics_page_context(request, "/referral"),
+            ),
+            status_code=410,
+        )
         response.delete_cookie("graf_referral_token")
         return response
     link = None
     if db is not None:
-        landing_now = datetime.now(UTC)
-        await apply_tenant_context(
-            db,
-            ReferralLandingLookupContext(token_hash=referral_token_hash(normalized_token)),
-        )
-        link = await db.scalar(
-            select(ReferralLink).where(
-                    ReferralLink.token_hash == referral_token_hash(normalized_token),
-                    ReferralLink.state == "active",
-                    ReferralLink.expires_at.is_(None) | (ReferralLink.expires_at > landing_now),
+        try:
+            landing_now = datetime.now(UTC)
+            await apply_tenant_context(
+                db,
+                ReferralLandingLookupContext(token_hash=referral_token_hash(normalized_token)),
             )
-        )
+            link = await db.scalar(
+                select(ReferralLink).where(
+                        ReferralLink.token_hash == referral_token_hash(normalized_token),
+                        ReferralLink.state == "active",
+                        ReferralLink.expires_at.is_(None) | (ReferralLink.expires_at > landing_now),
+                )
+            )
+        except (OperationalError, InterfaceError, SQLAlchemyTimeoutError):
+            # A real database outage must be a retryable 503, not a 500.
+            db = None
     if db is None:
-        response = cabinet_html_response(_referral_landing_html(state="unavailable"), status_code=503)
+        response = cabinet_html_response(
+            _referral_landing_html(
+                state="unavailable",
+                public_analytics=public_analytics_page_context(request, "/referral"),
+            ),
+            status_code=503,
+        )
         response.delete_cookie("graf_referral_token")
         response.headers["Retry-After"] = "60"
         response.headers["X-Robots-Tag"] = "noindex, nofollow"
         return response
     if link is None:
-        response = cabinet_html_response(_referral_landing_html(state="invalid"), status_code=410)
+        response = cabinet_html_response(
+            _referral_landing_html(
+                state="invalid",
+                public_analytics=public_analytics_page_context(request, "/referral"),
+            ),
+            status_code=410,
+        )
         response.delete_cookie("graf_referral_token")
         response.headers["Cache-Control"] = "private, no-store"
         response.headers["X-Robots-Tag"] = "noindex, nofollow"
@@ -350,6 +387,7 @@ async def referral_landing(
                 if link.expires_at is not None
                 else None
             ),
+            public_analytics=public_analytics_page_context(request, "/referral"),
         )
     )
     existing_cookie = request.cookies.get("graf_referral_token")
@@ -370,6 +408,10 @@ async def referral_landing(
                     is not None
                 )
         except ValueError:
+            existing_valid = False
+        except (OperationalError, InterfaceError, SQLAlchemyTimeoutError):
+            # The token itself already resolved; a mid-request outage must not
+            # turn an otherwise valid invitation into a 500.
             existing_valid = False
     if not existing_valid:
         if existing_cookie:

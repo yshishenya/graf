@@ -459,6 +459,8 @@ run_prepare() {
   xcrun stapler validate "$FINAL_PKG" || fail "stapled package failed stapler validation"
   spctl --assess --type install --verbose=4 "$FINAL_PKG" ||
     fail "stapled package failed Gatekeeper assessment"
+  sh "$SCRIPT_DIR/validate-pkg-payload.sh" "$FINAL_PKG" ||
+    fail "packaged app payload failed stapler or syspolicy validation"
   signature=$(codesign -dv --verbose=4 "$FINAL_APP" 2>&1)
   printf '%s\n' "$signature" | grep -q '^Authority=Developer ID Application:' ||
     fail "stapled app is not signed with a Developer ID Application identity"
@@ -566,6 +568,8 @@ run_publish() {
   xcrun stapler validate "$FINAL_PKG" || fail "stapled package failed stapler validation"
   spctl --assess --type install --verbose=4 "$FINAL_PKG" ||
     fail "stapled package failed Gatekeeper assessment"
+  sh "$SCRIPT_DIR/validate-pkg-payload.sh" "$FINAL_PKG" ||
+    fail "packaged app payload failed stapler or syspolicy validation"
   timing_end
 
   timing_begin "predecessor_lookup"
