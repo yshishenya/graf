@@ -22,7 +22,6 @@ resource_context=false
 resource_run_token=""
 resource_image_id=""
 resource_container_id=""
-resource_manifest=""
 resource_cid_file=""
 resource_state_file=""
 resource_attempted=false
@@ -410,7 +409,6 @@ PY_RESOURCE
   resource_image_id="$(sed -n '2p' <<< "$output")"
   resource_container_name="$(sed -n '3p' <<< "$output")"
   postgres_container="$resource_container_name"
-  resource_manifest="$postgres_resource_directory/postgres-resource.json"
   resource_cid_file="$postgres_resource_directory/postgres.cid"
   resource_state_file="$postgres_resource_directory/postgres-state.json"
   resource_context=true
@@ -873,7 +871,9 @@ if [[ "$collect_only" == true ]]; then
   exit 0
 fi
 
-minio_required="$(python3 - "$metadata_directory" "$partitioned" "${selected_phases[@]}" <<'PY_MINIO'
+minio_required=false
+if [[ "$mode" != fast ]]; then
+  minio_required="$(python3 - "$metadata_directory" "$partitioned" "${selected_phases[@]}" <<'PY_MINIO'
 import json
 import pathlib
 import sys
@@ -888,7 +888,8 @@ calendar = "tests/integration/test_calendar_auto_context_match.py::test_strict_t
 cleanup = "tests/integration/test_smoke_cleanup_deadlock.py::test_interrupted_smoke_retains_unconfirmed_object_intent_and_preserves_neighbor[real-minio]"
 print("true" if any(node.split("[", 1)[0] == calendar or node == cleanup for node in nodes) else "false")
 PY_MINIO
-)"
+  )"
+fi
 if [[ "$mode" == fast ]]; then
   # Fail cheap pure tests before allocating PostgreSQL. The two sets partition unit.
   if (( $(cat "$metadata_directory/pure-count") > 0 )); then
