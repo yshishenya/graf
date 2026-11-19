@@ -109,12 +109,12 @@ Still open: T010 hardware QA, T019 live render, T022 live referral, T023 converg
 - Production retention/prune enablement is an operator action; no production
   deploy was performed in this branch.
 
-## Dev stand live evidence (2026-11-18)
+## Dev stand live evidence (exact PR SHA, 2026-11-19)
 
-- F297 built and promoted on the single Dev stand: manifest `dev-a7d2b1a565cb`, source `a7d2b1a565cb5ddd16e81ed01e0b35523f2c15f3`, migration head `0114_retention_scan_maintenance`. The later PR commits are docs/test-only on top of this tree, so the promoted product code is identical; the exact current PR SHA itself was not promoted.
+- F297 is built and promoted on the single Dev stand at the exact PR SHA: manifest `dev-bf96b8034dc0`, source `bf96b8034dc0fb0bf27533bfb11cc1d10a172168`, migration head `0114_retention_scan_maintenance`. An earlier docs/test-only candidate `dev-a7d2b1a565cb` was the rollback target.
 - `dev-harness.sh smoke --json --live`: pass; all 13 checks pass, including app identity/presentation, exact SHA, backend, database, migration, storage, Temporal, processing/media workers.
-- `GET /` and `GET /offer`: 200. The landing and offer contain the real 4-hour limit; the offer says auto-renewal is checked by default and removable before payment; the old false phrases are absent.
-- `GET /r/unknown-token` and `GET /referral/unknown-token`: 410 with no 500.
+- `GET /`, `/offer`, `/privacy`: 200. `/offer` renders «Одна запись — до 4 часов (14 400 секунд)» and «Автопродление включено по умолчанию… его можно снять»; the phrases «без ограничения длительности» and «Согласие не должно быть заранее отмечено» are absent. `/` renders «до 4 часов». `/privacy` renders «удаление встреч, срок которых истек, после включения планировщика и разрешения удаления оператором».
+- `GET /r/unknown-token`, `/referral/unknown-token` and a token-shaped unknown token: 410 with the «Ссылка недействительна» page and no 500 (browser-verified).
 - `GET /billing/checkout` after Dev login redirects to the tariff page because the Dev runtime intentionally has `TWOBRAIN_BILLING_CHECKOUT_ENABLED=false`; the live checkout checkbox cannot be exercised there. The checkout checkbox/routes are covered by contract tests.
 - Valid referral 200 and DB-unavailable 503 require a billing-enabled stand; they are covered by unit tests but remain live T022 checks after a billing-enabled deployment.
 - T010 hardware QA remains blocked: the Mac currently exposes only built-in speakers, Krisp virtual devices and a multi-output device; no AirPods, wired headphones or dock. Screen capture permission is unavailable to the agent, so the Dev menu-bar UI cannot be driven for the manual route/sleep/lid matrix.
@@ -134,3 +134,24 @@ An independent test-gap review found several safety claims without covering test
 - `test_referral_landing.py` — `InterfaceError`/pool timeout map to 503, and a mid-request outage keeps an already-resolved valid page.
 
 Closing counts: full Swift suite 1545 tests (9 skipped), retention/referral unit 17, prune 9, contract 2400 passed plus 2 isolated re-runs.
+
+## Exact-SHA PR gates (2026-11-19)
+
+Head `bf96b8034dc0fb0bf27533bfb11cc1d10a172168`, base `7dbcdfc3e3d75351c2abcbea973b6780e770d2c8`.
+
+| Gate | Result |
+|---|---|
+| `governance-fast` | PASS (run 44562895000) |
+| `macos-pr` (native build + full Swift suite + ContractValidation) | PASS (run 44562895511, `Swift build and tests` 7m9s) |
+| `pr-metadata` | PASS (run 44563194569) |
+| `scripts/validate-pr-checks.py --pr 8134 --expected-sha bf96b8034…` | PASS, complete proof with digests |
+
+A text-only `edited` rerun initially failed with «current run has no verified text scope» because it raced the still-running code job; a full rerun of that workflow (attempt 3) passed. This is a scheduling artefact of the repo's text-only reuse design, not a code defect.
+
+## Remaining launch blockers (honest state)
+
+- **T010** hardware QA: still blocked. This Mac exposes only built-in speakers, Krisp virtual devices and a multi-output device; no AirPods, wired headphones or dock. Screen-recording permission is unavailable to the agent, so the Dev menu-bar UI cannot be driven for the route/sleep/lid matrix.
+- **T019** `/billing/checkout`: the Dev adapter forces `TWOBRAIN_BILLING_CHECKOUT_ENABLED=false`, so the live checkout page cannot be exercised there; the checked/not-required `recurring_consent` and unchanged routes/CSRF are covered by contract tests only. Requires a billing-enabled stand.
+- **T022** valid-token 200 and DB-unavailable 503: require a billing-enabled stand and an outage drill; covered by unit tests (200/410/503) but not live-verified.
+- **T023** convergence and **T024** `release-full`: not done; `release-full` needs the post-merge master SHA.
+- Production retention/prune: not enabled; two-key operator gate documented in `docs/runbooks/backup-retention.md`.

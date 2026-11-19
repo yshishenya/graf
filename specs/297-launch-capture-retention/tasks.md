@@ -33,13 +33,13 @@
 
 - [X] T017 [US3] Добавить/обновить contract tests в `apps/server/tests/contract/test_billing_clarity.py`, `test_billing_purchase_ui.py` и public template tests: автопродление checked/not required, оферта говорит «включено по умолчанию», лимит 4 часа, нет «без ограничения длительности»; отдельный тест подтверждает неизменность routes/CSRF/auth/form method/quote/offer consent. (Issue #8123)
 - [X] T018 [US3] Обновить `apps/server/src/twobrain_rec_server/public/templates/public/offer.html`, `landing.html` и `billing_checkout_content.html` только в текстовой части; код автопродления оставить checked, CSRF/auth/форму не менять. (Issue #8123)
-- [ ] T019 [US3] Прогнать focused render/browser checks для `/offer`, `/` и `/billing/checkout`; записать evidence. (Issue #8123)
+- [ ] T019 [US3] Прогнать focused render/browser checks для `/offer`, `/` и `/billing/checkout`; записать evidence. Live `/offer` и `/` PASS на exact SHA (4 часа, автопродление включено по умолчанию, ложных фраз нет); `/billing/checkout` остаётся открытым, потому что Dev-стенд принудительно отключает оформление оплаты. (Issue #8123)
 
 ## Phase 5 — US4: referral без 500
 
 - [X] T020 [US4] Добавить RED-тест `apps/server/tests/unit/test_referral_landing.py`: рендер referral без `public_analytics` не падает, валидный токен 200, неизвестный/истёкший 410, недоступная БД 503. (Issue #8123)
 - [X] T021 [US4] Исправить `cabinet/auth/analytics.html` безопасным default и передать `public_analytics` из `referrals.py`; сохранить StrictUndefined. (Issue #8123)
-- [ ] T022 [US4] Проверить live `/r/<unknown>` и `/referral/<unknown>` → 410, не 500; отдельно проверить 503 как состояние недоступности; записать evidence. (Issue #8123)
+- [ ] T022 [US4] Проверить live `/r/<unknown>` и `/referral/<unknown>` → 410, не 500; отдельно проверить 503 как состояние недоступности; записать evidence. Live 410 и отсутствие 500 подтверждены на exact SHA для обоих маршрутов и token-shaped токена; валидный 200 и 503 требуют billing-enabled стенда и аварийного прогона БД. (Issue #8123)
 
 ## Phase 6 — Convergence and release gates
 
