@@ -168,3 +168,10 @@ A text-only `edited` rerun initially failed with «current run has no verified t
 - **T022** valid-token 200 and DB-unavailable 503: require a billing-enabled stand and an outage drill; covered by unit tests (200/410/503) but not live-verified.
 - **T023** convergence and **T024** `release-full`: not done; `release-full` needs the post-merge master SHA.
 - Production retention/prune: not enabled; two-key operator gate documented in `docs/runbooks/backup-retention.md`.
+
+## Coordination with the parallel release chat (2026-11-20)
+
+- `origin/master` is `f167f7ee36e12f2ee58b387a890dd27ecce29c12`; PR #8139 shipped the public-copy and referral slice of F297 to master.
+- The six files it touches are byte-identical between this branch and master, so the branch merges cleanly; the branch keeps only capture continuity, retention, backup prune, migration `0114` and feature docs.
+- Consequences: T017/T018 equivalence and the unknown/expired referral 410 are already delivered by #8139; T019/T022 live checks for checkout and valid-token/503 still need a billing-enabled stand, and the production deploy of that slice is owned by the other chat.
+- Do not force-push this branch and do not ship `0114` from another chat; details in `coordination.md`.
