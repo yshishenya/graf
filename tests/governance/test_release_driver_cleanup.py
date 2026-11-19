@@ -298,3 +298,11 @@ def test_validator_prints_the_real_reason(tmp_path: Path) -> None:
     assert "could not be verified" in result.stderr, result.stderr
     assert "reason:" in result.stderr, result.stderr
     assert "invalid release source" in result.stderr, result.stderr
+
+
+def test_multi_feature_marker_resolves_umbrella_from_numeric_ids():
+    """A marker like "F99 F297" must not be concatenated into "99297"."""
+    source = (ROOT / "scripts/release.sh").read_text()
+    assert 'for candidate_feature in $(printf \'%s\' "$feature_ids" | tr \',\' \' \')' in source
+    assert 'umbrella issue for feature %s not found' in source
+    assert 'tr -d \' F\'' not in source
