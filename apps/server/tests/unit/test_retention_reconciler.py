@@ -139,9 +139,66 @@ def test_retention_scheduler_is_opt_in_by_default() -> None:
 
 
 @pytest.mark.asyncio
+async def test_retention_once_uses_destructive_mode_only_after_second_key(monkeypatch):
+    workspace_id = uuid4()
+    sessions = _FakeSessions([workspace_id])
+    context = MaintenanceTenantContext(
+        operation_name="retention_scan",
+        actor_id="graf-maintenance",
+        reason_category="retention_policy",
+        feature_area="deletion",
+    )
+    observed: list[bool] = []
+
+    async def apply_context(_db, _context):
+        return None
+
+    async def fake_scan(_db, *, settings, workspace_id, limit, storage, dry_run):
+        observed.append(dry_run)
+        return SimpleNamespace(evaluated=1, created_requests=0, skipped=0, blocked=0)
+
+    monkeypatch.setattr(maintenance_worker, "apply_tenant_context", apply_context)
+    monkeypatch.setattr(maintenance_worker, "run_retention_scan", fake_scan)
+
+    await maintenance_worker.run_retention_once(
+        settings=SimpleNamespace(
+            retention_scheduler_enabled=True,
+            retention_scheduler_dry_run_only=False,
+        ),
+        sessions=sessions,
+        context=context,
+        storage=object(),
+    )
+
+    assert observed == [False]
+
+
+@pytest.mark.asyncio
 async def test_disabled_retention_reconciler_never_opens_storage() -> None:
     # The disabled path must return before create_engine/get_storage; a missing
     # engine here would fail the test with an unrelated error.
     await maintenance_worker.run_retention_reconciler(
         SimpleNamespace(retention_scheduler_enabled=False)
     )
+
+
+def test_bootstrap_accepts_both_0113_and_0114_maintenance_helper_bodies() -> None:
+    """A stand at 0113 must still pass the bootstrap safety check after 0114."""
+
+    from importlib import import_module
+
+    from scripts import bootstrap_runtime_database_roles as bootstrap
+
+    previous = import_module(
+        "twobrain_rec_server.db.migrations.versions.0113_fair_use_operator_history"
+    )
+    current = import_module(
+        "twobrain_rec_server.db.migrations.versions.0114_retention_scan_maintenance"
+    )
+    legacy_body = previous.CONTEXT_HELPERS["rec_maintenance_allowed()"][1]
+
+    assert current.maintenance_allowed_body(current.PREVIOUS_OPERATIONS) == legacy_body
+    assert "retention_scan" in current.maintenance_allowed_body()
+    assert "retention_scan" not in legacy_body
+    # The package is importable and exposes the function the bootstrap uses.
+    assert callable(bootstrap._restrict_fair_use_history)

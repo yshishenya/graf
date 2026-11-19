@@ -143,3 +143,36 @@ def test_symlink_root_is_rejected(tmp_path: Path) -> None:
     assert result.returncode == 2
     assert "reason=backup_root_symlink" in result.stderr
     assert (real_root / "20200101T000000Z").is_dir()
+
+
+def test_incomplete_owned_backup_is_never_deleted(tmp_path: Path) -> None:
+    complete_old = dated(tmp_path, "20190101T000000Z")
+    newest = dated(tmp_path, "20200101T000000Z")
+    incomplete_old = dated(tmp_path, "20180101T000000Z")
+    (incomplete_old / "schema.sql").unlink()
+
+    result = run("--execute", "--backup-root", str(tmp_path), "--older-than-days", "30")
+
+    assert result.returncode == 0, result.stderr
+    assert not complete_old.exists()
+    assert newest.is_dir()
+    assert incomplete_old.is_dir()
+
+
+def test_deletion_failure_returns_three(tmp_path: Path) -> None:
+    old = dated(tmp_path, "20190101T000000Z")
+    newest = dated(tmp_path, "20200101T000000Z")
+    # A directory without write permission cannot have its entries unlinked.
+    nested = old / "minio-objects"
+    nested.mkdir(exist_ok=True)
+    (nested / "object").write_text("x", encoding="utf-8")
+    old.chmod(0o500)
+    try:
+        result = run("--execute", "--backup-root", str(tmp_path), "--older-than-days", "30")
+    finally:
+        old.chmod(0o700)
+
+    assert result.returncode == 3, result.stdout + result.stderr
+    assert "prune_result=partial_failure" in result.stdout
+    assert old.is_dir()
+    assert newest.is_dir()

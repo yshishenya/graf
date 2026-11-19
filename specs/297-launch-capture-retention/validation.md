@@ -14,14 +14,14 @@ deployment checks and release gates remain open.
 | `swift build --package-path apps/macos` | PASS |
 | `swift test --package-path apps/macos --filter 'RecordingAudioTimeline\|LocalRecordingWriterSystemAudio'` | PASS: 63 tests, 0 failures |
 | `swift test --package-path apps/macos --filter 'CanonicalRecordingManifestTests\|CaptureControlV5Tests'` | PASS: 9 tests, 0 failures |
-| Full `apps/macos/Scripts/run-swift-tests.sh` | PASS: 1540 tests, 9 skipped, 0 failures |
+| Full `apps/macos/Scripts/run-swift-tests.sh` | PASS: 1545 tests, 9 skipped, 0 failures |
 | `swift run --package-path apps/macos ContractValidation` | PASS |
-| `pytest tests/unit/test_retention_reconciler.py tests/unit/test_referral_landing.py` | PASS: 12 tests |
-| `pytest tests/governance/test_prune_rec_backups.py` | PASS: 7 tests |
-| `bash apps/server/scripts/run_local_postgres_tests.sh --fast` | PASS: 189 unit tests |
+| `pytest tests/unit/test_retention_reconciler.py tests/unit/test_referral_landing.py` | PASS: 17 tests |
+| `pytest tests/governance/test_prune_rec_backups.py` | PASS: 9 tests |
+| `bash apps/server/scripts/run_local_postgres_tests.sh --fast` | PASS: 2960 pure tests (resource phase needs Docker) |
 | Postgres focused: migrations, RLS, retention | PASS: 61 tests |
 | Postgres focused: fair-use, billing monitoring, backup snapshot | PASS: 277 tests |
-| Postgres focused: full `tests/contract` | PASS: 2402 tests, 84 skipped |
+| Postgres focused: full `tests/contract` | 2400 passed, 84 skipped, 2 flaky failures that pass on isolated re-run |
 | `pytest tests/contract/test_rls_policy_matrix_contract.py tests/contract/test_playback_normalization_rls_contract.py` | PASS: 11 tests |
 | `ruff check` on changed Python files | PASS |
 | `python -m compileall` on changed Python files | PASS |
@@ -75,9 +75,10 @@ Focused validation for this fix:
 | `swift test --filter 'RecordingAudioTimelineTests\|LocalRecordingWriterTests\|LocalCacheEligibilityTests\|DesktopUploadQueueTests'` | PASS: 185 tests |
 | full `apps/macos/Scripts/run-swift-tests.sh` | PASS: 1540 tests, 9 skipped, 0 failures |
 | `swift run ContractValidation` | PASS |
-| `pytest tests/unit/test_retention_reconciler.py` | PASS: 5 tests |
-| `pytest tests/governance/test_prune_rec_backups.py` | PASS: 7 tests |
+| `pytest tests/unit/test_retention_reconciler.py` | PASS: 7 tests |
+| `pytest tests/governance/test_prune_rec_backups.py` | PASS: 9 tests |
 | `run_local_postgres_tests.sh --focused tests/integration/test_retention_maintenance_rls.py` | PASS: 1 test |
+| `run_local_postgres_tests.sh --focused tests/contract/test_analytics_degradation_alerting.py tests/contract/test_auth_contracts.py` | PASS: 196 tests (isolated re-run of the two flakes) |
 | `git diff --check` | PASS |
 
 Still open: T010 hardware QA, T019 live render, T022 live referral, T023 convergence, T024 release gates. The fix commits are not yet a release candidate.
@@ -89,9 +90,9 @@ Still open: T010 hardware QA, T019 live render, T022 live referral, T023 converg
 
 ## Test stand state
 
-- The shared Dev stand is currently active on SHA `ee58f5fa` (`feature_id: 292`, F292 T042), not on this branch.
-- Read-only probes against that stand reproduce the pre-F297 defects: `/referral/unknown-token` and `/r/unknown-token` return 500; `/offer` still contains “Согласие не должно быть заранее отмечено”; `/` still contains “без лимита по времени” and “без ограничения длительности”.
-- T019/T022 therefore cannot be closed until F297 is committed, built and promoted in a coordinated stand window; no build, promote, merge, release or deploy was run.
+- Before the F297 promotion the shared Dev stand was on SHA `ee58f5fa` (`feature_id: 292`, F292 T042).
+- Read-only probes against that pre-F297 stand reproduced the defects: `/referral/unknown-token` and `/r/unknown-token` returned 500; `/offer` contained “Согласие не должно быть заранее отмечено”; `/` contained “без лимита по времени” and “без ограничения длительности”.
+- F297 was then built and promoted on the same single stand (see the Dev stand evidence section). No production build, promote, merge, release or deploy was run.
 
 ## Not yet validated
 
@@ -110,10 +111,26 @@ Still open: T010 hardware QA, T019 live render, T022 live referral, T023 converg
 
 ## Dev stand live evidence (2026-11-18)
 
-- F297 built and promoted on the single Dev stand: manifest `dev-a7d2b1a565cb`, source `a7d2b1a565cb5ddd16e81ed01e0b35523f2c15f3`, migration head `0114_retention_scan_maintenance`.
+- F297 built and promoted on the single Dev stand: manifest `dev-a7d2b1a565cb`, source `a7d2b1a565cb5ddd16e81ed01e0b35523f2c15f3`, migration head `0114_retention_scan_maintenance`. The later PR commits are docs/test-only on top of this tree, so the promoted product code is identical; the exact current PR SHA itself was not promoted.
 - `dev-harness.sh smoke --json --live`: pass; all 13 checks pass, including app identity/presentation, exact SHA, backend, database, migration, storage, Temporal, processing/media workers.
 - `GET /` and `GET /offer`: 200. The landing and offer contain the real 4-hour limit; the offer says auto-renewal is checked by default and removable before payment; the old false phrases are absent.
 - `GET /r/unknown-token` and `GET /referral/unknown-token`: 410 with no 500.
 - `GET /billing/checkout` after Dev login redirects to the tariff page because the Dev runtime intentionally has `TWOBRAIN_BILLING_CHECKOUT_ENABLED=false`; the live checkout checkbox cannot be exercised there. The checkout checkbox/routes are covered by contract tests.
 - Valid referral 200 and DB-unavailable 503 require a billing-enabled stand; they are covered by unit tests but remain live T022 checks after a billing-enabled deployment.
 - T010 hardware QA remains blocked: the Mac currently exposes only built-in speakers, Krisp virtual devices and a multi-output device; no AirPods, wired headphones or dock. Screen capture permission is unavailable to the agent, so the Dev menu-bar UI cannot be driven for the manual route/sleep/lid matrix.
+
+## Test-gap closure (2026-11-19)
+
+An independent test-gap review found several safety claims without covering tests. All were closed:
+
+- `RecordingAudioTimelineTests.testRouteChangeHostGapAtBridgeBoundaryIsAcceptedAndJustOverIsNot` — route-change host gap exactly 500 ms is bridged; 500.1 ms gives `renderReferenceMissing` and keeps the prefix.
+- `LocalRecordingWriterSystemAudioTests.testSourceStoppedAfterPrefixPublishesPartialUploadableRecording` — `.sourceStopped` after a published prefix becomes `timelineMisaligned` with `partialContinuity=true` and an uploadable profile.
+- `DesktopUploadQueueTests.testPartialContinuityRecordingRefusesServerLocalPurgeAndKeepsArtifacts` — a partial recording is never purged by the server task; ack is `failed`/`local_purge_failed` and artifacts stay.
+- `DesktopUploadQueueTests.testScanRefreshKeepsPartialContinuityWhenManifestNoLongerCarriesIt` — a later scan cannot erase the durable partial marker.
+- `LocalCacheSurfaceTests.testCleanupCandidatePolicyKeepsPartialContinuityRecording` — the manual cleanup policy refuses a partial recording.
+- `test_retention_reconciler.py::test_retention_once_uses_destructive_mode_only_after_second_key` — destructive mode is used only when the second key is cleared.
+- `test_retention_reconciler.py::test_bootstrap_accepts_both_0113_and_0114_maintenance_helper_bodies` — the 0114 module reproduces the exact 0113 helper body for pre-migration stands.
+- `test_prune_rec_backups.py::test_incomplete_owned_backup_is_never_deleted` and `test_deletion_failure_returns_three` — full-contract ownership and exit code 3.
+- `test_referral_landing.py` — `InterfaceError`/pool timeout map to 503, and a mid-request outage keeps an already-resolved valid page.
+
+Closing counts: full Swift suite 1545 tests (9 skipped), retention/referral unit 17, prune 9, contract 2400 passed plus 2 isolated re-runs.

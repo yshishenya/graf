@@ -231,6 +231,83 @@ final class RecordingAudioTimelineTests: XCTestCase {
         XCTAssertTrue(timeline.finishPreservingAvailableAudio())
     }
 
+    func testRouteChangeHostGapAtBridgeBoundaryIsAcceptedAndJustOverIsNot() throws {
+        let atBoundary = makeTimeline(
+            configuration: .init(reorderWindowFrames: 0, maximumKnownGapSeconds: 15)
+        )
+        try atBoundary.append(
+            source: .microphone,
+            batch: batch(samples: Array(repeating: 0.4, count: 192_000), at: 0)
+        )
+        try atBoundary.append(
+            source: .systemAudio,
+            batch: batch(
+                samples: Array(repeating: 0.2, count: 4_800),
+                at: 0,
+                observedHostTimeSeconds: 100,
+                routeGeneration: 1
+            )
+        )
+        XCTAssertNoThrow(
+            try atBoundary.append(
+                source: .systemAudio,
+                batch: routeMarker(at: 0.01, routeGeneration: 1)
+            )
+        )
+        // Previous batch ends at host time 100.1; 100.6 is exactly 500 ms.
+        XCTAssertNoThrow(
+            try atBoundary.append(
+                source: .systemAudio,
+                batch: batch(
+                    samples: Array(repeating: 0.2, count: 480),
+                    at: 0,
+                    observedHostTimeSeconds: 100.6,
+                    routeGeneration: 2
+                )
+            )
+        )
+        XCTAssertEqual(atBoundary.metrics.continuityGapBridgedFrames, 24_000)
+        XCTAssertTrue(atBoundary.finishPreservingAvailableAudio())
+
+        let overBoundary = makeTimeline(
+            configuration: .init(reorderWindowFrames: 0, maximumKnownGapSeconds: 15)
+        )
+        try overBoundary.append(
+            source: .microphone,
+            batch: batch(samples: Array(repeating: 0.4, count: 192_000), at: 0)
+        )
+        try overBoundary.append(
+            source: .systemAudio,
+            batch: batch(
+                samples: Array(repeating: 0.2, count: 4_800),
+                at: 0,
+                observedHostTimeSeconds: 100,
+                routeGeneration: 1
+            )
+        )
+        XCTAssertNoThrow(
+            try overBoundary.append(
+                source: .systemAudio,
+                batch: routeMarker(at: 0.01, routeGeneration: 1)
+            )
+        )
+        XCTAssertThrowsError(
+            try overBoundary.append(
+                source: .systemAudio,
+                batch: batch(
+                    samples: Array(repeating: 0.2, count: 480),
+                    at: 0,
+                    observedHostTimeSeconds: 100.6001,
+                    routeGeneration: 2
+                )
+            )
+        ) { error in
+            XCTAssertEqual(error as? RecordingAudioTimelineError, .renderReferenceMissing)
+        }
+        XCTAssertEqual(overBoundary.metrics.continuityGapBridgedFrames, 0)
+        XCTAssertTrue(overBoundary.finishPreservingAvailableAudio())
+    }
+
     func testContinuousRouteChangeDoesNotInsertPreviousBatchDuration() throws {
         let timeline = makeTimeline(
             configuration: .init(reorderWindowFrames: 0, maximumKnownGapSeconds: 15)

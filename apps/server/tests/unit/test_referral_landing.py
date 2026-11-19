@@ -4,7 +4,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import InterfaceError, OperationalError
+from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
 from starlette.requests import Request
 
 from twobrain_rec_server.cabinet.web_routes import referrals
@@ -46,6 +47,59 @@ async def test_referral_landing_returns_503_when_database_is_unavailable(monkeyp
     assert response.status_code == 503
     assert "Приглашение временно недоступно" in body
     assert "Internal Server Error" not in body
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "error",
+    [
+        InterfaceError("connection is closed", None, RuntimeError("closed")),
+        SQLAlchemyTimeoutError("pool timeout"),
+    ],
+)
+async def test_referral_landing_maps_every_connection_failure_to_503(monkeypatch, error) -> None:
+    async def unavailable(*_args, **_kwargs):
+        raise error
+
+    monkeypatch.setattr(referrals, "apply_tenant_context", unavailable)
+    monkeypatch.setattr(referrals, "public_analytics_page_context", lambda *_a, **_k: {})
+
+    response = await referrals.referral_landing(_request(), VALID_TOKEN, object())
+
+    body = response.body.decode("utf-8")
+    assert response.status_code == 503
+    assert "Приглашение временно недоступно" in body
+
+
+@pytest.mark.asyncio
+async def test_referral_landing_keeps_valid_page_when_cookie_lookup_fails(monkeypatch) -> None:
+    """A mid-request outage must not turn an already-resolved token into a 500."""
+
+    class ActiveDb:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def scalar(self, _query):
+            self.calls += 1
+            if self.calls == 2:
+                raise OperationalError("select", {}, RuntimeError("database is down"))
+            return SimpleNamespace(expires_at=None)
+
+    async def apply_context(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(referrals, "apply_tenant_context", apply_context)
+    monkeypatch.setattr(referrals, "public_analytics_page_context", lambda *_a, **_k: {})
+
+    db = ActiveDb()
+    request = _request()
+    request._cookies = {"graf_referral_token": VALID_TOKEN}  # type: ignore[attr-defined]
+    response = await referrals.referral_landing(request, VALID_TOKEN, db)
+
+    body = response.body.decode("utf-8")
+    assert db.calls == 2
+    assert response.status_code == 200
+    assert "Вас пригласили в GRAF" in body
 
 
 @pytest.mark.asyncio
