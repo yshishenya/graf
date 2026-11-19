@@ -450,6 +450,12 @@ acceptance. Set `GRAF_REQUIRE_PUBLIC_UPDATE_TRUST=1` for the public candidate;
 the builder and validator must fail closed before public files or the appcast
 change when an identity is local, self-signed, ad-hoc, owner-only or missing.
 
+The installer gate also covers the payload: `validate-pkg-payload.sh` expands the
+final PKG and requires `stapler validate` and `syspolicy_check distribution` on
+the `GRAF.app` **inside** it. `v2026.11.17.1` does not satisfy this, because the
+builder creates the PKG before the app is stapled; the next candidate must build
+the PKG from the already stapled app.
+
 The current published reference is `v2026.07.26.8`: it passed Apple
 notarization, stapling, Gatekeeper assessment and a real Developer ID →
 Developer ID Sparkle update from `2026.07.26.7`. Use the [release note](../releases/v2026.07.26.8.md)
