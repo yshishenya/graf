@@ -89,6 +89,9 @@ from twobrain_rec_server.product_analytics.acquisition import (
     record_client_acquisition_attribute_safely,
     resolve_last_non_direct_source,
 )
+from twobrain_rec_server.product_analytics.anonymous_aggregate import (
+    WEB_REGISTRATION_STEP_COMPLETED,
+)
 from twobrain_rec_server.product_analytics.attribution import (
     ATTRIBUTION_RELIABILITY_UNKNOWN,
     CAMPAIGN_CONTEXT_FIELDS,
@@ -106,7 +109,11 @@ from twobrain_rec_server.product_analytics.ingest import (
 from twobrain_rec_server.product_analytics.milestones import (
     milestone_attribution_properties,
 )
-from twobrain_rec_server.public.analytics import read_public_visit_attribution
+from twobrain_rec_server.public.analytics import (
+    read_public_visit_attribution,
+    record_public_registration_step,
+)
+from twobrain_rec_server.public.web import public_web_db_session
 
 BROWSER_AUTH_STATE_COOKIE_NAME = "__Host-twobrain_rec_browser_auth_state"
 ACCOUNT_CONNECTED_AUTH_METHOD_CATEGORY = "oauth_provider"
@@ -116,6 +123,39 @@ ACCOUNT_CONNECTED_AUTH_METHOD_CATEGORY = "oauth_provider"
 EMAIL_CODE_AUTH_METHOD_CATEGORY = "email_code"
 
 logger = logging.getLogger(__name__)
+
+
+async def _record_web_registration_step(
+    request: Request,
+    *,
+    db: AsyncSession | None,
+    step: str,
+) -> None:
+    """Count one step of web registration with the campaign of the visit (FR-020).
+
+    Registration is measured in the route that performs it, because before
+    sign-in the browser has no analytics identity and may send nothing optional
+    at all (FR-007, FR-010), while the campaign of the visit is known to the
+    server in every case. A step is a level 1 counter: no identifier is stored,
+    and a refused write leaves a measurement gap instead of a broken
+    registration (FR-058). The level 1 brake that governs public page counting
+    also governs these steps, so an operator can stop the counter when its basis
+    falls away (FR-048) without touching the optional levels.
+    """
+    settings = getattr(request.app.state, "settings", None)
+    if settings is not None and not settings.product_analytics_anonymous_aggregate_enabled:
+        return
+    # The counter must not cancel or commit the registration transaction.
+    try:
+        async with public_web_db_session(request) as measurement_db:
+            await record_public_registration_step(
+                measurement_db, request, step, now=datetime.now(UTC)
+            )
+    except Exception as exc:  # measurement must not undo successful sign-in
+        logger.warning(
+            "web registration measurement unavailable: step=%s error=%s",
+            step, type(exc).__name__,
+        )
 
 
 class _ProviderEntry(BaseModel):
@@ -1589,6 +1629,10 @@ async def callback(
             snapshot=attribution_snapshot,
         )
     await db.commit()
+    if profile.registered:
+        await _record_web_registration_step(
+            request, db=db, step=WEB_REGISTRATION_STEP_COMPLETED,
+        )
     # The milestone is delivered after the response and never blocks sign-in.
     schedule_account_connected_milestone(
         background_tasks,
