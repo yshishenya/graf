@@ -313,3 +313,6 @@ def test_short_feature_ids_are_not_dropped():
     source = (ROOT / "scripts/release.sh").read_text()
     assert 're.findall(r"[0-9]{1,4}"' in source
     assert 're.findall(r"[0-9]{3,}"' not in source
+    # Canonical IDs are zero-padded: feature:099, specs/099-*, release-candidate
+    # rejects shorter strings.
+    assert 'f"{int(value):03d}"' in source
