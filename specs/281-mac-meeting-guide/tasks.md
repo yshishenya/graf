@@ -197,3 +197,8 @@ Lane: docs-only / mechanical. В руководстве уже опублико�
 
 - [ ] T028 В `public/templates/public/zoom_recording_guide.html` и `meeting_protocol_guide.html` добавить видимый time и совпадающий Article.dateModified по FR038; уточнить существующий schema-контракт в `tests/contract/test_public_protocol_guide.py`. Сверить основания дат, восстановление прежних байтов после удаления двух точных добавлений, прежние13contracts/70browser/no-JS/media, независимое ревью и exact-SHA PR gates. (Issue #7391)
 - [ ] T029 В ближайшем общем штатном выпуске опубликовать T028; проверить обе видимые даты, JSON-LD и сохранение прежних материалов. Публикация и commercial acceptance отдельны; до рабочего чтения оставить открытой. (Issue #7391)
+
+## Входы к готовым материалам из руководств — 10.11.2026
+
+- [ ] T030 В `apps/server/src/twobrain_rec_server/public/templates/public/guides.html` уточнить готовый браузерный файл во вводном тексте и добавить три обычные ссылки: Word-шаблон и учебное видео в существующем протоколе, существующая `/transcription`. Сохранить metadata/H1, четыре прежние карточки, маршруты/реестр, CSS/JS, активы и измерение; пройти existing hub/link contract, реальные anchors, no-JS/text200% и независимое source review. Lane: docs-only / mechanical, FR006–FR010; отдельная новая issue не требуется. (Issue #7391)
+- [ ] T031 Включить T030 в ближайший согласованный общий выпуск и прочитать новые ссылки/целевые разделы на рабочем сайте; до этого не объявлять правку опубликованной или давшей трафик. Отдельный выпуск ради трёх ссылок не запускать. (Issue #7391)
