@@ -391,10 +391,16 @@ PY
   source_sha="$(git rev-parse HEAD)"
   git push -u origin "$branch"
 
-  feature_id="$(printf '%s' "$features" | tr ',' '\n' | head -1 | tr -d ' F')"
-  umbrella="$(grep -oE "Фича ${feature_id}, issue #[0-9]+" CHANGELOG.md | head -1 | grep -oE '[0-9]+$' || true)"
-  [[ -n "$umbrella" ]] || umbrella="$(gh issue list --label "feature:${feature_id}" --state all --limit 1 --json number --jq '.[0].number')"
-  [[ -n "$umbrella" ]] || { printf 'release: umbrella issue for feature %s not found\n' "$feature_id" >&2; exit 1; }
+  # A release can name several features (for example "F99 F297"). Resolve the
+  # umbrella from the numeric ID list, never by concatenating the raw marker.
+  feature_id="${feature_ids%%,*}"
+  umbrella=""
+  for candidate_feature in $(printf '%s' "$feature_ids" | tr ',' ' '); do
+    umbrella="$(grep -oE "Фича ${candidate_feature}, issue #[0-9]+" CHANGELOG.md | head -1 | grep -oE '[0-9]+$' || true)"
+    [[ -n "$umbrella" ]] || umbrella="$(gh issue list --label "feature:${candidate_feature}" --state all --limit 1 --json number --jq '.[0].number')"
+    [[ -n "$umbrella" ]] && break
+  done
+  [[ -n "$umbrella" ]] || { printf 'release: umbrella issue for feature %s not found\n' "$feature_ids" >&2; exit 1; }
 
   body_file="$(mktemp)"
   cat > "$body_file" <<EOF
