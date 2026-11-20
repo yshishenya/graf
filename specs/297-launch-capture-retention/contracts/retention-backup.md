@@ -19,7 +19,7 @@
 - Execute: `--execute` required.
 - Root: `TWOBRAIN_BACKUP_ROOT` or `/opt/projects/2brain-rec/backups`. `TWOBRAIN_BACKUP_DIR` keeps its existing meaning of one full dated backup path and is not used as the prune root.
 - Age: `--older-than-days 30` default; use directory name date, not ambiguous mtime alone.
-- Eligibility: exact `YYYYMMDDTHHMMSSZ`, direct child of root, directory (not symlink), complete GRAF backup contract (`postgres.dump`, `schema.sql`, `inventory.jsonl`, `checksums.sha256`, `minio-objects/`), not the newest overall directory, not the newest verified backup.
+- Eligibility: exact `YYYYMMDDTHHMMSSZ`, direct child of root, directory (not symlink), complete GRAF backup contract (`backup.passed` completion marker written only after every artifact and cleanup succeeded, plus `postgres.dump`, `schema.sql`, `inventory.jsonl`, `checksums.sha256`, `minio-objects/`), not the newest overall directory, not the newest verified backup. Without `backup.passed` a MinIO-stage failure can look "complete" and must not unlock pruning of the last good backup.
 - Forbidden: `..`, absolute names, symlinks, files outside root, wildcard expansion, deleting non-GRAF directories.
 - Output: metadata-only `prune_result`, `candidate_count`, `deleted_count`, `skipped_count`, `reason`.
 - Exit codes: `0` success/no candidates; `2` invalid root/arguments; `3` partial deletion failure.
