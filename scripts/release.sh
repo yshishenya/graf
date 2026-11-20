@@ -188,7 +188,15 @@ latest_published_tag() {
 # spells them as F271.  Convert one into the other so the operator never has to
 # retype the list.
 numeric_feature_ids() {
-  python3 -c 'import re,sys; print(",".join(dict.fromkeys(re.findall(r"[0-9]{3,}", sys.argv[1]))))' "$1"
+  # Canonical feature IDs are three-digit, zero-padded strings: labels are
+  # `feature:099`, directories are `specs/099-*`, and release-candidate.sh
+  # rejects anything shorter. Normalize here so a marker written as
+  # "F99 F297" still yields "099,297".
+  python3 -c '
+import re, sys
+ids = [f"{int(value):03d}" for value in re.findall(r"[0-9]{1,4}", sys.argv[1])]
+print(",".join(dict.fromkeys(ids)))
+' "$1"
 }
 total_elapsed=0
 started_all="$(date -u +%s)"
