@@ -81,7 +81,10 @@ jobs:
         }}
       cancel-in-progress: true
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    # The bounded fast lane now includes the relocated runner contracts that
+    # spawn real bash/pytest subprocesses; on a hosted runner the complete set
+    # needs more than one hour. The checks are unchanged, only the budget.
+    timeout-minutes: 90
     env:
       GRAF_CI_REQUESTED_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.event_name == 'merge_group' && github.event.merge_group.head_sha || inputs.requested_sha }}
       GRAF_CI_EVIDENCE_PATH: .dev/ci-evidence/github-${{ github.run_id }}.json
