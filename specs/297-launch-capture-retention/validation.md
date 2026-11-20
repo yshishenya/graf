@@ -96,6 +96,35 @@ master advanced by 13 commits since the original base:
 | `pytest tests/governance/test_prune_rec_backups.py` | PASS: 9 tests |
 | `python3 scripts/validate-legacy-impact.py --feature specs/297-launch-capture-retention/spec.md` | PASS |
 
+## Released server slice (2026-11-20)
+
+T017, T018, T020 and T021 shipped to production in `v2026.11.20.1`
+(source `aae5fce2d1897d3cb1722afd7dc49c3183d0dda8`, `release-full` run
+44654169494, `deploy_result=pass`, runtime SHA matches, health `ready` 200,
+backup `/opt/projects/2brain-rec/backups/20261120T021234Z`).
+
+Verified on production after deploy:
+
+| Check | Result |
+|---|---|
+| `curl -fsS https://rec.2brain.pro/` | 200; no «без лимита по времени», no «без ограничения длительности»; «до 4 часов» present twice |
+| `curl -fsS https://rec.2brain.pro/offer` | 200; 4-hour limit present; «включено по умолчанию» present |
+| `curl -fsS https://rec.2brain.pro/privacy` | 200; retention wording «после включения планировщика» present |
+| `curl -sS -o /dev/null -w '%{http_code}' https://rec.2brain.pro/r/<unknown>` | 410, not 500 |
+| `curl -sS -o /dev/null -w '%{http_code}' https://rec.2brain.pro/referral/<unknown>` | 410, not 500 |
+| `curl -sS` on `r1_` + 64 chars | 410, not 500 |
+| appcast and site `graf.pkg` | unchanged: `2026.11.17.1`, 10 661 944 bytes |
+
+Public analytics is switched off by owner decision: `..._ENABLED`,
+`..._AUTOMATIC_ENABLED` and `..._REPLAY_ENABLED` are `false`, the API was
+restarted and the previous `.env` is kept as
+`.env.backup-before-analytics-off-20261120T013305Z`. Production verification:
+no Metrika counter script, `webvisor_allowed=false`, `yandex_metrica_id=null`.
+
+Still open in this feature: T010 hardware QA, T019 checkout-specific live check
+on a billing-enabled stand, T022 valid-200 and DB-unavailable-503 checks, T023
+convergence, T024 release gates for the capture and retention slices.
+
 ## Checklist and governance
 
 - Independent reviewer-owned checklist review: PASS 40/40 (audio 10/10, security 10/10, infra 10/10, UX 10/10).
