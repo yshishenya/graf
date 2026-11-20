@@ -631,13 +631,19 @@ def changelog_feature_ids():
     if first_release:
         top = first_release.group(0)
     markers = re.findall(r"<!--\s*Release features:\s*(.*?)-->", top, re.IGNORECASE | re.DOTALL)
+    # Canonical IDs are three-digit: labels are `feature:099`, directories are
+    # `specs/099-*`, and this file rejects shorter strings elsewhere. A marker
+    # written as "F99" must therefore compare equal to the padded feature list.
+    def canonical(values):
+        return {f"{int(value):03d}" for value in values}
+
     if markers:
-        return {
+        return canonical(
             value
             for marker in markers
             for value in re.findall(r"\bF(\d+)\b", marker)
-        }
-    return set(re.findall(
+        )
+    return canonical(re.findall(
         r"(?:Фича|Feature|feature_id|feature:)\s*[:#]?\s*`?(\d+)\b",
         top,
         re.IGNORECASE,
