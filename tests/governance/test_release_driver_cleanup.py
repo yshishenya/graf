@@ -306,3 +306,10 @@ def test_multi_feature_marker_resolves_umbrella_from_numeric_ids():
     assert 'for candidate_feature in $(printf \'%s\' "$feature_ids" | tr \',\' \' \')' in source
     assert 'umbrella issue for feature %s not found' in source
     assert 'tr -d \' F\'' not in source
+
+
+def test_short_feature_ids_are_not_dropped():
+    """F99 is a real feature number; a 3-digit-only regex silently drops it."""
+    source = (ROOT / "scripts/release.sh").read_text()
+    assert 're.findall(r"[0-9]{1,4}"' in source
+    assert 're.findall(r"[0-9]{3,}"' not in source

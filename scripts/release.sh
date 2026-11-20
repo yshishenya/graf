@@ -188,7 +188,9 @@ latest_published_tag() {
 # spells them as F271.  Convert one into the other so the operator never has to
 # retype the list.
 numeric_feature_ids() {
-  python3 -c 'import re,sys; print(",".join(dict.fromkeys(re.findall(r"[0-9]{3,}", sys.argv[1]))))' "$1"
+  # Feature numbers are not always three digits: F99 and F052 name the same
+  # feature family, and a marker like "F99 F297" must yield "99,297".
+  python3 -c 'import re,sys; print(",".join(dict.fromkeys(re.findall(r"[0-9]{1,4}", sys.argv[1]))))' "$1"
 }
 total_elapsed=0
 started_all="$(date -u +%s)"
