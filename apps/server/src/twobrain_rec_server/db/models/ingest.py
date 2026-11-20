@@ -93,6 +93,8 @@ class UploadSession(Base):
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     meeting_id: Mapped[UUID] = mapped_column(ForeignKey("meetings.id"), nullable=False)
     media_revision_id: Mapped[UUID | None] = mapped_column(ForeignKey("media_revisions.id"))
+    # This fence survives deletion of the calendar attempt itself.
+    calendar_match_attempt_id: Mapped[UUID | None] = mapped_column()
     workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
     device_id: Mapped[UUID] = mapped_column(ForeignKey("registered_devices.id"), nullable=False)
     created_by_user_id: Mapped[UUID] = mapped_column(

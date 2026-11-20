@@ -1,0 +1,3112 @@
+{
+  "schema": 1,
+  "purpose": "Own complete untruncated reading; limited independent T124/T125/T126 gate review only",
+  "thread_id": "01a1cee1-5366-7603-a0a7-0e4e94ed8a8a",
+  "user_turn": "01a1ceed-056f-7d82-b37f-6b242e01e0ce",
+  "executor": "Codex independent reviewer in this conversation",
+  "worktree": "/Users/yshishenya/Documents/crisp-worktrees/200-windows-followup",
+  "branch": "codex/200-windows-followup",
+  "head": "3dfeaff5a6774ab12be781547e4a300f9ce2a46c",
+  "started_at_utc": "2026-11-12T08:45:52.943195+00:00",
+  "source_mutations_authorized": false,
+  "documents": [
+    {
+      "id": 1,
+      "path": "AGENTS.md",
+      "source_sha256": "24c0767f2223bb21e969079ec1ec09e0dec7c3fd3d85d02e78832f17e0775958",
+      "bytes": 13317,
+      "lines": 218,
+      "chunks": [
+        {
+          "start": 1,
+          "end": 218,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/01-01.txt",
+          "output_sha256": "b22890e739fdd11481f4b6f906d7ebdcc9ac9c74d4bbdbf7d52cf3e65341bfc8",
+          "emitted_at_utc": "2026-11-12T08:46:08.513495+00:00",
+          "read_at_utc": "2026-11-12T08:46:45.327669+00:00"
+        }
+      ],
+      "full_read": true,
+      "full_read_completed_at_utc": "2026-11-12T08:46:45.327669+00:00",
+      "reader_attestation": "Read by this reviewer, every line of every listed chunk, untruncated; output files preserve the exact displayed numbered text."
+    },
+    {
+      "id": 2,
+      "path": ".agents/skills/speckit-implement/SKILL.md",
+      "source_sha256": "3a6735ffbcb8e4f9c94e3b9b6fabfeff23353f543d7369103a8a5432360b1ea9",
+      "bytes": 16782,
+      "lines": 240,
+      "chunks": [
+        {
+          "start": 1,
+          "end": 240,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/02-01.txt",
+          "output_sha256": "d4594afa7ac08cb7516b18ef12785d701fe27cd80d0e6b6cb496d2613666bb90",
+          "emitted_at_utc": "2026-11-12T08:46:08.514468+00:00",
+          "read_at_utc": "2026-11-12T08:46:45.328473+00:00"
+        }
+      ],
+      "full_read": true,
+      "full_read_completed_at_utc": "2026-11-12T08:46:45.328473+00:00",
+      "reader_attestation": "Read by this reviewer, every line of every listed chunk, untruncated; output files preserve the exact displayed numbered text."
+    },
+    {
+      "id": 3,
+      "path": "docs/agent-guidance/README.md",
+      "source_sha256": "2f3e0339a89d3ccdf0878026920955a189584d6a985116b069584cd78b3c75bb",
+      "bytes": 3056,
+      "lines": 62,
+      "chunks": [
+        {
+          "start": 1,
+          "end": 62,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/03-01.txt",
+          "output_sha256": "250ea97800ca15c2c489fbeeb0bc1419d0dcd67af6b11f3fed5a91ea64c18832",
+          "emitted_at_utc": "2026-11-12T08:46:08.514948+00:00",
+          "read_at_utc": "2026-11-12T08:46:45.329132+00:00"
+        }
+      ],
+      "full_read": true,
+      "full_read_completed_at_utc": "2026-11-12T08:46:45.329132+00:00",
+      "reader_attestation": "Read by this reviewer, every line of every listed chunk, untruncated; output files preserve the exact displayed numbered text."
+    },
+    {
+      "id": 4,
+      "path": "docs/agent-guidance/document-reading.md",
+      "source_sha256": "5c3ab1f885dbf324edab70c0f4b7a5451208b3d7307c1ca7a5afdd7af0c8eb22",
+      "bytes": 7190,
+      "lines": 57,
+      "chunks": [
+        {
+          "start": 1,
+          "end": 57,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/04-01.txt",
+          "output_sha256": "49ffd07da310cd015ca7e6519163615a7a4d59bb0d52623d55a04fc6275b67dd",
+          "emitted_at_utc": "2026-11-12T08:46:08.515420+00:00",
+          "read_at_utc": "2026-11-12T08:46:45.329564+00:00"
+        }
+      ],
+      "full_read": true,
+      "full_read_completed_at_utc": "2026-11-12T08:46:45.329564+00:00",
+      "reader_attestation": "Read by this reviewer, every line of every listed chunk, untruncated; output files preserve the exact displayed numbered text."
+    },
+    {
+      "id": 5,
+      "path": "docs/agent-guidance/codex-worktrees.md",
+      "source_sha256": "d7d8c9cce8315c17efaa1da05ece80c2542ca01b966f81fb848580104b785e1d",
+      "bytes": 3602,
+      "lines": 90,
+      "chunks": [
+        {
+          "start": 1,
+          "end": 90,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/05-01.txt",
+          "output_sha256": "6db6d98759e858dc883d3f5d63651129ab831cbc9f7ff0423154948a79f539be",
+          "emitted_at_utc": "2026-11-12T08:46:08.515904+00:00",
+          "read_at_utc": "2026-11-12T08:46:45.330797+00:00"
+        }
+      ],
+      "full_read": true,
+      "full_read_completed_at_utc": "2026-11-12T08:46:45.330797+00:00",
+      "reader_attestation": "Read by this reviewer, every line of every listed chunk, untruncated; output files preserve the exact displayed numbered text."
+    },
+    {
+      "id": 6,
+      "path": "docs/agent-guidance/spec-kit-flow.md",
+      "source_sha256": "afb816ce48624eb79fcd7fd44d09f0986296e87ef1cfecd790228ac70a5b9b9e",
+      "bytes": 16461,
+      "lines": 343,
+      "chunks": [
+        {
+          "start": 1,
+          "end": 343,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/06-01.txt",
+          "output_sha256": "f5ccd75282833907412ea5f9c661ef68cec3e0016a0aaaeeba0d7e828be01345",
+          "emitted_at_utc": "2026-11-12T08:46:45.336098+00:00",
+          "read_at_utc": "2026-11-12T08:47:00.195555+00:00"
+        }
+      ],
+      "full_read": true,
+      "full_read_completed_at_utc": "2026-11-12T08:47:00.195555+00:00",
+      "reader_attestation": "Read by this reviewer, every line of every listed chunk, untruncated; output files preserve the exact displayed numbered text."
+    },
+    {
+      "id": 7,
+      "path": "docs/agent-guidance/development-process.md",
+      "source_sha256": "f1c7f320f16b62dac4248025a17df894497e20275643fcb5208076e3074461ec",
+      "bytes": 14048,
+      "lines": 211,
+      "chunks": [
+        {
+          "start": 1,
+          "end": 211,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/07-01.txt",
+          "output_sha256": "a7cb5881e9165ecf7062fa6e446d5833db496ea794232eef2c601cfef0e2c1cc",
+          "emitted_at_utc": "2026-11-12T08:47:00.197512+00:00",
+          "read_at_utc": "2026-11-12T08:47:07.381392+00:00"
+        }
+      ],
+      "full_read": true,
+      "full_read_completed_at_utc": "2026-11-12T08:47:07.381392+00:00",
+      "reader_attestation": "Read by this reviewer, every line of every listed chunk, untruncated; output files preserve the exact displayed numbered text."
+    },
+    {
+      "id": 8,
+      "path": ".specify/memory/constitution.md",
+      "source_sha256": "d28f8312a88fe4b32d5f5f1aa2f76a5c7eaf47fcd9025ffd27ea8cc61b43d859",
+      "bytes": 36437,
+      "lines": 586,
+      "chunks": [
+        {
+          "start": 1,
+          "end": 376,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/08-01.txt",
+          "output_sha256": "317239134b25eac79452226e623818c462efbef84259e1da1daf00e209253195",
+          "emitted_at_utc": "2026-11-12T08:47:07.382824+00:00",
+          "read_at_utc": "2026-11-12T08:47:18.196783+00:00"
+        },
+        {
+          "start": 377,
+          "end": 586,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/08-02.txt",
+          "output_sha256": "0593cc695d8990ab431c6fcd487300ee8d89aa125a43d6afdb227bf25b4a515e",
+          "emitted_at_utc": "2026-11-12T08:47:18.198350+00:00",
+          "read_at_utc": "2026-11-12T08:47:26.455164+00:00"
+        }
+      ],
+      "full_read": true,
+      "full_read_completed_at_utc": "2026-11-12T08:47:26.455164+00:00",
+      "reader_attestation": "Read by this reviewer, every line of every listed chunk, untruncated; output files preserve the exact displayed numbered text."
+    },
+    {
+      "id": 9,
+      "path": "docs/prd-voice-layer-final.md",
+      "source_sha256": "5c93f6a3a72e639e0cf835518f2ef5e03680b3b500c53734e3478cdd59448212",
+      "bytes": 110724,
+      "lines": 2480,
+      "chunks": [
+        {
+          "start": 1,
+          "end": 463,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/09-01.txt",
+          "output_sha256": "20fa64c45505826afd14019a6bfe0c141faca201eff7b17298b7845995ffc7a1",
+          "emitted_at_utc": "2026-11-12T08:47:26.457447+00:00",
+          "read_at_utc": "2026-11-12T08:47:33.608160+00:00"
+        },
+        {
+          "start": 464,
+          "end": 1011,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/09-02.txt",
+          "output_sha256": "d7cc709b862851d7ba2d5eba71b042c799bcf559e1d1d75aa7089a186184eee7",
+          "emitted_at_utc": "2026-11-12T08:47:33.609885+00:00",
+          "read_at_utc": "2026-11-12T08:47:41.202445+00:00"
+        },
+        {
+          "start": 1012,
+          "end": 1503,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/09-03.txt",
+          "output_sha256": "67f377373895542f397620b4a6cd3cb3f3784202bd4b8275f1dfa45953d9d877",
+          "emitted_at_utc": "2026-11-12T08:47:41.204068+00:00",
+          "read_at_utc": "2026-11-12T08:47:52.150604+00:00"
+        },
+        {
+          "start": 1504,
+          "end": 1994,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/09-04.txt",
+          "output_sha256": "a797bfebfc062bd522ad613a1eddf2dafd46e157eac6a78d069699957469f7c1",
+          "emitted_at_utc": "2026-11-12T08:47:52.153065+00:00",
+          "read_at_utc": "2026-11-12T08:48:00.562002+00:00"
+        },
+        {
+          "start": 1995,
+          "end": 2480,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/09-05.txt",
+          "output_sha256": "acf7e06118fdc2a80e39d1a2313ca01cd773c917571646e83fd3089ad26e877c",
+          "emitted_at_utc": "2026-11-12T08:48:00.563841+00:00",
+          "read_at_utc": "2026-11-12T08:48:11.875379+00:00"
+        }
+      ],
+      "full_read": true,
+      "full_read_completed_at_utc": "2026-11-12T08:48:11.875379+00:00",
+      "reader_attestation": "Read by this reviewer, every line of every listed chunk, untruncated; output files preserve the exact displayed numbered text."
+    },
+    {
+      "id": 10,
+      "path": "docs/current-product-status.md",
+      "source_sha256": "ac6cb05dc7a60b2c18cc21694b9ac052b4a0a60d91fb1527084e46f71e83bae2",
+      "bytes": 185043,
+      "lines": 2413,
+      "chunks": [
+        {
+          "start": 1,
+          "end": 226,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/10-01.txt",
+          "output_sha256": "802eb2e42637a29410f26e5936b481e49d6fbdfa44dcdc610b00e97503293c3c",
+          "emitted_at_utc": "2026-11-12T08:48:11.877367+00:00",
+          "read_at_utc": "2026-11-12T08:50:33.682923+00:00"
+        },
+        {
+          "start": 227,
+          "end": 501,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/10-02.txt",
+          "output_sha256": "eabc7706788cafb5d9b48072fce7486cee0d752f494dcabdbf1a03604119ee1d",
+          "emitted_at_utc": "2026-11-12T08:50:33.684445+00:00",
+          "read_at_utc": "2026-11-12T08:50:41.443007+00:00"
+        },
+        {
+          "start": 502,
+          "end": 807,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/10-03.txt",
+          "output_sha256": "ff7ae7f087a293d19d735c07d3e3de6854acec12d9e41ef3df4ed5576de478e9",
+          "emitted_at_utc": "2026-11-12T08:50:41.444366+00:00",
+          "read_at_utc": "2026-11-12T08:50:51.373071+00:00"
+        },
+        {
+          "start": 808,
+          "end": 1145,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/10-04.txt",
+          "output_sha256": "8dc98ece63a53c11dfde1b6c883ea4fcd5db91592efde79b4ff4c015b75247df",
+          "emitted_at_utc": "2026-11-12T08:50:51.380139+00:00",
+          "read_at_utc": "2026-11-12T08:50:59.866494+00:00"
+        },
+        {
+          "start": 1146,
+          "end": 1470,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/10-05.txt",
+          "output_sha256": "0dc89f02a4f13ddb785b7af442d58efef51f1d20707655894146f5ef9a4518ee",
+          "emitted_at_utc": "2026-11-12T08:50:59.868259+00:00",
+          "read_at_utc": "2026-11-12T08:51:06.561285+00:00"
+        },
+        {
+          "start": 1471,
+          "end": 1796,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/10-06.txt",
+          "output_sha256": "bcc5069f473de8c34a8ab02a26474dac7b6f34451d11b1ae3d433ffcf1f15ade",
+          "emitted_at_utc": "2026-11-12T08:51:06.562834+00:00",
+          "read_at_utc": "2026-11-12T08:51:13.104378+00:00"
+        },
+        {
+          "start": 1797,
+          "end": 2133,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/10-07.txt",
+          "output_sha256": "0d9ee2817121aeba8ae305910ba3184ac19c12022807f67cee70dcff60ba650a",
+          "emitted_at_utc": "2026-11-12T08:51:13.105728+00:00",
+          "read_at_utc": "2026-11-12T08:51:37.801560+00:00"
+        },
+        {
+          "start": 2134,
+          "end": 2413,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/10-08.txt",
+          "output_sha256": "77dc8de959f62c074fd259355f6899be5364fcd484dfd6911878151d3e654bd7",
+          "emitted_at_utc": "2026-11-12T08:51:37.803009+00:00",
+          "read_at_utc": "2026-11-12T08:51:44.323588+00:00"
+        }
+      ],
+      "full_read": true,
+      "full_read_completed_at_utc": "2026-11-12T08:51:44.323588+00:00",
+      "reader_attestation": "Read by this reviewer, every line of every listed chunk, untruncated; output files preserve the exact displayed numbered text."
+    },
+    {
+      "id": 11,
+      "path": "docs/agent-guidance/product-gates.md",
+      "source_sha256": "e5c39fb473dcf785f417b9785b0d6ba17fe23026906eedc08c0620c7a6f5d097",
+      "bytes": 11474,
+      "lines": 183,
+      "chunks": [
+        {
+          "start": 1,
+          "end": 183,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/11-01.txt",
+          "output_sha256": "7bced1e94403ede4ca830e29acdf9083f30388a80f9205cac838aecc50182580",
+          "emitted_at_utc": "2026-11-12T08:51:44.324900+00:00",
+          "read_at_utc": "2026-11-12T08:51:52.563819+00:00"
+        }
+      ],
+      "full_read": true,
+      "full_read_completed_at_utc": "2026-11-12T08:51:52.563819+00:00",
+      "reader_attestation": "Read by this reviewer, every line of every listed chunk, untruncated; output files preserve the exact displayed numbered text."
+    },
+    {
+      "id": 12,
+      "path": "docs/agent-guidance/release-and-validation.md",
+      "source_sha256": "ff0d996c95101d5f782259661131db1b7528b3bf58991603f5652092e1e5256f",
+      "bytes": 40659,
+      "lines": 770,
+      "chunks": [
+        {
+          "start": 1,
+          "end": 425,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/12-01.txt",
+          "output_sha256": "9b7cced135eb58a161f52dfaa1c636de0547ebb34743f2ebf1c30a56c91408d6",
+          "emitted_at_utc": "2026-11-12T08:51:52.565032+00:00",
+          "read_at_utc": "2026-11-12T08:51:58.856745+00:00"
+        },
+        {
+          "start": 426,
+          "end": 770,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/12-02.txt",
+          "output_sha256": "665af3b54944ff0363e30d947a18b85c73096a9acda30d49abd8b0baa4c07ab2",
+          "emitted_at_utc": "2026-11-12T08:51:58.858058+00:00",
+          "read_at_utc": "2026-11-12T08:52:12.906645+00:00"
+        }
+      ],
+      "full_read": true,
+      "full_read_completed_at_utc": "2026-11-12T08:52:12.906645+00:00",
+      "reader_attestation": "Read by this reviewer, every line of every listed chunk, untruncated; output files preserve the exact displayed numbered text."
+    },
+    {
+      "id": 13,
+      "path": "docs/agent-guidance/tracker-policy.md",
+      "source_sha256": "9793de5e158283c2d37bdd2b47f0daf4d312a44fd6ffa37cc22ac47f7a0c3472",
+      "bytes": 9694,
+      "lines": 133,
+      "chunks": [
+        {
+          "start": 1,
+          "end": 133,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/13-01.txt",
+          "output_sha256": "dd6f342e6dea992346dcb674d7e5e8ae386382bcce80488b1f9fccddabf0e1c5",
+          "emitted_at_utc": "2026-11-12T08:52:12.907884+00:00",
+          "read_at_utc": "2026-11-12T08:52:20.697645+00:00"
+        }
+      ],
+      "full_read": true,
+      "full_read_completed_at_utc": "2026-11-12T08:52:20.697645+00:00",
+      "reader_attestation": "Read by this reviewer, every line of every listed chunk, untruncated; output files preserve the exact displayed numbered text."
+    },
+    {
+      "id": 14,
+      "path": "docs/agent-guidance/github-issue-canon.md",
+      "source_sha256": "7cd5c1cde2bb51e3842cae9e3717b094fea9f6fbb33fb1a408e6d243f9d68bf3",
+      "bytes": 7036,
+      "lines": 208,
+      "chunks": [
+        {
+          "start": 1,
+          "end": 208,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/14-01.txt",
+          "output_sha256": "7f948c60048e457b4e6094f57271df1f0cb08fc20bdf1368de68d65ac4ec0797",
+          "emitted_at_utc": "2026-11-12T08:52:20.698825+00:00",
+          "read_at_utc": "2026-11-12T08:52:30.449490+00:00"
+        }
+      ],
+      "full_read": true,
+      "full_read_completed_at_utc": "2026-11-12T08:52:30.449490+00:00",
+      "reader_attestation": "Read by this reviewer, every line of every listed chunk, untruncated; output files preserve the exact displayed numbered text."
+    },
+    {
+      "id": 15,
+      "path": "specs/200-windows-desktop-app/spec.md",
+      "source_sha256": "b986bb93a1528bc452093bf9ffb3b100f602e36b6928ef8ba3039d9be070e620",
+      "bytes": 123863,
+      "lines": 1272,
+      "chunks": [
+        {
+          "start": 1,
+          "end": 244,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/15-01.txt",
+          "output_sha256": "34d6c988b5ef284af6cf941167837047c465ec1f3ae31f74b5867069b94b9412",
+          "emitted_at_utc": "2026-11-12T08:52:30.451359+00:00",
+          "read_at_utc": "2026-11-12T08:52:37.665904+00:00"
+        },
+        {
+          "start": 245,
+          "end": 511,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/15-02.txt",
+          "output_sha256": "fa5efdb9431891263a401a9f76af0ae819b77bc35c4ca7353d5cf478a67c21f5",
+          "emitted_at_utc": "2026-11-12T08:52:37.667060+00:00",
+          "read_at_utc": "2026-11-12T08:52:47.629758+00:00"
+        },
+        {
+          "start": 512,
+          "end": 805,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/15-03.txt",
+          "output_sha256": "a90dfdef0a2ca809374e26ac912dc41deddaac0d6acd436125c0f6e4896c745e",
+          "emitted_at_utc": "2026-11-12T08:52:47.631110+00:00",
+          "read_at_utc": "2026-11-12T08:52:54.000771+00:00"
+        },
+        {
+          "start": 806,
+          "end": 1033,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/15-04.txt",
+          "output_sha256": "d5d65c4ed30d796f3772662abaa7c5f84fe8dda6e9186a29047e311857b48c5a",
+          "emitted_at_utc": "2026-11-12T08:52:54.002481+00:00",
+          "read_at_utc": "2026-11-12T08:53:00.005132+00:00"
+        },
+        {
+          "start": 1034,
+          "end": 1254,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/15-05.txt",
+          "output_sha256": "70001d622fcb1b770d7afce90d519a743e64c2b8700c1daa6da51e105d2cebe7",
+          "emitted_at_utc": "2026-11-12T08:53:00.006647+00:00",
+          "read_at_utc": "2026-11-12T08:53:12.468635+00:00"
+        },
+        {
+          "start": 1255,
+          "end": 1272,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/15-06.txt",
+          "output_sha256": "2ff71405a1e80a4c37eea8d8345ef0044cc86adc4c7c5dd7a8cf521ad35085cd",
+          "emitted_at_utc": "2026-11-12T08:53:12.470083+00:00",
+          "read_at_utc": "2026-11-12T08:53:20.651934+00:00"
+        }
+      ],
+      "full_read": true,
+      "full_read_completed_at_utc": "2026-11-12T08:53:20.651934+00:00",
+      "reader_attestation": "Read by this reviewer, every line of every listed chunk, untruncated; output files preserve the exact displayed numbered text."
+    },
+    {
+      "id": 16,
+      "path": "specs/200-windows-desktop-app/plan.md",
+      "source_sha256": "c1c495bb80a3fae991a86050bb0a9b76ada14380892be82083cca608689b9ea0",
+      "bytes": 529659,
+      "lines": 5513,
+      "chunks": [
+        {
+          "start": 1,
+          "end": 300,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/16-01.txt",
+          "output_sha256": "c895c0083a2a514377af79c0e7778d1c29e11c6e89c3940f38b0340e0347a25d",
+          "emitted_at_utc": "2026-11-12T08:53:20.655058+00:00",
+          "read_at_utc": "2026-11-12T08:53:31.045233+00:00"
+        },
+        {
+          "start": 301,
+          "end": 643,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/16-02.txt",
+          "output_sha256": "0bdb824c8488a990d9101ef03e0473618fbacf0d1ca7d199f6f313a4660d55f0",
+          "emitted_at_utc": "2026-11-12T08:53:31.048537+00:00",
+          "read_at_utc": "2026-11-12T08:53:44.252099+00:00"
+        },
+        {
+          "start": 644,
+          "end": 866,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/16-03.txt",
+          "output_sha256": "5a3c4f4ed3f3345f35a451e05adccbd1973c325dbeca36065fd6ec06e4cf8dc2",
+          "emitted_at_utc": "2026-11-12T08:53:44.255173+00:00",
+          "read_at_utc": "2026-11-12T08:53:53.433700+00:00"
+        },
+        {
+          "start": 867,
+          "end": 1116,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/16-04.txt",
+          "output_sha256": "28a582c85d28f124460de7273b9e17a738b409d2d44cab23d30c269ed38701b1",
+          "emitted_at_utc": "2026-11-12T08:53:53.436619+00:00",
+          "read_at_utc": "2026-11-12T08:54:00.591211+00:00"
+        },
+        {
+          "start": 1117,
+          "end": 1380,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/16-05.txt",
+          "output_sha256": "0245e7dd09530b6fb8e2a1f6c8afc4c5cfc559760c50d9efa5dad7277b815aa0",
+          "emitted_at_utc": "2026-11-12T08:54:00.594247+00:00",
+          "read_at_utc": "2026-11-12T08:54:09.412367+00:00"
+        },
+        {
+          "start": 1381,
+          "end": 1656,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/16-06.txt",
+          "output_sha256": "a12dce30231f40f4331284daa4e95d1c2a282d614adaec1859015dfcb00c84a0",
+          "emitted_at_utc": "2026-11-12T08:54:09.415066+00:00",
+          "read_at_utc": "2026-11-12T08:54:22.141733+00:00"
+        },
+        {
+          "start": 1657,
+          "end": 1905,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/16-07.txt",
+          "output_sha256": "29163cb6bf39245504bca377132914486d747b76940a40ac8d4c1568c4bd5a72",
+          "emitted_at_utc": "2026-11-12T08:54:22.144872+00:00",
+          "read_at_utc": "2026-11-12T08:54:29.544962+00:00"
+        },
+        {
+          "start": 1906,
+          "end": 2167,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/16-08.txt",
+          "output_sha256": "1c6a2f3b98b14f3eb21527c15626a82814e025d466ffc3f7523952154f0a4c48",
+          "emitted_at_utc": "2026-11-12T08:54:29.548111+00:00",
+          "read_at_utc": "2026-11-12T08:54:36.772884+00:00"
+        },
+        {
+          "start": 2168,
+          "end": 2428,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/16-09.txt",
+          "output_sha256": "c7db6c25e8095174a9491ab1916f940a678ea03b735693111e92399bfe111126",
+          "emitted_at_utc": "2026-11-12T08:54:36.775707+00:00",
+          "read_at_utc": "2026-11-12T08:54:44.297041+00:00"
+        },
+        {
+          "start": 2429,
+          "end": 2682,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/16-10.txt",
+          "output_sha256": "c243eeb1e1c80b2a6386e7a097ed629c5929965f0302072e3bd45e56c448e1bf",
+          "emitted_at_utc": "2026-11-12T08:54:44.299702+00:00",
+          "read_at_utc": "2026-11-12T08:54:51.345975+00:00"
+        },
+        {
+          "start": 2683,
+          "end": 2935,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/16-11.txt",
+          "output_sha256": "67819799b4b03f5296155ecfd84c2292ac1d1f362e10bfc6600b0f6e16fa1363",
+          "emitted_at_utc": "2026-11-12T08:54:51.348649+00:00",
+          "read_at_utc": "2026-11-12T08:55:02.888443+00:00"
+        },
+        {
+          "start": 2936,
+          "end": 3185,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/16-12.txt",
+          "output_sha256": "2581a7f55493e719c66b45a85ac79ae38490e15c14e9d13e1af48f964089237c",
+          "emitted_at_utc": "2026-11-12T08:55:02.891055+00:00",
+          "read_at_utc": "2026-11-12T08:55:12.198552+00:00"
+        },
+        {
+          "start": 3186,
+          "end": 3430,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/16-13.txt",
+          "output_sha256": "22638166980d051222c70ff82b1564479ccf388d20d6dc97f407783b534a65e6",
+          "emitted_at_utc": "2026-11-12T08:55:12.201135+00:00",
+          "read_at_utc": "2026-11-12T08:55:20.407127+00:00"
+        },
+        {
+          "start": 3431,
+          "end": 3694,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/16-14.txt",
+          "output_sha256": "286a07a7e3ae09cb839ee45d0aab827bab04ff5cdad0d1a8ad4c100c5e5c7055",
+          "emitted_at_utc": "2026-11-12T08:55:20.409931+00:00",
+          "read_at_utc": "2026-11-12T08:55:28.623276+00:00"
+        },
+        {
+          "start": 3695,
+          "end": 3928,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/16-15.txt",
+          "output_sha256": "e638ea2f617cfde7811df1ddba73d706060ab2e4f85bbaa5b8dc3f2f3d6a0590",
+          "emitted_at_utc": "2026-11-12T08:55:28.626306+00:00",
+          "read_at_utc": "2026-11-12T08:55:36.599999+00:00"
+        },
+        {
+          "start": 3929,
+          "end": 4165,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/16-16.txt",
+          "output_sha256": "a75086fd0881c03c59d0521fb447664c1ee8855bb583f23e47cff6324469e4dc",
+          "emitted_at_utc": "2026-11-12T08:55:36.602807+00:00",
+          "read_at_utc": "2026-11-12T08:55:43.518877+00:00"
+        },
+        {
+          "start": 4166,
+          "end": 4395,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/16-17.txt",
+          "output_sha256": "69c68f07a627bfb048e3d75b4028e14ecd4c954c5b783703b8141e34a2fc9493",
+          "emitted_at_utc": "2026-11-12T08:55:43.521661+00:00",
+          "read_at_utc": "2026-11-12T08:55:51.649333+00:00"
+        },
+        {
+          "start": 4396,
+          "end": 4626,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/16-18.txt",
+          "output_sha256": "12a88cf5c1f76721fcead3fc79b5f55ca2d3c8b0ad68d80ad878542d3b6ad966",
+          "emitted_at_utc": "2026-11-12T08:55:51.653027+00:00",
+          "read_at_utc": "2026-11-12T08:55:59.863086+00:00"
+        },
+        {
+          "start": 4627,
+          "end": 4857,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/16-19.txt",
+          "output_sha256": "d6a4ca17365c12c10548dce36c4310a50c0124b7ff7aadcdc18c2e6dbf52afc2",
+          "emitted_at_utc": "2026-11-12T08:55:59.866828+00:00",
+          "read_at_utc": "2026-11-12T08:56:07.375684+00:00"
+        },
+        {
+          "start": 4858,
+          "end": 5095,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/16-20.txt",
+          "output_sha256": "e143c5b660f5445aff9e644222f80111c090332695e75413678e7a6224c6c666",
+          "emitted_at_utc": "2026-11-12T08:56:07.378540+00:00",
+          "read_at_utc": "2026-11-12T08:56:16.855211+00:00"
+        },
+        {
+          "start": 5096,
+          "end": 5319,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/16-21.txt",
+          "output_sha256": "0f362de71cb755157aff909395148dfd51166024e404f41944d56d530e725adc",
+          "emitted_at_utc": "2026-11-12T08:56:16.857766+00:00",
+          "read_at_utc": "2026-11-12T08:56:26.133628+00:00"
+        },
+        {
+          "start": 5320,
+          "end": 5513,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/16-22.txt",
+          "output_sha256": "019a2ee470b959e09e8dc2089a6e1ef903ffe1a1ee0753bff5eb2305f1d1da31",
+          "emitted_at_utc": "2026-11-12T08:56:26.136476+00:00",
+          "read_at_utc": "2026-11-12T08:56:38.324935+00:00"
+        }
+      ],
+      "full_read": true,
+      "full_read_completed_at_utc": "2026-11-12T08:56:38.324935+00:00",
+      "reader_attestation": "Read by this reviewer, every line of every listed chunk, untruncated; output files preserve the exact displayed numbered text."
+    },
+    {
+      "id": 17,
+      "path": "specs/200-windows-desktop-app/tasks.md",
+      "source_sha256": "03504f0ff0f8ad799a7a643ff6a203ab3b7e6d5a09fe50e569bdf3dd5f71d7d8",
+      "bytes": 196556,
+      "lines": 792,
+      "chunks": [
+        {
+          "start": 1,
+          "end": 283,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/17-01.txt",
+          "output_sha256": "2a61f7499d45ba36175c7ecf4f4869a104158bc4230e7c467635cefd1564a3eb",
+          "emitted_at_utc": "2026-11-12T08:56:38.327612+00:00",
+          "read_at_utc": "2026-11-12T08:56:48.319104+00:00"
+        },
+        {
+          "start": 284,
+          "end": 354,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/17-02.txt",
+          "output_sha256": "6aa01651df6d5256330283bb0e71267158edf6267055d0bd3e39f38651bca7ca",
+          "emitted_at_utc": "2026-11-12T08:56:48.320965+00:00",
+          "read_at_utc": "2026-11-12T08:57:00.885094+00:00"
+        },
+        {
+          "start": 355,
+          "end": 355,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/17-03.txt",
+          "output_sha256": "4affb31c1bc0005f7e05961333d8633e3137410dbb605583e9011617b9a7fd80",
+          "emitted_at_utc": "2026-11-12T08:57:00.886869+00:00",
+          "read_at_utc": "2026-11-12T08:57:09.407650+00:00"
+        },
+        {
+          "start": 356,
+          "end": 356,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/17-04.txt",
+          "output_sha256": "b86e74cc696cd3a93e6025e6c578a53cdbc9cbc7834eae9104e1bbfeecb04cab",
+          "emitted_at_utc": "2026-11-12T08:57:09.409246+00:00",
+          "read_at_utc": "2026-11-12T08:59:48.506180+00:00"
+        },
+        {
+          "start": 357,
+          "end": 394,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/17-05.txt",
+          "output_sha256": "e93fe9503f6630656881623e7daa22ffd56c002d9fe4d7f0a15c9411440b037a",
+          "emitted_at_utc": "2026-11-12T08:59:48.509194+00:00",
+          "read_at_utc": "2026-11-12T09:00:00.294361+00:00"
+        },
+        {
+          "start": 395,
+          "end": 469,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/17-06.txt",
+          "output_sha256": "0209705655c17d9a16438af76e1fb691ad0d048277a43d538670d9e2b86e0953",
+          "emitted_at_utc": "2026-11-12T09:00:00.296716+00:00",
+          "read_at_utc": "2026-11-12T09:00:08.591478+00:00"
+        },
+        {
+          "start": 470,
+          "end": 621,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/17-07.txt",
+          "output_sha256": "92e3fec9fde76486b6cba4369d1803656debab1a445819fba25417e46b58e2c2",
+          "emitted_at_utc": "2026-11-12T09:00:08.593415+00:00",
+          "read_at_utc": "2026-11-12T09:03:49.946238+00:00"
+        },
+        {
+          "start": 622,
+          "end": 737,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/17-08.txt",
+          "output_sha256": "0a07ee297ad9c5da417447845027b7a92bb68c470f4b1aa9d95b6e68e126f2b1",
+          "emitted_at_utc": "2026-11-12T09:03:49.961172+00:00",
+          "read_at_utc": "2026-11-12T09:03:57.656427+00:00"
+        },
+        {
+          "start": 738,
+          "end": 792,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/17-09.txt",
+          "output_sha256": "5ce9fab95c8a0ec6c3058bebcf9eff7b8bfcd9a7fc072af89cd105e9b2d7c813",
+          "emitted_at_utc": "2026-11-12T09:03:57.667890+00:00",
+          "read_at_utc": "2026-11-12T09:04:05.965020+00:00"
+        }
+      ],
+      "full_read": true,
+      "full_read_completed_at_utc": "2026-11-12T09:04:05.965020+00:00",
+      "reader_attestation": "Read by this reviewer, every line of every listed chunk, untruncated; output files preserve the exact displayed numbered text."
+    },
+    {
+      "id": 18,
+      "path": "specs/200-windows-desktop-app/quickstart.md",
+      "source_sha256": "2e996e24e793c9b4f4a3a29ef724226c66a73da385622fb3e4b6107e022b68f4",
+      "bytes": 343249,
+      "lines": 3344,
+      "chunks": [
+        {
+          "start": 1,
+          "end": 277,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/18-01.txt",
+          "output_sha256": "ec486c608cc644580ea2d6c8ab4836a95a232e167fe8b77f7d01012fdd0f0e54",
+          "emitted_at_utc": "2026-11-12T09:04:05.968119+00:00",
+          "read_at_utc": "2026-11-12T09:04:13.013014+00:00"
+        },
+        {
+          "start": 278,
+          "end": 549,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/18-02.txt",
+          "output_sha256": "5204a3ab3244911e94ba6c84d63ead2667a21fdc415abdd47974a1bf98050a10",
+          "emitted_at_utc": "2026-11-12T09:04:13.015179+00:00",
+          "read_at_utc": "2026-11-12T09:04:20.052489+00:00"
+        },
+        {
+          "start": 550,
+          "end": 843,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/18-03.txt",
+          "output_sha256": "81f6bb512afa8467fb71622fc63747647f345744d105e0bbe3b9a85cba8440e1",
+          "emitted_at_utc": "2026-11-12T09:04:20.054878+00:00",
+          "read_at_utc": "2026-11-12T09:04:26.927475+00:00"
+        },
+        {
+          "start": 844,
+          "end": 1053,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/18-04.txt",
+          "output_sha256": "b13281a79b88c0f1bfe323397bc912ee0d37c76984743c3d417cb678b55a8110",
+          "emitted_at_utc": "2026-11-12T09:04:26.929572+00:00",
+          "read_at_utc": "2026-11-12T09:04:38.293829+00:00"
+        },
+        {
+          "start": 1054,
+          "end": 1305,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/18-05.txt",
+          "output_sha256": "554be6739876020b93f80cc4bf055699e1c3e8d482cb341e0d2a8492eafd8191",
+          "emitted_at_utc": "2026-11-12T09:04:38.295805+00:00",
+          "read_at_utc": "2026-11-12T09:04:47.994609+00:00"
+        },
+        {
+          "start": 1306,
+          "end": 1567,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/18-06.txt",
+          "output_sha256": "405559c4f03a3ba5fc93615b0a01072c78e82241f1b538b4ee8b2a72ebd4fca9",
+          "emitted_at_utc": "2026-11-12T09:04:47.996731+00:00",
+          "read_at_utc": "2026-11-12T09:05:16.845455+00:00"
+        },
+        {
+          "start": 1568,
+          "end": 1844,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/18-07.txt",
+          "output_sha256": "14c76894f2eaaa9ac6ffd264c3e488d290257b6239e21340317db11173dc1a24",
+          "emitted_at_utc": "2026-11-12T09:05:16.847778+00:00",
+          "read_at_utc": "2026-11-12T09:05:23.665299+00:00"
+        },
+        {
+          "start": 1845,
+          "end": 2098,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/18-08.txt",
+          "output_sha256": "66b9577028b610d0140ba55f32dd7b4fc1f7a34106fef1560ba1c9b4bdc05766",
+          "emitted_at_utc": "2026-11-12T09:05:23.667315+00:00",
+          "read_at_utc": "2026-11-12T09:05:30.470252+00:00"
+        },
+        {
+          "start": 2099,
+          "end": 2235,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/18-09.txt",
+          "output_sha256": "a7dade2bcffc2150df4074bb8ca09b2a19880710904450920036babfd1fedf41",
+          "emitted_at_utc": "2026-11-12T09:05:30.472624+00:00",
+          "read_at_utc": "2026-11-12T09:05:41.337760+00:00"
+        },
+        {
+          "start": 2236,
+          "end": 2478,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/18-10.txt",
+          "output_sha256": "3be930d6145f221fd6e2d84715d550d5c87ad4bf1533f72b3cebdba28942f221",
+          "emitted_at_utc": "2026-11-12T09:05:41.340077+00:00",
+          "read_at_utc": "2026-11-12T09:05:48.598241+00:00"
+        },
+        {
+          "start": 2479,
+          "end": 2673,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/18-11.txt",
+          "output_sha256": "301a1b2de210ab60bd58b9e154392543463b373cc229b17f535c6dd11b435f39",
+          "emitted_at_utc": "2026-11-12T09:05:48.600337+00:00",
+          "read_at_utc": "2026-11-12T09:05:56.241252+00:00"
+        },
+        {
+          "start": 2674,
+          "end": 2902,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/18-12.txt",
+          "output_sha256": "d28d8eccd166e3119b219258a85e3a303ce035cb4c23f368df747d744d0f549e",
+          "emitted_at_utc": "2026-11-12T09:05:56.243591+00:00",
+          "read_at_utc": "2026-11-12T09:06:04.022608+00:00"
+        },
+        {
+          "start": 2903,
+          "end": 3104,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/18-13.txt",
+          "output_sha256": "de9410475c6ec7f7e21e56751d170eedc2c4e05afb1a333b1883018344f19c28",
+          "emitted_at_utc": "2026-11-12T09:06:04.024698+00:00",
+          "read_at_utc": "2026-11-12T09:06:11.580033+00:00"
+        },
+        {
+          "start": 3105,
+          "end": 3330,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/18-14.txt",
+          "output_sha256": "adc4ba44dd2bcaf1c7a005c82cfabd4c237c13c9f1ab44c5465fbc2bb344bcf1",
+          "emitted_at_utc": "2026-11-12T09:06:11.582190+00:00",
+          "read_at_utc": "2026-11-12T09:06:18.691657+00:00"
+        },
+        {
+          "start": 3331,
+          "end": 3344,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/18-15.txt",
+          "output_sha256": "977341f967ba28df484ab96193d90bd6512e2c772f619efa346086717a6c28e5",
+          "emitted_at_utc": "2026-11-12T09:06:18.693765+00:00",
+          "read_at_utc": "2026-11-12T09:06:26.071526+00:00"
+        }
+      ],
+      "full_read": true,
+      "full_read_completed_at_utc": "2026-11-12T09:06:26.071526+00:00",
+      "reader_attestation": "Read by this reviewer, every line of every listed chunk, untruncated; output files preserve the exact displayed numbered text."
+    },
+    {
+      "id": 19,
+      "path": "specs/200-windows-desktop-app/data-model.md",
+      "source_sha256": "3fb7a1e173b6d516e0fbae9e6002f97b6b0a9568a99ca4c65f725c18ca08fffb",
+      "bytes": 69597,
+      "lines": 885,
+      "chunks": [
+        {
+          "start": 1,
+          "end": 396,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/19-01.txt",
+          "output_sha256": "4b65d198255534d96455361b9512169baa1289470b43584462f63ff0100e29f5",
+          "emitted_at_utc": "2026-11-12T09:06:26.073225+00:00",
+          "read_at_utc": "2026-11-12T09:06:33.527407+00:00"
+        },
+        {
+          "start": 397,
+          "end": 672,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/19-02.txt",
+          "output_sha256": "335d9ff8bfb05ee12158bdb7440de55df42cdf4aefc720ef87647c0833b21e05",
+          "emitted_at_utc": "2026-11-12T09:06:33.528596+00:00",
+          "read_at_utc": "2026-11-12T09:06:40.475809+00:00"
+        },
+        {
+          "start": 673,
+          "end": 885,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/19-03.txt",
+          "output_sha256": "8985a16c35a64ad72ca5e36d79fb6fb16f2ad87f0407fc9c2c0561334630de90",
+          "emitted_at_utc": "2026-11-12T09:06:40.477012+00:00",
+          "read_at_utc": "2026-11-12T09:07:50.849373+00:00"
+        }
+      ],
+      "full_read": true,
+      "full_read_completed_at_utc": "2026-11-12T09:07:50.849373+00:00",
+      "reader_attestation": "Read by this reviewer, every line of every listed chunk, untruncated; output files preserve the exact displayed numbered text."
+    },
+    {
+      "id": 20,
+      "path": "specs/200-windows-desktop-app/research.md",
+      "source_sha256": "3e1d9883051743181d65e650a310ddcdbf45be66dbaf8762764407e933240da0",
+      "bytes": 337548,
+      "lines": 3684,
+      "chunks": [
+        {
+          "start": 1,
+          "end": 321,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/20-01.txt",
+          "output_sha256": "2a9a6844ddd74cd721c38d71ebc0a93fed9797066f7d5df944d1f085c32a4e40",
+          "emitted_at_utc": "2026-11-12T09:07:50.852454+00:00",
+          "read_at_utc": "2026-11-12T09:07:57.475981+00:00"
+        },
+        {
+          "start": 322,
+          "end": 580,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/20-02.txt",
+          "output_sha256": "4b962a5ed667a03af8c96cd0a1276e3215e80efa8e2dd60ec9dd662a0ffdb40f",
+          "emitted_at_utc": "2026-11-12T09:07:57.478477+00:00",
+          "read_at_utc": "2026-11-12T09:08:04.343420+00:00"
+        },
+        {
+          "start": 581,
+          "end": 829,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/20-03.txt",
+          "output_sha256": "cc36c3511ed69df5149aea513160a14c6dbbe6312095332ffad52021ebb389df",
+          "emitted_at_utc": "2026-11-12T09:08:04.345496+00:00",
+          "read_at_utc": "2026-11-12T09:08:17.198656+00:00"
+        },
+        {
+          "start": 830,
+          "end": 1092,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/20-04.txt",
+          "output_sha256": "b5f13c8c0cdda0bcb587f0a55603ac09fe1628f8f7c0b62bf5e6e65b1e5bb290",
+          "emitted_at_utc": "2026-11-12T09:08:17.202307+00:00",
+          "read_at_utc": "2026-11-12T09:08:26.527829+00:00"
+        },
+        {
+          "start": 1093,
+          "end": 1348,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/20-05.txt",
+          "output_sha256": "d3740e8ebb4803c0d3dce2f2a666c70e98fbd49dc51db3c3d5c9a579271f3f26",
+          "emitted_at_utc": "2026-11-12T09:08:26.530049+00:00",
+          "read_at_utc": "2026-11-12T09:08:36.116766+00:00"
+        },
+        {
+          "start": 1349,
+          "end": 1609,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/20-06.txt",
+          "output_sha256": "91934a78b14b72265545251bd7bf2b3a07b8f0d7546ae9d42fbda48f48aae5df",
+          "emitted_at_utc": "2026-11-12T09:08:36.119078+00:00",
+          "read_at_utc": "2026-11-12T09:08:43.783153+00:00"
+        },
+        {
+          "start": 1610,
+          "end": 1866,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/20-07.txt",
+          "output_sha256": "3796d8e55523f52cdc62ab910deef395a2c484b7354e2bb8944ec170417fedb4",
+          "emitted_at_utc": "2026-11-12T09:08:43.785344+00:00",
+          "read_at_utc": "2026-11-12T09:08:51.520004+00:00"
+        },
+        {
+          "start": 1867,
+          "end": 2134,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/20-08.txt",
+          "output_sha256": "a4ede28d0ed0a3d9e09fad175fcf2b989fc4761de9c4405b4f024080d81a3242",
+          "emitted_at_utc": "2026-11-12T09:08:51.522448+00:00",
+          "read_at_utc": "2026-11-12T09:09:04.473733+00:00"
+        },
+        {
+          "start": 2135,
+          "end": 2412,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/20-09.txt",
+          "output_sha256": "d2324b89a9f99d87ee52f55c2776b8b6306d71c691f5405d69d2c9e455c3ce2f",
+          "emitted_at_utc": "2026-11-12T09:09:04.476111+00:00",
+          "read_at_utc": "2026-11-12T09:09:12.016182+00:00"
+        },
+        {
+          "start": 2413,
+          "end": 2675,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/20-10.txt",
+          "output_sha256": "fb5b1d711a928afd80092eb3420bfa6ca51ff2d3bef1744bf041638633447689",
+          "emitted_at_utc": "2026-11-12T09:09:12.018338+00:00",
+          "read_at_utc": "2026-11-12T09:09:20.316936+00:00"
+        },
+        {
+          "start": 2676,
+          "end": 2951,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/20-11.txt",
+          "output_sha256": "66e54c4001f201044e94eed0d085869b825722680a31919d1060aae6fa75da74",
+          "emitted_at_utc": "2026-11-12T09:09:20.318830+00:00",
+          "read_at_utc": "2026-11-12T09:09:30.414032+00:00"
+        },
+        {
+          "start": 2952,
+          "end": 3217,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/20-12.txt",
+          "output_sha256": "788f1bb13437113ddf0bacabc50747bd2103279eedc4f385b7088e409965aca2",
+          "emitted_at_utc": "2026-11-12T09:09:30.416200+00:00",
+          "read_at_utc": "2026-11-12T09:09:38.449892+00:00"
+        },
+        {
+          "start": 3218,
+          "end": 3471,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/20-13.txt",
+          "output_sha256": "7950cf42ae4291c42d0c97c2b775953a6384127fe30d51e915aef0263aacaa38",
+          "emitted_at_utc": "2026-11-12T09:09:38.452069+00:00",
+          "read_at_utc": "2026-11-12T09:09:46.077873+00:00"
+        },
+        {
+          "start": 3472,
+          "end": 3684,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/20-14.txt",
+          "output_sha256": "51e11d2b4cd807fa398d81e6af26e36015132bc8da0eb53669e00ed61645dec9",
+          "emitted_at_utc": "2026-11-12T09:09:46.080282+00:00",
+          "read_at_utc": "2026-11-12T09:09:53.735095+00:00"
+        }
+      ],
+      "full_read": true,
+      "full_read_completed_at_utc": "2026-11-12T09:09:53.735095+00:00",
+      "reader_attestation": "Read by this reviewer, every line of every listed chunk, untruncated; output files preserve the exact displayed numbered text."
+    },
+    {
+      "id": 21,
+      "path": "specs/200-windows-desktop-app/contracts/f277-notifications-parity.md",
+      "source_sha256": "a0cbc44912a3cb89f7e41c72efa77d2dcc260772644c587aba36bb3dd231ccca",
+      "bytes": 15567,
+      "lines": 153,
+      "chunks": [
+        {
+          "start": 1,
+          "end": 153,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/21-01.txt",
+          "output_sha256": "718845074709e416e0298aab855028f53a4b9caef2a5aeb4654454f435d0f458",
+          "emitted_at_utc": "2026-11-12T09:09:53.737175+00:00",
+          "read_at_utc": "2026-11-12T09:10:01.760179+00:00"
+        }
+      ],
+      "full_read": true,
+      "full_read_completed_at_utc": "2026-11-12T09:10:01.760179+00:00",
+      "reader_attestation": "Read by this reviewer, every line of every listed chunk, untruncated; output files preserve the exact displayed numbered text."
+    },
+    {
+      "id": 22,
+      "path": "specs/200-windows-desktop-app/contracts/windows-clock-candidate.md",
+      "source_sha256": "046f1a5608e337edbc62b6f645c4b73fa125ad6af5a3a712451fe88743436be1",
+      "bytes": 49729,
+      "lines": 526,
+      "chunks": [
+        {
+          "start": 1,
+          "end": 255,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/22-01.txt",
+          "output_sha256": "4ddbd5b328138997b115efcfbf7e84fd1219ff122afe4e11225c9725c480acfe",
+          "emitted_at_utc": "2026-11-12T09:10:01.761605+00:00",
+          "read_at_utc": "2026-11-12T09:10:10.626614+00:00"
+        },
+        {
+          "start": 256,
+          "end": 518,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/22-02.txt",
+          "output_sha256": "f87291c77ac774d3fc3a132e62dc484690af38418da6f027e15093844d9dec27",
+          "emitted_at_utc": "2026-11-12T09:10:10.627969+00:00",
+          "read_at_utc": "2026-11-12T09:10:19.400117+00:00"
+        },
+        {
+          "start": 519,
+          "end": 526,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/22-03.txt",
+          "output_sha256": "50e35a7131e4405561a15a9b81231cef0f7bd9e895c354faa253cd8b8523b008",
+          "emitted_at_utc": "2026-11-12T09:10:19.401406+00:00",
+          "read_at_utc": "2026-11-12T09:10:29.394949+00:00"
+        }
+      ],
+      "full_read": true,
+      "full_read_completed_at_utc": "2026-11-12T09:10:29.394949+00:00",
+      "reader_attestation": "Read by this reviewer, every line of every listed chunk, untruncated; output files preserve the exact displayed numbered text."
+    },
+    {
+      "id": 23,
+      "path": "specs/200-windows-desktop-app/contracts/windows-desktop-contract.md",
+      "source_sha256": "8bf0d9bfb4ef807294d9ad41e8e739994d6b72e6fa0c600b21aa308c772adc7d",
+      "bytes": 76565,
+      "lines": 820,
+      "chunks": [
+        {
+          "start": 1,
+          "end": 289,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/23-01.txt",
+          "output_sha256": "fc966503b6a83f0a71e56071d515174b2418f98f69d06a525c02f24cfb2318f5",
+          "emitted_at_utc": "2026-11-12T09:10:29.396846+00:00",
+          "read_at_utc": "2026-11-12T09:10:39.796180+00:00"
+        },
+        {
+          "start": 290,
+          "end": 548,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/23-02.txt",
+          "output_sha256": "d4651cb7fcf2e8f21e0e46e83b034db5127fb859213d0aa564e027c31a0fdc85",
+          "emitted_at_utc": "2026-11-12T09:10:39.797551+00:00",
+          "read_at_utc": "2026-11-12T09:10:48.266744+00:00"
+        },
+        {
+          "start": 549,
+          "end": 779,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/23-03.txt",
+          "output_sha256": "ba319604a631f96a0fd84479b95257869901cca6954aa85dfa1e7ce21173b21c",
+          "emitted_at_utc": "2026-11-12T09:10:48.268237+00:00",
+          "read_at_utc": "2026-11-12T09:10:56.574571+00:00"
+        },
+        {
+          "start": 780,
+          "end": 820,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/23-04.txt",
+          "output_sha256": "29ba18b9b809066230d9ac2958528aed61a4bd09440db459968332a789344583",
+          "emitted_at_utc": "2026-11-12T09:10:56.575896+00:00",
+          "read_at_utc": "2026-11-12T09:11:04.533187+00:00"
+        }
+      ],
+      "full_read": true,
+      "full_read_completed_at_utc": "2026-11-12T09:11:04.533187+00:00",
+      "reader_attestation": "Read by this reviewer, every line of every listed chunk, untruncated; output files preserve the exact displayed numbered text."
+    },
+    {
+      "id": 24,
+      "path": "specs/200-windows-desktop-app/contracts/windows-export-save.md",
+      "source_sha256": "8d6e20825e1df5cd121f4bb1a6ac3b0022599c12d6684cbefaed3116cc5bfa62",
+      "bytes": 11016,
+      "lines": 102,
+      "chunks": [
+        {
+          "start": 1,
+          "end": 102,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/24-01.txt",
+          "output_sha256": "46f23e969a7bec0243056327ce2cbf05e107cf2927f6051180c09013ecaa5919",
+          "emitted_at_utc": "2026-11-12T09:11:04.534860+00:00",
+          "read_at_utc": "2026-11-12T09:11:14.518179+00:00"
+        }
+      ],
+      "full_read": true,
+      "full_read_completed_at_utc": "2026-11-12T09:11:14.518179+00:00",
+      "reader_attestation": "Read by this reviewer, every line of every listed chunk, untruncated; output files preserve the exact displayed numbered text."
+    },
+    {
+      "id": 25,
+      "path": "specs/200-windows-desktop-app/contracts/windows-native-web-bridge.md",
+      "source_sha256": "8aad1edf99dd306d0c8dcc9cba666a2e26c6deb8f328eb24177cf65fdb574eb1",
+      "bytes": 92398,
+      "lines": 976,
+      "chunks": [
+        {
+          "start": 1,
+          "end": 316,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/25-01.txt",
+          "output_sha256": "4cb895298818484f274b41d639174486d42cc6efa8bf7997797977b9697b70a7",
+          "emitted_at_utc": "2026-11-12T09:11:14.520545+00:00",
+          "read_at_utc": "2026-11-12T09:13:28.088547+00:00"
+        },
+        {
+          "start": 317,
+          "end": 556,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/25-02.txt",
+          "output_sha256": "09cd60a9c6f86e5af7a2bb2aeab1e3490fedd7982b667485e8ccdfd68f2f2ed1",
+          "emitted_at_utc": "2026-11-12T09:13:28.089948+00:00",
+          "read_at_utc": "2026-11-12T09:13:34.562581+00:00"
+        },
+        {
+          "start": 557,
+          "end": 799,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/25-03.txt",
+          "output_sha256": "0a2e1a376682134543aa1818c33cfdaaed009beaf4ad1e1684b7785395102611",
+          "emitted_at_utc": "2026-11-12T09:13:34.563799+00:00",
+          "read_at_utc": "2026-11-12T09:13:40.686548+00:00"
+        },
+        {
+          "start": 800,
+          "end": 976,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/25-04.txt",
+          "output_sha256": "9fd827196db4d21bba3e6fca5a950aa4c8e4a6ac336ed07f4f64501546e0ef18",
+          "emitted_at_utc": "2026-11-12T09:13:40.688012+00:00",
+          "read_at_utc": "2026-11-12T09:13:47.020921+00:00"
+        }
+      ],
+      "full_read": true,
+      "full_read_completed_at_utc": "2026-11-12T09:13:47.020921+00:00",
+      "reader_attestation": "Read by this reviewer, every line of every listed chunk, untruncated; output files preserve the exact displayed numbered text."
+    },
+    {
+      "id": 26,
+      "path": "specs/200-windows-desktop-app/contracts/windows-protected-local-custody.md",
+      "source_sha256": "0b2aef7066d6c4004efad1dd01a48b6c1dd3c8f50033a98fdcfe5d4c52addf69",
+      "bytes": 87101,
+      "lines": 915,
+      "chunks": [
+        {
+          "start": 1,
+          "end": 264,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/26-01.txt",
+          "output_sha256": "2f1a7f736d83be75714ff34c9e1c9b50b973edf128a4af78476abfe306e6780c",
+          "emitted_at_utc": "2026-11-12T09:13:47.022622+00:00",
+          "read_at_utc": "2026-11-12T09:13:54.332446+00:00"
+        },
+        {
+          "start": 265,
+          "end": 522,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/26-02.txt",
+          "output_sha256": "d2c9e928200c3da1e63a0cb9da2ab0e39e2548161cfd61e149f68cbf59cc1e61",
+          "emitted_at_utc": "2026-11-12T09:13:54.334177+00:00",
+          "read_at_utc": "2026-11-12T09:14:00.703862+00:00"
+        },
+        {
+          "start": 523,
+          "end": 763,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/26-03.txt",
+          "output_sha256": "0acb18b0c7c181dd839ccde3db54efd1f043d689965f7c0c4f407c04d3413eab",
+          "emitted_at_utc": "2026-11-12T09:14:00.707202+00:00",
+          "read_at_utc": "2026-11-12T09:14:07.442902+00:00"
+        },
+        {
+          "start": 764,
+          "end": 915,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/26-04.txt",
+          "output_sha256": "10a22f61ff71569ccba461a3f5858aac81d5be34830672ad4fa9d8573386b440",
+          "emitted_at_utc": "2026-11-12T09:14:07.444508+00:00",
+          "read_at_utc": "2026-11-12T09:14:13.713242+00:00"
+        }
+      ],
+      "full_read": true,
+      "full_read_completed_at_utc": "2026-11-12T09:14:13.713242+00:00",
+      "reader_attestation": "Read by this reviewer, every line of every listed chunk, untruncated; output files preserve the exact displayed numbered text."
+    },
+    {
+      "id": 27,
+      "path": "specs/200-windows-desktop-app/contracts/windows-protected-packed-custody.md",
+      "source_sha256": "e6af6d4d402c19fa47b8a71931f7573eb0c4673d3f19365926f78f140c65fc56",
+      "bytes": 35970,
+      "lines": 422,
+      "chunks": [
+        {
+          "start": 1,
+          "end": 284,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/27-01.txt",
+          "output_sha256": "dc770d34240ef63b3f9b86450891c550cc1b3bb4f1fb8983f4da6437e7f261b2",
+          "emitted_at_utc": "2026-11-12T09:14:13.714654+00:00",
+          "read_at_utc": "2026-11-12T09:14:25.427546+00:00"
+        },
+        {
+          "start": 285,
+          "end": 422,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/27-02.txt",
+          "output_sha256": "0877ff967db95a9771a6ea11dafea88d9360c83964cc01099395ab7eed8f9bf4",
+          "emitted_at_utc": "2026-11-12T09:14:25.429042+00:00",
+          "read_at_utc": "2026-11-12T09:14:35.057134+00:00"
+        }
+      ],
+      "full_read": true,
+      "full_read_completed_at_utc": "2026-11-12T09:14:35.057134+00:00",
+      "reader_attestation": "Read by this reviewer, every line of every listed chunk, untruncated; output files preserve the exact displayed numbered text."
+    },
+    {
+      "id": 28,
+      "path": "specs/200-windows-desktop-app/release-execution-plan.md",
+      "source_sha256": "f13afa8210684f951cabfdeb8341b2a0d2e5a13fd986cb935dbfd1df6f807ab9",
+      "bytes": 261049,
+      "lines": 2504,
+      "chunks": [
+        {
+          "start": 1,
+          "end": 186,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/28-01.txt",
+          "output_sha256": "e526bf29817b1cb718bcffb9dca07156898c0076a9fc7efdbfd1d33fd5531221",
+          "emitted_at_utc": "2026-11-12T09:14:35.059439+00:00",
+          "read_at_utc": "2026-11-12T09:14:42.026863+00:00"
+        },
+        {
+          "start": 187,
+          "end": 401,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/28-02.txt",
+          "output_sha256": "e79a5ddfe4a56837b30c398d54e9fbda30e672b97ca9f28a623a69fe0184dc64",
+          "emitted_at_utc": "2026-11-12T09:14:42.028662+00:00",
+          "read_at_utc": "2026-11-12T09:14:51.081013+00:00"
+        },
+        {
+          "start": 402,
+          "end": 621,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/28-03.txt",
+          "output_sha256": "892b54f610cf4284dc1dec994aa51fd008bdcf040a45049a46ce21cd7eca3f70",
+          "emitted_at_utc": "2026-11-12T09:14:51.082886+00:00",
+          "read_at_utc": "2026-11-12T09:15:00.982627+00:00"
+        },
+        {
+          "start": 622,
+          "end": 854,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/28-04.txt",
+          "output_sha256": "c5333a03dee509d0d309777b7bfe140b97dbf6565be267604649a6bcc2d702d3",
+          "emitted_at_utc": "2026-11-12T09:15:00.987125+00:00",
+          "read_at_utc": "2026-11-12T09:15:07.877744+00:00"
+        },
+        {
+          "start": 855,
+          "end": 1080,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/28-05.txt",
+          "output_sha256": "50f109cf5512144b8d7e39118f4676485f6e7ba4f813bf95acd1e7567053b9b8",
+          "emitted_at_utc": "2026-11-12T09:15:07.879568+00:00",
+          "read_at_utc": "2026-11-12T09:15:15.285514+00:00"
+        },
+        {
+          "start": 1081,
+          "end": 1303,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/28-06.txt",
+          "output_sha256": "7554bed7d0db9a6d7bcd1b4202494e10d8c2c1591b050b2a077d1c35f789b516",
+          "emitted_at_utc": "2026-11-12T09:15:15.287119+00:00",
+          "read_at_utc": "2026-11-12T09:15:23.810237+00:00"
+        },
+        {
+          "start": 1304,
+          "end": 1559,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/28-07.txt",
+          "output_sha256": "346489aeda1f2a4df9488cdc46d2152f8184913f3504f9c447518e64308b5a23",
+          "emitted_at_utc": "2026-11-12T09:15:23.812201+00:00",
+          "read_at_utc": "2026-11-12T09:15:30.556495+00:00"
+        },
+        {
+          "start": 1560,
+          "end": 1756,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/28-08.txt",
+          "output_sha256": "82f03ffdf27243921c20ddab7886ba70fc320f2956b833e41b8cb8528a271367",
+          "emitted_at_utc": "2026-11-12T09:15:30.559152+00:00",
+          "read_at_utc": "2026-11-12T09:15:38.570013+00:00"
+        },
+        {
+          "start": 1757,
+          "end": 2022,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/28-09.txt",
+          "output_sha256": "c2745217af6c271b63d9dc160320a2123bcaa1705454e0318ff3296b5d968c5e",
+          "emitted_at_utc": "2026-11-12T09:15:38.575457+00:00",
+          "read_at_utc": "2026-11-12T09:15:46.467078+00:00"
+        },
+        {
+          "start": 2023,
+          "end": 2304,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/28-10.txt",
+          "output_sha256": "b4a9523980b62939b2a1107e860c2fc6e538b7047e1cb5d6b05c2e9a3fb31398",
+          "emitted_at_utc": "2026-11-12T09:15:46.469405+00:00",
+          "read_at_utc": "2026-11-12T09:15:54.361101+00:00"
+        },
+        {
+          "start": 2305,
+          "end": 2504,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/28-11.txt",
+          "output_sha256": "0300ab7d5fe7f46f0eaa8e1fcf8ee82a947e1e404b40eb903d4454294c25c49b",
+          "emitted_at_utc": "2026-11-12T09:15:54.363227+00:00",
+          "read_at_utc": "2026-11-12T09:16:04.740139+00:00"
+        }
+      ],
+      "full_read": true,
+      "full_read_completed_at_utc": "2026-11-12T09:16:04.740139+00:00",
+      "reader_attestation": "Read by this reviewer, every line of every listed chunk, untruncated; output files preserve the exact displayed numbered text."
+    },
+    {
+      "id": 29,
+      "path": "specs/200-windows-desktop-app/parity-matrix.md",
+      "source_sha256": "c8800f7ccb42834b602c2315603c59bcaf55653ab619ee9e86d456d8f8b61c07",
+      "bytes": 162224,
+      "lines": 1335,
+      "chunks": [
+        {
+          "start": 1,
+          "end": 200,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/29-01.txt",
+          "output_sha256": "07afd3907bc963b39ac967b98f96a902db44cff5ab9c75012889b8ee491a09da",
+          "emitted_at_utc": "2026-11-12T09:16:04.742073+00:00",
+          "read_at_utc": "2026-11-12T09:16:11.568118+00:00"
+        },
+        {
+          "start": 201,
+          "end": 292,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/29-02.txt",
+          "output_sha256": "639670b1fd97e712314b04e32db5af76c33606319f2925f686d32590dbfa1c7d",
+          "emitted_at_utc": "2026-11-12T09:16:11.570565+00:00",
+          "read_at_utc": "2026-11-12T09:16:19.261292+00:00"
+        },
+        {
+          "start": 293,
+          "end": 454,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/29-03.txt",
+          "output_sha256": "be40127cae73419db83884bd09b604b66dfa7418d440747040b2a122f80250e3",
+          "emitted_at_utc": "2026-11-12T09:16:19.263096+00:00",
+          "read_at_utc": "2026-11-12T09:16:26.349271+00:00"
+        },
+        {
+          "start": 455,
+          "end": 699,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/29-04.txt",
+          "output_sha256": "9748259bbd2291cd9cbed57ac81f32db6b875df899d8131c216c7557e9f99283",
+          "emitted_at_utc": "2026-11-12T09:16:26.350828+00:00",
+          "read_at_utc": "2026-11-12T09:16:33.503927+00:00"
+        },
+        {
+          "start": 700,
+          "end": 958,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/29-05.txt",
+          "output_sha256": "7531bba65ea9dca19c99cadd07547f19ac6703e6851093d8177efb72c782ca22",
+          "emitted_at_utc": "2026-11-12T09:16:33.506459+00:00",
+          "read_at_utc": "2026-11-12T09:16:42.134843+00:00"
+        },
+        {
+          "start": 959,
+          "end": 1197,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/29-06.txt",
+          "output_sha256": "18d643f42e22c37911e43029eb75d43172138f3024440e76a9b3fe231fb2be76",
+          "emitted_at_utc": "2026-11-12T09:16:42.137284+00:00",
+          "read_at_utc": "2026-11-12T09:16:49.434254+00:00"
+        },
+        {
+          "start": 1198,
+          "end": 1335,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/29-07.txt",
+          "output_sha256": "46cc3a4611e22394d540ed899f1bb5895bac3f9a9172f94bb25a23b0be505938",
+          "emitted_at_utc": "2026-11-12T09:16:49.440107+00:00",
+          "read_at_utc": "2026-11-12T09:16:57.906807+00:00"
+        }
+      ],
+      "full_read": true,
+      "full_read_completed_at_utc": "2026-11-12T09:16:57.906807+00:00",
+      "reader_attestation": "Read by this reviewer, every line of every listed chunk, untruncated; output files preserve the exact displayed numbered text."
+    },
+    {
+      "id": 30,
+      "path": "specs/200-windows-desktop-app/checklists/t124-public-windows-delivery.md",
+      "source_sha256": "0adf710e889e61632685bf95c6ce1dcc18a773b59dd3de17c41d9f03f658ed05",
+      "bytes": 10412,
+      "lines": 58,
+      "chunks": [
+        {
+          "start": 1,
+          "end": 58,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/30-01.txt",
+          "output_sha256": "4e9a36bf049b73642a1397243aa1e2123fa65ee31565f9c1b98e2478fbdf1bef",
+          "emitted_at_utc": "2026-11-12T09:16:57.910261+00:00",
+          "read_at_utc": "2026-11-12T09:17:07.263131+00:00"
+        }
+      ],
+      "full_read": true,
+      "full_read_completed_at_utc": "2026-11-12T09:17:07.263131+00:00",
+      "reader_attestation": "Read by this reviewer, every line of every listed chunk, untruncated; output files preserve the exact displayed numbered text."
+    },
+    {
+      "id": 31,
+      "path": "specs/200-windows-desktop-app/checklists/t125-main-window-placement.md",
+      "source_sha256": "68871ce5c8eea11dde779948fda482458d00559922636bc9802cfb7e66c3aa6c",
+      "bytes": 10087,
+      "lines": 87,
+      "chunks": [
+        {
+          "start": 1,
+          "end": 87,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/31-01.txt",
+          "output_sha256": "1475e5f9988127f58b442c3a0eefe3c1e2818363ddf9f818e5fddd143ca5d9e1",
+          "emitted_at_utc": "2026-11-12T09:16:57.912010+00:00",
+          "read_at_utc": "2026-11-12T09:17:17.862959+00:00"
+        }
+      ],
+      "full_read": true,
+      "full_read_completed_at_utc": "2026-11-12T09:17:17.862959+00:00",
+      "reader_attestation": "Read by this reviewer, every line of every listed chunk, untruncated; output files preserve the exact displayed numbered text."
+    },
+    {
+      "id": 32,
+      "path": "specs/200-windows-desktop-app/checklists/t126-selected-microphone-loss.md",
+      "source_sha256": "30fe523b0b162687dab617f447fafb91e63e858c3c8b6ca29d169802ae1f0bc0",
+      "bytes": 20588,
+      "lines": 185,
+      "chunks": [
+        {
+          "start": 1,
+          "end": 185,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/32-01.txt",
+          "output_sha256": "725e19a1875261822dbf99d22124153b7f4b11cd4822b9535613fd8e7b5e65e4",
+          "emitted_at_utc": "2026-11-12T09:16:57.913305+00:00",
+          "read_at_utc": "2026-11-12T09:17:33.985768+00:00"
+        }
+      ],
+      "full_read": true,
+      "full_read_completed_at_utc": "2026-11-12T09:17:33.985768+00:00",
+      "reader_attestation": "Read by this reviewer, every line of every listed chunk, untruncated; output files preserve the exact displayed numbered text."
+    },
+    {
+      "id": 33,
+      "path": "specs/200-windows-desktop-app/checklists/analyze-2026-11-10-t125.md",
+      "source_sha256": "b415160b1c69361644f3d46cb3a6de6978c3563b069c876c07991ee735a67128",
+      "bytes": 2248,
+      "lines": 23,
+      "chunks": [
+        {
+          "start": 1,
+          "end": 23,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/33-01.txt",
+          "output_sha256": "a3a7bf9fa267183421fe3475f7a5e50c3d32cc130a78899320bf36aea805b947",
+          "emitted_at_utc": "2026-11-12T09:16:57.914729+00:00",
+          "read_at_utc": "2026-11-12T09:17:07.263419+00:00"
+        }
+      ],
+      "full_read": true,
+      "full_read_completed_at_utc": "2026-11-12T09:17:07.263419+00:00",
+      "reader_attestation": "Read by this reviewer, every line of every listed chunk, untruncated; output files preserve the exact displayed numbered text."
+    },
+    {
+      "id": 34,
+      "path": "specs/200-windows-desktop-app/checklists/analyze-2026-11-10-t126.md",
+      "source_sha256": "1066f32f404e5eccf7beed778ccbd34e19c26ac15223ea4382995d50cf419131",
+      "bytes": 3113,
+      "lines": 20,
+      "chunks": [
+        {
+          "start": 1,
+          "end": 20,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/34-01.txt",
+          "output_sha256": "736b80b5184c287636bfcdd7e1fbabe6ebe54e4411103a9155cfb14ce16a5e90",
+          "emitted_at_utc": "2026-11-12T09:16:57.915866+00:00",
+          "read_at_utc": "2026-11-12T09:17:07.263467+00:00"
+        }
+      ],
+      "full_read": true,
+      "full_read_completed_at_utc": "2026-11-12T09:17:07.263467+00:00",
+      "reader_attestation": "Read by this reviewer, every line of every listed chunk, untruncated; output files preserve the exact displayed numbered text."
+    },
+    {
+      "path": "specs/200-windows-desktop-app/spec.md",
+      "source_sha256": "5170a16b0484af3ac40cdaa79fd5b2e8e8fd31335483fccc5cc27f1ac447fa40",
+      "bytes": 126544,
+      "lines": 1291,
+      "revision": 2,
+      "supersedes_document_id": 15,
+      "full_read": true,
+      "chunks": [
+        {
+          "start": 1,
+          "end": 248,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/35-01.txt",
+          "output_sha256": "970d3064998780bd1b3a5a66a00d86e02cd40f17bf4496278df00bf0dc921400",
+          "emitted_at_utc": "2026-11-12T09:21:23.176073+00:00",
+          "read_at_utc": "2026-11-12T09:21:30.289381+00:00"
+        },
+        {
+          "start": 249,
+          "end": 478,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/35-02.txt",
+          "output_sha256": "5153ccc3aab0002f4c394aa714063e4ba8103affb0ffe061d6dfbdf958e009fa",
+          "emitted_at_utc": "2026-11-12T09:21:30.291119+00:00",
+          "read_at_utc": "2026-11-12T09:21:37.801116+00:00"
+        },
+        {
+          "start": 479,
+          "end": 693,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/35-03.txt",
+          "output_sha256": "5e7698de1ccb4bcbaf2ffbcd34f202a9670f8fa4b0dcece3cb5f6f0c526c41b0",
+          "emitted_at_utc": "2026-11-12T09:21:37.803330+00:00",
+          "read_at_utc": "2026-11-12T09:21:47.759545+00:00"
+        },
+        {
+          "start": 694,
+          "end": 933,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/35-04.txt",
+          "output_sha256": "3d7ff17aca6378d2d2f2eb9e3aecdd0d47d014df78b67e05ffa0eaf40f207304",
+          "emitted_at_utc": "2026-11-12T09:21:47.762056+00:00",
+          "read_at_utc": "2026-11-12T09:21:56.171599+00:00"
+        },
+        {
+          "start": 934,
+          "end": 1162,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/35-05.txt",
+          "output_sha256": "60dc683a7ee968764494b2de564596b0ac5c17292dea956ef397a3014d356fc4",
+          "emitted_at_utc": "2026-11-12T09:21:56.173130+00:00",
+          "read_at_utc": "2026-11-12T09:22:04.876537+00:00"
+        },
+        {
+          "start": 1163,
+          "end": 1291,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/35-06.txt",
+          "output_sha256": "083e59cd0053b1a923b109b4b17d4905c01f8e68253135613d131c6994af0925",
+          "emitted_at_utc": "2026-11-12T09:22:04.878292+00:00",
+          "read_at_utc": "2026-11-12T09:22:17.714460+00:00"
+        }
+      ],
+      "full_read_completed_at_utc": "2026-11-12T09:22:17.714460+00:00",
+      "reader_attestation": "Read by this reviewer, every line of every listed chunk, untruncated; output files preserve the exact displayed numbered text."
+    },
+    {
+      "path": "specs/200-windows-desktop-app/plan.md",
+      "source_sha256": "ef87d17ef24f896856b10e46c01643f79c349c504cc0eac58f0ccbc30d7e37dc",
+      "bytes": 532450,
+      "lines": 5535,
+      "revision": 2,
+      "supersedes_document_id": 16,
+      "full_read": true,
+      "chunks": [
+        {
+          "start": 1,
+          "end": 233,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/36-01.txt",
+          "output_sha256": "d6e71eb6fa26afd1faf3fb4a259177b8718ee9984469a4f65db9b7b0e0e95304",
+          "emitted_at_utc": "2026-11-12T09:22:17.718184+00:00",
+          "read_at_utc": "2026-11-12T09:22:25.666126+00:00"
+        },
+        {
+          "start": 234,
+          "end": 542,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/36-02.txt",
+          "output_sha256": "65797905fc5fe1989368a042e298e8230d5e5dafc6aee0bcdbe7caa565f0bb1d",
+          "emitted_at_utc": "2026-11-12T09:22:25.668889+00:00",
+          "read_at_utc": "2026-11-12T09:25:47.526406+00:00"
+        },
+        {
+          "start": 543,
+          "end": 755,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/36-03.txt",
+          "output_sha256": "640796acd683f85813e5c790191bd429e0449ad087c31366489a88e7e00d53fb",
+          "emitted_at_utc": "2026-11-12T09:25:47.532238+00:00",
+          "read_at_utc": "2026-11-12T09:26:01.788876+00:00"
+        },
+        {
+          "start": 756,
+          "end": 968,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/36-04.txt",
+          "output_sha256": "795a015cc987a1b0321cbe76d8a41a0c534e785744ed195636c96e625a6b57b2",
+          "emitted_at_utc": "2026-11-12T09:26:01.798324+00:00",
+          "read_at_utc": "2026-11-12T09:26:11.043118+00:00"
+        },
+        {
+          "start": 969,
+          "end": 1204,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/36-05.txt",
+          "output_sha256": "124249de230e31010677fd15b3411267f77a1fa6521355a54f73f2b51fb8e7bb",
+          "emitted_at_utc": "2026-11-12T09:26:11.048959+00:00",
+          "read_at_utc": "2026-11-12T09:26:28.814276+00:00"
+        },
+        {
+          "start": 1205,
+          "end": 1426,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/36-06.txt",
+          "output_sha256": "e1670e16261aad0ce2a35996cc5f78bd6b82ee942afff3ce54109a1741f8c544",
+          "emitted_at_utc": "2026-11-12T09:26:28.819090+00:00",
+          "read_at_utc": "2026-11-12T09:26:51.617910+00:00"
+        },
+        {
+          "start": 1427,
+          "end": 1663,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/36-07.txt",
+          "output_sha256": "2705f63d3d3470f28b9a23a17a94bee61012b9e9b377874570d0f92bea79780a",
+          "emitted_at_utc": "2026-11-12T09:26:51.621388+00:00",
+          "read_at_utc": "2026-11-12T09:26:58.155896+00:00"
+        },
+        {
+          "start": 1664,
+          "end": 1880,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/36-08.txt",
+          "output_sha256": "155706a885b24116159b66e37af1f0ae4b9dcf5ebbbe9078041af7dd24451b3a",
+          "emitted_at_utc": "2026-11-12T09:26:58.159037+00:00",
+          "read_at_utc": "2026-11-12T09:27:10.016316+00:00"
+        },
+        {
+          "start": 1881,
+          "end": 2107,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/36-09.txt",
+          "output_sha256": "d532e934086947b4f36d2955f192d21ff4433263162c052c36ec44a74c68eccd",
+          "emitted_at_utc": "2026-11-12T09:27:10.020625+00:00",
+          "read_at_utc": "2026-11-12T09:27:16.353071+00:00"
+        },
+        {
+          "start": 2108,
+          "end": 2331,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/36-10.txt",
+          "output_sha256": "b308515788568d29c33e0c0231b66a079d5436d5067344178701b89bde20d855",
+          "emitted_at_utc": "2026-11-12T09:27:16.357074+00:00",
+          "read_at_utc": "2026-11-12T09:28:10.259017+00:00"
+        },
+        {
+          "start": 2332,
+          "end": 2547,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/36-11.txt",
+          "output_sha256": "634728d0c2ae70319125d1526705a68444a8e7b6e06f8ce602467901a801d0e3",
+          "emitted_at_utc": "2026-11-12T09:28:10.264249+00:00",
+          "read_at_utc": "2026-11-12T09:28:17.363339+00:00"
+        },
+        {
+          "start": 2548,
+          "end": 2757,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/36-12.txt",
+          "output_sha256": "d24d41bca4c4065d7c56e9333fb038a178ee83fca13326746769e331fb113f40",
+          "emitted_at_utc": "2026-11-12T09:28:17.372333+00:00",
+          "read_at_utc": "2026-11-12T09:28:24.752152+00:00"
+        },
+        {
+          "start": 2758,
+          "end": 2963,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/36-13.txt",
+          "output_sha256": "a328e2ec40b2d78fd4e92a4cdec4402765b0b590e173831768b1aca56ca09444",
+          "emitted_at_utc": "2026-11-12T09:28:24.756721+00:00",
+          "read_at_utc": "2026-11-12T09:28:32.165499+00:00"
+        },
+        {
+          "start": 2964,
+          "end": 3182,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/36-14.txt",
+          "output_sha256": "d001cc21f2e6ffd2ea59760def95d29396d4c229054edfafc2b6ae3d0efa4a9f",
+          "emitted_at_utc": "2026-11-12T09:28:32.170641+00:00",
+          "read_at_utc": "2026-11-12T09:28:39.742662+00:00"
+        },
+        {
+          "start": 3183,
+          "end": 3397,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/36-15.txt",
+          "output_sha256": "c1ccdc0f83317e3579cbf299f8292c41ac69a8b4b29fddbfc2f4eb7f60eceec5",
+          "emitted_at_utc": "2026-11-12T09:28:39.776339+00:00",
+          "read_at_utc": "2026-11-12T09:28:48.255049+00:00"
+        },
+        {
+          "start": 3398,
+          "end": 3622,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/36-16.txt",
+          "output_sha256": "ca8e64c41270296cb1ba7e6407da7f743f9362cd1fcc781dcbc2581abed80ca7",
+          "emitted_at_utc": "2026-11-12T09:28:48.260402+00:00",
+          "read_at_utc": "2026-11-12T09:28:55.790877+00:00"
+        },
+        {
+          "start": 3623,
+          "end": 3845,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/36-17.txt",
+          "output_sha256": "1e1c2b91b7231b65471b0a936961d06acd37dca9993217fa4c27c8083e309630",
+          "emitted_at_utc": "2026-11-12T09:28:55.796371+00:00",
+          "read_at_utc": "2026-11-12T09:29:05.147642+00:00"
+        },
+        {
+          "start": 3846,
+          "end": 4063,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/36-18.txt",
+          "output_sha256": "bc9acbc68f2a11ffafb9452e97f44aa75e408c9096f97458e97ee7a421a47483",
+          "emitted_at_utc": "2026-11-12T09:29:05.153455+00:00",
+          "read_at_utc": "2026-11-12T09:29:11.834504+00:00"
+        },
+        {
+          "start": 4064,
+          "end": 4296,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/36-19.txt",
+          "output_sha256": "75eb6ef67018a44287867ac069898d9762d743833cbb53cdad81ad69f9d03024",
+          "emitted_at_utc": "2026-11-12T09:29:11.840543+00:00",
+          "read_at_utc": "2026-11-12T09:29:21.261327+00:00"
+        },
+        {
+          "start": 4297,
+          "end": 4539,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/36-20.txt",
+          "output_sha256": "308be5cdd3de3176e154763846cfee50a33a09b167c96f6c9f53c74169bda965",
+          "emitted_at_utc": "2026-11-12T09:29:21.269155+00:00",
+          "read_at_utc": "2026-11-12T09:29:30.525867+00:00"
+        },
+        {
+          "start": 4540,
+          "end": 4783,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/36-21.txt",
+          "output_sha256": "5591ecb1287f99ce7ea45f039a09407a2dc82a44c9a2d438daeb247b062b76ca",
+          "emitted_at_utc": "2026-11-12T09:29:30.534251+00:00",
+          "read_at_utc": "2026-11-12T09:29:39.110168+00:00"
+        },
+        {
+          "start": 4784,
+          "end": 5035,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/36-22.txt",
+          "output_sha256": "6be62f7c4f8a86b2b015c11433784d395b5e2cdda5bebd4438ea86d09565e3f3",
+          "emitted_at_utc": "2026-11-12T09:29:39.119099+00:00",
+          "read_at_utc": "2026-11-12T09:29:51.413558+00:00"
+        },
+        {
+          "start": 5036,
+          "end": 5287,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/36-23.txt",
+          "output_sha256": "93e304278abd7a9fc6f534b23d512eb5ba10d9aeb806d45ead55746038a196b2",
+          "emitted_at_utc": "2026-11-12T09:29:51.423013+00:00",
+          "read_at_utc": "2026-11-12T09:30:04.655889+00:00"
+        },
+        {
+          "start": 5288,
+          "end": 5514,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/36-24.txt",
+          "output_sha256": "f10b4f4b94ad9dac6ce64dd810cdc7c1bddb247907298105f48cd25ef192dafd",
+          "emitted_at_utc": "2026-11-12T09:30:04.662227+00:00",
+          "read_at_utc": "2026-11-12T09:30:12.178124+00:00"
+        },
+        {
+          "start": 5515,
+          "end": 5535,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/36-25.txt",
+          "output_sha256": "dee00f04cb0e1913a70a31d26c32be677eabe623480915f6ec4bebd02bbad448",
+          "emitted_at_utc": "2026-11-12T09:30:12.182455+00:00",
+          "read_at_utc": "2026-11-12T09:30:23.404430+00:00"
+        }
+      ],
+      "full_read_completed_at_utc": "2026-11-12T09:30:23.404430+00:00",
+      "reader_attestation": "Read by this reviewer, every line of every listed chunk, untruncated; output files preserve the exact displayed numbered text."
+    },
+    {
+      "path": "specs/200-windows-desktop-app/tasks.md",
+      "source_sha256": "97cfa22691b6a8d50a25a90372fedc180ceff3d21c7b503f58188fae990fd5a6",
+      "bytes": 198597,
+      "lines": 809,
+      "revision": 2,
+      "supersedes_document_id": 17,
+      "full_read": true,
+      "chunks": [
+        {
+          "start": 1,
+          "end": 176,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/37-01.txt",
+          "output_sha256": "76046c6aa0a52871460028b4230830a7b6826e4bfe125d5463736b2b9c87b909",
+          "emitted_at_utc": "2026-11-12T09:30:23.409656+00:00",
+          "read_at_utc": "2026-11-12T09:30:32.922579+00:00"
+        },
+        {
+          "start": 177,
+          "end": 317,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/37-02.txt",
+          "output_sha256": "c6a27910ce79c9189998e0ff8640f80ff59d223b6c623db40a2649205c43b41c",
+          "emitted_at_utc": "2026-11-12T09:30:32.926670+00:00",
+          "read_at_utc": "2026-11-12T09:30:43.999327+00:00"
+        },
+        {
+          "start": 318,
+          "end": 355,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/37-03.txt",
+          "output_sha256": "207c4e5d879f96649c0042ac65d78295ce979ee6c56e89cde61601cc161d969a",
+          "emitted_at_utc": "2026-11-12T09:30:44.005634+00:00",
+          "read_at_utc": "2026-11-12T09:30:52.594156+00:00"
+        },
+        {
+          "start": 356,
+          "end": 356,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/37-04.txt",
+          "output_sha256": "f15f4bc208b9f4e1b0353a824c1ebb57b3d531f2df809ec98fb20580521e621b",
+          "emitted_at_utc": "2026-11-12T09:30:52.597373+00:00",
+          "read_at_utc": "2026-11-12T09:31:02.015205+00:00"
+        },
+        {
+          "start": 357,
+          "end": 394,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/37-05.txt",
+          "output_sha256": "455ee7a6e7f922399ee84f77d8d46b1febb3ace46a8e1782d1ed86a71064878b",
+          "emitted_at_utc": "2026-11-12T09:31:02.018689+00:00",
+          "read_at_utc": "2026-11-12T09:31:12.184383+00:00"
+        },
+        {
+          "start": 395,
+          "end": 459,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/37-06.txt",
+          "output_sha256": "c1e6eb0656931d24fa5e6c09a808bd623725281a750f2bd78bc63c4678cc088a",
+          "emitted_at_utc": "2026-11-12T09:31:12.189633+00:00",
+          "read_at_utc": "2026-11-12T09:31:22.375080+00:00"
+        },
+        {
+          "start": 460,
+          "end": 607,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/37-07.txt",
+          "output_sha256": "9f8189c0467177cdac5c7bc57117c2e44fb1ad5b9c900c06c95982ade230c2b8",
+          "emitted_at_utc": "2026-11-12T09:31:22.378643+00:00",
+          "read_at_utc": "2026-11-12T09:31:30.218376+00:00"
+        },
+        {
+          "start": 608,
+          "end": 702,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/37-08.txt",
+          "output_sha256": "1ef68dda87889bbe67af46b01a97ddfd33521a25008efb2a066cd428c6f3c35e",
+          "emitted_at_utc": "2026-11-12T09:31:30.223776+00:00",
+          "read_at_utc": "2026-11-12T09:31:38.799137+00:00"
+        },
+        {
+          "start": 703,
+          "end": 809,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/37-09.txt",
+          "output_sha256": "cac6b4ceb328a052bd328752cd64575e812ed38bc960f6bc63d8a38c44c73b40",
+          "emitted_at_utc": "2026-11-12T09:31:38.802478+00:00",
+          "read_at_utc": "2026-11-12T09:32:16.502423+00:00"
+        }
+      ],
+      "full_read_completed_at_utc": "2026-11-12T09:32:16.502423+00:00",
+      "reader_attestation": "Read by this reviewer, every line of every listed chunk, untruncated; output files preserve the exact displayed numbered text."
+    },
+    {
+      "path": "specs/200-windows-desktop-app/quickstart.md",
+      "source_sha256": "016f264fea95f7a755fa03c32db8bd9db66756e325f1ed8c771643cba50355ec",
+      "bytes": 346128,
+      "lines": 3370,
+      "revision": 2,
+      "supersedes_document_id": 18,
+      "full_read": false,
+      "chunks": [
+        {
+          "start": 1,
+          "end": 259,
+          "read": false
+        },
+        {
+          "start": 260,
+          "end": 514,
+          "read": false
+        },
+        {
+          "start": 515,
+          "end": 794,
+          "read": false
+        },
+        {
+          "start": 795,
+          "end": 983,
+          "read": false
+        },
+        {
+          "start": 984,
+          "end": 1148,
+          "read": false
+        },
+        {
+          "start": 1149,
+          "end": 1388,
+          "read": false
+        },
+        {
+          "start": 1389,
+          "end": 1606,
+          "read": false
+        },
+        {
+          "start": 1607,
+          "end": 1837,
+          "read": false
+        },
+        {
+          "start": 1838,
+          "end": 2073,
+          "read": false
+        },
+        {
+          "start": 2074,
+          "end": 2230,
+          "read": false
+        },
+        {
+          "start": 2231,
+          "end": 2400,
+          "read": false
+        },
+        {
+          "start": 2401,
+          "end": 2616,
+          "read": false
+        },
+        {
+          "start": 2617,
+          "end": 2877,
+          "read": false
+        },
+        {
+          "start": 2878,
+          "end": 3068,
+          "read": false
+        },
+        {
+          "start": 3069,
+          "end": 3313,
+          "read": false
+        },
+        {
+          "start": 3314,
+          "end": 3370,
+          "read": false
+        }
+      ],
+      "superseded_before_read": true
+    },
+    {
+      "path": "specs/200-windows-desktop-app/release-execution-plan.md",
+      "source_sha256": "01f8d5172d4dd4b55c212370d6ed36b42d055f771d79843b2e8968399d765d53",
+      "bytes": 264767,
+      "lines": 2530,
+      "revision": 2,
+      "supersedes_document_id": 28,
+      "full_read": false,
+      "chunks": [
+        {
+          "start": 1,
+          "end": 187,
+          "read": false
+        },
+        {
+          "start": 188,
+          "end": 403,
+          "read": false
+        },
+        {
+          "start": 404,
+          "end": 634,
+          "read": false
+        },
+        {
+          "start": 635,
+          "end": 879,
+          "read": false
+        },
+        {
+          "start": 880,
+          "end": 1123,
+          "read": false
+        },
+        {
+          "start": 1124,
+          "end": 1369,
+          "read": false
+        },
+        {
+          "start": 1370,
+          "end": 1633,
+          "read": false
+        },
+        {
+          "start": 1634,
+          "end": 1825,
+          "read": false
+        },
+        {
+          "start": 1826,
+          "end": 2083,
+          "read": false
+        },
+        {
+          "start": 2084,
+          "end": 2364,
+          "read": false
+        },
+        {
+          "start": 2365,
+          "end": 2530,
+          "read": false
+        }
+      ],
+      "superseded_before_read": true
+    },
+    {
+      "path": "specs/200-windows-desktop-app/quickstart.md",
+      "source_sha256": "b66566ef11ba9efb3bc64c0dae3c041188b98033b9022570de4872b9462e4412",
+      "bytes": 346144,
+      "lines": 3370,
+      "revision": 3,
+      "supersedes_document_id": 38,
+      "full_read": true,
+      "chunks": [
+        {
+          "start": 1,
+          "end": 259,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/40-01.txt",
+          "output_sha256": "4e69cf7017c1a0c3702cae85634ba3b5254434722efc46abd4fdc446d6dd00d8",
+          "emitted_at_utc": "2026-11-12T09:32:26.254813+00:00",
+          "read_at_utc": "2026-11-12T09:32:37.290136+00:00"
+        },
+        {
+          "start": 260,
+          "end": 514,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/40-02.txt",
+          "output_sha256": "6faf7349df012aeb80e1b9d8951b372fccd26f823288139863031ca72c1d0779",
+          "emitted_at_utc": "2026-11-12T09:32:37.293593+00:00",
+          "read_at_utc": "2026-11-12T09:32:53.202740+00:00"
+        },
+        {
+          "start": 515,
+          "end": 794,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/40-03.txt",
+          "output_sha256": "253af56903c30be52df95be218cacab7b4ad9b63aee6fce8175b14310dde66c1",
+          "emitted_at_utc": "2026-11-12T09:32:53.206782+00:00",
+          "read_at_utc": "2026-11-12T09:33:02.172431+00:00"
+        },
+        {
+          "start": 795,
+          "end": 983,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/40-04.txt",
+          "output_sha256": "3619c0844fb147ca71e3b602187b6f8e58b84eb2eb76885e874623df3337fa73",
+          "emitted_at_utc": "2026-11-12T09:33:02.175801+00:00",
+          "read_at_utc": "2026-11-12T09:33:10.848920+00:00"
+        },
+        {
+          "start": 984,
+          "end": 1148,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/40-05.txt",
+          "output_sha256": "cf2821db0d915e628edbfa2ca74a84c400bfb6e3f42473ed204026ceb5ad5154",
+          "emitted_at_utc": "2026-11-12T09:33:10.852585+00:00",
+          "read_at_utc": "2026-11-12T09:33:19.231046+00:00"
+        },
+        {
+          "start": 1149,
+          "end": 1388,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/40-06.txt",
+          "output_sha256": "df98b49fe1f19910628a10658caf23970e3539d4218357df7c2dc4ebcce91c13",
+          "emitted_at_utc": "2026-11-12T09:33:19.234691+00:00",
+          "read_at_utc": "2026-11-12T09:33:32.480322+00:00"
+        },
+        {
+          "start": 1389,
+          "end": 1606,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/40-07.txt",
+          "output_sha256": "64aa58e62467c408177b04a7edd5b04f6d22e2350ba89b49dff80f3c4b08e564",
+          "emitted_at_utc": "2026-11-12T09:33:32.490003+00:00",
+          "read_at_utc": "2026-11-12T09:33:42.418869+00:00"
+        },
+        {
+          "start": 1607,
+          "end": 1837,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/40-08.txt",
+          "output_sha256": "22f64c860f7fa4e63212f50b8b9225482a78bc8bc28922b11168879933468ae6",
+          "emitted_at_utc": "2026-11-12T09:33:42.421848+00:00",
+          "read_at_utc": "2026-11-12T09:33:51.920874+00:00"
+        },
+        {
+          "start": 1838,
+          "end": 2073,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/40-09.txt",
+          "output_sha256": "4241459cdb248be1a72982fcc8c915eb29fc0d66d714a80d8875b111e3d6c18f",
+          "emitted_at_utc": "2026-11-12T09:33:51.925222+00:00",
+          "read_at_utc": "2026-11-12T09:34:03.424713+00:00"
+        },
+        {
+          "start": 2074,
+          "end": 2230,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/40-10.txt",
+          "output_sha256": "caa7045badbd68e021d52cdd5362a1e5900867eac818c9426e6eb3e266a264a3",
+          "emitted_at_utc": "2026-11-12T09:34:03.428161+00:00",
+          "read_at_utc": "2026-11-12T09:34:13.698471+00:00"
+        },
+        {
+          "start": 2231,
+          "end": 2400,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/40-11.txt",
+          "output_sha256": "e6afc642b6eee5a5cae77b5313a35163a9a886cd7ff96bff9d4f5ef4fdc16b7f",
+          "emitted_at_utc": "2026-11-12T09:34:13.702372+00:00",
+          "read_at_utc": "2026-11-12T09:34:54.259027+00:00"
+        },
+        {
+          "start": 2401,
+          "end": 2616,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/40-12.txt",
+          "output_sha256": "0b2bfa7ab5ef955cc785909cd9d3d55b8b338c9a94988b60a8f0d199ba5eefab",
+          "emitted_at_utc": "2026-11-12T09:34:54.262584+00:00",
+          "read_at_utc": "2026-11-12T09:35:03.943807+00:00"
+        },
+        {
+          "start": 2617,
+          "end": 2877,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/40-13.txt",
+          "output_sha256": "f812b7aa6f4e1b294477a671db1eded94e7d9796659918de318ead17efc20001",
+          "emitted_at_utc": "2026-11-12T09:35:03.947957+00:00",
+          "read_at_utc": "2026-11-12T09:37:53.826975+00:00"
+        },
+        {
+          "start": 2878,
+          "end": 3068,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/40-14.txt",
+          "output_sha256": "4385b96085cf419612b131c8902cfdb40ea71c437e504229359601931ae14dba",
+          "emitted_at_utc": "2026-11-12T09:37:53.829798+00:00",
+          "read_at_utc": "2026-11-12T09:38:00.288667+00:00"
+        },
+        {
+          "start": 3069,
+          "end": 3313,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/40-15.txt",
+          "output_sha256": "09b447caf643c6859c180cd54b82695d860133528f72aa966e4a1b18165b833b",
+          "emitted_at_utc": "2026-11-12T09:38:00.292451+00:00",
+          "read_at_utc": "2026-11-12T09:38:07.285101+00:00"
+        },
+        {
+          "start": 3314,
+          "end": 3370,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/40-16.txt",
+          "output_sha256": "397c423b458eafa54aaf92514f3deb937f4d8e3f27f26d0f3a0371f46b812784",
+          "emitted_at_utc": "2026-11-12T09:38:07.287852+00:00",
+          "read_at_utc": "2026-11-12T09:38:13.321634+00:00"
+        }
+      ],
+      "full_read_completed_at_utc": "2026-11-12T09:38:13.321634+00:00",
+      "reader_attestation": "Read by this reviewer, every line of every listed chunk, untruncated; output files preserve the exact displayed numbered text."
+    },
+    {
+      "path": "specs/200-windows-desktop-app/release-execution-plan.md",
+      "source_sha256": "b26e35ce15997011a845b674a99607e3002f5291c534c5c8f76a9f81f12e4677",
+      "bytes": 264771,
+      "lines": 2530,
+      "revision": 3,
+      "supersedes_document_id": 39,
+      "full_read": true,
+      "chunks": [
+        {
+          "start": 1,
+          "end": 187,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/41-01.txt",
+          "output_sha256": "47595ea5a91d889d9a1884f2bc58651fe230fd342b18be2adf85c8810fb5b3d9",
+          "emitted_at_utc": "2026-11-12T09:38:13.327426+00:00",
+          "read_at_utc": "2026-11-12T09:38:19.385815+00:00"
+        },
+        {
+          "start": 188,
+          "end": 403,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/41-02.txt",
+          "output_sha256": "4198d19520f9c7813cfe35ed4c5fc8b814b654a128ee39f43448f045ff052160",
+          "emitted_at_utc": "2026-11-12T09:38:19.389090+00:00",
+          "read_at_utc": "2026-11-12T09:38:26.823446+00:00"
+        },
+        {
+          "start": 404,
+          "end": 634,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/41-03.txt",
+          "output_sha256": "d28eaf530b8e71c32f0c9bf4f81586eca458e6de7da052464bd1b39f5ef7b4cb",
+          "emitted_at_utc": "2026-11-12T09:38:26.825669+00:00",
+          "read_at_utc": "2026-11-12T09:38:33.570552+00:00"
+        },
+        {
+          "start": 635,
+          "end": 879,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/41-04.txt",
+          "output_sha256": "10c8f1e66e992e0d81a7120ebe8d3456743cc28f6cf80028912cc3c94c615615",
+          "emitted_at_utc": "2026-11-12T09:38:33.573826+00:00",
+          "read_at_utc": "2026-11-12T09:38:40.683043+00:00"
+        },
+        {
+          "start": 880,
+          "end": 1123,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/41-05.txt",
+          "output_sha256": "7ef5eff25c53e21ce60dee0afe1962b1316fb2adbd2a45df722fd1829b5b8d47",
+          "emitted_at_utc": "2026-11-12T09:38:40.685410+00:00",
+          "read_at_utc": "2026-11-12T09:38:50.496636+00:00"
+        },
+        {
+          "start": 1124,
+          "end": 1369,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/41-06.txt",
+          "output_sha256": "a6119e91a55687ddbc58cc2770a220d210a963e66d6e66730be3f81919d4de9d",
+          "emitted_at_utc": "2026-11-12T09:38:50.499655+00:00",
+          "read_at_utc": "2026-11-12T09:38:58.897926+00:00"
+        },
+        {
+          "start": 1370,
+          "end": 1633,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/41-07.txt",
+          "output_sha256": "c8f1ef6db0eff04dbf3b02891b51f8d92383e81cb2443c3681828ec157c6b4a4",
+          "emitted_at_utc": "2026-11-12T09:38:58.900309+00:00",
+          "read_at_utc": "2026-11-12T09:39:05.629233+00:00"
+        },
+        {
+          "start": 1634,
+          "end": 1825,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/41-08.txt",
+          "output_sha256": "69df9abd2261c0fcef88aad6a7d2fefca5a45247362401421e62fad80b1612ab",
+          "emitted_at_utc": "2026-11-12T09:39:05.633198+00:00",
+          "read_at_utc": "2026-11-12T09:39:12.483522+00:00"
+        },
+        {
+          "start": 1826,
+          "end": 2083,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/41-09.txt",
+          "output_sha256": "6b53d139a9674aeb51abb595e535513a128258348c2d2f78cde0785e2df2ba0a",
+          "emitted_at_utc": "2026-11-12T09:39:12.486269+00:00",
+          "read_at_utc": "2026-11-12T09:39:19.761746+00:00"
+        },
+        {
+          "start": 2084,
+          "end": 2364,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/41-10.txt",
+          "output_sha256": "27cf5eed74ce3349f76098eabd554648298be7b197420870d24dfda9bd00bf56",
+          "emitted_at_utc": "2026-11-12T09:39:19.765277+00:00",
+          "read_at_utc": "2026-11-12T09:39:26.098809+00:00"
+        },
+        {
+          "start": 2365,
+          "end": 2530,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/41-11.txt",
+          "output_sha256": "68d5b943488aaafcad3f7af70f6c5a3f1881134d72e6ed72be5bdf0475c41745",
+          "emitted_at_utc": "2026-11-12T09:39:26.101193+00:00",
+          "read_at_utc": "2026-11-12T09:39:35.771793+00:00"
+        }
+      ],
+      "full_read_completed_at_utc": "2026-11-12T09:39:35.771793+00:00",
+      "reader_attestation": "Read by this reviewer, every line of every listed chunk, untruncated; output files preserve the exact displayed numbered text."
+    },
+    {
+      "id": 42,
+      "path": "specs/200-windows-desktop-app/checklists/t124-public-windows-delivery.md",
+      "source_sha256": "be3c05939441a47f49029e166cc7f2437ba64f2ab22464cf42e05a76359f577f",
+      "bytes": 15534,
+      "lines": 108,
+      "chunks": [
+        {
+          "start": 1,
+          "end": 108,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/42-01.txt",
+          "output_sha256": "a2bb7a1e546d9cfad0f37d27ea8097155d9e90fbe4464eb09dc37f1d11104191",
+          "emitted_at_utc": "2026-11-12T09:43:16.642224+00:00",
+          "read_at_utc": "2026-11-12T09:43:25.362672+00:00"
+        }
+      ],
+      "full_read": true,
+      "revision_reason": "Reviewer reread changed checklist after evidence-backed marks",
+      "full_read_completed_at_utc": "2026-11-12T09:43:25.362672+00:00",
+      "reader_attestation": "Read by this reviewer, every line of every listed chunk, untruncated; output files preserve the exact displayed numbered text."
+    },
+    {
+      "id": 43,
+      "path": "specs/200-windows-desktop-app/checklists/analyze-2026-11-12-owner-decision.md",
+      "source_sha256": "5448238125f8d976c90ebd7221976b3784230437396ce769bc2e3baed6766f4a",
+      "bytes": 22664,
+      "lines": 121,
+      "chunks": [
+        {
+          "start": 1,
+          "end": 60,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/43-01.txt",
+          "output_sha256": "1b4a1353c06fc436085ab9a5d8e7fad5c8f1f6a8ceb6bc30b66ce941903dabeb",
+          "emitted_at_utc": "2026-11-12T09:43:25.363812+00:00",
+          "read_at_utc": "2026-11-12T09:43:33.365342+00:00"
+        },
+        {
+          "start": 61,
+          "end": 121,
+          "read": true,
+          "output_path": "specs/200-windows-desktop-app/review-2026-11-12-reading-outputs/43-02.txt",
+          "output_sha256": "4892e170e3f1d1fd2d035611731720243d3d27b95d71140413213c79e914b8a8",
+          "emitted_at_utc": "2026-11-12T09:43:33.366906+00:00",
+          "read_at_utc": "2026-11-12T09:44:07.305180+00:00"
+        }
+      ],
+      "full_read": true,
+      "revision_reason": "New limited analyze by Pascal; supplemental evidence, own reading",
+      "full_read_completed_at_utc": "2026-11-12T09:44:07.305180+00:00",
+      "reader_attestation": "Read by this reviewer, every line of every listed chunk, untruncated; output files preserve the exact displayed numbered text."
+    }
+  ],
+  "verification": {
+    "at_utc": "2026-11-12T09:44:08.749804+00:00",
+    "documents_full": 41,
+    "unique_current_documents": 35,
+    "chunks_read": 208,
+    "source_lines": 45374,
+    "source_bytes": 4420766,
+    "exact_output_hashes_and_reconstructed_source_hashes": true,
+    "contiguous_coverage_through_eof": true,
+    "all_latest_current_hashes_match": true,
+    "superseded_before_read_ids": [
+      38,
+      39
+    ],
+    "scope": "Own full reading of mandatory34 originals, five final owner-decision revisions, changedT124 checklist and new scoped analyze; no new fullF200 acceptance.",
+    "truncation_recovery": "31.1/32.1 re-emitted individually before ACK; later truncated grouped restoration was not used as new full-read evidence. New analyze43 emitted in two complete portions."
+  },
+  "checkbox_inventory": {
+    "files_with_checkboxes": 72,
+    "markdown_files": 247,
+    "checked": 680,
+    "unchecked": 0,
+    "total": 680,
+    "files": [
+      {
+        "path": "specs/200-windows-desktop-app/checklists/advanced-routing.md",
+        "checked": 14,
+        "unchecked": 0,
+        "total": 14
+      },
+      {
+        "path": "specs/200-windows-desktop-app/checklists/audio-capture.md",
+        "checked": 24,
+        "unchecked": 0,
+        "total": 24
+      },
+      {
+        "path": "specs/200-windows-desktop-app/checklists/calendar-launcher.md",
+        "checked": 5,
+        "unchecked": 0,
+        "total": 5
+      },
+      {
+        "path": "specs/200-windows-desktop-app/checklists/calendar-operation.md",
+        "checked": 8,
+        "unchecked": 0,
+        "total": 8
+      },
+      {
+        "path": "specs/200-windows-desktop-app/checklists/calendar-wire.md",
+        "checked": 5,
+        "unchecked": 0,
+        "total": 5
+      },
+      {
+        "path": "specs/200-windows-desktop-app/checklists/cold-prefix-recovery.md",
+        "checked": 47,
+        "unchecked": 0,
+        "total": 47
+      },
+      {
+        "path": "specs/200-windows-desktop-app/checklists/packed-writer.md",
+        "checked": 12,
+        "unchecked": 0,
+        "total": 12
+      },
+      {
+        "path": "specs/200-windows-desktop-app/checklists/privacy-pause.md",
+        "checked": 12,
+        "unchecked": 0,
+        "total": 12
+      },
+      {
+        "path": "specs/200-windows-desktop-app/checklists/requirements.md",
+        "checked": 22,
+        "unchecked": 0,
+        "total": 22
+      },
+      {
+        "path": "specs/200-windows-desktop-app/checklists/review-2026-10-03-packed-tree-source.md",
+        "checked": 38,
+        "unchecked": 0,
+        "total": 38
+      },
+      {
+        "path": "specs/200-windows-desktop-app/checklists/review-2026-10-04-calendar-join-gate.md",
+        "checked": 12,
+        "unchecked": 0,
+        "total": 12
+      },
+      {
+        "path": "specs/200-windows-desktop-app/checklists/review-2026-10-04-calendar-resolver-gate.md",
+        "checked": 12,
+        "unchecked": 0,
+        "total": 12
+      },
+      {
+        "path": "specs/200-windows-desktop-app/checklists/review-2026-10-04-calendar-url-gate.md",
+        "checked": 12,
+        "unchecked": 0,
+        "total": 12
+      },
+      {
+        "path": "specs/200-windows-desktop-app/checklists/review-2026-10-04-manifest-cap-source.md",
+        "checked": 9,
+        "unchecked": 0,
+        "total": 9
+      },
+      {
+        "path": "specs/200-windows-desktop-app/checklists/review-2026-10-04-packed-cadence-gate.md",
+        "checked": 12,
+        "unchecked": 0,
+        "total": 12
+      },
+      {
+        "path": "specs/200-windows-desktop-app/checklists/review-2026-10-04-packed-cadence-source.md",
+        "checked": 18,
+        "unchecked": 0,
+        "total": 18
+      },
+      {
+        "path": "specs/200-windows-desktop-app/checklists/review-2026-10-04-packed-live-writer-gate.md",
+        "checked": 14,
+        "unchecked": 0,
+        "total": 14
+      },
+      {
+        "path": "specs/200-windows-desktop-app/checklists/review-2026-10-04-packed-live-writer-source.md",
+        "checked": 9,
+        "unchecked": 0,
+        "total": 9
+      },
+      {
+        "path": "specs/200-windows-desktop-app/checklists/review-2026-10-04-packed-package-gate.md",
+        "checked": 12,
+        "unchecked": 0,
+        "total": 12
+      },
+      {
+        "path": "specs/200-windows-desktop-app/checklists/review-2026-10-04-packed-reader-gate.md",
+        "checked": 20,
+        "unchecked": 0,
+        "total": 20
+      },
+      {
+        "path": "specs/200-windows-desktop-app/checklists/review-2026-10-04-packed-reader-source.md",
+        "checked": 9,
+        "unchecked": 0,
+        "total": 9
+      },
+      {
+        "path": "specs/200-windows-desktop-app/checklists/review-2026-10-04-packed-resize-gate.md",
+        "checked": 14,
+        "unchecked": 0,
+        "total": 14
+      },
+      {
+        "path": "specs/200-windows-desktop-app/checklists/review-2026-10-04-packed-resize-source.md",
+        "checked": 9,
+        "unchecked": 0,
+        "total": 9
+      },
+      {
+        "path": "specs/200-windows-desktop-app/checklists/review-2026-10-04-packed-rewrite-gate.md",
+        "checked": 16,
+        "unchecked": 0,
+        "total": 16
+      },
+      {
+        "path": "specs/200-windows-desktop-app/checklists/review-2026-10-04-packed-rewrite-source.md",
+        "checked": 9,
+        "unchecked": 0,
+        "total": 9
+      },
+      {
+        "path": "specs/200-windows-desktop-app/checklists/review-2026-10-04-packed-tail-gate.md",
+        "checked": 14,
+        "unchecked": 0,
+        "total": 14
+      },
+      {
+        "path": "specs/200-windows-desktop-app/checklists/review-2026-10-04-packed-tail-source.md",
+        "checked": 9,
+        "unchecked": 0,
+        "total": 9
+      },
+      {
+        "path": "specs/200-windows-desktop-app/checklists/review-2026-10-04-packed-writer-source.md",
+        "checked": 18,
+        "unchecked": 0,
+        "total": 18
+      },
+      {
+        "path": "specs/200-windows-desktop-app/checklists/review-2026-11-05-t117-missing-directory.md",
+        "checked": 10,
+        "unchecked": 0,
+        "total": 10
+      },
+      {
+        "path": "specs/200-windows-desktop-app/checklists/security.md",
+        "checked": 27,
+        "unchecked": 0,
+        "total": 27
+      },
+      {
+        "path": "specs/200-windows-desktop-app/checklists/start-owner-recovery.md",
+        "checked": 10,
+        "unchecked": 0,
+        "total": 10
+      },
+      {
+        "path": "specs/200-windows-desktop-app/checklists/t071-aec-reason.md",
+        "checked": 4,
+        "unchecked": 0,
+        "total": 4
+      },
+      {
+        "path": "specs/200-windows-desktop-app/checklists/t071-canonical-mix.md",
+        "checked": 5,
+        "unchecked": 0,
+        "total": 5
+      },
+      {
+        "path": "specs/200-windows-desktop-app/checklists/t088-session-platform.md",
+        "checked": 7,
+        "unchecked": 0,
+        "total": 7
+      },
+      {
+        "path": "specs/200-windows-desktop-app/checklists/t097-export-dialog-revocation.md",
+        "checked": 4,
+        "unchecked": 0,
+        "total": 4
+      },
+      {
+        "path": "specs/200-windows-desktop-app/checklists/t097-native-contrast.md",
+        "checked": 4,
+        "unchecked": 0,
+        "total": 4
+      },
+      {
+        "path": "specs/200-windows-desktop-app/checklists/t097-profile-decorative-labels.md",
+        "checked": 3,
+        "unchecked": 0,
+        "total": 3
+      },
+      {
+        "path": "specs/200-windows-desktop-app/checklists/t104-calendar-match-client-receipt.md",
+        "checked": 4,
+        "unchecked": 0,
+        "total": 4
+      },
+      {
+        "path": "specs/200-windows-desktop-app/checklists/t104-calendar-match-frozen-create.md",
+        "checked": 4,
+        "unchecked": 0,
+        "total": 4
+      },
+      {
+        "path": "specs/200-windows-desktop-app/checklists/t104-calendar-match-journal.md",
+        "checked": 3,
+        "unchecked": 0,
+        "total": 3
+      },
+      {
+        "path": "specs/200-windows-desktop-app/checklists/t104-calendar-match-queue-marker.md",
+        "checked": 3,
+        "unchecked": 0,
+        "total": 3
+      },
+      {
+        "path": "specs/200-windows-desktop-app/checklists/t104-calendar-match-receipt.md",
+        "checked": 3,
+        "unchecked": 0,
+        "total": 3
+      },
+      {
+        "path": "specs/200-windows-desktop-app/checklists/t104-calendar-match-scoped-get.md",
+        "checked": 4,
+        "unchecked": 0,
+        "total": 4
+      },
+      {
+        "path": "specs/200-windows-desktop-app/checklists/t104-calendar-match-session-device.md",
+        "checked": 4,
+        "unchecked": 0,
+        "total": 4
+      },
+      {
+        "path": "specs/200-windows-desktop-app/checklists/t104-calendar-match-strict-create.md",
+        "checked": 4,
+        "unchecked": 0,
+        "total": 4
+      },
+      {
+        "path": "specs/200-windows-desktop-app/checklists/t104-calendar-match-wire.md",
+        "checked": 3,
+        "unchecked": 0,
+        "total": 3
+      },
+      {
+        "path": "specs/200-windows-desktop-app/checklists/t104-calendar-receipt-queue.md",
+        "checked": 4,
+        "unchecked": 0,
+        "total": 4
+      },
+      {
+        "path": "specs/200-windows-desktop-app/checklists/t104-calendar-record-admission.md",
+        "checked": 3,
+        "unchecked": 0,
+        "total": 3
+      },
+      {
+        "path": "specs/200-windows-desktop-app/checklists/t104-calendar-replay-required.md",
+        "checked": 4,
+        "unchecked": 0,
+        "total": 4
+      },
+      {
+        "path": "specs/200-windows-desktop-app/checklists/t104-calendar-strict-replay.md",
+        "checked": 4,
+        "unchecked": 0,
+        "total": 4
+      },
+      {
+        "path": "specs/200-windows-desktop-app/checklists/t104-calendar-upload-admission.md",
+        "checked": 4,
+        "unchecked": 0,
+        "total": 4
+      },
+      {
+        "path": "specs/200-windows-desktop-app/checklists/t104-calendar-upload-finalize-fence.md",
+        "checked": 13,
+        "unchecked": 0,
+        "total": 13
+      },
+      {
+        "path": "specs/200-windows-desktop-app/checklists/t104-calendar-upload-part-fence.md",
+        "checked": 9,
+        "unchecked": 0,
+        "total": 9
+      },
+      {
+        "path": "specs/200-windows-desktop-app/checklists/t104-calendar-upload-revision.md",
+        "checked": 5,
+        "unchecked": 0,
+        "total": 5
+      },
+      {
+        "path": "specs/200-windows-desktop-app/checklists/t104-forward-runtime.md",
+        "checked": 7,
+        "unchecked": 0,
+        "total": 7
+      },
+      {
+        "path": "specs/200-windows-desktop-app/checklists/t104-record-prompt-design.md",
+        "checked": 4,
+        "unchecked": 0,
+        "total": 4
+      },
+      {
+        "path": "specs/200-windows-desktop-app/checklists/t117-fresh-queue-publication-design.md",
+        "checked": 6,
+        "unchecked": 0,
+        "total": 6
+      },
+      {
+        "path": "specs/200-windows-desktop-app/checklists/t117-legacy-queue-gate-immutability.md",
+        "checked": 6,
+        "unchecked": 0,
+        "total": 6
+      },
+      {
+        "path": "specs/200-windows-desktop-app/checklists/t120-stale-position-review.md",
+        "checked": 5,
+        "unchecked": 0,
+        "total": 5
+      },
+      {
+        "path": "specs/200-windows-desktop-app/checklists/t121-addressed-position.md",
+        "checked": 3,
+        "unchecked": 0,
+        "total": 3
+      },
+      {
+        "path": "specs/200-windows-desktop-app/checklists/t121-public-pending-seek.md",
+        "checked": 3,
+        "unchecked": 0,
+        "total": 3
+      },
+      {
+        "path": "specs/200-windows-desktop-app/checklists/t121-shared-cookie-position.md",
+        "checked": 3,
+        "unchecked": 0,
+        "total": 3
+      },
+      {
+        "path": "specs/200-windows-desktop-app/checklists/t121-shared-meeting.md",
+        "checked": 8,
+        "unchecked": 0,
+        "total": 8
+      },
+      {
+        "path": "specs/200-windows-desktop-app/checklists/t121-windows-auth-continuation.md",
+        "checked": 4,
+        "unchecked": 0,
+        "total": 4
+      },
+      {
+        "path": "specs/200-windows-desktop-app/checklists/t121-windows-inbound-position.md",
+        "checked": 3,
+        "unchecked": 0,
+        "total": 3
+      },
+      {
+        "path": "specs/200-windows-desktop-app/checklists/t121-windows-recovery-position.md",
+        "checked": 3,
+        "unchecked": 0,
+        "total": 3
+      },
+      {
+        "path": "specs/200-windows-desktop-app/checklists/t123-export-save.md",
+        "checked": 7,
+        "unchecked": 0,
+        "total": 7
+      },
+      {
+        "path": "specs/200-windows-desktop-app/checklists/t124-public-windows-delivery.md",
+        "checked": 7,
+        "unchecked": 0,
+        "total": 7
+      },
+      {
+        "path": "specs/200-windows-desktop-app/checklists/t125-main-window-placement.md",
+        "checked": 7,
+        "unchecked": 0,
+        "total": 7
+      },
+      {
+        "path": "specs/200-windows-desktop-app/checklists/t126-selected-microphone-loss.md",
+        "checked": 7,
+        "unchecked": 0,
+        "total": 7
+      },
+      {
+        "path": "specs/200-windows-desktop-app/checklists/ux.md",
+        "checked": 25,
+        "unchecked": 0,
+        "total": 25
+      },
+      {
+        "path": "specs/200-windows-desktop-app/checklists/windows-pr-verification.md",
+        "checked": 5,
+        "unchecked": 0,
+        "total": 5
+      }
+    ]
+  },
+  "applicability_map": [
+    {
+      "paths": [
+        "AGENTS.md",
+        "docs/agent-guidance/README.md",
+        "docs/agent-guidance/codex-worktrees.md",
+        "docs/agent-guidance/document-reading.md"
+      ],
+      "sections": "whole documents",
+      "why": "Scope, same-dialog provenance, complete own reading, dirty shared worktree, reviewer write boundary"
+    },
+    {
+      "paths": [
+        ".agents/skills/speckit-implement/SKILL.md"
+      ],
+      "sections": "Pre-Execution Checks; Outline2-5; Completion Report",
+      "why": "Independent reviewer, requirements-quality markers, exact counts; analyze/issue-sync distinct from checklist"
+    },
+    {
+      "paths": [
+        ".specify/memory/constitution.md"
+      ],
+      "sections": "I, II, VI, Product And Platform Constraints, Development Workflow And Quality Gates, Governance",
+      "why": "Capture/Stop, native platforms, high-risk quality gates; no governance changes"
+    },
+    {
+      "paths": [
+        "docs/agent-guidance/spec-kit-flow.md"
+      ],
+      "sections": "Risk And Validation Lanes; Command Sequence;4 Checklist;6 Analyze;7 Issue Sync;8 Implement",
+      "why": "High-risk lane unchanged, narrow reviewer authority and separate implementation gates"
+    },
+    {
+      "paths": [
+        "docs/agent-guidance/release-and-validation.md"
+      ],
+      "sections": "Validation Lanes;Development-To-Release Workflow1-2;Git Safety;Evidence Safety",
+      "why": "No new release approval, exact source proof distinct from local checking, metadata only"
+    },
+    {
+      "paths": [
+        "docs/prd-voice-layer-final.md"
+      ],
+      "sections": "4.x Platform;4.y UI authority;36 Acceptance Criteria",
+      "why": "Separate native Windows distribution, capture truth/Stop and installed acceptance"
+    },
+    {
+      "paths": [
+        "docs/current-product-status.md"
+      ],
+      "sections": "Not Accepted Yet",
+      "why": "Historical local/ad-hoc/AEC results cannot substitute for installed/public acceptance"
+    },
+    {
+      "paths": [
+        "docs/agent-guidance/product-gates.md"
+      ],
+      "sections": "whole document",
+      "why": "Persistent Stop, native capture, data/external boundaries and no release inference"
+    },
+    {
+      "paths": [
+        "docs/agent-guidance/development-process.md",
+        "docs/agent-guidance/tracker-policy.md",
+        "docs/agent-guidance/github-issue-canon.md"
+      ],
+      "sections": "Initial complete reading retained with matching hashes; implementation/tracker instructions remain constraints, no tracker mutation",
+      "why": "Existing task ownership cannot be inferred as currently reconciled; no new implementation or issue action in reviewer scope"
+    },
+    {
+      "paths": [
+        "specs/200-windows-desktop-app/spec.md",
+        "specs/200-windows-desktop-app/plan.md",
+        "specs/200-windows-desktop-app/tasks.md",
+        "specs/200-windows-desktop-app/quickstart.md",
+        "specs/200-windows-desktop-app/release-execution-plan.md"
+      ],
+      "sections": "whole final revisions35/36/37/40/41; T124/T112/T117 and T125/T126 dependencies",
+      "why": "Channel/name/authority vs release values, manual update/no downgrade and limited continuation decision"
+    },
+    {
+      "paths": [
+        "specs/200-windows-desktop-app/data-model.md",
+        "specs/200-windows-desktop-app/research.md",
+        "specs/200-windows-desktop-app/parity-matrix.md",
+        "specs/200-windows-desktop-app/contracts/windows-desktop-contract.md",
+        "specs/200-windows-desktop-app/contracts/windows-protected-local-custody.md"
+      ],
+      "sections": "T125, T126, T120, capture failure/timeline/protected custody and installed pair",
+      "why": "Window storage/DPI, selected endpoint/B/EOS/Resume/AEC/sealed_degraded; no implementation acceptance"
+    },
+    {
+      "paths": [
+        "specs/200-windows-desktop-app/checklists/t124-public-windows-delivery.md",
+        "specs/200-windows-desktop-app/checklists/t125-main-window-placement.md",
+        "specs/200-windows-desktop-app/checklists/t126-selected-microphone-loss.md",
+        "specs/200-windows-desktop-app/checklists/analyze-2026-11-10-t125.md",
+        "specs/200-windows-desktop-app/checklists/analyze-2026-11-10-t126.md",
+        "specs/200-windows-desktop-app/checklists/analyze-2026-11-12-owner-decision.md"
+      ],
+      "sections": "whole documents",
+      "why": "Seven items each, retained historical decisions, new scoped analyze and exact final totals"
+    }
+  ],
+  "conclusions": {
+    "report": "specs/200-windows-desktop-app/review-2026-11-12-continuation-gate.md",
+    "t124": "7 checked /0 unchecked; CHK001+CHK006 supported",
+    "t125_t126": "7/0 each, requirements results retained; formerT124 blocker removed only",
+    "no_full_f200_pass": true
+  }
+}

@@ -73,7 +73,7 @@ def select_tests(paths: list[str], covered: list[str], root: Path = ROOT) -> dic
                    for group in sorted(matches)],
         "tests": [target for target in selected if target not in covered_tests],
         "covered_tests": covered_tests,
-        "environment": (["prepared server .venv", "Node.js", "PostgreSQL", "Docker"]
+        "environment": (["prepared server .venv", "Node.js", "PostgreSQL", "MinIO", "Docker"]
                         if "calendar-auto-context" in matches else
                         ["prepared server .venv", "Node.js", "no database or Docker"]),
         "scope": "working_tree_diagnostic",

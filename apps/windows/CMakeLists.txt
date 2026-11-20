@@ -1,0 +1,393 @@
+cmake_minimum_required(VERSION 3.25)
+project(GrafWindowsFeature200 LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+if(WIN32)
+    enable_language(RC)
+    add_compile_definitions(WIN32_LEAN_AND_MEAN NOMINMAX UNICODE _UNICODE _WIN32_WINNT=0x0A00)
+    set(GRAF_FFMPEG_ROOT "$ENV{GRAF_FFMPEG_ROOT}" CACHE PATH "Verified ordinary FFmpeg 7.1.5 x64 install prefix")
+    if(NOT MSVC OR NOT CMAKE_CXX_COMPILER_ARCHITECTURE_ID STREQUAL "x64")
+        message(FATAL_ERROR "The FFmpeg recording dependency currently requires an MSVC x64 target.")
+    endif()
+    if(NOT GRAF_FFMPEG_ROOT)
+        message(FATAL_ERROR "Prepare ordinary FFmpeg with scripts/build-graf-ffmpeg.ps1 and set GRAF_FFMPEG_ROOT. No alternate encoder is used.")
+    endif()
+    set(GRAF_FFMPEG_VERIFY powershell.exe -NoProfile -ExecutionPolicy Bypass -File
+        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/build-graf-ffmpeg.ps1"
+        -InstallDirectory "${GRAF_FFMPEG_ROOT}" -VerifyBuildArtifacts)
+    execute_process(COMMAND ${GRAF_FFMPEG_VERIFY} RESULT_VARIABLE GRAF_FFMPEG_VERIFIED)
+    if(NOT GRAF_FFMPEG_VERIFIED STREQUAL "0")
+        message(FATAL_ERROR "The ordinary FFmpeg build provenance/artifacts did not verify.")
+    endif()
+    # Covers the writer object and its separately compiled integration-test TU.
+    include_directories(SYSTEM "${GRAF_FFMPEG_ROOT}/include")
+    set(GRAF_FFMPEG_RUNTIME_DIR "${CMAKE_CURRENT_BINARY_DIR}")
+    if(CMAKE_RUNTIME_OUTPUT_DIRECTORY)
+        set(GRAF_FFMPEG_RUNTIME_DIR "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
+    endif()
+    if(CMAKE_CONFIGURATION_TYPES)
+        string(APPEND GRAF_FFMPEG_RUNTIME_DIR "/$<CONFIG>")
+    endif()
+    add_custom_target(graf_ffmpeg_runtime
+        COMMAND ${GRAF_FFMPEG_VERIFY}
+        COMMAND "${CMAKE_COMMAND}" -E make_directory "${GRAF_FFMPEG_RUNTIME_DIR}"
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${GRAF_FFMPEG_ROOT}/bin/avutil-59.dll"
+            "${GRAF_FFMPEG_ROOT}/bin/avcodec-61.dll"
+            "${GRAF_FFMPEG_ROOT}/bin/avformat-61.dll"
+            "${GRAF_FFMPEG_RUNTIME_DIR}"
+        VERBATIM)
+endif()
+
+file(GLOB_RECURSE GRAF_WINDOWS_COMMON CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/RecApp/*.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Native/GrafAEC3/GrafAEC3.cpp")
+list(FILTER GRAF_WINDOWS_COMMON EXCLUDE REGEX ".*/AppMain\\.cpp$")
+list(REMOVE_ITEM GRAF_WINDOWS_COMMON "${CMAKE_CURRENT_SOURCE_DIR}/RecApp/Storage/Sha256.cpp")
+list(REMOVE_ITEM GRAF_WINDOWS_COMMON "${CMAKE_CURRENT_SOURCE_DIR}/RecApp/Storage/ProtectedCustodyFiles.cpp")
+list(REMOVE_ITEM GRAF_WINDOWS_COMMON "${CMAKE_CURRENT_SOURCE_DIR}/RecApp/Storage/ProtectedCustodyMetadata.cpp")
+list(REMOVE_ITEM GRAF_WINDOWS_COMMON "${CMAKE_CURRENT_SOURCE_DIR}/RecApp/Storage/ProtectedCustodyPrimitives.cpp")
+list(REMOVE_ITEM GRAF_WINDOWS_COMMON "${CMAKE_CURRENT_SOURCE_DIR}/RecApp/Storage/ProtectedPackedCustodyTree.cpp")
+list(REMOVE_ITEM GRAF_WINDOWS_COMMON "${CMAKE_CURRENT_SOURCE_DIR}/RecApp/Upload/DesktopHttpTransport.cpp")
+list(REMOVE_ITEM GRAF_WINDOWS_COMMON "${CMAKE_CURRENT_SOURCE_DIR}/RecApp/Upload/DesktopApiClient.cpp")
+list(REMOVE_ITEM GRAF_WINDOWS_COMMON "${CMAKE_CURRENT_SOURCE_DIR}/RecApp/Storage/CalendarMatchJournal.cpp")
+list(REMOVE_ITEM GRAF_WINDOWS_COMMON "${CMAKE_CURRENT_SOURCE_DIR}/RecApp/Recording/ProtectedLocalRecordingPlayback.cpp")
+list(REMOVE_ITEM GRAF_WINDOWS_COMMON "${CMAKE_CURRENT_SOURCE_DIR}/RecApp/Recording/V5LocalRecordingWriter.cpp")
+list(REMOVE_ITEM GRAF_WINDOWS_COMMON "${CMAKE_CURRENT_SOURCE_DIR}/RecApp/Recording/LocalRecordingPackage.cpp")
+list(REMOVE_ITEM GRAF_WINDOWS_COMMON "${CMAKE_CURRENT_SOURCE_DIR}/RecApp/Recording/FfmpegApi.cpp")
+
+set(GRAF_WINDOWS_TESTS
+    "Tests/GrafWindowsCoreTests/ContractFixtures.cpp"
+    "Tests/GrafWindowsCoreTests/CalendarMatchEnvelopeTests.cpp"
+    "Tests/GrafWindowsCoreTests/Sha256Tests.cpp"
+    "Tests/GrafWindowsCoreTests/ProtectedCustodyCodecTests.cpp"
+    "Tests/GrafWindowsContractTests/StockFFmpegMemoryTests.cpp"
+    "Tests/GrafWindowsCoreTests/ProtectedCustodyPackageTests.cpp"
+    "Tests/GrafWindowsCoreTests/ProtectedPackedCustodyFormatTests.cpp"
+    "Tests/GrafWindowsCoreTests/ProtectedPackedCustodyCodecTests.cpp"
+    "Tests/GrafWindowsCoreTests/ProtectedPackedCustodyOwnerTests.cpp"
+    "Tests/GrafWindowsCoreTests/ProtectedPackedCustodyTreeTests.cpp"
+    "Tests/GrafWindowsCoreTests/ProtectedCustodyFilesTests.cpp"
+    "Tests/GrafWindowsCoreTests/ProtectedCustodyWriteStreamTests.cpp"
+    "Tests/GrafWindowsCoreTests/WindowsDesktopSessionTests.cpp"
+    "Tests/GrafWindowsCoreTests/RecordingAudioTimelineTests.cpp"
+    "Tests/GrafWindowsCoreTests/DesktopUploadQueueV2Tests.cpp"
+    "Tests/GrafWindowsCoreTests/DesktopDeletionLedgerTests.cpp"
+    "Tests/GrafWindowsCoreTests/CaptureFaultStateTests.cpp"
+    "Tests/GrafWindowsCoreTests/MicrophoneConsentKeyTests.cpp"
+    "Tests/GrafWindowsCoreTests/CaptureReasonMappingTests.cpp"
+    "Tests/GrafWindowsCoreTests/RecordingOutcomeTextTests.cpp"
+    "Tests/GrafWindowsCoreTests/ShellPaletteTests.cpp"
+    "Tests/GrafWindowsCoreTests/MainWindowPlacementTests.cpp"
+    "Tests/GrafWindowsCoreTests/WindowsAppUpdateTests.cpp"
+    "Tests/GrafWindowsCoreTests/AudioNormalizerTests.cpp"
+    "Tests/GrafWindowsCoreTests/VerifiedTargetPolicyTests.cpp"
+    "Tests/GrafWindowsContractTests/NativeCaptureWebFailureTests.cpp"
+    "Tests/GrafWindowsContractTests/WebViewRoutePolicyTests.cpp"
+    "Tests/GrafWindowsContractTests/WebViewBridgeEnvelopeTests.cpp"
+    "Tests/GrafWindowsContractTests/WebView2HostLifecycleTests.cpp"
+    "Tests/GrafWindowsContractTests/WindowsDiagnosticsRedactionTests.cpp"
+    "Tests/GrafWindowsContractTests/DesktopUploadRecoveryTests.cpp"
+    "Tests/GrafWindowsContractTests/SelectedMicrophoneLossTests.cpp"
+    "Tests/GrafWindowsContractTests/CalendarJoinResolverTests.cpp"
+    "Tests/GrafWindowsContractTests/CalendarJoinWireTests.cpp"
+    "Tests/GrafWindowsContractTests/CalendarJoinHostTests.cpp"
+    "Tests/GrafWindowsContractTests/CalendarJoinOperationTests.cpp"
+    "Tests/GrafWindowsContractTests/CalendarMeetingUrlTests.cpp"
+    "Tests/GrafWindowsContractTests/CalendarMeetingNativeTargetTests.cpp"
+    "Tests/GrafWindowsContractTests/DesktopDeletionProtocolTests.cpp"
+    "Tests/GrafWindowsContractTests/RecordingDeletionBridgeTests.cpp"
+    "Tests/GrafWindowsContractTests/NativeSettingsBridgeTests.cpp"
+    "Tests/GrafWindowsContractTests/ProductAttributionHandoffTests.cpp"
+    "Tests/GrafWindowsContractTests/AutomaticRecordingPromptTests.cpp"
+    "Tests/GrafWindowsPackageTests/NativeRecordingOfflineWebViewTests.cpp"
+    "Tests/GrafWindowsPackageTests/V5LocalRecordingWriterTests.cpp"
+    "Tests/GrafWindowsPackageTests/ShortRecordingThresholdTests.cpp"
+    "Tests/GrafWindowsPackageTests/WebViewCabinetParityTests.cpp"
+    "Tests/GrafWindowsPackageTests/DesktopUploadCustodySmokeTests.cpp"
+    "Tests/GrafWindowsPackageTests/WindowsHardwareEvidenceSchemaTests.cpp"
+    "Tests/GrafWindowsPackageTests/AutomaticRecordingSmokeTests.cpp"
+    "Tests/GrafWindowsPackageTests/RecordingIndicatorTests.cpp")
+
+enable_testing()
+# MSVC/LTCG must agree on the inline budget counter even when another TU
+# instantiates atomic<size_t> as a member before including the custody header.
+add_executable(ProtectedCustodyMemoryLinkTests
+    "Tests/GrafWindowsCoreTests/ProtectedCustodyMemoryLinkTests.cpp"
+    "Tests/GrafWindowsCoreTests/ProtectedCustodyMemoryLinkPeer.cpp")
+target_compile_options(ProtectedCustodyMemoryLinkTests PRIVATE
+    $<$<CXX_COMPILER_ID:MSVC>:/W4;/WX;/EHsc>
+    $<$<AND:$<CXX_COMPILER_ID:MSVC>,$<CONFIG:Release>>:/GL>)
+target_link_options(ProtectedCustodyMemoryLinkTests PRIVATE
+    $<$<CXX_COMPILER_ID:MSVC>:/WX>
+    $<$<AND:$<CXX_COMPILER_ID:MSVC>,$<CONFIG:Release>>:/LTCG>)
+add_test(NAME ProtectedCustodyMemoryLinkTests COMMAND ProtectedCustodyMemoryLinkTests)
+add_library(graf_windows_hash OBJECT "RecApp/Storage/Sha256.cpp")
+add_library(graf_windows_custody_files OBJECT "RecApp/Storage/ProtectedCustodyFiles.cpp")
+add_library(graf_windows_custody_metadata OBJECT "RecApp/Storage/ProtectedCustodyMetadata.cpp")
+add_library(graf_windows_custody_primitives OBJECT "RecApp/Storage/ProtectedCustodyPrimitives.cpp")
+add_library(graf_windows_custody_tree OBJECT "RecApp/Storage/ProtectedPackedCustodyTree.cpp")
+add_library(graf_windows_http OBJECT "RecApp/Upload/DesktopHttpTransport.cpp")
+add_library(graf_windows_api OBJECT "RecApp/Upload/DesktopApiClient.cpp")
+target_compile_options(graf_windows_api PRIVATE
+    $<$<CXX_COMPILER_ID:MSVC>:/W4;/WX;/EHsc;/utf-8>
+    $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall;-Wextra;-Wpedantic;-Werror>)
+add_library(graf_windows_playback OBJECT "RecApp/Recording/ProtectedLocalRecordingPlayback.cpp")
+add_library(graf_windows_writer OBJECT "RecApp/Recording/V5LocalRecordingWriter.cpp")
+add_library(graf_windows_ffmpeg OBJECT "RecApp/Recording/FfmpegApi.cpp")
+if(WIN32)
+    add_dependencies(graf_windows_writer graf_ffmpeg_runtime)
+endif()
+add_library(graf_windows_package OBJECT "RecApp/Recording/LocalRecordingPackage.cpp")
+target_compile_options(graf_windows_package PRIVATE
+    $<$<CXX_COMPILER_ID:MSVC>:/W4;/WX;/EHsc;/utf-8>
+    $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall;-Wextra;-Wpedantic;-Werror>)
+target_compile_options(graf_windows_writer PRIVATE
+    $<$<CXX_COMPILER_ID:MSVC>:/W4;/WX;/EHsc;/utf-8>
+    $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall;-Wextra;-Wpedantic;-Werror>)
+target_compile_options(graf_windows_ffmpeg PRIVATE
+    $<$<CXX_COMPILER_ID:MSVC>:/W4;/WX;/EHsc;/utf-8>
+    $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall;-Wextra;-Wpedantic;-Werror>)
+target_compile_options(graf_windows_playback PRIVATE
+    $<$<CXX_COMPILER_ID:MSVC>:/W4;/WX;/EHsc;/utf-8>
+    $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall;-Wextra;-Wpedantic;-Werror>)
+target_compile_options(graf_windows_http PRIVATE
+    $<$<CXX_COMPILER_ID:MSVC>:/W4;/WX;/EHsc;/utf-8>
+    $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall;-Wextra;-Wpedantic;-Werror>)
+target_compile_options(graf_windows_custody_tree PRIVATE
+    $<$<CXX_COMPILER_ID:MSVC>:/W4;/WX;/EHsc;/utf-8>
+    $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall;-Wextra;-Wpedantic;-Werror>)
+target_compile_options(graf_windows_custody_primitives PRIVATE
+    $<$<CXX_COMPILER_ID:MSVC>:/W4;/WX;/EHsc;/utf-8>
+    $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall;-Wextra;-Wpedantic;-Werror>)
+target_compile_options(graf_windows_custody_files PRIVATE
+    $<$<CXX_COMPILER_ID:MSVC>:/W4;/WX;/EHsc;/utf-8>
+    $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall;-Wextra;-Wpedantic;-Werror>)
+target_compile_options(graf_windows_custody_metadata PRIVATE
+    $<$<CXX_COMPILER_ID:MSVC>:/W4;/WX;/EHsc;/utf-8>
+    $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall;-Wextra;-Wpedantic;-Werror>)
+target_compile_options(graf_windows_hash PRIVATE
+    $<$<CXX_COMPILER_ID:MSVC>:/W4;/WX;/EHsc;/utf-8>
+    $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall;-Wextra;-Wpedantic;-Werror>)
+if(WIN32)
+    list(APPEND GRAF_WINDOWS_TESTS "Tests/GrafWindowsContractTests/NativeCaptureStartupTests.cpp")
+    list(APPEND GRAF_WINDOWS_TESTS "Tests/GrafWindowsContractTests/NativeCaptureStorageIntegrationTests.cpp")
+    list(APPEND GRAF_WINDOWS_TESTS "Tests/GrafWindowsCoreTests/NativeHashFailureTests.cpp")
+    list(APPEND GRAF_WINDOWS_TESTS "Tests/GrafWindowsCoreTests/NativeCustodyProtectionFailureTests.cpp")
+    list(APPEND GRAF_WINDOWS_TESTS "Tests/GrafWindowsContractTests/NativeCalendarJoinTransportTests.cpp")
+    list(APPEND GRAF_WINDOWS_TESTS "Tests/GrafWindowsContractTests/NativeCalendarLauncherTests.cpp")
+    list(APPEND GRAF_WINDOWS_TESTS "Tests/GrafWindowsContractTests/NativeMainWindowPlacementTests.cpp")
+    list(APPEND GRAF_WINDOWS_TESTS "Tests/GrafWindowsContractTests/NativeExportSaveCommitTests.cpp")
+    list(APPEND GRAF_WINDOWS_TESTS "Tests/GrafWindowsContractTests/NativeCalendarMatchJournalTests.cpp")
+endif()
+add_library(graf_windows_common OBJECT ${GRAF_WINDOWS_COMMON})
+if(WIN32)
+    target_compile_definitions(graf_windows_common PRIVATE GRAF_WINDOWS_TEST_EXPORT_REPLACEMENT_PHASES)
+endif()
+target_include_directories(graf_windows_common PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/RecApp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Native/GrafAEC3")
+target_compile_options(graf_windows_common PRIVATE
+    $<$<CXX_COMPILER_ID:MSVC>:/W4;/WX;/EHsc;/utf-8>
+    $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall;-Wextra;-Wpedantic;-Werror>)
+foreach(test_source IN LISTS GRAF_WINDOWS_TESTS)
+    get_filename_component(test_name "${test_source}" NAME_WE)
+    add_executable("${test_name}" "${test_source}" $<TARGET_OBJECTS:graf_windows_common>)
+    # Only the integration TU wraps the real loader to observe pre-load directory pins.
+    if(NOT WIN32 OR NOT test_name STREQUAL "NativeCaptureStorageIntegrationTests")
+        target_sources("${test_name}" PRIVATE $<TARGET_OBJECTS:graf_windows_ffmpeg>)
+    endif()
+    if(WIN32 AND test_name STREQUAL "RecordingIndicatorTests")
+        target_sources("${test_name}" PRIVATE "RecApp/GrafWindowsApp.rc")
+    endif()
+    if(WIN32 AND test_name STREQUAL "NativeExportSaveCommitTests")
+        target_compile_definitions("${test_name}" PRIVATE GRAF_WINDOWS_TEST_EXPORT_REPLACEMENT_PHASES)
+    endif()
+    if(WIN32 AND (test_name STREQUAL "NativeCalendarMatchJournalTests" OR
+                  test_name STREQUAL "NativeCaptureStorageIntegrationTests"))
+        # Fault injection stays in the two tests that exercise publication.
+        target_sources("${test_name}" PRIVATE "RecApp/Storage/CalendarMatchJournal.cpp")
+        target_compile_definitions("${test_name}" PRIVATE GRAF_WINDOWS_TEST_CALENDAR_JOURNAL_FLUSH)
+    elseif(WIN32 AND (test_name STREQUAL "NativeCaptureStartupTests" OR test_name STREQUAL "RecordingIndicatorTests"))
+        target_sources("${test_name}" PRIVATE "RecApp/Storage/CalendarMatchJournal.cpp")
+    endif()
+    # Native wire fault tests compile the production transport with local wrappers.
+    if(NOT WIN32 OR NOT test_name STREQUAL "NativeCalendarJoinTransportTests")
+        target_sources("${test_name}" PRIVATE $<TARGET_OBJECTS:graf_windows_http>)
+        target_sources("${test_name}" PRIVATE $<TARGET_OBJECTS:graf_windows_api>)
+    endif()
+    # The integration executable holds an extra reference to the exact MF Clone.
+    if(NOT WIN32 OR NOT test_name STREQUAL "NativeCaptureStorageIntegrationTests")
+        target_sources("${test_name}" PRIVATE $<TARGET_OBJECTS:graf_windows_playback>)
+        target_sources("${test_name}" PRIVATE $<TARGET_OBJECTS:graf_windows_custody_metadata>)
+        target_sources("${test_name}" PRIVATE $<TARGET_OBJECTS:graf_windows_writer>)
+        target_sources("${test_name}" PRIVATE $<TARGET_OBJECTS:graf_windows_package>)
+    else()
+        target_sources("${test_name}" PRIVATE "RecApp/Recording/V5LocalRecordingWriter.cpp")
+        target_sources("${test_name}" PRIVATE "RecApp/Recording/LocalRecordingPackage.cpp")
+        target_compile_definitions("${test_name}" PRIVATE GRAF_WINDOWS_TEST_FINALIZE_PHASES)
+        target_compile_definitions("${test_name}" PRIVATE GRAF_WINDOWS_TEST_INSPECTION_PHASES)
+    endif()
+    # Native fault tests compile the real SHA source with TU-local CNG wrappers.
+    if(NOT WIN32 OR (NOT test_name STREQUAL "NativeHashFailureTests" AND NOT test_name STREQUAL "ProtectedCustodyFilesTests"))
+        target_sources("${test_name}" PRIVATE $<TARGET_OBJECTS:graf_windows_hash>)
+    endif()
+    if(NOT WIN32 OR (NOT test_name STREQUAL "ProtectedCustodyFilesTests" AND NOT test_name STREQUAL "ProtectedPackedCustodyOwnerTests" AND NOT test_name STREQUAL "ProtectedCustodyWriteStreamTests" AND NOT test_name STREQUAL "NativeCaptureStorageIntegrationTests" AND NOT test_name STREQUAL "V5LocalRecordingWriterTests"))
+        target_sources("${test_name}" PRIVATE $<TARGET_OBJECTS:graf_windows_custody_files>)
+    endif()
+    # Owner fault tests compile the real tree with TU-local codec wrappers.
+    if(NOT WIN32 OR NOT test_name STREQUAL "ProtectedPackedCustodyOwnerTests")
+        target_sources("${test_name}" PRIVATE $<TARGET_OBJECTS:graf_windows_custody_tree>)
+    endif()
+    # This executable compiles the real primitive with TU-local DPAPI wrappers.
+    if(NOT WIN32 OR NOT test_name STREQUAL "NativeCustodyProtectionFailureTests")
+        target_sources("${test_name}" PRIVATE $<TARGET_OBJECTS:graf_windows_custody_primitives>)
+    endif()
+    target_include_directories("${test_name}" PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/RecApp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Native/GrafAEC3")
+    target_compile_options("${test_name}" PRIVATE
+        $<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/W4;/WX;/EHsc;/utf-8>
+        $<$<AND:$<COMPILE_LANGUAGE:CXX>,$<NOT:$<CXX_COMPILER_ID:MSVC>>>:-Wall;-Wextra;-Wpedantic;-Werror>)
+    if(WIN32)
+        add_dependencies("${test_name}" graf_ffmpeg_runtime)
+        target_link_libraries("${test_name}" PRIVATE windowsapp mfplat mfreadwrite mfuuid ole32 oleaut32 avrt advapi32 shell32 comctl32 gdi32 winhttp wintrust bcrypt crypt32 ws2_32 uiautomationcore)
+        if(test_name STREQUAL "SelectedMicrophoneLossTests")
+            target_link_libraries("${test_name}" PRIVATE shlwapi)
+        endif()
+        if(test_name STREQUAL "NativeCaptureStorageIntegrationTests")
+            target_link_libraries("${test_name}" PRIVATE dbghelp)
+            target_compile_options("${test_name}" PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/bigobj>)
+        endif()
+    endif()
+    if(WIN32 AND test_name STREQUAL "ProtectedCustodyFilesTests")
+        add_test(NAME "${test_name}" COMMAND "${test_name}" --without-migration-pair)
+    elseif(test_name STREQUAL "StockFFmpegMemoryTests")
+        # Long synthetic runs are explicit executable invocations; this is the portable self-check.
+        add_test(NAME "${test_name}" COMMAND "${test_name}" --selfcheck)
+    else()
+        add_test(NAME "${test_name}" COMMAND "${test_name}")
+    endif()
+endforeach()
+add_test(NAME DesktopCalendarMatchReceipt COMMAND DesktopUploadRecoveryTests --calendar-match-receipt)
+if(WIN32)
+    # The full recovery suite can exceed the caller's 180 s limit on Windows.
+    set_tests_properties(DesktopUploadRecoveryTests PROPERTIES TIMEOUT 240)
+    add_test(NAME NativeProtectedMigrationPairs COMMAND ProtectedCustodyFilesTests --migration-pair)
+    set_tests_properties(ProtectedCustodyFilesTests PROPERTIES RUN_SERIAL TRUE)
+    set_tests_properties(NativeProtectedMigrationPairs PROPERTIES RUN_SERIAL TRUE TIMEOUT 300)
+    add_test(NAME ProtectedRecoveryReturnedFaults COMMAND V5LocalRecordingWriterTests --cold-recovery-returned-faults)
+    set_tests_properties(ProtectedRecoveryReturnedFaults PROPERTIES RUN_SERIAL TRUE TIMEOUT 300)
+    add_test(NAME ProtectedRecoveryPlaybackReturnedFaults COMMAND V5LocalRecordingWriterTests --cold-recovery-playback-returned-faults)
+    set_tests_properties(ProtectedRecoveryPlaybackReturnedFaults PROPERTIES RUN_SERIAL TRUE TIMEOUT 300)
+    add_test(NAME ProtectedRecoveryPlaybackRestart COMMAND V5LocalRecordingWriterTests --cold-recovery-playback-restart)
+    set_tests_properties(ProtectedRecoveryPlaybackRestart PROPERTIES RUN_SERIAL TRUE TIMEOUT 180)
+    add_test(NAME ProtectedRecoveryTerminalUnused COMMAND V5LocalRecordingWriterTests --cold-recovery-terminal-unused)
+    set_tests_properties(ProtectedRecoveryTerminalUnused PROPERTIES RUN_SERIAL TRUE TIMEOUT 180)
+    add_test(NAME ProtectedRecoveryTerminalUnusedCrash COMMAND V5LocalRecordingWriterTests --cold-recovery-terminal-unused-crash)
+    set_tests_properties(ProtectedRecoveryTerminalUnusedCrash PROPERTIES RUN_SERIAL TRUE TIMEOUT 180)
+    add_test(NAME ProtectedRecoveryTerminalUnusedRefusals COMMAND V5LocalRecordingWriterTests --cold-recovery-terminal-unused-refusals)
+    set_tests_properties(ProtectedRecoveryTerminalUnusedRefusals PROPERTIES RUN_SERIAL TRUE TIMEOUT 180)
+    add_test(NAME ProtectedRecoveryTerminalUnusedSticky COMMAND V5LocalRecordingWriterTests --cold-recovery-terminal-unused-sticky)
+    set_tests_properties(ProtectedRecoveryTerminalUnusedSticky PROPERTIES RUN_SERIAL TRUE TIMEOUT 180)
+    add_test(NAME ProtectedRecoveryCompletion COMMAND V5LocalRecordingWriterTests --cold-recovery-completion)
+    set_tests_properties(ProtectedRecoveryCompletion PROPERTIES RUN_SERIAL TRUE TIMEOUT 180)
+    add_test(NAME ProtectedRecoveryWav COMMAND V5LocalRecordingWriterTests --cold-recovery-wav)
+    set_tests_properties(ProtectedRecoveryWav PROPERTIES RUN_SERIAL TRUE TIMEOUT 180)
+    add_test(NAME ProtectedRecoveryPlayback COMMAND V5LocalRecordingWriterTests --cold-recovery-playback)
+    set_tests_properties(ProtectedRecoveryPlayback PROPERTIES RUN_SERIAL TRUE TIMEOUT 180)
+    add_test(NAME ProtectedRecoveryPlaybackPartial COMMAND V5LocalRecordingWriterTests --cold-recovery-playback-partial)
+    set_tests_properties(ProtectedRecoveryPlaybackPartial PROPERTIES RUN_SERIAL TRUE TIMEOUT 180)
+    add_test(NAME NativeStorageWarning COMMAND NativeCaptureStorageIntegrationTests --storage-warning)
+    set_tests_properties(NativeStorageWarning PROPERTIES RUN_SERIAL TRUE TIMEOUT 240)
+    add_test(NAME NativeProtectedBirthAdmission COMMAND NativeCaptureStorageIntegrationTests --protected-birth-admission)
+    add_test(NAME NativeProtectedStartOwner COMMAND NativeCaptureStorageIntegrationTests --protected-start-owner)
+    add_test(NAME NativeCalendarRecordAdmission COMMAND NativeCaptureStorageIntegrationTests --calendar-record-admission)
+    set_tests_properties(NativeCalendarRecordAdmission PROPERTIES RUN_SERIAL TRUE TIMEOUT 120)
+    add_test(NAME NativeCalendarReplayQueueMarker COMMAND NativeCaptureStorageIntegrationTests --calendar-replay-queue-marker)
+    set_tests_properties(NativeCalendarReplayQueueMarker PROPERTIES RUN_SERIAL TRUE TIMEOUT 120)
+    set_tests_properties(NativeProtectedStartOwner PROPERTIES RUN_SERIAL TRUE TIMEOUT 240)
+    add_test(NAME NativeProtectedNoLoginClaim COMMAND NativeCaptureStorageIntegrationTests --protected-no-login-claim)
+    set_tests_properties(NativeProtectedNoLoginClaim PROPERTIES RUN_SERIAL TRUE TIMEOUT 240)
+    add_test(NAME NativeProtectedStartOwnerRecovery COMMAND NativeCaptureStorageIntegrationTests --protected-start-owner-recovery)
+    set_tests_properties(NativeProtectedStartOwnerRecovery PROPERTIES RUN_SERIAL TRUE TIMEOUT 240)
+    add_test(NAME NativeProtectedStartOwnerDegradedRestart COMMAND NativeCaptureStorageIntegrationTests --protected-start-owner-degraded-restart)
+    set_tests_properties(NativeProtectedStartOwnerDegradedRestart PROPERTIES RUN_SERIAL TRUE TIMEOUT 240)
+    add_test(NAME NativeProtectedStartOwnerUnfinishedRestart COMMAND NativeCaptureStorageIntegrationTests --protected-start-owner-unfinished-restart)
+    set_tests_properties(NativeProtectedStartOwnerUnfinishedRestart PROPERTIES RUN_SERIAL TRUE TIMEOUT 240)
+    add_test(NAME NativeProtectedRecoveryLivePlayback COMMAND NativeCaptureStorageIntegrationTests --protected-recovery-live-playback)
+    set_tests_properties(NativeProtectedRecoveryLivePlayback PROPERTIES RUN_SERIAL TRUE TIMEOUT 240)
+    add_test(NAME NativeProtectedLiveMetadata COMMAND NativeCaptureStorageIntegrationTests --protected-live-metadata)
+    add_test(NAME NativeProtectedPrivacyManifest COMMAND NativeCaptureStorageIntegrationTests --protected-privacy-manifest)
+    add_test(NAME NativeProtectedPrivacyFlow COMMAND NativeCaptureStorageIntegrationTests --protected-privacy-flow)
+    add_test(NAME NativeProtectedPendingStart COMMAND NativeCaptureStorageIntegrationTests --protected-pending-start)
+    set_tests_properties(NativeProtectedPendingStart PROPERTIES RUN_SERIAL TRUE TIMEOUT 240)
+    add_test(NAME NativeProtectedShortDiscard COMMAND NativeCaptureStorageIntegrationTests --protected-short-discard)
+    set_tests_properties(NativeProtectedShortDiscard PROPERTIES RUN_SERIAL TRUE TIMEOUT 240)
+    add_test(NAME NativeProtectedPrivacyDegraded COMMAND NativeCaptureStorageIntegrationTests --protected-privacy-degraded)
+    add_test(NAME NativeProtectedRecordingSemantics COMMAND ProtectedCustodyFilesTests --recording-semantics)
+    add_test(NAME NativeProtectedInspectionPreparation COMMAND NativeCaptureStorageIntegrationTests --protected-inspection-prepared)
+    add_test(NAME NativeProtectedFinalizeAdmission COMMAND NativeCaptureStorageIntegrationTests --protected-finalize-admission)
+    add_test(NAME NativeProtectedInspectionActiveStop COMMAND NativeCaptureStorageIntegrationTests --protected-inspection-active-stop)
+    add_test(NAME NativeProtectedEncoderWriteFailure COMMAND NativeCaptureStorageIntegrationTests --protected-encoder-write-failure)
+    add_test(NAME NativeProtectedAecFailureDuringStop COMMAND NativeCaptureStorageIntegrationTests --protected-aec-failure-during-stop)
+    set_tests_properties(NativeProtectedAecFailureDuringStop PROPERTIES RUN_SERIAL TRUE TIMEOUT 120)
+    add_test(NAME NativeProtectedReadModel COMMAND NativeCaptureStorageIntegrationTests --protected-read-model)
+    add_test(NAME NativeProtectedPrematureQueueGate COMMAND NativeCaptureStorageIntegrationTests --protected-premature-queue-gate)
+    add_test(NAME NativeProtectedQueueGatePublication COMMAND NativeCaptureStorageIntegrationTests --queue-gate-before-rename)
+    add_test(NAME NativeProtectedQueueGateBeforePackageWrite COMMAND NativeCaptureStorageIntegrationTests --queue-gate-before-package-write)
+    add_test(NAME NativeProtectedDeletionIntent COMMAND NativeCaptureStorageIntegrationTests --protected-deletion-intent)
+    add_test(NAME NativeProtectedDeletionAnswer COMMAND NativeCaptureStorageIntegrationTests --protected-deletion-answer)
+    add_test(NAME NativeProtectedDeletionSelection COMMAND NativeCaptureStorageIntegrationTests --protected-deletion-selection)
+    add_test(NAME NativeProtectedDeletionContinuation COMMAND NativeCaptureStorageIntegrationTests --protected-deletion-continuation)
+    add_test(NAME NativeProtectedDeletionApplication COMMAND NativeCaptureStorageIntegrationTests --protected-deletion-application)
+    add_test(NAME NativeProtectedDeletionDisplay COMMAND NativeCaptureStorageIntegrationTests --protected-deletion-display)
+    add_test(NAME NativeProtectedLocalPurge COMMAND NativeCaptureStorageIntegrationTests --protected-local-purge)
+    set_tests_properties(NativeProtectedLocalPurge PROPERTIES RUN_SERIAL TRUE TIMEOUT 240)
+    add_test(NAME NativeProtectedLocalRemoval COMMAND NativeCaptureStorageIntegrationTests --protected-local-removal)
+    set_tests_properties(NativeProtectedLocalRemoval PROPERTIES RUN_SERIAL TRUE TIMEOUT 240)
+    add_test(NAME NativeProtectedServerPurge COMMAND NativeCaptureStorageIntegrationTests --protected-server-purge)
+    set_tests_properties(NativeProtectedServerPurge PROPERTIES RUN_SERIAL TRUE TIMEOUT 240)
+    add_test(NAME NativeProtectedPurgeFlight COMMAND NativeCaptureStorageIntegrationTests --protected-purge-flight)
+    add_test(NAME NativeProtectedManualSend COMMAND NativeCaptureStorageIntegrationTests --protected-manual-send)
+    set_tests_properties(NativeProtectedManualSend PROPERTIES RUN_SERIAL TRUE TIMEOUT 240)
+    add_test(NAME NativeProtectedSchedulerSuccess COMMAND NativeCaptureStorageIntegrationTests --protected-scheduler-success)
+    set_tests_properties(NativeProtectedSchedulerSuccess PROPERTIES RUN_SERIAL TRUE TIMEOUT 240)
+    add_test(NAME NativeProtectedSchedulerLateLogout COMMAND NativeCaptureStorageIntegrationTests --protected-scheduler-late-logout)
+    set_tests_properties(NativeProtectedSchedulerLateLogout PROPERTIES RUN_SERIAL TRUE TIMEOUT 240)
+    add_test(NAME NativeProtectedSchedulerResume COMMAND NativeCaptureStorageIntegrationTests --protected-scheduler-resume)
+    set_tests_properties(NativeProtectedSchedulerResume PROPERTIES RUN_SERIAL TRUE TIMEOUT 240)
+    add_test(NAME NativeProtectedLargeUploadParts COMMAND NativeCaptureStorageIntegrationTests --protected-large-parts)
+    # Full 525s recording, cold verification and two multipart layouts.
+    set_tests_properties(NativeProtectedLargeUploadParts PROPERTIES RUN_SERIAL TRUE TIMEOUT 900)
+    set_tests_properties(NativeProtectedPurgeFlight PROPERTIES RUN_SERIAL TRUE TIMEOUT 240)
+    add_test(NAME NativeProtectedAccountProblems COMMAND NativeCaptureStorageIntegrationTests --protected-account-problems)
+    add_test(NAME NativeProtectedDisplayTiming COMMAND NativeCaptureStorageIntegrationTests --protected-display-timing)
+    add_test(NAME NativeProtectedDisplayOwnerQuota COMMAND NativeCaptureStorageIntegrationTests --protected-display-owner-quota)
+    add_test(NAME NativeProtectedMetadataReadAdmission COMMAND ProtectedCustodyFilesTests --readonly-files-admission)
+    add_test(NAME NativeProtectedOwnerCancellation COMMAND ProtectedCustodyFilesTests --readonly-owner-cancellation)
+    add_test(NAME NativeProtectedReaderReleaseDrain COMMAND ProtectedPackedCustodyTreeTests --reader-release-drain)
+    add_test(NAME NativeProtectedMediaEngine COMMAND NativeCaptureStorageIntegrationTests --protected-media-engine)
+    add_test(NAME NativeProtectedShortMediaEngine COMMAND NativeCaptureStorageIntegrationTests --protected-short-media-engine)
+    add_test(NAME NativeProtectedShortAAC COMMAND ProtectedCustodyFilesTests --migration-short-degraded)
+    set_tests_properties(NativeProtectedShortMediaEngine NativeProtectedShortAAC PROPERTIES RUN_SERIAL TRUE TIMEOUT 180)
+    add_test(NAME NativeProtectedPlaybackConsumer COMMAND NativeCaptureStorageIntegrationTests --protected-playback-consumer)
+    add_test(NAME NativeProtectedPlaybackBatches COMMAND NativeCaptureStorageIntegrationTests --protected-playback-batches)
+    set_tests_properties(NativeProtectedPlaybackBatches PROPERTIES RUN_SERIAL TRUE TIMEOUT 180)
+    add_test(NAME NativeProtectedPackageRevalidation COMMAND NativeCaptureStorageIntegrationTests --protected-package-revalidation)
+    add_test(NAME NativeProtectedLiveBornInspection COMMAND NativeCaptureStorageIntegrationTests --protected-live-born-inspection)
+    set_tests_properties(NativeProtectedPrivacyManifest NativeProtectedPrivacyFlow NativeProtectedPrivacyDegraded NativeProtectedRecordingSemantics NativeProtectedLiveMetadata NativeProtectedBirthAdmission NativeProtectedInspectionPreparation
+        NativeProtectedFinalizeAdmission NativeProtectedInspectionActiveStop NativeProtectedEncoderWriteFailure
+        NativeProtectedReadModel NativeProtectedDeletionIntent NativeProtectedDeletionAnswer NativeProtectedDeletionSelection NativeProtectedDeletionContinuation NativeProtectedDeletionDisplay NativeProtectedAccountProblems NativeProtectedDisplayTiming NativeProtectedDisplayOwnerQuota
+        NativeProtectedMetadataReadAdmission NativeProtectedOwnerCancellation NativeProtectedReaderReleaseDrain
+        NativeProtectedMediaEngine NativeProtectedPlaybackConsumer NativeProtectedPackageRevalidation NativeProtectedLiveBornInspection PROPERTIES RUN_SERIAL TRUE)
+    find_program(GRAF_WINDOWS_POWERSHELL NAMES powershell.exe
+        PATHS "$ENV{SystemRoot}/System32/WindowsPowerShell/v1.0" NO_DEFAULT_PATH REQUIRED)
+    add_test(NAME PublicAppInstallerTests COMMAND "${GRAF_WINDOWS_POWERSHELL}"
+        -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File
+        "${CMAKE_CURRENT_SOURCE_DIR}/Tests/GrafWindowsPackageTests/PublicAppInstallerTests.ps1")
+    set_tests_properties(PublicAppInstallerTests PROPERTIES TIMEOUT 180)
+endif()

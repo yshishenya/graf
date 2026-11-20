@@ -3,14 +3,16 @@ from __future__ import annotations
 import os
 import shutil
 import tempfile
-from asyncio import CancelledError
+from asyncio import CancelledError, timeout
 from collections import defaultdict
+from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from hashlib import sha256
 from pathlib import Path
+from time import monotonic
 from typing import Protocol
 from uuid import UUID, uuid4
 
@@ -33,7 +35,7 @@ from twobrain_rec_server.billing.storage import (
     release_storage_reservation,
     reserve_storage,
 )
-from twobrain_rec_server.config import Settings
+from twobrain_rec_server.config import Settings, get_settings
 from twobrain_rec_server.db.models import (
     MediaRevision,
     Meeting,
@@ -122,6 +124,17 @@ from twobrain_rec_server.normalization.statuses import (
 )
 from twobrain_rec_server.processing.fences import meeting_is_deleted_or_deleting
 from twobrain_rec_server.storage.object_keys import build_playback_attempt_object_key
+from twobrain_rec_server.storage.recovery import (
+    STRICT_SOURCE_READ_SECONDS,
+    meeting_storage_read_fence_path,
+    storage_recovery_snapshot,
+)
+from twobrain_rec_server.storage.strict_upload_cleanup import strict_upload_key_matches_epoch
+from twobrain_rec_server.storage.strict_upload_keys import (
+    is_strict_upload_key,
+    strict_upload_attempt_query,
+    strict_upload_read_blocked,
+)
 from twobrain_rec_server.workflows.temporal_client import (
     playback_normalization_workflow_id,
 )
@@ -796,6 +809,7 @@ class _AttemptInputs:
     job: PlaybackNormalizationJob
     attempt: PlaybackNormalizationAttempt
     expected_duration_seconds: int
+    deletion_epoch: int
     candidate: TrackArtifact | None
     media: TrackArtifact | None
     microphone: TrackArtifact | None
@@ -2549,6 +2563,7 @@ async def _prepare_attempt(
                 TrackArtifact.workspace_id == job.workspace_id,
                 TrackArtifact.meeting_id == job.meeting_id,
                 TrackArtifact.media_revision_id == job.media_revision_id,
+                ~strict_upload_read_blocked(TrackArtifact),
                 TrackArtifact.track_role.in_((TrackRole.PLAYBACK.value, *source_roles)),
             )
             .order_by(TrackArtifact.created_at, TrackArtifact.id)
@@ -2636,6 +2651,7 @@ async def _prepare_attempt(
         job=job,
         attempt=attempt,
         expected_duration_seconds=revision.duration_seconds,
+        deletion_epoch=meeting.deletion_epoch,
         candidate=candidate,
         media=media,
         microphone=microphone,
@@ -2764,6 +2780,127 @@ async def _execute_normalization_job(
     work_path = Path(tempfile.mkdtemp(prefix=f"{job_id}-", dir=base_directory))
     os.chmod(work_path, 0o700)
     output_path = work_path / "output.m4a"
+    workspace_id, meeting_id = prepared.job.workspace_id, prepared.job.meeting_id
+    revision, organization_id = prepared.job.media_revision_id, prepared.job.organization_id
+    attempt_id, attempt_number = prepared.attempt.id, prepared.attempt.attempt_number
+    deletion_epoch = prepared.deletion_epoch
+
+    async def download(artifact: TrackArtifact, destination: Path, max_bytes: int) -> None:
+        artifact_id, key, role, status = (
+            artifact.id, artifact.storage_object_key, artifact.track_role, artifact.status,
+        )
+        length, digest = artifact.byte_length, artifact.sha256
+        query = strict_upload_attempt_query(workspace_id, meeting_id, key)
+        registered = (await db.execute(query)).one_or_none()
+        await db.commit()
+        if registered is None and not is_strict_upload_key(key):
+            await _download_verified_artifact(storage, artifact, destination, max_bytes=max_bytes)
+            return
+        meeting_prefix = f"organizations/{organization_id}/workspaces/{workspace_id}/meetings/{meeting_id}/"
+        relative = key.removeprefix(meeting_prefix)
+        matches_track = (
+            relative.startswith(f"artifacts/media-revisions/{revision}/attempts/")
+            and relative.endswith(f"/tracks/{role}")
+        ) or (relative.startswith("sessions/") and f"/tracks/{role}/parts/" in relative)
+        if length == 0:
+            raise MediaPolicyError("empty_source")
+        if (
+            registered is None
+            or registered.storage_epoch is None
+            or not strict_upload_key_matches_epoch(key, registered.storage_epoch)
+            or not key.startswith(meeting_prefix)
+            or not matches_track
+            or registered.media_revision_id != revision
+            or registered.deletion_epoch != deletion_epoch
+            or registered.write_state != "accepted"
+            or registered.state != "retained"
+        ):
+            raise RuntimeError("source_missing")
+
+        settings = db.info.get("runtime_settings") or get_settings()
+        fence = meeting_storage_read_fence_path(settings, workspace_id, meeting_id)
+        protected_download = getattr(storage, "download_strict_source_to_path_async", None)
+        if (
+            fence is None or not callable(protected_download)
+            or registered.storage_scope != settings.strict_storage_scope
+        ):
+            raise RuntimeError("dependency_unavailable")
+        deadline = monotonic() + STRICT_SOURCE_READ_SECONDS
+
+        async def admit() -> bool:
+            async with timeout(max(0, deadline - monotonic())):
+                meeting = await db.scalar(select(Meeting).where(
+                    Meeting.id == meeting_id, Meeting.workspace_id == workspace_id,
+                ).with_for_update().execution_options(populate_existing=True))
+                if (
+                    meeting is None or meeting_is_deleted_or_deleting(meeting)
+                    or meeting.deletion_epoch != deletion_epoch
+                ):
+                    raise NormalizationExecutionDeferred("meeting lifecycle changed")
+                expires_at = await db.scalar(select(PlaybackNormalizationJob.lease_expires_at).where(
+                    PlaybackNormalizationJob.id == job_id,
+                    PlaybackNormalizationJob.workspace_id == workspace_id,
+                    PlaybackNormalizationJob.meeting_id == meeting_id,
+                    PlaybackNormalizationJob.media_revision_id == revision,
+                    PlaybackNormalizationJob.organization_id == organization_id,
+                    PlaybackNormalizationJob.state == JobState.RUNNING.value,
+                    PlaybackNormalizationJob.attempt_count == attempt_number,
+                    PlaybackNormalizationJob.lease_owner_sha256 == expected_lease_owner_sha256,
+                ).with_for_update())
+                if expires_at is None:
+                    raise NormalizationExecutionDeferred("normalization lease owner changed")
+                owned_attempt = await db.scalar(select(PlaybackNormalizationAttempt.id).where(
+                    PlaybackNormalizationAttempt.id == attempt_id,
+                    PlaybackNormalizationAttempt.job_id == job_id,
+                    PlaybackNormalizationAttempt.workspace_id == workspace_id,
+                    PlaybackNormalizationAttempt.meeting_id == meeting_id,
+                    PlaybackNormalizationAttempt.media_revision_id == revision,
+                    PlaybackNormalizationAttempt.attempt_number == attempt_number,
+                    PlaybackNormalizationAttempt.state == AttemptState.LOCAL_PREPARING.value,
+                ).with_for_update())
+                if owned_attempt is None or _aware_utc(expires_at) <= datetime.now(UTC):
+                    raise NormalizationExecutionDeferred(
+                        "normalization activity no longer owns the durable attempt"
+                    )
+                current_artifact = await db.scalar(select(TrackArtifact.id).where(
+                    TrackArtifact.id == artifact_id,
+                    TrackArtifact.workspace_id == workspace_id,
+                    TrackArtifact.meeting_id == meeting_id,
+                    TrackArtifact.media_revision_id == revision,
+                    TrackArtifact.storage_object_key == key,
+                    TrackArtifact.byte_length == length,
+                    TrackArtifact.sha256 == digest,
+                    TrackArtifact.track_role == role,
+                    TrackArtifact.status == status,
+                    TrackArtifact.validated_at.is_(None),
+                    exists(select(MediaRevision.id).where(
+                        MediaRevision.id == revision,
+                        MediaRevision.workspace_id == workspace_id,
+                        MediaRevision.meeting_id == meeting_id,
+                        MediaRevision.status == MediaRevisionStatus.ACCEPTED.value,
+                    )),
+                ))
+                current = (await db.execute(query)).one_or_none()
+                if _aware_utc(expires_at) <= datetime.now(UTC):
+                    raise NormalizationExecutionDeferred("normalization lease expired")
+                if current_artifact is None or current != registered:
+                    raise RuntimeError("source_missing")
+                await db.commit()
+                return True
+
+        with storage_recovery_snapshot(settings) as recovery:
+            if recovery in {None, "legacy"}:
+                raise RuntimeError("dependency_unavailable")
+            try:
+                await protected_download(
+                    key, destination, epoch=registered.storage_epoch, attempt_id=registered.id,
+                    deadline=deadline, fence_path=fence, admit=admit,
+                    expected_length=length, expected_sha256=digest, max_bytes=max_bytes,
+                )
+            except NormalizationExecutionDeferred:
+                await db.rollback()
+                raise
+
     try:
         output: NormalizedOutput
         if prepared.candidate is not None:
@@ -2776,12 +2913,7 @@ async def _execute_normalization_job(
                 output_max_bytes=output_max_bytes,
                 reserve_bytes=work_reserve_bytes,
             )
-            await _download_verified_artifact(
-                storage,
-                prepared.candidate,
-                candidate_path,
-                max_bytes=MAX_OUTPUT_BYTES,
-            )
+            await download(prepared.candidate, candidate_path, MAX_OUTPUT_BYTES)
             _require_normalization_work_capacity(
                 work_path,
                 source_bytes=prepared.candidate.byte_length,
@@ -2797,7 +2929,7 @@ async def _execute_normalization_job(
                 candidate_path.unlink(missing_ok=True)
                 if prepared.media is not None:
                     output = await _derive_from_single_source(
-                        storage=storage,
+                        download=download,
                         prepared=prepared,
                         work_path=work_path,
                         output_path=output_path,
@@ -2808,7 +2940,7 @@ async def _execute_normalization_job(
                     )
                 else:
                     output = await _derive_from_first_party_sources(
-                        storage=storage,
+                        download=download,
                         prepared=prepared,
                         work_path=work_path,
                         output_path=output_path,
@@ -2819,7 +2951,7 @@ async def _execute_normalization_job(
                     )
         elif prepared.media is not None:
             output = await _derive_from_single_source(
-                storage=storage,
+                download=download,
                 prepared=prepared,
                 work_path=work_path,
                 output_path=output_path,
@@ -2830,7 +2962,7 @@ async def _execute_normalization_job(
             )
         else:
             output = await _derive_from_first_party_sources(
-                storage=storage,
+                download=download,
                 prepared=prepared,
                 work_path=work_path,
                 output_path=output_path,
@@ -2878,6 +3010,7 @@ async def _execute_normalization_job(
         if (
             meeting is None
             or meeting_is_deleted_or_deleting(meeting)
+            or meeting.deletion_epoch != deletion_epoch
             or attempt is None
             or job is None
             or attempt.state != AttemptState.LOCAL_PREPARING.value
@@ -2930,6 +3063,7 @@ async def _execute_normalization_job(
         if (
             meeting is None
             or meeting_is_deleted_or_deleting(meeting)
+            or meeting.deletion_epoch != deletion_epoch
             or attempt is None
             or job is None
         ):
@@ -3011,7 +3145,7 @@ async def _execute_normalization_job(
 
 async def _derive_from_first_party_sources(
     *,
-    storage: object,
+    download: Callable[[TrackArtifact, Path, int], Awaitable[None]],
     prepared: _AttemptInputs,
     work_path: Path,
     output_path: Path,
@@ -3035,18 +3169,8 @@ async def _derive_from_first_party_sources(
     )
     microphone_path = work_path / "microphone.source"
     system_path = work_path / "system.source"
-    await _download_verified_artifact(
-        storage,
-        prepared.microphone,
-        microphone_path,
-        max_bytes=prepared.microphone.byte_length,
-    )
-    await _download_verified_artifact(
-        storage,
-        prepared.system,
-        system_path,
-        max_bytes=prepared.system.byte_length,
-    )
+    await download(prepared.microphone, microphone_path, prepared.microphone.byte_length)
+    await download(prepared.system, system_path, prepared.system.byte_length)
     _require_normalization_work_capacity(
         work_path,
         source_bytes=source_bytes,
@@ -3064,7 +3188,7 @@ async def _derive_from_first_party_sources(
 
 async def _derive_from_single_source(
     *,
-    storage: object,
+    download: Callable[[TrackArtifact, Path, int], Awaitable[None]],
     prepared: _AttemptInputs,
     work_path: Path,
     output_path: Path,
@@ -3086,12 +3210,7 @@ async def _derive_from_single_source(
         reserve_bytes=work_reserve_bytes,
     )
     media_path = work_path / "media.source"
-    await _download_verified_artifact(
-        storage,
-        prepared.media,
-        media_path,
-        max_bytes=prepared.media.byte_length,
-    )
+    await download(prepared.media, media_path, prepared.media.byte_length)
     _require_normalization_work_capacity(
         work_path,
         source_bytes=prepared.media.byte_length,

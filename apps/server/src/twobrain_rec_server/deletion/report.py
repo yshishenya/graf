@@ -50,13 +50,14 @@ def lifecycle_state(
     state: DeletionState,
     *,
     reason: str | None = None,
+    can_retry: bool | None = None,
     can_view_report: bool | None = None,
 ) -> DeletionLifecycleState:
     return DeletionLifecycleState(
         state=state,
         label=STATE_LABELS[state],
         reason=reason,
-        can_retry=state == DeletionState.RETRYABLE_FAILED,
+        can_retry=(state == DeletionState.RETRYABLE_FAILED if can_retry is None else can_retry),
         can_view_report=(state != DeletionState.NONE if can_view_report is None else can_view_report),
     )
 

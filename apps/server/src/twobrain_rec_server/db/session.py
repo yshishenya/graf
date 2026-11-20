@@ -25,8 +25,12 @@ def create_engine(
     return create_async_engine(database_url or settings.database_url, pool_pre_ping=True)
 
 
-def create_sessionmaker(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
-    return async_sessionmaker(engine, expire_on_commit=False)
+def create_sessionmaker(
+    engine: AsyncEngine, settings: Settings | None = None
+) -> async_sessionmaker[AsyncSession]:
+    return async_sessionmaker(
+        engine, expire_on_commit=False, info={"runtime_settings": settings or get_settings()}
+    )
 
 
 def create_prompt_optimization_database(

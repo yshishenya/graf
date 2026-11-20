@@ -13,7 +13,7 @@
     const all = selector => [...root.querySelectorAll(selector)];
     const audio = one('[data-playback-player]');
     const status = one('[data-public-status]');
-    let current = parseFragment(location.hash), pendingSeek = null;
+    let current, activeHash, pendingSeek = null;
     let changed = root.dataset.sourceChanged === 'true';
     const tell = text => { status.textContent = text; };
     function seek(ms) {
@@ -22,21 +22,32 @@
       audio.currentTime = Math.min(ms / 1000, Math.max(0, audio.duration));
       pendingSeek = null;
     }
+    function fragment() {
+      const value = parseFragment(location.hash);
+      return one(`[data-public-panel="${value.tab}"]`) ? value : {tab: 'outcomes', position: null};
+    }
     function activate(applyPosition = true) {
-      current = parseFragment(location.hash);
-      if (!one(`[data-public-panel="${current.tab}"]`)) current = {tab:'outcomes',position:null};
+      if (activeHash === location.hash) return;
+      activeHash = location.hash;
+      current = fragment();
+      pendingSeek = null;
       all('[data-public-panel]').forEach(panel => { panel.hidden = panel.dataset.publicPanel !== current.tab; });
       all('[data-public-tab]').forEach(tab => { tab.setAttribute('aria-current', tab.dataset.publicTab === current.tab ? 'page' : 'false'); });
       if (applyPosition && current.position !== null) seek(current.position);
     }
-    activate(); window.addEventListener('hashchange', () => activate());
+    activate();
+    // popstate sees each fragment visit before the queued hashchange.
+    window.addEventListener('popstate', () => activate());
+    window.addEventListener('hashchange', () => activate());
     root.addEventListener('graf:public-recording', event => {
       const fragment = '#recording?position_ms=' + Math.round(event.detail.seconds * 1000);
       if (location.hash !== fragment) history.pushState(null, '', fragment);
       // The shared player already moved when its metadata was ready.
       activate(!Number.isFinite(audio?.duration));
     });
-    all('[data-public-seek]').forEach(link => link.addEventListener('click', () => seek(Number(link.dataset.publicSeek))));
+    all('[data-public-seek]').forEach(link => link.addEventListener('click', () => {
+      if (link.hash === location.hash) seek(Number(link.dataset.publicSeek));
+    }));
     const welcome = one('[data-public-welcome]');
     let seen = false;
     try { seen = sessionStorage.getItem('graf-shared-welcome') === 'seen'; } catch (_) { /* storage is optional */ }
@@ -59,11 +70,13 @@
     });
     function contextURL(href, native) {
       const url = new URL(href, location.origin);
-      url.searchParams.set('tab', current.tab);
+      const view = fragment();
+      url.searchParams.set('tab', view.tab);
       if(root.dataset.mediaVersion) url.searchParams.set('media_version', root.dataset.mediaVersion);
-      const position = audio && !changed ? (pendingSeek ?? Math.round(audio.currentTime * 1000)) : current.position;
+      const requested = activeHash === location.hash ? pendingSeek : view.position;
+      const position = audio ? (requested ?? Math.round(audio.currentTime * 1000)) : view.position;
       url.searchParams.delete('position_ms');
-      if (current.tab === 'recording' && !changed && position !== null) url.searchParams.set('position_ms', String(position));
+      if (view.tab === 'recording' && !changed && position !== null) url.searchParams.set('position_ms', String(position));
       return native ? url.href : url.pathname + url.search;
     }
     all('[data-public-auth]').forEach(link => link.addEventListener('click', () => { link.href = contextURL(link.href, false); }));
@@ -88,7 +101,11 @@
       new ResizeObserver(() => root.style.setProperty('--public-player-height', footer.getBoundingClientRect().height + 'px')).observe(footer);
     }
     if (audio) {
-      audio.addEventListener('loadedmetadata', () => { if (pendingSeek !== null) seek(pendingSeek); });
+      audio.addEventListener('loadedmetadata', () => {
+        // The address can change before its hashchange callback is delivered.
+        if (activeHash !== location.hash) activate();
+        else if (pendingSeek !== null) seek(pendingSeek);
+      });
       audio.addEventListener('error', () => tell('Запись не загрузилась. Возможно, владелец изменил доступ или обновил запись. Обновите страницу.'));
     }
   });

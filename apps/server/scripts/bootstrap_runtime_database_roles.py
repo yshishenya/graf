@@ -7,12 +7,14 @@ from importlib import import_module
 from pathlib import Path
 
 import asyncpg
+from alembic.script import ScriptDirectory
 
 OWNER_ROLE = "twobrain_rec"
 APP_ROLE = "twobrain_rec_app"
 MAINTENANCE_ROLE = "twobrain_rec_maintenance"
 MEDIA_ROLE = "twobrain_rec_media"
 DATABASE_NAME = "twobrain_rec"
+STRICT_UPLOAD_SEQUENCE = "public.strict_upload_attempt_no"
 DATABASE_NAME_RE = re.compile(r"^[a-z_][a-z0-9_]{0,62}$")
 MEDIA_READ_ONLY_TABLES = (
     "alembic_version",
@@ -24,6 +26,10 @@ MEDIA_READ_ONLY_TABLES = (
 )
 MEDIA_WORKFLOW_COLUMNS = ("workflow_id", "workspace_id", "meeting_id", "media_revision_id", "purpose", "status", "attempt_ordinal", "created_at")
 MEDIA_STORAGE_COLUMNS = {
+    "meeting_purge_journal": (
+        "id", "workspace_id", "meeting_id", "artifact_class", "object_key", "storage_epoch",
+        "storage_scope", "media_revision_id", "deletion_epoch", "state", "write_state",
+    ),
     "time_credit_ledger_entries": (
         "workspace_id", "state", "applied_start", "applied_end", "capacity_snapshot_bytes",
     ),
@@ -261,6 +267,20 @@ async def _verify_runtime_roles(
     }:
         raise RuntimeError("media storage column privileges are unsafe")
 
+    sequence_grants = await connection.fetch(
+        """
+        select role_name, privilege
+        from unnest($1::text[]) as roles(role_name)
+        cross join unnest(array['USAGE', 'SELECT', 'UPDATE', 'USAGE WITH GRANT OPTION'])
+            as privileges(privilege)
+        where has_sequence_privilege(role_name::name, $2::text, privilege)
+        """,
+        [APP_ROLE, MAINTENANCE_ROLE, MEDIA_ROLE],
+        STRICT_UPLOAD_SEQUENCE,
+    )
+    if {(row["role_name"], row["privilege"]) for row in sequence_grants} != {(APP_ROLE, "USAGE")}:
+        raise RuntimeError("strict upload attempt sequence privileges are unsafe")
+
     for table_name, column_name in MEDIA_LOCK_COLUMNS:
         has_lock_column = await connection.fetchval(
             "select has_column_privilege($1::name, $2::text, $3::text, 'UPDATE')",
@@ -381,6 +401,16 @@ async def _verify_fair_use_definitions(connection: asyncpg.Connection, schema) -
 
 async def _restrict_fair_use_history(connection: asyncpg.Connection) -> None:
     """Keep migration-owned transition/audit protection after broad runtime grants."""
+    schema = import_module("twobrain_rec_server.db.migrations.versions.0113_fair_use_operator_history")
+    versions = await connection.fetch("select version_num from public.alembic_version")
+    if len(versions) != 1:
+        raise RuntimeError("fair-use migration marker is unsafe")
+    marker = versions[0]["version_num"]
+    installed = marker in (schema.revision, "0114_f200_calendar_upload_pin", "0115_f200_strict_upload_journal")
+    if not installed:
+        scripts = ScriptDirectory(str(Path(schema.__file__).resolve().parent.parent))
+        if not any(revision.revision == marker for revision in scripts.walk_revisions(head=schema.down_revision)):
+            raise RuntimeError("fair-use migration marker is unsafe")
     names = ("rec_guard_fair_use_review", "rec_append_fair_use_audit",
              "rec_guard_fair_use_audit", "rec_guard_fair_use_truncate")
     functions = await connection.fetch(
@@ -392,14 +422,12 @@ async def _restrict_fair_use_history(connection: asyncpg.Connection) -> None:
             select to_regclass('public.uq_fair_use_audit_transition') is not null
                 or exists(select from pg_policy where polrelid='public.fair_use_reviews'::regclass
                           and polname='fair_use_review_read')
-                or exists(select from public.alembic_version where version_num='0113_fair_use_operator_history')
         """)
-        if partial:
+        if installed or partial:
             raise RuntimeError("fair-use history schema is incomplete")
         return  # Bootstrap also runs before 0113 is installed.
-    if len(functions) != len(names):
+    if not installed or len(functions) != len(names):
         raise RuntimeError("fair-use history schema is incomplete")
-    schema = import_module("twobrain_rec_server.db.migrations.versions.0113_fair_use_operator_history")
     for role in ("PUBLIC", *schema.RUNTIME):
         for statement in schema.runtime_grants(role):
             await connection.execute(statement)
@@ -530,6 +558,9 @@ async def _bootstrap() -> None:
                 f"grant usage, select on sequences to {APP_ROLE}, {MAINTENANCE_ROLE}",
                 f"revoke all privileges on all tables in schema public from {MEDIA_ROLE}",
                 f"revoke all privileges on all sequences in schema public from {MEDIA_ROLE}",
+                f"revoke all privileges on sequence {STRICT_UPLOAD_SEQUENCE} "
+                f"from public, {APP_ROLE}, {MAINTENANCE_ROLE}",
+                f"grant usage on sequence {STRICT_UPLOAD_SEQUENCE} to {APP_ROLE}",
                 f"alter default privileges for role {OWNER_ROLE} in schema public "
                 f"revoke all privileges on tables from {MEDIA_ROLE}",
                 f"alter default privileges for role {OWNER_ROLE} in schema public "

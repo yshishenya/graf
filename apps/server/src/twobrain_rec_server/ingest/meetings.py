@@ -8,7 +8,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.auth.context import TenantScope
-from twobrain_rec_server.calendar.matching import consume_recording_calendar_match_attempt
+from twobrain_rec_server.calendar.matching import (
+    calendar_match_not_accepted,
+    consume_recording_calendar_match_attempt,
+    require_explicit_calendar_match_replay,
+)
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.db.models import Meeting as MeetingModel
 from twobrain_rec_server.deletion.origin_cancellation import (
@@ -16,7 +20,7 @@ from twobrain_rec_server.deletion.origin_cancellation import (
     origin_cancellation,
 )
 from twobrain_rec_server.domain.metadata_text import contains_forbidden_metadata_text
-from twobrain_rec_server.domain.statuses import MediaRevisionSourceKind
+from twobrain_rec_server.domain.statuses import MediaRevisionSourceKind, MediaRevisionStatus
 from twobrain_rec_server.ingest import store as store_module
 from twobrain_rec_server.ingest.audit import record_audit_event
 from twobrain_rec_server.ingest.media_revisions import normalize_initial_local_media_revision_id
@@ -84,7 +88,13 @@ async def create_or_get_meeting(
     media_scribe_source_mode: str | None = None,
     calendar_match_attempt_id: UUID | None = None,
     consume_calendar_context: bool = False,
+    require_explicit_calendar_match: bool = False,
 ) -> MeetingRecord:
+    if require_explicit_calendar_match:
+        if db is None:
+            raise ProblemDetail(status=503, code="calendar_match_store_unavailable", title="Calendar match store unavailable")
+        if calendar_match_attempt_id is None:
+            raise calendar_match_not_accepted()
     validate_recording_duration(settings, duration_seconds)
     if media_revision_source_kind == MediaRevisionSourceKind.INITIAL_RECORDING:
         raise ProblemDetail(
@@ -131,6 +141,7 @@ async def create_or_get_meeting(
         workspace_id=tenant_scope.workspace_id,
         created_by_user_id=tenant_scope.user_id,
         local_recording_id=local_recording_id,
+        retain_in_memory=not require_explicit_calendar_match,
     )
     if persisted is not None:
         if db is not None:
@@ -147,7 +158,9 @@ async def create_or_get_meeting(
                 raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
             if meeting_is_deleted_or_deleting(locked_model):
                 raise ProblemDetail(status=409, code="meeting_deletion_active", title="Meeting deletion is active")
-            persisted = await load_meeting_record(db, meeting_id=locked_model.id) or persisted
+            persisted = await load_meeting_record(
+                db, meeting_id=locked_model.id, retain_in_memory=not require_explicit_calendar_match,
+            ) or persisted
         if (
             local_media_revision_id is not None
             and persisted.local_media_revision_id != local_media_revision_id
@@ -161,6 +174,8 @@ async def create_or_get_meeting(
             request_conflicts = (
                 persisted.create_request_fingerprint_sha256 != create_request_fingerprint
             )
+        elif require_explicit_calendar_match:
+            request_conflicts = True
         else:
             request_conflicts = (
                 persisted.duration_seconds != duration_seconds
@@ -180,7 +195,21 @@ async def create_or_get_meeting(
                 code="idempotency_conflict",
                 title="Meeting create conflicts with existing recording",
             )
-        if consume_calendar_context and db is not None:
+        if require_explicit_calendar_match:
+            assert db is not None and calendar_match_attempt_id is not None
+            if (
+                persisted.media_revision_id is None
+                or persisted.media_revision_number != 1
+                or persisted.media_revision_status == MediaRevisionStatus.DELETED
+                or persisted.local_media_revision_id != normalize_initial_local_media_revision_id(
+                    local_recording_id, local_media_revision_id,
+                )
+            ):
+                raise calendar_match_not_accepted()
+            await require_explicit_calendar_match_replay(
+                db, tenant_scope, meeting=persisted, attempt_id=calendar_match_attempt_id,
+            )
+        elif consume_calendar_context and db is not None:
             await consume_recording_calendar_match_attempt(
                 db,
                 tenant_scope,
@@ -201,6 +230,7 @@ async def create_or_get_meeting(
         title=title,
         title_source=normalized_title_source,
         media_revision_source_kind=media_revision_source_kind,
+        retain_in_memory=not require_explicit_calendar_match,
     )
     meeting.started_at = started_at
     meeting.ended_at = ended_at
@@ -222,15 +252,17 @@ async def create_or_get_meeting(
         actor_user_id=tenant_scope.user_id,
         device_id=tenant_scope.device_id,
         metadata={"local_recording_id": local_recording_id},
+        retain_in_memory=not require_explicit_calendar_match,
     )
     await persist_meeting(db, meeting, commit=False)
     await persist_audit_event(db, event, commit=False)
-    if consume_calendar_context and db is not None:
+    if db is not None and (consume_calendar_context or require_explicit_calendar_match):
         await consume_recording_calendar_match_attempt(
             db,
             tenant_scope,
             meeting=meeting,
             attempt_id=calendar_match_attempt_id,
+            require_explicit=require_explicit_calendar_match,
         )
     return meeting
 

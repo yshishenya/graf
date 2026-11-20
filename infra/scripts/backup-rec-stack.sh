@@ -23,13 +23,31 @@ EOF
   exit 0
 fi
 
+backup_postgres_id=""
+backup_minio_id=""
+backup_bucket=""
+release_mc_image="${GRAF_RELEASE_MC_IMAGE:-}"
+if [ "$#" -ne 1 ]; then
+  [ "$#" -eq 5 ] && [ "$2" = "--pinned-stores" ] || exit 2
+  backup_postgres_id="$3"
+  backup_minio_id="$4"
+  backup_bucket="$5"
+  for container in "$backup_postgres_id" "$backup_minio_id"; do
+    printf '%s\n' "$container" | grep -Eq '^[0-9a-f]{64}$' || exit 2
+  done
+  printf '%s\n' "$release_mc_image" | grep -Eq '^sha256:[0-9a-f]{64}$' || exit 2
+  printf '%s\n' "$backup_bucket" | grep -Eq '^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$' || exit 2
+fi
+
 if [ -f .env ]; then
   set -a
   . ./.env
   set +a
 fi
 
-if [ -z "${GRAF_RELEASE_MC_IMAGE:-}" ]; then
+if [ -n "$release_mc_image" ]; then
+  GRAF_RELEASE_MC_IMAGE="$release_mc_image"
+elif [ -z "${GRAF_RELEASE_MC_IMAGE:-}" ]; then
   GRAF_RELEASE_MC_IMAGE="$(python3 infra/scripts/release-images.py current-override --service rec-minio-init)"
 fi
 
@@ -37,6 +55,14 @@ umask 077
 fail() {
   printf 'backup_result=failed\nreason=%s\n' "$1" >&2
   exit 1
+}
+
+postgres_exec() {
+  if [ -n "$backup_postgres_id" ]; then
+    docker exec -i "$backup_postgres_id" "$@"
+  else
+    docker compose -f infra/docker-compose.yml exec -T rec-postgres "$@"
+  fi
 }
 
 # Never reuse a destination: even an empty directory may belong to another run.
@@ -48,8 +74,16 @@ staging=""
 cleanup() {
   result=$?
   trap - EXIT HUP INT TERM
+  if [ "$result" -ne 0 ] && [ -n "$backup_bucket" ]; then
+    if ! rm -f -- "$backup_dir/.minio-version" "$backup_dir/.minio-version-after" \
+      "$backup_dir/.minio-incomplete-before" "$backup_dir/.minio-incomplete-after" \
+      "$backup_dir/.minio-before" "$backup_dir/.minio-after" "$backup_dir/.minio-hashes"; then
+      printf 'backup_result=failed\nreason=minio_inventory_cleanup_failed\n' >&2
+      result=1
+    fi
+  fi
   if [ -n "$staging" ]; then
-    if ! docker compose -f infra/docker-compose.yml exec -T rec-postgres \
+    if ! postgres_exec \
       sh -c 'umask 077; rm -rf -- "$1"' sh "$staging" >/dev/null 2>&1; then
       printf 'backup_result=failed\nreason=postgres_staging_cleanup_failed\n' >&2
       result=1
@@ -60,7 +94,7 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 1' HUP INT TERM
 
-staging_candidate="$(docker compose -f infra/docker-compose.yml exec -T rec-postgres \
+staging_candidate="$(postgres_exec \
   sh -c 'umask 077; mktemp -d /tmp/twobrain-rec-backup.XXXXXX' 2>/dev/null)" \
   || fail postgres_staging_create_failed
 case "$staging_candidate" in
@@ -73,12 +107,15 @@ esac
 staging="$staging_candidate"
 script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 # PostgreSQL owns the exported snapshot until both dump and metadata finish.
-docker compose -f infra/docker-compose.yml exec -T rec-postgres \
+postgres_exec \
   sh -c 'umask 077; psql -XqAt -v ON_ERROR_STOP=1 -U twobrain_rec -d twobrain_rec -v expected_db=twobrain_rec -v capture_dump=true -v staging="$1"' \
   sh "$staging" <"$script_dir/rec-db-backup-inventory.sql" 2>/dev/null \
   || fail postgres_snapshot_failed
-postgres_id="$(docker compose -f infra/docker-compose.yml ps -q rec-postgres 2>/dev/null)" \
-  || fail postgres_container_lookup_failed
+postgres_id="$backup_postgres_id"
+if [ -z "$postgres_id" ]; then
+  postgres_id="$(docker compose -f infra/docker-compose.yml ps -q rec-postgres 2>/dev/null)" \
+    || fail postgres_container_lookup_failed
+fi
 [ -n "$postgres_id" ] || fail postgres_container_missing
 for artifact in postgres.dump schema.sql inventory.jsonl checksums.sha256; do
   docker cp "$postgres_id:$staging/$artifact" "$backup_dir/$artifact" 2>/dev/null \
@@ -91,18 +128,74 @@ python3 "$script_dir/rec-db-verify.py" "$backup_dir" 2>/dev/null \
 mkdir -p "$backup_dir/minio-objects"
 root_user_file="${TWOBRAIN_MINIO_ROOT_USER_FILE:-./secrets/twobrain_minio_root_user}"
 root_password_file="${TWOBRAIN_MINIO_ROOT_PASSWORD_FILE:-./secrets/twobrain_minio_root_password}"
+minio_network="twobrain-rec-private"
+minio_endpoint="http://rec-minio:9000"
+minio_mount="$backup_dir/minio-objects:/backup/minio-objects"
+if [ -n "$backup_minio_id" ]; then
+  minio_network="container:$backup_minio_id"
+  minio_endpoint="http://127.0.0.1:9000"
+  minio_mount="$backup_dir:/backup"
+fi
 docker run --rm --pull never \
   --user "$(id -u):$(id -g)" \
-  --network twobrain-rec-private \
-  --entrypoint /bin/sh \
+  --network "$minio_network" \
+  --entrypoint /bin/bash \
   -e MC_CONFIG_DIR=/tmp/graf-backup-mc \
+  -e "GRAF_BACKUP_MINIO_ENDPOINT=$minio_endpoint" \
+  -e "GRAF_BACKUP_PINNED_BUCKET=$backup_bucket" \
   -e "TWOBRAIN_MINIO_BUCKET=${TWOBRAIN_MINIO_BUCKET:-twobrain-rec-ingest}" \
-  -v "$backup_dir/minio-objects":/backup/minio-objects \
+  -v "$minio_mount" \
   -v "$root_user_file":/run/secrets/twobrain_minio_root_user:ro \
   -v "$root_password_file":/run/secrets/twobrain_minio_root_password:ro \
   "${GRAF_RELEASE_MC_IMAGE:-minio/mc:RELEASE.2025-05-21T01-59-54Z}" \
-  -c 'set -eu; umask 077; mc alias set rec http://rec-minio:9000 "$(cat /run/secrets/twobrain_minio_root_user)" "$(cat /run/secrets/twobrain_minio_root_password)" >/dev/null; mc mirror --overwrite "rec/${TWOBRAIN_MINIO_BUCKET:-twobrain-rec-ingest}" /backup/minio-objects >/dev/null' \
+  -c '
+    set -euo pipefail
+    umask 077
+    mc alias set rec "$GRAF_BACKUP_MINIO_ENDPOINT" "$(cat /run/secrets/twobrain_minio_root_user)" "$(cat /run/secrets/twobrain_minio_root_password)" >/dev/null
+    source="rec/${GRAF_BACKUP_PINNED_BUCKET:-${TWOBRAIN_MINIO_BUCKET:-twobrain-rec-ingest}}"
+    record_object_stats() {
+      # Recursive stat fails for an empty bucket; only an independently empty listing can substitute.
+      if ! mc --json stat --recursive "$source" >"$1"; then
+        mc --json ls --recursive "$source" >"$1"
+        test ! -s "$1"
+      fi
+    }
+    if [ -n "$GRAF_BACKUP_PINNED_BUCKET" ]; then
+      mc --json version info "$source" >/backup/.minio-version
+      mc --json ls --recursive --incomplete "$source" >/backup/.minio-incomplete-before
+      test ! -s /backup/.minio-incomplete-before
+      record_object_stats /backup/.minio-before
+    fi
+    mc mirror --overwrite "$source" /backup/minio-objects >/dev/null
+    if [ -n "$GRAF_BACKUP_PINNED_BUCKET" ]; then
+      source_hashes() {
+        local entry key sum
+        for entry in "$1"/* "$1"/.[!.]* "$1"/..?*; do
+          [ -e "$entry" ] || continue
+          test ! -L "$entry"
+          if [ -d "$entry" ]; then
+            source_hashes "$entry"
+          else
+            test -f "$entry"
+            key="${entry#/backup/minio-objects/}"
+            sum="$(mc cat "$source/$key" | sha256sum)"
+            printf "%s\t%s\n" "${sum%% *}" "$key"
+          fi
+        done
+      }
+      source_hashes /backup/minio-objects >/backup/.minio-hashes
+      record_object_stats /backup/.minio-after
+      mc --json version info "$source" >/backup/.minio-version-after
+      mc --json ls --recursive --incomplete "$source" >/backup/.minio-incomplete-after
+      test ! -s /backup/.minio-incomplete-after
+    fi
+  ' \
   2>/dev/null || fail minio_copy_failed
+
+if [ -n "$backup_bucket" ]; then
+  python3 "$script_dir/verify-rec-object-backup.py" "$backup_dir" "$backup_bucket" \
+    || fail minio_inventory_verification_failed
+fi
 
 # Tools may explicitly override umask. Reject links/special files before chmod;
 # never follow a link or change permissions of a hard-linked external file.
@@ -118,7 +211,7 @@ find "$backup_dir" -type f -exec chmod 600 {} + 2>/dev/null \
   || fail backup_permissions_failed
 
 # PASS is printed only after successful cleanup, including its exit status.
-docker compose -f infra/docker-compose.yml exec -T rec-postgres \
+postgres_exec \
   sh -c 'umask 077; rm -rf -- "$1"' sh "$staging" >/dev/null 2>&1 \
   || fail postgres_staging_cleanup_failed
 staging=""

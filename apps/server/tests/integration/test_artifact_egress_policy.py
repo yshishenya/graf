@@ -1,3 +1,8 @@
+import asyncio
+
+import pytest
+from sqlalchemy import select
+
 from tests.contract.test_ingest_openapi_contract import auth_headers
 from tests.fixtures.cabinet import SAFE_TRANSCRIPT_TEXT, create_ready_meeting
 from tests.fixtures.cabinet_access import (
@@ -10,6 +15,8 @@ from tests.fixtures.cabinet_access import (
     set_artifact_policy,
 )
 from twobrain_rec_server.cabinet import egress as egress_module
+from twobrain_rec_server.db.models import PlaybackNormalizationJob, PurgeJournal, TrackArtifact
+from twobrain_rec_server.storage.strict_upload_keys import STRICT_UPLOAD_ATTEMPT
 
 
 class DownloadStreamingOnlyStorage:
@@ -92,6 +99,56 @@ def test_owner_default_audio_download_returns_stored_m4a_without_policy(client) 
         "download_requested",
         "download_stream_prepared",
     ]
+
+
+@pytest.mark.parametrize("scenario", ["reserved_key", "registered_nonstandard_key"])
+def test_cabinet_never_exposes_protected_source_as_review_audio(client, monkeypatch, scenario):
+    meeting_id = create_ready_meeting(client)
+    set_artifact_policy(
+        client, meeting_id, audio_download="allowed",
+        transcript_download="allowed", package_export="allowed",
+    )
+    add_retained_playback_m4a(client, meeting_id)
+
+    async def point_canonical_row_at_source():
+        async with client.app_state["sessionmaker"].begin() as db:
+            job = await db.scalar(select(PlaybackNormalizationJob).where(
+                PlaybackNormalizationJob.meeting_id == meeting_id,
+            ))
+            artifact = await db.get(TrackArtifact, job.canonical_track_artifact_id)
+            if scenario == "reserved_key":
+                artifact.storage_object_key = (
+                    f"organizations/{job.organization_id}/workspaces/{job.workspace_id}/meetings/{meeting_id}/"
+                    f"artifacts/media-revisions/{job.media_revision_id}/attempts/broken"
+                )
+            else:
+                db.add(PurgeJournal(
+                    workspace_id=job.workspace_id, meeting_id=meeting_id,
+                    media_revision_id=job.media_revision_id, object_key=artifact.storage_object_key,
+                    artifact_class=STRICT_UPLOAD_ATTEMPT, state="retained", write_state="accepted",
+                    storage_scope="test-scope", storage_epoch=1, deletion_epoch=0,
+                ))
+
+    asyncio.run(point_canonical_row_at_source())
+    storage = client.app_state["storage"]
+
+    def unexpected_read(*args, **kwargs):
+        pytest.fail("Cabinet attempted to access a protected source")
+
+    for name in ("stat_object", "stat_object_async", "iter_object"):
+        monkeypatch.setattr(storage, name, unexpected_read)
+
+    route = f"/api/v1/cabinet/meetings/{meeting_id}"
+    for path in ("playback", "downloads/audio"):
+        response = client.get(f"{route}/{path}", headers=auth_headers())
+        assert response.status_code == 409
+    package = client.post(
+        f"{route}/exports", headers=auth_headers(),
+        json={"artifact_classes": ["audio", "transcript"]},
+    )
+    assert package.status_code == 202
+    assert package.json()["included_artifacts"] == ["transcript"]
+    assert [item["artifact_class"] for item in package.json()["excluded_artifacts"]] == ["audio"]
 
 
 def test_owner_default_audio_download_returns_stored_m4a_for_workspace_default_disabled(

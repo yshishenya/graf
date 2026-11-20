@@ -99,6 +99,7 @@ from twobrain_rec_server.processing.results import (
     result_is_complete,
     result_is_terminal_input,
 )
+from twobrain_rec_server.storage.strict_upload_keys import strict_upload_read_blocked
 
 
 class ProcessingLifecycleBlocked(RuntimeError):
@@ -1801,6 +1802,7 @@ async def load_processing_source(
                 TrackArtifact.media_revision_id == revision.id,
                 TrackArtifact.status == "stored",
                 TrackArtifact.track_role.in_(expected_roles),
+                ~strict_upload_read_blocked(TrackArtifact),
             )
         )
     )
@@ -2128,6 +2130,7 @@ async def set_workflow_status(
     reason_code: str | None = None,
     terminal: bool = False,
     deadline_seconds: int | None = None,
+    commit: bool = True,
 ) -> ProcessingWorkflow:
     meeting = await lock_meeting_fence(
         db, workspace_id=workflow.workspace_id, meeting_id=workflow.meeting_id
@@ -2165,10 +2168,12 @@ async def set_workflow_status(
     except ValueError:
         current_status = None
     if current_status in TERMINAL_PROCESSING_STATUSES:
-        await db.commit()
+        if commit:
+            await db.commit()
         return current
     if current_status is not None and not can_transition(current_status, status):
-        await db.commit()
+        if commit:
+            await db.commit()
         return current
     current.status = status.value
     current.last_reason_code = reason_code
@@ -2219,7 +2224,8 @@ async def set_workflow_status(
         notification_workflow_id=current.id,
         status=status,
     )
-    await db.commit()
+    if commit:
+        await db.commit()
     return current
 
 
@@ -2444,6 +2450,13 @@ async def claim_mediascribe_submission(
         raise MediaScribeClientError("mediascribe_job_not_found", retryable=False)
     if current.external_job_id:
         return None
+    if await db.scalar(select(TrackArtifact.id).where(
+        TrackArtifact.id == current.source_track_artifact_id,
+        TrackArtifact.workspace_id == current.workspace_id,
+        TrackArtifact.meeting_id == current.meeting_id,
+        strict_upload_read_blocked(TrackArtifact),
+    )) is not None:
+        raise ProcessingLifecycleBlocked("source_purge_started")
     if (
         current.status == MediaScribeJobStatus.BLOCKED.value
         and current.last_error_code == BLOCKED_MEDIASCRIBE_SUBMISSION_OUTCOME_UNKNOWN
@@ -2471,7 +2484,6 @@ async def claim_mediascribe_submission(
         current.last_error_code = None
         current.last_error_message = None
         current.failed_at = None
-        await db.commit()
     token = uuid4().hex
     current.status = MediaScribeJobStatus.SUBMITTING.value
     current.submission_claim_token = token

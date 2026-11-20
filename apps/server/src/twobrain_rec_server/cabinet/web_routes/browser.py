@@ -874,6 +874,8 @@ async def resume_public_meeting(request: Request):
                     raise ValueError("invalid fragment")
                 share_fragment(fragment[1], int(fragment[2]) if fragment[2] else None)
             target = candidate
+            if parsed.fragment and fragment[2] is not None and "media_version" not in query:
+                target = candidate.rsplit("#", 1)[0] + share_fragment(fragment[1])
         except (InvalidToken, ValueError, UnicodeError, KeyError):
             pass
     response = RedirectResponse(target, status_code=303)

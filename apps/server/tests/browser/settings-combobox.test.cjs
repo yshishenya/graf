@@ -5,7 +5,7 @@ const {execFileSync} = require('node:child_process');
 const path = require('node:path');
 const cabinet = path.join(__dirname, '../../src/twobrain_rec_server/cabinet');
 const assets = path.join(cabinet, 'static/cabinet');
-const recording = fs.readFileSync(path.join(cabinet, 'templates/cabinet/pages/settings_recording_content.html'), 'utf8').split('{% if embedded %}')[1].split('{% else %}')[0];
+const recording = fs.readFileSync(path.join(cabinet, 'templates/cabinet/pages/settings_recording_content.html'), 'utf8').split(/^\s*{% if embedded %}\s*$/m)[1].split(/^\s*{% else %}\s*$/m)[0];
 (async () => {
  const engine = process.env.BROWSER === 'webkit' ? webkit : chromium;
  const browser = await engine.launch({headless:true});
@@ -229,7 +229,7 @@ const recording = fs.readFileSync(path.join(cabinet, 'templates/cabinet/pages/se
   const extra=await browser.newPage(); extra.setDefaultTimeout(5000);
   extra.on('pageerror',error=>errors.push(error.message));
   const summarySource=fs.readFileSync(path.join(cabinet,'templates/cabinet/pages/settings_summaries_content.html'),'utf8');
-  const notificationSource=fs.readFileSync(path.join(cabinet,'templates/cabinet/pages/settings_notifications_content.html'),'utf8').split('{% if embedded %}')[1].split('{% else %}')[0];
+  const notificationSource=fs.readFileSync(path.join(cabinet,'templates/cabinet/pages/settings_notifications_content.html'),'utf8').split(/^\s*{% if embedded %}\s*$/m)[1].split(/^\s*{% else %}\s*$/m)[0];
   const summaryHTML=summarySource.replace(/{% for format in summary_formats %}([\s\S]*?){% endfor %}/g,(_,body)=>
    [{key:'auto',name:'Авто'},{key:'brief',name:'Кратко'}].map(format=>body
     .replaceAll('{{ format.key }}',format.key).replaceAll('{{ format.name }}',format.name)
