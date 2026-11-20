@@ -897,3 +897,39 @@ requested_by_user_id/workspace/policy/state/requested_at/finalize_at/canceled_at
 Safe snapshot и запреты — §ACN contracts/notifications-support.md. Обновление
 phase в исходной записи не переписывает прежний delivery. Retry использует
 прежний внутренний not-before ключ; он не часть текста или источника времени.
+
+
+## SSN: источник выбора и отмены хранилища — 12.11.2026
+
+Новых таблиц/колонок/миграций нет. Существующие BillingOperation,
+BillingPurchaseQuote, WorkspaceSubscription и BillingNotificationDelivery
+сохраняют прежние RLS/tenant boundaries. Суммы не пишутся в широкий audit.
+
+Scheduled: operation kind=storage_schedule/state=succeeded/provider_id=None,
+request_snapshot буквально равен consumed quote.snapshot, key=purchase:<quote.id>.
+Quote purpose=storage_schedule, исходный owner_user_id/workspace_id и
+selection_version. Post-version = selection_version+1 (обе версии целые,
+не bool, 0≤pre<2147483647). created_at операции — UTC now подтверждения
+в [quote.created_at, quote.expires_at); expires_at>created_at предложения.
+Source snapshot проверяет target/current capacity, cycle, ends_at,
+next_amount_minor, base_catalog_snapshot, next_storage_price: currency RUB,
+cycle/target одинаковы, сумма полная = base.amount_minor + add-on.amount_minor
+(для базовых5ГБ add-on=None). Нынешний каталог не участвует.
+
+Canceled: operation kind=storage_selection_cancel/state=succeeded/provider_id=None,
+ключ storage-cancel:<workspace.id.hex>:<post-version>, нет invoice/consumed quote.
+request_snapshot имеет ровно четыре поля:
+`storage_selection_schema: 1` (integer, не bool),
+`owner_user_id: <UUID canonical hex>`,
+`selection_version: <post-version integer 1..2147483647>`,
+`canceled_capacity_bytes: <исходный положительный bigint>`.
+Время отмены — явный timezone-aware UTC created_at операции. Отмена старого
+сохранённого положительного объёма не навязывает нынешнюю тарифную лестницу:
+это исторический удалённый выбор, не новая покупка. Нет суммы/нового consent.
+No-op при пустом выборе не создаёт operation и не увеличивает версии.
+
+Delivery event_id = storage:<workspace.id>:selection:<post-version>, исходный
+recipient неизменен. operation UUID связывает строгий safe_payload с источником;
+поля/текст/границы — contracts/notifications-support.md §SSN. Более новый
+selection/version/capacity/price не переписывает старое delivery. Прежний
+retry metadata key внутренний, не часть финансового snapshot/текста.

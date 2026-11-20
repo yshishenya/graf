@@ -906,3 +906,35 @@ Decision: только историческая формулировка с яв
 /settings/account без параметров. Никаких recovery token, session bypass или
 нового письма completed. Неполный старый snapshot подавляется; значения
 не восстанавливаются из нынешней подписки. Postal/реальная почта не трогаются.
+
+
+## SSN: исторический выбор хранилища — 12.11.2026
+
+Decision: источник scheduled — существующие consumed quote и succeeded
+storage_schedule operation с неизменным request_snapshot. Время операции
+задаётся подтверждением предложения. Rationale: нужные принятые числа/даты,
+Owner и идемпотентность уже сохраняются. Alternatives: чтение нынешнего
+каталога при доставке подменяет согласие, новая таблица дублирует историю.
+
+Decision: canceled получает одну no-money storage_selection_cancel operation
+в той же транзакции с очисткой выбора и enqueue. Закрытый snapshot содержит
+исходного actor, удалённый будущий объём и post-version; время — created_at.
+Успешный повтор уже пустого выбора не пишет ничего. Rationale: mutable
+subscription не доказывает прежнее действие, а обычный financial operation
+уже защищён нужной областью. Alternatives: новая таблица/миграция не нужна;
+широкий BillingAuditEvent не получает финансовый snapshot/текст письма.
+Проверенный потребитель monitoring.OPERATION_KINDS должен узнать новый kind.
+
+Decision: не включать next_attempt_label в это письмо. Quote содержит разные
+закрытые фразы и календарное время, а renderer возобновления принимает иной
+набор. SSN3 требует исторические дату следующего неоплаченного периода и
+полную цену, не обещание будущего списания. Нет новой попытки, согласия или
+расчёта. Cancel не показывает цену/дату/будущую capacity без принятого quote.
+
+Decision: небольшой отдельный mandatory source gate и прежний bounded sender.
+Threshold helper допускает Free без subscription и optional preference,
+поэтому его изменение смешало бы разные права. Нового общего framework нет.
+Source shared NOWAIT → delivery lock → durable claim → commit → HTTP:
+этот уже принятый ACN/FU порядок избегает deadlock и повтора unknown.
+Позднее историческое письмо допускается при сохранившихся исходных правах;
+смена владельца/финализация запрещают новый claim. Реальный inbox отдельный.
