@@ -110,6 +110,22 @@ def test_mandatory_gates_are_present_and_not_optional():
     assert 'GRAF_REQUIRE_PUBLIC_UPDATE_TRUST=1' in source
 
 
+def test_release_validates_the_app_inside_the_pkg():
+    """The PKG payload app needs its own stapled ticket, not only the outer PKG."""
+    source = SCRIPT.read_text()
+    assert source.count('validate-pkg-payload.sh') >= 2
+    validator = SCRIPT.with_name('validate-pkg-payload.sh')
+    assert validator.is_file()
+    text = validator.read_text()
+    assert 'pkgutil --expand-full' in text
+    assert 'xcrun stapler validate' in text
+    assert 'syspolicy_check distribution' in text
+    assert 'fail syspolicy' in text
+    # The gate must fail closed and point at the correct build order; a
+    # pkgutil --flatten repair of an --expand-full tree is not installable, so
+    # it is deliberately not offered as a shortcut.
+
+
 def test_app_update_helper_keeps_signing_stage_separate_from_publication():
     """Signing still produces reviewed assets before the remote atomic swap."""
     source = SCRIPT.read_text()

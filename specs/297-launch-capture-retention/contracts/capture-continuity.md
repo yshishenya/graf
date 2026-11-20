@@ -14,7 +14,12 @@
 3. A forward system-audio gap `500 ms < delta <= maximumKnownGapSeconds` (15 s) is **not** bridged with silence. The recording becomes an explicit partial result or stops with a preserved prefix; the UI must not present it as a complete recording.
 4. A system-audio gap `> maximumKnownGapSeconds` throws `gapExceedsBound`. Recording stops; the prefix is preserved.
 5. A microphone gap is not bridged; it remains `missingRequiredSource`/fail-closed.
-6. `.routeChanged` marks a rebase for that source. The next batch with a new `routeGeneration` is rebased so its first frame equals the source's `lastInputEndFrame`. No negative PTS trimming, no frame loss. `continuityRouteChangeCount` increases; recording continues.
+6. `.routeChanged` marks a rebase for that source, and the timeline measures the real interruption before rebasing:
+   - the media delta (`ptsDelta`) wins when positive;
+   - when the media clock resets (`ptsDelta <= 0`), the observed host-clock delta from the **end of the previous batch** is used;
+   - a resulting gap `<= 500 ms` is bridged with silence and the rebase continues;
+   - a resulting gap `> 500 ms` raises `renderReferenceMissing` so the writer keeps a truthful partial prefix instead of shifting later audio earlier.
+   `continuityRouteChangeCount` increases; several route changes per recording are allowed (generation increments, 0.5 s debounce). A microphone disconnect is `.sourceStopped`, not `.routeChanged`.
 7. `.sourceStopped` and `.dropped` keep their existing fail-closed behavior.
 8. If the route change cannot produce a trusted continuation, the writer preserves the playable prefix and maps `routeGenerationChanged`/`renderReferenceMissing` to `timelineMisaligned` with `partialContinuity=true`. The meeting may be uploaded as a partial recording; the UI must say so.
 9. The continuity notice/status must be exposed as an accessible status/alert, keyboard reachable, VoiceOver-labelled, and must not steal focus or disappear before it can be read.
