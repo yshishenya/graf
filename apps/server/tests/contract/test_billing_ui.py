@@ -315,6 +315,7 @@ async def test_scheduled_renewal_uses_persisted_invoice_amount(
     monkeypatch.setattr(billing_routes, "compose_personal_catalog", base_composition)
     principal = SimpleNamespace(user_id=UUID(int=1), session_id=None, auth_via_session=False)
     subscription = SimpleNamespace(
+        workspace_id=UUID(int=2),
         plan_code="personal",
         state="active",
         paid_through=datetime.now(UTC) + timedelta(days=1),
@@ -327,7 +328,7 @@ async def test_scheduled_renewal_uses_persisted_invoice_amount(
         billing_owner_id=principal.user_id,
         recurring_allowed=True,
     )
-    operation = SimpleNamespace(id=UUID(int=4), kind="renewal", state="scheduled")
+    operation = SimpleNamespace(id=UUID(int=4), kind="renewal", state="scheduled", provider_id=None)
     invoice = SimpleNamespace(
         safe_number="INV-FROZEN1",
         operation_id=operation.id,
@@ -341,6 +342,9 @@ async def test_scheduled_renewal_uses_persisted_invoice_amount(
     class FakeSession:
         def __init__(self) -> None:
             self.results = iter((subscription, None, 0, invoice, operation, invoice, None, None))
+
+        async def scalars(self, _statement):
+            return [operation]
 
         async def scalar(self, _statement: object) -> object:
             return next(self.results)
@@ -1895,12 +1899,13 @@ async def test_subscription_route_uses_effective_plan_and_viewer_local_calendar_
     cutoff = (datetime.now(UTC) + timedelta(days=30)).replace(hour=23, minute=30, second=0, microsecond=0)
     principal = SimpleNamespace(user_id=UUID(int=1), session_id=None, auth_via_session=False)
     subscription = SimpleNamespace(
+        workspace_id=UUID(int=2),
         plan_code=plan_code, state=plan_code, cycle="year", paid_through=cutoff,
         trial_ends_at=cutoff if plan_code == "trial" else None,
         billing_owner_id=principal.user_id, recurring_allowed=False,
         recurring_authority_version=7, renewal_resolution=None, next_capacity_bytes=None,
     )
-    db = SimpleNamespace(scalar=AsyncMock(side_effect=[subscription, None]), execute=AsyncMock(return_value=[]))
+    db = SimpleNamespace(scalar=AsyncMock(side_effect=[subscription, None]), execute=AsyncMock(return_value=[]), scalars=AsyncMock(return_value=[]))
     captured = {}
     monkeypatch.setattr(billing_routes, "_billing_role", AsyncMock(return_value="owner"))
     projection = AsyncMock(return_value=(None, False))
@@ -1978,6 +1983,31 @@ def test_subscription_any_unconfirmed_payment_uses_neutral_wording(amount):
     assert 'href="/billing/checkout?cycle=month"' not in html
     assert 'action="/billing/subscription/resume"' not in html
     assert 'action="/billing/subscription/early-preview"' not in html
+
+
+@pytest.mark.parametrize("recurring_allowed", [False, True])
+def test_subscription_manual_resolution_prioritizes_accessible_history_action(recurring_allowed):
+    subscription = SimpleNamespace(
+        plan_code="personal", state="active", cycle="month",
+        paid_through=datetime(2026, 11, 3, tzinfo=UTC),
+        recurring_allowed=recurring_allowed, recurring_authority_version=7,
+        renewal_resolution="method_required",
+    )
+    notice, url, label = billing_routes._renewal_notice(subscription, unresolved=True)
+    html = _subscription_view(
+        subscription=subscription, renewal_unresolved=True, result="method_required",
+        renewal_notice=notice, renewal_action_url=url, renewal_action_label=label,
+        resume_quote_id="synthetic-resume", next_charge_is_nominal_first=True,
+    )
+    assert notice in html and 'role="status"' in html
+    assert 'class="button primary" data-billing-primary href="/billing/history#billing-help"' in html
+    assert "Проверить результат" in html
+    assert "Проверьте способ оплаты" not in html
+    assert 'action="/billing/subscription/resume"' not in html
+    assert 'action="/billing/subscription/early-preview"' not in html
+    assert 'href="/billing/checkout?cycle=month"' not in html
+    assert ('action="/billing/subscription/cancel"' in html) is recurring_allowed
+    assert ("Новые автоматические попытки запрещены" in html) is not recurring_allowed
 
 
 def test_subscription_missing_nominal_first_flag_hides_explanation():

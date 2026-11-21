@@ -8,6 +8,7 @@
 {% set billing_enabled = billing_enabled|default(False) %}
 {% set latest_invoice_summary = latest_invoice_summary|default(None) %}
 {% set pending_invoice_summary = pending_invoice_summary|default(None) %}
+{% set renewal_unresolved = renewal_unresolved|default(False) %}
 {% set operation_pending = operation_pending|default(False) %}
 {% set renewal_allowed = renewal_allowed|default(False) %}
 {% set can_purchase = billing_owner and billing_data_available and billing_enabled and catalog_ready|default(True) and not operation_pending and not renewal_notice|default(None) %}
@@ -27,7 +28,8 @@
             {% if billing_owner and bonus_until_label|default(None) %}<p class="muted">Бонус до {{ bonus_until_label }}</p>{% endif %}
           </div>
           {% if billing_data_available %}<div class="billing-actions">
-            {% if billing_owner and operation_pending %}{% if pending_invoice_summary %}<a class="button primary" data-billing-primary href="/billing/checkout/status/{{ pending_invoice_summary.safe_number }}">Проверить оплату</a>{% else %}<a class="button primary" data-billing-primary href="/billing/history#billing-help">Уточнить результат</a>{% endif %}
+            {% if billing_owner and renewal_unresolved %}<a class="button primary" data-billing-primary href="{{ renewal_action_url }}">{{ renewal_action_label }}</a>
+            {% elif billing_owner and operation_pending %}{% if pending_invoice_summary %}<a class="button primary" data-billing-primary href="/billing/checkout/status/{{ pending_invoice_summary.safe_number }}">Проверить оплату</a>{% else %}<a class="button primary" data-billing-primary href="/billing/history#billing-help">Уточнить результат</a>{% endif %}
             {% elif can_purchase %}<a class="button primary" data-billing-primary href="{{ manual_checkout_url|default('/billing/checkout') }}">{{ "Продлить подписку" if plan_code == "personal" else "Выбрать тариф" }}</a>
             {% elif billing_owner %}<p class="muted" role="status">Оплата временно недоступна. Попробуйте позже.</p>
             {% elif billing_role == "owner" and operation_pending %}<p role="status">Предыдущая оплата еще проверяется. Повторно платить не нужно.</p>
@@ -40,7 +42,7 @@
         </div>
         {% if billing_owner and billing_data_available %}
         <div class="billing-renewal">
-          {% if operation_pending %}<p class="notice notice--warning" role="status">Результат предыдущей оплаты еще не подтвержден. Повторно платить не нужно.</p>{% endif %}
+          {% if operation_pending and not renewal_unresolved %}<p class="notice notice--warning" role="status">Результат предыдущей оплаты еще не подтвержден. Повторно платить не нужно.</p>{% endif %}
           {% if renewal_notice|default(None) %}<p class="notice notice--warning" role="status">{{ renewal_notice }}{% if renewal_action_url|default(None) %} <a href="{{ renewal_action_url }}">{{ renewal_action_label }}</a>{% endif %}</p>
           {% elif renewal_allowed %}<p>Автопродление включено.{% if next_charge_label|default(None) %} Следующее списание: <strong>{{ next_charge_amount_label|default("сумма уточняется", true) }}</strong> {{ current_cycle_label|default("") }} · {{ next_charge_label }}.{% endif %}</p>
           {% elif plan_code == "personal" %}<p>Автопродление отключено. Автоматических списаний не будет.</p>{% endif %}

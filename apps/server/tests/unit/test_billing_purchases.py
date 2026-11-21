@@ -306,7 +306,7 @@ async def test_next_charge_projection_uses_the_same_real_attempt_as_displayed_da
     *[({"renewal_resolution": reason}, "приостановлено: оплата временно недоступна")
       for reason in ("acceptance_budget", "provider_unavailable", "catalog_not_approved", "provider_floor")],
 ])
-async def test_next_charge_projection_suspensions_keep_labels_and_do_not_query(changes, expected):
+async def test_next_charge_projection_suspensions_read_history_before_showing_labels(changes, expected):
     from twobrain_rec_server.cabinet.web_routes import billing as routes
 
     subscription = SimpleNamespace(**{
@@ -317,20 +317,58 @@ async def test_next_charge_projection_suspensions_keep_labels_and_do_not_query(c
     assert await routes._next_renewal_projection(db, subscription, now=START) == (expected, False)
     assert await routes._next_renewal_label(db, subscription, now=START) == expected
     assert await routes._next_renewal_projection(db, None, now=START) == ("не запланировано", False)
-    db.scalars.assert_not_awaited()
+    assert db.scalars.await_count == (0 if subscription.paid_through is None else 2)
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("state", ["sent", "processing", "unknown", "unknown_pending"])
-async def test_next_charge_projection_unresolved_operation_never_claims_first_date(state):
+@pytest.mark.parametrize("state", ["sent", "processing", "unknown", "unknown_pending", "manual_resolution", "scheduled"])
+@pytest.mark.parametrize("resolution", [None, "method_required", "price_changed", "receipt_contact_required", "provider_unavailable", "catalog_not_approved", "acceptance_budget", "provider_floor"])
+@pytest.mark.parametrize("recurring_allowed", [True, False])
+async def test_next_charge_projection_unresolved_operation_never_claims_first_date(state, resolution, recurring_allowed):
     from twobrain_rec_server.cabinet.web_routes import billing as routes
 
-    db = SimpleNamespace(scalars=AsyncMock(return_value=[SimpleNamespace(state=state)]))
+    operations = [SimpleNamespace(state=state, provider_id="synthetic" if state == "scheduled" else None)]
+    db = SimpleNamespace(scalars=AsyncMock(return_value=operations))
     subscription = SimpleNamespace(workspace_id=uuid4(), paid_through=END,
-                                   recurring_allowed=True, renewal_resolution=None)
+                                   recurring_allowed=recurring_allowed, renewal_resolution=resolution, cycle="month")
     expected = "проверяем результат предыдущего списания; нового платежа не будет до завершения проверки"
     assert await routes._next_renewal_projection(db, subscription, now=START) == (expected, False)
     assert await routes._next_renewal_label(db, subscription, now=START) == expected
+    assert await routes._next_renewal_label(db, subscription, now=START, after_price_confirmation=True) == expected
+    with pytest.raises(PurchaseError, match="Проверяем результат предыдущего списания"):
+        await routes._resume_renewal_snapshot(db, subscription=subscription, now=START, operations=operations)
+    assert db.scalars.await_count == 3
+
+
+@pytest.mark.asyncio
+async def test_renewal_read_failure_is_not_an_empty_history():
+    from sqlalchemy.exc import SQLAlchemyError
+
+    from twobrain_rec_server.cabinet.web_routes import billing as routes
+
+    db = SimpleNamespace(scalars=AsyncMock(side_effect=SQLAlchemyError("synthetic read failure")))
+    subscription = SimpleNamespace(workspace_id=uuid4(), paid_through=END,
+                                   recurring_allowed=False, renewal_resolution="method_required")
+    for consumer in (routes._next_renewal_projection, routes._next_renewal_label):
+        with pytest.raises(SQLAlchemyError, match="synthetic read failure"):
+            await consumer(db, subscription, now=START)
+    with pytest.raises(SQLAlchemyError, match="synthetic read failure"):
+        await routes._resume_renewal_snapshot(db, subscription=subscription, now=START)
+
+
+@pytest.mark.asyncio
+async def test_projection_reuses_empty_period_and_no_paid_period_never_reads():
+    from twobrain_rec_server.cabinet.web_routes import billing as routes
+
+    db = SimpleNamespace(scalars=AsyncMock(side_effect=AssertionError("unexpected query")))
+    subscription = SimpleNamespace(workspace_id=uuid4(), paid_through=END,
+                                   recurring_allowed=True, renewal_resolution=None)
+    assert len(await routes._next_renewal_projection(db, subscription, now=START, operations=[])) == 2
+    subscription.paid_through = None
+    assert await routes._period_renewals(db, subscription) == []
+    with pytest.raises(PurchaseError, match="Нет оплаченного периода"):
+        await routes._resume_renewal_snapshot(db, subscription=subscription, now=START)
+    db.scalars.assert_not_awaited()
 
 
 @pytest.mark.asyncio
