@@ -1,0 +1,18 @@
+[Unit]
+Description=Prune GRAF dated backups older than the retention window
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Environment=TWOBRAIN_BACKUP_ROOT=/opt/projects/2brain-rec/backups
+ExecStart=/usr/local/libexec/prune-rec-backups.sh --execute --older-than-days 30
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+NoNewPrivileges=true
+ReadWritePaths=/opt/projects/2brain-rec/backups
+TimeoutStartSec=300
+TimeoutStopSec=30
+KillMode=control-group

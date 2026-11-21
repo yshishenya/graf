@@ -338,7 +338,10 @@ public final class LocalRecordingWriter: @unchecked Sendable {
                 // a bad source boundary. Keep that prefix and describe the
                 // failure instead of deleting it.
                 active.recordFailure(
-                    Self.failureReason(for: error),
+                    Self.failureReason(
+                        for: error,
+                        hasOutput: active.timeline.metrics.outputFrameCount > 0
+                    ),
                     code: Self.failureCode(for: error)
                 )
                 _ = active.timeline.finishPreservingAvailableAudio()
@@ -350,7 +353,10 @@ public final class LocalRecordingWriter: @unchecked Sendable {
                     try active.timeline.finish()
                 } catch {
                     active.recordFailure(
-                        Self.failureReason(for: error),
+                        Self.failureReason(
+                            for: error,
+                            hasOutput: active.timeline.metrics.outputFrameCount > 0
+                        ),
                         code: Self.failureCode(for: error)
                     )
                     _ = active.timeline.finishPreservingAvailableAudio()
@@ -367,8 +373,17 @@ public final class LocalRecordingWriter: @unchecked Sendable {
             ? failureReason
             : active.terminalFailureReason ?? .none
 
+        let partialContinuity = failureReason == .none
+            && active.terminalFailureReason == .timelineMisaligned
+            && active.timeline.metrics.outputFrameCount > 0
+            && artifact != nil
         let tracks: [LocalRecordingTrack]
-        tracks = makeTracks(for: active, artifact: artifact, failureReason: resolvedFailure)
+        tracks = makeTracks(
+            for: active,
+            artifact: artifact,
+            failureReason: resolvedFailure,
+            partialContinuity: partialContinuity
+        )
 
         let microphoneStream = microphoneStream(for: active, stoppedAt: stoppedAt)
         let microphoneHealth = microphoneStream.map { stream in
@@ -401,6 +416,7 @@ public final class LocalRecordingWriter: @unchecked Sendable {
             meetingMuteTruthEvidence: active.meetingMuteTruthEvidence,
             limitationCopyShownAt: active.limitationCopyShownAt,
             captureFailureCode: active.terminalFailureCode,
+            partialContinuity: partialContinuity,
             echoProcessor: .webrtcAEC3,
             echoProcessingHealth: echoProcessingHealth(
                 for: active,
@@ -521,7 +537,13 @@ public final class LocalRecordingWriter: @unchecked Sendable {
                 active.observe(batch: next.value, source: next.key)
             } catch {
                 logSourceProgress(for: active, trigger: Self.failureCode(for: error))
-                active.recordFailure(Self.failureReason(for: error), code: Self.failureCode(for: error))
+                active.recordFailure(
+                    Self.failureReason(
+                        for: error,
+                        hasOutput: active.timeline.metrics.outputFrameCount > 0
+                    ),
+                    code: Self.failureCode(for: error)
+                )
                 return
             }
         }
@@ -570,9 +592,12 @@ public final class LocalRecordingWriter: @unchecked Sendable {
     private func makeTracks(
         for active: V5ActiveRecording,
         artifact: CanonicalRecordingArtifact?,
-        failureReason: LocalRecordingFailureReason
+        failureReason: LocalRecordingFailureReason,
+        partialContinuity: Bool = false
     ) -> [LocalRecordingTrack] {
-        let persistedFailureReason = failureReason == .timelineMisaligned ? .captureFailed : failureReason
+        let persistedFailureReason = failureReason == .timelineMisaligned && !partialContinuity
+            ? .captureFailed
+            : failureReason
         guard let artifact else {
             return missingTracks(failureReason: persistedFailureReason == .none ? .noFrames : persistedFailureReason)
         }
@@ -589,7 +614,7 @@ public final class LocalRecordingWriter: @unchecked Sendable {
         let playbackDurationMs = Int((Double(playbackFile.length) / playbackFile.fileFormat.sampleRate) * 1_000)
         let aacPresentationFrameDelta = playbackFile.length - artifact.canonicalFrameCount
         let trackStatus: LocalRecordingTrackStatus = persistedFailureReason == .none ? .saved : .degraded
-        let timelineAligned = persistedFailureReason == .none
+        let timelineAligned = persistedFailureReason == .none && !partialContinuity
         let media = LocalRecordingTrack(
             trackId: "mixed-meeting-audio",
             role: .mixedMeetingAudio,
@@ -729,20 +754,24 @@ public final class LocalRecordingWriter: @unchecked Sendable {
         active.activePrivacySegment = nil
     }
 
-    private static func failureReason(for error: Error) -> LocalRecordingFailureReason {
-        switch error {
+    private static func failureReason(
+        for error: Error,
+        hasOutput: Bool = false
+    ) -> LocalRecordingFailureReason {
+        return switch error {
+        case RecordingAudioTimelineError.routeGenerationChanged,
+             RecordingAudioTimelineError.renderReferenceMissing,
+             RecordingAudioTimelineError.sourceStopped,
+             RecordingAudioTimelineError.gapExceedsBound,
+             RecordingAudioTimelineError.lateBatch:
+            // A continuity break, a stopped source, or an unrecoverable
+            // timestamp jump with a playable prefix is a truthful partial
+            // recording, not a dead capture. Without a prefix it stays failed.
+            hasOutput ? .timelineMisaligned : .captureFailed
         case RecordingAudioTimelineError.uncomparablePresentationTimes,
              RecordingAudioTimelineError.formatChanged,
-             RecordingAudioTimelineError.routeGenerationChanged,
-             RecordingAudioTimelineError.gapExceedsBound,
-             RecordingAudioTimelineError.lateBatch,
-             RecordingAudioTimelineError.renderReferenceMissing,
              RecordingAudioTimelineError.echoProcessingFailed(_),
-             RecordingAudioTimelineError.echoProcessingOutputInvalid,
-             RecordingAudioTimelineError.sourceStopped:
-            // Keep the local prefix, but do not emit the legacy generic
-            // timeline_misaligned code for a new package. The failed capture
-            // remains blocked from upload and is retained for recovery.
+             RecordingAudioTimelineError.echoProcessingOutputInvalid:
             .captureFailed
         case RecordingAudioTimelineError.missingRequiredSource:
             .noFrames

@@ -711,7 +711,7 @@ async def test_nonempty_downgrade_refuses_without_losing_protection(operator_cas
     assert await source_snapshot(c) == before
     await bootstrap._bootstrap()
     async with c.owner.connect() as conn:
-        assert await conn.scalar(text("SELECT version_num FROM alembic_version")) == "0113_fair_use_operator_history"
+        assert await conn.scalar(text("SELECT version_num FROM alembic_version")) == "0114_retention_scan_maintenance"
         assert await conn.scalar(text("SELECT bool_and(tgenabled='A') FROM pg_trigger WHERE tgname IN ('fair_use_review_guard','fair_use_audit_append','fair_use_audit_guard')")) is True
 
 

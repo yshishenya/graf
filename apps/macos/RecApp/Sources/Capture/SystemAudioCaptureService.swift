@@ -561,10 +561,11 @@ public final class ScreenCaptureKitSystemAudioRuntime: NSObject, SystemAudioCapt
     private let outputQueue = DispatchQueue(label: "pro.2brain.graf.screencapturekit.audio", qos: .userInitiated)
     private let streamLock = NSLock()
     private var stream: SCStream?
-    private let routeGeneration = RecordingAudioRouteGeneration.next()
+    private var routeGeneration = RecordingAudioRouteGeneration.next()
     private var lastPresentationTime: RecordingAudioPresentationTimestamp?
+    private var lastFormat: RecordingAudioFormat?
     private var outputRouteListener: AudioObjectPropertyListenerBlock?
-    private var outputRouteChangePublished = false
+    private var lastRouteChangeHostTime: Double?
     // Only accessed on outputQueue; retained for one bounded diagnostic per recording.
     private var previousBatchTiming: SystemAudioBatchTiming?
     private var maxCompletedCallbackDuration = 0.0
@@ -602,6 +603,7 @@ public final class ScreenCaptureKitSystemAudioRuntime: NSObject, SystemAudioCapt
             maxCompletedCallbackDuration = 0
             reportedTimingAnomaly = false
         }
+        resetRouteTrackingForStart()
         try stream.addStreamOutput(self, type: .audio, sampleHandlerQueue: outputQueue)
         try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: outputQueue)
         setCurrentStream(stream)
@@ -680,16 +682,18 @@ public final class ScreenCaptureKitSystemAudioRuntime: NSObject, SystemAudioCapt
             }
         }
         guard let batch = extractedBatch else { return }
+        streamLock.lock()
+        let generation = routeGeneration
+        lastPresentationTime = batch.presentationTime
+        lastFormat = batch.format
+        streamLock.unlock()
         let routedBatch = RecordingAudioBatch(
             samples: batch.samples,
             format: batch.format,
             presentationTime: batch.presentationTime,
             discontinuity: batch.discontinuity,
-            routeGeneration: routeGeneration
+            routeGeneration: generation
         )
-        streamLock.lock()
-        lastPresentationTime = routedBatch.presentationTime
-        streamLock.unlock()
         sampleHandler(routedBatch)
     }
 
@@ -699,16 +703,18 @@ public final class ScreenCaptureKitSystemAudioRuntime: NSObject, SystemAudioCapt
         clearCurrentStreamIfSame(stream)
         streamLock.lock()
         let presentationTime = lastPresentationTime
+        let format = lastFormat ?? RecordingAudioFormat(sampleRate: 48_000, channelCount: 1)
+        let generation = routeGeneration
         streamLock.unlock()
         sampleHandler(RecordingAudioBatch(
             samples: [],
-            format: RecordingAudioFormat(sampleRate: 48_000, channelCount: 1),
+            format: format,
             presentationTime: presentationTime ?? RecordingAudioPresentationTimestamp(
                 seconds: ProcessInfo.processInfo.systemUptime,
                 clockDomain: .hostTime
             ),
             discontinuity: .sourceStopped,
-            routeGeneration: routeGeneration
+            routeGeneration: generation
         ))
     }
 
@@ -732,7 +738,7 @@ public final class ScreenCaptureKitSystemAudioRuntime: NSObject, SystemAudioCapt
         }
         streamLock.lock()
         outputRouteListener = listener
-        outputRouteChangePublished = false
+        lastRouteChangeHostTime = nil
         streamLock.unlock()
     }
 
@@ -757,26 +763,41 @@ public final class ScreenCaptureKitSystemAudioRuntime: NSObject, SystemAudioCapt
 
     private func publishOutputRouteChange() {
         streamLock.lock()
-        guard stream != nil,
-              outputRouteListener != nil,
-              !outputRouteChangePublished
-        else {
+        guard stream != nil, outputRouteListener != nil else {
             streamLock.unlock()
             return
         }
-        outputRouteChangePublished = true
+        let now = ProcessInfo.processInfo.systemUptime
+        // CoreAudio may publish several notifications for one physical switch.
+        // Keep a short debounce but allow multiple real route changes per
+        // recording; the previous once-only guard hid the second switch.
+        if let lastRouteChangeHostTime, now - lastRouteChangeHostTime < 0.5 {
+            streamLock.unlock()
+            return
+        }
+        lastRouteChangeHostTime = now
+        routeGeneration = RecordingAudioRouteGeneration.next()
+        let generation = routeGeneration
         let presentationTime = lastPresentationTime
+        let format = lastFormat ?? RecordingAudioFormat(sampleRate: 48_000, channelCount: 1)
         streamLock.unlock()
         sampleHandler(RecordingAudioBatch(
             samples: [],
-            format: RecordingAudioFormat(sampleRate: 48_000, channelCount: 1),
+            format: format,
             presentationTime: presentationTime ?? RecordingAudioPresentationTimestamp(
-                seconds: ProcessInfo.processInfo.systemUptime,
+                seconds: now,
                 clockDomain: .hostTime
             ),
             discontinuity: .routeChanged,
-            routeGeneration: routeGeneration
+            routeGeneration: generation
         ))
+    }
+
+    private func resetRouteTrackingForStart() {
+        streamLock.lock()
+        routeGeneration = RecordingAudioRouteGeneration.next()
+        lastRouteChangeHostTime = nil
+        streamLock.unlock()
     }
 
     private func currentStream() -> SCStream? {

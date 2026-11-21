@@ -161,6 +161,13 @@ public enum LocalCacheEligibility {
             failures.insert(.notUploaded)
         }
 
+        if item.partialContinuity == true {
+            // A partial recording is not a complete local package. Its WAV is
+            // the only transcription-grade copy of the preserved prefix, so it
+            // must never be evicted even when the server accepted the upload.
+            failures.insert(.localIntegrityUnverified)
+        }
+
         if let proof {
             // A fresh server finalization proof is the server-provided
             // timestamp. The persisted upload status is client history and

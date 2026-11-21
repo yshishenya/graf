@@ -142,6 +142,7 @@ public enum LocalCacheCleanupCandidatePolicy {
     public static func cleanupBytes(for item: DesktopUploadQueueItem) -> Int64? {
         guard item.state == .uploaded,
               item.isV5Package,
+              item.partialContinuity != true,
               !item.lifecycleBlocksContent,
               item.isLocalUnbound != true,
               item.meetingId != nil || item.serverTruth.meetingId != nil,

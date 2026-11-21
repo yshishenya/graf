@@ -655,6 +655,8 @@ public struct LocalRecordingManifest: Codable, Equatable, Sendable {
 
     /// Durable local-only decision; absent in historical packages.
     public var shortRecordingDiscarded: Bool? = nil
+    /// Explicit partial-continuity result; absent in historical/clean packages.
+    public var partialContinuity: Bool? = nil
     /// nil preserves the pre-existing admission rules for historical packages.
     public var startAcceptance: LocalRecordingStartAcceptance? = nil
     public var schemaVersion: String
@@ -728,7 +730,8 @@ public struct LocalRecordingManifest: Codable, Equatable, Sendable {
         limitationCopyShownAt: Date? = nil,
         recordingMetadata: RecordingDisplayMetadata? = nil,
         echoProcessor: EchoProcessorDescriptor? = nil,
-        echoProcessingHealth: EchoProcessingHealth? = nil
+        echoProcessingHealth: EchoProcessingHealth? = nil,
+        partialContinuity: Bool? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.sessionId = sessionId
@@ -764,6 +767,7 @@ public struct LocalRecordingManifest: Codable, Equatable, Sendable {
         self.recordingMetadata = recordingMetadata
         self.echoProcessor = echoProcessor
         self.echoProcessingHealth = echoProcessingHealth
+        self.partialContinuity = partialContinuity
     }
 
     /// Applied only while finalizing a new, normally stopped recording.
@@ -1589,6 +1593,8 @@ public struct DesktopUploadQueueItem: Codable, Equatable, Identifiable, Sendable
     /// This is distinct from `failureCategory`, which also covers post-capture
     /// upload failures such as a missing local track.
     public var captureFailureCode: String?
+    /// True only for an explicitly partial continuity result.
+    public var partialContinuity: Bool?
     public var retryMode: UploadRetryMode
     public var attemptCount: Int
     public var nextRetryAt: Date?
@@ -1685,7 +1691,8 @@ public struct DesktopUploadQueueItem: Codable, Equatable, Identifiable, Sendable
         serverTruth: ServerTruthFingerprint = ServerTruthFingerprint(),
         retryRecords: [RetryRecord] = [],
         retentionDecision: RetentionDecision,
-        supportIncidentSubmission: DesktopSupportIncidentSubmissionState? = nil
+        supportIncidentSubmission: DesktopSupportIncidentSubmissionState? = nil,
+        partialContinuity: Bool? = nil
     ) {
         self.id = id
         self.sessionId = sessionId
@@ -1719,6 +1726,7 @@ public struct DesktopUploadQueueItem: Codable, Equatable, Identifiable, Sendable
         self.retryRecords = retryRecords
         self.retentionDecision = retentionDecision
         self.supportIncidentSubmission = supportIncidentSubmission
+        self.partialContinuity = partialContinuity
     }
 
     public var progressFraction: Double {
@@ -1818,6 +1826,7 @@ public struct DesktopUploadQueueItem: Codable, Equatable, Identifiable, Sendable
         case failureCategory
         case failureReason
         case captureFailureCode
+        case partialContinuity
         case retryMode
         case attemptCount
         case nextRetryAt
@@ -1879,7 +1888,8 @@ public struct DesktopUploadQueueItem: Codable, Equatable, Identifiable, Sendable
             supportIncidentSubmission: try container.decodeIfPresent(
                 DesktopSupportIncidentSubmissionState.self,
                 forKey: .supportIncidentSubmission
-            )
+            ),
+            partialContinuity: try container.decodeIfPresent(Bool.self, forKey: .partialContinuity)
         )
         ownerScope = try container.decodeIfPresent(RecordingDeletionScope.self, forKey: .ownerScope)
         isLocalUnbound = try container.decodeIfPresent(Bool.self, forKey: .isLocalUnbound)

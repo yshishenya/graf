@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import logging
 
+from sqlalchemy import select
+
 from twobrain_rec_server.billing.database import (
     BillingMaintenanceDatabaseError,
     verify_billing_maintenance_database,
@@ -15,9 +17,12 @@ from twobrain_rec_server.cabinet.summary_autosend import (
 )
 from twobrain_rec_server.calendar.worker import run_calendar_sync_reconciler
 from twobrain_rec_server.config import Settings, get_settings
+from twobrain_rec_server.db.models import Workspace
 from twobrain_rec_server.db.session import create_engine, create_sessionmaker
 from twobrain_rec_server.db.tenant_context import MaintenanceTenantContext, apply_tenant_context
+from twobrain_rec_server.deletion.retention import run_retention_scan
 from twobrain_rec_server.product_analytics.router import reconcile_activation_milestones_once
+from twobrain_rec_server.storage.minio_client import get_storage
 from twobrain_rec_server.workflows.billing_reconciliation_workflow import (
     BILLING_RECONCILIATION_ACTIVITY_NAME,
     BillingReconciliationWorkflow,
@@ -47,6 +52,7 @@ async def run_maintenance_worker() -> None:
         asyncio.create_task(run_calendar_sync_reconciler(settings)),
         asyncio.create_task(run_billing_notification_reconciler(settings)),
         asyncio.create_task(run_activation_milestone_reconciler(settings)),
+        asyncio.create_task(run_retention_reconciler(settings)),
         asyncio.create_task(_run_temporal_maintenance(settings)),
     ]
     try:
@@ -170,6 +176,105 @@ async def run_activation_milestone_reconciler(settings: Settings) -> None:
                 logger.error("activation delivery failed; error_type=%s", type(error).__name__)
             await asyncio.sleep(60)
     finally:
+        await engine.dispose()
+
+
+async def run_retention_once(
+    *,
+    settings: Settings,
+    sessions,
+    context: MaintenanceTenantContext,
+    storage,
+) -> None:
+    async with sessions() as db:
+        await apply_tenant_context(db, context)
+        workspace_ids = list(
+            (await db.scalars(select(Workspace.id).order_by(Workspace.id))).all()
+        )
+    for workspace_id in workspace_ids:
+        try:
+            async with sessions() as db:
+                await apply_tenant_context(db, context)
+                dry_run = bool(
+                    getattr(settings, "retention_scheduler_dry_run_only", True)
+                )
+                result = await run_retention_scan(
+                    db,
+                    settings=settings,
+                    workspace_id=workspace_id,
+                    limit=100,
+                    dry_run=dry_run,
+                    storage=storage,
+                )
+                await db.commit()
+                logger.info(
+                    "retention scan: dry_run=%s evaluated=%s created=%s skipped=%s blocked=%s",
+                    dry_run,
+                    result.evaluated,
+                    result.created_requests,
+                    result.skipped,
+                    result.blocked,
+                )
+        except Exception as error:
+            logger.error(
+                "retention scan workspace failed; error_type=%s",
+                type(error).__name__,
+            )
+
+
+async def run_retention_reconciler(settings: Settings) -> None:
+    """Daily, bounded retention scan; one workspace failure does not stop the loop."""
+    if not getattr(settings, "retention_scheduler_enabled", False):
+        logger.info("retention scheduler disabled by configuration")
+        return
+    engine = None
+    while engine is None:
+        try:
+            engine = create_engine(settings)
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:
+            logger.error(
+                "retention engine unavailable; error_type=%s; retry_in=60s",
+                type(error).__name__,
+            )
+            await asyncio.sleep(60)
+    sessions = create_sessionmaker(engine)
+    context = MaintenanceTenantContext(
+        operation_name="retention_scan",
+        actor_id="graf-maintenance",
+        reason_category="retention_policy",
+        feature_area="deletion",
+    )
+    storage = None
+    while storage is None:
+        try:
+            storage = get_storage(settings)
+        except Exception as error:
+            logger.error(
+                "retention storage unavailable; error_type=%s; retry_in=60s",
+                type(error).__name__,
+            )
+            await asyncio.sleep(60)
+    try:
+        while True:
+            try:
+                await run_retention_once(
+                    settings=settings,
+                    sessions=sessions,
+                    context=context,
+                    storage=storage,
+                )
+            except Exception as error:
+                logger.error(
+                    "retention scan loop failed; error_type=%s",
+                    type(error).__name__,
+                )
+            await asyncio.sleep(24 * 60 * 60)
+    finally:
+        close = getattr(storage, "close", None)
+        if close is not None:
+            close()
         await engine.dispose()
 
 

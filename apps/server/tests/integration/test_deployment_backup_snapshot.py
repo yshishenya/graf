@@ -292,7 +292,7 @@ def test_full_migrated_database_restore_comparison(
     migrations_relative = Path("apps/server/src/twobrain_rec_server/db/migrations/versions")
     shutil.copytree(REPO / migrations_relative, checkout / migrations_relative)
     next_migration = checkout / migrations_relative / "t114_next.py"
-    next_migration.write_text("revision = 't114_next'\ndown_revision = '0113_fair_use_operator_history'\n")
+    next_migration.write_text("revision = 't114_next'\ndown_revision = '0114_retention_scan_maintenance'\n")
     next_command = [command[0], str(verifier_path), *command[2:]]
     preflight = next_command[:3] + ["--inventory"]
     assert subprocess.run(preflight, capture_output=True).returncode == 0
@@ -305,7 +305,7 @@ def test_full_migrated_database_restore_comparison(
     next_spec.loader.exec_module(next_verifier)
     next_verifier.inventory(restored, database)  # Valid alone; only the source/restore mismatch fails.
     assert subprocess.run(next_command, capture_output=True).returncode != 0
-    psql(target, "UPDATE alembic_version SET version_num='0113_fair_use_operator_history'", database=database, role="twobrain_rec")
+    psql(target, "UPDATE alembic_version SET version_num='0114_retention_scan_maintenance'", database=database, role="twobrain_rec")
     capture(target, database, restored, dump=False)
     assert subprocess.run(next_command, capture_output=True).returncode == 0
     # Broken checkout histories fail closed, without executing migration code.

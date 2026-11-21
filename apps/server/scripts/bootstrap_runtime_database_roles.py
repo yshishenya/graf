@@ -392,7 +392,9 @@ async def _restrict_fair_use_history(connection: asyncpg.Connection) -> None:
             select to_regclass('public.uq_fair_use_audit_transition') is not null
                 or exists(select from pg_policy where polrelid='public.fair_use_reviews'::regclass
                           and polname='fair_use_review_read')
-                or exists(select from public.alembic_version where version_num='0113_fair_use_operator_history')
+                or exists(select from public.alembic_version
+                          where version_num in ('0113_fair_use_operator_history',
+                                               '0114_retention_scan_maintenance'))
         """)
         if partial:
             raise RuntimeError("fair-use history schema is incomplete")
@@ -408,12 +410,24 @@ async def _restrict_fair_use_history(connection: asyncpg.Connection) -> None:
     if not writer:
         raise RuntimeError("fair-use audit writer is missing")
     for signature, (returns, body) in schema.CONTEXT_HELPERS.items():
+        expected_bodies = [body]
+        if signature == "rec_maintenance_allowed()":
+            # 0114 adds the retention_scan operation to the same helper.
+            retention_schema = import_module(
+                "twobrain_rec_server.db.migrations.versions.0114_retention_scan_maintenance"
+            )
+            expected_bodies = [
+                retention_schema.maintenance_allowed_body(
+                    retention_schema.PREVIOUS_OPERATIONS
+                ),
+                retention_schema.maintenance_allowed_body(),
+            ]
         valid = await connection.fetchval("""
-            select prosrc=$2 and proowner=$3 and not prosecdef and provolatile='s'
+            select prosrc = ANY($2::text[]) and proowner=$3 and not prosecdef and provolatile='s'
                 and prorettype=$4::regtype and prolang=(select oid from pg_language where lanname='sql')
                 and proconfig is null
             from pg_proc where oid=to_regprocedure($1)
-        """, f"public.{signature.replace('(name text)', '(text)')}", body, owner, returns)
+        """, f"public.{signature.replace('(name text)', '(text)')}", expected_bodies, owner, returns)
         if not valid:
             raise RuntimeError("fair-use context helper is unsafe")
     for name, body in schema.FUNCTIONS.items():
