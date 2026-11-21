@@ -1,0 +1,132 @@
+#pragma once
+
+#include "AudioTypes.h"
+#include "ClockMapper.h"
+#include "WasapiEndpointEnumerator.h"
+
+#include <cstddef>
+#include <array>
+#include <atomic>
+#include <chrono>
+#include <cstdint>
+#include <functional>
+#include <memory>
+#include <mutex>
+#include <string>
+
+#ifdef _WIN32
+struct IAudioClock;
+#endif
+
+namespace graf::windows {
+
+class AudioNormalizer;
+
+enum class CaptureWorkerError {
+    none,
+    alreadyRunning,
+    invalidEndpoint,
+    unsupportedFormat,
+    initializationFailed,
+    deviceInvalidated,
+    bufferOverflow,
+    clockDiscontinuity,
+    unsupportedPlatform,
+    waitFailed,
+    packetReadFailed,
+    bufferReadFailed,
+    audioClockFailed,
+    releaseFailed,
+    normalizationFailed,
+    sinkRejected,
+    // Доступ к устройству запрещён системой: у микрофона это отказ в
+    // разрешении, и человеку нужно сказать именно это, а не «устройство
+    // отключилось».
+    accessDenied,
+    stopFailed,
+};
+
+struct CaptureWorkerConfig {
+    std::size_t maxBatchFrames = 4'800;
+    std::uint64_t routeGeneration = 1;
+    std::uint64_t clockDomain = 1;
+};
+
+struct CaptureReleaseResult {
+    bool succeeded = false;
+    std::int32_t hresult = -1;
+};
+
+using CaptureBatchCallback = std::function<bool(AudioBatch)>;
+
+class WasapiCaptureWorker final {
+public:
+    WasapiCaptureWorker(WasapiEndpointSnapshot endpoint, bool renderLoopback,
+                        CaptureWorkerConfig config = {});
+    ~WasapiCaptureWorker();
+
+    WasapiCaptureWorker(const WasapiCaptureWorker&) = delete;
+    WasapiCaptureWorker& operator=(const WasapiCaptureWorker&) = delete;
+
+    // UI-owner-thread commands. Start launches acquisition without waiting for
+    // COM/device initialization; Stop requests cancellation without joining.
+    [[nodiscard]] CaptureWorkerError start(CaptureBatchCallback callback);
+    void stop() noexcept;
+    [[nodiscard]] bool ready() const noexcept;
+    [[nodiscard]] bool finished() const noexcept;
+    // UI-owner-thread view, synchronized by the same finished acquire fence.
+    // Most recent thread completion; zero while running or if none completed.
+    // Never a packet timestamp.
+    [[nodiscard]] std::chrono::steady_clock::time_point finishedAt() const noexcept;
+    [[nodiscard]] bool running() const noexcept;
+    [[nodiscard]] CaptureWorkerError lastError() const noexcept;
+    [[nodiscard]] CaptureClockDiagnostics clockDiagnostics() const noexcept;
+
+private:
+    friend class WindowsCaptureSessionController;
+    void joinStopped(); // Forced owner teardown only; ordinary Stop never joins.
+    friend struct CaptureSessionTestPeer;
+    // Bound before Start; the controller joins this worker before destruction.
+    const std::atomic<std::uint64_t>* microphonePrivacyEpoch_ = nullptr;
+    [[nodiscard]] std::optional<std::uint64_t> capturePrivacyEpoch() const noexcept;
+    struct ResumeClockSample {
+        std::int32_t result = -1;
+        std::uint64_t position = 0, frequency = 0;
+        std::uint32_t sampleRate = 0;
+        std::uint64_t before100ns = 0, paired100ns = 0, after100ns = 0, qpcFrequency = 0;
+        std::chrono::system_clock::time_point wall{};
+        std::chrono::steady_clock::time_point steady{};
+    };
+    struct ResumeReceipt {
+        std::uint64_t expectedEpoch = 0;
+        std::chrono::system_clock::time_point wall{};
+        std::chrono::steady_clock::time_point steady{};
+    };
+    [[nodiscard]] std::optional<ResumeReceipt> resumeMicrophone(
+        const std::function<bool(const ResumeReceipt&, std::chrono::steady_clock::time_point)>& apply);
+    // Acquisition thread only, between released packets. The callback reads
+    // the existing stream clock; no COM interface crosses to the dispatcher.
+    void servicePrivacyResume(const std::function<ResumeClockSample()>& readClock);
+    [[nodiscard]] std::uint64_t resumeRequestSerial() const;
+    // Shared by the native Stop call and fault-injection tests. Never clears
+    // an earlier capture failure; published before the completion fence.
+    void completeNativeStop(std::int32_t hresult) noexcept;
+    // The device loop and packet regressions share copy/release/normalization.
+    [[nodiscard]] bool consumePacket(ClockMapper& mapper, AudioNormalizer& normalizer,
+        ClockObservation packet, const void* data, std::uint16_t channels, bool float32,
+        const std::function<CaptureReleaseResult(std::uint32_t)>& releaseBuffer,
+        std::optional<std::uint64_t> privacyEpoch);
+#ifdef _WIN32
+    [[nodiscard]] static std::wstring utf8ToWide(const std::string& value);
+    [[nodiscard]] static ResumeClockSample readResumeClockSample(
+        ::IAudioClock* clock, std::uint64_t frequency, std::uint32_t sampleRate);
+#endif
+    // Tests replace only the device body, retaining the real thread, cancellation,
+    // exception and completion lifecycle. No production device adapter is needed.
+    using DeviceRun = std::function<void(const std::atomic_bool&, std::atomic_bool&, const CaptureBatchCallback&)>;
+    DeviceRun deviceRunForTesting_;
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
+};
+
+} // namespace graf::windows

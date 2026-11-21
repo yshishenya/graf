@@ -11,6 +11,12 @@ def test_first_transcript_refresh_keeps_live_audio_and_comment_draft() -> None:
     subprocess.run(["node", str(script)], check=True, capture_output=True, text=True, timeout=60)
 
 
+@pytest.mark.browser
+def test_detail_local_playback_follows_native_capabilities_and_platform() -> None:
+    script = Path(__file__).parents[1] / "browser/detail-local-playback.test.cjs"
+    subprocess.run(["node", str(script)], check=True, capture_output=True, text=True, timeout=60)
+
+
 def test_partial_summary_is_available_with_limits_in_detail_and_list() -> None:
     script = Path(__file__).parents[2] / "src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js"
     subprocess.run(["node", "-e", r'''

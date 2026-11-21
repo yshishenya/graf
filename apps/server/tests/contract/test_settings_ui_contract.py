@@ -28,6 +28,7 @@ def test_settings_overview_exposes_supported_categories_in_primary_sidebar() -> 
         assert f'href="{prefix}/integrations/calendar"' in page
         assert f'href="{prefix}/workspace"' in page
         assert f'href="{prefix}/account"' in page
+        assert f'<a href="{prefix}/account">Настройки</a>' not in page
         assert page.count("data-settings-primary-nav>") == 1
         assert page.count("data-settings-primary-nav-item") == 8
         assert '<span class="cabinet-sidebar-nav__section-label">Личное</span>' in page

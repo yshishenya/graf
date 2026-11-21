@@ -1,0 +1,566 @@
+[
+  {
+    "url": "https://0.0.0.0/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://0.255.255.255/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://1.0.0.0/join?pwd=synthetic",
+    "allowed": true
+  },
+  {
+    "url": "https://1.1.1.1/join?pwd=synthetic",
+    "allowed": true
+  },
+  {
+    "url": "https://10.0.0.0/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://10.255.255.255/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://100.127.255.255/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://100.128.0.0/join?pwd=synthetic",
+    "allowed": true
+  },
+  {
+    "url": "https://100.63.255.255/join?pwd=synthetic",
+    "allowed": true
+  },
+  {
+    "url": "https://100.64.0.0/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://[100:0:0:1::]/join?pwd=synthetic",
+    "allowed": true
+  },
+  {
+    "url": "https://[100::]/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://[100::ffff:ffff:ffff:ffff]/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://11.0.0.0/join?pwd=synthetic",
+    "allowed": true
+  },
+  {
+    "url": "https://126.255.255.255/join?pwd=synthetic",
+    "allowed": true
+  },
+  {
+    "url": "https://127.0.0.0/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://127.255.255.255/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://128.0.0.0/join?pwd=synthetic",
+    "allowed": true
+  },
+  {
+    "url": "https://169.253.255.255/join?pwd=synthetic",
+    "allowed": true
+  },
+  {
+    "url": "https://169.254.0.0/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://169.254.255.255/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://169.255.0.0/join?pwd=synthetic",
+    "allowed": true
+  },
+  {
+    "url": "https://172.15.255.255/join?pwd=synthetic",
+    "allowed": true
+  },
+  {
+    "url": "https://172.16.0.0/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://172.31.255.255/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://172.32.0.0/join?pwd=synthetic",
+    "allowed": true
+  },
+  {
+    "url": "https://191.255.255.255/join?pwd=synthetic",
+    "allowed": true
+  },
+  {
+    "url": "https://192.0.0.0/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://192.0.0.10/join?pwd=synthetic",
+    "allowed": true
+  },
+  {
+    "url": "https://192.0.0.11/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://192.0.0.169/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://192.0.0.170/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://192.0.0.171/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://192.0.0.172/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://192.0.0.255/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://192.0.0.8/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://192.0.0.9/join?pwd=synthetic",
+    "allowed": true
+  },
+  {
+    "url": "https://192.0.1.0/join?pwd=synthetic",
+    "allowed": true
+  },
+  {
+    "url": "https://192.0.1.255/join?pwd=synthetic",
+    "allowed": true
+  },
+  {
+    "url": "https://192.0.2.0/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://192.0.2.255/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://192.0.3.0/join?pwd=synthetic",
+    "allowed": true
+  },
+  {
+    "url": "https://192.167.255.255/join?pwd=synthetic",
+    "allowed": true
+  },
+  {
+    "url": "https://192.168.0.0/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://192.168.255.255/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://192.169.0.0/join?pwd=synthetic",
+    "allowed": true
+  },
+  {
+    "url": "https://198.17.255.255/join?pwd=synthetic",
+    "allowed": true
+  },
+  {
+    "url": "https://198.18.0.0/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://198.19.255.255/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://198.20.0.0/join?pwd=synthetic",
+    "allowed": true
+  },
+  {
+    "url": "https://198.51.100.0/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://198.51.100.255/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://198.51.101.0/join?pwd=synthetic",
+    "allowed": true
+  },
+  {
+    "url": "https://198.51.99.255/join?pwd=synthetic",
+    "allowed": true
+  },
+  {
+    "url": "https://[2000:ffff:ffff:ffff:ffff:ffff:ffff:ffff]/join?pwd=synthetic",
+    "allowed": true
+  },
+  {
+    "url": "https://[2001:1::]/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://[2001:1::1]/join?pwd=synthetic",
+    "allowed": true
+  },
+  {
+    "url": "https://[2001:1::2]/join?pwd=synthetic",
+    "allowed": true
+  },
+  {
+    "url": "https://[2001:1::3]/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://[2001:1f:ffff:ffff:ffff:ffff:ffff:ffff]/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://[2001:1ff:ffff:ffff:ffff:ffff:ffff:ffff]/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://[2001:200::]/join?pwd=synthetic",
+    "allowed": true
+  },
+  {
+    "url": "https://[2001:20::]/join?pwd=synthetic",
+    "allowed": true
+  },
+  {
+    "url": "https://[2001:2:ffff:ffff:ffff:ffff:ffff:ffff]/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://[2001:2f:ffff:ffff:ffff:ffff:ffff:ffff]/join?pwd=synthetic",
+    "allowed": true
+  },
+  {
+    "url": "https://[2001:30::]/join?pwd=synthetic",
+    "allowed": true
+  },
+  {
+    "url": "https://[2001:3::]/join?pwd=synthetic",
+    "allowed": true
+  },
+  {
+    "url": "https://[2001:3:ffff:ffff:ffff:ffff:ffff:ffff]/join?pwd=synthetic",
+    "allowed": true
+  },
+  {
+    "url": "https://[2001:3f:ffff:ffff:ffff:ffff:ffff:ffff]/join?pwd=synthetic",
+    "allowed": true
+  },
+  {
+    "url": "https://[2001:40::]/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://[2001:4:111:ffff:ffff:ffff:ffff:ffff]/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://[2001:4:112::]/join?pwd=synthetic",
+    "allowed": true
+  },
+  {
+    "url": "https://[2001:4:112:ffff:ffff:ffff:ffff:ffff]/join?pwd=synthetic",
+    "allowed": true
+  },
+  {
+    "url": "https://[2001:4:113::]/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://[2001:4::]/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://[2001::]/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://[2001:db7:ffff:ffff:ffff:ffff:ffff:ffff]/join?pwd=synthetic",
+    "allowed": true
+  },
+  {
+    "url": "https://[2001:db8::]/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://[2001:db8:ffff:ffff:ffff:ffff:ffff:ffff]/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://[2001:db9::]/join?pwd=synthetic",
+    "allowed": true
+  },
+  {
+    "url": "https://[2001:ffff:ffff:ffff:ffff:ffff:ffff:ffff]/join?pwd=synthetic",
+    "allowed": true
+  },
+  {
+    "url": "https://[2002::]/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://[2002:ffff:ffff:ffff:ffff:ffff:ffff:ffff]/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://[2003::]/join?pwd=synthetic",
+    "allowed": true
+  },
+  {
+    "url": "https://203.0.112.255/join?pwd=synthetic",
+    "allowed": true
+  },
+  {
+    "url": "https://203.0.113.0/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://203.0.113.255/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://203.0.114.0/join?pwd=synthetic",
+    "allowed": true
+  },
+  {
+    "url": "https://239.255.255.255/join?pwd=synthetic",
+    "allowed": true
+  },
+  {
+    "url": "https://240.0.0.0/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://255.255.255.254/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://255.255.255.255/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://[2606:4700:4700::1111]/join?pwd=synthetic",
+    "allowed": true
+  },
+  {
+    "url": "https://[3ffe:ffff:ffff:ffff:ffff:ffff:ffff:ffff]/join?pwd=synthetic",
+    "allowed": true
+  },
+  {
+    "url": "https://[3fff:1000::]/join?pwd=synthetic",
+    "allowed": true
+  },
+  {
+    "url": "https://[3fff::]/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://[3fff:fff:ffff:ffff:ffff:ffff:ffff:ffff]/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://[64:ff9b:0:ffff:ffff:ffff:ffff:ffff]/join?pwd=synthetic",
+    "allowed": true
+  },
+  {
+    "url": "https://[64:ff9b:1::]/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://[64:ff9b:1:ffff:ffff:ffff:ffff:ffff]/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://[64:ff9b:2::]/join?pwd=synthetic",
+    "allowed": true
+  },
+  {
+    "url": "https://8.8.8.8/join?pwd=synthetic",
+    "allowed": true
+  },
+  {
+    "url": "https://9.255.255.255/join?pwd=synthetic",
+    "allowed": true
+  },
+  {
+    "url": "https://[::]/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://[::1]/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://[::1:0:0:0]/join?pwd=synthetic",
+    "allowed": true
+  },
+  {
+    "url": "https://[::2]/join?pwd=synthetic",
+    "allowed": true
+  },
+  {
+    "url": "https://[::fffe:ffff:ffff]/join?pwd=synthetic",
+    "allowed": true
+  },
+  {
+    "url": "https://[::ffff:0.0.0.0]/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://[::ffff:100.64.0.1]/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://[::ffff:127.0.0.1]/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://[::ffff:255.255.255.255]/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://[::ffff:8.8.8.8]/join?pwd=synthetic",
+    "allowed": true
+  },
+  {
+    "url": "https://conference/join?pwd=synthetic",
+    "allowed": true
+  },
+  {
+    "url": "https://[fbff:ffff:ffff:ffff:ffff:ffff:ffff:ffff]/join?pwd=synthetic",
+    "allowed": true
+  },
+  {
+    "url": "https://[fc00::]/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://[fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff]/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://[fe00::]/join?pwd=synthetic",
+    "allowed": true
+  },
+  {
+    "url": "https://[fe7f:ffff:ffff:ffff:ffff:ffff:ffff:ffff]/join?pwd=synthetic",
+    "allowed": true
+  },
+  {
+    "url": "https://[fe80::]/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://[febf:ffff:ffff:ffff:ffff:ffff:ffff:ffff]/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://[fec0::]/join?pwd=synthetic",
+    "allowed": true
+  },
+  {
+    "url": "https://[ff:ffff:ffff:ffff:ffff:ffff:ffff:ffff]/join?pwd=synthetic",
+    "allowed": true
+  },
+  {
+    "url": "https://localhost/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://meeting.local/join?pwd=synthetic",
+    "allowed": true
+  },
+  {
+    "url": "https://sub.localhost/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://127.1/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://2130706433/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://0x7f000001/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://0177.0.0.1/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://10.1/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://3232235777/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://0x08080808/join?pwd=synthetic",
+    "allowed": true
+  },
+  {
+    "url": "https://134744072/join?pwd=synthetic",
+    "allowed": true
+  },
+  {
+    "url": "https://010.010.010.010/join?pwd=synthetic",
+    "allowed": true
+  },
+  {
+    "url": "https://%31%32%37.0.0.1/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://%6cocalhost/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://%38.%38.%38.%38/join?pwd=synthetic",
+    "allowed": true
+  },
+  {
+    "url": "https://127.0.0.1\\public.example/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://ＬＯＣＡＬＨＯＳＴ/join?pwd=synthetic",
+    "allowed": false
+  },
+  {
+    "url": "https://ｃｏｎｆｅｒｅｎｃｅ/join?pwd=synthetic",
+    "allowed": true
+  }
+]

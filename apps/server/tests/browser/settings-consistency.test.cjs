@@ -31,12 +31,13 @@ if(process.argv.includes('--notification-contract')){
    const create=window.GRAFSettings.create;
    window.GRAFSettings.create=(id,options)=>{queueOptions=options;actualQueue=create(id,options);return actualQueue;};
   }
-  vm.runInContext(notificationSource,context);
+  const platformStart=source.indexOf('  const platformText =');
+  vm.runInContext(source.slice(platformStart,source.indexOf('\n',platformStart))+'\n'+notificationSource,context);
   window.GRAFNotificationSettings.connect('current');
   return {window,root,controls,fields,status,preview,requests,ready:settle(),options:()=>queueOptions,queue:()=>actualQueue,disposed:()=>disposed};
  };
  test('F277 template exposes exactly five preferences and one preview action',()=>{
-  const html=fs.readFileSync(path.join(cabinet,'templates/cabinet/pages/settings_notifications_content.html'),'utf8').split('{% if embedded %}')[1].split('{% else %}')[0];
+  const html=fs.readFileSync(path.join(cabinet,'templates/cabinet/pages/settings_notifications_content.html'),'utf8');
   const fields=[...html.matchAll(/(?:local_notification_field|data-local-notification-field)="([^"]+)"/g)].map(match=>match[1]);
   assert.deepEqual(fields.sort(),['offsetMinutes','quiet','reminders','showTitles','sound']);
   assert.deepEqual([...html.matchAll(/data-local-notification-action="([^"]+)"/g)].map(match=>match[1]),['test']);
@@ -147,6 +148,52 @@ if(process.argv.includes('--notification-contract')){
   assert(f.requests.every(request=>request.action==='read'));
   f.window.GRAFNotificationSettings.disconnect();
  });
+ test('F200 notification refresh during an older read requests current context once',async()=>{
+  let state={...snapshot(),canEdit:false},hold=false,release;
+  const f=fixture(async()=>{
+   const reply=structuredClone(state);
+   if(hold)await new Promise(resolve=>{release=resolve;});
+   return reply;
+  },{realQueue:true});
+  try{
+   await f.ready;assert.equal(f.controls.disabled,true);
+   const before=f.requests.length;
+   hold=true;f.window.GRAFNotificationSettings.refresh();await settle();
+   assert.equal(typeof release,'function');
+   state={...snapshot(),canEdit:true};hold=false;
+   for(let i=0;i<3;i++)f.window.GRAFNotificationSettings.refresh();
+   release();await settle();
+   assert.equal(f.requests.length,before+2,'The pending read must be followed by one fresh read');
+   assert.equal(f.controls.disabled,false,'Confirmed native context must enable the open page');
+   assert(f.requests.slice(before).every(request=>request.action==='read'&&request.nonce==='current'));
+  }finally{release?.();f.window.GRAFNotificationSettings.disconnect();await settle();}
+ });
+ for(const scope of ['disconnect','new-nonce','same-nonce']){
+  test(`F200 delayed notification refresh is retired by ${scope}`,async()=>{
+   let state=snapshot(),hold=false,release;
+   const f=fixture(async()=>{
+    const reply=structuredClone(state);
+    if(hold)await new Promise(resolve=>{release=resolve;});
+    return reply;
+   },{realQueue:true});
+   try{
+    await f.ready;
+    state={...snapshot(),canEdit:false};hold=true;
+    f.window.GRAFNotificationSettings.refresh();await settle();
+    assert.equal(typeof release,'function');
+    f.window.GRAFNotificationSettings.refresh();
+    f.window.GRAFNotificationSettings.disconnect();
+    hold=false;state=snapshot();
+    if(scope!=='disconnect')f.window.GRAFNotificationSettings.connect(scope==='new-nonce'?'next':'current');
+    await settle();
+    const beforeRelease=f.requests.length;
+    release();await settle();
+    assert.equal(f.requests.length,beforeRelease,'Old generation cannot replay its queued refresh');
+    assert.equal(f.controls.disabled,scope==='disconnect','Old response cannot change current availability');
+    if(scope==='new-nonce')assert.equal(f.requests.at(-1).nonce,'next');
+   }finally{release?.();f.window.GRAFNotificationSettings.disconnect();await settle();}
+  });
+ }
  test('F277 pending preview cannot replace the account-change message',async()=>{
   let release;const f=fixture(request=>request.action==='test'?new Promise(resolve=>{release=resolve;}):Promise.resolve(snapshot()));
   await f.ready;f.preview.listeners.get('click')();await settle();
@@ -338,8 +385,10 @@ const pages=['account','workspace','recording','summaries','integrations/calenda
    const dialog=page.locator('dialog[open]');await dialog.waitFor();
    dialogStyles.push(await dialog.evaluate(el=>{const s=getComputedStyle(el);return [s.borderRadius,s.backgroundColor,s.boxShadow];}));
    assert(await dialog.evaluate(el=>el.scrollWidth<=el.clientWidth),'Dialog overflow');
-   const controls=await dialog.locator('button:not(.settings-combobox__toggle),input:not([type=hidden]):not([type=checkbox]),select').evaluateAll(elements=>elements.filter(el=>el.getClientRects().length).map(el=>{const s=getComputedStyle(el);return {minHeight:s.minHeight,borderRadius:s.borderRadius,fontSize:s.fontSize};}));
-   controls.forEach(style=>assert.deepEqual(style,{minHeight:'36px',borderRadius:'6px',fontSize:'13px'},'Dialog controls'));
+   const controls=await dialog.locator('button:not(.settings-combobox__toggle),input:not([type=hidden]):not([type=checkbox]),select').evaluateAll(elements=>elements.filter(el=>el.getClientRects().length).map(el=>{const s=getComputedStyle(el);return {icon:el.classList.contains('icon-button'),style:{minHeight:s.minHeight,borderRadius:s.borderRadius,fontSize:s.fontSize}};}));
+   // The shared close icon intentionally uses the 32px icon-button token;
+   // form fields and text actions use the 36px settings control token.
+   controls.forEach(({icon,style})=>assert.deepEqual(style,{minHeight:icon?'32px':'36px',borderRadius:icon?'8px':'6px',fontSize:'13px'},'Dialog controls'));
    await page.keyboard.press('Escape');assert.equal(await dialog.count(),0);
   }
   assert.deepEqual(dialogStyles[0],dialogStyles[1],'Shared dialog surface');
@@ -361,7 +410,8 @@ const pages=['account','workspace','recording','summaries','integrations/calenda
    await page.setViewportSize({width,height:900});
    await page.goto(`${origin}/settings/billing?theme=dark&plan=free&payments=off`);
    assert.equal(await page.locator('[data-billing-primary]').count(),1,'One trial action when payments unavailable');
-   assert.equal(await page.locator('a[href="/billing/plans"]').count(),0,'Unavailable payment is not offered');
+   assert.equal(await page.getByRole('link',{name:'Сравнить тарифы',exact:true}).getAttribute('href'),'/billing/plans','Plan comparison remains available when payments are off');
+   assert.equal(await page.locator('a[href^="/billing/checkout"],form[action^="/billing/checkout"]').count(),0,'Unavailable checkout is not offered');
    assert.equal(await page.locator('#billing-options-title,.settings-scope-badge').count(),0,'No duplicate plan section');
    const trial=page.locator('[data-trial-confirmation]');
    assert.equal(await trial.evaluate(el=>getComputedStyle(el).borderTopWidth),'0px','No lines around trial action');
