@@ -1548,6 +1548,13 @@ paths:
           - type: string
           - type: 'null'
           title: Local Media Revision Id
+      - name: include_calendar_match_receipt
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+          title: Include Calendar Match Receipt
       - name: X-User-Id
         in: header
         required: false
@@ -13559,6 +13566,360 @@ paths:
           content:
             application/json:
               schema: {}
+  /api/v1/desktop/meetings/with-calendar-context:
+    post:
+      tags:
+      - ingest
+      summary: Create Meeting With Calendar Context
+      operationId: create_meeting_with_calendar_context_api_v1_desktop_meetings_with_calendar_context_post
+      parameters:
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StrictCalendarMeetingRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeetingResponse'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '413':
+          description: Payload too large
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503':
+          description: Dependency unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /api/v1/desktop/meetings/{meeting_id}/upload-sessions:
+    post:
+      tags:
+      - ingest
+      summary: Create Calendar Upload Session
+      operationId: create_calendar_upload_session_api_v1_desktop_meetings__meeting_id__upload_sessions_post
+      parameters:
+      - name: meeting_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Meeting Id
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 240
+          title: Idempotency-Key
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCalendarUploadSessionRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadSessionResponse'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '413':
+          description: Payload too large
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503':
+          description: Dependency unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /api/v1/desktop/meetings/{meeting_id}/upload-sessions/{session_id}:
+    get:
+      tags:
+      - ingest
+      summary: Get Calendar Upload Session
+      operationId: get_calendar_upload_session_api_v1_desktop_meetings__meeting_id__upload_sessions__session_id__get
+      parameters:
+      - name: meeting_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Meeting Id
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Session Id
+      - name: expected_media_revision_id
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Expected Media Revision Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CalendarUploadSessionProof'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '413':
+          description: Payload too large
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503':
+          description: Dependency unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
 components:
   schemas:
     CalendarJoinTargetResponse:
@@ -15855,6 +16216,10 @@ components:
           anyOf:
           - $ref: '#/components/schemas/CustodyReadModel'
           - type: 'null'
+        calendar_match_receipt:
+          anyOf:
+          - $ref: '#/components/schemas/DesktopCalendarMatchReceipt'
+          - type: 'null'
       type: object
       required:
       - local_recording_id
@@ -16529,6 +16894,12 @@ components:
           title: Registered Devices
         billing:
           $ref: '#/components/schemas/BillingSummaryResponse'
+        active_session_device_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Active Session Device Id
       type: object
       required:
       - user_id
@@ -22373,3 +22744,170 @@ components:
           default: not_configured
       type: object
       title: DesktopSyncRetentionState
+    CalendarUploadSessionProof:
+      properties:
+        session_id:
+          type: string
+          format: uuid
+          title: Session Id
+        meeting_id:
+          type: string
+          format: uuid
+          title: Meeting Id
+        media_revision_id:
+          type: string
+          format: uuid
+          title: Media Revision Id
+        status:
+          type: string
+          enum:
+          - pending
+          - uploading
+          title: Status
+        expires_at:
+          type: string
+          format: date-time
+          title: Expires At
+        expected_tracks:
+          items:
+            $ref: '#/components/schemas/TrackRole'
+          type: array
+          title: Expected Tracks
+        expected_track_sizes:
+          additionalProperties:
+            type: integer
+          propertyNames:
+            $ref: '#/components/schemas/TrackRole'
+          type: object
+          title: Expected Track Sizes
+      type: object
+      required:
+      - session_id
+      - meeting_id
+      - media_revision_id
+      - status
+      - expires_at
+      - expected_tracks
+      - expected_track_sizes
+      title: CalendarUploadSessionProof
+    CreateCalendarUploadSessionRequest:
+      properties:
+        expected_tracks:
+          items:
+            $ref: '#/components/schemas/TrackRole'
+          type: array
+          title: Expected Tracks
+        expected_track_sizes:
+          additionalProperties:
+            type: integer
+          propertyNames:
+            $ref: '#/components/schemas/TrackRole'
+          type: object
+          title: Expected Track Sizes
+        manifest_sha256:
+          anyOf:
+          - type: string
+            pattern: ^[a-f0-9]{64}$
+          - type: 'null'
+          title: Manifest Sha256
+        expected_media_revision_id:
+          type: string
+          format: uuid
+          title: Expected Media Revision Id
+        calendar_match_attempt_id:
+          type: string
+          format: uuid
+          title: Calendar Match Attempt Id
+      additionalProperties: false
+      type: object
+      required:
+      - expected_media_revision_id
+      - calendar_match_attempt_id
+      title: CreateCalendarUploadSessionRequest
+    DesktopCalendarMatchReceipt:
+      properties:
+        attempt_id:
+          type: string
+          format: uuid
+          title: Attempt Id
+        state:
+          type: string
+          enum:
+          - matched_user
+          - declined_by_user
+          title: State
+      type: object
+      required:
+      - attempt_id
+      - state
+      title: DesktopCalendarMatchReceipt
+    StrictCalendarMeetingRequest:
+      properties:
+        local_recording_id:
+          type: string
+          maxLength: 240
+          minLength: 1
+          pattern: ^[^\x00-\x1f\x7f]+$
+          title: Local Recording Id
+        local_media_revision_id:
+          anyOf:
+          - type: string
+            maxLength: 300
+            minLength: 1
+            pattern: ^[^\x00-\x1f\x7f]+$
+          - type: 'null'
+          title: Local Media Revision Id
+        source_kind:
+          type: string
+          const: initial_mixed_recording
+          title: Source Kind
+          default: initial_mixed_recording
+        media_scribe_source_mode:
+          type: string
+          const: single_wav_v1
+          title: Media Scribe Source Mode
+          default: single_wav_v1
+        title:
+          anyOf:
+          - type: string
+            maxLength: 500
+            pattern: ^[^\x00-\x1f\x7f]+$
+          - type: 'null'
+          title: Title
+        title_source:
+          anyOf:
+          - $ref: '#/components/schemas/DesktopMeetingTitleSource'
+          - type: 'null'
+        calendar_match_attempt_id:
+          type: string
+          format: uuid
+          title: Calendar Match Attempt Id
+        started_at:
+          type: string
+          format: date-time
+          title: Started At
+        ended_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Ended At
+        recording_display_timezone_offset_minutes:
+          anyOf:
+          - type: integer
+            maximum: 840.0
+            minimum: -840.0
+          - type: 'null'
+          title: Recording Display Timezone Offset Minutes
+        duration_seconds:
+          type: integer
+          exclusiveMinimum: 0.0
+          title: Duration Seconds
+      additionalProperties: false
+      type: object
+      required:
+      - local_recording_id
+      - calendar_match_attempt_id
+      - started_at
+      - duration_seconds
+      title: StrictCalendarMeetingRequest
