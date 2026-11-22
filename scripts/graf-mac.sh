@@ -19,7 +19,7 @@ Commands:
   health     Require the local API and MinIO health endpoints to be ready.
   preflight  Check tools, Compose configuration, diff whitespace and health.
   start      Start the existing local API in the current terminal.
-  app        Build and open the local macOS app after the API is ready.
+  app        Open the installed GRAF Dev app; rebuilds go through dev-harness.
   ci         Run the repository fast CI lane.
 EOF
 }
@@ -125,8 +125,15 @@ start() {
 
 app() {
   health
-  require_command swift
-  exec "$ROOT_DIR/apps/macos/Scripts/build-local-app.sh" --open
+  app_path="${GRAF_DEV_INSTALL_PATH:-/Applications/GRAF Dev.app}"
+  if [ ! -d "$app_path" ]; then
+    fail "GRAF Dev is not installed at $app_path; use infra/scripts/dev-harness.sh status --json, then build --sha <sha> and promote --manifest <file>"
+  fi
+  # Manual checks run only in the single GRAF Dev installation; building or
+  # installing is the harness's serialized build -> promote path.
+  printf 'Opening %s\n' "$app_path"
+  printf 'Rebuild or reinstall through infra/scripts/dev-harness.sh (status, build, promote).\n'
+  exec open -a "$app_path"
 }
 
 ci() {
