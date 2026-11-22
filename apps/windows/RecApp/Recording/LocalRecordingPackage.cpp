@@ -425,7 +425,7 @@ HRESULT decodePlayback(IMFSourceReader* reader, std::uint64_t durationMs,
         for (const auto check : {guid(actual.Get(), MF_MT_MAJOR_TYPE, MFMediaType_Audio), guid(actual.Get(), MF_MT_SUBTYPE, MFAudioFormat_PCM),
             number(actual.Get(), MF_MT_AUDIO_SAMPLES_PER_SECOND, 48'000), number(actual.Get(), MF_MT_AUDIO_NUM_CHANNELS, 1),
             number(actual.Get(), MF_MT_AUDIO_BITS_PER_SAMPLE, 16), number(actual.Get(), MF_MT_AUDIO_BLOCK_ALIGNMENT, 2),
-            number(actual.Get(), MF_MT_AUDIO_AVG_BYTES_PER_SECOND, 96'000)}) if (FAILED(check)) return playbackInvariant(2);
+            number(actual.Get(), MF_MT_AUDIO_AVG_BYTES_PER_SECOND, 96'000)}) if (FAILED(check)) return check;
         const auto bound = (durationMs+100)*48;
         const auto ticks = [](std::uint64_t frames) { return frames/48'000*10'000'000 + frames%48'000*10'000'000/48'000; };
         LONGLONG previousTime = -1, previousSpan = 0;

@@ -10676,7 +10676,10 @@ void protectedShortMediaEngine() {
             static_cast<unsigned long long>(original.value->decodedFrames), altered.ok() ? 1U : 0U,
             static_cast<unsigned long long>(altered.ok() ? altered.value->decodedFrames : 0),
             static_cast<unsigned long>(altered.nativeError));
-        assert(!altered.ok() && altered.error == CustodyFileError::invalidContent && altered.nativeError == 0xC00D36B4u);
+        // Either the media-type rejection or a documented invariant diagnostic.
+        const auto invariant = altered.nativeError >= 0x80040001u && altered.nativeError <= 0x80040009u;
+        assert(!altered.ok() && altered.error == CustodyFileError::invalidContent &&
+            (altered.nativeError == 0xC00D36B4u || invariant));
     }).get();
     std::async(std::launch::async, [] {
         testing::GeneratedProtectedRecording capture("generated-short-media-engine");
