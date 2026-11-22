@@ -795,6 +795,7 @@ def test_ci_contracts_have_one_owner(infra: bool, fail_stage: str) -> None:
 def test_infra_contract_command_fails_if_required_file_disappears(tmp_path: Path) -> None:
     script = LOCAL_CI.read_text()
     command = re.search(r'run_step "CI contracts" bash -c "(.*?)" \|\|', script, re.S).group(1)
+    assert "pytest -v --durations=15" in command
     server = tmp_path / "apps/server"
     (server / "tests/contract").mkdir(parents=True)
     (server / "tests/contract/test_ci_cd_contract.py").write_text("def test_present(): assert True\n")

@@ -193,7 +193,7 @@ def test_bootstrap_accepts_both_0113_and_0114_maintenance_helper_bodies() -> Non
         "twobrain_rec_server.db.migrations.versions.0113_fair_use_operator_history"
     )
     current = import_module(
-        "twobrain_rec_server.db.migrations.versions.0114_retention_scan_maintenance"
+        "twobrain_rec_server.db.migrations.versions.0116_retention_scan_maintenance"
     )
     legacy_body = previous.CONTEXT_HELPERS["rec_maintenance_allowed()"][1]
 

@@ -36,6 +36,7 @@ COPY --from=application /install/ /usr/local/
 COPY --from=application /app/ /app/
 ARG GRAF_DEV_SOURCE_SHA
 LABEL org.2brain.graf.dev.source-sha="${GRAF_DEV_SOURCE_SHA}"
+LABEL org.2brain.graf.release.build-target="media-runtime"
 ENV GRAF_DEV_SOURCE_SHA=${GRAF_DEV_SOURCE_SHA} \
     TMPDIR=/var/lib/twobrain-rec/playback-normalization
 USER twobrain
@@ -46,6 +47,7 @@ COPY --from=application /install/ /usr/local/
 COPY --from=application /app/ /app/
 ARG GRAF_DEV_SOURCE_SHA
 LABEL org.2brain.graf.dev.source-sha="${GRAF_DEV_SOURCE_SHA}"
+LABEL org.2brain.graf.release.build-target="runtime"
 ENV GRAF_DEV_SOURCE_SHA=${GRAF_DEV_SOURCE_SHA}
 USER twobrain
 EXPOSE 8080

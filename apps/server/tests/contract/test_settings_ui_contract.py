@@ -105,11 +105,13 @@ def test_settings_css_has_reduced_motion_and_narrow_reflow_guards() -> None:
     css = (root / "src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css").read_text(
         encoding="utf-8"
     )
-    reduced_motion = css[css.index("@media (prefers-reduced-motion: reduce)") :]
+    reduced_motion = css[css.index("@media (prefers-reduced-motion: reduce)") :].split("}", 1)[0]
     narrow = css[css.index("@media (max-width: 640px)") :]
 
-    assert "transition-duration: .01ms" in reduced_motion
-    assert "animation-duration: .01ms" in reduced_motion
+    for property_name in ("transition-duration", "animation-duration"):
+        duration = re.search(rf"{property_name}:\s*(\d*\.?\d+)ms\s*!important\s*;", reduced_motion)
+        assert duration is not None
+        assert 0 < float(duration.group(1)) <= 0.01
     assert "grid-template-columns: 1fr" in narrow
     desktop_reflow = css[css.index(".settings-page,") : css.index("@media (max-width: 640px)")]
     assert "overflow-x: auto" not in desktop_reflow

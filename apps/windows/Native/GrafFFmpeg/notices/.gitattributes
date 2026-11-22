@@ -1,0 +1,3 @@
+# Preserve these two exact, hash-pinned upstream texts on Windows too.
+COPYING.LGPLv2.1 -text
+LICENSE.md -text

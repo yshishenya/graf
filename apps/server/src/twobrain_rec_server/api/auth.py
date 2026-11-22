@@ -247,6 +247,7 @@ class MeResponse(BaseModel):
     user_id: UUID
     workspace_id: UUID
     active_session_id: UUID | None = None
+    active_session_device_id: UUID | None = Field(default=None, exclude_if=lambda value: value is None)
     linked_providers: list[LinkedProvider]
     policy: AuthProvidersResponse
     registered_devices: list[AuthDeviceStateResponse]
@@ -1861,6 +1862,7 @@ async def revoke_device(
 @router.get("/me", response_model=MeResponse)
 async def get_me(
     request: Request,
+    response: Response,
     principal: AuthenticatedPrincipal = PrincipalDependency,
     x_workspace_id: str | None = Header(default=None, alias="X-Workspace-Id"),
     db: AsyncSession | None = AuthDbDependency,
@@ -1944,6 +1946,7 @@ async def get_me(
         for item in devices
     ]
     active_session_id = None
+    active_session_device_id = None
     if principal.auth_via_session and principal.session_id is not None:
         session = await db.get(AuthSession, principal.session_id)
         if (
@@ -1952,6 +1955,14 @@ async def get_me(
             and session.user_id == principal.user_id
         ):
             active_session_id = session.id
+            if (
+                session.status == "active"
+                and principal.session_workspace_id == workspace_id
+                and principal.session_device_id is not None
+                and (session.device_id is None or session.device_id == principal.session_device_id)
+            ):
+                active_session_device_id = principal.session_device_id
+                response.headers["Cache-Control"] = "no-store"
     policy = _policy_to_response(
         await read_auth_providers(
             db,
@@ -2018,6 +2029,7 @@ async def get_me(
         user_id=user.id,
         workspace_id=workspace_id,
         active_session_id=active_session_id,
+        active_session_device_id=active_session_device_id,
         linked_providers=linked_providers,
         policy=policy,
         registered_devices=registered_devices,

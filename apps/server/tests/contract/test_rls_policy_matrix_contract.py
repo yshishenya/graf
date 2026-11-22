@@ -167,7 +167,7 @@ RECEIPT_IDENTITIES_MIGRATION = (
 )
 RETENTION_SCAN_MIGRATION = (
     REPO_ROOT
-    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0114_retention_scan_maintenance.py"
+    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0116_retention_scan_maintenance.py"
 )
 
 

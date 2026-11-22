@@ -78,6 +78,15 @@ def test_sharing_user_journeys_in_browser(tmp_path, script):
     assert result.returncode == 0, result.stdout + result.stderr
 
 
+@pytest.mark.browser
+def test_addressed_playback_rejects_positions_for_the_wrong_recording():
+    subprocess.run(
+        ["node", str(ROOT / "tests/browser/sharing-addressed-playback.test.cjs")],
+        check=True,
+        timeout=60,
+    )
+
+
 def test_embedded_reader_keeps_navigation_in_application():
     html = reader(embedded=True)
     assert 'href="/desktop/meetings"' in html

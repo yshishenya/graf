@@ -1,6 +1,9 @@
+import hashlib
+import json
 import os
 import stat
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -35,6 +38,72 @@ def test_restore_rehearsal_dry_run_blocks_without_backup_reference() -> None:
     assert "backup_reference_missing" in output
 
 
+def test_forward_rehearsal_never_falls_back_when_its_manifest_is_missing(tmp_path):
+    (tmp_path / "postgres.dump").write_bytes(b"synthetic")
+    (tmp_path / "minio-objects").mkdir()
+    script = str(REPO_ROOT / "infra/scripts/rehearse-rec-restore.sh")
+    env = {**os.environ, "RESTORE_BACKUP_REFERENCE": str(tmp_path)}
+    missing = subprocess.run(
+        [script, "--execute", "--forward-attempt", "a" * 32], env=env, text=True, capture_output=True,
+    )
+    assert missing.returncode == 1
+    assert "reason=protected_object_manifest_missing_or_invalid" in missing.stdout
+    (tmp_path / "minio-inventory.jsonl").touch()
+    ambiguous = subprocess.run([script, "--execute"], env=env, text=True, capture_output=True)
+    assert ambiguous.returncode == 1
+    assert "reason=forward_attempt_required" in ambiguous.stdout
+
+
+@pytest.mark.parametrize("failure", [None, "extra-archive", "wrong-marker", "wrong-type", "extra-target"])
+def test_protected_restore_rehearsal_matches_exact_object_inventory(tmp_path, failure):
+    archive = tmp_path / "minio-objects"
+    archive.mkdir()
+    key = "with ' space"
+    content = b"fixture"
+    (archive / key).write_bytes(content)
+    attempt = "00000000-0000-0000-0000-000000000001"
+    content_type = "text/plain; charset=utf-8"
+    manifest = tmp_path / "minio-inventory.jsonl"
+    manifest.write_text(
+        json.dumps(dict(schema=1, bucket="graf-source", versioning="disabled", incomplete=0))
+        + "\n"
+        + json.dumps(dict(key=key, size=len(content), sha256=hashlib.sha256(content).hexdigest(),
+                          attempt=attempt, content_type=content_type))
+        + "\n"
+    )
+    bucket = "twobrain-rec-restore-rehearsal-" + "a" * 32
+    helper = [sys.executable, str(REPO_ROOT / "infra/scripts/verify-rec-object-backup.py")]
+    if failure == "extra-archive":
+        (archive / "unexpected").touch()
+    prepared = subprocess.run(
+        [*helper, "--prepare-rehearsal", str(tmp_path.resolve()), str(manifest), bucket],
+        text=True, capture_output=True,
+    )
+    if failure == "extra-archive":
+        assert prepared.returncode == 1 and not prepared.stdout
+        return
+    assert prepared.returncode == 0
+    row = dict(
+        status="success", type="file", name=f"{bucket}/{key}", size=len(content), etag="fixture",
+        metadata={
+            "X-Amz-Meta-Graf-Upload-Attempt": attempt if failure != "wrong-marker" else (
+                "00000000-0000-0000-0000-000000000002"
+            ),
+            "Content-Type": content_type if failure != "wrong-type" else "application/octet-stream",
+        },
+    )
+    listing = tmp_path / "restored.jsonl"
+    lines = [json.dumps(row)]
+    if failure == "extra-target":
+        lines.append(json.dumps({**row, "name": f"{bucket}/extra"}))
+    listing.write_text("\n".join(lines) + "\n")
+    verified = subprocess.run(
+        [*helper, "--verify-rehearsal", str(manifest), str(listing), bucket],
+        capture_output=True,
+    )
+    assert verified.returncode == int(failure is not None)
+
+
 # Execute the real container shell commands on synthetic files, without Docker.
 FAKE_DOCKER = r"""#!/usr/bin/env python3
 import os, pathlib, shutil, subprocess, sys
@@ -46,8 +115,8 @@ with (root / "docker-calls").open("a") as log:
 if a[0] == "compose" and "ps" in a:
     if failure == "ps": sys.exit(7)
     if failure != "empty-ps": print("synthetic-postgres")
-elif a[0] == "compose" and "exec" in a:
-    command = a[a.index("rec-postgres") + 1:]
+elif a[0] == "exec" or (a[0] == "compose" and "exec" in a):
+    command = a[3:] if a[0] == "exec" else a[a.index("rec-postgres") + 1:]
     if failure == "mktemp" and any("mktemp " in x for x in command): sys.exit(7)
     if failure == "staging-invalid" and any("mktemp " in x for x in command):
         print("/tmp/unrelated")
@@ -69,12 +138,17 @@ elif a[0] == "cp":
 elif a[0] == "run":
     if a[a.index("--user") + 1] != f"{os.getuid()}:{os.getgid()}": sys.exit(7)
     if "MC_CONFIG_DIR=/tmp/graf-backup-mc" not in a: sys.exit(7)
-    mount = next(x.split(":")[0] for x in a if x.endswith(":/backup/minio-objects"))
-    command = a[a.index("-c") + 1].replace("/backup/minio-objects", mount)
+    mount, target = next(x.rsplit(":", 1) for x in a if x.endswith((":/backup", ":/backup/minio-objects")))
+    command = a[a.index("-c") + 1].replace(target, mount)
     command = command.replace("/run/secrets/twobrain_minio_root_user", str(root / "user"))
     command = command.replace("/run/secrets/twobrain_minio_root_password", str(root / "password"))
     os.umask(0o022)
-    sys.exit(subprocess.call(["sh", "-c", command]))
+    env = {**os.environ}
+    for index, flag in enumerate(a):
+        if flag == "-e":
+            key, value = a[index + 1].split("=", 1)
+            env[key] = value
+    sys.exit(subprocess.call(["bash", "-c", command], env=env))
 else:
     sys.exit("unexpected synthetic Docker call")
 """
@@ -120,17 +194,37 @@ if tool == "pg_dump":
     time.sleep(0.1)  # Overlap two real helper executions.
     sys.exit(7 if failure == "dump" else 0)
 if tool == "mc" and a[0] == "mirror":
+    if failure == "empty-bucket": sys.exit(0)
     (root / ("mc-mask-" + str(os.getpid()))).write_text(oct(mask))
     target = pathlib.Path(a[-1])
     folder = target / "nested"
     folder.mkdir()
     os.chmod(folder, 0o777)
-    (folder / "object").write_bytes(b"synthetic object")
+    (folder / "object").write_bytes(b"synthetic xbject" if failure == "same-size" else b"synthetic object")
     os.chmod(folder / "object", 0o666)
     if failure == "symlink": (folder / "link").symlink_to(root / "unrelated")
     if failure == "fifo": os.mkfifo(folder / "fifo")
     if failure == "hardlink": os.link(root / "unrelated", folder / "link")
     sys.exit(7 if failure == "mirror" else 0)
+if tool == "mc" and a[:3] == ["--json", "version", "info"]:
+    assert a[-1] == "rec/test-ingest"
+    print('{"status":"success","versioning":{"status":"Enabled"}}' if failure == "versioned" else
+          '{"status":"success","versioning":{"status":""}}')
+if tool == "mc" and a[:2] == ["--json", "ls"] and failure == "multipart":
+    print('{"status":"success","key":"synthetic-multipart"}')
+if tool == "mc" and a[:2] == ["--json", "ls"] and "--incomplete" not in a and failure == "stat-failed":
+    print('{"status":"success","key":"existing-object"}')
+if tool == "mc" and a[:2] == ["--json", "stat"]:
+    if failure in {"empty-bucket", "stat-failed"}: sys.exit(7)
+    assert a[-1] == "rec/test-ingest"
+    print('{"status":"success","type":"file","name":"test-ingest/nested/object","etag":"test","size":' +
+          ('17' if failure == "mismatch" else '16') + ','
+          '"metadata":{"X-Amz-Meta-Graf-Upload-Attempt":"41c77879-1c96-45aa-9842-b6d97a88d996"}}')
+if tool == "mc" and a[0] == "cat":
+    assert a[1] == "rec/test-ingest/nested/object"
+    sys.stdout.buffer.write(b"synthetic object")
+if tool == "sha256sum":
+    print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest() + "  -")
 """
 
 
@@ -142,7 +236,7 @@ def backup_env(tmp_path: Path) -> dict[str, str]:
     bin_dir.mkdir()
     for name, source in {
         "docker": FAKE_DOCKER,
-        **dict.fromkeys(["psql", "pg_dump", "mc", "find", "chmod"], FAKE_TOOLS),
+        **dict.fromkeys(["psql", "pg_dump", "mc", "find", "chmod", "sha256sum"], FAKE_TOOLS),
     }.items():
         executable = bin_dir / name
         executable.write_text(source)
@@ -161,9 +255,9 @@ def backup_env(tmp_path: Path) -> dict[str, str]:
     }
 
 
-def _backup(env: dict[str, str], mode: str = "--execute") -> subprocess.CompletedProcess[str]:
+def _backup(env: dict[str, str], mode: str = "--execute", *extra: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        [str(REPO_ROOT / "infra/scripts/backup-rec-stack.sh"), mode],
+        [str(REPO_ROOT / "infra/scripts/backup-rec-stack.sh"), mode, *extra],
         cwd=env["BACKUP_TEST_ROOT"],
         env=env,
         text=True,
@@ -191,6 +285,52 @@ def test_backup_executes_private_container_shells_and_cleans_own_staging(backup_
         assert masks[0].read_text() == "0o77"
     assert [x.read_text() for x in root.glob("pg-permissions-*")] == ["0o700/0o600"]
     assert list((root / "tmp").iterdir()) == [root / "tmp" / "unrelated"]
+
+
+def test_forward_backup_reads_the_exact_stores_without_compose_lookup(backup_env) -> None:
+    import ast
+
+    root = Path(backup_env["BACKUP_TEST_ROOT"])
+    postgres, minio = "1" * 64, "2" * 64
+    mc_image = "sha256:" + "3" * 64
+    (root / ".env").write_text("GRAF_RELEASE_MC_IMAGE=must-not-replace-the-pin\nTWOBRAIN_MINIO_BUCKET=wrong-bucket\n")
+    result = _backup({**backup_env, "GRAF_RELEASE_MC_IMAGE": mc_image}, "--execute",
+                     "--pinned-stores", postgres, minio, "test-ingest")
+    assert result.returncode == 0, result.stderr
+    calls = [ast.literal_eval(line) for line in (root / "docker-calls").read_text().splitlines()]
+    assert all(call[0] != "compose" for call in calls)
+    assert all(call[2] == postgres for call in calls if call[0] == "exec")
+    assert all(call[1].startswith(postgres + ":") for call in calls if call[0] == "cp")
+    minio_call = next(call for call in calls if call[0] == "run")
+    assert minio_call[minio_call.index("--network") + 1] == "container:" + minio
+    assert "GRAF_BACKUP_MINIO_ENDPOINT=http://127.0.0.1:9000" in minio_call
+    assert "GRAF_BACKUP_PINNED_BUCKET=test-ingest" in minio_call
+    assert mc_image in minio_call and "must-not-replace-the-pin" not in minio_call
+    manifest = (Path(backup_env["TWOBRAIN_BACKUP_DIR"]) / "minio-inventory.jsonl").read_text()
+    assert "41c77879-1c96-45aa-9842-b6d97a88d996" in manifest
+
+
+def test_forward_backup_can_attest_a_proven_empty_bucket(backup_env) -> None:
+    result = _backup({**backup_env, "GRAF_RELEASE_MC_IMAGE": "sha256:" + "3" * 64,
+                      "BACKUP_TEST_FAILURE": "empty-bucket"}, "--execute",
+                     "--pinned-stores", "1" * 64, "2" * 64, "test-ingest")
+    assert result.returncode == 0, result.stderr
+    manifest = Path(backup_env["TWOBRAIN_BACKUP_DIR"]) / "minio-inventory.jsonl"
+    assert [json.loads(line) for line in manifest.read_text().splitlines()] == [
+        dict(schema=1, bucket="test-ingest", versioning="disabled", incomplete=0),
+    ]
+
+
+@pytest.mark.parametrize("failure", ["versioned", "multipart", "mismatch", "same-size", "stat-failed"])
+def test_forward_backup_cannot_attest_an_unsafe_object_copy(backup_env, failure) -> None:
+    result = _backup({**backup_env, "GRAF_RELEASE_MC_IMAGE": "sha256:" + "3" * 64,
+                      "BACKUP_TEST_FAILURE": failure}, "--execute",
+                     "--pinned-stores", "1" * 64, "2" * 64, "test-ingest")
+    assert result.returncode != 0
+    assert "backup_result=pass" not in result.stdout
+    target = Path(backup_env["TWOBRAIN_BACKUP_DIR"])
+    assert not (target / "minio-inventory.jsonl").exists()
+    assert not list(target.glob(".minio-*"))
 
 
 def test_backup_clears_inherited_setgid_without_changing_parent(backup_env) -> None:

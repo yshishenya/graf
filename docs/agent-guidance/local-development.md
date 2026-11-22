@@ -86,6 +86,22 @@ Dev-badged icon. Do not run `install-dev-app.sh` directly while the app is
 running; it intentionally fails closed. Compensation relaunches the previous
 app only when it was running before the transaction.
 
+For a single local command center, use `./scripts/graf-mac.sh` from the repository
+root:
+
+```sh
+./scripts/graf-mac.sh status
+./scripts/graf-mac.sh start       # foreground API; keep this terminal open
+./scripts/graf-mac.sh app         # open the installed GRAF Dev after API is ready
+./scripts/graf-mac.sh preflight   # tools, Compose, whitespace and health
+./scripts/graf-mac.sh ci          # fast repository CI
+```
+
+The helper delegates server start and CI work to the existing scripts. It never
+builds or installs an app copy: rebuild and promote GRAF Dev through
+`infra/scripts/dev-harness.sh` (`status`, `build`, `promote`). It
+does not change permissions, install packages, stop Docker, or collect audio.
+
 Login uses the existing email-code flow with `local@graf.test`. Development code
 and the non-Secure `graf_dev_owner_session` cookie are enabled only by the local
 script; production keeps the existing `__Host-` Secure cookie.

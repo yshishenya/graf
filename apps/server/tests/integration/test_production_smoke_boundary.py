@@ -34,15 +34,21 @@ def test_production_smoke_runner_dry_run_is_remote_first_and_non_ready() -> None
     assert "user_rollout_ready" not in output
 
 
-def test_production_smoke_execute_requires_release_gate() -> None:
+def test_production_smoke_execute_requires_release_gate(tmp_path: Path) -> None:
+    docker = tmp_path / "docker"
+    docker.write_text('#!/bin/sh\ntouch docker-was-called\nexit 97\n')
+    docker.chmod(0o700)
     result = subprocess.run(
         [str(REPO_ROOT / "infra/scripts/run-production-smoke.sh"), "--execute"],
         check=False,
         text=True,
         capture_output=True,
-        env={**os.environ, "TWOBRAIN_SMOKE_RUN_ID": "smoke-014"},
+        cwd=tmp_path,
+        env={**os.environ, "PATH": f"{tmp_path}:{os.environ['PATH']}",
+             "TWOBRAIN_SMOKE_RUN_ID": "smoke-014", "TWOBRAIN_PRODUCTION_RELEASE_GATE": "0"},
     )
 
+    assert not (tmp_path / "docker-was-called").exists()
     assert result.returncode != 0
     assert "smoke_result=blocked" in result.stdout
     assert "reason=production_smoke_requires_release_gate" in result.stdout
@@ -60,7 +66,7 @@ def test_production_smoke_runner_mints_auth_session_and_cleans_it_up() -> None:
     assert "trap cleanup_on_exit EXIT" in script
     assert "trap - EXIT" in script
     assert (
-        'SMOKE_TOKEN_FILE="${TWOBRAIN_SMOKE_TOKEN_FILE:-/tmp/twobrain-rec-smoke-auth-token-${RUN_ID}}"'
+        'SMOKE_TOKEN_FILE="${TWOBRAIN_SMOKE_TOKEN_FILE:-$SMOKE_CONTAINER_DIR/twobrain-rec-smoke-auth-token-${RUN_ID}}"'
         in script
     )
     assert "--auth-session-id" in script
@@ -77,7 +83,7 @@ def test_production_smoke_runner_mints_auth_session_and_cleans_it_up() -> None:
     assert "od -An -N8 -tx1 /dev/urandom" in script
     assert 'SMOKE_RUN_DIR="$(mktemp -d "/tmp/twobrain-rec-smoke-${RUN_ID}.' in script
     assert 'SMOKE_ARTIFACT_DIR="${SMOKE_ARTIFACT_BASE%/}-${RUN_ID}"' in script
-    assert "must be a direct child name under /tmp" in script
+    assert "must be a direct child name under $SMOKE_CONTAINER_DIR" in script
     assert "cleanup_smoke_container_files required" in script
     assert "cleanup_smoke_container_files best_effort" in script
 
@@ -162,15 +168,160 @@ def test_test_artifact_generator_refuses_preexisting_symlink(tmp_path: Path) -> 
 
 def test_smoke_generates_in_media_runtime_and_receives_bounded_package_in_api() -> None:
     script = (REPO_ROOT / "infra/scripts/run-production-smoke.sh").read_text()
-    start = script.index('"${compose[@]}" exec -T rec-media-worker')
+    start = script.index('"${media[@]}" \\')
     end = script.index('>"$SMOKE_ARTIFACT_JSON"', start)
     transfer = script[start:end]
     assert "set -euo pipefail" in script
     assert "python scripts/create_test_artifact.py --stream" in transfer
-    assert '"${compose[@]}" exec -T rec-api' in transfer
+    assert '"${api[@]}"' in transfer
     assert "python scripts/create_test_artifact.py --receive" in transfer
     assert '--out "$SMOKE_ARTIFACT_DIR"' in transfer
     assert "--media-revision-id" in script
+
+
+@pytest.mark.parametrize(("origin", "expected"), [
+    ("https://qa.example:8443", True),
+    ("https://rec.2brain.pro", False),
+    ("https://qa.example:8443/", False),
+    ("http://qa.example:8443", False),
+])
+def test_forward_origin_matches_exact_configured_https_address(origin, expected):
+    result = subprocess.run(
+        [sys.executable, str(REPO_ROOT / "apps/server/scripts/smoke_target.py"), "--validate-forward-origin", origin],
+        capture_output=True, text=True,
+        env={**os.environ, "TWOBRAIN_PUBLIC_BASE_URL": "https://qa.example:8443"},
+    )
+    assert (result.returncode == 0) == expected
+
+
+@pytest.mark.parametrize("upload_fails", [False, True])
+@pytest.mark.parametrize("forward", [False, True], ids=["production", "forward"])
+def test_smoke_routes_privileged_commands_to_maintenance_and_cleans_failed_upload(tmp_path, upload_fails, forward):
+    scripts = tmp_path / "infra/scripts"
+    scripts.mkdir(parents=True)
+    if forward:
+        (tmp_path / ".env").write_text("exit 93\n")
+    else:
+        for name in ("validate-production-config.sh", "verify-rec-migration.sh"):
+            guard = scripts / name
+            guard.write_text("#!/bin/sh\nexit 0\n")
+            guard.chmod(0o700)
+    (scripts / "release-images.py").write_text(
+        "import json, os, sys\n"
+        "assert sys.argv[1:] in [['current-override'], "
+        "['check-forward-smoke', '8', 'attempt', 'forward-test', 'https://approved.example', "
+        "'api', 'media', 'maintenance']]\n"
+        "with open(os.environ['SMOKE_TEST_LOG'], 'a') as log:\n"
+        "    print(json.dumps(sys.argv[1:2]), file=log)\n"
+    )
+    docker = tmp_path / "docker"
+    docker.write_text(f"#!{sys.executable}\n" + """import json, os, sys
+args = sys.argv[1:]
+forward = os.environ["SMOKE_TEST_FORWARD"] == "1"
+if forward:
+    assert args[:2] == ["exec", "-i"], args
+    command_args = args[2:]
+else:
+    assert args[:3] == ["compose", "-f", "infra/docker-compose.yml"], args
+    if args[3:9] == ["run", "--pull", "never", "--rm", "--no-deps", "-T"]:
+        assert args[9] == "rec-maintenance", args
+        command_args = ["maintenance", *args[10:]]
+    else:
+        assert args[3:5] == ["exec", "-T"] and args[5] in ("rec-api", "rec-media-worker"), args
+        command_args = ["api" if args[5] == "rec-api" else "media", *args[6:]]
+container, command, script, *flags = command_args
+run_id = "forward-test" if forward else "production-test"
+directory = "/dev/shm" if forward else "/tmp"
+token = f"{directory}/twobrain-rec-smoke-auth-token-{run_id}"
+if command == "sh":
+    assert container == "api"
+elif script.endswith("smoke_target.py"):
+    assert container == "api" and flags == ["--validate-forward-origin", "https://approved.example"]
+elif script.endswith("create_test_artifact.py"):
+    if flags[0] == "--stream":
+        assert container == "media" and flags == ["--stream", "--duration-seconds", "3"]
+        print("generated package")
+    else:
+        assert container == "api" and sys.stdin.read().strip() == "generated package"
+elif script.endswith("seed_smoke_identity.py"):
+    assert container == "maintenance"
+    print('{"seed_result":"pass"}')
+elif script.endswith("issue_smoke_auth_session.py"):
+    assert container == "api" and flags[-2:] == ["--token-file", token]
+    print(json.dumps({"token_file": flags[-1], "auth_session_id": "test-session",
+                      **{key: "test" for key in ("X-Organization-Id", "X-Workspace-Id", "X-User-Id", "X-Device-Id")}}))
+elif script.endswith("upload_test_artifact.py"):
+    assert container == "api" and flags[:2] == ["--api", "https://approved.example"]
+    if os.environ["SMOKE_TEST_FAIL"] == "1":
+        sys.exit(5)
+    assert ("--forward" in flags) == forward
+    print(json.dumps({"meeting_status": "ingested_pending_processing", "uploaded_parts": 3,
+                      "meeting_id": "test-meeting", "media_revision_id": "test-revision"}))
+elif script.endswith("seed_smoke_outcome.py"):
+    assert not forward and container == "maintenance"
+    print('{"status":"pass"}')
+elif script.endswith("prove_meeting_outcome_live.py"):
+    assert not forward and container == "api"
+    print('{"summary_state":"absent","slot_state":"unpublished"}')
+elif script.endswith("cleanup_smoke_auth_session.py"):
+    assert container == "maintenance"
+    assert flags == ["--run-id", run_id, "--execute", "--auth-session-id", "test-session"]
+    print('{"auth_cleanup_result":"pass"}')
+elif script.endswith("cleanup_smoke_artifacts.py"):
+    assert container == "maintenance"
+    assert flags[:3] == ["--run-id", run_id, "--execute"]
+    if forward and os.environ["SMOKE_TEST_FAIL"] == "0":
+        assert flags[-2:] == ["--media-revision-id", "test-revision"]
+    else:
+        assert "--media-revision-id" not in flags
+    print('{"cleanup_result":"pass"}')
+else:
+    raise AssertionError(script)
+with open(os.environ["SMOKE_TEST_LOG"], "a") as log:
+    print(json.dumps(command_args), file=log)
+""")
+    docker.chmod(0o700)
+    log = tmp_path / "docker.log"
+    args = [
+        "--forward", "8", "attempt", "forward-test", "https://approved.example", "api", "media", "maintenance",
+    ] if forward else ["--execute"]
+    result = subprocess.run(
+        [str(REPO_ROOT / "infra/scripts/run-production-smoke.sh"), *args],
+        cwd=tmp_path, capture_output=True, text=True, timeout=15,
+        env={**{key: value for key, value in os.environ.items()
+                if not key.startswith(("TWOBRAIN_", "GRAF_RELEASE_"))},
+             "PATH": f"{tmp_path}:{os.environ['PATH']}", "SMOKE_TEST_LOG": str(log),
+             "SMOKE_TEST_FORWARD": str(int(forward)), "SMOKE_TEST_FAIL": str(int(upload_fails)),
+             "TWOBRAIN_PRODUCTION_RELEASE_GATE": "1", "TWOBRAIN_PRODUCTION_RELEASE_LOCK_HELD": "1",
+             "TWOBRAIN_SMOKE_RUN_ID": "production-test",
+             "TWOBRAIN_PUBLIC_BASE_URL": "https://ignored.example" if forward else "https://approved.example",
+             "TWOBRAIN_OUTCOME_SMOKE_ENABLED": "true",
+             "TWOBRAIN_SMOKE_DURATION_SECONDS": "99" if forward else "3"},
+    )
+    commands = [json.loads(line) for line in log.read_text().splitlines()]
+    assert commands.pop(0) == ["check-forward-smoke" if forward else "current-override"]
+    expected_maintenance = ["scripts/seed_smoke_identity.py"]
+    if not forward and not upload_fails:
+        expected_maintenance.append("scripts/seed_smoke_outcome.py")
+    expected_maintenance += ["scripts/cleanup_smoke_auth_session.py", "scripts/cleanup_smoke_artifacts.py"]
+    assert [cmd[2] for cmd in commands if cmd[0] == "maintenance"] == expected_maintenance
+    assert commands[-1][:3] == ["api", "sh", "-eu"]
+    assert commands[-1][-4:] == [
+        "_", "/dev/shm" if forward else "/tmp",
+        next(cmd[-1] for cmd in commands if cmd[2:4] == ["scripts/create_test_artifact.py", "--receive"]),
+        next(cmd[-1] for cmd in commands if cmd[2] == "scripts/issue_smoke_auth_session.py"),
+    ]
+    if upload_fails:
+        assert result.returncode == 5
+        assert not result.stdout
+    else:
+        assert result.returncode == 0, result.stderr
+        if forward:
+            receipt = json.loads(result.stdout)
+            assert receipt["run_id"] == "forward-test"
+            assert receipt["upload"]["meeting_status"] == "ingested_pending_processing"
+        else:
+            assert "readiness_verdict=infra_smoke_ready" in result.stdout
 
 
 @pytest.mark.parametrize(

@@ -80,7 +80,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.state.settings = settings
     app.state.db_engine = engine
-    app.state.db_sessionmaker = create_sessionmaker(engine)
+    app.state.db_sessionmaker = create_sessionmaker(engine, settings)
     app.state.storage = storage
     app.state.web_csrf_secret = settings.web_csrf_secret
     app.state.support_incident_integration_status = support_incident_configuration_status(settings)

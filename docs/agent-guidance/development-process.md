@@ -112,6 +112,9 @@ lock-protected, atomic and reversible. The Dev app keeps bundle ID
 `pro.2brain.graf.dev`, its designated requirement/signing identity and local
 permission trust. Production app, data and origins are always rejected.
 
+Для общих функций Mac и Windows см. [порядок совместной проверки
+в матрице настольных приложений](../../specs/200-windows-desktop-app/parity-matrix.md#как-проверять-новые-функции-на-обеих-платформах).
+
 ## CI and release rhythm
 
 - Focused tests are the inner loop. The workstation does not start the

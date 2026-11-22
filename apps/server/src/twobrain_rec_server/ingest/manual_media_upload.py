@@ -223,6 +223,7 @@ async def accept_manual_media_upload(
             data=file,
         )
         meeting, session = await finalize_upload(
+            settings=settings,
             tenant_scope=tenant_scope,
             db=db,
             session_id=session.id,

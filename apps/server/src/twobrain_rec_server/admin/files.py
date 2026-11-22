@@ -16,6 +16,7 @@ from twobrain_rec_server.cabinet.egress import artifact_egress_states, review_pl
 from twobrain_rec_server.cabinet.queries import latest_processing_result
 from twobrain_rec_server.cabinet.user_time import local_datetime
 from twobrain_rec_server.db.models import Meeting, TrackArtifact
+from twobrain_rec_server.deletion.service import lifecycle_for_meeting
 from twobrain_rec_server.domain.statuses import DeletionState, RetentionPolicyState
 from twobrain_rec_server.processing.fences import meeting_is_deleted_or_deleting
 
@@ -108,13 +109,14 @@ async def list_admin_files(
             date_from=date_from,
             date_to=date_to,
             processing_state=processing_state,
-            deletion_state=deletion_state,
             retention_state=retention_state,
             min_duration=min_duration,
             max_duration=max_duration,
         ):
             continue
         summary = await admin_file_summary(db, context=context, meeting=meeting)
+        if deletion_state and summary["deletion_state"] != deletion_state:
+            continue
         if not _summary_matches_filters(
             summary, file_type=file_type, min_size=min_size, max_size=max_size
         ):
@@ -223,7 +225,7 @@ async def admin_file_summary(
         "total_size_bytes": artifact_stats["total_size_bytes"],
         "artifact_classes": artifact_classes,
         "processing_state": meeting.processing_status,
-        "deletion_state": meeting.deletion_state,
+        "deletion_state": (await lifecycle_for_meeting(db, meeting=meeting)).value,
         "retention_state": meeting.retention_policy_state,
         "access": {"outcome": decision.outcome.value},
         "review": review_state.model_dump(mode="json"),
@@ -363,7 +365,6 @@ def _meeting_matches_filters(
     date_from: date | None,
     date_to: date | None,
     processing_state: str | None,
-    deletion_state: str | None,
     retention_state: str | None,
     min_duration: int | None,
     max_duration: int | None,
@@ -390,8 +391,6 @@ def _meeting_matches_filters(
     if date_to is not None and (meeting.started_at is None or local_datetime(meeting.started_at).date() > date_to):
         return False
     if processing_state and meeting.processing_status != processing_state:
-        return False
-    if deletion_state and (meeting.deletion_state or "none") != deletion_state:
         return False
     if retention_state and (meeting.retention_policy_state or "not_configured") != retention_state:
         return False

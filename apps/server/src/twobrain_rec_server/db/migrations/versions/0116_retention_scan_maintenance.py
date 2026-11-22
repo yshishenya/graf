@@ -1,7 +1,7 @@
 """add retention scan to the maintenance operation allowlist
 
-Revision ID: 0114_retention_scan_maintenance
-Revises: 0113_fair_use_operator_history
+Revision ID: 0116_retention_scan_maintenance
+Revises: 0115_f200_strict_upload_journal
 Create Date: 2026-11-17
 """
 
@@ -11,8 +11,8 @@ from importlib import import_module
 
 from alembic import op
 
-revision = "0114_retention_scan_maintenance"
-down_revision = "0113_fair_use_operator_history"
+revision = "0116_retention_scan_maintenance"
+down_revision = "0115_f200_strict_upload_journal"
 branch_labels = None
 depends_on = None
 

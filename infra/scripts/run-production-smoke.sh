@@ -6,6 +6,8 @@ if [[ "${1:-}" == "--remote" ]]; then
   MODE="remote"
 elif [[ "${1:-}" == "--execute" ]]; then
   MODE="execute"
+elif [[ "${1:-}" == "--forward" && $# -eq 8 ]]; then
+  MODE="forward"
 elif [[ "${1:-}" == "--dry-run" || $# -eq 0 ]]; then
   MODE="dry-run"
 else
@@ -15,7 +17,9 @@ fi
 
 REMOTE_HOST="${TWOBRAIN_DEPLOY_HOST:-2brain.dev}"
 REMOTE_PATH="${TWOBRAIN_DEPLOY_PATH:-/opt/projects/2brain-rec}"
-if [[ -n "${TWOBRAIN_SMOKE_RUN_ID+x}" ]]; then
+if [[ "$MODE" == "forward" ]]; then
+  RUN_ID="$4"
+elif [[ -n "${TWOBRAIN_SMOKE_RUN_ID+x}" ]]; then
   RUN_ID="$TWOBRAIN_SMOKE_RUN_ID"
 else
   if ! run_nonce="$(od -An -N8 -tx1 /dev/urandom | tr -d '[:space:]')" || [[ -z "$run_nonce" ]]; then
@@ -60,21 +64,30 @@ EOF
   exit 0
 fi
 
-if [[ -f .env ]]; then
+if [[ "$MODE" != "forward" && -f .env ]]; then
   set -a
   . ./.env
   set +a
 fi
 
-SMOKE_ARTIFACT_BASE="${TWOBRAIN_SMOKE_ARTIFACT_DIR:-/tmp/twobrain-rec-smoke-artifact}"
-if [[ ! "$SMOKE_ARTIFACT_BASE" =~ ^/tmp/[A-Za-z0-9._-]+$ ]]; then
-  echo "TWOBRAIN_SMOKE_ARTIFACT_DIR must be a direct child name under /tmp" >&2
+SMOKE_CONTAINER_DIR=/tmp
+if [[ "$MODE" == "forward" ]]; then
+  SMOKE_CONTAINER_DIR=/dev/shm
+  unset TWOBRAIN_SMOKE_ARTIFACT_DIR TWOBRAIN_SMOKE_TOKEN_FILE TWOBRAIN_SMOKE_DURATION_SECONDS
+  TWOBRAIN_PUBLIC_BASE_URL="$5"
+  TWOBRAIN_OUTCOME_SMOKE_ENABLED=false
+fi
+
+SMOKE_ARTIFACT_BASE="${TWOBRAIN_SMOKE_ARTIFACT_DIR:-$SMOKE_CONTAINER_DIR/twobrain-rec-smoke-artifact}"
+smoke_child_pattern="^${SMOKE_CONTAINER_DIR}/[A-Za-z0-9._-]+$"
+if [[ ! "$SMOKE_ARTIFACT_BASE" =~ $smoke_child_pattern ]]; then
+  echo "TWOBRAIN_SMOKE_ARTIFACT_DIR must be a direct child name under $SMOKE_CONTAINER_DIR" >&2
   exit 2
 fi
 SMOKE_ARTIFACT_DIR="${SMOKE_ARTIFACT_BASE%/}-${RUN_ID}"
-SMOKE_TOKEN_FILE="${TWOBRAIN_SMOKE_TOKEN_FILE:-/tmp/twobrain-rec-smoke-auth-token-${RUN_ID}}"
-if [[ ! "$SMOKE_TOKEN_FILE" =~ ^/tmp/[A-Za-z0-9._-]+$ ]]; then
-  echo "TWOBRAIN_SMOKE_TOKEN_FILE must be a direct child under /tmp" >&2
+SMOKE_TOKEN_FILE="${TWOBRAIN_SMOKE_TOKEN_FILE:-$SMOKE_CONTAINER_DIR/twobrain-rec-smoke-auth-token-${RUN_ID}}"
+if [[ ! "$SMOKE_TOKEN_FILE" =~ $smoke_child_pattern ]]; then
+  echo "TWOBRAIN_SMOKE_TOKEN_FILE must be a direct child under $SMOKE_CONTAINER_DIR" >&2
   exit 2
 fi
 token_basename="${SMOKE_TOKEN_FILE##*/}"
@@ -92,24 +105,38 @@ if [[ "${TWOBRAIN_PRODUCTION_RELEASE_GATE:-}" != "1" ]]; then
   exit 1
 fi
 
-if [[ "${TWOBRAIN_PRODUCTION_RELEASE_LOCK_HELD:-0}" != "1" ]]; then
-  cd "$(dirname "$0")/../.."
-  smoke_release_lock="$(git rev-parse --git-path twobrain-rec-deploy.lock)"
-  exec 8>"$smoke_release_lock"
-  if ! /usr/bin/flock -n 8; then
-    echo "smoke_result=blocked"
-    echo "reason=deploy_already_running"
-    exit 1
+if [[ "$MODE" == "forward" ]]; then
+  python3 infra/scripts/release-images.py check-forward-smoke "$2" "$3" "$4" "$5" "$6" "$7" "$8"
+  api=(docker exec -i "$6")
+  media=(docker exec -i "$7")
+  maintenance=(docker exec -i "$8")
+  "${api[@]}" python scripts/smoke_target.py --validate-forward-origin "$TWOBRAIN_PUBLIC_BASE_URL"
+  "${api[@]}" sh -eu -c 'test -w /dev/shm; grep -q " /dev/shm .* - tmpfs " /proc/self/mountinfo'
+  upload_mode=(--forward)
+else
+  if [[ "${TWOBRAIN_PRODUCTION_RELEASE_LOCK_HELD:-0}" != "1" ]]; then
+    cd "$(dirname "$0")/../.."
+    smoke_release_lock="$(git rev-parse --git-path twobrain-rec-deploy.lock)"
+    exec 8>"$smoke_release_lock"
+    if ! /usr/bin/flock -n 8; then
+      echo "smoke_result=blocked"
+      echo "reason=deploy_already_running"
+      exit 1
+    fi
   fi
-fi
-if [[ -z "${GRAF_RELEASE_IMAGE_OVERRIDE:-}" ]]; then
-  GRAF_RELEASE_IMAGE_OVERRIDE="$(python3 infra/scripts/release-images.py current-override)"
-  export GRAF_RELEASE_IMAGE_OVERRIDE
-fi
-compose=(docker compose -f infra/docker-compose.yml)
-if [[ -n "${GRAF_RELEASE_IMAGE_OVERRIDE:-}" ]]; then
-  python3 infra/scripts/release-images.py validate-override "$GRAF_RELEASE_IMAGE_OVERRIDE"
-  compose+=(-f "$GRAF_RELEASE_IMAGE_OVERRIDE")
+  if [[ -z "${GRAF_RELEASE_IMAGE_OVERRIDE:-}" ]]; then
+    GRAF_RELEASE_IMAGE_OVERRIDE="$(python3 infra/scripts/release-images.py current-override)"
+    export GRAF_RELEASE_IMAGE_OVERRIDE
+  fi
+  compose=(docker compose -f infra/docker-compose.yml)
+  if [[ -n "${GRAF_RELEASE_IMAGE_OVERRIDE:-}" ]]; then
+    python3 infra/scripts/release-images.py validate-override "$GRAF_RELEASE_IMAGE_OVERRIDE"
+    compose+=(-f "$GRAF_RELEASE_IMAGE_OVERRIDE")
+  fi
+  upload_mode=()
+  api=("${compose[@]}" exec -T rec-api)
+  media=("${compose[@]}" exec -T rec-media-worker)
+  maintenance=("${compose[@]}" run --pull never --rm --no-deps -T rec-maintenance)
 fi
 SMOKE_RUN_DIR="$(mktemp -d "/tmp/twobrain-rec-smoke-${RUN_ID}.XXXXXX")"
 chmod 700 "$SMOKE_RUN_DIR"
@@ -130,43 +157,22 @@ OUTCOME_SMOKE_ENABLED="${TWOBRAIN_OUTCOME_SMOKE_ENABLED:-false}"
 
 cleanup_smoke_container_files() {
   local mode="${1:-required}"
+  local remove=("${api[@]}" sh -eu -c '
+    directory="$1"
+    shift
+    for path; do
+      [ "${path%/*}" = "$directory" ]
+      if [ -e "$path" ] || [ -L "$path" ]; then
+        rm -rf -- "$path"
+      fi
+      [ ! -e "$path" ] && [ ! -L "$path" ] || exit 1
+    done
+  ' _ "$SMOKE_CONTAINER_DIR" "$SMOKE_ARTIFACT_DIR" "$SMOKE_TOKEN_FILE")
   if [[ "$mode" == "best_effort" ]]; then
-    "${compose[@]}" exec -T rec-api \
-      sh -eu -c '
-        for path in "$1" "$2"; do
-          case "$path" in
-            /tmp/*) ;;
-            *) exit 2 ;;
-          esac
-          [ "${path%/*}" = /tmp ]
-          if [ -e "$path" ] || [ -L "$path" ]; then
-            rm -rf -- "$path"
-          fi
-          if [ -e "$path" ] || [ -L "$path" ]; then
-            exit 1
-          fi
-        done
-      ' _ "$SMOKE_ARTIFACT_DIR" "$SMOKE_TOKEN_FILE" \
-      >/dev/null 2>&1 || true
-    return 0
+    "${remove[@]}" >/dev/null 2>&1 || true
+  else
+    "${remove[@]}" >/dev/null
   fi
-  "${compose[@]}" exec -T rec-api \
-    sh -eu -c '
-      for path in "$1" "$2"; do
-        case "$path" in
-          /tmp/*) ;;
-          *) exit 2 ;;
-        esac
-        [ "${path%/*}" = /tmp ]
-        if [ -e "$path" ] || [ -L "$path" ]; then
-          rm -rf -- "$path"
-        fi
-        if [ -e "$path" ] || [ -L "$path" ]; then
-          exit 1
-        fi
-      done
-    ' _ "$SMOKE_ARTIFACT_DIR" "$SMOKE_TOKEN_FILE" \
-    >/dev/null
 }
 
 cleanup_smoke_auth_session() {
@@ -179,13 +185,13 @@ cleanup_smoke_auth_session() {
     cleanup_args+=(--auth-session-id "$SMOKE_AUTH_SESSION_ID")
   fi
   if [[ "$mode" == "best_effort" ]]; then
-    "${compose[@]}" run --pull never --rm --no-deps -T rec-maintenance \
+    "${maintenance[@]}" \
       "${cleanup_args[@]}" \
       >"$SMOKE_AUTH_CLEANUP_JSON" 2>"$SMOKE_AUTH_CLEANUP_ERR" || true
     return 0
   fi
 
-  "${compose[@]}" run --pull never --rm --no-deps -T rec-maintenance \
+  "${maintenance[@]}" \
     "${cleanup_args[@]}" \
     >"$SMOKE_AUTH_CLEANUP_JSON"
   require_json_status "$SMOKE_AUTH_CLEANUP_JSON" auth_cleanup_result pass
@@ -204,7 +210,7 @@ cleanup_smoke_artifacts() {
     --residue-owner deployment-operator
     --residue-follow-up-reason automatic-smoke-cleanup-incomplete
   )
-  if [[ -f "$SMOKE_UPLOAD_JSON" ]]; then
+  if [[ -f "$SMOKE_UPLOAD_JSON" && ( "$MODE" != "forward" || "$mode" != "best_effort" ) ]]; then
     local meeting_id
     local session_id
     meeting_id="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8")).get("meeting_id") or "")' "$SMOKE_UPLOAD_JSON" 2>/dev/null || true)"
@@ -213,14 +219,17 @@ cleanup_smoke_artifacts() {
       cleanup_args+=(--meeting-id "$meeting_id" --session-id "$session_id")
     fi
   fi
+  if [[ "$MODE" == "forward" && "$mode" != "best_effort" ]]; then
+    cleanup_args+=(--media-revision-id "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["media_revision_id"])' "$SMOKE_UPLOAD_JSON")")
+  fi
   if [[ "$mode" == "best_effort" ]]; then
-    "${compose[@]}" run --pull never --rm --no-deps -T rec-maintenance \
+    "${maintenance[@]}" \
       "${cleanup_args[@]}" \
       >"$SMOKE_ARTIFACT_CLEANUP_JSON" 2>"$SMOKE_ARTIFACT_CLEANUP_ERR" || true
     return 0
   fi
 
-  "${compose[@]}" run --pull never --rm --no-deps -T rec-maintenance \
+  "${maintenance[@]}" \
     "${cleanup_args[@]}" \
     >"$SMOKE_ARTIFACT_CLEANUP_JSON"
   require_json_status "$SMOKE_ARTIFACT_CLEANUP_JSON" cleanup_result pass
@@ -256,53 +265,57 @@ PY
 
 trap cleanup_on_exit EXIT
 
-infra/scripts/validate-production-config.sh
-infra/scripts/verify-rec-migration.sh --execute
+if [[ "$MODE" == "forward" ]]; then
+  trap 'exit 143' TERM
+else
+  infra/scripts/validate-production-config.sh
+  infra/scripts/verify-rec-migration.sh --execute
+fi
 
 # Only media-runtime contains ffmpeg. Its generator uses writable TMPDIR and
 # removes its private temporary directory even when the pipe fails. The API
 # accepts only a bounded tar of three allowlisted regular files. pipefail keeps
 # either side's failure ahead of auth creation and upload.
-"${compose[@]}" exec -T rec-media-worker \
+"${media[@]}" \
   python scripts/create_test_artifact.py --stream \
   --duration-seconds "${TWOBRAIN_SMOKE_DURATION_SECONDS:-3}" | \
-  "${compose[@]}" exec -T rec-api \
+  "${api[@]}" \
     python scripts/create_test_artifact.py --receive \
     --out "$SMOKE_ARTIFACT_DIR" >"$SMOKE_ARTIFACT_JSON"
 
-"${compose[@]}" exec -T rec-api \
+"${api[@]}" \
   sh -eu -c '
     path="$1"
-    [ "${path%/*}" = /tmp ]
+    [ "${path%/*}" = "$2" ]
     [ ! -L "$path" ]
     [ -d "$path" ]
-  ' _ "$SMOKE_ARTIFACT_DIR"
+  ' _ "$SMOKE_ARTIFACT_DIR" "$SMOKE_CONTAINER_DIR"
 
-"${compose[@]}" run --pull never --rm --no-deps -T rec-maintenance \
+"${maintenance[@]}" \
   python scripts/seed_smoke_identity.py \
   --run-id "$RUN_ID" \
   --execute >"$SMOKE_SEED_JSON"
 require_json_status "$SMOKE_SEED_JSON" seed_result pass
 
-"${compose[@]}" exec -T rec-api \
+"${api[@]}" \
   python scripts/issue_smoke_auth_session.py \
   --run-id "$RUN_ID" \
   --execute \
   --ttl-seconds 600 \
   --token-file "$SMOKE_TOKEN_FILE" >"$SMOKE_AUTH_JSON"
 
-SMOKE_TOKEN_FILE="$(
+issued_token_file="$(
   python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["token_file"])' "$SMOKE_AUTH_JSON"
 )"
-if [[ ! "$SMOKE_TOKEN_FILE" =~ ^/tmp/[A-Za-z0-9._-]+$ || "${SMOKE_TOKEN_FILE%/*}" != /tmp ]]; then
-  echo "issued smoke token path must be a direct child under /tmp" >&2
+if [[ "$issued_token_file" != "$SMOKE_TOKEN_FILE" ]]; then
+  echo "issued smoke token path differs from the requested path" >&2
   exit 2
 fi
 SMOKE_AUTH_SESSION_ID="$(
   python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8")).get("auth_session_id") or "")' "$SMOKE_AUTH_JSON"
 )"
 
-"${compose[@]}" exec -T rec-api \
+"${api[@]}" \
   python scripts/upload_test_artifact.py \
   --api "${TWOBRAIN_PUBLIC_BASE_URL:-https://rec.2brain.pro}" \
   --organization "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["X-Organization-Id"])' "$SMOKE_AUTH_JSON")" \
@@ -311,20 +324,20 @@ SMOKE_AUTH_SESSION_ID="$(
   --device "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["X-Device-Id"])' "$SMOKE_AUTH_JSON")" \
   --run-id "$RUN_ID" \
   --token-file "$SMOKE_TOKEN_FILE" \
-  --artifact "$SMOKE_ARTIFACT_DIR" >"$SMOKE_UPLOAD_JSON"
+  --artifact "$SMOKE_ARTIFACT_DIR" ${upload_mode[@]+"${upload_mode[@]}"} >"$SMOKE_UPLOAD_JSON"
 
 outcome_seed_result='{"status":"skipped"}'
 outcome_proof_result='{"status":"skipped"}'
 if [[ "$OUTCOME_SMOKE_ENABLED" == "true" ]]; then
   SMOKE_MEETING_ID="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["meeting_id"])' "$SMOKE_UPLOAD_JSON")"
-  "${compose[@]}" run --pull never --rm --no-deps -T rec-maintenance \
+  "${maintenance[@]}" \
     python scripts/seed_smoke_outcome.py \
     --run-id "$RUN_ID" \
     --meeting-id "$SMOKE_MEETING_ID" \
     --media-revision-id "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["media_revision_id"])' "$SMOKE_UPLOAD_JSON")" \
     --execute >"$SMOKE_OUTCOME_SEED_JSON"
 
-  "${compose[@]}" exec -T rec-api \
+  "${api[@]}" \
     python scripts/prove_meeting_outcome_live.py \
     --api "${TWOBRAIN_PUBLIC_BASE_URL:-https://rec.2brain.pro}" \
     --token-file "$SMOKE_TOKEN_FILE" \
@@ -340,6 +353,19 @@ fi
 cleanup_smoke_auth_session
 cleanup_smoke_artifacts
 cleanup_smoke_container_files required
+if [[ "$MODE" == "forward" ]]; then
+  python3 - "$RUN_ID" "$SMOKE_UPLOAD_JSON" "$SMOKE_AUTH_CLEANUP_JSON" "$SMOKE_ARTIFACT_CLEANUP_JSON" <<'PYTHON'
+import json
+import sys
+
+run_id, *paths = sys.argv[1:]
+upload, auth_cleanup, cleanup = (json.load(open(path, encoding="utf-8")) for path in paths)
+print(json.dumps(dict(run_id=run_id, upload=upload, auth_cleanup=auth_cleanup, cleanup=cleanup)))
+PYTHON
+  rm -rf -- "$SMOKE_RUN_DIR"
+  trap - EXIT
+  exit 0
+fi
 trap - EXIT
 
 upload_result="$(cat "$SMOKE_UPLOAD_JSON")"

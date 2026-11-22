@@ -3,12 +3,13 @@ from __future__ import annotations
 import asyncio
 import shutil
 import tempfile
-from collections.abc import Awaitable
+from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from pathlib import Path
+from time import monotonic
 from typing import Any
 from uuid import UUID
 
@@ -24,6 +25,7 @@ from twobrain_rec_server.db.models import (
     PlaybackNormalizationJob,
     ProcessingWorkflow,
     TrackArtifact,
+    Workspace,
 )
 from twobrain_rec_server.domain.statuses import (
     MediaScribeJobStatus,
@@ -63,6 +65,16 @@ from twobrain_rec_server.processing.reasons import (
 from twobrain_rec_server.processing.recovery import schedule_retry, schedule_retry_with_settings
 from twobrain_rec_server.processing.store import ProcessingLifecycleBlocked
 from twobrain_rec_server.storage.minio_client import StorageTransferError
+from twobrain_rec_server.storage.recovery import (
+    STRICT_SOURCE_READ_SECONDS,
+    meeting_storage_read_fence_path,
+    storage_recovery_snapshot,
+    storage_recovery_token,
+)
+from twobrain_rec_server.storage.strict_upload_keys import (
+    is_strict_upload_key,
+    strict_upload_attempt_query,
+)
 
 DOWNLOAD_CHUNK_BYTES = 4 * 1024 * 1024
 
@@ -211,6 +223,8 @@ async def _ensure_processing_fence(
     mediascribe_job_id: UUID | None = None,
     submission_claim_token: str | None = None,
     manual_canonical_artifact_id: UUID | None = None,
+    expected_source_artifact_id: UUID | None = None,
+    refresh_submission_claim: bool = True,
 ) -> None:
     meeting = await lock_meeting_fence(
         db, workspace_id=workflow.workspace_id, meeting_id=workflow.meeting_id
@@ -260,11 +274,16 @@ async def _ensure_processing_fence(
             current_job is None
             or not submission_claim_token
             or current_job.submission_claim_token != submission_claim_token
+            or (
+                expected_source_artifact_id is not None
+                and current_job.source_track_artifact_id != expected_source_artifact_id
+            )
             or current_job.status != MediaScribeJobStatus.SUBMITTING.value
             or current_job.external_job_id is not None
         ):
             raise ProcessingLifecycleBlocked("mediascribe_submission_claim_lost")
-        current_job.submission_claimed_at = datetime.now(UTC)
+        if refresh_submission_claim:
+            current_job.submission_claimed_at = datetime.now(UTC)
     if manual_canonical_artifact_id is not None:
         normalization_job = await db.scalar(
             select(PlaybackNormalizationJob)
@@ -632,6 +651,7 @@ async def submit_to_mediascribe(
     # explicit transaction boundary here so staging never inherits a lifecycle
     # row lock from a future store implementation.
     await db.commit()
+    provider_started = False
     try:
         with tempfile.TemporaryDirectory(prefix="twobrain-rec-mediascribe-") as temp_dir:
             temp_path = Path(temp_dir)
@@ -647,12 +667,9 @@ async def submit_to_mediascribe(
                 if is_manual_canonical
                 else "source-media.bin"
             )
-            await _stage_artifact(
-                storage,
-                media_artifact.storage_object_key,
-                media_path,
-                expected_bytes=media_artifact.byte_length,
-                expected_sha256=media_artifact.sha256,
+            await _stage_mediascribe_source(
+                db, settings=settings, storage=storage, workflow=workflow, job_id=job.id,
+                claim_token=claim_token, source=media_artifact, destination=media_path,
             )
             if source.is_v5_mixed_recording:
                 _verify_v5_canonical_wav(media_path)
@@ -661,6 +678,7 @@ async def submit_to_mediascribe(
                 workflow,
                 mediascribe_job_id=job.id,
                 submission_claim_token=claim_token,
+                expected_source_artifact_id=media_artifact.id,
                 manual_canonical_artifact_id=(
                     media_artifact.id if is_manual_canonical else None
                 ),
@@ -670,6 +688,7 @@ async def submit_to_mediascribe(
             # rechecks lifecycle before persisting the opaque job ID.
             await db.commit()
             with media_path.open("rb") as media_file:
+                provider_started = True
                 result = await _await_provider_egress(
                     _complete_provider_submission(
                         db=db,
@@ -697,8 +716,19 @@ async def submit_to_mediascribe(
                         ),
                     )
                 )
+    except asyncio.CancelledError:
+        if not provider_started:
+            # The protected reader has drained. An unstarted POST has no outcome
+            # to preserve, and release verifies this exact token again.
+            with suppress(Exception):
+                await db.rollback()
+                await db.refresh(job)
+                await store.release_mediascribe_submission_claim(db, job=job, claim_token=claim_token)
+        raise
     except ProcessingLifecycleBlocked as exc:
         await store.release_mediascribe_submission_claim(db, job=job, claim_token=claim_token)
+        if str(exc) == "mediascribe_submission_claim_lost":
+            raise MediaScribeClientError(MEDIASCRIBE_SUBMISSION_IN_PROGRESS, retryable=True) from exc
         await _cancel_stale_processing(db, workflow=workflow, reason=exc)
         raise
     except ArtifactStagingError as exc:
@@ -741,6 +771,85 @@ def _ensure_temp_capacity(temp_dir: Path, expected_bytes: int) -> None:
         raise TempStorageUnavailableError(PROCESSING_TEMP_STORAGE_UNAVAILABLE)
 
 
+async def _stage_mediascribe_source(
+    db: AsyncSession, *, settings: Settings, storage: object, workflow: ProcessingWorkflow,
+    job_id: UUID, claim_token: str, source: TrackArtifact, destination: Path,
+) -> None:
+    artifact_id, key = source.id, source.storage_object_key
+    expected_length, expected_sha256 = source.byte_length, source.sha256
+    workspace_id, meeting_id = workflow.workspace_id, workflow.meeting_id
+    revision, deletion_epoch = workflow.media_revision_id, workflow.deletion_epoch_at_start
+    query = strict_upload_attempt_query(workspace_id, meeting_id, key)
+    attempt = (await db.execute(query)).one_or_none()
+    await db.commit()
+    if attempt is None and not is_strict_upload_key(key):
+        await _stage_artifact(
+            storage, key, destination, expected_bytes=expected_length, expected_sha256=expected_sha256,
+        )
+        return
+
+    download = getattr(storage, "download_strict_source_to_path_async", None)
+    fence_path = meeting_storage_read_fence_path(settings, workspace_id, meeting_id)
+    recovery = storage_recovery_token(settings)
+    if (
+        attempt is None or attempt.storage_epoch is None
+        or not is_strict_upload_key(key) or revision is None
+        or attempt.media_revision_id != revision or attempt.deletion_epoch != deletion_epoch
+        or attempt.state != "retained" or attempt.write_state != "accepted"
+    ):
+        raise ProcessingLifecycleBlocked("strict_source_not_retained")
+    if (
+        not callable(download) or fence_path is None or recovery in {None, "legacy"}
+        or attempt.storage_scope != settings.strict_storage_scope
+    ):
+        raise TempStorageUnavailableError(PROCESSING_TEMP_STORAGE_UNAVAILABLE)
+    deadline = monotonic() + STRICT_SOURCE_READ_SECONDS
+
+    async def admit() -> bool:
+        try:
+            async with asyncio.timeout(max(0, deadline - monotonic())):
+                async with db.begin_nested():
+                    await _ensure_processing_fence(
+                        db, workflow, mediascribe_job_id=job_id, submission_claim_token=claim_token,
+                        expected_source_artifact_id=artifact_id, refresh_submission_claim=False,
+                    )
+                    current = (await db.execute(query)).one_or_none()
+                    owner = await db.scalar(select(Workspace.organization_id).where(Workspace.id == workspace_id))
+                    exists = await db.scalar(select(TrackArtifact.id).where(
+                        TrackArtifact.id == artifact_id,
+                        TrackArtifact.workspace_id == workspace_id,
+                        TrackArtifact.meeting_id == meeting_id,
+                        TrackArtifact.media_revision_id == revision,
+                        TrackArtifact.storage_object_key == key,
+                        TrackArtifact.byte_length == expected_length,
+                        TrackArtifact.sha256 == expected_sha256,
+                        TrackArtifact.status == "stored",
+                    ))
+                    if (
+                        current != attempt or exists is None or owner is None
+                        or not key.startswith(f"organizations/{owner}/workspaces/{workspace_id}/meetings/{meeting_id}/")
+                    ):
+                        raise ProcessingLifecycleBlocked("strict_source_not_retained")
+                await db.commit()
+                return True
+        except TimeoutError as exc:
+            raise TempStorageUnavailableError(PROCESSING_TEMP_STORAGE_UNAVAILABLE) from exc
+
+    # Hold the recovery generation through the awaited, draining storage read.
+    with storage_recovery_snapshot(settings) as current_recovery:
+        if current_recovery != recovery:
+            raise TempStorageUnavailableError(PROCESSING_TEMP_STORAGE_UNAVAILABLE)
+        await _stage_artifact(
+            storage, key, destination,
+            expected_bytes=expected_length, expected_sha256=expected_sha256,
+            protected_download=lambda: download(
+                key, destination, epoch=attempt.storage_epoch, attempt_id=attempt.id,
+                deadline=deadline, fence_path=fence_path, admit=admit,
+                expected_length=expected_length, expected_sha256=expected_sha256, max_bytes=expected_length,
+            ),
+        )
+
+
 async def _stage_artifact(
     storage: object,
     object_key: str,
@@ -748,12 +857,16 @@ async def _stage_artifact(
     *,
     expected_bytes: int,
     expected_sha256: str,
+    protected_download: Callable[[], Awaitable[int]] | None = None,
 ) -> None:
     verified_async = getattr(storage, "download_verified_to_path_async", None)
     verified = getattr(storage, "download_verified_to_path", None)
     download_to_path_async = getattr(storage, "download_to_path_async", None)
     download_to_path = getattr(storage, "download_to_path", None)
     try:
+        if protected_download is not None:
+            await protected_download()
+            return
         if verified_async is not None:
             await verified_async(
                 object_key,

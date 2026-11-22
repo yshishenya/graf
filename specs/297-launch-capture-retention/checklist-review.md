@@ -165,7 +165,7 @@ T019 и T022 остаётся обязательным: отметка `[x]` п�
 ## Пост-PASS recheck: `infra.md` CHK007
 
 **Причина**: реализация `retention_scan` потребовала аддитивной RLS-миграции
-`0114_retention_scan_maintenance.py`, заменяющей функцию
+`0116_retention_scan_maintenance.py`, заменяющей функцию
 `rec_maintenance_allowed()`. Старая формулировка CHK007 запрещала любую новую
 миграцию БД, поэтому пункт переформулирован в требовательную форму:
 
@@ -179,7 +179,7 @@ T019 и T022 остаётся обязательным: отметка `[x]` п�
   заменяющую `rec_maintenance_allowed()` для `retention_scan`, без изменения
   таблиц и данных.
 - `plan.md:17` фиксирует это в Storage, `plan.md:87` — в структуре проекта.
-- Миграция `0114_retention_scan_maintenance.py` содержит только
+- Миграция `0116_retention_scan_maintenance.py` содержит только
   `create or replace function public.rec_maintenance_allowed()`; в ней нет
   `create/alter/drop table`, `insert/update/delete/truncate` или создания
   индексов. `downgrade()` возвращает предыдущий allowlist.

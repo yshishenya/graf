@@ -1,16 +1,36 @@
+import asyncio
 import os
 import stat
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from hashlib import sha256
+from math import isfinite
 from pathlib import Path
+from socket import SOCK_STREAM
+from tempfile import TemporaryDirectory
+from threading import Event
+from time import monotonic
 from typing import BinaryIO
+from urllib.parse import urlsplit
+from uuid import UUID
 
 from anyio import to_thread
 from minio import Minio
-from minio.error import S3Error
+from minio.error import MinioException, S3Error
+from urllib3 import PoolManager
+from urllib3.exceptions import HTTPError
 
 from twobrain_rec_server.config import Settings, get_settings
+from twobrain_rec_server.storage.recovery import read_with_storage_fence, storage_recovery_snapshot
+from twobrain_rec_server.storage.strict_source_transport import strict_source_http
+from twobrain_rec_server.storage.strict_upload_cleanup import (
+    ATTEMPT_METADATA,
+    StrictUploadCleanupAdmission,
+    purge_strict_upload_attempt,
+    strict_upload_key_matches_epoch,
+)
+from twobrain_rec_server.storage.strict_upload_keys import is_strict_upload_key
 
 MISSING_OBJECT_CODES = {"NoSuchKey", "NoSuchObject"}
 DOWNLOAD_CHUNK_BYTES = 4 * 1024 * 1024
@@ -23,6 +43,11 @@ class StorageTransferError(RuntimeError):
         super().__init__(f"Storage transfer failed: {reason_code}")
 
 
+def _require_ordinary_source(object_key: str) -> None:
+    if is_strict_upload_key(object_key):
+        raise StorageTransferError("strict_upload_requires_dedicated_client")
+
+
 @dataclass(frozen=True, slots=True)
 class StorageObjectStat:
     """Metadata needed to validate an object before serving it to a user."""
@@ -31,13 +56,48 @@ class StorageObjectStat:
 
 
 class MinioStorage:
-    def __init__(self, settings: Settings | None = None) -> None:
+    def __init__(
+        self,
+        settings: Settings | None = None,
+        *,
+        strict_upload_cleanup_admission: StrictUploadCleanupAdmission | None = None,
+    ) -> None:
         self.settings = settings or get_settings()
+        self._strict_upload_cleanup_admission = strict_upload_cleanup_admission
         self.client = Minio(
             self.settings.minio_endpoint,
             access_key=self.settings.minio_access_key,
             secret_key=self.settings.minio_secret_key,
             secure=self.settings.minio_secure,
+        )
+
+    async def purge_strict_upload_attempt(
+        self, *, scope: str, epoch: int, key: str, upload_id: str, attempt_id: UUID,
+        deadline: float, expected_recovery: str | None = None,
+    ) -> bool:
+        admission = self._strict_upload_cleanup_admission
+        if admission is None:
+            return False
+
+        @contextmanager
+        def guarded_admission(storage_scope, storage_epoch, exact_key, exact_attempt):
+            # The synchronous worker holds this through storage I/O, even if
+            # the async waiter stops before the worker returns.
+            with storage_recovery_snapshot(self.settings) as current:
+                if current != expected_recovery or storage_scope != self.settings.strict_storage_scope:
+                    yield None
+                    return
+                with admission(storage_scope, storage_epoch, exact_key, exact_attempt) as target:
+                    yield target
+
+        return await purge_strict_upload_attempt(
+            guarded_admission if expected_recovery is not None else admission,
+            scope=scope,
+            epoch=epoch,
+            key=key,
+            upload_id=upload_id,
+            attempt_id=attempt_id,
+            deadline=deadline,
         )
 
     def ensure_bucket(self) -> None:
@@ -90,6 +150,8 @@ class MinioStorage:
         return await to_thread.run_sync(self.stat_object, object_key)
 
     def put_stream(self, object_key: str, stream: BinaryIO, length: int) -> None:
+        if is_strict_upload_key(object_key):
+            raise StorageTransferError("strict_upload_requires_dedicated_client")
         self.client.put_object(
             self.settings.minio_bucket,
             object_key,
@@ -101,6 +163,7 @@ class MinioStorage:
         await to_thread.run_sync(self.put_stream, object_key, stream, length)
 
     def get_bytes(self, object_key: str) -> bytes:
+        _require_ordinary_source(object_key)
         try:
             response = self.client.get_object(self.settings.minio_bucket, object_key)
         except S3Error as exc:
@@ -123,6 +186,7 @@ class MinioStorage:
         *,
         chunk_size: int = DOWNLOAD_CHUNK_BYTES,
     ) -> int:
+        _require_ordinary_source(object_key)
         try:
             response = self.client.get_object(self.settings.minio_bucket, object_key)
         except S3Error as exc:
@@ -163,7 +227,13 @@ class MinioStorage:
         expected_sha256: str,
         max_bytes: int,
         chunk_size: int = DOWNLOAD_CHUNK_BYTES,
+        _cancelled: Event | None = None,
+        _attempt_id: UUID | None = None,
+        _client: Minio | None = None,
+        _deadline: float | None = None,
     ) -> int:
+        if _attempt_id is None or _client is None or _deadline is None or _cancelled is None:
+            _require_ordinary_source(object_key)
         if (
             expected_length <= 0
             or expected_length > max_bytes
@@ -172,11 +242,23 @@ class MinioStorage:
             or chunk_size <= 0
         ):
             raise StorageTransferError("source_mismatch")
+
+        def check_read() -> None:
+            if _cancelled is not None and _cancelled.is_set():
+                raise StorageTransferError("source_read_cancelled")
+            if _deadline is not None and monotonic() >= _deadline:
+                raise StorageTransferError("source_read_deadline")
+
+        check_read()
         try:
-            response = self.client.get_object(self.settings.minio_bucket, object_key)
+            client = self.client if _client is None else _client
+            response = client.get_object(self.settings.minio_bucket, object_key)
         except S3Error as exc:
             if exc.code in MISSING_OBJECT_CODES:
                 raise StorageTransferError("source_missing") from exc
+            raise StorageTransferError("storage_unavailable") from exc
+        except (HTTPError, MinioException, OSError) as exc:
+            check_read()
             raise StorageTransferError("storage_unavailable") from exc
 
         destination = Path(destination_path)
@@ -185,9 +267,14 @@ class MinioStorage:
         digest = sha256()
         flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
         try:
+            check_read()
+            if _attempt_id is not None and response.headers.get(ATTEMPT_METADATA) != str(_attempt_id):
+                raise StorageTransferError("source_mismatch")
             descriptor = os.open(destination, flags, 0o600)
             while True:
+                check_read()
                 chunk = response.read(min(chunk_size, max_bytes - total + 1))
+                check_read()
                 if not chunk:
                     break
                 total += len(chunk)
@@ -199,11 +286,18 @@ class MinioStorage:
                     written = os.write(descriptor, view)
                     view = view[written:]
             os.fsync(descriptor)
+            check_read()
             if total != expected_length or digest.hexdigest() != expected_sha256.lower():
                 raise StorageTransferError("source_mismatch")
             return total
+        except HTTPError as exc:
+            if descriptor >= 0:
+                destination.unlink(missing_ok=True)
+            check_read()
+            raise StorageTransferError("storage_unavailable") from exc
         except StorageTransferError:
-            destination.unlink(missing_ok=True)
+            if descriptor >= 0:
+                destination.unlink(missing_ok=True)
             raise
         except OSError as exc:
             if descriptor >= 0:
@@ -212,8 +306,10 @@ class MinioStorage:
         finally:
             if descriptor >= 0:
                 os.close(descriptor)
-            response.close()
-            response.release_conn()
+            try:
+                response.close()
+            finally:
+                response.release_conn()
 
     async def download_verified_to_path_async(
         self,
@@ -236,6 +332,76 @@ class MinioStorage:
             )
         )
 
+    def _strict_source_client(self, http: PoolManager) -> Minio:
+        return Minio(
+            self.settings.minio_endpoint,
+            access_key=self.settings.minio_access_key,
+            secret_key=self.settings.minio_secret_key,
+            secure=self.settings.minio_secure,
+            http_client=http,
+        )
+
+    async def download_strict_source_to_path_async(
+        self,
+        object_key: str,
+        destination_path: str | Path,
+        *,
+        epoch: int,
+        deadline: float,
+        attempt_id: UUID,
+        fence_path: Path,
+        admit: Callable[[], Awaitable[bool]],
+        expected_length: int,
+        expected_sha256: str,
+        max_bytes: int,
+    ) -> int:
+        """Use an exact lifecycle admission before reading a protected source."""
+        if not strict_upload_key_matches_epoch(object_key, epoch):
+            raise StorageTransferError("source_mismatch")
+        if not isfinite(deadline) or monotonic() >= deadline:
+            raise StorageTransferError("source_read_deadline")
+        scheme = "https" if self.settings.minio_secure else "http"
+        endpoint = urlsplit(f"{scheme}://{self.settings.minio_endpoint}")
+        if endpoint.hostname is None:
+            raise StorageTransferError("storage_unavailable")
+        try:
+            async with asyncio.timeout(max(0, deadline - monotonic())):
+                addresses = await asyncio.get_running_loop().getaddrinfo(
+                    endpoint.hostname, endpoint.port or (443 if self.settings.minio_secure else 80),
+                    type=SOCK_STREAM,
+                )
+        except TimeoutError as exc:
+            raise StorageTransferError("source_read_deadline") from exc
+        except OSError as exc:
+            raise StorageTransferError("storage_unavailable") from exc
+        destination = Path(destination_path)
+        try:
+            with TemporaryDirectory(prefix=".graf-source-", dir=destination.parent) as staging:
+                staged = Path(staging) / "source"
+                def read(cancelled: Event) -> int:
+                    with strict_source_http(deadline, cancelled, addresses) as http:
+                        return self.download_verified_to_path(
+                            object_key,
+                            staged,
+                            expected_length=expected_length,
+                            expected_sha256=expected_sha256,
+                            max_bytes=max_bytes,
+                            _cancelled=cancelled,
+                            _attempt_id=attempt_id,
+                            _client=self._strict_source_client(http),
+                            _deadline=deadline,
+                        )
+
+                transferred = await read_with_storage_fence(fence_path, admit=admit, read=read)
+                if transferred is None:
+                    raise StorageTransferError("source_read_not_admitted")
+                if monotonic() >= deadline:
+                    raise StorageTransferError("source_read_deadline")
+                os.link(staged, destination)
+                return transferred
+        except OSError as exc:
+            raise StorageTransferError("temporary_storage_unavailable") from exc
+
     def upload_verified_path(
         self,
         object_key: str,
@@ -246,6 +412,8 @@ class MinioStorage:
         max_bytes: int,
         chunk_size: int = DOWNLOAD_CHUNK_BYTES,
     ) -> None:
+        if is_strict_upload_key(object_key):
+            raise StorageTransferError("strict_upload_requires_dedicated_client")
         source = Path(source_path)
         flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
         try:
@@ -322,6 +490,7 @@ class MinioStorage:
         length: int | None = None,
         chunk_size: int = DOWNLOAD_CHUNK_BYTES,
     ) -> Iterator[bytes]:
+        _require_ordinary_source(object_key)
         try:
             response = self.client.get_object(
                 self.settings.minio_bucket,
@@ -354,6 +523,8 @@ class MinioStorage:
         return chunks()
 
     def delete_object(self, object_key: str) -> None:
+        if is_strict_upload_key(object_key):
+            raise StorageTransferError("strict_upload_requires_dedicated_client")
         try:
             self.client.remove_object(self.settings.minio_bucket, object_key)
         except S3Error as exc:
