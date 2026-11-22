@@ -204,3 +204,12 @@ A text-only `edited` rerun initially failed with «current run has no verified t
 - The six files it touches are byte-identical between this branch and master, so the branch merges cleanly; the branch keeps only capture continuity, retention, backup prune, migration `0114` and feature docs.
 - Consequences: T017/T018 equivalence and the unknown/expired referral 410 are already delivered by #8139; T019/T022 live checks for checkout and valid-token/503 still need a billing-enabled stand, and the production deploy of that slice is owned by the other chat.
 - Do not force-push this branch and do not ship `0114` from another chat; details in `coordination.md`.
+
+## Convergence (2026-11-22)
+
+- Branch merged with `origin/master` `359f12cc9` as a merge commit; history not rewritten.
+- `validate-legacy-impact.py`: PASS, single `retain-with-exception`, expiry `2027-06-30` (future), retirement task F297/T010/#8123 → `expired_exceptions=0`.
+- `validate-agent-context.py`: PASS → `unowned_legacy=0`, no new legacy alias/fallback/flag paths.
+- Spec/plan/contracts now match the code: master-owned text (`backup.passed`, real route-gap rule) is authoritative; the branch keeps capture continuity, retention, prune, `0114`.
+- Dev stand at exact head `16c37ceab`: manifest `dev-16c37ceabb0d`, `0114`, smoke 13/13 pass.
+- Open acceptance items are recorded honestly in `tasks.md`: T010 hardware, T019 checkout, T022 valid-token/503.

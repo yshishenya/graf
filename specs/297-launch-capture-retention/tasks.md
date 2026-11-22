@@ -43,7 +43,7 @@
 
 ## Phase 6 — Convergence and release gates
 
-- [ ] T023 Сверить spec/plan/tasks/contracts с реализацией, обновить `validation.md`, выполнить `$speckit-converge`, проверить `legacy_new=0`, `unowned_legacy=0`, `expired_exceptions=0`. (Issue #8123)
+- [X] T023 Сверить spec/plan/tasks/contracts с реализацией, обновить `validation.md`, выполнить `$speckit-converge`, проверить `legacy_new=0`, `unowned_legacy=0`, `expired_exceptions=0`. Выполнено: ветка слита с master `359f12cc9`, `validate-legacy-impact` PASS (expiry 2027-06-30), `validate-agent-context` PASS (unowned=0), новых legacy-путей нет; расхождения spec/plan/contracts с кодом устранены в пользу master. (Issue #8123)
 - [ ] T024 Подготовить PR с русским описанием, получить exact-SHA `governance-fast`, `macos-pr`, `pr-metadata` и один `release-full` на frozen candidate; production retention/prune enablement — отдельное действие после dry-run и проверенной резервной копии. (Issue #8123)
 
 ## Dependencies
