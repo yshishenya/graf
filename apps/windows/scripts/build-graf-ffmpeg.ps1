@@ -199,7 +199,16 @@ function Run([string]$Exe, [string[]]$Arguments, [string]$Label, [int]$TimeoutSe
                 break
             }
             if ($elapsed.Elapsed.TotalSeconds -ge $nextProgress) {
-                Write-Host ("FFmpeg stage progress name={0} elapsed_ms={1}" -f $Label, $elapsed.ElapsedMilliseconds)
+                # Safe liveness facts: a growing CPU time means slow work, while
+                # near-zero CPU time points at a blocked process.
+                $cpuMs = 0
+                $memoryMb = 0
+                try {
+                    $process.Refresh()
+                    $cpuMs = [int]$process.TotalProcessorTime.TotalMilliseconds
+                    $memoryMb = [int]($process.WorkingSet64 / 1MB)
+                } catch { }
+                Write-Host ("FFmpeg stage progress name={0} elapsed_ms={1} cpu_ms={2} memory_mb={3}" -f $Label, $elapsed.ElapsedMilliseconds, $cpuMs, $memoryMb)
                 $nextProgress += 30
             }
         }
