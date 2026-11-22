@@ -429,9 +429,10 @@ HRESULT decodePlayback(IMFSourceReader* reader, std::uint64_t durationMs,
         const auto bound = (durationMs+100)*48;
         const auto ticks = [](std::uint64_t frames) { return frames/48'000*10'000'000 + frames%48'000*10'000'000/48'000; };
         LONGLONG previousTime = -1, previousSpan = 0;
-        // One AAC-LC frame. Some decoders drop the encoder priming at the start,
-        // which shifts every later timestamp by up to one frame; continuity,
-        // per-sample duration and the total length below still pin the payload.
+        std::uint64_t primingOffset100ns = 0;
+        // One AAC-LC frame. Some decoders keep the encoder priming as a bounded
+        // initial offset; every timestamp is still compared with the cumulative
+        // decoded position, so small per-sample gaps cannot accumulate.
         constexpr std::uint64_t kFrameTicks100ns = 1024ull*10'000'000/48'000;
         constexpr std::uint64_t kTimestampTolerance100ns = 10'000;
         for (;;) {
@@ -451,9 +452,13 @@ HRESULT decodePlayback(IMFSourceReader* reader, std::uint64_t durationMs,
                 status = call([&] { return sample->GetSampleDuration(&span); }); if (FAILED(status)) return status;
                 const auto sampleTicks = ticks(length/2);
                 const auto distance = [](std::uint64_t a, std::uint64_t b) { return a > b ? a-b : b-a; };
-                if (time != timestamp || span <= 0) return playbackInvariant(5);
-                if (previousTime >= 0) {
-                    if (time < previousTime) return playbackInvariant(6);
+                if (time != timestamp || span <= 0 || time < previousTime) return playbackInvariant(5);
+                if (previousTime < 0) {
+                    primingOffset100ns = static_cast<std::uint64_t>(time);
+                    if (primingOffset100ns > kFrameTicks100ns+kTimestampTolerance100ns) return playbackInvariant(6);
+                } else {
+                    const auto position = ticks(evidence.decodedFrames) + primingOffset100ns;
+                    if (distance(static_cast<std::uint64_t>(time), position) > kTimestampTolerance100ns) return playbackInvariant(6);
                     const auto step = static_cast<std::uint64_t>(time) - static_cast<std::uint64_t>(previousTime);
                     if (distance(step, static_cast<std::uint64_t>(previousSpan)) > kTimestampTolerance100ns) return playbackInvariant(6);
                 }
@@ -513,7 +518,7 @@ CustodyFileResult<LocalRecordingPackage::PlaybackEvidence> decodeProtectedPlayba
     std::fflush(stderr);
 #endif
     if (FAILED(hr)) return {std::nullopt, hr == E_OUTOFMEMORY ? CustodyFileError::allocationFailed :
-        hr == MF_E_INVALIDMEDIATYPE ? CustodyFileError::invalidContent : CustodyFileError::ioFailed,
+        hr == MF_E_INVALIDMEDIATYPE || HRESULT_FACILITY(hr) == FACILITY_ITF ? CustodyFileError::invalidContent : CustodyFileError::ioFailed,
         hr == HRESULT_FROM_WIN32(ERROR_OPERATION_ABORTED) ? ERROR_OPERATION_ABORTED : static_cast<std::uint32_t>(hr)};
     CoUninitialize(); runtime.com = E_FAIL;
     if (cancellation->load()) return {std::nullopt, CustodyFileError::ioFailed, ERROR_OPERATION_ABORTED};
