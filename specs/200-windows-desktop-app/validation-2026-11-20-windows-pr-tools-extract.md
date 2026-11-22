@@ -101,3 +101,22 @@ FFmpeg — 3600 с, остальные шаги — 1800 с. Пока шаг в�
 Проверено также, что закрытие stdin и исключение Defender не влияли:
 до 7-Zip шаг стабильно стоял на `cpu_ms=16`, `stdout=0`, `stderr=0`.
 
+## Полоса дошла до CTest — 2026-11-22, head `2e347cb0f`
+
+После 7-Zip и .NET-хеша полоса впервые дошла до тестов:
+
+- CMake сконфигурировался, собрались 70 целей, проверка артефактов FFmpeg
+  прошла трижды (`Verified ordinary FFmpeg 7.1.5 x64 artifacts and compiled pins.`).
+- CTest: 4 из 5 тестов прошли (`RecordingAudioTimelineTests`,
+  `WebViewRoutePolicyTests`, `WebViewBridgeEnvelopeTests`,
+  `NativeCustodyProtectionFailureTests`).
+- `NativeHashFailureTests` упал на генерации фикстуры:
+  `GENERATED_AAC frames=100 error=5 storage=7 native=3222091444 phase=3`,
+  затем assertion в `apps/windows/Tests/GeneratedRecordingFixtures.h:75`
+  (`sealed.normalPackage() && sealed.durationMs == frames*10`).
+  `error=5` — это `V5WriterError::integrityFailed`.
+
+Это уже не проблема распаковки: сборка и запуск тестов работают. Дефект
+относится к нативной записи/AAC и требует отдельной задачи; полоса
+`windows-pr` остаётся диагностической и не выдаётся за приёмку приложения.
+
