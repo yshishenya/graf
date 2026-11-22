@@ -824,3 +824,11 @@ def test_absolute_freeze_runs_pr_validator_in_repository_from_external_cwd(tmp_p
                  "--features", "216,217", "--operator", "release", "--output", str(frozen), cwd=outside)
     assert result.returncode == 0, result.stderr
     assert json.loads(frozen.read_text())["source_sha"] == sha
+
+
+def test_changelog_feature_ids_canonicalizes_short_numbers() -> None:
+    """F99 and feature:099 must compare equal at the candidate boundary."""
+    source = (Path(__file__).resolve().parents[2] / "infra/scripts/release-candidate.sh").read_text()
+    assert 'def canonical(values):' in source
+    assert 'return {f"{int(value):03d}" for value in values}' in source
+    assert 'return canonical(' in source
