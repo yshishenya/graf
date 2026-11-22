@@ -606,6 +606,99 @@ final class DesktopUploadQueueTests: XCTestCase {
         XCTAssertFalse(saved.retentionDecision.localArtifactsRetained)
     }
 
+    func testPartialContinuityRecordingRefusesServerLocalPurgeAndKeepsArtifacts() async throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let queueURL = root.appendingPathComponent("upload-queue.json")
+        let package = try makeRecordingPackage(
+            root: root,
+            directoryId: "partial-purge-directory",
+            sessionId: "partial-purge-session",
+            partialContinuity: true
+        )
+        let meetingId = "72000000-0000-0000-0000-000000000031"
+        let initialService = DesktopUploadQueueService(
+            queueURL: queueURL,
+            recordingsRootURL: root,
+            client: nil,
+            clock: { Date(timeIntervalSince1970: 100) }
+        )
+        var item = try XCTUnwrap(initialService.scanTrustedSyntheticRecordingFixtures().first)
+        XCTAssertEqual(item.partialContinuity, true)
+        item.meetingId = meetingId
+        try JSONEncoder.uploadQueueTestEncoder
+            .encode(DesktopUploadQueueDocument(updatedAt: item.updatedAt, items: [item]))
+            .write(to: queueURL, options: [.atomic])
+        let task = try makeLocalPurgeTask(meetingId: meetingId)
+        let client = LocalPurgeOnlyClient(
+            tasks: [task],
+            reconciliation: DesktopUploadReconciliation(
+                serverTruth: ServerTruthFingerprint(
+                    meetingId: meetingId,
+                    serverStatus: "ingested_pending_processing"
+                )
+            )
+        )
+        let service = DesktopUploadQueueService(
+            queueURL: queueURL,
+            recordingsRootURL: root,
+            client: client,
+            clock: { Date(timeIntervalSince1970: 200) }
+        )
+
+        _ = try await service.acknowledgeTrustedSyntheticLocalPurgeTasks()
+
+        XCTAssertEqual(client.acknowledgements.first?.state, .failed)
+        // A protected partial recording is a refusal with artifacts still
+        // present, so the safe reason is local_purge_failed, not unverified.
+        XCTAssertEqual(client.acknowledgements.first?.reasonCode, "local_purge_failed")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: package.directoryURL.path))
+        let saved = try XCTUnwrap(service.loadItems().first)
+        XCTAssertNotEqual(saved.state, .terminalDeleted)
+        XCTAssertEqual(saved.partialContinuity, true)
+    }
+
+    func testScanRefreshKeepsPartialContinuityWhenManifestNoLongerCarriesIt() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let queueURL = root.appendingPathComponent("upload-queue.json")
+        let package = try makeRecordingPackage(
+            root: root,
+            directoryId: "partial-refresh-directory",
+            sessionId: "partial-refresh-session",
+            partialContinuity: true
+        )
+        let firstService = DesktopUploadQueueService(
+            queueURL: queueURL,
+            recordingsRootURL: root,
+            client: nil,
+            clock: { Date(timeIntervalSince1970: 100) }
+        )
+        let first = try XCTUnwrap(firstService.scanTrustedSyntheticRecordingFixtures().first)
+        XCTAssertEqual(first.partialContinuity, true)
+
+        // A later scan of an older/rewritten manifest must not erase the durable
+        // partial marker from the queue document.
+        let rewritten = try makeManifest(
+            directoryId: "partial-refresh-directory",
+            sessionId: "partial-refresh-session",
+            transcriptionURL: package.transcriptionURL,
+            reviewURL: package.reviewURL
+        )
+        try LocalRecordingManifestService().write(rewritten, to: package.manifestURL)
+
+        let refreshService = DesktopUploadQueueService(
+            queueURL: queueURL,
+            recordingsRootURL: root,
+            client: nil,
+            clock: { Date(timeIntervalSince1970: 120) }
+        )
+        let refreshed = try XCTUnwrap(refreshService.scanTrustedSyntheticRecordingFixtures().first)
+
+        XCTAssertEqual(refreshed.id, first.id)
+        XCTAssertEqual(refreshed.partialContinuity, true)
+    }
+
     func testLocalPurgeUnknownSyncStateDoesNotDeleteRecordingBuffers() async throws {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -3075,7 +3168,8 @@ final class DesktopUploadQueueTests: XCTestCase {
         meetingId: String? = nil,
         serverTruth: ServerTruthFingerprint = ServerTruthFingerprint(),
         createdAt: Date = Date(timeIntervalSince1970: 1),
-        updatedAt: Date = Date(timeIntervalSince1970: 1)
+        updatedAt: Date = Date(timeIntervalSince1970: 1),
+        partialContinuity: Bool? = nil
     ) -> DesktopUploadQueueItem {
         let profile = ArtifactCompletenessProfile(
             schemaVersion: LocalRecordingManifest.schemaVersion,
@@ -3138,8 +3232,22 @@ final class DesktopUploadQueueTests: XCTestCase {
                 reason: "test",
                 localArtifactsRetained: true,
                 policyReference: "test"
-            )
+            ),
+            partialContinuity: partialContinuity
         )
+    }
+
+    func testPartialContinuityRoundTripsInQueueDocument() throws {
+        let item = makeQueueItem(state: .uploaded, partialContinuity: true)
+        let data = try JSONEncoder.uploadQueueTestEncoder.encode(
+            DesktopUploadQueueDocument(updatedAt: item.updatedAt, items: [item])
+        )
+        let decoded = try JSONDecoder.uploadQueueTestDecoder.decode(
+            DesktopUploadQueueDocument.self,
+            from: data
+        )
+
+        XCTAssertEqual(decoded.items.first?.partialContinuity, true)
     }
 
     private func makeSupportIncidentItem(id: String) -> DesktopUploadQueueItem {
@@ -3229,7 +3337,8 @@ final class DesktopUploadQueueTests: XCTestCase {
         transcriptionReadiness: TranscriptionReadinessState = .ready,
         failureReason: LocalRecordingFailureReason = .none,
         scopeApproval: CaptureScopeApproval? = nil,
-        permissions: SystemAudioPermissionSnapshot? = nil
+        permissions: SystemAudioPermissionSnapshot? = nil,
+        partialContinuity: Bool = false
     ) throws -> TestRecordingPackage {
         let directoryURL = root.appendingPathComponent(directoryId, isDirectory: true)
         try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
@@ -3256,7 +3365,8 @@ final class DesktopUploadQueueTests: XCTestCase {
             transcriptionReadiness: transcriptionReadiness,
             failureReason: failureReason,
             scopeApproval: scopeApproval,
-            permissions: permissions
+            permissions: permissions,
+            partialContinuity: partialContinuity
         )
         try LocalRecordingManifestService().write(manifest, to: package.manifestURL)
         return package
@@ -3482,7 +3592,8 @@ final class DesktopUploadQueueTests: XCTestCase {
         transcriptionReadiness: TranscriptionReadinessState = .ready,
         failureReason: LocalRecordingFailureReason = .none,
         scopeApproval: CaptureScopeApproval? = nil,
-        permissions: SystemAudioPermissionSnapshot? = nil
+        permissions: SystemAudioPermissionSnapshot? = nil,
+        partialContinuity: Bool = false
     ) throws -> LocalRecordingManifest {
         let startedAt = Date(timeIntervalSince1970: 10)
         let stoppedAt = Date(timeIntervalSince1970: 11)
@@ -3621,7 +3732,8 @@ final class DesktopUploadQueueTests: XCTestCase {
                 )
             ] : nil,
             targetMuteCapability: includeMuteTruth ? .chromeTelemost : nil,
-            limitationCopyShownAt: includeMuteTruth ? startedAt : nil
+            limitationCopyShownAt: includeMuteTruth ? startedAt : nil,
+            partialContinuity: partialContinuity ? true : nil
         )
     }
 

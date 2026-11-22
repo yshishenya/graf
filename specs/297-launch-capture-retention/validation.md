@@ -43,7 +43,7 @@ deployment checks and release gates remain open.
 
 - Daily `run_retention_once` loops active workspaces with isolated sessions, bounded limit 100 and metadata-only logging.
 - `TWOBRAIN_RETENTION_SCHEDULER_ENABLED` stops the loop.
-- Migration `0114_retention_scan_maintenance.py` replaces `rec_maintenance_allowed()` with the exact `retention_scan` operation; no tables/data change. RLS contract tests pass.
+- Migration `0116_retention_scan_maintenance.py` replaces `rec_maintenance_allowed()` with the exact `retention_scan` operation; no tables/data change. RLS contract tests pass.
 - Runtime bootstrap accepts both the 0113 and 0114 helper bodies, so a fresh deploy does not fail the fair-use safety check after the migration.
 - `prune-rec-backups.sh` dry-run default; execute removes only exact dated GRAF backup directories older than 30 days, never the newest, symlinks or foreign directories; exit codes 0/2/3.
 - systemd service/timer and `docs/runbooks/backup-retention.md` added.
@@ -153,7 +153,7 @@ convergence, T024 release gates for the capture and retention slices.
 
 ## Dev stand live evidence (exact PR SHA, 2026-11-19)
 
-- F297 is built and promoted on the single Dev stand at the exact PR SHA: manifest `dev-bf96b8034dc0`, source `bf96b8034dc0fb0bf27533bfb11cc1d10a172168`, migration head `0114_retention_scan_maintenance`. An earlier docs/test-only candidate `dev-a7d2b1a565cb` was the rollback target.
+- F297 is built and promoted on the single Dev stand at the exact PR SHA: manifest `dev-bf96b8034dc0`, source `bf96b8034dc0fb0bf27533bfb11cc1d10a172168`, migration head `0116_retention_scan_maintenance`. An earlier docs/test-only candidate `dev-a7d2b1a565cb` was the rollback target.
 - `dev-harness.sh smoke --json --live`: pass; all 13 checks pass, including app identity/presentation, exact SHA, backend, database, migration, storage, Temporal, processing/media workers.
 - `GET /`, `/offer`, `/privacy`: 200. `/offer` renders «Одна запись — до 4 часов (14 400 секунд)» and «Автопродление включено по умолчанию… его можно снять»; the phrases «без ограничения длительности» and «Согласие не должно быть заранее отмечено» are absent. `/` renders «до 4 часов». `/privacy` renders «удаление встреч, срок которых истек, после включения планировщика и разрешения удаления оператором».
 - `GET /r/unknown-token`, `/referral/unknown-token` and a token-shaped unknown token: 410 with the «Ссылка недействительна» page and no 500 (browser-verified).
@@ -204,3 +204,47 @@ A text-only `edited` rerun initially failed with «current run has no verified t
 - The six files it touches are byte-identical between this branch and master, so the branch merges cleanly; the branch keeps only capture continuity, retention, backup prune, migration `0114` and feature docs.
 - Consequences: T017/T018 equivalence and the unknown/expired referral 410 are already delivered by #8139; T019/T022 live checks for checkout and valid-token/503 still need a billing-enabled stand, and the production deploy of that slice is owned by the other chat.
 - Do not force-push this branch and do not ship `0114` from another chat; details in `coordination.md`.
+
+## Convergence (2026-11-22)
+
+- Branch merged with `origin/master` `359f12cc9` as a merge commit; history not rewritten.
+- `validate-legacy-impact.py`: PASS, single `retain-with-exception`, expiry `2027-06-30` (future), retirement task F297/T010/#8123 → `expired_exceptions=0`.
+- `validate-agent-context.py`: PASS → `unowned_legacy=0`, no new legacy alias/fallback/flag paths.
+- Spec/plan/contracts now match the code: master-owned text (`backup.passed`, real route-gap rule) is authoritative; the branch keeps capture continuity, retention, prune, `0114`.
+- Dev stand at exact head `16c37ceab`: manifest `dev-16c37ceabb0d`, `0114`, smoke 13/13 pass.
+- Open acceptance items are recorded honestly in `tasks.md`: T010 hardware, T019 checkout, T022 valid-token/503.
+
+## Migration renumbering (2026-11-22)
+
+Master now contains `0114_f200_calendar_upload_pin` and `0115_f200_strict_upload_journal` (F200 Windows), so the F297 migration was renumbered to `0116_retention_scan_maintenance` with `down_revision = "0115_f200_strict_upload_journal"`. The RLS helper body and the `retention_scan` operation are unchanged; bootstrap accepts the 0113, 0114, 0115 and 0116 heads.
+
+Verified after the merge (Postgres 17, real roles):
+
+- `tests/integration/test_postgres_migrations.py` + `tests/unit/test_playback_normalization_worker.py` — 31 passed;
+- `tests/integration/test_rls_postgres_policies.py` + fair-use + billing monitoring + RLS contract — 328 passed, after the marker parametrization was extended to 0116;
+- `tests/integration/test_deployment_backup_snapshot.py` — 7 passed;
+- Swift suite 1545, retention/referral unit 17, prune 9.
+
+## Retention backlog fix (2026-11-22)
+
+Независимое ревью PR #8134 (P2) указало, что `run_retention_once` выполнял ровно
+один батч из 100 встреч на рабочее пространство за сутки. При большем числе
+просроченных встреч очередь росла, а SC-003 требует удалить все просроченные
+встречи за ежедневный проход.
+
+Исправление:
+
+- `RETENTION_SCAN_BATCH_LIMIT = 100` и `RETENTION_SCAN_MAX_BATCHES = 50` в
+  `workflows/maintenance_worker.py`.
+- Реальный проход повторяет сканирование, пока батч насыщен новыми запросами на
+  удаление (`created_requests == 100`), то есть до опустошения очереди; каждое
+  сканирование остаётся ограниченным, транзакция коммитится после каждого батча.
+- Dry-run по-прежнему делает один батч: он ничего не удаляет, повторный скан
+  вернул бы те же строки.
+- Предохранитель: не более 50 батчей (5000 встреч) на рабочее пространство за
+  проход; при достижении лимита пишется предупреждение, остаток обрабатывается
+  на следующем проходе и не блокирует другие пространства.
+
+Тесты: `tests/unit/test_retention_reconciler.py` — 10 passed, включая три новых:
+дренаж насыщенных батчей, один батч в dry-run и остановка на предохранителе с
+предупреждением.

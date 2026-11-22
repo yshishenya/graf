@@ -167,7 +167,14 @@ final class SystemAudioCaptureServiceTests: XCTestCase {
         XCTAssertEqual(first.presentationTime, original.presentationTime)
         XCTAssertEqual(remainder.presentationTime.seconds, 321.26, accuracy: 0.000001)
         XCTAssertEqual(remainder.presentationTime.clockDomain, .sourcePresentationTime)
-        XCTAssertEqual(remainder.presentationTime.observedHostTimeSeconds, 321.75)
+        // The remainder starts 480 frames (10 ms) after the original callback
+        // observation. Keeping 321.75 would overstate a later route gap by the
+        // first half of the split batch.
+        XCTAssertEqual(
+            remainder.presentationTime.observedHostTimeSeconds ?? -1,
+            321.76,
+            accuracy: 0.000_001
+        )
         XCTAssertEqual(remainder.format, original.format)
         XCTAssertEqual(remainder.routeGeneration, 7)
         XCTAssertEqual(first.samples.count, 480)

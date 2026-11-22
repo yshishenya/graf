@@ -20,7 +20,7 @@ final class DesktopNotificationAppIntegrationTests: XCTestCase {
     func testFailureResultDoesNotClaimAllLocalDataWasLost() throws {
         let app = try String(contentsOf: root.appendingPathComponent("apps/macos/RecApp/Sources/AppShell/ContentView.swift"), encoding: .utf8)
         XCTAssertFalse(app.contains("return \"Локальная запись не сохранена\""))
-        XCTAssertTrue(app.contains(".from(manifest.status)"))
+        XCTAssertTrue(app.contains("partialContinuity: manifest.partialContinuity == true"))
         let start = try XCTUnwrap(app.range(of: "private func localCaptureFailureCopy("))
         let end = try XCTUnwrap(app.range(of: "private func recordingBlockerPresentation(", range: start.upperBound..<app.endIndex))
         let body = app[start.lowerBound..<end.lowerBound]

@@ -112,6 +112,33 @@ final class LocalRecordingWriterTests: XCTestCase {
         XCTAssertEqual(privacySource.suppressedSampleCount, 2)
     }
 
+    func testSplitBatchAdvancesObservedHostTimeOnRemainder() {
+        let source = BufferedLocalRecordingSampleSource(channelCount: 1)
+        let original = RecordingAudioBatch(
+            samples: Array(repeating: 0.2, count: 20_000),
+            format: RecordingAudioFormat(sampleRate: 48_000, channelCount: 1),
+            presentationTime: RecordingAudioPresentationTimestamp(
+                seconds: 100,
+                clockDomain: .hostTime,
+                observedHostTimeSeconds: 50
+            ),
+            discontinuity: .none,
+            routeGeneration: 1
+        )
+        source.append(original)
+
+        let first = source.readTimestampedBatch(maximumFrameCount: 8_192)
+        let remainder = source.readTimestampedBatch(maximumFrameCount: 8_192)
+        let emittedSeconds = Double(8_192) / 48_000
+
+        XCTAssertEqual(first?.presentationTime.observedHostTimeSeconds, 50)
+        XCTAssertEqual(
+            remainder?.presentationTime.observedHostTimeSeconds ?? -1,
+            50 + emittedSeconds,
+            accuracy: 0.000_001
+        )
+    }
+
     func testCanonicalWriterFansOutOneTimelineIntoOnlyFinalV5Artifacts() throws {
         XCTAssertEqual(CanonicalRecordingWriter.reviewBitRate, 64_000)
         let root = makeWriterTestRoot("canonical-fan-out")

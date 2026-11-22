@@ -42,6 +42,38 @@ final class CanonicalRecordingManifestTests: XCTestCase {
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: root.path), ["manifest.json"])
     }
 
+    func testPartialContinuityManifestIsDegradedAndTruthful() {
+        let tracks = canonicalTracks().map { track -> LocalRecordingTrack in
+            var next = track
+            next.status = .degraded
+            next.failureReason = .timelineMisaligned
+            next.timelineAligned = false
+            return next
+        }
+        let manifest = LocalRecordingManifestService(clock: { Date(timeIntervalSince1970: 30) })
+            .v5Manifest(
+                sessionId: "partial-session",
+                directoryId: "partial-directory",
+                startedAt: Date(timeIntervalSince1970: 10),
+                stoppedAt: Date(timeIntervalSince1970: 20),
+                tracks: tracks,
+                failureReason: .timelineMisaligned,
+                scopeApproval: acceptedScopeApproval(),
+                permissions: grantedPermissions(),
+                partialContinuity: true,
+                echoProcessor: .webrtcAEC3,
+                echoProcessingHealth: completedEchoHealth()
+            )
+
+        XCTAssertEqual(manifest.status, .degraded)
+        XCTAssertEqual(manifest.transcriptionReadiness, .degraded)
+        XCTAssertEqual(manifest.failureReason, .timelineMisaligned)
+        XCTAssertEqual(manifest.partialContinuity, true)
+        XCTAssertFalse(manifest.isComplete)
+        XCTAssertTrue(manifest.tracks.allSatisfy { $0.status == .degraded })
+        XCTAssertTrue(manifest.tracks.allSatisfy { !$0.timelineAligned })
+    }
+
     func testV5FactoryCreatesExactlyOneASRWaveAndOnePlaybackM4A() {
         let manifest = LocalRecordingManifestService(clock: { Date(timeIntervalSince1970: 30) })
             .v5Manifest(

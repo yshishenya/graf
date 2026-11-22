@@ -711,7 +711,7 @@ async def test_nonempty_downgrade_refuses_without_losing_protection(operator_cas
     assert await source_snapshot(c) == before
     await bootstrap._bootstrap()
     async with c.owner.connect() as conn:
-        assert await conn.scalar(text("SELECT version_num FROM alembic_version")) == "0115_f200_strict_upload_journal"
+        assert await conn.scalar(text("SELECT version_num FROM alembic_version")) == "0116_retention_scan_maintenance"
         assert await conn.scalar(text("SELECT bool_and(tgenabled='A') FROM pg_trigger WHERE tgname IN ('fair_use_review_guard','fair_use_audit_append','fair_use_audit_guard')")) is True
 
 
@@ -974,13 +974,22 @@ async def restrict_history_transaction(case):
         await bootstrap._restrict_fair_use_history(raw.driver_connection)
 
 
-@pytest.mark.parametrize("marker", ["0112_storage_notifications", "0114_f200_calendar_upload_pin", "0115_f200_strict_upload_journal"])
+@pytest.mark.parametrize(
+    "marker",
+    [
+        "0112_storage_notifications",
+        "0114_f200_calendar_upload_pin",
+        "0115_f200_strict_upload_journal",
+        "0116_retention_scan_maintenance",
+    ],
+)
 async def test_fair_use_bootstrap_marker_repeat_controls(operator_case, operator_migrations, marker):
     c = operator_case
-    if marker != "0115_f200_strict_upload_journal":
+    head = "0116_retention_scan_maintenance"
+    if marker != head:
         await operator_migrations("downgrade", marker)
     for _ in range(2):
-        if marker == "0115_f200_strict_upload_journal":
+        if marker == head:
             await bootstrap._bootstrap()
         else:
             await restrict_history_transaction(c)
@@ -988,7 +997,14 @@ async def test_fair_use_bootstrap_marker_repeat_controls(operator_case, operator
         assert await conn.scalar(text("SELECT version_num FROM public.alembic_version")) == marker
 
 
-@pytest.mark.parametrize("marker", ["0114_f200_calendar_upload_pin", "0115_f200_strict_upload_journal"])
+@pytest.mark.parametrize(
+    "marker",
+    [
+        "0114_f200_calendar_upload_pin",
+        "0115_f200_strict_upload_journal",
+        "0116_retention_scan_maintenance",
+    ],
+)
 async def test_fair_use_bootstrap_rejects_all_missing_descendant_protection(
     operator_case, operator_migrations, marker,
 ):
@@ -1006,7 +1022,7 @@ async def test_fair_use_bootstrap_rejects_all_missing_descendant_protection(
             await conn.execute(text(sql))
     damaged = await history_catalog(c)
     with pytest.raises(RuntimeError, match="fair-use history schema is incomplete"):
-        if marker == "0115_f200_strict_upload_journal":
+        if marker in {"0115_f200_strict_upload_journal", "0116_retention_scan_maintenance"}:
             await bootstrap._bootstrap()
         else:
             await restrict_history_transaction(c)

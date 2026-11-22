@@ -200,7 +200,11 @@ public final class AppOwnedMicrophoneSampleSource: TimestampedLocalRecordingSamp
                 object: captureDevice,
                 queue: nil
             ) { [weak self] _ in
-                self?.recordRuntimeFailure(.routeChanged)
+                // A disconnected microphone is a real source stop, not a
+                // recoverable output-route change. Treat it fail-closed so the
+                // writer preserves an honest prefix instead of continuing as if
+                // the microphone still existed.
+                self?.recordRuntimeFailure(.sourceStopped)
             }
         ]
     }

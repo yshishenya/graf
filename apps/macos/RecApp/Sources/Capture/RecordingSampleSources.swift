@@ -218,7 +218,9 @@ public final class BufferedLocalRecordingSampleSource: TimestampedLocalRecording
             presentationTime: RecordingAudioPresentationTimestamp(
                 seconds: batch.presentationTime.seconds + Double(emittedFrameCount) / batch.format.sampleRate,
                 clockDomain: batch.presentationTime.clockDomain,
-                observedHostTimeSeconds: batch.presentationTime.observedHostTimeSeconds
+                observedHostTimeSeconds: batch.presentationTime.observedHostTimeSeconds.map {
+                    $0 + Double(emittedFrameCount) / batch.format.sampleRate
+                }
             ),
             discontinuity: .none,
             routeGeneration: batch.routeGeneration

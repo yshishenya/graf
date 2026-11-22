@@ -114,6 +114,8 @@ public struct RecordingAudioTimelineMetrics: Equatable, Sendable {
     public internal(set) var processingTimeP95Ms: Double?
     public internal(set) var gapFramesBySource: [RecordingAudioInput: Int64]
     public internal(set) var overlapTrimmedFramesBySource: [RecordingAudioInput: Int64]
+    public internal(set) var continuityGapBridgedFrames: Int64
+    public internal(set) var continuityRouteChangeCount: Int
 
     public init(
         outputFrameCount: Int64 = 0,
@@ -126,7 +128,9 @@ public struct RecordingAudioTimelineMetrics: Equatable, Sendable {
         nonFiniteSampleCount: Int64 = 0,
         processingTimeP95Ms: Double? = nil,
         gapFramesBySource: [RecordingAudioInput: Int64] = [:],
-        overlapTrimmedFramesBySource: [RecordingAudioInput: Int64] = [:]
+        overlapTrimmedFramesBySource: [RecordingAudioInput: Int64] = [:],
+        continuityGapBridgedFrames: Int64 = 0,
+        continuityRouteChangeCount: Int = 0
     ) {
         self.outputFrameCount = outputFrameCount
         self.echoProcessedFrameCount = echoProcessedFrameCount
@@ -139,6 +143,8 @@ public struct RecordingAudioTimelineMetrics: Equatable, Sendable {
         self.processingTimeP95Ms = processingTimeP95Ms
         self.gapFramesBySource = gapFramesBySource
         self.overlapTrimmedFramesBySource = overlapTrimmedFramesBySource
+        self.continuityGapBridgedFrames = continuityGapBridgedFrames
+        self.continuityRouteChangeCount = continuityRouteChangeCount
     }
 }
 
@@ -148,17 +154,25 @@ public struct RecordingAudioTimelineConfiguration: Equatable, Sendable {
     /// from callback order or retaining an unbounded source queue.
     public let reorderWindowFrames: Int64
     public let maximumKnownGapSeconds: Double
+    /// A short system-reference gap at or below this bound is bridged with
+    /// silence. Longer gaps are real source loss and must remain visible.
+    public let maximumBridgedGapSeconds: Double
     public let maximumBufferedFramesPerSource: Int64
     public let maximumClockRecoveryFramesPerBatch: Int64
 
     public init(
         reorderWindowFrames: Int = 48_000,
         maximumKnownGapSeconds: Double = 15,
+        maximumBridgedGapSeconds: Double = 0.5,
         maximumBufferedFramesPerSource: Int = 48_000 * 20,
         maximumClockRecoveryFramesPerBatch: Int = 48
     ) {
         self.reorderWindowFrames = Int64(max(0, reorderWindowFrames))
         self.maximumKnownGapSeconds = maximumKnownGapSeconds
+        self.maximumBridgedGapSeconds = min(
+            max(0, maximumBridgedGapSeconds),
+            max(0, maximumKnownGapSeconds)
+        )
         self.maximumBufferedFramesPerSource = Int64(max(1, maximumBufferedFramesPerSource))
         self.maximumClockRecoveryFramesPerBatch = Int64(max(0, maximumClockRecoveryFramesPerBatch))
     }
@@ -198,6 +212,8 @@ public final class RecordingAudioTimeline: @unchecked Sendable {
     private var pendingBootstrapBatches: [(source: RecordingAudioInput, batch: RecordingAudioBatch)] = []
     private var states: [RecordingAudioInput: SourceState] = [:]
     private var observedRouteGenerations: [RecordingAudioInput: Int] = [:]
+    private var routeRebasePending: Set<RecordingAudioInput> = []
+    private var routeOffsets: [RecordingAudioInput: Int64] = [:]
     private var bootstrapSourceEndSeconds: [RecordingAudioInput: Double] = [:]
     private var bootstrapBufferedCanonicalFrames: [RecordingAudioInput: Int64] = [:]
     private var epoch: RecordingAudioPresentationTimestamp?
@@ -239,7 +255,7 @@ public final class RecordingAudioTimeline: @unchecked Sendable {
             metrics.clippedSampleCount += Int64(batch.samples.lazy.filter { $0.isFinite && abs($0) >= 1 }.count)
         }
         try validate(batch)
-        try validateDiscontinuity(batch)
+        try validateDiscontinuity(source: source, batch: batch)
         let normalizedBatch = normalizePresentationTime(batch: batch)
         try validateClockDomain(normalizedBatch.presentationTime)
         try validateRouteGeneration(source, batch: normalizedBatch)
@@ -385,7 +401,9 @@ public final class RecordingAudioTimeline: @unchecked Sendable {
             throw RecordingAudioTimelineError.invalidSamples
         }
         guard configuration.maximumKnownGapSeconds.isFinite,
-              configuration.maximumKnownGapSeconds >= 0
+              configuration.maximumKnownGapSeconds >= 0,
+              configuration.maximumBridgedGapSeconds.isFinite,
+              configuration.maximumBridgedGapSeconds >= 0
         else {
             throw RecordingAudioTimelineError.invalidFormat
         }
@@ -416,7 +434,10 @@ public final class RecordingAudioTimeline: @unchecked Sendable {
         )
     }
 
-    private func validateDiscontinuity(_ batch: RecordingAudioBatch) throws {
+    private func validateDiscontinuity(
+        source: RecordingAudioInput,
+        batch: RecordingAudioBatch
+    ) throws {
         switch batch.discontinuity {
         case .none, .knownGap:
             return
@@ -424,7 +445,11 @@ public final class RecordingAudioTimeline: @unchecked Sendable {
             metrics.hostOverrunCount += 1
             throw RecordingAudioTimelineError.sourceOverflow
         case .routeChanged:
-            throw RecordingAudioTimelineError.routeGenerationChanged
+            // A route change is a normal device switch, not a lost meeting.
+            // Mark a rebase and continue with the next real batch.
+            routeRebasePending.insert(source)
+            metrics.continuityRouteChangeCount += 1
+            diagnosticLogger?("recording_timeline_route_changed source=\(source.rawValue)")
         case .sourceStopped:
             throw RecordingAudioTimelineError.sourceStopped
         }
@@ -444,7 +469,10 @@ public final class RecordingAudioTimeline: @unchecked Sendable {
         _ source: RecordingAudioInput,
         batch: RecordingAudioBatch
     ) throws {
-        if let routeGeneration = observedRouteGenerations[source], routeGeneration != batch.routeGeneration {
+        if let routeGeneration = observedRouteGenerations[source],
+           routeGeneration != batch.routeGeneration,
+           !routeRebasePending.contains(source),
+           batch.discontinuity != .routeChanged {
             throw RecordingAudioTimelineError.routeGenerationChanged
         }
         observedRouteGenerations[source] = batch.routeGeneration
@@ -496,13 +524,98 @@ public final class RecordingAudioTimeline: @unchecked Sendable {
         }
 
         state.routeGeneration = batch.routeGeneration
+        let previousObservedHostEnd: Double? = state.lastObservedHostTimeSeconds.map {
+            $0 + (state.lastObservedHostDurationSeconds ?? 0)
+        }
+
+        if routeRebasePending.contains(source) {
+            try flushConverterForRouteChange(source: source, state: state)
+        }
 
         var canonicalSamples = try state.convert(batch: batch)
         guard !canonicalSamples.isEmpty else { return }
+        if let observedHostTime = batch.presentationTime.observedHostTimeSeconds {
+            state.lastObservedHostTimeSeconds = observedHostTime
+            state.lastObservedHostDurationSeconds = Double(canonicalSamples.count)
+                / Self.canonicalSampleRate
+        }
         var requestedStart = try Self.canonicalFrameIndex(
             for: batch.presentationTime,
             relativeTo: epoch
         )
+        if routeRebasePending.contains(source) {
+            let expectedStart = state.lastInputEndFrame ?? 0
+            let previousOffset = routeOffsets[source] ?? 0
+            let (expectedRawStart, expectedOverflow) = expectedStart.addingReportingOverflow(previousOffset)
+            guard !expectedOverflow else { throw RecordingAudioTimelineError.invalidTimestamp }
+            let (ptsDelta, ptsOverflow) = requestedStart.subtractingReportingOverflow(expectedRawStart)
+            guard !ptsOverflow else { throw RecordingAudioTimelineError.invalidTimestamp }
+
+            // ScreenCaptureKit may continue the same media clock or reset it
+            // after a route change. Use the media delta when it is meaningful;
+            // otherwise use the observed host-clock delta from the end of the
+            // previous batch. Never assume that a reset means "no time passed".
+            let hostDeltaFrames: Int64?
+            if let previousObservedHostEnd,
+               let observedHostTime = batch.presentationTime.observedHostTimeSeconds,
+               observedHostTime.isFinite,
+               previousObservedHostEnd.isFinite {
+                let seconds = max(0, observedHostTime - previousObservedHostEnd)
+                hostDeltaFrames = seconds <= configuration.maximumKnownGapSeconds + 1
+                    ? Int64((seconds * Self.canonicalSampleRate).rounded())
+                    : maximumKnownGapFrames + 1
+            } else {
+                hostDeltaFrames = nil
+            }
+
+            let gapFrames: Int64
+            if ptsDelta > 0 {
+                gapFrames = ptsDelta
+            } else if ptsDelta == 0 {
+                // Media PTS is exactly contiguous. Callback host time includes
+                // queue latency and must not manufacture silence where the
+                // media clock proves there is no gap.
+                gapFrames = 0
+            } else if let hostDeltaFrames {
+                gapFrames = max(0, hostDeltaFrames)
+            } else {
+                // A negative media delta with no host observation is the
+                // established clock-reset convention: rebase without inventing
+                // a gap. Production system audio always supplies host time, so
+                // a real gap after a device switch is still measured.
+                diagnosticLogger?("recording_timeline_route_clock_reset_without_host_time source=\(source.rawValue)")
+                gapFrames = 0
+            }
+            guard gapFrames <= maximumKnownGapFrames else {
+                throw RecordingAudioTimelineError.gapExceedsBound
+            }
+            guard gapFrames <= maximumBridgedGapFrames else {
+                // A material gap after a device switch must stay visible. Keep
+                // the prefix and let the writer persist a truthful partial
+                // recording instead of shifting later audio earlier.
+                throw RecordingAudioTimelineError.renderReferenceMissing
+            }
+            if gapFrames > 0 {
+                canonicalSamples.insert(
+                    contentsOf: repeatElement(Float.zero, count: Int(gapFrames)),
+                    at: 0
+                )
+                metrics.continuityGapBridgedFrames += gapFrames
+                metrics.gapFramesBySource[source, default: 0] += gapFrames
+                metrics.ptsGapCount += 1
+            }
+            let (targetStart, targetOverflow) = expectedStart.addingReportingOverflow(gapFrames)
+            guard !targetOverflow else { throw RecordingAudioTimelineError.invalidTimestamp }
+            let (offset, offsetOverflow) = requestedStart.subtractingReportingOverflow(targetStart)
+            guard !offsetOverflow else { throw RecordingAudioTimelineError.invalidTimestamp }
+            routeOffsets[source] = offset
+            routeRebasePending.remove(source)
+            requestedStart = expectedStart
+        } else if let offset = routeOffsets[source] {
+            let (adjusted, overflow) = requestedStart.subtractingReportingOverflow(offset)
+            guard !overflow else { throw RecordingAudioTimelineError.invalidTimestamp }
+            requestedStart = adjusted
+        }
         if let previousStart = state.lastRequestedStartFrame,
            requestedStart <= previousStart {
             throw RecordingAudioTimelineError.lateBatch
@@ -541,6 +654,28 @@ public final class RecordingAudioTimeline: @unchecked Sendable {
             at: requestedStart,
             allowsClockRecovery: batch.discontinuity == .none
         )
+    }
+
+    private func flushConverterForRouteChange(
+        source: RecordingAudioInput,
+        state: SourceState
+    ) throws {
+        guard let converter = state.converter else {
+            state.inputFormat = nil
+            return
+        }
+        let flushed = try converter.flush()
+        if !flushed.isEmpty, let lastInputEndFrame = state.lastInputEndFrame {
+            try appendCanonicalSamples(
+                flushed,
+                for: source,
+                into: state,
+                at: lastInputEndFrame,
+                allowsClockRecovery: false
+            )
+        }
+        state.converter = nil
+        state.inputFormat = nil
     }
 
     private func appendCanonicalSamples(
@@ -582,6 +717,21 @@ public final class RecordingAudioTimeline: @unchecked Sendable {
                 }
                 values.insert(contentsOf: recovered, at: 0)
                 start = expectedStart
+            } else if source == .systemAudio,
+                      gapFrames <= maximumBridgedGapFrames {
+                // A short incoming-audio gap is physically silence. Bridge it
+                // so the AEC reference stays contiguous; this is not hidden
+                // speech loss because the bound is deliberately small.
+                values.insert(
+                    contentsOf: repeatElement(Float.zero, count: Int(gapFrames)),
+                    at: 0
+                )
+                start = expectedStart
+                metrics.continuityGapBridgedFrames += gapFrames
+            } else if source == .systemAudio {
+                // Longer incoming loss is material. Do not mask it with
+                // silence; let the writer keep a truthful partial prefix.
+                throw RecordingAudioTimelineError.renderReferenceMissing
             }
         } else if clockDelta < 0 {
             let overlapFrames = -clockDelta
@@ -615,6 +765,10 @@ public final class RecordingAudioTimeline: @unchecked Sendable {
 
     private var maximumKnownGapFrames: Int64 {
         Int64((configuration.maximumKnownGapSeconds * Self.canonicalSampleRate).rounded(.down))
+    }
+
+    private var maximumBridgedGapFrames: Int64 {
+        Int64((configuration.maximumBridgedGapSeconds * Self.canonicalSampleRate).rounded(.down))
     }
 
     private func emitAvailableFrames(final: Bool) throws {
@@ -733,6 +887,8 @@ private struct TimelineSegment {
 
 private final class SourceState {
     var routeGeneration: Int?
+    var lastObservedHostTimeSeconds: Double?
+    var lastObservedHostDurationSeconds: Double?
     var inputFormat: RecordingAudioFormat?
     var lastInputEndFrame: Int64?
     var lastRequestedStartFrame: Int64?
