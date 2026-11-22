@@ -402,6 +402,32 @@ final class LocalCacheSurfaceTests: XCTestCase {
         XCTAssertTrue(LocalCacheCleanupCandidatePolicy.panelCandidates(for: all, limit: 0).isEmpty)
     }
 
+    func testCleanupCandidatePolicyKeepsPartialContinuityRecording() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("f296-partial-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let scope = try RecordingDeletionScope(
+            serverOrigin: "https://sync.invalid",
+            workspaceID: "workspace",
+            actorUserID: "owner"
+        )
+        let partial = makeItem(
+            id: "partial",
+            directoryId: "partial",
+            meetingId: "meeting-partial",
+            scope: scope,
+            root: root,
+            mediaBytes: 1_000,
+            partialContinuity: true
+        )
+
+        XCTAssertTrue(partial.artifactProfile.isUploadable)
+        XCTAssertNil(LocalCacheCleanupCandidatePolicy.cleanupBytes(for: partial))
+        XCTAssertEqual(LocalCacheCleanupCandidatePolicy.eligibleCandidateCount(for: [partial]), 0)
+        XCTAssertTrue(LocalCacheCleanupCandidatePolicy.panelCandidates(for: [partial]).isEmpty)
+    }
+
     func testServerModeShellExposesCachePanelAndReusesConfirmation() throws {
         let root = repositoryRoot()
         let shell = try String(
@@ -540,7 +566,8 @@ final class LocalCacheSurfaceTests: XCTestCase {
         scope: RecordingDeletionScope,
         root: URL,
         mediaBytes: Int64,
-        schemaVersion: String = LocalRecordingManifest.schemaVersion
+        schemaVersion: String = LocalRecordingManifest.schemaVersion,
+        partialContinuity: Bool? = nil
     ) -> DesktopUploadQueueItem {
         let directory = root.appendingPathComponent(directoryId, isDirectory: true)
         let item = DesktopUploadQueueItem(
@@ -608,7 +635,8 @@ final class LocalCacheSurfaceTests: XCTestCase {
                 reason: "test",
                 localArtifactsRetained: true,
                 policyReference: "test"
-            )
+            ),
+            partialContinuity: partialContinuity
         )
         var result = item
         result.ownerScope = scope

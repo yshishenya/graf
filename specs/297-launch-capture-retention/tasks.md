@@ -23,7 +23,7 @@
 ## Phase 3 — US2: retention 365 дней и backup 30 дней исполняются
 
 - [X] T011 [US2] Добавить RED-тест `apps/server/tests/unit/test_retention_reconciler.py`: перебирает активные workspace, вызывает существующий `run_retention_scan`, изолирует ошибку workspace, не дублирует deletion request при повторе. (Issue #8123)
-- [X] T012 [US2] Добавить `retention_scan` в `ALLOWED_MAINTENANCE_OPERATIONS` (`apps/server/src/twobrain_rec_server/db/tenant_context.py`), аддитивную migration `0114_retention_scan_maintenance.py` для `rec_maintenance_allowed()` и согласовать runtime bootstrap с обеими версиями helper; реализовать `run_retention_reconciler` в `apps/server/src/twobrain_rec_server/workflows/maintenance_worker.py` с суточным интервалом, bounded batch, opt-in выключателем `TWOBRAIN_RETENTION_SCHEDULER_ENABLED` (default `false`), вторым ключом `TWOBRAIN_RETENTION_SCHEDULER_DRY_RUN_ONLY` (default `true`) и включением только после dry-run и проверенной резервной копии. (Issue #8123)
+- [X] T012 [US2] Добавить `retention_scan` в `ALLOWED_MAINTENANCE_OPERATIONS` (`apps/server/src/twobrain_rec_server/db/tenant_context.py`), аддитивную migration `0116_retention_scan_maintenance.py` для `rec_maintenance_allowed()` и согласовать runtime bootstrap с обеими версиями helper; реализовать `run_retention_reconciler` в `apps/server/src/twobrain_rec_server/workflows/maintenance_worker.py` с суточным интервалом, bounded batch, opt-in выключателем `TWOBRAIN_RETENTION_SCHEDULER_ENABLED` (default `false`), вторым ключом `TWOBRAIN_RETENTION_SCHEDULER_DRY_RUN_ONLY` (default `true`) и включением только после dry-run и проверенной резервной копии. (Issue #8123)
 - [X] T013 [US2] Добавить `infra/scripts/prune-rec-backups.sh` с dry-run по умолчанию, `--execute`, `--older-than-days`, `--backup-root`/`TWOBRAIN_BACKUP_ROOT`, строгим именем каталога, запретом symlink/чужих путей, metadata-only output и exit codes 0/2/3; добавить focused Python/shell test. (Issue #8123)
 - [X] T014 [US2] Добавить `infra/systemd/graf-rec-backup-prune.service` и `.timer`, `docs/runbooks/backup-retention.md` с install/enable/disable/rollback; production install/execute оставить операторским. (Issue #8123)
 - [X] T015 [US2] Обновить `apps/server/src/twobrain_rec_server/public/templates/public/privacy.html` и `docs/agent-guidance/release-and-validation.md`: сроки совпадают с ежедневным retention после явного включения оператором и операторским prune; убрать безусловные обещания, если scheduler выключен; добавить disable/rollback. (Issue #8123)
@@ -43,7 +43,7 @@
 
 ## Phase 6 — Convergence and release gates
 
-- [ ] T023 Сверить spec/plan/tasks/contracts с реализацией, обновить `validation.md`, выполнить `$speckit-converge`, проверить `legacy_new=0`, `unowned_legacy=0`, `expired_exceptions=0`. (Issue #8123)
+- [X] T023 Сверить spec/plan/tasks/contracts с реализацией, обновить `validation.md`, выполнить `$speckit-converge`, проверить `legacy_new=0`, `unowned_legacy=0`, `expired_exceptions=0`. Выполнено: ветка слита с master `359f12cc9`, `validate-legacy-impact` PASS (expiry 2027-06-30), `validate-agent-context` PASS (unowned=0), новых legacy-путей нет; расхождения spec/plan/contracts с кодом устранены в пользу master. (Issue #8123)
 - [ ] T024 Подготовить PR с русским описанием, получить exact-SHA `governance-fast`, `macos-pr`, `pr-metadata` и один `release-full` на frozen candidate; production retention/prune enablement — отдельное действие после dry-run и проверенной резервной копии. (Issue #8123)
 
 ## Dependencies

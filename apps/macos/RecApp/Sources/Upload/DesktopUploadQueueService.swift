@@ -1371,6 +1371,12 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         item: DesktopUploadQueueItem,
         task: DesktopLocalPurgeTask
     ) -> Bool {
+        // A partial recording's WAV is the only transcription-grade copy of the
+        // preserved prefix. Server-initiated local purge is a different path
+        // from F296 cache eviction and must respect the same guard.
+        guard item.partialContinuity != true else {
+            return false
+        }
         guard reconciliation.serverTruth.meetingId == task.meetingId else {
             return false
         }
@@ -2091,7 +2097,8 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                 reason: reason,
                 localArtifactsRetained: true,
                 policyReference: "local_buffer.retention_days.\(policy.retentionDays)"
-            )
+            ),
+            partialContinuity: manifest.partialContinuity
         )
     }
 
@@ -2154,6 +2161,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         merged.retryRecords = existing.retryRecords
         merged.createdAt = existing.createdAt
         merged.supportIncidentSubmission = existing.supportIncidentSubmission
+        merged.partialContinuity = existing.partialContinuity ?? refreshed.partialContinuity
         merged.calendarContextEventId = existing.calendarContextEventId ?? refreshed.calendarContextEventId
         merged.calendarMatchAttemptId = existing.calendarMatchAttemptId ?? refreshed.calendarMatchAttemptId
         if let existingMetadata = existing.recordingMetadata,
@@ -2604,7 +2612,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                 manifestTracksByRole[.reviewPlayback]?.byteCount == playbackTrack.byteCount &&
                 manifestTracksByRole[.reviewPlayback]?.sha256 == playbackTrack.sha256
             let uploadable = manifest.isServerUploadEligible &&
-                manifest.isComplete &&
+                (manifest.isComplete || manifest.partialContinuity == true) &&
                 integrityMatches &&
                 tracks.allSatisfy(\.uploadable)
             let savedDurationSeconds = max(

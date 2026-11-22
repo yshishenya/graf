@@ -33,7 +33,10 @@ public struct LocalRecordingPresentation: Equatable, Sendable {
         self.requiresAttention = requiresAttention
     }
 
-    public static func from(_ status: LocalRecordingSessionStatus) -> LocalRecordingPresentation {
+    public static func from(
+        _ status: LocalRecordingSessionStatus,
+        partialContinuity: Bool = false
+    ) -> LocalRecordingPresentation {
         switch status {
         case .active:
             return .init(
@@ -55,7 +58,9 @@ public struct LocalRecordingPresentation: Equatable, Sendable {
             return .init(
                 status: .degraded,
                 title: "Сохранено с ограничением",
-                detail: "Есть ограничения проверки",
+                detail: partialContinuity
+                    ? "Запись сохранена частично: был разрыв аудио или смена устройства."
+                    : "Есть ограничения проверки",
                 systemImage: "exclamationmark.triangle.fill",
                 tone: .warning,
                 requiresAttention: true

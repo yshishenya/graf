@@ -1,0 +1,12 @@
+[Unit]
+Description=Daily GRAF backup retention prune
+
+[Timer]
+OnBootSec=10min
+OnCalendar=*-*-* 04:20:00 UTC
+AccuracySec=1min
+Persistent=true
+Unit=graf-rec-backup-prune.service
+
+[Install]
+WantedBy=timers.target

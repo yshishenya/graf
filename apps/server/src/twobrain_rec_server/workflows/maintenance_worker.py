@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import logging
 
+from sqlalchemy import select
+
 from twobrain_rec_server.billing.database import (
     BillingMaintenanceDatabaseError,
     verify_billing_maintenance_database,
@@ -15,9 +17,12 @@ from twobrain_rec_server.cabinet.summary_autosend import (
 )
 from twobrain_rec_server.calendar.worker import run_calendar_sync_reconciler
 from twobrain_rec_server.config import Settings, get_settings
+from twobrain_rec_server.db.models import Workspace
 from twobrain_rec_server.db.session import create_engine, create_sessionmaker
 from twobrain_rec_server.db.tenant_context import MaintenanceTenantContext, apply_tenant_context
+from twobrain_rec_server.deletion.retention import run_retention_scan
 from twobrain_rec_server.product_analytics.router import reconcile_activation_milestones_once
+from twobrain_rec_server.storage.minio_client import get_storage
 from twobrain_rec_server.workflows.billing_reconciliation_workflow import (
     BILLING_RECONCILIATION_ACTIVITY_NAME,
     BillingReconciliationWorkflow,
@@ -47,6 +52,7 @@ async def run_maintenance_worker() -> None:
         asyncio.create_task(run_calendar_sync_reconciler(settings)),
         asyncio.create_task(run_billing_notification_reconciler(settings)),
         asyncio.create_task(run_activation_milestone_reconciler(settings)),
+        asyncio.create_task(run_retention_reconciler(settings)),
         asyncio.create_task(_run_temporal_maintenance(settings)),
     ]
     try:
@@ -129,8 +135,10 @@ async def run_summary_sharing_reconciler(settings, temporal_client) -> None:
     engine = create_engine(settings)
     sessionmaker = create_sessionmaker(engine)
     context = MaintenanceTenantContext(
-        operation_name="summary_delivery_reconciliation", actor_id="graf-maintenance",
-        reason_category="summary_readiness_recovery", feature_area="sharing",
+        operation_name="summary_delivery_reconciliation",
+        actor_id="graf-maintenance",
+        reason_category="summary_readiness_recovery",
+        feature_area="sharing",
     )
     try:
         while True:
@@ -143,12 +151,17 @@ async def run_summary_sharing_reconciler(settings, temporal_client) -> None:
                     async with sessionmaker() as db:
                         await apply_tenant_context(db, context)
                         await reconcile_meeting_autosend(
-                            db, settings=settings, workspace_id=workspace_id,
+                            db,
+                            settings=settings,
+                            workspace_id=workspace_id,
                             meeting_id=meeting_id,
                         )
                         await db.commit()
                 await reconcile_summary_delivery_once(
-                    sessionmaker, settings=settings, temporal_client=temporal_client, limit=50,
+                    sessionmaker,
+                    settings=settings,
+                    temporal_client=temporal_client,
+                    limit=50,
                 )
             except Exception as error:
                 logger.error("summary sharing recovery failed; error_type=%s", type(error).__name__)
@@ -170,6 +183,124 @@ async def run_activation_milestone_reconciler(settings: Settings) -> None:
                 logger.error("activation delivery failed; error_type=%s", type(error).__name__)
             await asyncio.sleep(60)
     finally:
+        await engine.dispose()
+
+
+RETENTION_SCAN_BATCH_LIMIT = 100
+# Each daily pass must clear the workspace backlog, but every scan is bounded so
+# one huge workspace cannot hold the lock for hours. 50 batches is 5000
+# meetings per workspace per day; a larger backlog is logged and finished on
+# the next pass instead of blocking the rest of the workspaces.
+RETENTION_SCAN_MAX_BATCHES = 50
+
+
+async def run_retention_once(
+    *,
+    settings: Settings,
+    sessions,
+    context: MaintenanceTenantContext,
+    storage,
+) -> None:
+    async with sessions() as db:
+        await apply_tenant_context(db, context)
+        workspace_ids = list((await db.scalars(select(Workspace.id).order_by(Workspace.id))).all())
+    dry_run = bool(getattr(settings, "retention_scheduler_dry_run_only", True))
+    for workspace_id in workspace_ids:
+        try:
+            async with sessions() as db:
+                await apply_tenant_context(db, context)
+                for batch in range(1, RETENTION_SCAN_MAX_BATCHES + 1):
+                    result = await run_retention_scan(
+                        db,
+                        settings=settings,
+                        workspace_id=workspace_id,
+                        limit=RETENTION_SCAN_BATCH_LIMIT,
+                        dry_run=dry_run,
+                        storage=storage,
+                    )
+                    await db.commit()
+                    logger.info(
+                        "retention scan: dry_run=%s batch=%s evaluated=%s created=%s "
+                        "skipped=%s blocked=%s",
+                        dry_run,
+                        batch,
+                        result.evaluated,
+                        result.created_requests,
+                        result.skipped,
+                        result.blocked,
+                    )
+                    # A dry run removes nothing, so a second scan would evaluate
+                    # the same rows again. A real pass continues only while each
+                    # batch is saturated with new deletion requests.
+                    if dry_run:
+                        break
+                    if result.created_requests < RETENTION_SCAN_BATCH_LIMIT:
+                        break
+                else:
+                    logger.warning(
+                        "retention scan batch cap reached; workspace backlog "
+                        "continues on the next pass"
+                    )
+        except Exception as error:
+            logger.error(
+                "retention scan workspace failed; error_type=%s",
+                type(error).__name__,
+            )
+
+
+async def run_retention_reconciler(settings: Settings) -> None:
+    """Daily, bounded retention scan; one workspace failure does not stop the loop."""
+    if not getattr(settings, "retention_scheduler_enabled", False):
+        logger.info("retention scheduler disabled by configuration")
+        return
+    engine = None
+    while engine is None:
+        try:
+            engine = create_engine(settings)
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:
+            logger.error(
+                "retention engine unavailable; error_type=%s; retry_in=60s",
+                type(error).__name__,
+            )
+            await asyncio.sleep(60)
+    sessions = create_sessionmaker(engine)
+    context = MaintenanceTenantContext(
+        operation_name="retention_scan",
+        actor_id="graf-maintenance",
+        reason_category="retention_policy",
+        feature_area="deletion",
+    )
+    storage = None
+    while storage is None:
+        try:
+            storage = get_storage(settings)
+        except Exception as error:
+            logger.error(
+                "retention storage unavailable; error_type=%s; retry_in=60s",
+                type(error).__name__,
+            )
+            await asyncio.sleep(60)
+    try:
+        while True:
+            try:
+                await run_retention_once(
+                    settings=settings,
+                    sessions=sessions,
+                    context=context,
+                    storage=storage,
+                )
+            except Exception as error:
+                logger.error(
+                    "retention scan loop failed; error_type=%s",
+                    type(error).__name__,
+                )
+            await asyncio.sleep(24 * 60 * 60)
+    finally:
+        close = getattr(storage, "close", None)
+        if close is not None:
+            close()
         await engine.dispose()
 
 

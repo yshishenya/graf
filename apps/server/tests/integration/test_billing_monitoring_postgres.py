@@ -922,7 +922,7 @@ def legacy_fair_use_rows(database, monkeypatch):
             engine = create_async_engine(database)
             try:
                 async with engine.connect() as conn:
-                    assert await conn.scalar(text("SELECT version_num FROM alembic_version")) == "0115_f200_strict_upload_journal"
+                    assert await conn.scalar(text("SELECT version_num FROM alembic_version")) == "0116_retention_scan_maintenance"
                     assert (await conn.execute(text("SELECT relrowsecurity,relforcerowsecurity FROM pg_class WHERE oid='public.fair_use_reviews'::regclass"))).one() == (True, True)
                     assert (await conn.execute(text("SELECT tgname,tgenabled::text FROM pg_trigger WHERE tgrelid='public.fair_use_reviews'::regclass AND NOT tgisinternal ORDER BY tgname"))).all() == [
                         ("fair_use_audit_append", "A"), ("fair_use_review_guard", "A"), ("fair_use_review_truncate_guard", "A"),

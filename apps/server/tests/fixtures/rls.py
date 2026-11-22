@@ -149,6 +149,7 @@ RLS_ALLOWED_MAINTENANCE_OPERATIONS = {
     "prompt_optimization",
     "outcome_dispatch_reconciliation",
     "deletion_purge_reconciliation",
+    "retention_scan",
     "outcome_initial_baseline_reconciliation",
     "billing_reconciliation",
     "account_merge",

@@ -629,6 +629,12 @@ backup and blocks without one. The rehearsal now runs weekly and on demand:
   check from a workstation, rehearsing the newest backup under
   `/opt/projects/2brain-rec/backups/` unless `--backup-reference` names one.
 
+Backup retention is a separate operator job: `infra/scripts/prune-rec-backups.sh`
+(dry-run default, `--execute` explicit, root `TWOBRAIN_BACKUP_ROOT`) and
+`graf-rec-backup-prune.timer`. It deletes only dated GRAF backup directories
+older than the configured window and never the newest copy. Install/disable and
+rollback are documented in `docs/runbooks/backup-retention.md`.
+
 CI has no production host access: every job runs on GitHub-hosted runners, no
 workflow uses SSH and Actions holds no deploy key. The scheduled job therefore
 fails closed with `reason=production_host_ssh_secret_missing` and prints the

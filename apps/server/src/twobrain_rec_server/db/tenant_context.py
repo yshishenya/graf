@@ -28,6 +28,7 @@ ALLOWED_MAINTENANCE_OPERATIONS = frozenset(
         "activation_milestone_delivery",
         "public_consent_control",
         "deletion_purge_reconciliation",
+        "retention_scan",
         "outcome_initial_baseline_reconciliation",
         "billing_reconciliation",
         "billing_notification_reconciliation",
