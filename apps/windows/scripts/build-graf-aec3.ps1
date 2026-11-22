@@ -66,13 +66,23 @@ $buildDirectory = if ($BuildDirectory) { $BuildDirectory } else {
 }
 $provenancePath = Join-Path $buildDirectory "graf-aec3-provenance.json"
 
+# .NET only: module autoloading is not guaranteed for the MSBuild verify call,
+# where Get-FileHash can be unavailable.
+function Get-Sha256Hex([string]$Path) {
+    $stream = [IO.File]::OpenRead($Path)
+    try {
+        $sha = [Security.Cryptography.SHA256]::Create()
+        try { return ([BitConverter]::ToString($sha.ComputeHash($stream))).Replace('-', '') }
+        finally { $sha.Dispose() }
+    } finally { $stream.Dispose() }
+}
 function Get-ArtifactHashes {
     $root = [IO.Path]::GetFullPath($buildDirectory).TrimEnd('\', '/')
     # The linker can read hidden libraries and headers too.
     @(Get-ChildItem -LiteralPath $root -Recurse -File -Force | Where-Object {
         $_.Extension -in '.a', '.lib', '.h', '.hpp', '.hh', '.inc', '.inl', '.def'
     } | Sort-Object FullName | ForEach-Object {
-        [ordered]@{ path = $_.FullName.Substring($root.Length + 1); sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash }
+        [ordered]@{ path = $_.FullName.Substring($root.Length + 1); sha256 = (Get-Sha256Hex $_.FullName) }
     })
 }
 
@@ -88,7 +98,7 @@ function Get-TreeDigest([string]$Directory) {
         $relative = $_.FullName.Substring($root.Length + 1).Replace('\', '/')
         if ($relative -notmatch '^\.git/' -and $relative -notmatch '^subprojects/packagecache/' -and
             $_.Name -ne '.meson-subproject-wrap-hash.txt') {
-            $relative + ':' + (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash
+            $relative + ':' + (Get-Sha256Hex $_.FullName)
         }
     })
     Get-TextDigest ($lines -join "`n")
@@ -103,8 +113,8 @@ function Assert-AbseilSource {
     # Only line endings are normalized. Archive and source-tree hashes are binary.
     $wrapDigest = Get-TextDigest ([IO.File]::ReadAllText($wrap).Replace("`r`n", "`n"))
     if ($wrapDigest -ine $lock.abseil_wrap_file_sha256 -or
-        (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash -ine $lock.abseil_source_sha256 -or
-        (Get-FileHash -LiteralPath $patch -Algorithm SHA256).Hash -ine $lock.abseil_wrap_patch_sha256) {
+        (Get-Sha256Hex $archive) -ine $lock.abseil_source_sha256 -or
+        (Get-Sha256Hex $patch) -ine $lock.abseil_wrap_patch_sha256) {
         throw 'Abseil wrap/archive/patch does not match upstream.lock.'
     }
     $expectedRoot = Join-Path ([IO.Path]::GetTempPath()) ('graf-abseil-verify-' + [guid]::NewGuid().ToString('N'))
@@ -129,9 +139,9 @@ function Get-BuildIdentity {
         sourceCommit = $actualCommit
         architecture = $Architecture
         configuration = $Configuration
-        lockSha256 = (Get-FileHash -LiteralPath $lockPath -Algorithm SHA256).Hash
-        crossSha256 = (Get-FileHash -LiteralPath $crossFile -Algorithm SHA256).Hash
-        recipeSha256 = (Get-FileHash -LiteralPath $PSCommandPath -Algorithm SHA256).Hash
+        lockSha256 = (Get-Sha256Hex $lockPath)
+        crossSha256 = (Get-Sha256Hex $crossFile)
+        recipeSha256 = (Get-Sha256Hex $PSCommandPath)
     }
 }
 
