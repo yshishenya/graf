@@ -27,8 +27,17 @@ def load_validator():
 
 
 def test_governance_workflow_contract() -> None:
+    import yaml
+
     validator = load_validator()
-    assert validator.validate(ROOT / ".github/workflows/governance-fast.yml") == []
+    path = ROOT / ".github/workflows/governance-fast.yml"
+    assert validator.validate(path) == []
+    workflow = yaml.load(path.read_text(), Loader=yaml.BaseLoader)
+    # The bounded fast lane now includes the relocated runner contracts that
+    # spawn real bash/pytest subprocesses. On a slow hosted runner the complete
+    # set crossed the old hour limit and the job was cancelled; the checks stay
+    # the same, only the budget is larger.
+    assert workflow["jobs"]["governance-fast"]["timeout-minutes"] == "90"
 
 
 @pytest.mark.parametrize("missing", [

@@ -86,7 +86,8 @@ def test_cabinet_brand_assets_are_local_and_nonempty() -> None:
         assert path.stat().st_size > 0
 
 
-def test_cabinet_js_wires_csrf_header_for_unsafe_htmx_requests() -> None:
+@pytest.mark.parametrize("location_mode", ["minimal", "full_href"])
+def test_cabinet_js_wires_csrf_header_for_unsafe_htmx_requests(location_mode: str) -> None:
     harness = r'''
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -110,7 +111,10 @@ for (const token of ["synthetic-csrf", null]) {
         }
       } }
     };
-    const window = { addEventListener() {}, location: { pathname: "/meetings", hash: "" } };
+    const window = { addEventListener() {}, location: {
+      pathname: "/meetings", hash: "",
+      ...(process.argv[2] === "full_href" ? { href: "https://graf.test/meetings", search: "" } : {}),
+    } };
     vm.runInNewContext(script, { document, window, URLSearchParams, setInterval() {}, clearInterval() {} });
     assert.equal(typeof handler, "function");
     for (const verb of ["POST", "put", "PATCH", "delete", "GET", "head", "OPTIONS", undefined]) {
@@ -127,7 +131,7 @@ for (const token of ["synthetic-csrf", null]) {
 }
 '''
     result = subprocess.run(
-        ["node", "-e", harness, str(STATIC_DIR / "cabinet.js")],
+        ["node", "-e", harness, str(STATIC_DIR / "cabinet.js"), location_mode],
         capture_output=True, text=True, check=False,
     )
     assert result.returncode == 0, result.stderr
@@ -280,28 +284,67 @@ for (const width of [375, 550, 768, 1200]) {
 global.HTMLElement = class {};
 const classes = new Set();
 const submenu = new HTMLElement();
-submenu.getBoundingClientRect = () => classes.has('is-flipped')
-  ? {left: -309, right: 0, top: 50, bottom: 250}
-  : {left: 264, right: 584, top: 50, bottom: 250};
-const details = {open: true, isConnected: true, querySelector: () => submenu,
+const properties = {};
+let shown = false;
+submenu.popover = null;
+submenu.matches = () => shown;
+submenu.showPopover = () => { shown = true; };
+submenu.hidePopover = () => { shown = false; };
+submenu.removeAttribute = () => { submenu.popover = null; };
+submenu.style = {setProperty: (key, value) => properties[key] = value};
+submenu.offsetWidth = 320;
+submenu.getBoundingClientRect = () => ({width: 320, height: Math.min(200, window.innerHeight - 16)});
+let anchor = {left: 16, right: 246, top: 80, bottom: 112};
+// Scrollbars consume space inside the menu and at the viewport edge.
+let bounds = {left: 8, right: 268, top: 8, bottom: 350};
+global.document = {documentElement: {get clientWidth() { return window.innerWidth - 15; }}};
+const summary = {getBoundingClientRect: () => anchor};
+global.menu = {hidden: false, getBoundingClientRect: () => bounds, addEventListener: () => {}};
+global.mobileNav = null;
+global.root = {};
+const details = {open: true, isConnected: true, querySelector: selector => selector === 'summary' ? summary : submenu,
   classList: {remove: (...names) => names.forEach(name => classes.delete(name)),
     toggle: (name, on) => on ? classes.add(name) : classes.delete(name)}};
 vm.runInThisContext(source.slice(
-    source.indexOf('      const syncDisclosurePosition ='),
+    source.indexOf('      const disclosurePanelOpen ='),
     source.indexOf('      let hoveredDisclosure = null;'),
 ));
 window.innerWidth = 550;
 syncDisclosurePosition(details);
 assert.ok(classes.has('is-inline'), 'neither side fits at 550px');
+assert.ok(!shown && submenu.popover === null, 'inline content leaves the top layer');
+window.innerWidth = 610;
+syncDisclosurePosition(details);
+assert.ok(classes.has('is-inline') && !shown, 'a root scrollbar reduces the visible width');
 window.innerWidth = 1200;
 syncDisclosurePosition(details);
-assert.ok(!classes.has('is-inline') && !classes.has('is-flipped'), 'resize restores a fitting side');
+assert.ok(!classes.has('is-inline') && shown, 'resize restores a fitting side');
+assert.equal(properties['--profile-submenu-left'], '276px', 'keep the menu scrollbar clear');
 window.innerHeight = 200;
 syncDisclosurePosition(details);
-assert.ok(classes.has('is-inline'), 'short window uses scrollable inline layout');
+assert.ok(!classes.has('is-inline') && shown, 'short window retains a scrollable side panel');
+assert.equal(properties['--profile-submenu-top'], '8px');
+anchor = {left: 950, right: 1180, top: 80, bottom: 112};
+bounds = {left: 941, right: 1192, top: 8, bottom: 350};
+syncDisclosurePosition(details);
+assert.equal(properties['--profile-submenu-left'], '613px', 'right edge flips left outside the menu');
 details.open = false;
 syncDisclosurePosition(details);
 assert.equal(classes.size, 0);
+assert.ok(!shown, 'closing details closes the top-layer panel');
+details.open = true;
+menu.hidden = true;
+syncDisclosurePosition(details);
+assert.ok(!shown, 'queued positioning cannot reopen a closed menu');
+menu.hidden = false;
+anchor = {left: 16, right: 246, top: -40, bottom: -8};
+bounds = {left: 8, right: 268, top: 8, bottom: 350};
+window.innerWidth = 560;
+syncDisclosurePosition(details);
+assert.ok(details.open && classes.has('is-inline') && !shown, 'inline content stays open while scrolling its heading away');
+window.innerWidth = 1200;
+syncDisclosurePosition(details);
+assert.ok(!details.open && !shown, 'scrolling the owner row away closes its panel');
 const calls = [];
 global.acceptedFocusKey = 'synthetic';
 window.sessionStorage = {getItem: () => 'current', removeItem: () => calls.push('consume')};
@@ -895,6 +938,8 @@ const currentPlayback = {
   },
 };
 const titleEditorActive = () => false;
+const sharedLinkContext = null;
+const updateSharedLinkPosition = () => {};
 const detail = {
   querySelector: () => null,
   dataset: {
@@ -1047,6 +1092,8 @@ let secondResolve;
 let fetchCount = 0;
 let replaceCount = 0;
 const titleEditorActive = () => false;
+const sharedLinkContext = null;
+const updateSharedLinkPosition = () => {};
 const detail = {
   querySelector: () => null,
   dataset: {
@@ -1376,6 +1423,8 @@ const currentPlayback = {
   replaceWith() { playbackReplaceCount += 1; },
 };
 const titleEditorActive = () => false;
+const sharedLinkContext = null;
+const updateSharedLinkPosition = () => {};
 const detail = {
   querySelector: () => null,
   dataset: {

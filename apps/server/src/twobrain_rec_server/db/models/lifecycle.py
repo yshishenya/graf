@@ -116,6 +116,11 @@ class PurgeJournal(Base):
     # Metadata-only accounting/lifecycle evidence.  Never store signed URLs,
     # transcript text or provider credentials here.
     metadata_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    storage_scope: Mapped[str | None] = mapped_column(String(128))
+    storage_epoch: Mapped[int | None] = mapped_column(BigInteger)
+    deletion_epoch: Mapped[int | None] = mapped_column(BigInteger)
+    write_state: Mapped[str | None] = mapped_column(String(32))
+    multipart_upload_id: Mapped[str | None] = mapped_column(String)
     next_retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

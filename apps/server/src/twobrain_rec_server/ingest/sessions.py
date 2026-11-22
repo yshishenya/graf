@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 from sqlalchemy import func, select
@@ -16,6 +17,7 @@ from twobrain_rec_server.domain.statuses import (
 )
 from twobrain_rec_server.ingest import store as store_module
 from twobrain_rec_server.ingest.audit import record_audit_event
+from twobrain_rec_server.ingest.desktop_sync import calendar_match_receipt
 from twobrain_rec_server.ingest.lifecycle_guards import ensure_meeting_accepts_uploads
 from twobrain_rec_server.ingest.manifest import (
     ManifestValidationError,
@@ -32,6 +34,7 @@ from twobrain_rec_server.ingest.store import (
     persist_meeting,
     persist_upload_session,
 )
+from twobrain_rec_server.processing.fences import lock_meeting_fence
 
 _TERMINAL_UPLOAD_STATUSES = {
     UploadSessionStatus.FINALIZED.value,
@@ -216,33 +219,72 @@ async def create_upload_session(
     expected_track_roles: list[TrackRole] | None = None,
     expected_track_sizes: dict[TrackRole, int] | None = None,
     idempotency_key: str | None = None,
+    calendar_pin: tuple[UUID, UUID] | None = None,
 ) -> UploadSessionRecord:
+    if calendar_pin is not None:
+        if db is None:
+            raise ProblemDetail(status=503, code="ingest_store_unavailable", title="Ingest store unavailable")
+        if tenant_scope.auth_session_id is None:
+            raise ProblemDetail(status=403, code="device_scope_denied", title="Trusted device session required")
     if db is not None:
         # Serialize the legacy endpoint's active-session check with creation;
         # revision-scoped creation already takes this fence above.
-        meeting_model = await db.scalar(
-            select(MeetingModel)
-            .where(
-                MeetingModel.id == meeting_id,
-                MeetingModel.workspace_id == tenant_scope.workspace_id,
-            )
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        )
+        meeting_model = await lock_meeting_fence(db, workspace_id=tenant_scope.workspace_id, meeting_id=meeting_id)
         if meeting_model is None:
             raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
         if meeting_model.created_by_user_id != tenant_scope.user_id:
             raise ProblemDetail(status=403, code="meeting_scope_denied", title="Meeting scope denied")
-    meeting = await load_meeting_record(db, meeting_id=meeting_id)
-    if meeting is None:
+    meeting = await load_meeting_record(db, meeting_id=meeting_id, retain_in_memory=calendar_pin is None)
+    if meeting is None and calendar_pin is None:
         meeting = store_module.store.meetings.get(meeting_id)
     if meeting is None or meeting.workspace_id != tenant_scope.workspace_id:
         raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
     if meeting.created_by_user_id != tenant_scope.user_id:
         raise ProblemDetail(status=403, code="meeting_scope_denied", title="Meeting scope denied")
+    previous = None
+    if calendar_pin is not None:
+        assert db is not None  # Strict admission never uses the in-memory fallback.
+        revision_id, attempt_id = calendar_pin
+        if meeting.device_id != tenant_scope.device_id:
+            raise ProblemDetail(status=403, code="device_scope_denied", title="Device scope denied")
+        if (
+            meeting.media_revision_id != revision_id
+            or meeting.media_revision_number != 1
+            or meeting.media_revision_source_kind != MediaRevisionSourceKind.INITIAL_MIXED_RECORDING
+        ):
+            raise ProblemDetail(status=409, code="media_revision_conflict", title="Media revision conflicts with recording")
+        receipt = await calendar_match_receipt(
+            db, tenant_scope=tenant_scope, meeting=meeting,
+            expected_revision_id=f"{meeting.local_recording_id}--initial",
+        )
+        if receipt is None or receipt.attempt_id != attempt_id:
+            raise ProblemDetail(status=409, code="calendar_match_not_accepted", title="Explicit calendar match not accepted")
+        if meeting.media_revision_status in {MediaRevisionStatus.ACCEPTED, MediaRevisionStatus.SUPERSEDED}:
+            raise ProblemDetail(status=409, code="media_revision_immutable", title="Media revision cannot be changed")
+        previous = await db.scalar(
+            select(UploadSession)
+            .where(UploadSession.meeting_id == meeting.id, UploadSession.idempotency_key == idempotency_key)
+            .order_by(UploadSession.created_at.desc())
+            .limit(1)
+        )
+        if previous is not None:
+            if (previous.calendar_match_attempt_id != attempt_id
+                    or previous.media_revision_id != revision_id or previous.device_id != tenant_scope.device_id
+                    or previous.workspace_id != tenant_scope.workspace_id or previous.created_by_user_id != tenant_scope.user_id):
+                raise ProblemDetail(status=409, code="idempotency_conflict", title="Upload session scope differs")
+            if previous.status in _TERMINAL_UPLOAD_STATUSES or previous.expires_at <= datetime.now(UTC):
+                raise ProblemDetail(status=409, code="session_terminal", title="Upload session is no longer active")
+
     ensure_supported_upload_source(meeting.media_revision_source_kind, expected_track_roles)
     if not expected_track_roles:
         expected_track_roles = _default_revision_track_roles(meeting.media_revision_source_kind)
+    if calendar_pin is not None and (
+        not expected_track_sizes
+        or set(expected_track_sizes) != set(expected_track_roles)
+        or len(expected_track_roles) != len(expected_track_sizes)
+        or any(size <= 0 for size in expected_track_sizes.values())
+    ):
+        raise ProblemDetail(status=400, code="invalid_expected_track_size", title="Expected one positive size per track")
     for size in (expected_track_sizes or {}).values():
         if size < 0:
             raise ProblemDetail(
@@ -275,6 +317,8 @@ async def create_upload_session(
     )
     active_session = await load_active_upload_session_for_meeting(db, meeting.id)
     if active_session is not None:
+        if calendar_pin is not None and (previous is None or active_session.id != previous.id):
+            raise ProblemDetail(status=409, code="active_upload_session_exists", title="Active upload session scope differs")
         ensure_supported_upload_source(active_session.media_revision_source_kind, active_session.expected_track_roles)
         if idempotency_key and active_session.idempotency_key == idempotency_key:
             if (
@@ -288,6 +332,8 @@ async def create_upload_session(
             code="active_upload_session_exists",
             title="Active upload session already exists for meeting",
         )
+    if previous is not None:
+        raise ProblemDetail(status=409, code="session_terminal", title="Upload session is no longer active")
     session = store_module.store.create_upload_session(
         settings=settings,
         meeting=meeting,
@@ -295,7 +341,10 @@ async def create_upload_session(
         expected_track_roles=expected_track_roles,
         expected_track_sizes=expected_track_sizes,
         idempotency_key=idempotency_key,
+        retain_in_memory=calendar_pin is None,
     )
+    if calendar_pin is not None:
+        session.calendar_match_attempt_id = calendar_pin[1]
     await persist_meeting(db, meeting, commit=False)
     event = record_audit_event(
         event_type="session_created",
@@ -304,6 +353,7 @@ async def create_upload_session(
         upload_session_id=session.id,
         actor_user_id=tenant_scope.user_id,
         device_id=tenant_scope.device_id,
+        retain_in_memory=calendar_pin is None,
     )
     await persist_upload_session(db, session, settings, commit=False)
     await persist_audit_event(db, event, commit=False)

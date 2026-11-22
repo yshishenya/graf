@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import nullcontext, suppress
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from time import monotonic
 from uuid import UUID
 
-from sqlalchemy import delete, desc, exists, or_, select
+from sqlalchemy import and_, delete, desc, exists, or_, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
@@ -13,6 +15,7 @@ from sqlalchemy.orm import aliased
 from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.api.schemas import (
     ArtifactDeletionState,
+    DeletionLifecycleState,
     DeletionRequestResponse,
     DeletionVerificationReport,
     LocalPurgeTask,
@@ -28,6 +31,7 @@ from twobrain_rec_server.billing.storage import (
     logically_release_playback_quota,
 )
 from twobrain_rec_server.calendar.lifecycle import account_meeting_calendar_context_deletion
+from twobrain_rec_server.config import Settings, get_settings
 from twobrain_rec_server.db.models import (
     DiarizationSegment,
     DispatchIntent,
@@ -62,6 +66,7 @@ from twobrain_rec_server.db.models import (
     TranscriptSegment,
     UploadPart,
     UploadSession,
+    Workspace,
 )
 from twobrain_rec_server.db.models import (
     LocalPurgeTask as LocalPurgeTaskModel,
@@ -112,6 +117,22 @@ from twobrain_rec_server.processing.store import (
     release_processing_usage_reservation,
     set_workflow_status,
 )
+from twobrain_rec_server.storage.recovery import (
+    meeting_storage_read_fence_path,
+    storage_read_fence,
+    storage_recovery_snapshot,
+    storage_recovery_token,
+)
+from twobrain_rec_server.storage.strict_upload_cleanup import (
+    StrictUploadCleanupAdmission,
+    find_strict_multipart_for_cleanup,
+    strict_upload_key_matches_epoch,
+)
+from twobrain_rec_server.storage.strict_upload_keys import (
+    STRICT_UPLOAD_ATTEMPT,
+    STRICT_UPLOAD_NAMESPACE,
+    is_strict_upload_key,
+)
 
 TERMINAL_REQUEST_STATES = {
     DeletionState.COMPLETE.value,
@@ -121,6 +142,7 @@ TERMINAL_REQUEST_STATES = {
 DEFAULT_BACKUP_EXPIRY_DAYS = 30
 MAX_PURGE_JOURNAL_ATTEMPTS = 8
 STORAGE_CALL_TIMEOUT_SECONDS = 30.0
+_COMPLETED_DELETION_STATES = {DeletionState.ACTIVE_PURGE_COMPLETE, DeletionState.COMPLETE}
 
 POST_EGRESS_REPORT_EVENT_TYPES = {
     "download_completed",
@@ -140,6 +162,35 @@ RETRY_OPERATOR_GUIDANCE = "Retry is available only after operator review confirm
 class _ServerPurgeResult:
     purged_classes: set[DeletionArtifactClass] = field(default_factory=set)
     materialized_classes: set[DeletionArtifactClass] = field(default_factory=set)
+
+
+def _runtime_settings(db: AsyncSession) -> Settings:
+    return db.info.get("runtime_settings") or get_settings()
+
+
+def _recovery_unverified() -> ProblemDetail:
+    return ProblemDetail(
+        status=503,
+        code="storage_recovery_unknown",
+        title="Storage recovery has not been reconciled",
+    )
+
+
+async def _commit_completed_purge(db: AsyncSession, recovery: str | None) -> None:
+    with storage_recovery_snapshot(_runtime_settings(db)) as current:
+        if current is not None and current == recovery:
+            await db.commit()
+            return
+    await db.rollback()
+    raise _recovery_unverified()
+
+
+async def _deletion_completion_verified(
+    db: AsyncSession, meeting: Meeting, recovery: str | None
+) -> bool:
+    return recovery is not None and not await _strict_upload_open(
+        db, meeting.workspace_id, meeting.id
+    )
 
 
 async def request_meeting_deletion(
@@ -197,7 +248,7 @@ async def request_meeting_deletion(
             deletion_epoch=deletion_epoch,
             request_id=existing.id,
             meeting_id=meeting_id,
-            lifecycle=lifecycle_state(await lifecycle_for_meeting(meeting=meeting)),
+            lifecycle=await meeting_deletion_lifecycle(db, meeting=meeting),
             report_url=f"/api/v1/cabinet/meetings/{meeting_id}/deletion-report",
         )
     active_request = await db.scalar(
@@ -330,7 +381,10 @@ async def request_meeting_deletion(
         temporal_client,
         workflow_ids=workflow_ids,
     )
+    recovery = storage_recovery_token(_runtime_settings(db))
     try:
+        if recovery is None:
+            raise _recovery_unverified()
         purge_result = await _purge_server_controlled_content(
             db,
             meeting=meeting,
@@ -351,12 +405,15 @@ async def request_meeting_deletion(
             .execution_options(populate_existing=True)
         ) if report is not None else None
         if report is not None and report.overall_state == DeletionState.ACTIVE_PURGE_COMPLETE.value:
+            published = await meeting_deletion_lifecycle(
+                db, meeting=meeting, stored=DeletionState.ACTIVE_PURGE_COMPLETE
+            )
             await db.rollback()
             return DeletionRequestResponse(
                 deletion_epoch=deletion_epoch,
                 request_id=request_id,
                 meeting_id=meeting_id,
-                lifecycle=lifecycle_state(DeletionState.ACTIVE_PURGE_COMPLETE),
+                lifecycle=published,
                 report_url=f"/api/v1/cabinet/meetings/{meeting_id}/deletion-report",
             )
         if report is not None:
@@ -382,12 +439,15 @@ async def request_meeting_deletion(
         .execution_options(populate_existing=True)
     )
     if report is not None and report.overall_state == DeletionState.ACTIVE_PURGE_COMPLETE.value:
+        published = await meeting_deletion_lifecycle(
+            db, meeting=meeting, stored=DeletionState.ACTIVE_PURGE_COMPLETE
+        )
         await db.rollback()
         return DeletionRequestResponse(
             deletion_epoch=deletion_epoch,
             request_id=request_id,
             meeting_id=meeting_id,
-            lifecycle=lifecycle_state(DeletionState.ACTIVE_PURGE_COMPLETE),
+            lifecycle=published,
             report_url=f"/api/v1/cabinet/meetings/{meeting_id}/deletion-report",
         )
     artifact_states = _initial_artifact_states(
@@ -437,7 +497,7 @@ async def request_meeting_deletion(
     fence = await ensure_deletion_fence(db, meeting=meeting)
     fence.state = DeletionState.ACTIVE_PURGE_COMPLETE.value
     fence.completed_at = completed_at
-    await db.commit()
+    await _commit_completed_purge(db, recovery)
     return DeletionRequestResponse(
         deletion_epoch=deletion_epoch,
         request_id=request_id,
@@ -447,12 +507,34 @@ async def request_meeting_deletion(
     )
 
 
-async def lifecycle_for_meeting(*, meeting: Meeting) -> DeletionState:
+def _stored_deletion_state(meeting: Meeting) -> DeletionState:
     if meeting.deleted_at is not None and (
         meeting.deletion_state or DeletionState.NONE.value
     ) == DeletionState.NONE.value:
         return DeletionState.DELETING
     return DeletionState(meeting.deletion_state or DeletionState.NONE.value)
+
+
+async def lifecycle_for_meeting(db: AsyncSession, *, meeting: Meeting) -> DeletionState:
+    return (await meeting_deletion_lifecycle(db, meeting=meeting)).state
+
+
+async def meeting_deletion_lifecycle(
+    db: AsyncSession, *, meeting: Meeting, stored: DeletionState | None = None
+) -> DeletionLifecycleState:
+    stored = stored or _stored_deletion_state(meeting)
+    if stored in _COMPLETED_DELETION_STATES or stored == DeletionState.RETRYABLE_FAILED:
+        with storage_recovery_snapshot(_runtime_settings(db)) as recovery:
+            if recovery is None or (
+                stored in _COMPLETED_DELETION_STATES
+                and not await _deletion_completion_verified(db, meeting, recovery)
+            ):
+                return lifecycle_state(
+                    DeletionState.RETRYABLE_FAILED,
+                    reason="storage_purge_unverified",
+                    can_retry=False,
+                )
+    return lifecycle_state(stored)
 
 
 async def fanout_account_close_deletions(
@@ -556,7 +638,7 @@ async def retry_meeting_deletion(
     if _allow_in_progress:
         allowed_report_states.add(DeletionState.DELETING.value)
     if report is None or report.overall_state not in allowed_report_states:
-        state = await lifecycle_for_meeting(meeting=meeting)
+        state = await lifecycle_for_meeting(db, meeting=meeting)
         raise ProblemDetail(
             status=409,
             code="deletion_retry_unavailable",
@@ -596,7 +678,7 @@ async def retry_meeting_deletion(
         .execution_options(populate_existing=True)
     )
     if report is None or report.overall_state not in allowed_report_states:
-        state = await lifecycle_for_meeting(meeting=meeting)
+        state = await lifecycle_for_meeting(db, meeting=meeting)
         raise ProblemDetail(
             status=409,
             code="deletion_retry_unavailable",
@@ -625,13 +707,23 @@ async def retry_meeting_deletion(
         report=report,
     )
     if not _automatic_reconciliation:
+        settings = _runtime_settings(db)
+        recovery = storage_recovery_token(settings)
         terminal_journal_rows = (
             await db.scalars(
                 select(PurgeJournal)
                 .where(
                     PurgeJournal.workspace_id == workspace_id,
                     PurgeJournal.meeting_id == meeting_id,
-                    PurgeJournal.state == "terminal_unknown",
+                    or_(PurgeJournal.artifact_class == STRICT_UPLOAD_ATTEMPT,
+                        ~_is_strict_upload_key(PurgeJournal)),
+                    or_(
+                        PurgeJournal.state == "terminal_unknown",
+                        _strict_upload_retryable(datetime.now(UTC)),
+                        _stale_accepted_purge_receipt(
+                            PurgeJournal, settings.strict_storage_scope, recovery
+                        ),
+                    ),
                 )
                 .with_for_update()
             )
@@ -641,10 +733,16 @@ async def retry_meeting_deletion(
             journal.state = "retryable_failed"
             journal.safe_reason = "operator_retry_requested"
             journal.next_retry_at = retry_started_at
+            if journal.artifact_class == STRICT_UPLOAD_ATTEMPT:
+                journal.attempt_count = 0
+                journal.completed_at = None
     _, workflow_ids = await _mark_outcomes_deleting(db, meeting=meeting)
     await db.commit()
     await _request_temporal_cancellation(temporal_client, workflow_ids=workflow_ids)
+    recovery = storage_recovery_token(_runtime_settings(db))
     try:
+        if recovery is None:
+            raise _recovery_unverified()
         purge_result = await _purge_server_controlled_content(
             db,
             meeting=meeting,
@@ -667,12 +765,15 @@ async def retry_meeting_deletion(
         if report is None or deletion_request is None:
             raise
         if report.overall_state == DeletionState.ACTIVE_PURGE_COMPLETE.value:
+            published = await meeting_deletion_lifecycle(
+                db, meeting=meeting, stored=DeletionState.ACTIVE_PURGE_COMPLETE
+            )
             await db.rollback()
             return DeletionRequestResponse(
                 deletion_epoch=deletion_epoch,
                 request_id=report_request_id,
                 meeting_id=meeting_id,
-                lifecycle=lifecycle_state(DeletionState.ACTIVE_PURGE_COMPLETE),
+                lifecycle=published,
                 report_url=f"/api/v1/cabinet/meetings/{meeting_id}/deletion-report",
             )
         else:
@@ -750,12 +851,15 @@ async def retry_meeting_deletion(
             title="Deletion request unavailable",
         )
     if report.overall_state == DeletionState.ACTIVE_PURGE_COMPLETE.value:
+        published = await meeting_deletion_lifecycle(
+            db, meeting=meeting, stored=DeletionState.ACTIVE_PURGE_COMPLETE
+        )
         await db.rollback()
         return DeletionRequestResponse(
             deletion_epoch=deletion_epoch,
             request_id=report_request_id,
             meeting_id=meeting_id,
-            lifecycle=lifecycle_state(DeletionState.ACTIVE_PURGE_COMPLETE),
+            lifecycle=published,
             report_url=f"/api/v1/cabinet/meetings/{meeting_id}/deletion-report",
         )
     local_purge_state = (
@@ -801,7 +905,7 @@ async def retry_meeting_deletion(
     fence = await ensure_deletion_fence(db, meeting=meeting)
     fence.state = DeletionState.ACTIVE_PURGE_COMPLETE.value
     fence.completed_at = completed_at
-    await db.commit()
+    await _commit_completed_purge(db, recovery)
     return DeletionRequestResponse(
         deletion_epoch=deletion_epoch,
         request_id=report_request_id,
@@ -819,11 +923,26 @@ async def reconcile_deletion_purges(
     limit: int = 20,
 ) -> int:
     """Resume committed deletion tombstones after a worker or storage outage."""
+    settings = _runtime_settings(db)
+    recovery = storage_recovery_token(settings)
+    if recovery is None:
+        return 0
     now = datetime.now(UTC)
     due_journal_meeting_ids = select(PurgeJournal.meeting_id).where(
-        PurgeJournal.state.in_({"pending", "deleting", "retryable_failed"}),
+        or_(
+            PurgeJournal.state.in_({"pending", "deleting", "retryable_failed"}),
+            (PurgeJournal.state == "retained")
+            & (PurgeJournal.artifact_class == STRICT_UPLOAD_ATTEMPT)
+            & (PurgeJournal.write_state == "accepted")
+            & exists(select(Meeting.id).where(
+                Meeting.id == PurgeJournal.meeting_id,
+                Meeting.workspace_id == PurgeJournal.workspace_id,
+                Meeting.deleted_at.is_not(None),
+            )),
+        ),
         PurgeJournal.attempt_count < MAX_PURGE_JOURNAL_ATTEMPTS,
         PurgeJournal.next_retry_at.is_(None) | (PurgeJournal.next_retry_at <= now),
+        or_(PurgeJournal.artifact_class == STRICT_UPLOAD_ATTEMPT, ~_is_strict_upload_key(PurgeJournal)),
     )
     pending_report_meeting_ids = select(MeetingDeletionReport.meeting_id).where(
         (
@@ -835,8 +954,17 @@ async def reconcile_deletion_purges(
                 ~exists(
                     select(PurgeJournal.id).where(
                         PurgeJournal.meeting_id == MeetingDeletionReport.meeting_id,
-                        PurgeJournal.state.not_in({"purged", "superseded"}),
+                        or_(
+                            _strict_upload_unresolved(PurgeJournal, settings.strict_storage_scope, recovery),
+                            (PurgeJournal.artifact_class != STRICT_UPLOAD_ATTEMPT)
+                            & PurgeJournal.state.not_in({"purged", "superseded"})
+                            & ~_is_strict_upload_key(PurgeJournal),
+                        ),
                     )
+                )
+                & ~_strict_upload_referenced(
+                    MeetingDeletionReport.workspace_id, MeetingDeletionReport.meeting_id,
+                    settings.strict_storage_scope, recovery,
                 )
                 | MeetingDeletionReport.meeting_id.in_(due_journal_meeting_ids)
             )
@@ -888,7 +1016,7 @@ async def reconcile_deletion_purges(
             allowed_report_states.add(DeletionState.DELETING.value)
         try:
             if report is not None and report.overall_state in allowed_report_states:
-                await retry_meeting_deletion(
+                response = await retry_meeting_deletion(
                     db,
                     meeting=meeting,
                     storage=storage,
@@ -896,7 +1024,8 @@ async def reconcile_deletion_purges(
                     _allow_in_progress=True,
                     _automatic_reconciliation=True,
                 )
-                reconciled += 1
+                if response.lifecycle.state in _COMPLETED_DELETION_STATES:
+                    reconciled += 1
             elif await _reconcile_orphan_purge_journals(
                 db,
                 meeting=meeting,
@@ -927,6 +1056,9 @@ async def reconcile_transient_media_purges(
 
     if not 1 <= object_limit <= 100:
         raise ValueError("object_limit must be between 1 and 100")
+    settings = _runtime_settings(db)
+    if storage_recovery_token(settings) is None:
+        return 0
     now = now or datetime.now(UTC)
     newer_workflow = aliased(ProcessingWorkflow)
     active_submission_claim = exists(
@@ -987,12 +1119,31 @@ async def reconcile_transient_media_purges(
     )
     purged = 0
     for workflow_id, workspace_id, meeting_id in candidate_rows:
+        meeting = await db.scalar(
+            select(Meeting).where(
+                Meeting.id == meeting_id, Meeting.workspace_id == workspace_id,
+                Meeting.deleted_at.is_(None), Meeting.deletion_state == DeletionState.NONE.value,
+            ).with_for_update(skip_locked=True).execution_options(populate_existing=True)
+        )
+        if meeting is None:
+            continue
         workflow = await db.scalar(
             select(ProcessingWorkflow)
             .where(
                 ProcessingWorkflow.id == workflow_id,
                 ProcessingWorkflow.workspace_id == workspace_id,
                 ProcessingWorkflow.meeting_id == meeting_id,
+                ProcessingWorkflow.archive_audio.is_(False),
+                ProcessingWorkflow.transient_state.in_({"admitted", "processing", "terminal", "purge_due"}),
+                ~exists(select(newer_workflow.id).where(
+                    newer_workflow.workspace_id == ProcessingWorkflow.workspace_id,
+                    newer_workflow.meeting_id == ProcessingWorkflow.meeting_id,
+                    newer_workflow.media_revision_id.is_not_distinct_from(ProcessingWorkflow.media_revision_id),
+                    newer_workflow.purpose == ProcessingWorkflow.purpose,
+                    newer_workflow.attempt_ordinal > ProcessingWorkflow.attempt_ordinal,
+                )),
+                (ProcessingWorkflow.transient_hard_deadline <= now)
+                | (ProcessingWorkflow.transient_purge_due_at <= now),
             )
             .with_for_update()
             .execution_options(populate_existing=True)
@@ -1030,6 +1181,17 @@ async def reconcile_transient_media_purges(
         ) is not None:
             await db.commit()
             continue
+        if await db.scalar(
+            select(PurgeJournal.id).where(
+                PurgeJournal.workspace_id == workspace_id,
+                PurgeJournal.meeting_id == meeting_id,
+                PurgeJournal.media_revision_id == workflow.media_revision_id,
+                PurgeJournal.artifact_class == STRICT_UPLOAD_ATTEMPT,
+                PurgeJournal.write_state == "accepted",
+            ).limit(1)
+        ) is not None and await _strict_policy_has_reader(db, meeting, workflow.media_revision_id):
+            await db.commit()
+            continue
         try:
             workflow_status = ProcessingStatus(workflow.status)
         except ValueError:
@@ -1048,6 +1210,7 @@ async def reconcile_transient_media_purges(
                 ProcessingStatus.CANCELED if hard_deadline_due else ProcessingStatus.FAILED_TERMINAL,
                 reason_code="audio_purged",
                 terminal=True,
+                commit=False,
             )
         workflow.transient_state = "purge_due"
         artifacts = list(
@@ -1115,7 +1278,32 @@ async def reconcile_transient_media_purges(
                 attempt.state = AttemptState.CLEANUP_PENDING.value
                 attempt.cleanup_reason = attempt.cleanup_reason or "audio_purge_pending"
                 settling_attempt_keys.add(attempt.storage_object_key)
+        # Assembly can give the final track a different key from its inputs.
+        accepted_part_keys = set(await db.scalars(
+            select(UploadPart.storage_object_key)
+            .join(UploadSession, UploadPart.upload_session_id == UploadSession.id)
+            .where(
+                UploadSession.workspace_id == workspace_id,
+                UploadSession.meeting_id == meeting_id,
+                UploadSession.media_revision_id == workflow.media_revision_id,
+                UploadSession.status == "finalized",
+                UploadSession.archive_audio.is_(False),
+                UploadPart.status == "accepted",
+                UploadPart.track_role.in_((*SOURCE_TRACK_ROLES, TrackRole.PLAYBACK.value)),
+                or_(
+                    UploadPart.storage_object_key.regexp_match(STRICT_UPLOAD_NAMESPACE),
+                    exists(select(PurgeJournal.id).where(
+                        PurgeJournal.workspace_id == workspace_id,
+                        PurgeJournal.meeting_id == meeting_id,
+                        PurgeJournal.artifact_class == STRICT_UPLOAD_ATTEMPT,
+                        PurgeJournal.object_key == UploadPart.storage_object_key,
+                    )),
+                ),
+            )
+            .with_for_update(of=UploadPart)
+        ))
         object_keys = {
+            *accepted_part_keys,
             *(artifact.storage_object_key for artifact in artifacts),
             *(attempt.storage_object_key for attempt in attempts),
             *(temporary_object.storage_object_key for temporary_object in temporary_objects),
@@ -1169,6 +1357,33 @@ async def reconcile_transient_media_purges(
                 job.state = JobState.CANCELLED.value
                 job.reason_code = NormalizationReason.AUDIO_PURGED.value
                 job.cancelled_at = now
+        recovery = storage_recovery_token(settings)
+        strict_keys = await _protected_upload_keys(db, meeting, object_keys)
+        strict_verified = set()
+        attempted_strict_io = False
+        for key in sorted(strict_keys):
+            result = await _check_or_purge_strict_policy_key(
+                db, meeting=meeting, storage=storage, key=key,
+                revision_id=workflow.media_revision_id, recovery=recovery,
+                artifact_ids={artifact.id for artifact in artifacts},
+                temporary_ids={item.id for item in temporary_objects},
+                no_archive=True,
+            )
+            if result is None:
+                attempted_strict_io = True
+                break
+            if result:
+                strict_verified.add(key)
+                journals[key].state = "purged"
+                journals[key].safe_reason = "transient_object_deleted_verified"
+                journals[key].completed_at = journals[key].completed_at or now
+                journals[key].next_retry_at = None
+            else:
+                _hold_reserved_key(journals[key])
+        if attempted_strict_io:
+            # The exact claim commits and releases all lifecycle locks. A fresh
+            # scan rechecks policy and applies its accounting from the receipt.
+            continue
         await _flush_or_fail_closed(db)
         eligible_keys = [
             object_key
@@ -1198,8 +1413,9 @@ async def reconcile_transient_media_purges(
             journal.started_at = now
             journal.next_retry_at = now + timedelta(seconds=STORAGE_CALL_TIMEOUT_SECONDS)
             snapshots.append((journal.id, object_key))
-        await _flush_or_fail_closed(db)
-        await db.commit()
+        if snapshots:
+            await _flush_or_fail_closed(db)
+            await db.commit()
 
         outcomes: dict[UUID, bool] = {}
         for journal_id, object_key in snapshots:
@@ -1246,7 +1462,9 @@ async def reconcile_transient_media_purges(
                     seconds=min(3600, 15 * (2 ** min(journal.attempt_count - 1, 8)))
                 )
 
-        if failed:
+        if failed or (strict_verified and snapshots):
+            # Ordinary I/O released the meeting lock. Recheck the strict receipt
+            # and the revision policy in a fresh scan before final accounting.
             await db.commit()
             continue
 
@@ -1279,6 +1497,8 @@ async def reconcile_transient_media_purges(
             temporary_object.cleanup_status = "purged"
             temporary_object.failure_reason = None
             temporary_object.last_error = None
+        if strict_verified:
+            await _mark_strict_policy_parts_purged(db, meeting, workflow.media_revision_id, strict_verified)
         for revision_workflow in revision_workflows:
             revision_workflow.transient_state = "purged"
             revision_workflow.transient_purged_at = now
@@ -1288,7 +1508,10 @@ async def reconcile_transient_media_purges(
             media_revision_id=workflow.media_revision_id,
             meeting_id=workflow.meeting_id,
         )
-        await db.commit()
+        if strict_verified:
+            await _commit_completed_purge(db, recovery)
+        else:
+            await db.commit()
         purged += 1
     return purged
 
@@ -1313,6 +1536,9 @@ async def reconcile_source_retention_purges(
 
     if retention_period is None or retention_period <= timedelta(0) or not policy_version.strip():
         return 0
+    settings = _runtime_settings(db)
+    if storage_recovery_token(settings) is None:
+        return 0
     now = now or datetime.now(UTC)
     candidate_ids = tuple(
         await db.scalars(
@@ -1321,6 +1547,24 @@ async def reconcile_source_retention_purges(
                 TrackArtifact.track_role.in_(tuple(SOURCE_TRACK_ROLES)),
                 TrackArtifact.status.not_in({"purged", "deleted"}),
                 TrackArtifact.source_lifecycle_state != SourceLifecycleState.PURGED.value,
+                ~(
+                    TrackArtifact.storage_object_key.regexp_match(STRICT_UPLOAD_NAMESPACE)
+                    & exists(select(PurgeJournal.id).where(
+                        PurgeJournal.workspace_id == TrackArtifact.workspace_id,
+                        PurgeJournal.meeting_id == TrackArtifact.meeting_id,
+                        PurgeJournal.object_key == TrackArtifact.storage_object_key,
+                        PurgeJournal.artifact_class == "source_retention",
+                        PurgeJournal.state == "terminal_unknown",
+                        PurgeJournal.safe_reason == "strict_upload_requires_dedicated_cleanup",
+                    ))
+                    & ~exists(select(PurgeJournal.id).where(
+                        PurgeJournal.workspace_id == TrackArtifact.workspace_id,
+                        PurgeJournal.meeting_id == TrackArtifact.meeting_id,
+                        PurgeJournal.object_key == TrackArtifact.storage_object_key,
+                        PurgeJournal.artifact_class == STRICT_UPLOAD_ATTEMPT,
+                        PurgeJournal.write_state == "accepted",
+                    ))
+                ),
             )
             .order_by(TrackArtifact.created_at.asc(), TrackArtifact.id.asc())
             .limit(max(1, min(limit, 100)))
@@ -1389,6 +1633,7 @@ async def reconcile_source_retention_purges(
                     else TrackArtifact.media_revision_id.is_(None)
                 ),
                 TrackArtifact.track_role == TrackRole.PLAYBACK.value,
+                TrackArtifact.storage_object_key != artifact.storage_object_key,
                 TrackArtifact.status == "stored",
                 TrackArtifact.normalization_profile_version == CANONICAL_PLAYBACK_PROFILE,
                 TrackArtifact.validated_at.is_not(None),
@@ -1417,6 +1662,9 @@ async def reconcile_source_retention_purges(
             artifact.source_retention_purge_due_at = None
             continue
 
+        strict_key = bool(await _protected_upload_keys(db, meeting, {artifact.storage_object_key}))
+        if strict_key and await _strict_policy_has_reader(db, meeting, artifact.media_revision_id):
+            continue
         artifact.source_lifecycle_state = SourceLifecycleState.PURGE_PENDING.value
         journal = await db.scalar(
             select(PurgeJournal)
@@ -1445,36 +1693,52 @@ async def reconcile_source_retention_purges(
             policy_version=policy_version,
             backup_expiry_days=backup_expiry_days,
         )
-        if journal.state == "terminal_unknown":
+        recovery = storage_recovery_token(settings) if strict_key else None
+        if strict_key:
+            result = await _check_or_purge_strict_policy_key(
+                db, meeting=meeting, storage=storage, key=artifact.storage_object_key,
+                revision_id=artifact.media_revision_id, recovery=recovery,
+                artifact_ids={artifact.id}, temporary_ids=set(), no_archive=False,
+            )
+            if result is None:
+                continue
+            if not result:
+                _hold_reserved_key(journal)
+                continue
+            await _mark_strict_policy_parts_purged(
+                db, meeting, artifact.media_revision_id, {artifact.storage_object_key},
+            )
+        elif journal.state == "terminal_unknown":
             continue
-        if journal.state == "purged":
+        if not strict_key and journal.state == "purged":
             journal.state = "pending"
             journal.attempt_count = 0
             journal.completed_at = None
             journal.next_retry_at = None
             journal.safe_reason = "source_object_reintroduced"
-        if journal.state == "retryable_failed" and journal.next_retry_at is not None and journal.next_retry_at > now:
+        if not strict_key and journal.state == "retryable_failed" and journal.next_retry_at is not None and journal.next_retry_at > now:
             continue
-        _ensure_storage_delete_capability(storage)
-        journal.state = "deleting"
-        journal.attempt_count += 1
-        journal.started_at = now
-        journal.next_retry_at = now + timedelta(seconds=STORAGE_CALL_TIMEOUT_SECONDS)
-        await _flush_or_fail_closed(db)
-        try:
-            if await _storage_object_exists(storage, artifact.storage_object_key):
-                await _delete_storage_object(storage, artifact.storage_object_key)
+        if not strict_key:
+            _ensure_storage_delete_capability(storage)
+            journal.state = "deleting"
+            journal.attempt_count += 1
+            journal.started_at = now
+            journal.next_retry_at = now + timedelta(seconds=STORAGE_CALL_TIMEOUT_SECONDS)
+            await _flush_or_fail_closed(db)
+            try:
                 if await _storage_object_exists(storage, artifact.storage_object_key):
-                    raise RuntimeError("source_storage_delete_unverified")
-        except Exception:
-            journal.state = "retryable_failed"
-            journal.safe_reason = "source_storage_delete_failed"
-            journal.next_retry_at = now + timedelta(
-                seconds=min(3600, 15 * (2 ** min(journal.attempt_count - 1, 8)))
-            )
-            artifact.source_lifecycle_state = SourceLifecycleState.PURGE_PENDING.value
-            await db.commit()
-            continue
+                    await _delete_storage_object(storage, artifact.storage_object_key)
+                    if await _storage_object_exists(storage, artifact.storage_object_key):
+                        raise RuntimeError("source_storage_delete_unverified")
+            except Exception:
+                journal.state = "retryable_failed"
+                journal.safe_reason = "source_storage_delete_failed"
+                journal.next_retry_at = now + timedelta(
+                    seconds=min(3600, 15 * (2 ** min(journal.attempt_count - 1, 8)))
+                )
+                artifact.source_lifecycle_state = SourceLifecycleState.PURGE_PENDING.value
+                await db.commit()
+                continue
         journal.state = "purged"
         journal.completed_at = now
         journal.next_retry_at = None
@@ -1483,7 +1747,10 @@ async def reconcile_source_retention_purges(
         artifact.source_lifecycle_state = SourceLifecycleState.PURGED.value
         artifact.source_purged_at = now
         artifact.source_retention_purge_due_at = None
-        await db.commit()
+        if strict_key:
+            await _commit_completed_purge(db, recovery)
+        else:
+            await db.commit()
         purged += 1
     # Persist deadline recomputation/reopen and terminal-journal evidence even
     # when no object was eligible for physical deletion in this scan.
@@ -1496,19 +1763,28 @@ async def _object_key_referenced(
     *,
     meeting: Meeting,
     object_key: str,
+    strict_attempt: bool = False,
 ) -> bool:
     """Check authoritative DB ownership before deleting an orphan key."""
-    statements = (
+    statements = _object_key_references(
+        meeting.workspace_id, meeting.id, lambda column: column == object_key,
+        strict_attempt=strict_attempt,
+    )
+    return bool(await db.scalar(select(or_(*(statement.exists() for statement in statements)))))
+
+
+def _object_key_references(workspace_id, meeting_id, matches, *, strict_attempt):
+    return (
         select(TrackArtifact.id).where(
-            TrackArtifact.workspace_id == meeting.workspace_id,
-            TrackArtifact.meeting_id == meeting.id,
-            TrackArtifact.storage_object_key == object_key,
+            TrackArtifact.workspace_id == workspace_id,
+            TrackArtifact.meeting_id == meeting_id,
+            matches(TrackArtifact.storage_object_key),
             TrackArtifact.status.not_in({"purged", "deleted"}),
         ),
         select(PlaybackNormalizationAttempt.id).where(
-            PlaybackNormalizationAttempt.workspace_id == meeting.workspace_id,
-            PlaybackNormalizationAttempt.meeting_id == meeting.id,
-            PlaybackNormalizationAttempt.storage_object_key == object_key,
+            PlaybackNormalizationAttempt.workspace_id == workspace_id,
+            PlaybackNormalizationAttempt.meeting_id == meeting_id,
+            matches(PlaybackNormalizationAttempt.storage_object_key),
             PlaybackNormalizationAttempt.state.in_(
                 {"local_preparing", "uploaded", "published"}
             ),
@@ -1516,25 +1792,594 @@ async def _object_key_referenced(
         select(TemporaryUploadObject.id)
         .join(UploadSession, TemporaryUploadObject.upload_session_id == UploadSession.id)
         .where(
-            TemporaryUploadObject.workspace_id == meeting.workspace_id,
-            UploadSession.meeting_id == meeting.id,
-            TemporaryUploadObject.storage_object_key == object_key,
+            TemporaryUploadObject.workspace_id == workspace_id,
+            UploadSession.workspace_id == workspace_id,
+            UploadSession.meeting_id == meeting_id,
+            matches(TemporaryUploadObject.storage_object_key),
             TemporaryUploadObject.cleanup_status.not_in({"orphaned", "purged"}),
         ),
         select(UploadPart.id)
         .join(UploadSession, UploadPart.upload_session_id == UploadSession.id)
         .where(
-            UploadSession.workspace_id == meeting.workspace_id,
-            UploadSession.meeting_id == meeting.id,
-            UploadPart.storage_object_key == object_key,
+            UploadSession.workspace_id == workspace_id,
+            UploadSession.meeting_id == meeting_id,
+            matches(UploadPart.storage_object_key),
             UploadPart.status == "accepted",
-            UploadSession.status.in_({"pending", "uploading"}),
+            *(() if strict_attempt else (UploadSession.status.in_({"pending", "uploading"}),)),
         ),
     )
-    for statement in statements:
-        if await db.scalar(statement) is not None:
-            return True
-    return False
+
+
+def _strict_upload_referenced(workspace_id, meeting_id, scope, recovery):
+    receipt = aliased(PurgeJournal)
+
+    def unresolved(column):
+        return column.regexp_match(STRICT_UPLOAD_NAMESPACE) & ~exists(
+            select(receipt.id).where(
+                receipt.workspace_id == workspace_id,
+                receipt.meeting_id == meeting_id,
+                receipt.object_key == column,
+                *_accepted_purge_receipt(receipt, scope, recovery),
+            ).correlate_except(receipt)
+        )
+
+    return or_(*(
+        statement.exists() for statement in _object_key_references(
+            workspace_id, meeting_id, unresolved, strict_attempt=True,
+        )
+    ))
+
+
+def _accepted_purge_receipt_fields(row, scope):
+    return (
+        row.artifact_class == STRICT_UPLOAD_ATTEMPT,
+        row.write_state == "accepted",
+        row.state == "purged",
+        row.safe_reason == "object_deleted_verified",
+        row.completed_at.is_not(None),
+        bool(scope),
+        row.storage_scope.is_not_distinct_from(scope),
+    )
+
+
+def _accepted_purge_receipt(row, scope, recovery):
+    return (
+        *_accepted_purge_receipt_fields(row, scope),
+        recovery not in {None, "legacy"},
+        row.metadata_json["strict_purge_recovery_id"].as_string().is_not_distinct_from(recovery),
+    )
+
+
+def _stale_accepted_purge_receipt(row, scope, recovery):
+    if recovery in {None, "legacy"}:
+        return False
+    generation = row.metadata_json["strict_purge_recovery_id"].as_string()
+    return and_(
+        *_accepted_purge_receipt_fields(row, scope),
+        generation.regexp_match(r"^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$"),
+        generation != recovery,
+    )
+
+
+def _strict_upload_obligations(workspace_id: UUID, meeting_id: UUID):
+    return select(PurgeJournal).where(
+        PurgeJournal.workspace_id == workspace_id,
+        PurgeJournal.meeting_id == meeting_id,
+        PurgeJournal.artifact_class == STRICT_UPLOAD_ATTEMPT,
+        PurgeJournal.state != "purged",
+    )
+
+
+def _strict_upload_retryable(now: datetime):
+    return (
+        (PurgeJournal.artifact_class == STRICT_UPLOAD_ATTEMPT)
+        & (PurgeJournal.state == "deleting")
+        & (PurgeJournal.attempt_count >= MAX_PURGE_JOURNAL_ATTEMPTS)
+        & (PurgeJournal.next_retry_at <= now)
+    )
+
+
+async def _strict_upload_open(db: AsyncSession, workspace_id: UUID, meeting_id: UUID) -> bool:
+    settings = _runtime_settings(db)
+    scope = settings.strict_storage_scope
+    recovery = storage_recovery_token(settings)
+    query = select(PurgeJournal.id).where(
+        PurgeJournal.workspace_id == workspace_id,
+        PurgeJournal.meeting_id == meeting_id,
+        _strict_upload_unresolved(PurgeJournal, scope, recovery),
+    )
+    # A live recording is not an orphan, but a tombstone cannot finish while it
+    # still references a protected object that needs the dedicated cleaner.
+    return bool(await db.scalar(select(or_(
+        query.exists(),
+        exists(select(Meeting.id).where(
+            Meeting.id == meeting_id,
+            Meeting.workspace_id == workspace_id,
+            Meeting.deleted_at.is_not(None),
+            or_(
+                _strict_upload_referenced(workspace_id, meeting_id, scope, recovery),
+                _strict_upload_obligations(workspace_id, meeting_id)
+                .where(PurgeJournal.state == "retained").exists(),
+            ),
+        )),
+    ))))
+
+
+async def _protected_upload_keys(db: AsyncSession, meeting: Meeting, keys: set[str]) -> set[str]:
+    if not keys:
+        return set()
+    return {key for key in keys if is_strict_upload_key(key)} | set(await db.scalars(
+        select(PurgeJournal.object_key).where(
+            PurgeJournal.workspace_id == meeting.workspace_id,
+            PurgeJournal.meeting_id == meeting.id,
+            PurgeJournal.artifact_class == STRICT_UPLOAD_ATTEMPT,
+            PurgeJournal.object_key.in_(keys),
+        )
+    ))
+
+
+def _has_strict_upload_row(journal):
+    strict_row = aliased(PurgeJournal)
+    return exists(
+        select(strict_row.id).where(
+            strict_row.workspace_id == journal.workspace_id,
+            strict_row.meeting_id == journal.meeting_id,
+            strict_row.artifact_class == STRICT_UPLOAD_ATTEMPT,
+            strict_row.object_key == journal.object_key,
+        )
+    )
+
+
+def _is_strict_upload_key(journal):
+    return or_(
+        journal.object_key.regexp_match(STRICT_UPLOAD_NAMESPACE),
+        _has_strict_upload_row(journal),
+    )
+
+
+def _strict_upload_unresolved(journal, scope, recovery):
+    return or_(
+        (journal.artifact_class == STRICT_UPLOAD_ATTEMPT)
+        & (journal.state != "purged")
+        & ((journal.state != "retained") | journal.write_state.is_distinct_from("accepted")),
+        (journal.artifact_class == STRICT_UPLOAD_ATTEMPT)
+        & (journal.write_state == "accepted")
+        & (journal.state == "purged")
+        & and_(*_accepted_purge_receipt(journal, scope, recovery)).is_not(True),
+        journal.object_key.regexp_match(STRICT_UPLOAD_NAMESPACE) & ~_has_strict_upload_row(journal),
+    )
+
+
+def _hold_reserved_key(journal: PurgeJournal) -> None:
+    journal.state = "terminal_unknown"
+    journal.safe_reason = "strict_upload_requires_dedicated_cleanup"
+    journal.next_retry_at = None
+    journal.completed_at = None
+
+
+async def _check_or_purge_strict_policy_key(
+    db: AsyncSession, *, meeting: Meeting, storage: object | None, key: str,
+    revision_id: UUID | None, recovery: str | None,
+    artifact_ids: set[UUID], temporary_ids: set[UUID], no_archive: bool,
+) -> bool | None:
+    """True is a current receipt; None hands accounting to a fresh policy scan."""
+    if revision_id is None or recovery in {None, "legacy"} or not is_strict_upload_key(key):
+        return False
+    scope = _runtime_settings(db).strict_storage_scope
+    exact_row = select(PurgeJournal).where(
+        PurgeJournal.workspace_id == meeting.workspace_id,
+        PurgeJournal.meeting_id == meeting.id,
+        PurgeJournal.media_revision_id == revision_id,
+        PurgeJournal.object_key == key,
+        PurgeJournal.artifact_class == STRICT_UPLOAD_ATTEMPT,
+        PurgeJournal.write_state == "accepted",
+        PurgeJournal.storage_scope == scope,
+    )
+    row = await db.scalar(exact_row.with_for_update().execution_options(populate_existing=True))
+    if row is None:
+        return False
+    sessions = select(UploadSession.id).where(
+        UploadSession.workspace_id == meeting.workspace_id,
+        UploadSession.meeting_id == meeting.id,
+        UploadSession.media_revision_id == revision_id,
+        UploadSession.status == "finalized",
+        UploadSession.archive_audio.is_(not no_archive),
+    )
+    if await db.scalar(select(or_(
+        ~sessions.exists(),
+        exists(select(UploadSession.id).where(
+            UploadSession.workspace_id == meeting.workspace_id,
+            UploadSession.meeting_id == meeting.id,
+            UploadSession.media_revision_id == revision_id,
+            UploadSession.status == "finalized",
+            UploadSession.archive_audio.is_(no_archive),
+        )),
+        exists(select(TrackArtifact.id).where(
+            TrackArtifact.workspace_id == meeting.workspace_id,
+            TrackArtifact.storage_object_key == key,
+            TrackArtifact.status.not_in({"purged", "deleted"}),
+            TrackArtifact.id.not_in(artifact_ids),
+        )),
+        exists(select(PlaybackNormalizationAttempt.id).where(
+            PlaybackNormalizationAttempt.workspace_id == meeting.workspace_id,
+            PlaybackNormalizationAttempt.storage_object_key == key,
+            PlaybackNormalizationAttempt.state != AttemptState.PURGED.value,
+        )),
+        exists(select(UploadPart.id).where(
+            UploadPart.storage_object_key == key, UploadPart.status == "accepted",
+            UploadPart.upload_session_id.not_in(sessions),
+        )),
+        exists(select(TemporaryUploadObject.id).where(
+            TemporaryUploadObject.workspace_id == meeting.workspace_id,
+            TemporaryUploadObject.storage_object_key == key,
+            TemporaryUploadObject.cleanup_status.not_in({"purged", "orphaned"}),
+            TemporaryUploadObject.id.not_in(temporary_ids),
+            or_(
+                TemporaryUploadObject.object_role != "accepted_part",
+                TemporaryUploadObject.upload_session_id.not_in(sessions),
+                TemporaryUploadObject.media_revision_id.is_distinct_from(revision_id),
+            ),
+        )),
+    ))):
+        return False
+    if row.state == "purged":
+        return await db.scalar(exact_row.where(*_accepted_purge_receipt(PurgeJournal, scope, recovery))) is not None
+    if (
+        row.state not in {"retained", "pending", "deleting", "retryable_failed"}
+        or row.attempt_count >= MAX_PURGE_JOURNAL_ATTEMPTS
+        or (row.next_retry_at is not None and row.next_retry_at > datetime.now(UTC))
+    ):
+        return False
+    claimed = await _reconcile_strict_upload_attempts(
+        db, meeting=meeting, storage=storage, limit=1, policy_key=key,
+    )
+    if not claimed:
+        # Discard tentative policy changes when the exact claim did not commit.
+        await db.rollback()
+    return None
+
+
+async def _strict_policy_has_reader(db: AsyncSession, meeting: Meeting, revision_id: UUID | None) -> bool:
+    return bool(await db.scalar(select(or_(
+        exists(select(MediaScribeJob.id).where(
+            MediaScribeJob.workspace_id == meeting.workspace_id,
+            MediaScribeJob.meeting_id == meeting.id,
+            MediaScribeJob.media_revision_id.is_not_distinct_from(revision_id),
+            MediaScribeJob.external_job_id.is_(None),
+            or_(
+                MediaScribeJob.submission_claim_token.is_not(None),
+                MediaScribeJob.status == MediaScribeJobStatus.SUBMITTING.value,
+            ),
+        )),
+        exists(select(PlaybackNormalizationAttempt.id).where(
+            PlaybackNormalizationAttempt.workspace_id == meeting.workspace_id,
+            PlaybackNormalizationAttempt.meeting_id == meeting.id,
+            PlaybackNormalizationAttempt.media_revision_id.is_not_distinct_from(revision_id),
+            PlaybackNormalizationAttempt.state.in_({
+                AttemptState.LOCAL_PREPARING.value, AttemptState.UPLOADED.value,
+                AttemptState.CLEANUP_PENDING.value,
+            }),
+        )),
+    ))))
+
+
+async def _mark_strict_policy_parts_purged(
+    db: AsyncSession, meeting: Meeting, revision_id: UUID | None, keys: set[str],
+) -> None:
+    sessions = select(UploadSession.id).where(
+        UploadSession.workspace_id == meeting.workspace_id,
+        UploadSession.meeting_id == meeting.id,
+        UploadSession.media_revision_id == revision_id,
+        UploadSession.status == "finalized",
+    )
+    for part in await db.scalars(select(UploadPart).where(
+        UploadPart.upload_session_id.in_(sessions),
+        UploadPart.storage_object_key.in_(keys),
+        UploadPart.status == "accepted",
+    ).with_for_update()):
+        part.status = "purged"
+    for item in await db.scalars(select(TemporaryUploadObject).where(
+        TemporaryUploadObject.workspace_id == meeting.workspace_id,
+        TemporaryUploadObject.upload_session_id.in_(sessions),
+        TemporaryUploadObject.media_revision_id == revision_id,
+        TemporaryUploadObject.storage_object_key.in_(keys),
+        TemporaryUploadObject.object_role == "accepted_part",
+    ).with_for_update()):
+        item.cleanup_status = "purged"
+        item.failure_reason = item.last_error = None
+
+
+async def queue_lost_strict_upload_cleanup(
+    db: AsyncSession,
+    *,
+    authorized_workspace_id: UUID,
+    journal_id: UUID,
+    discovery_admission: StrictUploadCleanupAdmission,
+) -> bool:
+    """Operator-only: queue one fenced obligation; never authorize a writer."""
+    settings = _runtime_settings(db)
+    recovery = storage_recovery_token(settings)
+    if recovery in {None, "legacy"}:
+        return False
+    eligible = (
+        PurgeJournal.id == journal_id,
+        PurgeJournal.workspace_id == authorized_workspace_id,
+        PurgeJournal.artifact_class == STRICT_UPLOAD_ATTEMPT,
+        PurgeJournal.write_state == "create_possible",
+        PurgeJournal.multipart_upload_id.is_(None),
+        or_(PurgeJournal.state == "terminal_unknown", _strict_upload_retryable(datetime.now(UTC))),
+    )
+    query = (
+        select(
+            PurgeJournal.meeting_id,
+            Workspace.organization_id,
+            Meeting.deletion_epoch,
+            PurgeJournal.object_key,
+            PurgeJournal.storage_scope,
+            PurgeJournal.storage_epoch,
+            PurgeJournal.updated_at,
+            PurgeJournal.state,
+            PurgeJournal.attempt_count,
+        )
+        .join(Meeting, (Meeting.id == PurgeJournal.meeting_id)
+              & (Meeting.workspace_id == PurgeJournal.workspace_id))
+        .join(Workspace, Workspace.id == PurgeJournal.workspace_id)
+        .where(*eligible)
+    )
+    snapshot = (await db.execute(query)).one_or_none()
+    await db.rollback()
+    if snapshot is None:
+        return False
+    meeting_id, org_id, _, key, scope, epoch, *_ = snapshot
+    prefix = f"organizations/{org_id}/workspaces/{authorized_workspace_id}/meetings/{meeting_id}/"
+    if (
+        not scope or scope != settings.strict_storage_scope or epoch is None
+        or not key.startswith(prefix) or not strict_upload_key_matches_epoch(key, epoch)
+    ):
+        return False
+
+    deadline = monotonic() + STORAGE_CALL_TIMEOUT_SECONDS
+    # This admission uses list-only credentials. Keep its storage binding
+    # unchanged from the listing through publication of the cleanup obligation.
+    with discovery_admission(scope, epoch, key, journal_id) as target:
+        if target is None:
+            return False
+        upload_id = None
+        with suppress(Exception):
+            upload_id = await asyncio.wait_for(
+                find_strict_multipart_for_cleanup(target, key=key, deadline=deadline),
+                timeout=STORAGE_CALL_TIMEOUT_SECONDS,
+            )
+        if not upload_id:
+            return False
+        try:
+            meeting = await db.scalar(
+                select(Meeting).where(
+                    Meeting.id == meeting_id, Meeting.workspace_id == authorized_workspace_id
+                ).with_for_update(nowait=True).execution_options(populate_existing=True)
+            )
+            if (
+                meeting is None
+                or (await db.execute(query.with_for_update(of=PurgeJournal, nowait=True))).one_or_none()
+                != snapshot
+                or await _object_key_referenced(db, meeting=meeting, object_key=key, strict_attempt=True)
+            ):
+                return False
+            row = await db.get(PurgeJournal, journal_id, populate_existing=True)
+            if row is None:
+                return False
+            row.multipart_upload_id = upload_id
+            row.state = "retryable_failed"
+            row.attempt_count = 0
+            row.safe_reason = "strict_upload_id_recovered_for_cleanup"
+            row.started_at = row.completed_at = None
+            row.next_retry_at = datetime.now(UTC)
+            with storage_recovery_snapshot(settings) as current:
+                if current != recovery or monotonic() >= deadline:
+                    return False
+                await _flush_or_fail_closed(db)
+                try:
+                    await db.commit()
+                except SQLAlchemyError:
+                    raise ProblemDetail(
+                        status=503,
+                        code="strict_upload_cleanup_commit_unknown",
+                        title="Cleanup handoff could not be confirmed",
+                    ) from None
+                return True
+        finally:
+            if db.in_transaction():
+                await db.rollback()
+
+
+async def _reconcile_strict_upload_attempts(
+    db: AsyncSession,
+    *,
+    meeting: Meeting,
+    storage: object | None,
+    limit: int,
+    full_deletion: bool = False,
+    policy_key: str | None = None,
+) -> bool:
+    workspace_id, meeting_id = meeting.workspace_id, meeting.id
+    lock_meeting = (
+        select(Meeting)
+        .where(Meeting.id == meeting_id, Meeting.workspace_id == workspace_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    outstanding = _strict_upload_obligations(workspace_id, meeting_id)
+    if policy_key is not None:
+        outstanding = outstanding.where(
+            PurgeJournal.object_key == policy_key, PurgeJournal.write_state == "accepted",
+        )
+    purge = getattr(storage, "purge_strict_upload_attempt", None)
+    policy_claimed = False
+    for _ in range(limit):
+        locked = await db.scalar(lock_meeting)
+        if locked is None:
+            return False
+        now = datetime.now(UTC)
+        allow_accepted = (
+            (full_deletion and locked.deleted_at is not None)
+            or (policy_key is not None and locked.deleted_at is None
+                and locked.deletion_state == DeletionState.NONE.value)
+        )
+        row = await db.scalar(
+            outstanding.where(
+                or_(
+                    PurgeJournal.state.in_({"pending", "deleting", "retryable_failed"}),
+                    (PurgeJournal.state == "retained") & (PurgeJournal.write_state == "accepted")
+                    if allow_accepted else False,
+                ),
+                *(() if allow_accepted else (PurgeJournal.write_state.is_distinct_from("accepted"),)),
+                PurgeJournal.attempt_count < MAX_PURGE_JOURNAL_ATTEMPTS,
+                PurgeJournal.next_retry_at.is_(None) | (PurgeJournal.next_retry_at <= now),
+            )
+            .order_by(PurgeJournal.created_at, PurgeJournal.id)
+            .limit(1)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if row is None:
+            break
+
+        referenced = await _object_key_referenced(
+            db,
+            meeting=locked,
+            object_key=row.object_key,
+            strict_attempt=True,
+        )
+        row_id, key = row.id, row.object_key
+        scope, epoch = row.storage_scope, row.storage_epoch
+        write_state, upload_id = row.write_state, row.multipart_upload_id
+        accepted = write_state == "accepted"
+        deletion_epoch = locked.deletion_epoch
+        recovery = None
+        fence_path = None
+        if accepted:
+            settings = _runtime_settings(db)
+            recovery = storage_recovery_token(settings)
+            fence_path = meeting_storage_read_fence_path(settings, workspace_id, meeting_id)
+            org_id = await db.scalar(
+                select(Workspace.organization_id).where(Workspace.id == workspace_id)
+            )
+            prefix = f"organizations/{org_id}/workspaces/{workspace_id}/meetings/{meeting_id}/"
+            valid_fence = (
+                row.deletion_epoch == deletion_epoch
+                if policy_key is not None
+                else row.deletion_epoch is not None and 0 <= row.deletion_epoch < deletion_epoch
+            )
+            if (
+                not referenced or fence_path is None or recovery in {None, "legacy"}
+                or scope != settings.strict_storage_scope
+                or not valid_fence
+                or epoch is None or not key.startswith(prefix)
+                or not strict_upload_key_matches_epoch(key, epoch) or not upload_id
+            ):
+                return False
+        claim_fence = (
+            storage_read_fence(fence_path, exclusive=True, create=True)
+            if fence_path is not None else nullcontext()
+        )
+        claim_recovery = storage_recovery_snapshot(settings) if accepted else nullcontext()
+        with claim_fence as fence, claim_recovery as current_recovery:
+            if accepted and (fence is None or current_recovery != recovery):
+                return False
+            claimed_at = datetime.now(UTC)
+            lease_seconds = 2 * STORAGE_CALL_TIMEOUT_SECONDS
+            claim_deadline = monotonic() + lease_seconds
+            attempt = row.attempt_count + 1
+            row.state = "deleting"
+            row.attempt_count = attempt
+            row.started_at = claimed_at
+            row.next_retry_at = claimed_at + timedelta(seconds=lease_seconds)
+            # The committed claim revokes pending before I/O and releases the meeting lock.
+            await _flush_or_fail_closed(db)
+            await db.commit()
+            policy_claimed = policy_key is not None
+
+        verified = False
+        io_started_at = monotonic()
+        remaining = min(STORAGE_CALL_TIMEOUT_SECONDS, claim_deadline - io_started_at)
+        if (accepted or not referenced) and scope and epoch is not None and epoch > 0:
+            if write_state == "intent" and upload_id is None:
+                verified = True
+            elif (
+                upload_id
+                and write_state in {"create_possible", "upload_id_known", "settled", "accepted"}
+                and callable(purge)
+                and remaining > 0
+            ):
+                with suppress(Exception):
+                    verified = (
+                        await asyncio.wait_for(
+                            purge(
+                                scope=scope,
+                                epoch=epoch,
+                                key=key,
+                                upload_id=upload_id,
+                                attempt_id=row_id,
+                                deadline=io_started_at + remaining,
+                                **({"expected_recovery": recovery} if accepted else {}),
+                            ),
+                            timeout=remaining,
+                        )
+                        is True
+                    )
+
+        locked_after_io = await db.scalar(lock_meeting)
+        if locked_after_io is None:
+            await db.rollback()
+            return False
+        current = await db.scalar(
+            outstanding.where(
+                PurgeJournal.id == row_id,
+                PurgeJournal.state == "deleting",
+                PurgeJournal.attempt_count == attempt,
+                PurgeJournal.started_at == claimed_at,
+            )
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if current is not None:
+            current.next_retry_at = None
+            if verified:
+                current.state = "purged"
+                current.safe_reason = (
+                    "strict_create_not_sent"
+                    if write_state == "intent"
+                    else "object_deleted_verified"
+                )
+                current.completed_at = datetime.now(UTC)
+                if accepted:
+                    current.metadata_json = {
+                        **current.metadata_json, "strict_purge_recovery_id": recovery,
+                    }
+            elif attempt >= MAX_PURGE_JOURNAL_ATTEMPTS:
+                current.state = "terminal_unknown"
+                current.safe_reason = "storage_delete_terminal_unknown"
+            else:
+                current.state = "retryable_failed"
+                current.safe_reason = "storage_delete_unverified"
+                current.next_retry_at = datetime.now(UTC) + timedelta(
+                    seconds=15 * 2 ** (attempt - 1)
+                )
+        if accepted and verified:
+            if (
+                (locked_after_io.deleted_at is None) != (policy_key is not None)
+                or locked_after_io.deletion_epoch != deletion_epoch
+            ):
+                await db.rollback()
+                return False
+            await _flush_or_fail_closed(db)
+            await _commit_completed_purge(db, recovery)
+        else:
+            await _flush_or_fail_closed(db)
+            await db.commit()
+    if policy_key is not None:
+        return policy_claimed
+    return not await _strict_upload_open(db, workspace_id, meeting_id)
 
 
 async def _reconcile_orphan_purge_journals(
@@ -1545,6 +2390,20 @@ async def _reconcile_orphan_purge_journals(
     limit: int = 20,
 ) -> bool:
     """Retry cleanup intents without rerunning a deletion lifecycle."""
+    recovery = storage_recovery_token(_runtime_settings(db))
+    if recovery is None:
+        return False
+    await _reconcile_strict_upload_attempts(db, meeting=meeting, storage=storage, limit=limit)
+    locked = await db.scalar(
+        select(Meeting)
+        .where(Meeting.id == meeting.id, Meeting.workspace_id == meeting.workspace_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if locked is None:
+        await db.rollback()
+        return False
+    meeting = locked
     now = datetime.now(UTC)
     rows = list(
         (
@@ -1554,6 +2413,7 @@ async def _reconcile_orphan_purge_journals(
                     PurgeJournal.workspace_id == meeting.workspace_id,
                     PurgeJournal.meeting_id == meeting.id,
                     PurgeJournal.artifact_class == "object_store",
+                    ~_is_strict_upload_key(PurgeJournal),
                     PurgeJournal.state.in_({"pending", "deleting", "retryable_failed"}),
                     PurgeJournal.attempt_count < MAX_PURGE_JOURNAL_ATTEMPTS,
                     PurgeJournal.next_retry_at.is_(None)
@@ -1567,8 +2427,9 @@ async def _reconcile_orphan_purge_journals(
         ).all()
     )
     if not rows:
+        strict_open = await _strict_upload_open(db, meeting.workspace_id, meeting.id)
         await db.rollback()
-        return True
+        return not strict_open and storage_recovery_token(_runtime_settings(db)) == recovery
 
     snapshots: list[tuple[UUID, str, int]] = []
     blocked_by_reference = False
@@ -1674,8 +2535,14 @@ async def _reconcile_orphan_purge_journals(
             deletion_request.failure_reason = "orphan_cleanup_pending"
             deletion_request.failed_at = datetime.now(UTC)
         locked_meeting.deletion_state = DeletionState.RETRYABLE_FAILED.value
+    strict_open = await _strict_upload_open(db, locked_meeting.workspace_id, locked_meeting.id)
     await db.commit()
-    return not failures and not blocked_by_reference
+    return (
+        not strict_open
+        and not failures
+        and not blocked_by_reference
+        and storage_recovery_token(_runtime_settings(db)) == recovery
+    )
 
 
 async def retry_orphan_purge_journals(
@@ -1688,6 +2555,9 @@ async def retry_orphan_purge_journals(
     """Reset bounded orphan failures only after an explicit operator action."""
     if not 1 <= limit <= 20:
         raise ValueError("limit must be between 1 and 20")
+    recovery = storage_recovery_token(_runtime_settings(db))
+    if recovery is None:
+        return {"reset_count": 0, "converged": False}
     locked_meeting = await db.scalar(
         select(Meeting)
         .where(Meeting.workspace_id == meeting.workspace_id, Meeting.id == meeting.id)
@@ -1704,8 +2574,12 @@ async def retry_orphan_purge_journals(
                     PurgeJournal.workspace_id == locked_meeting.workspace_id,
                     PurgeJournal.meeting_id == locked_meeting.id,
                     PurgeJournal.deletion_request_id.is_(None),
-                    PurgeJournal.artifact_class.in_({"object_store", "transient_audio"}),
-                    PurgeJournal.state == "terminal_unknown",
+                    PurgeJournal.artifact_class.in_({"object_store", "transient_audio", STRICT_UPLOAD_ATTEMPT}),
+                    PurgeJournal.write_state.is_distinct_from("accepted"),
+                    or_(PurgeJournal.artifact_class == STRICT_UPLOAD_ATTEMPT,
+                        ~_is_strict_upload_key(PurgeJournal)),
+                    or_(PurgeJournal.state == "terminal_unknown",
+                        _strict_upload_retryable(datetime.now(UTC))),
                 )
                 .order_by(PurgeJournal.created_at.asc(), PurgeJournal.id.asc())
                 .limit(limit)
@@ -1715,10 +2589,13 @@ async def retry_orphan_purge_journals(
         ).all()
     )
     if not rows:
+        unresolved = await _strict_upload_open(db, locked_meeting.workspace_id, locked_meeting.id)
         await db.rollback()
-        return {"reset_count": 0, "converged": True}
+        return {
+            "reset_count": 0,
+            "converged": not unresolved and storage_recovery_token(_runtime_settings(db)) == recovery,
+        }
     transient_rows = [row for row in rows if row.artifact_class == "transient_audio"]
-    orphan_rows = [row for row in rows if row.artifact_class == "object_store"]
     retry_started_at = datetime.now(UTC)
     for row in rows:
         row.state = "retryable_failed"
@@ -1735,10 +2612,13 @@ async def retry_orphan_purge_journals(
             storage=storage,
             limit=limit,
         )
-        if orphan_rows
-        else True
+        if len(transient_rows) != len(rows)
+        else False
     )
-    return {"reset_count": len(rows), "converged": converged and not transient_rows}
+    return {
+        "reset_count": len(rows),
+        "converged": converged and not transient_rows and storage_recovery_token(_runtime_settings(db)) == recovery,
+    }
 
 
 async def deletion_report_response(
@@ -1810,12 +2690,22 @@ async def deletion_report_response(
             .order_by(MeetingLifecycleAuditEvent.created_at.asc())
         )
     ).all()
+    stored_state = DeletionState(report.overall_state)
+    with storage_recovery_snapshot(_runtime_settings(db)) as recovery:
+        unverified = not await _deletion_completion_verified(db, meeting, recovery)
+    published_state = (
+        DeletionState.RETRYABLE_FAILED
+        if unverified and stored_state in _COMPLETED_DELETION_STATES
+        else stored_state
+    )
     return assemble_verification_report(
         meeting_id=meeting.id,
         request_id=report.deletion_request_id,
-        overall_state=DeletionState(report.overall_state),
+        overall_state=published_state,
         bounded_copy=report.bounded_copy,
-        artifact_states=[_artifact_row_from_model(row) for row in artifact_states] + activity_rows,
+        artifact_states=[
+            _artifact_row_from_model(row, unverified=unverified) for row in artifact_states
+        ] + activity_rows,
         local_purge=[_local_purge_task_from_model(task) for task in local_tasks],
         activity=[
             lifecycle_activity_item(
@@ -1895,6 +2785,14 @@ async def _purge_server_controlled_content(
 ) -> _ServerPurgeResult:
     result = _ServerPurgeResult()
     now = datetime.now(UTC)
+    if not await _reconcile_strict_upload_attempts(
+        db, meeting=meeting, storage=storage, limit=20, full_deletion=True
+    ):
+        raise ProblemDetail(
+            status=503,
+            code="deletion_purge_terminal_unknown",
+            title="Strict upload cleanup has not been verified",
+        )
 
     # The tombstone is committed before this function performs storage I/O, so
     # reacquire the meeting fence in the purge transaction.  A late publisher
@@ -1912,6 +2810,12 @@ async def _purge_server_controlled_content(
     if locked_meeting is None:
         raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
     meeting = locked_meeting
+    if await _strict_upload_open(db, meeting.workspace_id, meeting.id):
+        raise ProblemDetail(
+            status=503,
+            code="deletion_purge_terminal_unknown",
+            title="Strict upload cleanup has not been verified",
+        )
 
     # Slots are GRAF-controlled index/projection rows.  Lock them under the
     # meeting deletion fence, then remove them after all destructive work has
@@ -2024,19 +2928,36 @@ async def _purge_server_controlled_content(
         *(temporary_object.storage_object_key for temporary_object in temporary_objects),
         *(part.storage_object_key for part in upload_parts),
     }
+    protected_keys = await _protected_upload_keys(db, meeting, live_object_keys)
+    settings = _runtime_settings(db)
+    receipts = set(await db.scalars(select(PurgeJournal.object_key).where(
+        PurgeJournal.workspace_id == meeting.workspace_id,
+        PurgeJournal.meeting_id == meeting.id,
+        PurgeJournal.object_key.in_(protected_keys),
+        *_accepted_purge_receipt(
+            PurgeJournal, settings.strict_storage_scope, storage_recovery_token(settings)
+        ),
+    ))) if protected_keys else set()
+    if protected_keys != receipts:
+        raise ProblemDetail(
+            status=503, code="deletion_purge_terminal_unknown",
+            title="Strict upload ownership is ambiguous",
+        )
     journal_rows = (
         await db.scalars(
             select(PurgeJournal)
             .where(
                 PurgeJournal.workspace_id == meeting.workspace_id,
                 PurgeJournal.meeting_id == meeting.id,
-                    PurgeJournal.state.not_in({"purged", "superseded"}),
+                PurgeJournal.artifact_class != STRICT_UPLOAD_ATTEMPT,
+                ~_is_strict_upload_key(PurgeJournal),
+                PurgeJournal.state.not_in({"purged", "superseded"}),
             )
             .with_for_update()
             .execution_options(populate_existing=True)
         )
     ).all()
-    object_keys = live_object_keys | {journal.object_key for journal in journal_rows}
+    object_keys = (live_object_keys - receipts) | {journal.object_key for journal in journal_rows}
     existing_journal = {
         row.object_key: row
         for row in (
@@ -2206,13 +3127,16 @@ async def _purge_server_controlled_content(
     for attempt in normalization_attempts:
         if attempt.state in active_attempt_states:
             current_attempt_state = AttemptState(attempt.state)
+            exact_receipt = attempt.storage_object_key in receipts
+            was_present = object_presence.get(attempt.storage_object_key, False)
             missing_object_needs_recheck = (
                 current_attempt_state
                 in {
                     AttemptState.LOCAL_PREPARING,
                     AttemptState.CLEANUP_PENDING,
                 }
-                and not object_presence[attempt.storage_object_key]
+                and not exact_receipt
+                and not was_present
             )
             if current_attempt_state in {
                 AttemptState.LOCAL_PREPARING,
@@ -2236,7 +3160,7 @@ async def _purge_server_controlled_content(
                 metadata={
                     "cleanup_result": (
                         "deleted"
-                        if object_presence[attempt.storage_object_key]
+                        if exact_receipt or was_present
                         else (
                             "already_missing_pending_recheck"
                             if missing_object_needs_recheck
@@ -2253,6 +3177,9 @@ async def _purge_server_controlled_content(
         temporary_object.cleanup_status = "purged"
         temporary_object.failure_reason = None
         temporary_object.last_error = None
+    for part in upload_parts:
+        if part.storage_object_key in receipts:
+            part.status = "purged"
     if temporary_objects:
         result.materialized_classes.add(DeletionArtifactClass.UPLOAD_TEMP)
         result.purged_classes.add(DeletionArtifactClass.UPLOAD_TEMP)
@@ -2413,6 +3340,8 @@ async def _purge_server_controlled_content(
 
 
 async def _delete_storage_object(storage: object | None, object_key: str) -> None:
+    if is_strict_upload_key(object_key):
+        raise RuntimeError("strict_upload_requires_dedicated_cleanup")
     if storage is None:
         raise ProblemDetail(
             status=503,
@@ -2454,6 +3383,8 @@ def _ensure_storage_delete_capability(storage: object | None) -> None:
 
 
 async def _storage_object_exists(storage: object | None, object_key: str) -> bool:
+    if is_strict_upload_key(object_key):
+        raise RuntimeError("strict_upload_requires_dedicated_cleanup")
     if storage is None:
         raise ProblemDetail(
             status=503,
@@ -2858,7 +3789,21 @@ def _artifact_state_json(row: MeetingDeletionArtifactState) -> dict[str, str | i
     }
 
 
-def _artifact_row_from_model(row: MeetingDeletionArtifactState) -> ArtifactDeletionState:
+def _artifact_row_from_model(
+    row: MeetingDeletionArtifactState, *, unverified: bool
+) -> ArtifactDeletionState:
+    if (
+        unverified
+        and row.control_scope == DeletionControlScope.CONTROLLED.value
+        and row.state == DeletionArtifactState.PURGED.value
+    ):
+        return artifact_row(
+            artifact_class=row.artifact_class,
+            control_scope=DeletionControlScope.CONTROLLED,
+            state=DeletionArtifactState.UNKNOWN,
+            label="Server purge not verified",
+            safe_reason="storage_purge_unverified",
+        )
     return artifact_row(
         artifact_class=row.artifact_class,
         control_scope=DeletionControlScope(row.control_scope),

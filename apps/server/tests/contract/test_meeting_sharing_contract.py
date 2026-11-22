@@ -53,6 +53,22 @@ def test_share_fragment_is_meeting_bound_and_has_truthful_capability_copy() -> N
     assert "Только итоги" in source
 
 
+def test_share_dialog_audio_link_uses_the_scope_of_the_meeting() -> None:
+    template = Template(FRAGMENT.read_text(encoding="utf-8"))
+    meeting_id = "11111111-1111-4111-8111-111111111111"
+    workspace_id = "22222222-2222-4222-8222-222222222222"
+    artifact = {"artifact_class": "audio", "action": "download", "state": "available"}
+    own = template.render(meeting_id=meeting_id, artifacts=[artifact])
+    shared = template.render(meeting_id=meeting_id, artifacts=[artifact], share_workspace_id=workspace_id)
+    denied = template.render(
+        meeting_id=meeting_id, artifacts=[{**artifact, "action": "none"}], share_workspace_id=workspace_id,
+    )
+    assert f'href="/api/v1/cabinet/meetings/{meeting_id}/downloads/audio"' in own
+    assert f'href="/api/v1/cabinet/shared-meetings/{meeting_id}/downloads/audio?workspace_id={workspace_id}"' in shared
+    assert f'href="/api/v1/cabinet/meetings/{meeting_id}/downloads/audio' not in shared
+    assert "/downloads/audio" not in denied
+
+
 def test_share_client_keeps_external_disabled_flow_inert_and_handles_returned_url() -> None:
     source = JS.read_text(encoding="utf-8")
 

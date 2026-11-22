@@ -4,7 +4,14 @@ from unittest.mock import patch
 import pytest
 from sqlalchemy import select
 
-from tests.fakes.auth_contexts import DEVICE_ID, USER_ID, WORKSPACE_ID
+from tests.fakes.auth_contexts import (
+    DEVICE_ID,
+    ORG_ID,
+    PERSONAL_WORKSPACE_ID,
+    REVOKED_DEVICE_ID,
+    USER_ID,
+    WORKSPACE_ID,
+)
 from twobrain_rec_server.auth.dependencies import AUTH_SESSION_COOKIE_NAME
 from twobrain_rec_server.auth.sessions import hash_token, record_session_activity, session_expiry
 from twobrain_rec_server.config import Settings
@@ -43,6 +50,49 @@ def test_default_is_thirty_days_and_upload_remains_one_day():
     assert Settings().auth_session_ttl_seconds == 30 * 86400
     assert session_expiry(now) == now + timedelta(days=30)
     assert Settings().upload_session_ttl_seconds == 86400
+
+
+@pytest.mark.parametrize("binding_state", ["trusted", None])
+def test_auth_me_proves_only_the_bound_session_device(client, binding_state):
+    session_id = seed(client, binding_state=binding_state)
+
+    async def session_row_device():
+        async with client.app_state["sessionmaker"]() as db:
+            return (await db.get(AuthSession, session_id)).device_id
+
+    assert client.portal.call(session_row_device) is None
+    headers = {
+        "X-Auth-Session": TOKEN,
+        "X-Workspace-Id": str(WORKSPACE_ID),
+        "X-Device-Id": str(REVOKED_DEVICE_ID),
+    }
+    response = client.get("/api/v1/auth/me", headers=headers)
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["active_session_id"] == str(session_id)
+    assert any(device["device_id"] == str(DEVICE_ID) for device in payload["registered_devices"])
+    if binding_state:
+        assert payload["active_session_device_id"] == str(DEVICE_ID)
+        assert response.headers["cache-control"] == "no-store"
+    else:
+        assert "active_session_device_id" not in payload
+
+    response = client.get("/api/v1/auth/me", headers={**headers, "X-Workspace-Id": str(PERSONAL_WORKSPACE_ID)})
+    assert response.status_code == 403
+    assert "active_session_device_id" not in response.json()
+
+
+def test_auth_me_does_not_prove_device_for_legacy_headers(client):
+    seed(client, binding_state="trusted")
+    response = client.get("/api/v1/auth/me", headers={
+        "X-Organization-Id": str(ORG_ID),
+        "X-User-Id": str(USER_ID),
+        "X-Workspace-Id": str(WORKSPACE_ID),
+        "X-Device-Id": str(DEVICE_ID),
+    })
+    assert response.status_code == 200
+    assert response.json()["active_session_id"] is None
+    assert "active_session_device_id" not in response.json()
 
 
 @pytest.mark.parametrize("transport", ["native", "cookie"])
@@ -201,7 +251,7 @@ def test_renewal_commit_failure_preserves_success_without_publishing_deadline(cl
     from sqlalchemy.exc import SQLAlchemyError
     from sqlalchemy.ext.asyncio import AsyncSession
 
-    session_id = seed(client)
+    session_id = seed(client, binding_state="trusted")
     expires = deadline(client, session_id)
     original_commit = AsyncSession.commit
 
@@ -220,6 +270,8 @@ def test_renewal_commit_failure_preserves_success_without_publishing_deadline(cl
         response = client.get("/api/v1/auth/me", headers={"X-Auth-Session": TOKEN,
             "X-Workspace-Id": str(WORKSPACE_ID)})
     assert response.status_code == 200
+    assert response.json()["active_session_device_id"] == str(DEVICE_ID)
+    assert response.headers["cache-control"] == "no-store"
     assert "X-GRAF-Auth-Expires-At" not in response.headers
     assert deadline(client, session_id) == expires
 

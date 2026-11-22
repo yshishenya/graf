@@ -12,6 +12,7 @@ from twobrain_rec_server.api.upload_stream import BoundedUploadBody
 from twobrain_rec_server.auth.context import TenantScope
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.db.models import Meeting as MeetingModel
+from twobrain_rec_server.db.models import UploadSession
 from twobrain_rec_server.domain.statuses import TrackRole, UploadSessionStatus
 from twobrain_rec_server.ingest import store as store_module
 from twobrain_rec_server.ingest.audit import record_audit_event
@@ -19,6 +20,7 @@ from twobrain_rec_server.ingest.lifecycle_guards import ensure_upload_session_mu
 from twobrain_rec_server.ingest.manifest import ensure_supported_upload_source
 from twobrain_rec_server.ingest.policy import IngestLimitViolation, validate_track_bytes
 from twobrain_rec_server.ingest.state_machine import ensure_can_accept_part
+from twobrain_rec_server.ingest.status import require_calendar_upload_access
 from twobrain_rec_server.ingest.store import (
     UploadPartRecord,
     UploadSessionRecord,
@@ -42,9 +44,10 @@ async def get_session_for_tenant(
     db: AsyncSession | None = None,
     *,
     for_update: bool = False,
+    require_persisted: bool = False,
 ) -> UploadSessionRecord:
     session = await load_upload_session_record(db, session_id, for_update=for_update)
-    if session is None:
+    if session is None and not (require_persisted and db is not None):
         session = store_module.store.sessions.get(session_id)
     if session is None or session.workspace_id != tenant_scope.workspace_id:
         raise ProblemDetail(
@@ -57,6 +60,17 @@ async def get_session_for_tenant(
     if session.device_id != tenant_scope.device_id:
         raise ProblemDetail(status=403, code="device_scope_denied", title="Device scope denied")
     return session
+
+
+async def _require_calendar_part_replay_access(
+    db: AsyncSession | None, session: UploadSessionRecord, tenant_scope: TenantScope,
+) -> None:
+    if session.calendar_match_attempt_id is None:
+        return
+    assert db is not None  # The first check rejects a marked session without a DB.
+    await lock_meeting_fence(db, workspace_id=tenant_scope.workspace_id, meeting_id=session.meeting_id)
+    await db.scalar(select(UploadSession.id).where(UploadSession.id == session.id).with_for_update())
+    await require_calendar_upload_access(db, session, tenant_scope)
 
 
 def _validate_part_against_session(
@@ -207,7 +221,8 @@ async def accept_part(
         # Read a validation snapshot only. The Meeting → Session lock is
         # acquired after storage I/O, so a slow upload cannot hold lifecycle
         # rows; the final lock rechecks status and the part idempotency race.
-        session = await get_session_for_tenant(session_id, tenant_scope, db)
+        session = await get_session_for_tenant(session_id, tenant_scope, db, require_persisted=True)
+        await require_calendar_upload_access(db, session, tenant_scope)
         ensure_supported_upload_source(session.media_revision_source_kind, [*session.expected_track_roles, track_role])
         await ensure_upload_session_mutable(db=db, session=session, event_type="expired")
     except Exception:
@@ -226,6 +241,7 @@ async def accept_part(
             and existing.byte_offset == byte_offset
         ):
             close_upload_stream()
+            await _require_calendar_part_replay_access(db, session, tenant_scope)
             return existing
         conflict_code = (
             "checksum_conflict" if existing.byte_offset == byte_offset else "range_conflict"
@@ -391,17 +407,24 @@ async def accept_part(
                 status=404, code="upload_session_not_found", title="Upload session not found"
             )
         try:
+            await require_calendar_upload_access(db, session, tenant_scope)
             ensure_supported_upload_source(
                 persisted_session.media_revision_source_kind,
                 [*persisted_session.expected_track_roles, track_role],
             )
-        except ProblemDetail:
+        except Exception:
             try:
                 await _delete_or_record_uploaded_object(
                     storage=storage, object_key=object_key, db=db,
                     workspace_id=tenant_scope.workspace_id, meeting_id=meeting.id,
-                    reason="part_rejected_after_source_validation",
+                    reason="part_rejected_after_session_validation",
                 )
+            except Exception as cleanup_exc:
+                raise ProblemDetail(
+                    status=503,
+                    code="cleanup_journal_unavailable",
+                    title="Uploaded object cleanup could not be recorded",
+                ) from cleanup_exc
             finally:
                 close_upload_stream()
             raise
@@ -456,6 +479,7 @@ async def accept_part(
                 and current_existing.byte_length == byte_length
                 and current_existing.byte_offset == byte_offset
             ):
+                await _require_calendar_part_replay_access(db, session, tenant_scope)
                 return current_existing
             conflict_code = (
                 "checksum_conflict"

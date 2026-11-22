@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import asyncio
+import json
 import os
 import socket
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
+from functools import partial
+from hashlib import sha256
 from importlib import import_module
 from math import ceil
 from time import perf_counter_ns
@@ -11,24 +16,38 @@ from urllib.parse import urlparse
 from uuid import UUID, uuid4
 
 import pytest
+from fastapi import FastAPI
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete, func, select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tests.contract.test_ingest_openapi_contract import auth_headers
-from tests.fakes.auth_contexts import DEVICE_ID, ORG_ID, USER_ID, WORKSPACE_ID
+from tests.fakes.auth_contexts import DEVICE_ID, ORG_ID, REVOKED_DEVICE_ID, USER_ID, WORKSPACE_ID
+from tests.fixtures.artifacts import track_descriptor
 from twobrain_rec_server.auth.context import TenantScope
+from twobrain_rec_server.auth.sessions import issue_auth_session
 from twobrain_rec_server.db.models import (
+    AuthSessionDeviceBinding,
     CalendarAuditEvent,
     CalendarEventSnapshot,
     CalendarParticipant,
     CalendarSource,
     ConferenceLinkCandidate,
     ExternalCalendar,
+    IngestAuditEvent,
+    MediaRevision,
     Meeting,
     Organization,
+    ProcessingPlaceholder,
+    PurgeJournal,
     RecordingCalendarContextLink,
     RecordingCalendarMatchAttempt,
     RegisteredDevice,
+    TemporaryUploadObject,
+    TrackArtifact,
+    UploadPart,
+    UploadSession,
     UserIdentity,
     Workspace,
     WorkspaceMembership,
@@ -2144,3 +2163,1463 @@ def test_sc017_one_hundred_warmed_atomic_consumptions_are_within_50ms_p95(client
     if p95_ms > 50 and os.environ.get("GRAF_PERFORMANCE_GATE", "required") == "report":
         pytest.xfail(f"shared-host timing report: p95={p95_ms:.2f}ms exceeds 50ms")
     assert p95_ms <= 50
+
+
+@pytest.mark.parametrize(
+    ("intent", "state"),
+    [("user_selected", "matched_user"), ("user_declined", "declined_by_user")],
+)
+def test_desktop_sync_calendar_match_receipt_after_lost_create_response(
+    client, monkeypatch, intent: str, state: str,
+) -> None:
+    started = datetime.now(UTC).replace(microsecond=0)
+    recording_id = str(uuid4())
+    other_device = uuid4()
+    headers = auth_headers()
+    body = {
+        "recording_started_at": started.isoformat(),
+        "decision_intent": intent,
+        "contract_version": "calendar_auto_context_v1",
+    }
+    if intent == "user_selected":
+        body["event_id"] = str(_seed_clear_calendar(client, recording_started_at=started))
+    resolved = client.post(
+        RESOLVE_PATH.format(local_recording_id=recording_id),
+        headers=headers | {"Idempotency-Key": f"calendar-receipt-{recording_id}"},
+        json=body,
+    )
+    assert resolved.status_code == 200
+    attempt_id = resolved.json()["attempt_id"]
+    # Deliberately ignore the successful create body; recovery uses only sync-state.
+    assert _create_meeting_for_attempt(
+        client,
+        local_recording_id=recording_id,
+        title="Synthetic recording",
+        attempt_id=UUID(attempt_id),
+        started_at=started,
+        ended_at=started + timedelta(seconds=60),
+    ).status_code == 200
+
+    path = f"/api/v1/desktop/recordings/{recording_id}/sync-state"
+    legacy = client.get(path, headers=headers)
+    assert legacy.status_code == 200
+    assert "calendar_match_receipt" not in legacy.json()
+    # Server-copy proof is fresh for every sync response, including legacy callers.
+    assert legacy.headers.get("Cache-Control") == "no-store"
+    meeting_id = UUID(legacy.json()["meeting"]["meeting_id"])
+
+    async def age_receipt_and_seed_device() -> str:
+        async with client.app_state["sessionmaker"]() as db:
+            attempt = await db.get(RecordingCalendarMatchAttempt, UUID(attempt_id))
+            assert attempt is not None and attempt.consumed_at is not None
+            assert attempt.matched_event_snapshot_id is None
+            attempt.consumed_at = started - timedelta(days=2)
+            attempt.expires_at = started - timedelta(days=1)
+            db.add(RegisteredDevice(
+                id=other_device,
+                workspace_id=WORKSPACE_ID,
+                user_id=USER_ID,
+                device_public_id="calendar-receipt-other-device",
+                status="active",
+            ))
+            issued = await issue_auth_session(
+                db, workspace_id=WORKSPACE_ID, user_id=USER_ID, provider="receipt-test",
+                device_id=DEVICE_ID, now=started,
+            )
+            db.add(AuthSessionDeviceBinding(
+                auth_session_id=issued.id, registered_device_id=DEVICE_ID, device_state="trusted",
+            ))
+            await db.commit()
+            return issued.token
+
+    token = client.portal.call(age_receipt_and_seed_device)
+    session_headers = {"Authorization": f"Bearer {token}"}
+    params = {"include_calendar_match_receipt": "true"}
+    recovery = client.get(path, headers=session_headers, params=params)
+    assert recovery.status_code == 200
+    assert recovery.headers["Cache-Control"] == "no-store"
+    recovered = recovery.json()
+    receipt = {"attempt_id": attempt_id, "state": state}
+    assert recovered.pop("calendar_match_receipt") == receipt
+    assert recovered == legacy.json()
+
+    if intent == "user_selected":
+        cleared = client.delete(f"/api/v1/meetings/{meeting_id}/calendar-context", headers=headers)
+        assert cleared.status_code == 200
+        assert cleared.json()["context_state"] == "cleared_by_user"
+        historical = client.get(path, headers=headers, params=params)
+        assert historical.status_code == 200
+        assert historical.json()["calendar_match_receipt"] == receipt
+
+    wrong_device = client.get(path, headers=headers | {"X-Device-Id": str(other_device)}, params=params)
+    assert wrong_device.status_code == 200
+    assert "calendar_match_receipt" not in wrong_device.json()
+    revoked = client.get(path, headers=headers | {"X-Device-Id": str(REVOKED_DEVICE_ID)}, params=params)
+    assert revoked.status_code == 403
+    assert revoked.headers["Cache-Control"] == "no-store"
+    wrong_revision = client.get(
+        path, headers=headers, params=params | {"local_media_revision_id": "different-revision"},
+    )
+    assert wrong_revision.status_code == 200
+    assert "calendar_match_receipt" not in wrong_revision.json()
+    wrong_recording = client.get(
+        f"/api/v1/desktop/recordings/{uuid4()}/sync-state", headers=headers, params=params,
+    )
+    assert wrong_recording.status_code == 404
+    assert wrong_recording.headers["Cache-Control"] == "no-store"
+    assert "calendar_match_receipt" not in wrong_recording.json()
+
+    upload = client.post(
+        f"/api/v1/meetings/{meeting_id}/upload-sessions",
+        headers=headers,
+        json={"expected_track_sizes": {"manifest": 8, "media": 9, "playback": 10}},
+    )
+    assert upload.status_code == 200
+
+    async def expire_upload_session() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            session = await db.get(UploadSession, UUID(upload.json()["session_id"]))
+            assert session is not None
+            session.expires_at = started - timedelta(seconds=1)
+            await db.commit()
+
+    client.portal.call(expire_upload_session)
+    expired_upload = client.get(path, headers=session_headers, params=params)
+    assert expired_upload.status_code == 200
+    assert expired_upload.json()["conflict"]["state"] == "upload_session_expired"
+    assert expired_upload.json()["calendar_match_receipt"] == receipt
+
+    async def fence_meeting() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            meeting = await db.get(Meeting, meeting_id)
+            assert meeting is not None
+            meeting.deleted_at = started
+            await db.commit()
+
+    client.portal.call(fence_meeting)
+    deleting = client.get(path, headers=headers, params=params)
+    assert deleting.status_code == 200
+    assert "calendar_match_receipt" not in deleting.json()
+
+    # Restore this synthetic tombstone, then mutate after the sync projection
+    # but before the receipt SELECT. The original response still names the
+    # old revision; the receipt must independently decline to confirm it.
+    async def restore_meeting() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            meeting = await db.get(Meeting, meeting_id)
+            assert meeting is not None
+            meeting.deleted_at = None
+            await db.commit()
+
+    client.portal.call(restore_meeting)
+    module = import_module("twobrain_rec_server.ingest.desktop_sync")
+    read_receipt = module.calendar_match_receipt
+
+    async def mutate_before_receipt(db, **kwargs):
+        async with client.app_state["sessionmaker"]() as writer:
+            if intent == "user_selected":
+                writer.add(MediaRevision(
+                    workspace_id=WORKSPACE_ID, meeting_id=meeting_id,
+                    local_media_revision_id=f"{recording_id}--replacement",
+                    revision_number=2, status="accepted",
+                ))
+            else:
+                device = await writer.get(RegisteredDevice, DEVICE_ID)
+                assert device is not None
+                device.status = "revoked"
+            await writer.commit()
+        return await read_receipt(db, **kwargs)
+
+    monkeypatch.setattr(module, "calendar_match_receipt", mutate_before_receipt)
+    raced = client.get(path, headers=session_headers, params=params)
+    assert raced.status_code == 200
+    assert raced.json()["local_media_revision_id"] == f"{recording_id}--initial"
+    assert "calendar_match_receipt" not in raced.json()
+
+
+def test_desktop_sync_calendar_match_receipt_omits_unconsumed_expired_attempt(client) -> None:
+    started = datetime.now(UTC).replace(microsecond=0)
+    recording_id = str(uuid4())
+    resolved = client.post(
+        RESOLVE_PATH.format(local_recording_id=recording_id),
+        headers=auth_headers() | {"Idempotency-Key": f"calendar-receipt-{recording_id}"},
+        json={
+            "recording_started_at": started.isoformat(),
+            "decision_intent": "user_declined",
+            "contract_version": "calendar_auto_context_v1",
+        },
+    )
+    assert resolved.status_code == 200
+    attempt_id = UUID(resolved.json()["attempt_id"])
+
+    async def expire() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            attempt = await db.get(RecordingCalendarMatchAttempt, attempt_id)
+            assert attempt is not None
+            attempt.expires_at = started - timedelta(seconds=1)
+            await db.commit()
+
+    client.portal.call(expire)
+    # Existing clients still get their historical fallback; it never proves a decline.
+    created = _create_meeting_for_attempt(
+        client,
+        local_recording_id=recording_id,
+        title="Synthetic recording",
+        attempt_id=attempt_id,
+        started_at=started,
+        ended_at=started + timedelta(seconds=60),
+    )
+    assert created.status_code == 200
+    assert created.json()["calendar_context"]["state"] != "declined_by_user"
+    recovery = client.get(
+        f"/api/v1/desktop/recordings/{recording_id}/sync-state",
+        headers=auth_headers(),
+        params={"include_calendar_match_receipt": "true"},
+    )
+    assert recovery.status_code == 200
+    assert "calendar_match_receipt" not in recovery.json()
+
+
+STRICT_CREATE_PATH = "/api/v1/desktop/meetings/with-calendar-context"
+
+
+def _strict_calendar_create_body(client, *, intent: str):
+    started = datetime.now(UTC).replace(microsecond=0)
+    recording_id = str(uuid4())
+    resolve_body = {
+        "recording_started_at": started.isoformat(),
+        "decision_intent": intent,
+        "contract_version": "calendar_auto_context_v1",
+    }
+    if intent == "user_selected":
+        resolve_body["event_id"] = str(_seed_clear_calendar(client, recording_started_at=started))
+    resolved = client.post(
+        RESOLVE_PATH.format(local_recording_id=recording_id),
+        headers=auth_headers() | {"Idempotency-Key": f"strict-create-{recording_id}"},
+        json=resolve_body,
+    )
+    assert resolved.status_code == 200
+    return {
+        "local_recording_id": recording_id,
+        "local_media_revision_id": f"{recording_id}:v1",
+        "calendar_match_attempt_id": resolved.json()["attempt_id"],
+        "started_at": started.isoformat(),
+        "ended_at": (started + timedelta(seconds=60)).isoformat(),
+        "duration_seconds": 60,
+    }
+
+
+@pytest.mark.parametrize(
+    ("intent", "state"),
+    [("user_selected", "matched_user"), ("user_declined", "declined_by_user")],
+)
+def test_strict_calendar_create_replays_only_the_original_accepted_decision(client, intent, state):
+    body = _strict_calendar_create_body(client, intent=intent)
+    headers = auth_headers()
+    created = client.post(STRICT_CREATE_PATH, headers=headers, json=body)
+    assert created.status_code == 200
+    meeting_id = UUID(created.json()["meeting_id"])
+    attempt_id = UUID(body["calendar_match_attempt_id"])
+
+    async def age_and_remove_card_context():
+        async with client.app_state["sessionmaker"]() as db:
+            attempt = await db.get(RecordingCalendarMatchAttempt, attempt_id)
+            assert attempt is not None
+            assert attempt.consumed_by_meeting_id == meeting_id
+            assert attempt.attempt_state == state
+            assert attempt.consumed_at is not None
+            attempt.consumed_at = datetime.now(UTC) - timedelta(days=2)
+            attempt.expires_at = datetime.now(UTC) - timedelta(days=1)
+            await db.execute(delete(RecordingCalendarContextLink).where(
+                RecordingCalendarContextLink.meeting_id == meeting_id,
+            ))
+            await db.commit()
+
+    client.portal.call(age_and_remove_card_context)
+    replayed = client.post(STRICT_CREATE_PATH, headers=headers, json=body)
+    assert replayed.status_code == 200
+    assert UUID(replayed.json()["meeting_id"]) == meeting_id
+    for changed in (
+        {"duration_seconds": 61},
+        {"calendar_match_attempt_id": str(uuid4())},
+        {"local_media_revision_id": f"{body['local_recording_id']}:v2"},
+    ):
+        assert client.post(STRICT_CREATE_PATH, headers=headers, json=body | changed).status_code == 409
+
+    recovered = client.get(
+        f"/api/v1/desktop/recordings/{body['local_recording_id']}/sync-state",
+        headers=headers,
+        params={
+            "include_calendar_match_receipt": "true",
+            "local_media_revision_id": body["local_media_revision_id"],
+        },
+    )
+    assert recovered.status_code == 200
+    assert recovered.json()["calendar_match_receipt"] == {"attempt_id": str(attempt_id), "state": state}
+
+    async def replace_revision():
+        async with client.app_state["sessionmaker"]() as db:
+            db.add(MediaRevision(
+                workspace_id=WORKSPACE_ID, meeting_id=meeting_id,
+                local_media_revision_id=f"{body['local_recording_id']}:v2",
+                revision_number=2, status="accepted",
+            ))
+            await db.commit()
+
+    client.portal.call(replace_revision)
+    assert client.post(STRICT_CREATE_PATH, headers=headers, json=body).status_code == 409
+
+
+@pytest.mark.parametrize("revision_case", ["current", "replacement", "alias"])
+def test_calendar_upload_session_is_pinned_after_receipt(client, monkeypatch, revision_case):
+    body = _strict_calendar_create_body(client, intent="user_declined")
+    if revision_case != "alias":
+        body["local_media_revision_id"] = f"{body['local_recording_id']}--initial"
+    headers = auth_headers()
+    assert client.post(STRICT_CREATE_PATH, headers=headers, json=body).status_code == 200
+    state = client.get(
+        f"/api/v1/desktop/recordings/{body['local_recording_id']}/sync-state",
+        headers=headers,
+        params={"local_media_revision_id": body["local_media_revision_id"], "include_calendar_match_receipt": "true"},
+    ).json()
+    assert state["calendar_match_receipt"] == {
+        "attempt_id": body["calendar_match_attempt_id"], "state": "declined_by_user",
+    }
+    meeting_id = state["meeting"]["meeting_id"]
+    pinned_revision = state["media_revision"]["media_revision_id"]
+    pinned_path = f"/api/v1/desktop/meetings/{meeting_id}/upload-sessions"
+    key = {"Idempotency-Key": f"pinned-{meeting_id}"}
+
+    async def issue_device_token(foreign=False):
+        async with client.app_state["sessionmaker"]() as db:
+            device_id = uuid4() if foreign else DEVICE_ID
+            if foreign:
+                db.add(RegisteredDevice(
+                    id=device_id, workspace_id=WORKSPACE_ID, user_id=USER_ID,
+                    device_public_id="pinned-other-device", status="active",
+                ))
+                await db.flush()
+            issued = await issue_auth_session(
+                db, workspace_id=WORKSPACE_ID, user_id=USER_ID, provider="pinned-test", device_id=device_id,
+            )
+            db.add(AuthSessionDeviceBinding(
+                auth_session_id=issued.id, registered_device_id=device_id, device_state="trusted",
+            ))
+            await db.commit()
+            return issued.token, issued.id
+
+    token, auth_id = client.portal.call(issue_device_token)
+    key_headers = {"Authorization": f"Bearer {token}"} | key
+    sizes = {"manifest": 100, "media": 200, "playback": 300}
+    tracks = {"expected_track_sizes": sizes}
+
+    async def upload_truth():
+        async with client.app_state["sessionmaker"]() as db:
+            uid = UUID(meeting_id)
+            meeting = await db.get(Meeting, uid)
+            return (
+                meeting.status,
+                await db.scalar(select(func.count()).where(UploadSession.meeting_id == uid)),
+                await db.scalar(select(func.count()).where(IngestAuditEvent.meeting_id == uid)),
+            )
+
+    before = client.portal.call(upload_truth)
+    assert client.post(pinned_path, headers=key_headers, json=tracks).status_code == 422
+    scoped = tracks | {"calendar_match_attempt_id": body["calendar_match_attempt_id"]}
+    wrong = client.post(pinned_path, headers=key_headers, json=scoped | {"expected_media_revision_id": str(uuid4())})
+    assert wrong.status_code == 409
+    assert wrong.json()["code"] == "media_revision_conflict"
+    assert client.portal.call(upload_truth) == before
+
+    async def replace_preferred_revision():
+        async with client.app_state["sessionmaker"]() as db:
+            second = MediaRevision(
+                workspace_id=WORKSPACE_ID, meeting_id=UUID(meeting_id),
+                local_media_revision_id=(
+                    f"{body['local_recording_id']}--initial" if revision_case == "alias"
+                    else f"{body['local_recording_id']}--replacement"
+                ),
+                revision_number=2, status="pending_upload",
+            )
+            db.add(second)
+            await db.commit()
+            return str(second.id)
+
+    exact = scoped | {"expected_media_revision_id": pinned_revision}
+    if revision_case != "current":
+        replacement = client.portal.call(replace_preferred_revision)
+        stale = client.post(pinned_path, headers=key_headers, json=exact)
+        assert stale.status_code == 409
+        assert stale.json()["code"] == "media_revision_conflict"
+        assert client.portal.call(upload_truth) == before
+
+        if revision_case == "alias":
+            alias = client.post(pinned_path, headers=key_headers, json=scoped | {"expected_media_revision_id": replacement})
+            assert alias.status_code == 409
+            assert alias.json()["code"] == "media_revision_conflict"
+            assert client.portal.call(upload_truth) == before
+
+        # Existing clients keep selecting the preferred revision.
+        old = client.post(f"/api/v1/meetings/{meeting_id}/upload-sessions", headers=headers | key, json=tracks)
+        assert old.status_code == 200
+        assert old.json()["media_revision_id"] == replacement
+        return
+
+    wrong_attempt = client.post(pinned_path, headers=key_headers, json=exact | {"calendar_match_attempt_id": str(uuid4())})
+    assert wrong_attempt.status_code == 409
+    assert client.portal.call(upload_truth) == before
+
+    assert client.post(pinned_path, headers=headers | key, json=exact).status_code == 403
+    foreign_token, _ = client.portal.call(issue_device_token, True)
+    foreign_headers = {
+        "Authorization": f"Bearer {foreign_token}",
+        "X-Workspace-Id": str(WORKSPACE_ID),
+        "X-Device-Id": str(DEVICE_ID),
+    } | key
+    forged = client.post(pinned_path, headers=foreign_headers, json=exact)
+    assert forged.status_code == 401
+    assert forged.json()["code"] == "auth_session_mismatched"
+    for override in (
+        {"expected_track_sizes": {}},
+        {"expected_track_sizes": sizes | {"manifest": 0}},
+        {"expected_tracks": ["manifest", "media", "playback", "manifest"]},
+    ):
+        malformed = client.post(pinned_path, headers=key_headers, json=exact | override)
+        assert malformed.status_code == 400
+        assert malformed.json()["code"] == "invalid_expected_track_size"
+    assert client.portal.call(upload_truth) == before
+
+    sessions = import_module("twobrain_rec_server.ingest.sessions")
+    store = import_module("twobrain_rec_server.ingest.store").store
+    problem = import_module("twobrain_rec_server.api.problems").ProblemDetail
+    persist = sessions.persist_audit_event
+
+    async def fail_after_flush(*args, **kwargs):
+        await persist(*args, **kwargs)
+        raise problem(status=503, code="test_late_rollback", title="Test late rollback")
+
+    before_cache = set(store.sessions), len(store.audit_events)
+    with monkeypatch.context() as patch:
+        patch.setattr(sessions, "persist_audit_event", fail_after_flush)
+        rolled_back = client.post(pinned_path, headers=key_headers, json=exact)
+    assert rolled_back.status_code == 503
+    assert rolled_back.json()["code"] == "test_late_rollback"
+    assert client.portal.call(upload_truth) == before
+    assert (set(store.sessions), len(store.audit_events)) == before_cache
+
+    # Ignore the first successful response; retry uses the same key and exact revision.
+    assert client.post(pinned_path, headers=key_headers, json=exact).status_code == 200
+    replay = client.post(pinned_path, headers=key_headers, json=exact)
+    assert replay.status_code == 200
+    session_id = replay.json()["session_id"]
+    checked = client.get(f"/api/v1/upload-sessions/{session_id}", headers=headers)
+    assert checked.status_code == 200
+    assert checked.json() == replay.json()
+    assert checked.json()["meeting_id"] == meeting_id
+    assert checked.json()["media_revision_id"] == pinned_revision
+    assert checked.json()["expected_track_sizes"] == sizes
+    assert client.portal.call(upload_truth)[1] == 1
+    assert client.post(pinned_path, headers=foreign_headers, json=exact).status_code == 401
+
+    proof_path = f"{pinned_path}/{session_id}"
+    proof_query = {"expected_media_revision_id": pinned_revision}
+    scoped_headers = {"Authorization": f"Bearer {token}"}
+    payload = b"calendar-part-test"
+    part_headers = scoped_headers | {"X-Byte-Offset": "0", "X-Content-SHA256": sha256(payload).hexdigest()}
+
+    def proof_get(path=proof_path, params=proof_query, actor=scoped_headers):
+        return client.get(path, headers=actor, params=params)
+
+    def refused_part(path):
+        response = client.put(path, headers=part_headers, content=payload)
+        assert response.status_code == 404
+        assert response.json()["code"] == "upload_session_not_found"
+
+    status_module = import_module("twobrain_rec_server.ingest.status")
+    with pytest.raises(problem) as unavailable:
+        client.portal.call(
+            status_module.get_calendar_upload_session_proof,
+            UUID(meeting_id), UUID(session_id), UUID(pinned_revision), _tenant_scope(), None,
+        )
+    assert unavailable.value.status == 503
+
+    proof = proof_get()
+    assert proof.status_code == 200
+    assert proof.headers["Cache-Control"] == "no-store"
+    assert proof.json() == {field: checked.json()[field] for field in (
+        "session_id", "meeting_id", "media_revision_id", "status", "expires_at",
+        "expected_tracks", "expected_track_sizes",
+    )}
+    for response, expected_status in (
+        (proof_get(actor={}), 401),
+        (proof_get(actor=headers), 403),
+        (proof_get(actor={"Authorization": f"Bearer {foreign_token}"}), 404),
+        (proof_get(params={}), 422),
+    ):
+        assert response.status_code == expected_status
+        assert response.headers["Cache-Control"] == "no-store"
+    wrong_revision = proof_get(params={"expected_media_revision_id": str(uuid4())})
+    assert wrong_revision.status_code == 404
+    assert wrong_revision.headers["Cache-Control"] == "no-store"
+    assert proof_get(path=proof_path.replace(meeting_id, str(uuid4()))).status_code == 404
+
+    # The legacy loader put a copy in memory. A matching but nonexistent DB session still has no proof.
+    cached_only = uuid4()
+    original = store.sessions[UUID(session_id)]
+    store.sessions[cached_only] = replace(original, id=cached_only, calendar_match_attempt_id=None)
+    try:
+        assert proof_get(path=f"{pinned_path}/{cached_only}").status_code == 404
+        storage = client.app_state["storage"]
+        before_objects = dict(storage.objects)
+        refused_part(f"/api/v1/upload-sessions/{cached_only}/tracks/media/parts/0")
+        assert storage.objects == before_objects
+    finally:
+        store.sessions.pop(cached_only)
+
+    accepted_attempt = UUID(body["calendar_match_attempt_id"])
+
+    async def set_session_scope(device, revision, attempt_id=accepted_attempt):
+        async with client.app_state["sessionmaker"]() as db:
+            session = await db.get(UploadSession, UUID(session_id))
+            assert session is not None
+            session.device_id = device
+            session.media_revision_id = revision
+            session.calendar_match_attempt_id = attempt_id
+            await db.commit()
+
+    after = client.portal.call(upload_truth)
+    for device, revision, attempt_id in (
+        (REVOKED_DEVICE_ID, UUID(pinned_revision), accepted_attempt),
+        (DEVICE_ID, None, accepted_attempt),
+        (DEVICE_ID, UUID(pinned_revision), None),
+    ):
+        client.portal.call(set_session_scope, device, revision, attempt_id)
+        assert proof_get().status_code == 404
+        refused = client.post(pinned_path, headers=key_headers, json=exact)
+        assert refused.status_code == 409
+        assert refused.json()["code"] == "idempotency_conflict"
+        assert client.portal.call(upload_truth) == after
+    client.portal.call(set_session_scope, DEVICE_ID, UUID(pinned_revision), uuid4())
+    assert proof_get().status_code == 404
+    refused = client.post(pinned_path, headers=key_headers, json=exact)
+    assert refused.status_code == 409
+    assert refused.json()["code"] == "idempotency_conflict"
+    client.portal.call(set_session_scope, DEVICE_ID, UUID(pinned_revision))
+
+    async def set_writability(*, status="pending", deletion_state="none", expected_sizes=sizes):
+        async with client.app_state["sessionmaker"]() as db:
+            session = await db.get(UploadSession, UUID(session_id))
+            meeting = await db.get(Meeting, UUID(meeting_id))
+            session.status = status
+            session.expected_track_sizes = expected_sizes
+            meeting.deletion_state = deletion_state
+            await db.commit()
+
+    for kwargs in (
+        {"status": "finalized"},
+        {"deletion_state": "requested"},
+        {"expected_sizes": sizes | {"media": True}},
+    ):
+        client.portal.call(partial(set_writability, **kwargs))
+        assert proof_get().status_code == 404
+    client.portal.call(set_writability)
+    assert proof_get().status_code == 200
+
+    async def expire_auth_before_statement():
+        from twobrain_rec_server.db.models import AuthSession
+
+        async with client.app_state["sessionmaker"]() as db:
+            auth = await db.get(AuthSession, auth_id)
+            auth.expires_at = datetime.now(UTC) + timedelta(seconds=1)
+            await db.commit()
+            scalar = db.scalar
+
+            async def after_expiry(*args, **kwargs):
+                await asyncio.sleep(1.1)
+                return await scalar(*args, **kwargs)
+
+            with monkeypatch.context() as patch:
+                patch.setattr(db, "scalar", after_expiry)
+                with pytest.raises(problem) as expired:
+                    await status_module.get_calendar_upload_session_proof(
+                        UUID(meeting_id), UUID(session_id), UUID(pinned_revision),
+                        replace(_tenant_scope(), auth_session_id=auth_id), db,
+                    )
+                assert expired.value.status == 404
+            auth.expires_at = datetime.now(UTC) + timedelta(minutes=5)
+            await db.commit()
+
+    client.portal.call(expire_auth_before_statement)
+    assert proof_get().status_code == 200
+
+    async def expire_session(terminal):
+        async with client.app_state["sessionmaker"]() as db:
+            session = await db.get(UploadSession, UUID(session_id))
+            assert session is not None
+            session.expires_at = datetime.now(UTC) - timedelta(seconds=1)
+            if terminal:
+                session.status = "expired"
+            await db.commit()
+
+    for terminal in (False, True):
+        client.portal.call(expire_session, terminal)
+        assert proof_get().status_code == 404
+        expired = client.post(pinned_path, headers=key_headers, json=exact)
+        assert expired.status_code == 409
+        assert expired.json()["code"] == "session_terminal"
+        assert client.portal.call(upload_truth) == after
+
+
+    async def restore_session():
+        async with client.app_state["sessionmaker"]() as db:
+            original = await db.get(UploadSession, UUID(session_id))
+            original.status = "pending"
+            original.expires_at = datetime.now(UTC) + timedelta(minutes=5)
+            await db.commit()
+
+    async def make_replacement_authoritative():
+        async with client.app_state["sessionmaker"]() as db:
+            original = await db.get(UploadSession, UUID(session_id))
+            newer = MediaRevision(
+                workspace_id=WORKSPACE_ID, meeting_id=UUID(meeting_id),
+                local_media_revision_id=f"{body['local_recording_id']}--replacement",
+                revision_number=2, status="pending_upload",
+            )
+            db.add(newer)
+            await db.flush()
+            db.add(UploadSession(
+                meeting_id=original.meeting_id, media_revision_id=newer.id,
+                workspace_id=original.workspace_id, device_id=original.device_id,
+                created_by_user_id=original.created_by_user_id, status="pending",
+                expected_track_roles=original.expected_track_roles,
+                expected_track_sizes=original.expected_track_sizes,
+                max_package_bytes_snapshot=original.max_package_bytes_snapshot,
+                max_track_bytes_snapshot=original.max_track_bytes_snapshot,
+                expires_at=original.expires_at, created_at=original.created_at + timedelta(seconds=1),
+            ))
+            await db.commit()
+
+    client.portal.call(restore_session)
+    assert proof_get().status_code == 200
+    part_prefix = f"/api/v1/upload-sessions/{session_id}/tracks"
+    first_part = f"{part_prefix}/manifest/parts/0"
+    for stage in ("first", "replay"):
+        accepted = client.put(first_part, headers=part_headers, content=payload)
+        assert accepted.status_code == 200, (stage, accepted.json().get("code"))
+
+    storage = client.app_state["storage"]
+    before_objects = dict(storage.objects)
+    writes = []
+
+    async def set_binding(state):
+        async with client.app_state["sessionmaker"]() as db:
+            binding = await db.scalar(select(AuthSessionDeviceBinding).where(
+                AuthSessionDeviceBinding.auth_session_id == auth_id,
+            ))
+            binding.device_state = state
+            await db.commit()
+
+    parts_module = import_module("twobrain_rec_server.ingest.parts")
+    lock_meeting = parts_module.lock_meeting_fence
+
+    async def revoke_before_lock(*args, **kwargs):
+        await set_binding("revoked")
+        return await lock_meeting(*args, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(parts_module, "lock_meeting_fence", revoke_before_lock)
+        refused_part(first_part)
+    client.portal.call(set_binding, "trusted")
+    assert storage.objects == before_objects
+
+    def put_then_change(change):
+        async def put(key, stream, length):
+            writes.append(key)
+            storage.put_stream(key, stream, length)
+            await change()
+        return put
+
+    second_part = f"{part_prefix}/media/parts/0"
+    with monkeypatch.context() as patch:
+        patch.setattr(storage, "put_stream_async", put_then_change(partial(expire_session, False)), raising=False)
+        refused_part(second_part)
+    assert len(writes) == 1 and storage.objects == before_objects
+    client.portal.call(restore_session)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(storage, "put_stream_async", put_then_change(make_replacement_authoritative), raising=False)
+        refused_part(second_part)
+        assert len(writes) == 2
+        refused_part(first_part)
+        refused_part(second_part)
+        assert len(writes) == 2
+    assert storage.objects == before_objects
+    state = client.get(f"/api/v1/upload-sessions/{session_id}", headers=headers)
+    assert state.json()["accepted_bytes_by_track"] == {"manifest": len(payload)}
+    assert proof_get().status_code == 404
+
+    async def verify_calendar_cleanup_keeps_pin():
+        from twobrain_rec_server.calendar.lifecycle import account_meeting_calendar_context_deletion
+
+        async with client.app_state["sessionmaker"]() as db:
+            meeting = await db.get(Meeting, UUID(meeting_id))
+            assert await account_meeting_calendar_context_deletion(
+                db, meeting=meeting, actor_user_id=USER_ID, device_id=DEVICE_ID,
+            )
+            await db.commit()
+        async with client.app_state["sessionmaker"]() as db:
+            assert await db.get(RecordingCalendarMatchAttempt, accepted_attempt) is None
+            session = await db.get(UploadSession, UUID(session_id))
+            assert session.calendar_match_attempt_id == accepted_attempt
+
+    client.portal.call(verify_calendar_cleanup_keeps_pin)
+
+
+@pytest.mark.parametrize("rejection", ["automatic", "expired", "unknown", "different_start", "foreign_device", "late_failure"])
+def test_strict_calendar_create_rejection_has_no_ingest_side_effects(client, monkeypatch, rejection):
+    body = _strict_calendar_create_body(
+        client, intent="automatic" if rejection == "automatic" else "user_declined",
+    )
+    attempt_id = UUID(body["calendar_match_attempt_id"])
+    recording_id = body["local_recording_id"]
+    store = import_module("twobrain_rec_server.ingest.store").store
+    counts_before = len(store.meetings), len(store.audit_events)
+
+    async def expire():
+        async with client.app_state["sessionmaker"]() as db:
+            attempt = await db.get(RecordingCalendarMatchAttempt, attempt_id)
+            assert attempt is not None
+            attempt.expires_at = datetime.now(UTC) - timedelta(seconds=1)
+            await db.commit()
+
+    async def other_device_headers():
+        async with client.app_state["sessionmaker"]() as db:
+            device = RegisteredDevice(
+                id=uuid4(), workspace_id=WORKSPACE_ID, user_id=USER_ID,
+                device_public_id="strict-other-device", status="active",
+            )
+            db.add(device)
+            await db.flush()
+            issued = await issue_auth_session(
+                db, workspace_id=WORKSPACE_ID, user_id=USER_ID, provider="strict-test",
+                device_id=device.id,
+            )
+            db.add(AuthSessionDeviceBinding(
+                auth_session_id=issued.id, registered_device_id=device.id, device_state="trusted",
+            ))
+            await db.commit()
+            return {"Authorization": f"Bearer {issued.token}"}
+
+    headers = auth_headers()
+    if rejection == "expired":
+        client.portal.call(expire)
+    elif rejection == "foreign_device":
+        headers = client.portal.call(other_device_headers)
+    elif rejection == "unknown":
+        body["calendar_match_attempt_id"] = str(uuid4())
+    elif rejection == "different_start":
+        body["started_at"] = (datetime.fromisoformat(body["started_at"]) + timedelta(seconds=1)).isoformat()
+
+    async def truth():
+        async with client.app_state["sessionmaker"]() as db:
+            attempt = await db.get(RecordingCalendarMatchAttempt, attempt_id)
+            assert attempt is not None and attempt.consumed_at is None
+            return tuple([
+                await db.scalar(select(func.count()).select_from(model))
+                for model in (
+                    Meeting, MediaRevision, ProcessingPlaceholder, RecordingCalendarContextLink,
+                    IngestAuditEvent, CalendarAuditEvent,
+                )
+            ])
+
+    db_before = client.portal.call(truth)
+    if rejection == "late_failure":
+        api = import_module("twobrain_rec_server.api.ingest")
+        problems = import_module("twobrain_rec_server.api.problems")
+
+        async def fail_before_commit(db, meeting, context):
+            assert context is not None and context.context_state == "declined_by_user"
+            assert await db.get(MediaRevision, meeting.media_revision_id) is not None
+            attempt = await db.get(RecordingCalendarMatchAttempt, attempt_id)
+            assert attempt is not None and attempt.consumed_by_meeting_id == meeting.id
+            raise problems.ProblemDetail(status=503, code="synthetic_late_failure", title="Test fault")
+
+        with monkeypatch.context() as patch:
+            patch.setattr(api, "content_safe_meeting_response", fail_before_commit)
+            response = client.post(STRICT_CREATE_PATH, headers=headers, json=body)
+        assert response.status_code == 503
+        assert response.json()["code"] == "synthetic_late_failure"
+    else:
+        response = client.post(STRICT_CREATE_PATH, headers=headers, json=body)
+        assert response.status_code == 409
+        assert response.json()["code"] == "calendar_match_not_accepted"
+    assert client.portal.call(truth) == db_before
+    assert (len(store.meetings), len(store.audit_events)) == counts_before
+    assert (WORKSPACE_ID, USER_ID, recording_id) not in store.meetings_by_local_id
+    if rejection == "late_failure":
+        sync_path = f"/api/v1/desktop/recordings/{recording_id}/sync-state"
+        recovery = client.get(sync_path, headers=headers, params={"include_calendar_match_receipt": "true"})
+        assert recovery.status_code == 404
+        assert "calendar_match_receipt" not in recovery.json()
+        assert client.post(STRICT_CREATE_PATH, headers=headers, json=body).status_code == 200
+
+
+def test_strict_calendar_create_cannot_attach_to_legacy_meeting_without_proof(client):
+    body = _strict_calendar_create_body(client, intent="user_declined")
+    attempt_id = UUID(body["calendar_match_attempt_id"])
+
+    async def expire_then_return_deadline():
+        async with client.app_state["sessionmaker"]() as db:
+            attempt = await db.get(RecordingCalendarMatchAttempt, attempt_id)
+            deadline = attempt.expires_at
+            attempt.expires_at = datetime.now(UTC) - timedelta(seconds=1)
+            await db.commit()
+            return deadline
+
+    deadline = client.portal.call(expire_then_return_deadline)
+    api = import_module("twobrain_rec_server.api.ingest")
+
+    async def send_to_legacy_router():
+        legacy = FastAPI()
+        legacy.state = client.app.state
+        legacy.router.routes.extend(
+            route for route in api.router.routes if getattr(route, "path", None) == "/api/v1/meetings"
+        )
+        async with AsyncClient(transport=ASGITransport(app=legacy), base_url="http://testserver") as old:
+            headers = auth_headers()
+            absent = await old.post(STRICT_CREATE_PATH, headers=headers, json=body)
+            assert absent.status_code == 404
+            async with client.app_state["sessionmaker"]() as db:
+                assert await db.scalar(select(Meeting.id).where(
+                    Meeting.local_recording_id == body["local_recording_id"],
+                )) is None
+            return await old.post("/api/v1/meetings", headers=headers, json=body)
+
+    legacy = client.portal.call(send_to_legacy_router)
+    assert legacy.status_code == 200
+    meeting_id = UUID(legacy.json()["meeting_id"])
+
+    async def restore_deadline():
+        async with client.app_state["sessionmaker"]() as db:
+            attempt = await db.get(RecordingCalendarMatchAttempt, attempt_id)
+            attempt.expires_at = deadline
+            await db.commit()
+
+    client.portal.call(restore_deadline)
+    refused = client.post(STRICT_CREATE_PATH, headers=auth_headers(), json=body)
+    assert refused.status_code == 409
+    assert refused.json()["code"] == "calendar_match_not_accepted"
+    _, _, consumed_by, context, *_ = _load_attempt_context_truth(
+        client, attempt_id=attempt_id, meeting_id=meeting_id,
+    )
+    assert consumed_by is None and context == "skipped_offline_or_unknown"
+
+
+@pytest.mark.parametrize("create_first", [False, True])
+def test_strict_calendar_create_and_replay_respect_origin_deletion(client, create_first):
+    body = _strict_calendar_create_body(client, intent="user_declined")
+    headers = auth_headers()
+    if create_first:
+        assert client.post(STRICT_CREATE_PATH, headers=headers, json=body).status_code == 200
+
+    copy = import_module("twobrain_rec_server.deletion.report").BOUNDED_DELETE_COPY
+    deletion = client.post(
+        f"/api/v1/desktop/recordings/{body['local_recording_id']}/deletion-requests",
+        headers=headers,
+        json={"operation_id": str(uuid4()), "confirmation_boundary": copy},
+    )
+    assert deletion.status_code == 202
+    refused = client.post(STRICT_CREATE_PATH, headers=headers, json=body)
+    assert refused.status_code == 409
+    assert refused.json()["code"] == (
+        "meeting_deletion_active" if create_first else "recording_deletion_active"
+    )
+
+
+@pytest.mark.parametrize("replay", [False, True])
+def test_strict_calendar_create_rejects_revocation_while_waiting_for_origin(client, monkeypatch, replay):
+    body = _strict_calendar_create_body(client, intent="user_declined")
+    recording_id = body["local_recording_id"]
+    attempt_id = UUID(body["calendar_match_attempt_id"])
+    meetings = import_module("twobrain_rec_server.ingest.meetings")
+    lock_origin = meetings.lock_recording_origin
+
+    async def run_race():
+        async with client.app_state["sessionmaker"]() as writer:
+            issued = await issue_auth_session(
+                writer, workspace_id=WORKSPACE_ID, user_id=USER_ID,
+                provider="strict-race", device_id=DEVICE_ID,
+            )
+            writer.add(AuthSessionDeviceBinding(
+                auth_session_id=issued.id, registered_device_id=DEVICE_ID, device_state="trusted",
+            ))
+            await writer.commit()
+            headers = {"Authorization": f"Bearer {issued.token}"}
+            async with AsyncClient(transport=ASGITransport(app=client.app), base_url="http://testserver") as http:
+                if replay:
+                    assert (await http.post(STRICT_CREATE_PATH, headers=headers, json=body)).status_code == 200
+                await lock_origin(writer, _tenant_scope(), recording_id)
+                waiting = asyncio.Event()
+
+                async def observe_lock(db, scope, origin):
+                    waiting.set()
+                    await lock_origin(db, scope, origin)
+
+                with monkeypatch.context() as patch:
+                    patch.setattr(meetings, "lock_recording_origin", observe_lock)
+                    async with asyncio.timeout(5), asyncio.TaskGroup() as tasks:
+                        response = tasks.create_task(http.post(STRICT_CREATE_PATH, headers=headers, json=body))
+                        await waiting.wait()
+                        device = await writer.get(RegisteredDevice, DEVICE_ID)
+                        assert device is not None
+                        device.status = "revoked"
+                        await writer.commit()
+                assert response.result().status_code == 409
+            attempt = await writer.get(RecordingCalendarMatchAttempt, attempt_id)
+            assert attempt is not None
+            assert (attempt.consumed_at is not None) == replay
+            meeting_count = await writer.scalar(select(func.count()).select_from(Meeting).where(
+                Meeting.local_recording_id == recording_id,
+            ))
+            assert meeting_count == int(replay)
+
+    client.portal.call(run_race)
+
+@pytest.mark.parametrize("replay", [False, True])
+def test_calendar_upload_session_rechecks_revoked_binding_after_meeting_lock(client, monkeypatch, replay):
+    body = _strict_calendar_create_body(client, intent="user_declined")
+    recording = body["local_recording_id"]
+    body["local_media_revision_id"] = f"{recording}--initial"
+    assert client.post(STRICT_CREATE_PATH, headers=auth_headers(), json=body).status_code == 200
+    state = client.get(
+        f"/api/v1/desktop/recordings/{recording}/sync-state",
+        headers=auth_headers(), params={"local_media_revision_id": body["local_media_revision_id"]},
+    ).json()
+    meeting_id = UUID(state["meeting"]["meeting_id"])
+    path = f"/api/v1/desktop/meetings/{meeting_id}/upload-sessions"
+    payload = {
+        "expected_media_revision_id": state["media_revision"]["media_revision_id"],
+        "calendar_match_attempt_id": body["calendar_match_attempt_id"],
+        "expected_track_sizes": {"manifest": 100, "media": 200, "playback": 300},
+    }
+    sessions = import_module("twobrain_rec_server.ingest.sessions")
+    lock_meeting = sessions.lock_meeting_fence
+
+    async def run_race():
+        async with client.app_state["sessionmaker"]() as writer:
+            issued = await issue_auth_session(
+                writer, workspace_id=WORKSPACE_ID, user_id=USER_ID,
+                provider="pinned-race", device_id=DEVICE_ID,
+            )
+            binding = AuthSessionDeviceBinding(
+                auth_session_id=issued.id, registered_device_id=DEVICE_ID, device_state="trusted",
+            )
+            writer.add(binding)
+            await writer.commit()
+            headers = {"Authorization": f"Bearer {issued.token}", "Idempotency-Key": f"pinned-race-{meeting_id}"}
+
+            async def truth():
+                meeting = await writer.get(Meeting, meeting_id, populate_existing=True)
+                return (
+                    meeting.status,
+                    await writer.scalar(select(func.count()).where(UploadSession.meeting_id == meeting_id)),
+                    await writer.scalar(select(func.count()).where(IngestAuditEvent.meeting_id == meeting_id)),
+                )
+
+            async with AsyncClient(transport=ASGITransport(app=client.app), base_url="http://testserver") as http:
+                if replay:
+                    assert (await http.post(path, headers=headers, json=payload)).status_code == 200
+                before = await truth()
+                await lock_meeting(writer, workspace_id=WORKSPACE_ID, meeting_id=meeting_id)
+                waiting = asyncio.Event()
+
+                async def observe_lock(db, **kwargs):
+                    waiting.set()
+                    return await lock_meeting(db, **kwargs)
+
+                with monkeypatch.context() as patch:
+                    patch.setattr(sessions, "lock_meeting_fence", observe_lock)
+                    async with asyncio.timeout(5), asyncio.TaskGroup() as tasks:
+                        response = tasks.create_task(http.post(path, headers=headers, json=payload))
+                        await waiting.wait()
+                        binding.device_state = "revoked"
+                        await writer.commit()
+                assert response.result().status_code == 409
+                assert response.result().json()["code"] == "calendar_match_not_accepted"
+                assert await truth() == before
+
+    client.portal.call(run_race)
+
+
+@pytest.mark.parametrize("case", [
+    "revoke_before_publish", "revoke_before_degraded", "single_part", "multipart",
+    "cache_only", "expires_after_admission", "part_arrives_before_degraded",
+    "protected_part", "protected_missing", "protected_cleaner_claimed", "protected_recovery_changed",
+    "protected_no_archive", "protected_commit_lost_accepted", "protected_commit_lost_rolled_back",
+])
+def test_calendar_finalize_rechecks_admission(client, monkeypatch, tmp_path, case):
+    body = _strict_calendar_create_body(client, intent="user_declined")
+    recording = body["local_recording_id"]
+    body["local_media_revision_id"] = f"{recording}--initial"
+    assert client.post(STRICT_CREATE_PATH, headers=auth_headers(), json=body).status_code == 200
+    state = client.get(
+        f"/api/v1/desktop/recordings/{recording}/sync-state", headers=auth_headers(),
+        params={"local_media_revision_id": body["local_media_revision_id"]},
+    ).json()
+    meeting_id = UUID(state["meeting"]["meeting_id"])
+    revision_id = UUID(state["media_revision"]["media_revision_id"])
+    sessionmaker = client.app_state["sessionmaker"]
+    tracks = {"manifest": b"manifest", "media": b"two media parts", "playback": b"playback"}
+
+    async def issue_token():
+        async with sessionmaker() as db:
+            issued = await issue_auth_session(
+                db, workspace_id=WORKSPACE_ID, user_id=USER_ID, provider="calendar-finalize-test", device_id=DEVICE_ID,
+            )
+            binding = AuthSessionDeviceBinding(
+                auth_session_id=issued.id, registered_device_id=DEVICE_ID, device_state="trusted",
+            )
+            db.add(binding)
+            await db.commit()
+            return issued.token, binding.id
+
+    token, binding_id = client.portal.call(issue_token)
+    headers = {"Authorization": f"Bearer {token}"}
+    opened = client.post(
+        f"/api/v1/desktop/meetings/{meeting_id}/upload-sessions",
+        headers=headers | {"Idempotency-Key": f"finalize-pin-{meeting_id}"},
+        json={
+            "expected_media_revision_id": str(revision_id),
+            "calendar_match_attempt_id": body["calendar_match_attempt_id"],
+            "expected_track_sizes": {role: len(data) for role, data in tracks.items()},
+        },
+    )
+    assert opened.status_code == 200
+    session_id = UUID(opened.json()["session_id"])
+    path = f"/api/v1/upload-sessions/{session_id}"
+    for role, data in tracks.items():
+        chunks = (data,)
+        if role == "media":
+            if case == "multipart":
+                chunks = (data[:4], data[4:])
+            elif case == "part_arrives_before_degraded":
+                chunks = (data[:4],)
+        offset = 0
+        for number, chunk in enumerate(chunks):
+            reply = client.put(
+                f"{path}/tracks/{role}/parts/{number}", content=chunk,
+                headers=headers | {"X-Byte-Offset": str(offset), "X-Content-SHA256": sha256(chunk).hexdigest()},
+            )
+            assert reply.status_code == 200
+            offset += len(chunk)
+
+    storage = client.app_state["storage"]
+    parts_before = dict(storage.objects)
+    protected = case.startswith("protected_")
+    expected_keys = set(parts_before)
+    journal_id = uuid4()
+    recovery_file = tmp_path / "recovery"
+    if protected:
+        recovery_id = uuid4()
+        settings = client.app.state.settings
+        settings.strict_storage_scope = "test-scope"
+        settings.strict_storage_recovery_file = recovery_file
+        settings.strict_storage_recovery_id = recovery_id
+        recovery_file.with_suffix(".lock").touch()
+        recovery_file.write_text(json.dumps({
+            "schema": 1, "scope": "test-scope", "state": "reconciled", "recovery_id": str(recovery_id),
+        }))
+
+        async def seed_protected_part():
+            async with sessionmaker.begin() as db:
+                part = await db.scalar(select(UploadPart).where(
+                    UploadPart.upload_session_id == session_id, UploadPart.track_role == "media",
+                ))
+                old_key = part.storage_object_key
+                protected_key = f"{old_key.rsplit('/', 1)[0]}/calendar-attempts/1/7"
+                part.storage_object_key = protected_key
+                custody = await db.scalar(select(TemporaryUploadObject).where(
+                    TemporaryUploadObject.upload_session_id == session_id,
+                    TemporaryUploadObject.storage_object_key == old_key,
+                ))
+                custody.storage_object_key = protected_key
+                if case != "protected_missing":
+                    db.add(PurgeJournal(
+                        id=journal_id, workspace_id=WORKSPACE_ID, meeting_id=meeting_id,
+                        media_revision_id=revision_id, deletion_epoch=0,
+                        artifact_class="strict_upload_attempt", object_key=protected_key,
+                        state="retained", write_state="accepted", multipart_upload_id="synthetic-upload-id",
+                        storage_scope="test-scope", storage_epoch=1,
+                    ))
+                return old_key, protected_key
+
+        old_key, protected_key = client.portal.call(seed_protected_part)
+        expected_keys.remove(old_key)
+        expected_keys.add(protected_key)
+    finalize_body = {
+        "manifest_sha256": sha256(tracks["manifest"]).hexdigest(),
+        "tracks": [track_descriptor(role, data=data) for role, data in tracks.items()],
+        "archive_audio": case != "protected_no_archive",
+    }
+    finalize_path = f"{path}/finalize"
+
+    async def truth():
+        async with sessionmaker() as db:
+            meeting = await db.get(Meeting, meeting_id)
+            session = await db.get(UploadSession, session_id)
+            revision = await db.get(MediaRevision, revision_id)
+            events = await db.scalars(select(IngestAuditEvent.event_type).where(
+                IngestAuditEvent.upload_session_id == session_id,
+                IngestAuditEvent.event_type.in_(["finalized", "finalize_degraded"]),
+            ))
+            keys = await db.scalars(select(TrackArtifact.storage_object_key).where(
+                TrackArtifact.media_revision_id == revision_id,
+            ))
+            return meeting.status, session.status, revision.status, list(events), set(keys)
+
+    async def revoke():
+        async with sessionmaker() as db:
+            binding = await db.get(AuthSessionDeviceBinding, binding_id)
+            binding.device_state = "revoked"
+            await db.commit()
+
+    before = client.portal.call(truth)
+    finalize_module = import_module("twobrain_rec_server.ingest.finalize")
+    persist_degraded = finalize_module._persist_degraded_finalize_failure
+    lock_meeting = finalize_module._lock_finalize_lifecycle_fence
+    require_access = finalize_module.require_calendar_upload_access
+
+    async def claim_before_publish(*args, **kwargs):
+        async with sessionmaker.begin() as db:
+            journal = await db.get(PurgeJournal, journal_id)
+            journal.state = "deleting"
+        return await lock_meeting(*args, **kwargs)
+
+    persist_audit = finalize_module.persist_audit_event
+    commit = AsyncSession.commit
+
+    async def mark_finalize_commit(db, *args, **kwargs):
+        await persist_audit(db, *args, **kwargs)
+        db.info["simulate_lost_finalize_commit"] = True
+
+    async def lose_finalize_commit(db):
+        if not db.info.pop("simulate_lost_finalize_commit", False):
+            return await commit(db)
+        if case == "protected_commit_lost_accepted":
+            await commit(db)
+        else:
+            await db.rollback()
+        raise SQLAlchemyError("synthetic commit response lost")
+
+    async def change_recovery_before_commit(*args, **kwargs):
+        await persist_audit(*args, **kwargs)
+        recovery_file.unlink()
+
+    async def revoke_then_degrade(**kwargs):
+        await revoke()
+        return await persist_degraded(**kwargs)
+
+    async def revoke_then_lock(*args, **kwargs):
+        await revoke()
+        return await lock_meeting(*args, **kwargs)
+
+    async def expire_after_admission(db, session, tenant_scope):
+        await require_access(db, session, tenant_scope)
+        session.expires_at = datetime.now(UTC) - timedelta(seconds=1)
+        async with sessionmaker() as writer:
+            saved = await writer.get(UploadSession, session_id)
+            saved.expires_at = session.expires_at
+            await writer.commit()
+
+    async def accept_second_part_then_degrade(**kwargs):
+        chunk = tracks["media"][4:]
+        async with AsyncClient(transport=ASGITransport(app=client.app), base_url="http://testserver") as http:
+            part = await http.put(
+                f"{path}/tracks/media/parts/1", content=chunk,
+                headers=headers | {"X-Byte-Offset": "4", "X-Content-SHA256": sha256(chunk).hexdigest()},
+            )
+            assert part.status_code == 200
+        return await persist_degraded(**kwargs)
+
+    materialized = []
+    materialize = finalize_module._materialize_track_object
+
+    async def count_materialization(**kwargs):
+        materialized.append(kwargs["role"])
+        return await materialize(**kwargs)
+
+    if case == "cache_only":
+        store = import_module("twobrain_rec_server.ingest.store").store
+        missing_id = uuid4()
+        store.sessions[missing_id] = replace(store.sessions[session_id], id=missing_id, calendar_match_attempt_id=None)
+        finalize_path = f"/api/v1/upload-sessions/{missing_id}/finalize"
+
+    with monkeypatch.context() as patch:
+        patch.setattr(finalize_module, "_materialize_track_object", count_materialization)
+        if protected:
+            def forbidden_storage(*args, **kwargs):
+                pytest.fail("Single-part protected finalization must not access storage")
+            for method in ("iter_object", "get_bytes", "get_bytes_async", "put_stream", "delete_object"):
+                patch.setattr(storage, method, forbidden_storage)
+        if case == "protected_cleaner_claimed":
+            patch.setattr(finalize_module, "_lock_finalize_lifecycle_fence", claim_before_publish)
+        if case == "protected_recovery_changed":
+            patch.setattr(finalize_module, "persist_audit_event", change_recovery_before_commit)
+        if case.startswith("protected_commit_lost_"):
+            patch.setattr(finalize_module, "persist_audit_event", mark_finalize_commit)
+            patch.setattr(AsyncSession, "commit", lose_finalize_commit)
+        if case == "revoke_before_degraded":
+            patch.setattr(finalize_module, "_persist_degraded_finalize_failure", revoke_then_degrade)
+            finalize_body = finalize_body | {"manifest_sha256": sha256(b"wrong").hexdigest()}
+        if case == "revoke_before_publish":
+            patch.setattr(finalize_module, "_lock_finalize_lifecycle_fence", revoke_then_lock)
+        if case == "expires_after_admission":
+            patch.setattr(finalize_module, "require_calendar_upload_access", expire_after_admission)
+        if case == "part_arrives_before_degraded":
+            patch.setattr(finalize_module, "_persist_degraded_finalize_failure", accept_second_part_then_degrade)
+            finalize_body = finalize_body | {"manifest_sha256": sha256(b"wrong").hexdigest()}
+        result = client.post(finalize_path, headers=headers, json=finalize_body)
+    after = client.portal.call(truth)
+    if case in ("single_part", "protected_part", "protected_no_archive", "protected_commit_lost_accepted"):
+        if case == "protected_commit_lost_accepted":
+            assert result.status_code == 503 and result.json()["code"] == "persistence_unavailable"
+        else:
+            assert result.status_code == 200, result.json()
+        assert after[1:4] == ("finalized", "accepted", ["finalized"])
+        assert after[4] == expected_keys
+        assert len(materialized) == 3
+        if protected:
+            async def retained_journal():
+                async with sessionmaker() as db:
+                    row = await db.get(PurgeJournal, journal_id)
+                    custody = await db.scalar(select(TemporaryUploadObject).where(
+                        TemporaryUploadObject.upload_session_id == session_id,
+                        TemporaryUploadObject.storage_object_key == protected_key,
+                    ))
+                    return row.state, row.write_state, row.object_key, custody.object_role
+            expected_role = "transient_source" if case == "protected_no_archive" else "accepted_part"
+            assert client.portal.call(retained_journal) == ("retained", "accepted", protected_key, expected_role)
+    else:
+        expected_status, expected_code = {
+            "multipart": (503, "calendar_finalize_multipart_unavailable"),
+            "part_arrives_before_degraded": (503, "calendar_finalize_multipart_unavailable"),
+            "expires_after_admission": (409, "session_expired"),
+        }.get(case, (404, "upload_session_not_found"))
+        if protected:
+            expected_status, expected_code = 503, "strict_upload_part_unavailable"
+        if case == "protected_commit_lost_rolled_back":
+            expected_code = "persistence_unavailable"
+        assert result.status_code == expected_status, result.json()
+        assert result.json()["code"] == expected_code
+        assert after == before
+        assert len(materialized) == (3 if case in ("revoke_before_publish", "expires_after_admission") or protected else 0)
+    if case == "part_arrives_before_degraded":
+        assert parts_before.items() <= storage.objects.items()
+        assert [data for key, data in storage.objects.items() if key not in parts_before] == [tracks["media"][4:]]
+    else:
+        assert storage.objects == parts_before
+
+
+@pytest.mark.parametrize("tamper", [False, True], ids=["valid", "missing-attempt-metadata"])
+def test_strict_track_assembly_real_minio_and_calendar_owner(client, tmp_path, tamper):
+    """Opt-in proof with the pinned, disposable loopback MinIO."""
+    from contextlib import contextmanager
+    from io import BytesIO
+    from time import monotonic
+
+    from minio import Minio
+
+    from twobrain_rec_server.api.schemas import TrackDescriptor
+    from twobrain_rec_server.db.tenant_context import apply_tenant_scope
+    from twobrain_rec_server.domain.statuses import TrackRole, UploadSessionStatus
+    from twobrain_rec_server.ingest import store, strict_upload
+    from twobrain_rec_server.ingest.media_revisions import mark_media_revision_accepted
+    from twobrain_rec_server.ingest.status import require_calendar_upload_access
+    from twobrain_rec_server.storage.minio_client import MinioStorage, StorageTransferError
+    from twobrain_rec_server.storage.strict_upload_writer import StrictUploadWriteTarget
+
+    endpoint = os.environ.get("GRAF_TEST_STRICT_MINIO_ENDPOINT")
+    if not endpoint:
+        pytest.skip("requires a dedicated disposable MinIO")
+    host, port = endpoint.split(":")
+    assert host == "127.0.0.1" and port.isdecimal()
+    access = os.environ["GRAF_TEST_STRICT_MINIO_ACCESS"]
+    secret = os.environ["GRAF_TEST_STRICT_MINIO_SECRET"]
+    bucket = f"graf-test-{uuid4().hex}"
+    recovery = uuid4()
+    path = tmp_path / "recovery"
+    path.with_suffix(".lock").touch()
+    path.write_text(json.dumps({
+        "schema": 1, "scope": "test-scope", "state": "reconciled", "recovery_id": str(recovery),
+    }))
+    settings = client.app.state.settings.model_copy(update={
+        "minio_endpoint": endpoint, "minio_access_key": access, "minio_secret_key": secret,
+        "minio_secure": False, "minio_bucket": bucket, "strict_storage_scope": "test-scope",
+        "strict_storage_recovery_file": path, "strict_storage_recovery_id": recovery,
+        "strict_storage_read_fence_directory": tmp_path,
+    })
+    storage = MinioStorage(settings)
+    storage.client.make_bucket(bucket)
+    target = StrictUploadWriteTarget(
+        f"http://{endpoint}", socket.getaddrinfo(host, port, type=socket.SOCK_STREAM), bucket,
+        lambda pool: Minio(
+            endpoint, access_key=access, secret_key=secret, secure=False, http_client=pool, region="us-east-1",
+        ),
+    )
+
+    @contextmanager
+    def admit_generation(scope, current, epoch):
+        assert (scope, current, epoch) == ("test-scope", str(recovery), 1)
+        yield target
+
+    create = _strict_calendar_create_body(client, intent="user_declined")
+    recording = create["local_recording_id"]
+    create["local_media_revision_id"] = f"{recording}--initial"
+    assert client.post(STRICT_CREATE_PATH, headers=auth_headers(), json=create).status_code == 200
+    state = client.get(
+        f"/api/v1/desktop/recordings/{recording}/sync-state", headers=auth_headers(),
+        params={"local_media_revision_id": create["local_media_revision_id"]},
+    ).json()
+    meeting_id = UUID(state["meeting"]["meeting_id"])
+    revision_id = UUID(state["media_revision"]["media_revision_id"])
+    sessions = client.app_state["sessionmaker"]
+    payloads = {TrackRole.MANIFEST: (b"manifest",), TrackRole.MEDIA: (b"first-", b"second"), TrackRole.PLAYBACK: (b"preview",)}
+
+    async def issue():
+        async with sessions.begin() as db:
+            issued = await issue_auth_session(
+                db, workspace_id=WORKSPACE_ID, user_id=USER_ID, provider="calendar-finalize-test", device_id=DEVICE_ID,
+            )
+            db.add(AuthSessionDeviceBinding(
+                auth_session_id=issued.id, registered_device_id=DEVICE_ID, device_state="trusted",
+            ))
+            return issued.id, issued.token
+
+    auth_id, token = client.portal.call(issue)
+    opened = client.post(
+        f"/api/v1/desktop/meetings/{meeting_id}/upload-sessions",
+        headers={"Authorization": f"Bearer {token}", "Idempotency-Key": f"strict-minio-{meeting_id}"},
+        json={
+            "expected_media_revision_id": str(revision_id),
+            "calendar_match_attempt_id": create["calendar_match_attempt_id"],
+            "expected_track_sizes": {role.value: sum(map(len, chunks)) for role, chunks in payloads.items()},
+        },
+    )
+    assert opened.status_code == 200
+    session_id = UUID(opened.json()["session_id"])
+    scope = replace(_tenant_scope(), auth_session_id=auth_id)
+
+    async def run():
+        deadline = monotonic() + 30
+        descriptors = [
+            TrackDescriptor(
+                track_role=role, codec="wav", sample_rate_hz=48_000, channel_count=1, duration_seconds=1,
+                byte_length=sum(map(len, chunks)), sha256=sha256(b"".join(chunks)).hexdigest(),
+            )
+            for role, chunks in payloads.items()
+        ]
+        manifest, media, _playback = descriptors
+        keys = {}
+        async with sessions() as db:
+            await apply_tenant_scope(db, scope)
+            await db.commit()
+            async with db.begin():
+                session = await store.load_upload_session_record(db, session_id)
+            assert session is not None
+
+            async def product_access(_meeting):
+                await require_calendar_upload_access(db, session, scope)
+
+            for role, chunks in payloads.items():
+                offset = 0
+                for number, chunk in enumerate(chunks):
+                    obj = strict_upload.StrictUploadObject(WORKSPACE_ID, meeting_id, revision_id, session_id, role, number)
+                    digest = sha256(chunk).hexdigest()
+                    staged = await strict_upload.stage_strict_upload(
+                        db, settings=settings, object=obj, epoch=1, admission=admit_generation,
+                        admit_product=product_access, source=BytesIO(chunk),
+                        byte_length=len(chunk), expected_sha256=digest, deadline=deadline,
+                    )
+                    part = store.UploadPartRecord(role, number, offset, len(chunk), digest, staged.key, b"")
+                    async with strict_upload.accept_strict_uploads(
+                        db, settings=settings, staged=(staged,), tenant_scope=scope,
+                        admission=admit_generation, deadline=deadline,
+                    ):
+                        session.status = UploadSessionStatus.UPLOADING
+                        await store.persist_upload_session(db, session, commit=False)
+                        await store.persist_temporary_upload_object(db, session, part, commit=False)
+                        await store.persist_upload_part(db, session, part, commit=False)
+                    offset += len(chunk)
+                    keys[role] = staged.key
+
+            async with db.begin():
+                session = await store.load_upload_session_record(db, session_id)
+                meeting = await store.load_meeting_record(db, meeting_id=meeting_id, retain_in_memory=False)
+            assert session is not None and meeting is not None
+            reused = {keys[TrackRole.MANIFEST], keys[TrackRole.PLAYBACK]}
+            if tamper:
+                # An operator replacing an object can preserve its bytes but
+                # cannot manufacture ownership just by matching the checksum.
+                second = payloads[TrackRole.MEDIA][1]
+                await asyncio.to_thread(
+                    storage.client.put_object, bucket, keys[TrackRole.MEDIA], BytesIO(second), len(second),
+                )
+                with pytest.raises(StorageTransferError, match="source_mismatch"):
+                    async with strict_upload.assemble_strict_track(
+                        db, settings=settings, tenant_scope=scope, session=session, track=media, storage=storage,
+                        recovery=str(recovery), deletion_epoch=0, deadline=deadline,
+                    ):
+                        pytest.fail("track containing an unowned object reached the writer")
+                async with sessions() as observer:
+                    upload = await observer.get(UploadSession, session_id)
+                    assert upload.status == UploadSessionStatus.UPLOADING.value
+                    assert await observer.scalar(select(func.count()).select_from(TrackArtifact).where(
+                        TrackArtifact.media_revision_id == revision_id,
+                    )) == 0
+                    assert await observer.scalar(select(func.count()).select_from(PurgeJournal).where(
+                        PurgeJournal.meeting_id == meeting_id, PurgeJournal.state == "retained",
+                        PurgeJournal.write_state == "accepted",
+                    )) == 4
+                return {}
+            async with strict_upload.assemble_strict_track(
+                db, settings=settings, tenant_scope=scope, session=session, track=media, storage=storage,
+                recovery=str(recovery), deletion_epoch=0, deadline=deadline,
+            ) as stream:
+                combined = await strict_upload.stage_strict_upload(
+                    db, settings=settings, object=strict_upload.StrictUploadObject(
+                        WORKSPACE_ID, meeting_id, revision_id, session_id, TrackRole.MEDIA,
+                    ), epoch=1, admission=admit_generation, admit_product=product_access,
+                    source=stream, byte_length=media.byte_length, expected_sha256=media.sha256, deadline=deadline,
+                )
+            keys[TrackRole.MEDIA] = combined.key
+            async with strict_upload.accept_strict_uploads(
+                db, settings=settings, staged=(combined,), tenant_scope=scope,
+                admission=admit_generation, deadline=deadline,
+            ):
+                await mark_media_revision_accepted(
+                    db, media_revision_id=revision_id, manifest_sha256=manifest.sha256, tracks=descriptors, commit=False,
+                )
+                session.status = UploadSessionStatus.FINALIZED
+                session.finalized_at = datetime.now(UTC)
+                await store.persist_upload_session(db, session, commit=False)
+                await store.persist_finalized_tracks(
+                    db, meeting, session, descriptors, manifest.sha256, keys, reused_strict_keys=reused, commit=False,
+                )
+        async with sessions() as observer:
+            row = await observer.get(PurgeJournal, combined.id)
+            assert (row.state, row.write_state) == ("retained", "accepted")
+            assert set(await observer.scalars(select(TrackArtifact.storage_object_key).where(
+                TrackArtifact.media_revision_id == revision_id,
+            ))) == set(keys.values())
+        return keys
+
+    keys = client.portal.call(run)
+    if tamper:
+        assert len(list(storage.client.list_objects(bucket, recursive=True))) == 4
+    for role, key in keys.items():
+        response = storage.client.get_object(bucket, key)
+        try:
+            assert response.read() == b"".join(payloads[role])
+        finally:
+            response.close()
+            response.release_conn()

@@ -1671,8 +1671,13 @@ def test_profile_menu_theme_and_disabled_action_contract_is_shared() -> None:
     assert ".sidebar-profile-menu__item--disabled" in css
     assert ".sidebar-profile-menu__theme-form .theme-picker__options" in css
     assert ".sidebar-profile-menu__submenu" in css
-    assert "inset-inline-start: calc(100% + 8px);" in css
-    assert ".sidebar-profile-menu__disclosure.is-flipped" in css
+    assert "inset: var(--profile-submenu-top, 8px) auto auto var(--profile-submenu-left, 8px);" in css
+    assert "@media (max-width: 520px) {" in css
+    assert "@media (max-width: 520px), (max-height: 620px) {" not in css
+    assert ".sidebar-profile-menu__submenu[popover]" in css
+    assert 'submenu.popover = "manual"' in script
+    assert 'submenu.hidePopover()' in script
+    assert 'menu.addEventListener("scroll"' in script
     assert "width: min(248px, calc(var(--profile-menu-viewport-width, 100vw) - 16px));" in css
     assert "inset: auto auto var(--profile-menu-bottom, calc(12px + 48px)) 8px;" in css
     assert "height: max-content;" in css

@@ -19,6 +19,12 @@ NORMALIZATION_GATE_FIELDS = (
     "forbidden_metadata_result",
 )
 
+LEGACY_STORAGE_RECOVERY = """
+storage_recovery_start_mode=legacy
+image_attempt="$PWD/.fixture-release-attempt"
+storage_recovery_release_state() { echo legacy; }
+"""
+
 
 def _normalization_gate_payload(**overrides: str) -> dict[str, str]:
     payload = {field: "pass" for field in NORMALIZATION_GATE_FIELDS}
@@ -380,9 +386,11 @@ printf 'extended_acl_result=blocked\n'
     assert result.stdout == "extended_acl_result=blocked\n"
 
 
-@pytest.mark.parametrize("helper_status", [0, 1])
+@pytest.mark.parametrize(("helper_status", "recovery_mode", "recovery_exit"), [
+    (0, "legacy", 0), (0, "reconciled", 0), (0, "unknown", 0), (0, "legacy", 23), (1, "legacy", 0),
+])
 def test_remote_deploy_resolves_prepared_media_id_without_existing_container(
-    helper_status: int,
+    helper_status: int, recovery_mode: str, recovery_exit: int,
 ) -> None:
     runtime = (Path(__file__).parents[4] / "infra/scripts/cd-remote-runtime.sh").read_text()
     gate_start = runtime.index('media_image="$(')
@@ -396,6 +404,11 @@ python3() {{
   [[ "$HELPER_STATUS" == "0" ]] || return 1
   printf 'sha256:fixture\\n'
 }}
+storage_recovery_release_state() {{
+  [[ "$media_image" == "sha256:fixture" ]] || return 9
+  printf '%s\\n' "$RECOVERY_MODE"
+  return "$RECOVERY_EXIT"
+}}
 {image_gate}
 [[ "$media_image" == "sha256:fixture" ]]
 """.replace("{{", "{{").replace("}}", "}}")
@@ -403,9 +416,14 @@ python3() {{
         ["bash", "-c", fixture_script],
         capture_output=True,
         text=True,
-        env={**os.environ, "HELPER_STATUS": str(helper_status)},
+        env={
+            **os.environ, "HELPER_STATUS": str(helper_status), "RECOVERY_MODE": recovery_mode,
+            "RECOVERY_EXIT": str(recovery_exit),
+        },
     )
-    assert result.returncode == helper_status, result.stderr
+    recovery_blocked = not helper_status and (recovery_exit or recovery_mode not in {"legacy", "reconciled"})
+    assert result.returncode == int(bool(helper_status or recovery_blocked)), result.stderr
+    assert ("reason=storage_recovery_binding_unverified" in result.stdout) == bool(recovery_blocked)
     assert '"${compose[@]}" images -q rec-media-worker' not in runtime
 
 
@@ -467,6 +485,7 @@ previous_schema_head=0037_auth_rate_limit_buckets
 expected_schema_head=0041_share_account_created_email
 backup_reference=fixture-backup
 legacy_lineage_rows=1
+{LEGACY_STORAGE_RECOVERY}
 {restore_block}
 feature_truth_count() {{ printf '0\\n'; }}
 rollback_feature_database() {{
@@ -539,6 +558,7 @@ previous_schema_head=fixture_previous
 expected_schema_head=0108_public_consent
 previous_sha=fixture_previous_sha
 backup_reference=fixture_backup
+{LEGACY_STORAGE_RECOVERY}
 {database_source}
 {restore_source}
 feature_truth_count() {{ printf '0\\n'; }}
@@ -763,6 +783,7 @@ previous_schema_head=0022_previous
 expected_schema_head=0023_expected
 previous_sha=previous-incompatible-sha
 backup_reference=fixture-backup
+{LEGACY_STORAGE_RECOVERY}
 {helper_source}
 compose_stub() {{
   case "$1" in
@@ -824,9 +845,13 @@ def test_remote_deploy_turns_signals_into_nonzero_exit_for_rollback_trap() -> No
     assert "trap 'exit 143' TERM" in runtime
 
 
-@pytest.mark.parametrize("stop_exit", [0, 23])
+@pytest.mark.parametrize(("stop_exit", "recovery_mode", "seal_exit", "intent_exit", "boundary_exit"), [
+    (0, "legacy", 0, 0, 0), (23, "legacy", 0, 0, 0), (0, "reconciled", 0, 0, 0),
+    (23, "reconciled", 0, 0, 0), (0, "reconciled", 17, 0, 0),
+    (0, "reconciled", 0, 19, 0), (0, "reconciled", 0, 0, 21), (0, "reconciled", 0, 0, 124),
+])
 def test_remote_deploy_stops_previous_reconciliation_consumers_before_runtime_up(
-    tmp_path: Path, stop_exit: int,
+    tmp_path: Path, stop_exit: int, recovery_mode: str, seal_exit: int, intent_exit: int, boundary_exit: int,
 ) -> None:
     runtime = (Path(__file__).parents[4] / "infra/scripts/cd-remote-runtime.sh").read_text()
     baseline = runtime.index("\ncapture_processing_runtime_baseline\n")
@@ -835,6 +860,13 @@ def test_remote_deploy_stops_previous_reconciliation_consumers_before_runtime_up
     fixture_script = """
 set -euo pipefail
 compose=(compose_stub)
+image_helper=fixture-helper
+image_attempt_id=fixture-attempt
+runtime_release_lock_fd=9
+previous_schema_head=fixture_old
+expected_schema_head=fixture_new
+backup_reference=/fixture-backup
+storage_recovery_start_mode="$RECOVERY_MODE"
 trap 'printf "exit:%s\\n" "$?" >>"$TRACE_PATH"' EXIT
 capture_processing_runtime_baseline() { printf 'baseline\\n' >>"$TRACE_PATH"; }
 verify_billing_notification_runtime() { return 0; }
@@ -844,23 +876,66 @@ compose_stub() {
   printf 'compose:%s\\n' "$*" >>"$TRACE_PATH"
   if [[ "$1:$2" == "stop:rec-api" ]]; then
     test "$runtime_mutated" = 1
-    return "$STOP_EXIT"
+    if [[ " $* " == *" rec-media-worker "* ]]; then return "$STOP_EXIT"; fi
   fi
 }
 run_step() { shift; "$@"; }
 env() { while [[ "$1" == *=* ]]; do shift; done; "$@"; }
+timeout() {
+  [[ "$1 $2" == "--kill-after=1s 5s" ]] || return 9
+  shift 2
+  if [[ "$BOUNDARY_EXIT" == 124 ]]; then
+    printf 'boundary-timeout\\n' >>"$TRACE_PATH"
+    return 124
+  fi
+  "$@"
+}
+python3() {
+  if [[ "$2" == "record-start-boundary" ]]; then
+    test "$*" = "fixture-helper record-start-boundary --attempt-id fixture-attempt --deployment-lock-fd 9"
+    printf 'boundary\\n' >>"$TRACE_PATH"
+    return "$BOUNDARY_EXIT"
+  fi
+  if [[ "$2" == "record-start-intent" ]]; then
+    test "$*" = "fixture-helper record-start-intent --attempt-id fixture-attempt --deployment-lock-fd 9"
+    printf 'intent\\n' >>"$TRACE_PATH"
+    return "$INTENT_EXIT"
+  fi
+  test "$*" = "fixture-helper forbid-rollback --attempt-id fixture-attempt --previous-schema fixture_old --candidate-schema fixture_new --backup-reference /fixture-backup"
+  printf 'seal\\n' >>"$TRACE_PATH"
+  return "$SEAL_EXIT"
+}
 """ + runtime[baseline:end]
     result = subprocess.run(
         ["bash", "-c", fixture_script], check=False, capture_output=True, text=True,
-        env={**os.environ, "TRACE_PATH": str(trace_path), "STOP_EXIT": str(stop_exit)},
+        env={**os.environ, "TRACE_PATH": str(trace_path), "STOP_EXIT": str(stop_exit),
+             "RECOVERY_MODE": recovery_mode, "SEAL_EXIT": str(seal_exit), "INTENT_EXIT": str(intent_exit),
+             "BOUNDARY_EXIT": str(boundary_exit)},
     )
     trace = trace_path.read_text().splitlines()
-    assert result.returncode == stop_exit, result.stderr
-    assert trace[:2] == ["baseline", "compose:stop rec-api rec-processing-worker rec-maintenance"]
+    assert result.returncode == (seal_exit or stop_exit or intent_exit or boundary_exit), result.stderr
+    prefix = ["baseline", "seal"] if recovery_mode == "reconciled" else ["baseline"]
+    if seal_exit:
+        assert trace == [*prefix, f"exit:{seal_exit}"]
+        return
+    if recovery_mode == "reconciled":
+        prefix.append("intent")
+    if intent_exit:
+        assert trace == [*prefix, f"exit:{intent_exit}"]
+        return
+    prefix.append("compose:stop rec-api rec-processing-worker rec-media-worker rec-maintenance")
+    assert trace[:len(prefix)] == prefix
     if stop_exit:
-        assert trace == [*trace[:2], f"exit:{stop_exit}"]
+        assert trace == [*prefix, f"exit:{stop_exit}"]
     else:
-        assert any(line.startswith("compose:up ") for line in trace)
+        prefix.append("public_download")
+        if recovery_mode == "reconciled":
+            prefix.append("boundary-timeout" if boundary_exit == 124 else "boundary")
+        assert trace[:len(prefix)] == prefix
+        if boundary_exit:
+            assert trace == [*prefix, f"exit:{boundary_exit}"]
+        else:
+            assert trace[len(prefix)].startswith("compose:up ")
     assert "trap rollback_on_exit EXIT" in runtime
     assert "restore_previous_runtime" in runtime
 
@@ -893,7 +968,7 @@ compose_stub() {
     *) return 2 ;;
   esac
 }
-""" + runtime[start:end] + "\nrestore_previous_runtime\n"
+""" + LEGACY_STORAGE_RECOVERY + runtime[start:end] + "\nrestore_previous_runtime\n"
     result = subprocess.run(
         ["bash", "-c", fixture_script], check=False, capture_output=True, text=True,
         env={**os.environ, "TRACE_PATH": str(trace_path), "STOP_EXIT": str(stop_exit)},
@@ -908,6 +983,49 @@ compose_stub() {
     else:
         assert result.returncode == 0, result.stderr
         assert trace[-1] == "compatibility"
+
+
+@pytest.mark.parametrize(("start_mode", "observed_mode", "probe_exit", "sealed"), [
+    ("reconciled", "legacy", 0, False),
+    ("legacy", "reconciled", 0, False),
+    ("legacy", "legacy", 23, False),
+    ("legacy", "", 1, False),
+    ("", "legacy", 0, False),
+    ("legacy", "legacy", 0, True),
+])
+def test_storage_recovery_blocks_all_automatic_rollback_mutations(tmp_path, start_mode, observed_mode, probe_exit, sealed):
+    runtime = (Path(__file__).parents[4] / "infra/scripts/cd-remote-runtime.sh").read_text()
+    start = runtime.index("restore_previous_runtime()")
+    end = runtime.index("rollback_on_exit()", start)
+    trace = tmp_path / "compose-trace"
+    attempt = tmp_path / "attempt"
+    attempt.mkdir()
+    if sealed:
+        (attempt / "no-rollback.json").touch()
+    fixture = """
+set -euo pipefail
+compose=(compose_stub)
+storage_recovery_start_mode="$1"
+observed_mode="$2"
+probe_exit="$3"
+trace="$4"
+image_attempt="$5"
+storage_recovery_release_state() { printf '%s\\n' "$observed_mode"; return "$probe_exit"; }
+compose_stub() { printf '%s\\n' "$*" >>"$trace"; }
+rollback_feature_database() { echo forbidden_database; }
+rollback_feature_storage() { echo forbidden_storage; }
+restore_previous_services() { echo forbidden_previous; }
+restore_compatibility_runtime() { echo forbidden_compatibility; }
+restore_previous_safe_processing_runtime() { echo forbidden_fallback; }
+""" + runtime[start:end] + "\nrestore_previous_runtime\n"
+    result = subprocess.run(
+        ["bash", "-c", fixture, "recovery-test", start_mode, observed_mode, str(probe_exit), str(trace), str(attempt)],
+        check=False, capture_output=True, text=True,
+    )
+    assert result.returncode == 1
+    assert "rollback_reason=storage_recovery_compatibility_unverified" in result.stdout
+    assert "forbidden" not in result.stdout
+    assert trace.read_text().splitlines() == ["stop rec-api rec-processing-worker rec-media-worker rec-maintenance"]
 
 
 def test_remote_deploy_publishes_and_verifies_the_public_installer(
@@ -1294,7 +1412,8 @@ if cleanup_runtime_files; then exit 1; fi
     assert result.returncode == 0, result.stderr
 
 
-def test_failed_public_installer_restore_keeps_api_stopped(tmp_path: Path) -> None:
+@pytest.mark.parametrize(("stop_exit", "installer_exit"), [(0, 1), (17, 0)])
+def test_failed_installer_restore_or_consumer_stop_blocks_all_restarts(tmp_path: Path, stop_exit, installer_exit) -> None:
     runtime = (Path(__file__).parents[4] / "infra/scripts/cd-remote-runtime.sh").read_text()
     helper_start = runtime.index("rollback_on_exit()")
     helper_end = runtime.index("trap rollback_on_exit EXIT", helper_start)
@@ -1308,8 +1427,8 @@ deployment_complete=0
 backup_reference=fixture-backup
 previous_sha=previous-sha
 {helper_source}
-compose_stub() {{ printf 'api_stopped\n' >>"$TRACE_PATH"; }}
-restore_public_download() {{ return 1; }}
+compose_stub() {{ printf '%s\n' "$*" >>"$TRACE_PATH"; return "$STOP_EXIT"; }}
+restore_public_download() {{ return "$INSTALLER_EXIT"; }}
 restore_previous_runtime() {{ printf 'api_restarted\n' >>"$TRACE_PATH"; }}
 cleanup_runtime_files() {{ return 0; }}
 set +e
@@ -1321,13 +1440,14 @@ rollback_on_exit
         check=False,
         capture_output=True,
         text=True,
-        env={**os.environ, "TRACE_PATH": str(trace_path)},
+        env={**os.environ, "TRACE_PATH": str(trace_path), "STOP_EXIT": str(stop_exit), "INSTALLER_EXIT": str(installer_exit)},
     )
 
     assert result.returncode != 0
-    assert "public_download_rollback_result=blocked" in result.stdout
+    assert ("public_download_rollback_result=blocked" in result.stdout) is bool(installer_exit)
+    assert ("rollback_storage_recovery_stop=failed" in result.stdout) is bool(stop_exit)
     assert "rollback_result=blocked" in result.stdout
-    assert trace_path.read_text() == "api_stopped\n"
+    assert trace_path.read_text().splitlines() == ["stop rec-api rec-processing-worker rec-media-worker rec-maintenance"]
 
 
 def test_remote_deploy_marks_dispatch_open_before_enabling_worker_reconciliation() -> None:

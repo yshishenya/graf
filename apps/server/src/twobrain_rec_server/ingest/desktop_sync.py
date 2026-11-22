@@ -7,6 +7,7 @@ from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.api.schemas import (
     CustodyIncidentReadModel,
     CustodyReadModel,
+    DesktopCalendarMatchReceipt,
     DesktopPlaybackProof,
     DesktopRecordingSyncStateResponse,
     DesktopSyncConflict,
@@ -22,9 +23,18 @@ from twobrain_rec_server.api.schemas import (
 from twobrain_rec_server.auth.context import TenantScope
 from twobrain_rec_server.cabinet.access import AccessDecision
 from twobrain_rec_server.cabinet.egress import desktop_playback_proof
+from twobrain_rec_server.calendar.matching import (
+    active_calendar_match_access,
+    explicit_calendar_match_state,
+)
 from twobrain_rec_server.config import Settings
+from twobrain_rec_server.db.models import (
+    MediaRevision,
+    ProcessingResult,
+    ProcessingWorkflow,
+    RecordingCalendarMatchAttempt,
+)
 from twobrain_rec_server.db.models import Meeting as MeetingModel
-from twobrain_rec_server.db.models import ProcessingResult, ProcessingWorkflow
 from twobrain_rec_server.deletion.retention import retention_projection
 from twobrain_rec_server.domain.statuses import (
     CustodyMetadataSafety,
@@ -48,6 +58,7 @@ from twobrain_rec_server.ingest.media_revisions import normalize_initial_local_m
 from twobrain_rec_server.ingest.ranges import missing_ranges_for_expected_sizes
 from twobrain_rec_server.ingest.store import (
     FinalizedUploadCustody,
+    MeetingRecord,
     UploadSessionRecord,
     finalized_upload_custody_for_revision,
     load_active_upload_session_for_meeting,
@@ -55,6 +66,7 @@ from twobrain_rec_server.ingest.store import (
     load_upload_session_record,
     persist_meeting,
     persist_upload_session,
+    preferred_meeting_revision,
     restore_meeting_after_upload_session_lifecycle,
 )
 from twobrain_rec_server.outcomes.progress import summary_progress
@@ -758,6 +770,54 @@ def _copy_meeting_state(target: object, source: object | None) -> None:
         setattr(target, field, getattr(source, field))
 
 
+async def calendar_match_receipt(
+    db: AsyncSession,
+    *,
+    tenant_scope: TenantScope,
+    meeting: MeetingRecord,
+    expected_revision_id: str,
+) -> DesktopCalendarMatchReceipt | None:
+    attempt = RecordingCalendarMatchAttempt
+    # Recheck access and the authoritative revision in the same read as the receipt.
+    revision = (
+        preferred_meeting_revision(tenant_scope.workspace_id, meeting.id)
+        .with_only_columns(MediaRevision.id)
+        .correlate(None)
+        .scalar_subquery()
+    )
+    query = (
+        select(attempt.id, attempt.decision_intent, attempt.attempt_state)
+        .join(MeetingModel, MeetingModel.id == attempt.consumed_by_meeting_id)
+        .join(MediaRevision, MediaRevision.meeting_id == MeetingModel.id)
+        .where(
+            attempt.workspace_id == tenant_scope.workspace_id,
+            attempt.owner_user_id == tenant_scope.user_id,
+            attempt.device_id == tenant_scope.device_id,
+            attempt.local_recording_id == meeting.local_recording_id,
+            attempt.consumed_at < attempt.expires_at,
+            MeetingModel.id == meeting.id,
+            MeetingModel.workspace_id == attempt.workspace_id,
+            MeetingModel.created_by_user_id == attempt.owner_user_id,
+            MeetingModel.device_id == attempt.device_id,
+            MeetingModel.local_recording_id == attempt.local_recording_id,
+            MeetingModel.deleted_at.is_(None),
+            MeetingModel.deletion_state == DeletionState.NONE.value,
+            MediaRevision.id == revision,
+            MediaRevision.id == meeting.media_revision_id,
+            MediaRevision.workspace_id == attempt.workspace_id,
+            MediaRevision.local_media_revision_id == expected_revision_id,
+            MediaRevision.status != MediaRevisionStatus.DELETED.value,
+        )
+    )
+    query = query.where(*active_calendar_match_access(tenant_scope))
+    row = (await db.execute(query)).one_or_none()
+    if row is None:
+        return None
+    attempt_id, intent, state = row
+    explicit_state = explicit_calendar_match_state(intent, state)
+    return DesktopCalendarMatchReceipt(attempt_id=attempt_id, state=explicit_state) if explicit_state else None
+
+
 async def get_desktop_recording_sync_state(
     *,
     tenant_scope: TenantScope,
@@ -766,6 +826,7 @@ async def get_desktop_recording_sync_state(
     local_media_revision_id: str | None,
     settings: Settings | None = None,
     storage: object | None = None,
+    include_calendar_match_receipt: bool = False,
 ) -> DesktopRecordingSyncStateResponse:
     meeting = await load_meeting_record(
         db,
@@ -980,9 +1041,21 @@ async def get_desktop_recording_sync_state(
             summary_status = await summary_progress(
                 db, meeting=summary_meeting, result=review_projection_result,
             )
+    receipt = None
+    if (
+        include_calendar_match_receipt
+        and db is not None
+        and access_state == "owner"
+        and metadata_conflict.state == SyncConflictState.NONE
+        and deletion_conflict.state == SyncConflictState.NONE
+    ):
+        receipt = await calendar_match_receipt(
+            db, tenant_scope=tenant_scope, meeting=meeting, expected_revision_id=expected_revision_id,
+        )
     return DesktopRecordingSyncStateResponse(
         local_recording_id=meeting.local_recording_id,
         local_media_revision_id=meeting.local_media_revision_id or expected_revision_id,
+        calendar_match_receipt=receipt,
         meeting=DesktopSyncMeetingState(
             meeting_id=meeting.id,
             status=meeting.status,
@@ -1057,8 +1130,7 @@ async def lookup_recording_lifecycle(db: AsyncSession, scope: TenantScope, paylo
     )
     from twobrain_rec_server.db.models import MeetingDeletionRequest
     from twobrain_rec_server.deletion.origin_cancellation import origin_cancellation
-    from twobrain_rec_server.deletion.report import lifecycle_state
-    from twobrain_rec_server.deletion.service import lifecycle_for_meeting
+    from twobrain_rec_server.deletion.service import meeting_deletion_lifecycle
 
     results = []
     targets = [("own_origin", origin) for origin in dict.fromkeys(payload.origins)]
@@ -1108,7 +1180,7 @@ async def lookup_recording_lifecycle(db: AsyncSession, scope: TenantScope, paylo
                             request_id=deletion.id, meeting_id=meeting.id,
                             deletion_epoch=int(meeting.deletion_epoch or 0),
                             local_recording_id=meeting.local_recording_id if kind == "own_origin" else None,
-                            lifecycle=lifecycle_state(await lifecycle_for_meeting(meeting=meeting)),
+                            lifecycle=await meeting_deletion_lifecycle(db, meeting=meeting),
                             report_url=f"/api/v1/cabinet/meetings/{meeting.id}/deletion-report",
                         )
             elif decision.can_view:

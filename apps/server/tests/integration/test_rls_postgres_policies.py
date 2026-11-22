@@ -1799,7 +1799,7 @@ async def test_merged_billing_lineage_remains_visible_and_appealable_under_force
     assert await historical_snapshot() == before
     migration = import_module("twobrain_rec_server.db.migrations.versions.0113_fair_use_operator_history")
     async with case.owner.connect() as conn:
-        assert await conn.scalar(text("SELECT version_num FROM alembic_version")) == "0113_fair_use_operator_history"
+        assert await conn.scalar(text("SELECT version_num FROM alembic_version")) == "0115_f200_strict_upload_journal"
         assert (await conn.execute(text("SELECT relrowsecurity,relforcerowsecurity FROM pg_class WHERE oid='public.fair_use_reviews'::regclass"))).one() == (True, True)
         assert (await conn.execute(text("SELECT tgname,tgenabled::text FROM pg_trigger WHERE tgrelid='public.fair_use_reviews'::regclass AND NOT tgisinternal ORDER BY tgname"))).all() == [
             ("fair_use_audit_append", "A"), ("fair_use_review_guard", "A"), ("fair_use_review_truncate_guard", "A"),

@@ -76,12 +76,16 @@ if a[0]=='cp':
  shutil.copyfile(root/'container-stage'/artifact,a[2]);sys.exit(0)
 if a[0]=='run':
  cmd=a[a.index('-c')+1]
+ env=dict(os.environ)
  for flag_index,value in enumerate(a):
   if value=='-v':
    mount=a[flag_index+1]; source,dest,*_=mount.split(':')
    cmd=cmd.replace(dest,source)
+  if value=='-e':
+   key,value=a[flag_index+1].split('=',1)
+   env[key]=value
  os.umask(0o022)
- sys.exit(subprocess.call(['sh','-c',cmd]))
+ sys.exit(subprocess.call(['sh','-c',cmd],env=env))
 sys.exit(8)
 """
 MC = r"""#!/usr/bin/env python3
@@ -170,6 +174,29 @@ def rehearsal(env):
         capture_output=True,
         timeout=15,
     )
+
+
+def test_forward_restore_cannot_resolve_stores_in_a_project_from_the_environment(restore_env):
+    import ast
+
+    root = Path(restore_env["RESTORE_TEST_ROOT"])
+    scripts = root / "scripts"
+    (scripts / "release-images.py").write_text('print("synthetic-mc")\n')
+    (scripts / "verify-rec-object-backup.py").touch()
+    backup = root / "backup"
+    for artifact in ("inventory.jsonl", "checksums.sha256", "minio-inventory.jsonl"):
+        (backup / artifact).touch()
+    result = subprocess.run(
+        [str(scripts / "rehearse-rec-restore.sh"), "--execute", "--forward-attempt", "a" * 32],
+        cwd=root, env={**restore_env, "COMPOSE_PROJECT_NAME": "unrelated-project"},
+        text=True, capture_output=True, timeout=15,
+    )
+    assert result.returncode == 1  # Fake stores do not provide valid container IDs.
+    calls = [ast.literal_eval(line) for line in (root / "calls").read_text().splitlines()]
+    assert calls == [
+        ["compose", "--project-name", "twobrain-rec", "-f", "infra/docker-compose.yml", "ps", "-q", service]
+        for service in ("rec-postgres", "rec-minio")
+    ]
 
 
 def test_restore_cleans_only_confirmed_own_targets_before_pass(restore_env):
