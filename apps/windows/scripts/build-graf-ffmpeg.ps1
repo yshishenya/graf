@@ -177,7 +177,11 @@ function Run([string]$Exe, [string[]]$Arguments, [string]$Label, [int]$TimeoutSe
         $process.StartInfo.UseShellExecute = $false
         $process.StartInfo.RedirectStandardOutput = $true
         $process.StartInfo.RedirectStandardError = $true
+        # No step reads stdin; closing it prevents a silent wait on a console
+        # handle that does not exist on a hosted runner.
+        $process.StartInfo.RedirectStandardInput = $true
         if (!$process.Start()) { throw "Could not start $Label" }
+        try { $process.StandardInput.Close() } catch { }
         Write-Host ("FFmpeg stage started name={0} pid={1}" -f $Label, $process.Id)
         $stdout = $process.StandardOutput.ReadToEndAsync()
         $stderr = $process.StandardError.ReadToEndAsync()
@@ -273,6 +277,18 @@ try {
         if ($tool -notmatch ('[\\/]' + [regex]::Escape($manifest.toolchain.vctools_version) + '[\\/]bin[\\/]Host(?:x64|arm64)[\\/]x64[\\/]')) { throw 'Unexpected MSVC tool path.' }
     }
     foreach ($inputFile in @($manifest.source) + @($manifest.build_tools)) { $null = Download $inputFile }
+    # Extraction writes thousands of files; a real-time scan can hold the
+    # process without any CPU progress. Exclusions are best-effort metadata for
+    # this disposable directory only.
+    try {
+        $addPreference = Get-Command Add-MpPreference -ErrorAction SilentlyContinue
+        if ($null -ne $addPreference) {
+            Add-MpPreference -ExclusionPath $work, $prefix -ErrorAction Stop
+            Write-Host 'FFmpeg defender_exclusion=applied'
+        }
+    } catch {
+        Write-Host 'FFmpeg defender_exclusion=unavailable'
+    }
     # Bootstrap needs native Windows paths; PATH may resolve a POSIX tar.
     $tar = Join-Path $env:SystemRoot 'System32\tar.exe'
     Run $tar @('-xf', "$work\msys2-base.tar.xz", '-C', $work) 'tools-extract' 900
