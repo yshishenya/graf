@@ -65,3 +65,14 @@ Assertion failed: sealed.normalPackage() && sealed.durationMs == frames*10
    метка сверяется с накопленной позицией расшифрованных кадров плюс
    ограниченное начальное смещение priming (не больше одного AAC-кадра), а
    допуск остаётся 1 мс.
+
+## Дрейф OpenAPI после свода (2026-11-22)
+
+Полная проверка выпуска `v2026.11.22.1` (run 45066123531) упала на
+`test_runtime_openapi_matches_committed_contract`: календарные upload-сессии и
+строгий журнал загрузки появились в рантайме, но committed-контракт
+`specs/012-server-ingest-foundation/contracts/openapi.yaml` их не содержал.
+
+Контракт пересобран из рантайма с сохранением порядка прежних ключей: только
+добавления, 538 строк, без удалений. Проверка `merged_equals_runtime=True`
+подтверждает совпадение с `create_app(settings).openapi()`.
