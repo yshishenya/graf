@@ -164,12 +164,13 @@ if ($work.StartsWith($prefix + '\', [StringComparison]::OrdinalIgnoreCase) -or
 }
 $null = New-Item -ItemType Directory -Path $work, $prefix
 $null = New-Item -ItemType Directory -Path "$prefix\share\graf", "$prefix\include\graf"
-function Run([string]$Exe, [string[]]$Arguments, [string]$Label) {
+function Run([string]$Exe, [string[]]$Arguments, [string]$Label, [int]$TimeoutSeconds = 1800) {
     # All arguments are fixed flags/validated paths; no command string or stdin.
-    Write-Utf8 "$prefix\share\graf\$Label.command.json" (Json ([ordered]@{ executable = $Exe; sha256 = Hash $Exe; arguments = $Arguments }))
+    Write-Utf8 "$prefix\share\graf\$Label.command.json" (Json ([ordered]@{ executable = $Exe; sha256 = Hash $Exe; arguments = $Arguments; timeout_seconds = $TimeoutSeconds }))
     $elapsed = [Diagnostics.Stopwatch]::StartNew()
     Write-Host ("FFmpeg stage start name={0}" -f $Label)
     $process = New-Object Diagnostics.Process
+    $timedOut = $false
     try {
         $process.StartInfo.FileName = $Exe
         $process.StartInfo.Arguments = ($Arguments | ForEach-Object { '"' + $_ + '"' }) -join ' '
@@ -180,10 +181,34 @@ function Run([string]$Exe, [string[]]$Arguments, [string]$Label) {
         Write-Host ("FFmpeg stage started name={0} pid={1}" -f $Label, $process.Id)
         $stdout = $process.StandardOutput.ReadToEndAsync()
         $stderr = $process.StandardError.ReadToEndAsync()
-        $process.WaitForExit()
+        # A bounded wait keeps one stuck stage from consuming the whole job
+        # budget without any evidence. Normal exits are unaffected.
+        $nextProgress = 30
+        while (-not $process.WaitForExit(1000)) {
+            if ($TimeoutSeconds -gt 0 -and $elapsed.Elapsed.TotalSeconds -ge $TimeoutSeconds) {
+                $timedOut = $true
+                try { $process.Kill() } catch { }
+                $null = $process.WaitForExit(15000)
+                break
+            }
+            if ($elapsed.Elapsed.TotalSeconds -ge $nextProgress) {
+                Write-Host ("FFmpeg stage progress name={0} elapsed_ms={1}" -f $Label, $elapsed.ElapsedMilliseconds)
+                $nextProgress += 30
+            }
+        }
+        $outText = ''
+        $errText = ''
+        try { $outText = [string]$stdout.GetAwaiter().GetResult() } catch { }
+        try { $errText = [string]$stderr.GetAwaiter().GetResult() } catch { }
+        Write-Utf8 "$prefix\share\graf\$Label.stdout.log" $outText
+        Write-Utf8 "$prefix\share\graf\$Label.stderr.log" $errText
+        if ($timedOut) {
+            Write-Host ("FFmpeg stage timeout name={0} elapsed_ms={1} limit_seconds={2}" -f $Label, $elapsed.ElapsedMilliseconds, $TimeoutSeconds)
+            Write-Host ("FFmpeg stage output_bytes name={0} stdout={1} stderr={2}" -f $Label, $outText.Length, $errText.Length)
+            Write-Utf8 "$prefix\share\graf\$Label.terminal.json" (Json ([ordered]@{ timeout = $true; limit_seconds = $TimeoutSeconds }))
+            throw "$Label exceeded $TimeoutSeconds seconds; logs retained in install directory."
+        }
         Write-Host ("FFmpeg stage terminal name={0} exit={1} elapsed_ms={2}" -f $Label, $process.ExitCode, $elapsed.ElapsedMilliseconds)
-        Write-Utf8 "$prefix\share\graf\$Label.stdout.log" ($stdout.GetAwaiter().GetResult())
-        Write-Utf8 "$prefix\share\graf\$Label.stderr.log" ($stderr.GetAwaiter().GetResult())
         Write-Utf8 "$prefix\share\graf\$Label.terminal.json" (Json ([ordered]@{ exit = $process.ExitCode }))
         if ($process.ExitCode -ne 0) { throw "$Label failed with exit $($process.ExitCode); logs retained in install directory." }
     } finally { $process.Dispose() }
@@ -231,13 +256,13 @@ try {
     foreach ($inputFile in @($manifest.source) + @($manifest.build_tools)) { $null = Download $inputFile }
     # Bootstrap needs native Windows paths; PATH may resolve a POSIX tar.
     $tar = Join-Path $env:SystemRoot 'System32\tar.exe'
-    Run $tar @('-xf', "$work\msys2-base.tar.xz", '-C', $work) 'tools-extract'
+    Run $tar @('-xf', "$work\msys2-base.tar.xz", '-C', $work) 'tools-extract' 900
     $msys = "$work\msys64"
     $env:PATH = "$msys\usr\bin;$originalPath"
     foreach ($name in @('make.pkg.tar.zst', 'diffutils.pkg.tar.zst')) {
-        Run "$msys\usr\bin\tar.exe" @('-xf', (Shell-Path "$work\$name"), '-C', (Shell-Path $msys)) ('extract-' + $name)
+        Run "$msys\usr\bin\tar.exe" @('-xf', (Shell-Path "$work\$name"), '-C', (Shell-Path $msys)) ('extract-' + $name) 600
     }
-    Run "$msys\usr\bin\tar.exe" @('-xf', (Shell-Path "$work\$($manifest.source.name)"), '-C', (Shell-Path $work)) 'source-extract'
+    Run "$msys\usr\bin\tar.exe" @('-xf', (Shell-Path "$work\$($manifest.source.name)"), '-C', (Shell-Path $work)) 'source-extract' 600
     $source = "$work\ffmpeg-$($manifest.version)"
     $before = Json @(Inventory $source)
     Write-Utf8 "$prefix\share\graf\source-before.json" $before
@@ -256,7 +281,7 @@ cd "$work/build"
     $shell += "`n`"`$work/ffmpeg-7.1.5/configure`" " + ($manifest.configure -join ' ') + ' --prefix="$prefix"' + "`nmake V=1 -j2`nmake install`n"
     Write-Utf8 "$work\build.sh" $shell
     $env:GRAF_FFMPEG_WORK = $work; $env:GRAF_FFMPEG_PREFIX = $prefix
-    Run "$msys\usr\bin\bash.exe" @('--noprofile', '--norc', (Shell-Path "$work\build.sh")) 'build'
+    Run "$msys\usr\bin\bash.exe" @('--noprofile', '--norc', (Shell-Path "$work\build.sh")) 'build' 3600
     $after = Json @(Inventory $source)
     if ($after -cne $before) { throw 'FFmpeg source changed during the build.' }
     Copy-Item -LiteralPath "$work\$($manifest.source.name)" -Destination "$prefix\share\graf"
