@@ -34,6 +34,11 @@ void observeProtectedInspectionPhase(unsigned stage) noexcept;
 std::uint64_t playbackContainerDurationForTest(std::uint64_t observed) noexcept;
 #endif
 namespace {
+// Internal diagnostics only: the public result stays "invalid content", but the
+// exact rejected invariant is visible as a stable HRESULT.
+constexpr HRESULT playbackInvariant(std::uint32_t code) noexcept {
+    return MAKE_HRESULT(SEVERITY_ERROR, FACILITY_ITF, static_cast<WORD>(code));
+}
 
 bool confinedFile(const std::filesystem::path& directory, const std::filesystem::path& path) {
     std::error_code error;
@@ -411,7 +416,7 @@ HRESULT decodePlayback(IMFSourceReader* reader, std::uint64_t durationMs,
         const auto close = [expected](std::uint64_t value) { return value > 0 && (value > expected ? value-expected : expected-value) <= 1'000'000; };
         // MF can report zero container duration below one AAC-LC frame; require that exact decoded frame at EOF.
         const bool subFrameContainer = evidence.containerDuration100ns == 0 && durationMs*48 < 1024;
-        if (!close(evidence.containerDuration100ns) && !subFrameContainer) return MF_E_INVALIDMEDIATYPE;
+        if (!close(evidence.containerDuration100ns) && !subFrameContainer) return playbackInvariant(1);
         status = call([&] { return MFCreateMediaType(&pcm); }); if (FAILED(status)) return status;
         status = call([&] { return pcm->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Audio); }); if (FAILED(status)) return status;
         status = call([&] { return pcm->SetGUID(MF_MT_SUBTYPE, MFAudioFormat_PCM); }); if (FAILED(status)) return status;
@@ -423,27 +428,62 @@ HRESULT decodePlayback(IMFSourceReader* reader, std::uint64_t durationMs,
             number(actual.Get(), MF_MT_AUDIO_AVG_BYTES_PER_SECOND, 96'000)}) if (FAILED(check)) return check;
         const auto bound = (durationMs+100)*48;
         const auto ticks = [](std::uint64_t frames) { return frames/48'000*10'000'000 + frames%48'000*10'000'000/48'000; };
-        LONGLONG previousTime = -1;
+        LONGLONG previousTime = -1, previousSpan = 0;
+        std::uint64_t primingOffset100ns = 0;
+        // One AAC-LC frame. Some decoders keep the encoder priming as a bounded
+        // initial offset; every timestamp is still compared with the cumulative
+        // decoded position, so small per-sample gaps cannot accumulate.
+        constexpr std::uint64_t kFrameTicks100ns = 1024ull*10'000'000/48'000;
+        constexpr std::uint64_t kTimestampTolerance100ns = 10'000;
         for (;;) {
             DWORD stream = 0, flags = 0; LONGLONG timestamp = 0;
             ComPtr<IMFSample> sample;
-            status = call([&] { return reader->ReadSample(0, 0, &stream, &flags, &timestamp, &sample); }); if (FAILED(status)) return status;
-            if (stream || (flags & ~MF_SOURCE_READERF_ENDOFSTREAM) || timestamp < 0) return MF_E_INVALIDMEDIATYPE;
+            status = call([&] { return reader->ReadSample(0, 0, &stream, &flags, &timestamp, &sample); });
+            // Media sources may signal the end with an HRESULT instead of the
+            // end-of-stream flag; both mean the same and are validated below.
+            if (status == MF_E_END_OF_STREAM) { flags |= MF_SOURCE_READERF_ENDOFSTREAM; status = S_OK; }
+            if (FAILED(status)) return status;
+            if (stream || (flags & ~MF_SOURCE_READERF_ENDOFSTREAM) || timestamp < 0) return playbackInvariant(3);
             if (sample) {
                 DWORD length = 0; LONGLONG time = 0, span = 0;
                 status = call([&] { return sample->GetTotalLength(&length); }); if (FAILED(status)) return status;
-                if (!length || length%2 || length/2 > bound-evidence.decodedFrames) return MF_E_INVALIDMEDIATYPE;
+                if (!length || length%2 || length/2 > bound-evidence.decodedFrames) return playbackInvariant(4);
                 status = call([&] { return sample->GetSampleTime(&time); }); if (FAILED(status)) return status;
                 status = call([&] { return sample->GetSampleDuration(&span); }); if (FAILED(status)) return status;
-                const auto position = ticks(evidence.decodedFrames), sampleTicks = ticks(length/2);
+                const auto sampleTicks = ticks(length/2);
                 const auto distance = [](std::uint64_t a, std::uint64_t b) { return a > b ? a-b : b-a; };
-                if (time != timestamp || time < previousTime || span <= 0 || distance(static_cast<std::uint64_t>(time), position) > 209 ||
-                    distance(static_cast<std::uint64_t>(span), sampleTicks) > 209) return MF_E_INVALIDMEDIATYPE;
-                previousTime = time;
+                if (time != timestamp || span <= 0 || time < previousTime) return playbackInvariant(5);
+                if (previousTime < 0) {
+                    primingOffset100ns = static_cast<std::uint64_t>(time);
+                    if (primingOffset100ns > kFrameTicks100ns+kTimestampTolerance100ns) return playbackInvariant(6);
+                } else {
+                    const auto position = ticks(evidence.decodedFrames) + primingOffset100ns;
+                    if (distance(static_cast<std::uint64_t>(time), position) > kTimestampTolerance100ns) return playbackInvariant(6);
+                    const auto step = static_cast<std::uint64_t>(time) - static_cast<std::uint64_t>(previousTime);
+                    if (distance(step, static_cast<std::uint64_t>(previousSpan)) > kTimestampTolerance100ns) return playbackInvariant(6);
+                }
+                if (distance(static_cast<std::uint64_t>(span), sampleTicks) > kTimestampTolerance100ns) return playbackInvariant(7);
+                previousTime = time; previousSpan = span;
                 evidence.decodedFrames += length/2;
-            } else if (!(flags & MF_SOURCE_READERF_ENDOFSTREAM)) return MF_E_INVALIDMEDIATYPE;
-            if (flags & MF_SOURCE_READERF_ENDOFSTREAM) return
-                (!subFrameContainer || evidence.decodedFrames == 1024) && close(ticks(evidence.decodedFrames)) ? S_OK : MF_E_INVALIDMEDIATYPE;
+            } else if (!(flags & MF_SOURCE_READERF_ENDOFSTREAM)) return playbackInvariant(8);
+            if (flags & MF_SOURCE_READERF_ENDOFSTREAM) {
+                if (subFrameContainer) return evidence.decodedFrames == 1024 ? S_OK : playbackInvariant(9);
+                const auto decoded = ticks(evidence.decodedFrames);
+                const auto frameDistance = decoded > expected ? decoded-expected : expected-decoded;
+                // AAC decoders may trim the encoder priming at the start and the
+                // trailing padding at the end; two frames is the documented
+                // worst case for this profile. The container duration above
+                // stays within 100 ms and the payload must fully decode.
+                constexpr std::uint64_t kMaxTrimTicks100ns = 2*kFrameTicks100ns+kTimestampTolerance100ns;
+#ifdef GRAF_WINDOWS_TEST_INSPECTION_PHASES
+                if (frameDistance > kMaxTrimTicks100ns)
+                    std::fprintf(stderr,"PLAYBACK_LENGTH decoded_frames=%llu expected_ticks=%llu decoded_ticks=%llu\n",
+                        static_cast<unsigned long long>(evidence.decodedFrames),
+                        static_cast<unsigned long long>(expected), static_cast<unsigned long long>(decoded));
+#endif
+                return evidence.decodedFrames && frameDistance <= kMaxTrimTicks100ns
+                    ? S_OK : playbackInvariant(9);
+            }
         }
 }
 
@@ -478,7 +518,7 @@ CustodyFileResult<LocalRecordingPackage::PlaybackEvidence> decodeProtectedPlayba
     std::fflush(stderr);
 #endif
     if (FAILED(hr)) return {std::nullopt, hr == E_OUTOFMEMORY ? CustodyFileError::allocationFailed :
-        hr == MF_E_INVALIDMEDIATYPE ? CustodyFileError::invalidContent : CustodyFileError::ioFailed,
+        hr == MF_E_INVALIDMEDIATYPE || HRESULT_FACILITY(hr) == FACILITY_ITF ? CustodyFileError::invalidContent : CustodyFileError::ioFailed,
         hr == HRESULT_FROM_WIN32(ERROR_OPERATION_ABORTED) ? ERROR_OPERATION_ABORTED : static_cast<std::uint32_t>(hr)};
     CoUninitialize(); runtime.com = E_FAIL;
     if (cancellation->load()) return {std::nullopt, CustodyFileError::ioFailed, ERROR_OPERATION_ABORTED};
