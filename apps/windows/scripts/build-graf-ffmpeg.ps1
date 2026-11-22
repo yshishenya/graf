@@ -16,7 +16,17 @@ $proofPath = Join-Path $prefix 'build-provenance.json'
 $headerPath = Join-Path $prefix 'include\graf\GrafFFmpegBuildManifest.h'
 $utf8 = New-Object Text.UTF8Encoding($false)
 
-function Hash([string]$Path) { (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant() }
+function Hash([string]$Path) {
+    # .NET only: module autoloading is not guaranteed for the CMake verify
+    # invocation, where Get-FileHash can be unavailable.
+    $stream = [IO.File]::OpenRead($Path)
+    try {
+        $sha = [Security.Cryptography.SHA256]::Create()
+        try {
+            return ([BitConverter]::ToString($sha.ComputeHash($stream))).Replace('-', '').ToLowerInvariant()
+        } finally { $sha.Dispose() }
+    } finally { $stream.Dispose() }
+}
 function Write-Utf8([string]$Path, [string]$Text) { [IO.File]::WriteAllText($Path, $Text, $utf8) }
 function Shell-Path([string]$Path) { '/' + $Path.Substring(0, 1).ToLowerInvariant() + $Path.Substring(2).Replace('\', '/') }
 function Inventory([string]$Root) {

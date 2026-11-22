@@ -85,3 +85,19 @@ FFmpeg — 3600 с, остальные шаги — 1800 с. Пока шаг в�
 `System32\tar.exe`. Архив и его SHA не меняются, оба пути проверяются
 пределами времени и теми же логами.
 
+## Результат 7-Zip и следующий дефект — 2026-11-22
+
+Прогон head `bbed7c730`:
+
+- `FFmpeg extractor=7zip`; шаг `tools-extract` больше не зависает.
+- Скачивания, распаковка `make`/`diffutils`, распаковка исходников и сборка
+  FFmpeg (`build`) завершились успешно: `exit=0 elapsed_ms=130854`,
+  затем `Verified ordinary FFmpeg 7.1.5 x64 artifacts and compiled pins.`
+- CMake-конфигурация упала на другом месте: проверка
+  `build-graf-ffmpeg.ps1 -VerifyBuildArtifacts` не нашла `Get-FileHash`
+  (`CommandNotFoundException`) — в этом вызове нет автозагрузки модулей.
+  Заменено на прямой .NET `SHA256`, результат хеша тот же.
+
+Проверено также, что закрытие stdin и исключение Defender не влияли:
+до 7-Zip шаг стабильно стоял на `cpu_ms=16`, `stdout=0`, `stderr=0`.
+
