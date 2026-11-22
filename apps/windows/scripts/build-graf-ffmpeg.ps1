@@ -287,18 +287,6 @@ try {
         if ($tool -notmatch ('[\\/]' + [regex]::Escape($manifest.toolchain.vctools_version) + '[\\/]bin[\\/]Host(?:x64|arm64)[\\/]x64[\\/]')) { throw 'Unexpected MSVC tool path.' }
     }
     foreach ($inputFile in @($manifest.source) + @($manifest.build_tools)) { $null = Download $inputFile }
-    # Extraction writes thousands of files; a real-time scan can hold the
-    # process without any CPU progress. Exclusions are best-effort metadata for
-    # this disposable directory only.
-    try {
-        $addPreference = Get-Command Add-MpPreference -ErrorAction SilentlyContinue
-        if ($null -ne $addPreference) {
-            Add-MpPreference -ExclusionPath $work, $prefix -ErrorAction Stop
-            Write-Host 'FFmpeg defender_exclusion=applied'
-        }
-    } catch {
-        Write-Host 'FFmpeg defender_exclusion=unavailable'
-    }
     # Bootstrap needs native Windows paths; PATH may resolve a POSIX tar.
     # The system tar can stop without any output on this large xz archive, so a
     # preinstalled 7-Zip is tried first when it is present. The pinned archive is
