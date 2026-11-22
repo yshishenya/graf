@@ -86,4 +86,3 @@ Assertion failed: sealed.normalPackage() && sealed.durationMs == frames*10
 
 Исправление: в `build-graf-aec3.ps1` добавлен `Get-Sha256Hex` на .NET, все
 проверки артефактов, инвентаря, lock-файла и рецепта используют его.
-
