@@ -67,6 +67,9 @@
   var pendingChoiceCookie = null;
   var serverChoice = null;
   var retryRevokeOnly = false;
+  var restoringPublicPage = false;
+  var publicPageShown = document.readyState === "complete";
+  var interruptedChoice = null;
 
   (publicConfig && publicConfig.event_catalog ? publicConfig.event_catalog : []).forEach(function (event) {
     if (event && event.event_name) {
@@ -712,6 +715,10 @@
     positive && !revokeFailed ? "Подтвердить выбранное разрешение" : "Повторить сохранение отказа");
   }
 
+  function unconfirmedChoiceStatus() {
+    consentStatus("Аналитика отключена. Сохранение выбора не подтверждено. Откройте настройки cookies.");
+  }
+
   async function publicConsentRequest(payload) {
     if (publicConfig.consent_control_endpoint !== "/analytics/public-consent" || !window.fetch) {
       throw new Error("choice_unavailable");
@@ -767,6 +774,8 @@
   // No background grant, rebase or retry. Only a fresh user action calls this.
   async function savePublicChoice(details, revokeOnly) {
     var generation = ++choiceGeneration;
+    interruptedChoice = null;
+    retryRevokeOnly = Boolean(revokeOnly);
     choiceInFlight = api.consentPending = false;
     pendingChoiceCookie = null;
     serverChoice = null;
@@ -866,37 +875,49 @@
     }
   }
 
-  async function readPublicChoice() {
-    var generation = ++choiceGeneration;
+  function invalidatePublicChoice() {
+    ++choiceGeneration;
     pendingChoiceCookie = null;
     serverChoice = null;
     choiceInFlight = api.consentPending = false;
     disableOptionalProviders();
     api.currentConsentState = currentConsentState = "unknown";
+  }
+
+  async function readPublicChoice(restored) {
+    invalidatePublicChoice();
+    var generation = choiceGeneration;
     var cookie = publicChoiceCookie();
     if (!cookie) {
+      if (restored) {
+        unconfirmedChoiceStatus();
+      }
       return false;
     }
+    var sameInterruptedChoice = interruptedChoice && interruptedChoice.cookie === JSON.stringify(cookie);
     try {
       var result = await publicConsentRequest({ action: "read", consent_id: cookie.consentId });
       if (generation !== choiceGeneration || !samePublicChoice(cookie, publicChoiceCookie())) {
         return false;
       }
       var categories = normalizedCategories(cookie.categories);
-      if ((categories.length > 1 && !publicConfig.enabled) || !cookie.data || !uuidV4(cookie.data.graf_public_consent_epoch) ||
+      // A fresh read may still see the choice that the interrupted action was replacing.
+      if (sameInterruptedChoice || (categories.length > 1 && !publicConfig.enabled) ||
+          !cookie.data || !uuidV4(cookie.data.graf_public_consent_epoch) ||
           result.state !== "known" || result.epoch !== cookie.data.graf_public_consent_epoch ||
           JSON.stringify(normalizedCategories(result.categories)) !== JSON.stringify(categories) ||
           result.copy_version !== (categories.length > 1 ? consentCopyVersion() : null) ||
           !consentVersionMatches(cookie) || !acceptPublicChoice(cookie, result.epoch)) {
         throw new Error("choice_unavailable");
       }
+      interruptedChoice = null;
       consentStatus("");
       enableOptionalProviders();
       startGrantedProviders();
       return true;
     } catch (_) {
       if (generation === choiceGeneration) {
-        choicePendingStatus(cookie, !choiceNeedsGrant(cookie));
+        choicePendingStatus(cookie, Boolean(sameInterruptedChoice && interruptedChoice.revokeOnly) || !choiceNeedsGrant(cookie));
       }
       return false;
     }
@@ -1499,19 +1520,45 @@
     }
   }
   function refreshConsent(event) {
+    if (restoringPublicPage) {
+      return false;
+    }
+    // A new document can receive focus before its first pageshow.
+    if (publicConsentControl && !publicPageShown && !choiceInFlight && event && event.type === "focus") {
+      return false;
+    }
     // Ordinary resume must not cancel an unchanged explicit choice in flight.
     if (choiceInFlight && event && (event.type === "focus" || event.type === "visibilitychange") &&
         pendingChoiceMatchesCookie()) {
       return false;
     }
-    return publicConsentControl ? readPublicChoice() : canUseAnalytics();
+    return publicConsentControl
+      ? readPublicChoice(event && event.type === "pageshow" && event.persisted)
+      : canUseAnalytics();
   }
   window.addEventListener("storage", function (event) {
     if (event.key === null || event.key === (config.consent_storage_key || "graf_public_cookie_consent")) {
       refreshConsent();
     }
   });
-  window.addEventListener("pageshow", refreshConsent);
+  window.addEventListener("pagehide", function (event) {
+    if (publicConsentControl && event.persisted) {
+      restoringPublicPage = true;
+      if (choiceInFlight) {
+        interruptedChoice = { cookie: pendingChoiceCookie, revokeOnly: retryRevokeOnly };
+        unconfirmedChoiceStatus();
+      }
+      invalidatePublicChoice();
+    }
+  });
+  window.addEventListener("pageshow", function (event) {
+    publicPageShown = true;
+    restoringPublicPage = false;
+    // CookieConsent already reads the saved choice on an ordinary load.
+    if (!publicConsentControl || event.persisted || choiceInFlight) {
+      refreshConsent(event);
+    }
+  });
   window.addEventListener("focus", refreshConsent);
   document.addEventListener("visibilitychange", refreshConsent);
   runCookieConsent();
