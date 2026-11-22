@@ -447,8 +447,14 @@ HRESULT decodePlayback(IMFSourceReader* reader, std::uint64_t durationMs,
                 const auto position = ticks(evidence.decodedFrames), sampleTicks = ticks(length/2);
                 const auto distance = [](std::uint64_t a, std::uint64_t b) { return a > b ? a-b : b-a; };
                 if (time != timestamp || time < previousTime || span <= 0) return playbackInvariant(5);
-                if (distance(static_cast<std::uint64_t>(time), position) > 209) return playbackInvariant(6);
-                if (distance(static_cast<std::uint64_t>(span), sampleTicks) > 209) return playbackInvariant(7);
+                // Media Foundation may report timestamps with millisecond
+                // granularity; one millisecond (48 samples) still cannot hide a
+                // missing, extra or shifted AAC frame, while exact-tick equality
+                // rejected valid output. Frame count and total duration remain
+                // strict below.
+                constexpr std::uint64_t kTimestampTolerance100ns = 10'000;
+                if (distance(static_cast<std::uint64_t>(time), position) > kTimestampTolerance100ns) return playbackInvariant(6);
+                if (distance(static_cast<std::uint64_t>(span), sampleTicks) > kTimestampTolerance100ns) return playbackInvariant(7);
                 previousTime = time;
                 evidence.decodedFrames += length/2;
             } else if (!(flags & MF_SOURCE_READERF_ENDOFSTREAM)) return playbackInvariant(8);
