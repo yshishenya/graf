@@ -14,7 +14,10 @@
 - `GRAF-Windows.cer` — сертификат, которому нужно доверять перед установкой;
 - `GRAF-Windows.msix.sha256` — контрольная сумма;
 - `build-info.txt` — версия, SHA-256, исходный коммит, `public_release_ready=false`;
-- `GRAF-Windows.appinstaller` — только если при запуске указан `feed_base_url`.
+- `GRAF-Windows.appinstaller` — только если при запуске указан `feed_base_url`;
+- системные зависимости (`Microsoft.VCLibs`, `Microsoft.WindowsAppRuntime`), если
+  они нашлись в кэше пакетов при сборке. В `build-info.txt` есть строка
+  `framework_dependencies=included|missing`.
 
 ## Как запустить
 
@@ -39,7 +42,9 @@
    в следующее хранилище» → «Доверенные лица».
    Сертификат не ставится в корневые доверенные: он подтверждает только этот
    тестовый издатель.
-4. Открыть `GRAF-Windows.msix` → «Установить».
+4. Если в комплекте есть файлы `Microsoft.VCLibs...appx` или
+   `Microsoft.WindowsAppRuntime...msix`, установить их первыми, затем открыть
+   `GRAF-Windows.msix` → «Установить».
 5. Запустить GRAF, войти в аккаунт, разрешить микрофон и проверить запись.
 
 Если при установке Windows пишет, что издатель не доверенный, — сертификат не
