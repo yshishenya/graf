@@ -465,7 +465,18 @@ HRESULT decodePlayback(IMFSourceReader* reader, std::uint64_t durationMs,
                 if (subFrameContainer) return evidence.decodedFrames == 1024 ? S_OK : playbackInvariant(9);
                 const auto decoded = ticks(evidence.decodedFrames);
                 const auto frameDistance = decoded > expected ? decoded-expected : expected-decoded;
-                return evidence.decodedFrames && frameDistance <= kFrameTicks100ns+kTimestampTolerance100ns
+                // AAC decoders may trim the encoder priming at the start and the
+                // trailing padding at the end; two frames is the documented
+                // worst case for this profile. The container duration above
+                // stays within 100 ms and the payload must fully decode.
+                constexpr std::uint64_t kMaxTrimTicks100ns = 2*kFrameTicks100ns+kTimestampTolerance100ns;
+#ifdef GRAF_WINDOWS_TEST_INSPECTION_PHASES
+                if (frameDistance > kMaxTrimTicks100ns)
+                    std::fprintf(stderr,"PLAYBACK_LENGTH decoded_frames=%llu expected_ticks=%llu decoded_ticks=%llu\n",
+                        static_cast<unsigned long long>(evidence.decodedFrames),
+                        static_cast<unsigned long long>(expected), static_cast<unsigned long long>(decoded));
+#endif
+                return evidence.decodedFrames && frameDistance <= kMaxTrimTicks100ns
                     ? S_OK : playbackInvariant(9);
             }
         }
