@@ -428,7 +428,12 @@ HRESULT decodePlayback(IMFSourceReader* reader, std::uint64_t durationMs,
             number(actual.Get(), MF_MT_AUDIO_AVG_BYTES_PER_SECOND, 96'000)}) if (FAILED(check)) return playbackInvariant(2);
         const auto bound = (durationMs+100)*48;
         const auto ticks = [](std::uint64_t frames) { return frames/48'000*10'000'000 + frames%48'000*10'000'000/48'000; };
-        LONGLONG previousTime = -1;
+        LONGLONG previousTime = -1, previousSpan = 0;
+        // One AAC-LC frame. Some decoders drop the encoder priming at the start,
+        // which shifts every later timestamp by up to one frame; continuity,
+        // per-sample duration and the total length below still pin the payload.
+        constexpr std::uint64_t kFrameTicks100ns = 1024ull*10'000'000/48'000;
+        constexpr std::uint64_t kTimestampTolerance100ns = 10'000;
         for (;;) {
             DWORD stream = 0, flags = 0; LONGLONG timestamp = 0;
             ComPtr<IMFSample> sample;
@@ -444,22 +449,25 @@ HRESULT decodePlayback(IMFSourceReader* reader, std::uint64_t durationMs,
                 if (!length || length%2 || length/2 > bound-evidence.decodedFrames) return playbackInvariant(4);
                 status = call([&] { return sample->GetSampleTime(&time); }); if (FAILED(status)) return status;
                 status = call([&] { return sample->GetSampleDuration(&span); }); if (FAILED(status)) return status;
-                const auto position = ticks(evidence.decodedFrames), sampleTicks = ticks(length/2);
+                const auto sampleTicks = ticks(length/2);
                 const auto distance = [](std::uint64_t a, std::uint64_t b) { return a > b ? a-b : b-a; };
-                if (time != timestamp || time < previousTime || span <= 0) return playbackInvariant(5);
-                // Media Foundation may report timestamps with millisecond
-                // granularity; one millisecond (48 samples) still cannot hide a
-                // missing, extra or shifted AAC frame, while exact-tick equality
-                // rejected valid output. Frame count and total duration remain
-                // strict below.
-                constexpr std::uint64_t kTimestampTolerance100ns = 10'000;
-                if (distance(static_cast<std::uint64_t>(time), position) > kTimestampTolerance100ns) return playbackInvariant(6);
+                if (time != timestamp || span <= 0) return playbackInvariant(5);
+                if (previousTime >= 0) {
+                    if (time < previousTime) return playbackInvariant(6);
+                    const auto step = static_cast<std::uint64_t>(time) - static_cast<std::uint64_t>(previousTime);
+                    if (distance(step, static_cast<std::uint64_t>(previousSpan)) > kTimestampTolerance100ns) return playbackInvariant(6);
+                }
                 if (distance(static_cast<std::uint64_t>(span), sampleTicks) > kTimestampTolerance100ns) return playbackInvariant(7);
-                previousTime = time;
+                previousTime = time; previousSpan = span;
                 evidence.decodedFrames += length/2;
             } else if (!(flags & MF_SOURCE_READERF_ENDOFSTREAM)) return playbackInvariant(8);
-            if (flags & MF_SOURCE_READERF_ENDOFSTREAM) return
-                (!subFrameContainer || evidence.decodedFrames == 1024) && close(ticks(evidence.decodedFrames)) ? S_OK : playbackInvariant(9);
+            if (flags & MF_SOURCE_READERF_ENDOFSTREAM) {
+                if (subFrameContainer) return evidence.decodedFrames == 1024 ? S_OK : playbackInvariant(9);
+                const auto decoded = ticks(evidence.decodedFrames);
+                const auto frameDistance = decoded > expected ? decoded-expected : expected-decoded;
+                return evidence.decodedFrames && frameDistance <= kFrameTicks100ns+kTimestampTolerance100ns
+                    ? S_OK : playbackInvariant(9);
+            }
         }
 }
 
