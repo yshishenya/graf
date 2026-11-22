@@ -76,3 +76,14 @@ Assertion failed: sealed.normalPackage() && sealed.durationMs == frames*10
 Контракт пересобран из рантайма с сохранением порядка прежних ключей: только
 добавления, 538 строк, без удалений. Проверка `merged_equals_runtime=True`
 подтверждает совпадение с `create_app(settings).openapi()`.
+
+## Та же причина в проверке AEC3 — 2026-11-23
+
+Первый прогон `windows-tester-build` (run `45075156775`) собрал AEC3 и FFmpeg, но
+шаг `Build MSIX` упал на цели `ValidateGrafAEC3`:
+`The term 'Get-FileHash' is not recognized` — тот же отсутствующий автозагруз
+модуля, что был в проверке FFmpeg.
+
+Исправление: в `build-graf-aec3.ps1` добавлен `Get-Sha256Hex` на .NET, все
+проверки артефактов, инвентаря, lock-файла и рецепта используют его.
+
