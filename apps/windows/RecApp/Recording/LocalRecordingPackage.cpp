@@ -427,7 +427,11 @@ HRESULT decodePlayback(IMFSourceReader* reader, std::uint64_t durationMs,
         for (;;) {
             DWORD stream = 0, flags = 0; LONGLONG timestamp = 0;
             ComPtr<IMFSample> sample;
-            status = call([&] { return reader->ReadSample(0, 0, &stream, &flags, &timestamp, &sample); }); if (FAILED(status)) return status;
+            status = call([&] { return reader->ReadSample(0, 0, &stream, &flags, &timestamp, &sample); });
+            // Media sources may signal the end with an HRESULT instead of the
+            // end-of-stream flag; both mean the same and are validated below.
+            if (status == MF_E_END_OF_STREAM) { flags |= MF_SOURCE_READERF_ENDOFSTREAM; status = S_OK; }
+            if (FAILED(status)) return status;
             if (stream || (flags & ~MF_SOURCE_READERF_ENDOFSTREAM) || timestamp < 0) return MF_E_INVALIDMEDIATYPE;
             if (sample) {
                 DWORD length = 0; LONGLONG time = 0, span = 0;
