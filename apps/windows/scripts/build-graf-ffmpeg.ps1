@@ -187,6 +187,13 @@ function Run([string]$Exe, [string[]]$Arguments, [string]$Label, [int]$TimeoutSe
         while (-not $process.WaitForExit(1000)) {
             if ($TimeoutSeconds -gt 0 -and $elapsed.Elapsed.TotalSeconds -ge $TimeoutSeconds) {
                 $timedOut = $true
+                # Windows PowerShell 5.1 has no Process.Kill(entireProcessTree);
+                # taskkill /T ends compiler descendants that would otherwise
+                # keep the redirected pipes open.
+                $taskkill = Join-Path $env:SystemRoot 'System32\taskkill.exe'
+                if (Test-Path -LiteralPath $taskkill) {
+                    $null = & $taskkill /PID $process.Id /T /F 2>&1
+                }
                 try { $process.Kill() } catch { }
                 $null = $process.WaitForExit(15000)
                 break
@@ -196,15 +203,18 @@ function Run([string]$Exe, [string[]]$Arguments, [string]$Label, [int]$TimeoutSe
                 $nextProgress += 30
             }
         }
+        # Bound the drain as well: a stuck descendant must not block the
+        # timeout record and the failure message.
         $outText = ''
         $errText = ''
-        try { $outText = [string]$stdout.GetAwaiter().GetResult() } catch { }
-        try { $errText = [string]$stderr.GetAwaiter().GetResult() } catch { }
+        $drained = $true
+        if ($stdout.Wait(15000)) { try { $outText = [string]$stdout.Result } catch { } } else { $drained = $false }
+        if ($stderr.Wait(15000)) { try { $errText = [string]$stderr.Result } catch { } } else { $drained = $false }
         Write-Utf8 "$prefix\share\graf\$Label.stdout.log" $outText
         Write-Utf8 "$prefix\share\graf\$Label.stderr.log" $errText
         if ($timedOut) {
             Write-Host ("FFmpeg stage timeout name={0} elapsed_ms={1} limit_seconds={2}" -f $Label, $elapsed.ElapsedMilliseconds, $TimeoutSeconds)
-            Write-Host ("FFmpeg stage output_bytes name={0} stdout={1} stderr={2}" -f $Label, $outText.Length, $errText.Length)
+            Write-Host ("FFmpeg stage output_bytes name={0} stdout={1} stderr={2} drained={3}" -f $Label, $outText.Length, $errText.Length, $drained)
             Write-Utf8 "$prefix\share\graf\$Label.terminal.json" (Json ([ordered]@{ timeout = $true; limit_seconds = $TimeoutSeconds }))
             throw "$Label exceeded $TimeoutSeconds seconds; logs retained in install directory."
         }
