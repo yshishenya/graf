@@ -1,0 +1,179 @@
+name: windows-tester-build
+
+# Manual, diagnostic tester build of the Windows app. It is not a release lane:
+# the package is signed with a self-signed development certificate and stays
+# untrusted for the public until a CA code-signing certificate is used.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Package version as four numbers, for example 2026.11.22.1"
+        required: true
+        type: string
+      feed_base_url:
+        description: "Optional HTTPS folder for the .appinstaller, without a trailing slash"
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: Build and sign tester MSIX
+    runs-on: windows-2022
+    timeout-minutes: 180
+    env:
+      PACKAGE_VERSION: ${{ inputs.version }}
+      FEED_BASE_URL: ${{ inputs.feed_base_url }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate inputs
+        shell: pwsh
+        run: |
+          if ($env:PACKAGE_VERSION -notmatch '^\d+\.\d+\.\d+\.\d+$') { throw 'version must have four numeric parts' }
+          foreach ($part in $env:PACKAGE_VERSION.Split('.')) { if ([int]$part -gt 65535) { throw 'version part above 65535' } }
+          if ($env:FEED_BASE_URL -and $env:FEED_BASE_URL -notmatch '^https://[^/]+/.+$') { throw 'feed_base_url must be an https folder without a trailing slash' }
+          "PACKAGE_VERSION=$env:PACKAGE_VERSION" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Resolve pinned toolchain
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products '*' -version '[17.0,18.0)' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if ($LASTEXITCODE -ne 0 -or !$vs) { throw 'Visual Studio 2022 with C++ tools is missing.' }
+          Import-Module "$vs\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
+          Enter-VsDevShell -VsInstallPath $vs -SkipAutomaticLocation -DevCmdArguments '-arch=x64 -host_arch=x64 -vcvars_ver=14.44.35207 -winsdk=10.0.26100.0' | Out-Null
+          "VSINSTALL=$vs" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Prepare Python tools for AEC3
+        shell: pwsh
+        run: |
+          python -m pip install --disable-pip-version-check "meson==1.5.1" "ninja==1.11.1.1"
+
+      - name: Check out pinned AEC3 sources
+        shell: pwsh
+        run: |
+          $lock = @{}
+          Get-Content apps/windows/Native/GrafAEC3/upstream.lock | Where-Object { $_ -match '^(?<key>[^=]+)=(?<value>.*)$' } |
+            ForEach-Object { $lock[$Matches.key] = $Matches.value }
+          $target = Join-Path $env:RUNNER_TEMP 'webrtc-audio-processing'
+          git clone --quiet $lock.webrtc_audio_processing_mirror $target
+          if ($LASTEXITCODE -ne 0) { throw 'AEC3 mirror clone failed' }
+          git -C $target checkout --quiet $lock.webrtc_audio_processing_commit
+          if ($LASTEXITCODE -ne 0) { throw 'AEC3 pinned commit is unavailable' }
+          "AEC3_SOURCE=$target" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Build AEC3
+        shell: pwsh
+        run: |
+          Import-Module "$env:VSINSTALL\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
+          Enter-VsDevShell -VsInstallPath $env:VSINSTALL -SkipAutomaticLocation -DevCmdArguments '-arch=x64 -host_arch=x64 -vcvars_ver=14.44.35207 -winsdk=10.0.26100.0' | Out-Null
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File apps/windows/scripts/build-graf-aec3.ps1 `
+            -Configuration Release -Architecture x64 -SourceDirectory $env:AEC3_SOURCE `
+            -BuildDirectory "$env:RUNNER_TEMP/graf-aec3"
+          if ($LASTEXITCODE -ne 0) { throw 'AEC3 build failed' }
+
+      - name: Build FFmpeg dependency
+        shell: pwsh
+        run: |
+          Import-Module "$env:VSINSTALL\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
+          Enter-VsDevShell -VsInstallPath $env:VSINSTALL -SkipAutomaticLocation -DevCmdArguments '-arch=x64 -host_arch=x64 -vcvars_ver=14.44.35207 -winsdk=10.0.26100.0' | Out-Null
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File apps/windows/scripts/build-graf-ffmpeg.ps1 `
+            -InstallDirectory "$env:RUNNER_TEMP/graf-ffmpeg-x64" -BuildDirectory "$env:RUNNER_TEMP/graf-ffmpeg-work"
+          if ($LASTEXITCODE -ne 0) { throw 'FFmpeg dependency build failed' }
+
+      - name: Stamp package version
+        shell: pwsh
+        run: |
+          $manifest = 'apps/windows/Installer/Package.appxmanifest'
+          $text = Get-Content -LiteralPath $manifest -Raw
+          $pattern = '(<Identity\s[^>]*?Version=")\d+\.\d+\.\d+\.\d+(")'
+          $updated = [regex]::Replace($text, $pattern, ('${1}' + $env:PACKAGE_VERSION + '${2}'), 1)
+          if ($updated -notmatch ('Version="' + [regex]::Escape($env:PACKAGE_VERSION) + '"')) { throw 'version stamp failed' }
+          [IO.File]::WriteAllText((Resolve-Path $manifest).Path, $updated)
+
+      - name: Build MSIX
+        shell: pwsh
+        run: |
+          Import-Module "$env:VSINSTALL\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
+          Enter-VsDevShell -VsInstallPath $env:VSINSTALL -SkipAutomaticLocation -DevCmdArguments '-arch=x64 -host_arch=x64 -vcvars_ver=14.44.35207 -winsdk=10.0.26100.0' | Out-Null
+          msbuild apps/windows/Installer/GrafWindows.Package.wapproj /restore /m /p:Configuration=Release /p:Platform=x64 `
+            /p:AppxBundle=Never /p:GenerateAppxPackageOnBuild=true /p:AppxPackageSigningEnabled=false `
+            /p:GrafFFmpegRoot="$env:RUNNER_TEMP/graf-ffmpeg-x64" `
+            /p:GrafAEC3Root="$env:AEC3_SOURCE" /p:GrafAEC3BuildRoot="$env:RUNNER_TEMP/graf-aec3"
+          if ($LASTEXITCODE -ne 0) { throw 'MSBuild failed' }
+
+      - name: Sign tester package
+        shell: pwsh
+        run: |
+          $msix = Get-ChildItem apps/windows -Recurse -Filter *.msix | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          if (-not $msix) { throw 'MSIX output was not produced' }
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File apps/windows/scripts/build-dev-signed-package.ps1 `
+            -Package $msix.FullName -SecretsDirectory "$env:RUNNER_TEMP/graf-signing"
+          if ($LASTEXITCODE -ne 0) { throw 'Tester signing failed' }
+          "MSIX_PATH=$($msix.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Assemble tester artifacts
+        shell: pwsh
+        run: |
+          $out = Join-Path $env:RUNNER_TEMP 'graf-tester'
+          New-Item -ItemType Directory -Path $out -Force | Out-Null
+          Copy-Item $env:MSIX_PATH (Join-Path $out 'GRAF-Windows.msix')
+          Copy-Item (Join-Path $env:RUNNER_TEMP 'graf-signing/graf-dev.cer') (Join-Path $out 'GRAF-Windows.cer')
+          $frameworks = @(Get-ChildItem -Path apps/windows, "$env:USERPROFILE/.nuget/packages" -Recurse -Include `
+            'Microsoft.VCLibs*x64*.appx', 'Microsoft.WindowsAppRuntime*x64*.msix', 'Microsoft.WindowsAppRuntime*x64*.appx' `
+            -ErrorAction SilentlyContinue | Sort-Object Name -Unique)
+          foreach ($framework in $frameworks) { Copy-Item $framework.FullName (Join-Path $out $framework.Name) }
+          $frameworkState = if ($frameworks.Count -gt 0) { 'included' } else { 'missing' }
+          $msix = Join-Path $out 'GRAF-Windows.msix'
+          $hash = (Get-FileHash $msix -Algorithm SHA256).Hash.ToLowerInvariant()
+          "msix_sha256=$hash" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          $info = @(
+            ('version=' + $env:PACKAGE_VERSION)
+            ('msix_sha256=' + $hash)
+            'publisher=CN=GRAF (self-signed, tester channel)'
+            ('source_sha=' + $env:GITHUB_SHA)
+            'public_release_ready=false'
+            ('framework_dependencies=' + $frameworkState)
+          )
+          Set-Content -LiteralPath (Join-Path $out 'build-info.txt') -Value $info -Encoding utf8
+          (Get-AuthenticodeSignature $msix).Status | Set-Content -LiteralPath (Join-Path $out 'signature-status.txt')
+          if ($env:FEED_BASE_URL) {
+            $base = $env:FEED_BASE_URL
+            $version = $env:PACKAGE_VERSION
+            $xml = @(
+              '<?xml version="1.0" encoding="utf-8"?>'
+              ('<AppInstaller Uri="' + $base + '/GRAF-Windows.appinstaller" Version="' + $version + '" xmlns="http://schemas.microsoft.com/appx/appinstaller/2017/2">')
+              ('  <MainPackage Name="com.graf.desktop" Version="' + $version + '" Publisher="CN=GRAF" ProcessorArchitecture="x64" Uri="' + $base + '/GRAF-Windows.msix" />')
+              '  <UpdateSettings><OnLaunch HoursBetweenUpdateChecks="12" /></UpdateSettings>'
+              '</AppInstaller>'
+            ) -join "`n"
+            [IO.File]::WriteAllText((Join-Path $out 'GRAF-Windows.appinstaller'), $xml)
+          }
+          $hash | Out-File -LiteralPath (Join-Path $out 'GRAF-Windows.msix.sha256') -Encoding ascii
+          "ARTIFACT_DIR=$out" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          archive: true
+          name: graf-windows-tester-${{ inputs.version }}
+          path: ${{ runner.temp }}/graf-tester
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Summary
+        shell: pwsh
+        run: |
+          @(
+            "Tester build $env:PACKAGE_VERSION"
+            "MSIX SHA-256: $env:msix_sha256"
+            "Signed with a self-signed certificate CN=GRAF. Testers must trust GRAF-Windows.cer first."
+            "This package is not a public release and must not be published as-is."
+          ) | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
