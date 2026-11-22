@@ -174,6 +174,127 @@ async def test_retention_once_uses_destructive_mode_only_after_second_key(monkey
 
 
 @pytest.mark.asyncio
+async def test_retention_once_drains_saturated_batches_until_backlog_is_empty(monkeypatch):
+    workspace_id = uuid4()
+    sessions = _FakeSessions([workspace_id])
+    context = MaintenanceTenantContext(
+        operation_name="retention_scan",
+        actor_id="graf-maintenance",
+        reason_category="retention_policy",
+        feature_area="deletion",
+    )
+    batches = [
+        SimpleNamespace(evaluated=100, created_requests=100, skipped=0, blocked=0),
+        SimpleNamespace(evaluated=100, created_requests=100, skipped=0, blocked=0),
+        SimpleNamespace(evaluated=37, created_requests=37, skipped=0, blocked=0),
+    ]
+    calls: list[int] = []
+
+    async def apply_context(_db, _context):
+        return None
+
+    async def fake_scan(_db, *, settings, workspace_id, limit, storage, dry_run):
+        assert dry_run is False
+        assert limit == maintenance_worker.RETENTION_SCAN_BATCH_LIMIT
+        calls.append(limit)
+        return batches[len(calls) - 1]
+
+    monkeypatch.setattr(maintenance_worker, "apply_tenant_context", apply_context)
+    monkeypatch.setattr(maintenance_worker, "run_retention_scan", fake_scan)
+
+    await maintenance_worker.run_retention_once(
+        settings=SimpleNamespace(
+            retention_scheduler_enabled=True,
+            retention_scheduler_dry_run_only=False,
+        ),
+        sessions=sessions,
+        context=context,
+        storage=object(),
+    )
+
+    # The daily pass must clear every expired meeting, not only the first 100.
+    assert len(calls) == 3
+    assert sessions.instances[1].commits == 3
+
+
+@pytest.mark.asyncio
+async def test_retention_once_keeps_a_dry_run_to_a_single_batch(monkeypatch):
+    workspace_id = uuid4()
+    sessions = _FakeSessions([workspace_id])
+    context = MaintenanceTenantContext(
+        operation_name="retention_scan",
+        actor_id="graf-maintenance",
+        reason_category="retention_policy",
+        feature_area="deletion",
+    )
+    calls: list[int] = []
+
+    async def apply_context(_db, _context):
+        return None
+
+    async def fake_scan(_db, *, settings, workspace_id, limit, storage, dry_run):
+        assert dry_run is True
+        calls.append(limit)
+        return SimpleNamespace(evaluated=100, created_requests=100, skipped=0, blocked=0)
+
+    monkeypatch.setattr(maintenance_worker, "apply_tenant_context", apply_context)
+    monkeypatch.setattr(maintenance_worker, "run_retention_scan", fake_scan)
+
+    await maintenance_worker.run_retention_once(
+        settings=SimpleNamespace(
+            retention_scheduler_enabled=True,
+            retention_scheduler_dry_run_only=True,
+        ),
+        sessions=sessions,
+        context=context,
+        storage=object(),
+    )
+
+    # A dry run deletes nothing, so rescanning would only repeat the same rows.
+    assert len(calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_retention_once_stops_at_the_batch_cap_and_logs_backlog(monkeypatch):
+    workspace_id = uuid4()
+    sessions = _FakeSessions([workspace_id])
+    context = MaintenanceTenantContext(
+        operation_name="retention_scan",
+        actor_id="graf-maintenance",
+        reason_category="retention_policy",
+        feature_area="deletion",
+    )
+    warnings: list[str] = []
+
+    async def apply_context(_db, _context):
+        return None
+
+    async def fake_scan(_db, *, settings, workspace_id, limit, storage, dry_run):
+        return SimpleNamespace(evaluated=100, created_requests=100, skipped=0, blocked=0)
+
+    monkeypatch.setattr(maintenance_worker, "apply_tenant_context", apply_context)
+    monkeypatch.setattr(maintenance_worker, "run_retention_scan", fake_scan)
+    monkeypatch.setattr(
+        maintenance_worker.logger,
+        "warning",
+        lambda message, *args: warnings.append(message % args if args else message),
+    )
+
+    await maintenance_worker.run_retention_once(
+        settings=SimpleNamespace(
+            retention_scheduler_enabled=True,
+            retention_scheduler_dry_run_only=False,
+        ),
+        sessions=sessions,
+        context=context,
+        storage=object(),
+    )
+
+    assert sessions.instances[1].commits == maintenance_worker.RETENTION_SCAN_MAX_BATCHES
+    assert any("batch cap reached" in message for message in warnings)
+
+
+@pytest.mark.asyncio
 async def test_disabled_retention_reconciler_never_opens_storage() -> None:
     # The disabled path must return before create_engine/get_storage; a missing
     # engine here would fail the test with an unrelated error.

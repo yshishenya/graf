@@ -224,3 +224,27 @@ Verified after the merge (Postgres 17, real roles):
 - `tests/integration/test_rls_postgres_policies.py` + fair-use + billing monitoring + RLS contract — 328 passed, after the marker parametrization was extended to 0116;
 - `tests/integration/test_deployment_backup_snapshot.py` — 7 passed;
 - Swift suite 1545, retention/referral unit 17, prune 9.
+
+## Retention backlog fix (2026-11-22)
+
+Независимое ревью PR #8134 (P2) указало, что `run_retention_once` выполнял ровно
+один батч из 100 встреч на рабочее пространство за сутки. При большем числе
+просроченных встреч очередь росла, а SC-003 требует удалить все просроченные
+встречи за ежедневный проход.
+
+Исправление:
+
+- `RETENTION_SCAN_BATCH_LIMIT = 100` и `RETENTION_SCAN_MAX_BATCHES = 50` в
+  `workflows/maintenance_worker.py`.
+- Реальный проход повторяет сканирование, пока батч насыщен новыми запросами на
+  удаление (`created_requests == 100`), то есть до опустошения очереди; каждое
+  сканирование остаётся ограниченным, транзакция коммитится после каждого батча.
+- Dry-run по-прежнему делает один батч: он ничего не удаляет, повторный скан
+  вернул бы те же строки.
+- Предохранитель: не более 50 батчей (5000 встреч) на рабочее пространство за
+  проход; при достижении лимита пишется предупреждение, остаток обрабатывается
+  на следующем проходе и не блокирует другие пространства.
+
+Тесты: `tests/unit/test_retention_reconciler.py` — 10 passed, включая три новых:
+дренаж насыщенных батчей, один батч в dry-run и остановка на предохранителе с
+предупреждением.
