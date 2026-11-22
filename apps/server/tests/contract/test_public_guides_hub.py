@@ -1,3 +1,4 @@
+from urllib.parse import urldefrag
 from xml.etree import ElementTree
 
 import pytest
@@ -34,10 +35,16 @@ def test_hub_is_indexable_and_links_join_the_published_guides():
         assert response.text.index(first.path) < response.text.index(second.path)
         assert response.text.index(third.path) < response.text.index(zoom.path)
         for link in parser.links:
-            if link.startswith("#"):
-                assert link[1:] in parser.ids
+            target_path, fragment = urldefrag(link)
+            if not target_path:
+                assert fragment in parser.ids
             else:
-                assert client.get(link).status_code == 200
+                target = client.get(target_path)
+                assert target.status_code == 200
+                if fragment:
+                    destination = Parser()
+                    destination.feed(target.text)
+                    assert fragment in destination.ids, link
         for page in PUBLIC_CONTENT_PAGES:
             article = client.get(page.path)
             p = Parser()
