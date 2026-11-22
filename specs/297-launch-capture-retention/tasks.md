@@ -45,7 +45,7 @@
 
 - [X] T023 Сверить spec/plan/tasks/contracts с реализацией, обновить `validation.md`, выполнить `$speckit-converge`, проверить `legacy_new=0`, `unowned_legacy=0`, `expired_exceptions=0`. Выполнено: ветка слита с master `359f12cc9`, `validate-legacy-impact` PASS (expiry 2027-06-30), `validate-agent-context` PASS (unowned=0), новых legacy-путей нет; расхождения spec/plan/contracts с кодом устранены в пользу master. (Issue #8123)
 - [ ] T024 Подготовить PR с русским описанием, получить exact-SHA `governance-fast`, `macos-pr`, `pr-metadata` и один `release-full` на frozen candidate; production retention/prune enablement — отдельное действие после dry-run и проверенной резервной копии. (Issue #8123)
-  Выполнено: PR #8134 слит в master squash-коммитом `90860088f` 2026-11-22; дерево merge-коммита побайтово совпадает с проверенным `cd6cb70b6` (`4905270e1`); exact-SHA гейты на `cd6cb70b6` — `governance-fast` PASS (45055584574), `macos-pr` PASS (45055584575), `pr-metadata` PASS (45061576974), повторная проверка `validate-pr-checks.py` на базе `17c7adc2c` PASS. Осталось: один `release-full` на frozen candidate и production-включение retention/prune.
+  Выполнено: PR #8134 слит в master squash-коммитом `90860088f` 2026-11-22; Dev-стенд не переведён на объединённый код из-за несовместимости нумерации миграций (см. `validation.md`, раздел Dev stand after merge); дерево merge-коммита побайтово совпадает с проверенным `cd6cb70b6` (`4905270e1`); exact-SHA гейты на `cd6cb70b6` — `governance-fast` PASS (45055584574), `macos-pr` PASS (45055584575), `pr-metadata` PASS (45061576974), повторная проверка `validate-pr-checks.py` на базе `17c7adc2c` PASS. Осталось: один `release-full` на frozen candidate и production-включение retention/prune.
 
 ## Dependencies
 

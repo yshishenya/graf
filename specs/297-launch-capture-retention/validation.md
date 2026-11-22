@@ -256,3 +256,15 @@ Verified after the merge (Postgres 17, real roles):
 - Exact-SHA гейты на `cd6cb70b6`: `governance-fast` PASS 45055584574 (1ч1м), `macos-pr` PASS 45055584575, `pr-metadata` PASS 45061576974; `validate-pr-checks.py` подтвердил все три компонента на базе `17c7adc2c`.
 - Независимое ревью: P2 о доборе retention-очереди исправлен и закрыт регрессией; P2 о порядке слива источников после сброса PTS разобран с количественными доказательствами (128 батчей за 10 мс против ~6 батчей/с реального времени) и закрыт без изменения кода.
 - `Windows x64 diagnostic tests` падает из-за зависания `tools-extract` в подготовке FFmpeg на раннере; сбой воспроизводится на чужих SHA и не является обязательным гейтом.
+
+## Dev stand after merge (2026-11-22)
+
+Сборка объединённого кода прошла: `dev-harness build --sha 90860088fb76 --feature-id 297 --live` дал manifest `dev-90860088fb76` с `migration_head: 0116_retention_scan_maintenance`. Продвинуть её на общий Dev-стенд без разрушительных действий не удалось:
+
+- активный стенд стоял на `16c37ceabb0d` с head `0114_retention_scan_maintenance` (старая нумерация F297);
+- `promote` отказал: `schema transition requires a known ancestor and one target head`, потому что ревизия `0114_retention_scan_maintenance` в новом графе отсутствует — master занял 0114 и 0115 миграциями F200, а F297 переехала на 0116;
+- проверка состояния схемы сверяет наблюдаемый head с активным manifest, поэтому ручной `alembic downgrade/upgrade` не открывает переход, а создаёт drift.
+
+Стенд возвращён в согласованное состояние: БД поднята обратно на `0114_retention_scan_maintenance`, `status` снова `active` на `16c37ceabb0d`. Ничего не удалялось.
+
+Что нужно для перевода стенда на объединённый код: осознанный сброс схемы Dev-БД (потеря тестовых данных стенда) и `promote` manifest `dev-90860088fb76`, либо отдельное решение оператора о совместимой миграции-мостике. Это вынесено как блокер, а не обойдено.
