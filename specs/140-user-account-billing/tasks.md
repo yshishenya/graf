@@ -989,3 +989,147 @@ cases можно подготовить после RED отдельно от pro
 и claim, а не ручная постановка готового delivery. Полный T068/T070, другие
 состояния чеков/уведомления, эксплуатационный FR107 и исходные launch gates
 этой детализацией не принимаются и не отменяются.
+
+## Детализация T070/T068: подтверждения выбора хранилища SSN1–SSN7 — 12.11.2026
+
+Это подшаги существующих T070/#4926 и T068/#4922, US9/P2,
+high-risk-product. Новых task IDs/issues нет; все87исходных строк и отметок
+сохранены, T070/T068 остаются `[ ]`. Независимый gate требований SSN15/0:
+`checklists/storage-selection-notices.md` и
+`review-storage-selection-notices-requirements.md`. До кода нужны повторное
+ревью этой детализации, Analyze и existing issue canon/sync. Цель — две
+исторические фазы source→commit→обычный sender, не подмена producer готовым
+delivery. Минимальный законченный результат требует обеих фаз.
+
+### Подготовка и причинная проверка до реализации (T068, US9)
+
+1. В `apps/server/tests/integration/test_billing_notification_flow.py`
+   добавить причинный RED настоящего HTTP storage preview→consent confirm
+   исходным Owner→commit→отдельное соединение→обычный Postal sender с
+   подставным транспортом. Начать с deferred schedule, затем cancel/repeat/
+   актуальный пустой no-op/stale version. Проверить полные исторические
+   данные, mandatory при optional=false и отсутствие invoice/provider calls.
+   Запустить RED до изменения producer/parser/worker; collection/import error
+   не считается причинным RED. Runner:
+   `apps/server/scripts/run_local_postgres_tests.sh --focused`, только своя
+   disposable PostgreSQL17 с app/maintenance LOGIN/NOBYPASSRLS, штатным
+   `apps/server/scripts/bootstrap_runtime_database_roles.py` и FORCE RLS.
+
+### Источник, строгий текст и сохранённое взятие на отправку (T070, US9)
+
+2. В `apps/server/src/twobrain_rec_server/cabinet/web_routes/billing.py`
+   заменить оба callers `_notify_storage_selection` небольшим
+   `apps/server/src/twobrain_rec_server/billing/storage_selection_notifications.py`.
+   Schedule сохраняет прежние quote/consent/price/blocker checks и буквальный
+   request_snapshot=quote.snapshot; operation.created_at — тот же UTC now
+   подтверждения в `[quote.created_at, quote.expires_at)`, post-version =
+   quote.selection_version+1. Повтор consumed quote не создаёт новый источник.
+   Cancel проверяет актуальную version до no-op; пустой выбор не меняет версии.
+   Реальная отмена сохраняет succeeded no-money kind=storage_selection_cancel,
+   key `storage-cancel:<workspace.id.hex>:<post-version>`, created_atUTC и
+   ровно4поля: `storage_selection_schema: 1` (integer, не bool),
+   `owner_user_id: <UUID canonical hex>`,
+   `selection_version: <post-version integer 1..2147483647>`,
+   `canceled_capacity_bytes: <исходный положительный bigint>`.
+   Без invoice/consumed quote/provider, текущего каталога или новой цены.
+   Source+outbox атомарны caller commit, ошибка чтения/записи откатывает всё;
+   подтверждённое отсутствие получателя сохраняет действие без backfill.
+   Не менять grants/paid_through/recurring consent ради письма. В
+   `apps/server/src/twobrain_rec_server/billing/monitoring.py:OPERATION_KINDS`
+   добавить только новый kind, не менять финансовые агрегаты/O16/audit.
+3. В `apps/server/src/twobrain_rec_server/billing/notifications.py` и
+   `apps/server/tests/unit/test_billing_notifications.py` реализовать/проверить
+   закрытый SSN snapshot: фаза scheduled|canceled, canonical UUID hex внутреннего
+   operation id, положительная canonical decimal version≤2147483647,
+   saved_at canonical awareUTCISO8601, положительные canonical decimal
+   target bytes≤9223372036854775807, action_path строго /billing/storage.
+   Scheduled дополнительно требует current bytes с тем же bigint пределом,
+   cycle month|year, положительную полную next_amount_minor≤9223372036854775807
+   и effective_at canonicalUTC строго позже saved_at. Новый target5–500ГБ
+   шаг5ГБ; current/canceled сохраняют исторический положительный объём.
+   Не принимать bool/float/sign/leadingzero, неизвестные поля отбрасывать,
+   malformed/partial→пустой snapshot. Проверить представимость Europe/Moscow,
+   секунды/МСК, точные байты/копейки и полный русский исторический текст из
+   contracts/notifications-support.md §SSN, один безопасный URL. Не выводить
+   ids/contact/provider/content, нынешний лимит, будущий платёж/чек или
+   next_attempt_label; canceled не выдумывает цену/дату/объём после предоплат.
+4. В новом `apps/server/src/twobrain_rec_server/billing/storage_selection_notifications.py`
+   проверить источник до enqueue и повторно перед claim: exact operation
+   workspace/kind/state/provider/key, schedule consumed quote purpose/Owner/
+   version и полное равенство snapshot, pre-version integer не bool
+   `0≤pre<2147483647`, post=pre+1, исходное окно времени, согласованные RUB/
+   cycle/target/base+addon=полная сумма из snapshot без текущего каталога.
+   Cancel требует закрытые4поля, source key, отсутствие invoice/consumed quote.
+   Исходный active/unmerged personal Owner, workspace marker, active Owner
+   membership, exact subscription.billing_owner_id и текущий active verified
+   непустой email; минимальный email/id, адрес в payload не сохранять.
+   Финализированный AccountClosureRequest или metadata markers
+   finalization_started_at/content_workspace_ids исходного requester запрещают
+   новый claim. Cooling/более новый выбор/отмена/применение сами по себе
+   историческое письмо не отменяют. Shared NOWAIT source order:
+   operation→quote(schedule)→workspace→subscription→identity→membership→
+   verified identities→существующие closure requests; затем deliveryFORUPDATE.
+   Существующий billing_reconciliation context/RLS не расширять; threshold
+   recipient helper с optional preference и Free семантикой не переиспользовать.
+5. В `apps/server/src/twobrain_rec_server/workflows/worker.py` включить
+   STORAGE_SELECTION_CHANGED в bounded family/source gate. Перед claim
+   сравнить полный poll tuple workspace/recipient/event/payload/template/channel
+   с locked delivery; mutation не отправляет старый текст. Некорректные
+   snapshot/retry metadata→suppressed, подтверждённое отсутствие источника/
+   права/адреса→terminal suppressed, read/lock error→сохраняемый retry≥60с/≤5.
+   Future not-before и max5 проверять под lock. Durable failed/
+   postal_outcome_unknown+attempt коммитить ДО HTTP; locks освободить,
+   commit error→0transport. Known retryable Postal refusal ограниченно
+   повторять, unknown/crash/restart после claim автоматически не повторять.
+   Учесть malformed retry одновременно с source SQL error, сохранив соседние
+   families и safe error codes. Не вводить общий recipient framework.
+
+### Независимая приёмка и общие ворота (T068, US9)
+
+6. В `apps/server/tests/integration/test_billing_notification_flow.py`
+   доказать обе browser→commit→новаяsession→sender фазы, repeat consumedquote,
+   cancel/repeat no-op/stale-tab/new selection, rollback source+outbox,
+   month/year/base5ГБ/addon/decrease/bonus/prepaid/deferredbelowfloor,
+   сохранённые paid rights и точные исторические snapshot/text после смены
+   каталога/применения/нового выбора. Cancel при недоступном каталоге успешен.
+   LostOwner/marker/membership/billing_owner/closed/merged, emailinactive/
+   unverified/empty/changed, foreignsource/tenant, malformedquote/operation/
+   version/date/price, legacyqueue/finalization и неправильный runtime context
+   не отправляют посторонний/старый текст. Адрес заново у того же получателя,
+   optional=false не препятствует обязательному письму; readerror отличать
+   от доказанного отсутствия. Synthetic data only; вручную созданный delivery
+   допустим для negative damage, но не для положительной producer приёмки.
+7. В том же integration файле проверить independent connections/sourceNOWAIT
+   на каждой существенной строке и обратный workspace-first financial/
+   identity-first merge/finalization порядок, concurrent senders, poll→claim
+   mutation. Callback отдельным соединением видит сохранённый attempt/unknown
+   и свободные source/delivery locks. Retrydue/future/max5/invalid JSON types/
+   readerror/knownfailure/unknown/crash/restart/commitrejected/acklost должны
+   соответствовать SSN6, без ожидания времени и реального Postal.
+8. Профильные регрессии через тот же focused runner:
+   `apps/server/tests/integration/test_billing_purchase_journey.py`,
+   `apps/server/tests/integration/test_billing_purchase_storage.py`,
+   `apps/server/tests/integration/test_billing_purchase_quotes.py`,
+   `apps/server/tests/integration/test_billing_monitoring_postgres.py`,
+   `apps/server/tests/unit/test_billing_monitoring.py`,
+   `apps/server/tests/unit/test_billing_notifications.py`, соседние ACN/threshold/
+   referral sender cases в `test_billing_notification_flow.py` и
+   `apps/server/tests/integration/test_billing_storage_notifications.py`.
+   Новый no-money kind узнаётся monitoring без unrecognized, деньги не возникают.
+   Перед тяжёлой проверкой disk≥80ГБ; каждый запуск сохраняет отдельные
+   source/pre/post hashes/log/results/cleanup. Прогоны не суммировать.
+9. Независимое code review→$speckit-converge SSN1–SSN7→профильные Ruff/
+   process/diff→свой `changes/unreleased/F140.yaml`→commit/push/PR с Refs4922/
+   4926. Точные head/currentbase, governance-fast/macos-pr/pr-metadata,
+   `scripts/validate-pr-checks.py`, открытые замечания, штатный merge и
+   parent/tree readback. Свои временные синтетические БД/containers убрать
+   штатно; журналы/хеши оставить внешне. Release-full/deploy/#7524/единственный
+   GRAFDev отдельно, исходные T068/T070 `[ ]`, #7899 последняя.
+
+Зависимости: requirements15/0→tasks review→Analyze→existing issue canon/sync
+→RED1→producer2→parser/text3→source gate4→sender5→acceptance6/7→regression8
+→review/converge9. Общие billing.py/worker.py стыки выполняются последовательно.
+После RED renderer unit cases независимы от producer при разных файлах, но
+новых агентов-исполнителей не требуется. Новых таблиц/зависимостей/служб/прав
+не добавлять. Детализация не принимает полные T068/T070, paid upgrade,
+method-required/transient purge/FR107/O16, другие уведомления и launch gates.

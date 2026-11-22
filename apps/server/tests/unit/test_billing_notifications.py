@@ -437,3 +437,83 @@ def test_account_close_scheduled_snapshot_discards_cancel_date_and_accepts_whole
     event = build_notification(event_id="account.close:synthetic", kind=BillingNotification.ACCOUNT_CLOSE, payload=payload)
     assert "account_close_canceled_at" not in event.safe_payload
     assert "12.11.2026 12:10:11 МСК" in notification_copy(event)[1]
+
+
+def _storage_selection_payload(phase="scheduled"):
+    payload = {
+        "storage_selection_phase": phase, "storage_selection_operation_id": "a" * 32,
+        "storage_selection_version": "1", "storage_selection_saved_at": "2026-11-12T09:10:11+00:00",
+        "storage_target_capacity_bytes": "5000000000", "action_path": "/billing/storage",
+    }
+    if phase == "scheduled":
+        payload.update(storage_current_capacity_bytes="10000000000", storage_cycle="month",
+                       storage_next_amount_minor="100001", storage_effective_at="2026-12-12T09:10:12+00:00")
+    return payload
+
+
+@pytest.mark.parametrize("phase", ["scheduled", "canceled"])
+def test_storage_selection_copy_has_exact_historical_values_and_mandatory_action(phase):
+    payload = _storage_selection_payload(phase)
+    event = build_notification(event_id="storage:history", kind=BillingNotification.STORAGE_SELECTION_CHANGED,
+                               payload=payload | {"email": "private@example.test", "provider_id": "secret", "invoice": "secret"})
+    assert event.safe_payload == payload
+    title, body = notification_copy(event)
+    assert "12.11.2026 12:10:11 МСК" in body and "5000000000 байт" in body
+    assert "Актуальные условия и состояние" in body and "не создавало платёж" in body
+    if phase == "scheduled":
+        assert "10000000000 байт" in body and "1 000,01 ₽" in body
+        assert "12.12.2026 12:10:12 МСК" in body and "период месяц" in body
+    else:
+        assert "не подтверждало новую цену" in body and "₽" not in body
+        assert "12.12.2026" not in body
+    for private in ("a" * 32, "private", "secret", "provider", "token=", "чек"):
+        assert private not in title + body
+    assert NotificationOutbox().enqueue(event, recipient_id="owner", marketing_allowed=False)
+
+
+@pytest.mark.parametrize("key,value", [
+    (key, value)
+    for key in ("storage_selection_version", "storage_target_capacity_bytes", "storage_current_capacity_bytes", "storage_next_amount_minor")
+    for value in (None, True, 1, 1.0, "0", "01", "+1", "-1", "1.0", "1\n", "9" * 20, "9223372036854775808")
+] + [
+    ("storage_selection_version", "2147483648"),
+    ("storage_target_capacity_bytes", "4999999999"), ("storage_target_capacity_bytes", "5000000001"),
+    ("storage_target_capacity_bytes", "505000000000"),
+    ("storage_selection_phase", []), ("storage_selection_phase", "applied"),
+    ("storage_cycle", []), ("storage_cycle", "none"),
+    ("storage_selection_operation_id", 1), ("storage_selection_operation_id", "A" * 32),
+    ("storage_selection_operation_id", "a" * 31), ("storage_selection_operation_id", "a" * 32 + "\n"),
+    ("storage_selection_saved_at", "2026-11-12T09:10:11Z"),
+    ("storage_selection_saved_at", "2026-11-12T12:10:11+03:00"),
+    ("storage_selection_saved_at", "2026-11-12T09:10:11.1+00:00"),
+    ("storage_selection_saved_at", "2026-11-12T09:10:11"),
+    ("storage_effective_at", "2026-11-12T09:10:11+00:00"),
+    ("storage_effective_at", "9999-12-31T23:00:00+00:00"),
+    ("action_path", "/billing/storage?token=secret"), ("action_path", "/billing"),
+])
+def test_storage_selection_snapshot_rejects_malformed_or_partial_values(key, value):
+    payload = _storage_selection_payload()
+    payload[key] = value
+    event = build_notification(event_id="storage:bad", kind=BillingNotification.STORAGE_SELECTION_CHANGED, payload=payload)
+    assert event.safe_payload == {}
+
+
+@pytest.mark.parametrize("phase", ["scheduled", "canceled"])
+def test_storage_selection_snapshot_requires_every_phase_field_and_preserves_integer_limits(phase):
+    payload = _storage_selection_payload(phase)
+    for key in payload:
+        event = build_notification(event_id="storage:missing", kind=BillingNotification.STORAGE_SELECTION_CHANGED,
+                                   payload={k: v for k, v in payload.items() if k != key})
+        assert event.safe_payload == {}, key
+    payload["storage_selection_version"] = "2147483647"
+    if phase == "scheduled":
+        payload.update(storage_target_capacity_bytes="500000000000", storage_cycle="year",
+                       storage_current_capacity_bytes="9223372036854775807", storage_next_amount_minor="9223372036854775807")
+    else:
+        payload["storage_target_capacity_bytes"] = "9223372036854775807"
+        payload.update(storage_cycle="secret", storage_effective_at="secret", storage_next_amount_minor="secret")
+    event = build_notification(event_id="storage:limit", kind=BillingNotification.STORAGE_SELECTION_CHANGED, payload=payload)
+    assert event.safe_payload["storage_selection_version"] == "2147483647"
+    if phase == "canceled":
+        assert set(event.safe_payload) == set(_storage_selection_payload(phase))
+    assert "secret" not in notification_copy(event)[1]
