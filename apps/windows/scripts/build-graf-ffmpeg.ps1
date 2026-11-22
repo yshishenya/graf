@@ -290,8 +290,22 @@ try {
         Write-Host 'FFmpeg defender_exclusion=unavailable'
     }
     # Bootstrap needs native Windows paths; PATH may resolve a POSIX tar.
+    # The system tar can stop without any output on this large xz archive, so a
+    # preinstalled 7-Zip is tried first when it is present. The pinned archive is
+    # never modified; both paths extract the same verified bytes.
     $tar = Join-Path $env:SystemRoot 'System32\tar.exe'
-    Run $tar @('-xf', "$work\msys2-base.tar.xz", '-C', $work) 'tools-extract' 900
+    $sevenZip = Join-Path $env:ProgramFiles '7-Zip\7z.exe'
+    if (Test-Path -LiteralPath $sevenZip) {
+        Write-Host 'FFmpeg extractor=7zip'
+        $innerTar = "$work\msys2-base.tar"
+        Run $sevenZip @('x', '-y', "-o$work", "$work\msys2-base.tar.xz") 'tools-extract-xz' 900
+        if (!(Test-Path -LiteralPath $innerTar)) { throw '7-Zip did not produce the inner tar archive.' }
+        Run $sevenZip @('x', '-y', "-o$work", $innerTar) 'tools-extract' 900
+        Remove-Item -LiteralPath $innerTar -Force
+    } else {
+        Write-Host 'FFmpeg extractor=system-tar'
+        Run $tar @('-xf', "$work\msys2-base.tar.xz", '-C', $work) 'tools-extract' 900
+    }
     $msys = "$work\msys64"
     $env:PATH = "$msys\usr\bin;$originalPath"
     foreach ($name in @('make.pkg.tar.zst', 'diffutils.pkg.tar.zst')) {
