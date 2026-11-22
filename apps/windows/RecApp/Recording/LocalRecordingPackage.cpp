@@ -34,6 +34,11 @@ void observeProtectedInspectionPhase(unsigned stage) noexcept;
 std::uint64_t playbackContainerDurationForTest(std::uint64_t observed) noexcept;
 #endif
 namespace {
+// Internal diagnostics only: the public result stays "invalid content", but the
+// exact rejected invariant is visible as a stable HRESULT.
+constexpr HRESULT playbackInvariant(std::uint32_t code) noexcept {
+    return MAKE_HRESULT(SEVERITY_ERROR, FACILITY_ITF, static_cast<WORD>(code));
+}
 
 bool confinedFile(const std::filesystem::path& directory, const std::filesystem::path& path) {
     std::error_code error;
@@ -411,7 +416,7 @@ HRESULT decodePlayback(IMFSourceReader* reader, std::uint64_t durationMs,
         const auto close = [expected](std::uint64_t value) { return value > 0 && (value > expected ? value-expected : expected-value) <= 1'000'000; };
         // MF can report zero container duration below one AAC-LC frame; require that exact decoded frame at EOF.
         const bool subFrameContainer = evidence.containerDuration100ns == 0 && durationMs*48 < 1024;
-        if (!close(evidence.containerDuration100ns) && !subFrameContainer) return MF_E_INVALIDMEDIATYPE;
+        if (!close(evidence.containerDuration100ns) && !subFrameContainer) return playbackInvariant(1);
         status = call([&] { return MFCreateMediaType(&pcm); }); if (FAILED(status)) return status;
         status = call([&] { return pcm->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Audio); }); if (FAILED(status)) return status;
         status = call([&] { return pcm->SetGUID(MF_MT_SUBTYPE, MFAudioFormat_PCM); }); if (FAILED(status)) return status;
@@ -420,7 +425,7 @@ HRESULT decodePlayback(IMFSourceReader* reader, std::uint64_t durationMs,
         for (const auto check : {guid(actual.Get(), MF_MT_MAJOR_TYPE, MFMediaType_Audio), guid(actual.Get(), MF_MT_SUBTYPE, MFAudioFormat_PCM),
             number(actual.Get(), MF_MT_AUDIO_SAMPLES_PER_SECOND, 48'000), number(actual.Get(), MF_MT_AUDIO_NUM_CHANNELS, 1),
             number(actual.Get(), MF_MT_AUDIO_BITS_PER_SAMPLE, 16), number(actual.Get(), MF_MT_AUDIO_BLOCK_ALIGNMENT, 2),
-            number(actual.Get(), MF_MT_AUDIO_AVG_BYTES_PER_SECOND, 96'000)}) if (FAILED(check)) return check;
+            number(actual.Get(), MF_MT_AUDIO_AVG_BYTES_PER_SECOND, 96'000)}) if (FAILED(check)) return playbackInvariant(2);
         const auto bound = (durationMs+100)*48;
         const auto ticks = [](std::uint64_t frames) { return frames/48'000*10'000'000 + frames%48'000*10'000'000/48'000; };
         LONGLONG previousTime = -1;
@@ -432,22 +437,23 @@ HRESULT decodePlayback(IMFSourceReader* reader, std::uint64_t durationMs,
             // end-of-stream flag; both mean the same and are validated below.
             if (status == MF_E_END_OF_STREAM) { flags |= MF_SOURCE_READERF_ENDOFSTREAM; status = S_OK; }
             if (FAILED(status)) return status;
-            if (stream || (flags & ~MF_SOURCE_READERF_ENDOFSTREAM) || timestamp < 0) return MF_E_INVALIDMEDIATYPE;
+            if (stream || (flags & ~MF_SOURCE_READERF_ENDOFSTREAM) || timestamp < 0) return playbackInvariant(3);
             if (sample) {
                 DWORD length = 0; LONGLONG time = 0, span = 0;
                 status = call([&] { return sample->GetTotalLength(&length); }); if (FAILED(status)) return status;
-                if (!length || length%2 || length/2 > bound-evidence.decodedFrames) return MF_E_INVALIDMEDIATYPE;
+                if (!length || length%2 || length/2 > bound-evidence.decodedFrames) return playbackInvariant(4);
                 status = call([&] { return sample->GetSampleTime(&time); }); if (FAILED(status)) return status;
                 status = call([&] { return sample->GetSampleDuration(&span); }); if (FAILED(status)) return status;
                 const auto position = ticks(evidence.decodedFrames), sampleTicks = ticks(length/2);
                 const auto distance = [](std::uint64_t a, std::uint64_t b) { return a > b ? a-b : b-a; };
-                if (time != timestamp || time < previousTime || span <= 0 || distance(static_cast<std::uint64_t>(time), position) > 209 ||
-                    distance(static_cast<std::uint64_t>(span), sampleTicks) > 209) return MF_E_INVALIDMEDIATYPE;
+                if (time != timestamp || time < previousTime || span <= 0) return playbackInvariant(5);
+                if (distance(static_cast<std::uint64_t>(time), position) > 209) return playbackInvariant(6);
+                if (distance(static_cast<std::uint64_t>(span), sampleTicks) > 209) return playbackInvariant(7);
                 previousTime = time;
                 evidence.decodedFrames += length/2;
-            } else if (!(flags & MF_SOURCE_READERF_ENDOFSTREAM)) return MF_E_INVALIDMEDIATYPE;
+            } else if (!(flags & MF_SOURCE_READERF_ENDOFSTREAM)) return playbackInvariant(8);
             if (flags & MF_SOURCE_READERF_ENDOFSTREAM) return
-                (!subFrameContainer || evidence.decodedFrames == 1024) && close(ticks(evidence.decodedFrames)) ? S_OK : MF_E_INVALIDMEDIATYPE;
+                (!subFrameContainer || evidence.decodedFrames == 1024) && close(ticks(evidence.decodedFrames)) ? S_OK : playbackInvariant(9);
         }
 }
 
