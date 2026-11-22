@@ -72,3 +72,52 @@ FFmpeg — 3600 с, остальные шаги — 1800 с. Пока шаг в�
 
 Это ограничивает ущерб, но не доказывает причину зависания; задача #8146
 остаётся открытой до прогона на Windows-хосте.
+
+## Проверенные и отклонённые гипотезы — 2026-11-22
+
+Прогон с закрытым stdin и исключением каталога сборки из проверки Defender
+(job для head `f43c3c15a`) дал те же показатели: `cpu_ms=16`, `memory_mb=5`,
+`stdout=0`, `stderr=0`, таймаут 900 с, `defender_exclusion=applied`.
+Значит, ожидание stdin и сканирование Defender эту блокировку не объясняют.
+Исключение Defender из скрипта убрано: оно не помогало, а на машине
+разработчика оставляло бы постоянное изменение настроек защиты.
+
+Следующий шаг по задаче #8146: если на раннере есть `7-Zip`, распаковка идёт
+через него (сначала `.tar.xz`, затем `.tar`), иначе используется прежний
+`System32\tar.exe`. Архив и его SHA не меняются, оба пути проверяются
+пределами времени и теми же логами.
+
+## Результат 7-Zip и следующий дефект — 2026-11-22
+
+Прогон head `bbed7c730`:
+
+- `FFmpeg extractor=7zip`; шаг `tools-extract` больше не зависает.
+- Скачивания, распаковка `make`/`diffutils`, распаковка исходников и сборка
+  FFmpeg (`build`) завершились успешно: `exit=0 elapsed_ms=130854`,
+  затем `Verified ordinary FFmpeg 7.1.5 x64 artifacts and compiled pins.`
+- CMake-конфигурация упала на другом месте: проверка
+  `build-graf-ffmpeg.ps1 -VerifyBuildArtifacts` не нашла `Get-FileHash`
+  (`CommandNotFoundException`) — в этом вызове нет автозагрузки модулей.
+  Заменено на прямой .NET `SHA256`, результат хеша тот же.
+
+Проверено также, что закрытие stdin и исключение Defender не влияли:
+до 7-Zip шаг стабильно стоял на `cpu_ms=16`, `stdout=0`, `stderr=0`.
+
+## Полоса дошла до CTest — 2026-11-22, head `2e347cb0f`
+
+После 7-Zip и .NET-хеша полоса впервые дошла до тестов:
+
+- CMake сконфигурировался, собрались 70 целей, проверка артефактов FFmpeg
+  прошла трижды (`Verified ordinary FFmpeg 7.1.5 x64 artifacts and compiled pins.`).
+- CTest: 4 из 5 тестов прошли (`RecordingAudioTimelineTests`,
+  `WebViewRoutePolicyTests`, `WebViewBridgeEnvelopeTests`,
+  `NativeCustodyProtectionFailureTests`).
+- `NativeHashFailureTests` упал на генерации фикстуры:
+  `GENERATED_AAC frames=100 error=5 storage=7 native=3222091444 phase=3`,
+  затем assertion в `apps/windows/Tests/GeneratedRecordingFixtures.h:75`
+  (`sealed.normalPackage() && sealed.durationMs == frames*10`).
+  `error=5` — это `V5WriterError::integrityFailed`.
+
+Это уже не проблема распаковки: сборка и запуск тестов работают. Дефект
+относится к нативной записи/AAC и требует отдельной задачи; полоса
+`windows-pr` остаётся диагностической и не выдаётся за приёмку приложения.

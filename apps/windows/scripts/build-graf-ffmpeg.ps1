@@ -16,7 +16,17 @@ $proofPath = Join-Path $prefix 'build-provenance.json'
 $headerPath = Join-Path $prefix 'include\graf\GrafFFmpegBuildManifest.h'
 $utf8 = New-Object Text.UTF8Encoding($false)
 
-function Hash([string]$Path) { (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant() }
+function Hash([string]$Path) {
+    # .NET only: module autoloading is not guaranteed for the CMake verify
+    # invocation, where Get-FileHash can be unavailable.
+    $stream = [IO.File]::OpenRead($Path)
+    try {
+        $sha = [Security.Cryptography.SHA256]::Create()
+        try {
+            return ([BitConverter]::ToString($sha.ComputeHash($stream))).Replace('-', '').ToLowerInvariant()
+        } finally { $sha.Dispose() }
+    } finally { $stream.Dispose() }
+}
 function Write-Utf8([string]$Path, [string]$Text) { [IO.File]::WriteAllText($Path, $Text, $utf8) }
 function Shell-Path([string]$Path) { '/' + $Path.Substring(0, 1).ToLowerInvariant() + $Path.Substring(2).Replace('\', '/') }
 function Inventory([string]$Root) {
@@ -177,7 +187,11 @@ function Run([string]$Exe, [string[]]$Arguments, [string]$Label, [int]$TimeoutSe
         $process.StartInfo.UseShellExecute = $false
         $process.StartInfo.RedirectStandardOutput = $true
         $process.StartInfo.RedirectStandardError = $true
+        # No step reads stdin; closing it prevents a silent wait on a console
+        # handle that does not exist on a hosted runner.
+        $process.StartInfo.RedirectStandardInput = $true
         if (!$process.Start()) { throw "Could not start $Label" }
+        try { $process.StandardInput.Close() } catch { }
         Write-Host ("FFmpeg stage started name={0} pid={1}" -f $Label, $process.Id)
         $stdout = $process.StandardOutput.ReadToEndAsync()
         $stderr = $process.StandardError.ReadToEndAsync()
@@ -274,8 +288,22 @@ try {
     }
     foreach ($inputFile in @($manifest.source) + @($manifest.build_tools)) { $null = Download $inputFile }
     # Bootstrap needs native Windows paths; PATH may resolve a POSIX tar.
+    # The system tar can stop without any output on this large xz archive, so a
+    # preinstalled 7-Zip is tried first when it is present. The pinned archive is
+    # never modified; both paths extract the same verified bytes.
     $tar = Join-Path $env:SystemRoot 'System32\tar.exe'
-    Run $tar @('-xf', "$work\msys2-base.tar.xz", '-C', $work) 'tools-extract' 900
+    $sevenZip = Join-Path $env:ProgramFiles '7-Zip\7z.exe'
+    if (Test-Path -LiteralPath $sevenZip) {
+        Write-Host 'FFmpeg extractor=7zip'
+        $innerTar = "$work\msys2-base.tar"
+        Run $sevenZip @('x', '-y', "-o$work", "$work\msys2-base.tar.xz") 'tools-extract-xz' 900
+        if (!(Test-Path -LiteralPath $innerTar)) { throw '7-Zip did not produce the inner tar archive.' }
+        Run $sevenZip @('x', '-y', "-o$work", $innerTar) 'tools-extract' 900
+        Remove-Item -LiteralPath $innerTar -Force
+    } else {
+        Write-Host 'FFmpeg extractor=system-tar'
+        Run $tar @('-xf', "$work\msys2-base.tar.xz", '-C', $work) 'tools-extract' 900
+    }
     $msys = "$work\msys64"
     $env:PATH = "$msys\usr\bin;$originalPath"
     foreach ($name in @('make.pkg.tar.zst', 'diffutils.pkg.tar.zst')) {
