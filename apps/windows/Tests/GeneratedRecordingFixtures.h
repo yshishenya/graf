@@ -69,9 +69,10 @@ inline void exportGeneratedPlayback(const std::filesystem::path& output, std::ui
     capture.append(frames);
     const auto sealed = capture.writer->finalize(ReasonCode::none, RecordingStopReason::interruption);
     if (!sealed.normalPackage()) std::fprintf(stderr,
-        "GENERATED_AAC frames=%llu error=%u storage=%u native=%u phase=%u\n",
+        "GENERATED_AAC frames=%llu error=%u storage=%u native=0x%08X phase=%u duration_ms=%llu\n",
         static_cast<unsigned long long>(frames), static_cast<unsigned>(sealed.error),
-        static_cast<unsigned>(sealed.storageError), sealed.nativeError, static_cast<unsigned>(sealed.packagePhase));
+        static_cast<unsigned>(sealed.storageError), sealed.nativeError,
+        static_cast<unsigned>(sealed.packagePhase), static_cast<unsigned long long>(sealed.durationMs));
     assert(sealed.normalPackage() && sealed.durationMs == frames*10);
     auto pair = capture.coldPair(); assert(pair.ok());
     auto readers = openProtectedCustodyReaders(capture.paths.root, *pair.value, capture.cancel); assert(readers.ok());
