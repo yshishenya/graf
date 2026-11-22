@@ -82,7 +82,7 @@ function Get-ArtifactHashes {
     @(Get-ChildItem -LiteralPath $root -Recurse -File -Force | Where-Object {
         $_.Extension -in '.a', '.lib', '.h', '.hpp', '.hh', '.inc', '.inl', '.def'
     } | Sort-Object FullName | ForEach-Object {
-        [ordered]@{ path = $_.FullName.Substring($root.Length + 1); sha256 = Get-Sha256Hex $_.FullName }
+        [ordered]@{ path = $_.FullName.Substring($root.Length + 1); sha256 = (Get-Sha256Hex $_.FullName) }
     })
 }
 
@@ -98,7 +98,7 @@ function Get-TreeDigest([string]$Directory) {
         $relative = $_.FullName.Substring($root.Length + 1).Replace('\', '/')
         if ($relative -notmatch '^\.git/' -and $relative -notmatch '^subprojects/packagecache/' -and
             $_.Name -ne '.meson-subproject-wrap-hash.txt') {
-            $relative + ':' + Get-Sha256Hex $_.FullName
+            $relative + ':' + (Get-Sha256Hex $_.FullName)
         }
     })
     Get-TextDigest ($lines -join "`n")
@@ -113,8 +113,8 @@ function Assert-AbseilSource {
     # Only line endings are normalized. Archive and source-tree hashes are binary.
     $wrapDigest = Get-TextDigest ([IO.File]::ReadAllText($wrap).Replace("`r`n", "`n"))
     if ($wrapDigest -ine $lock.abseil_wrap_file_sha256 -or
-        Get-Sha256Hex $archive -ine $lock.abseil_source_sha256 -or
-        Get-Sha256Hex $patch -ine $lock.abseil_wrap_patch_sha256) {
+        (Get-Sha256Hex $archive) -ine $lock.abseil_source_sha256 -or
+        (Get-Sha256Hex $patch) -ine $lock.abseil_wrap_patch_sha256) {
         throw 'Abseil wrap/archive/patch does not match upstream.lock.'
     }
     $expectedRoot = Join-Path ([IO.Path]::GetTempPath()) ('graf-abseil-verify-' + [guid]::NewGuid().ToString('N'))
@@ -139,9 +139,9 @@ function Get-BuildIdentity {
         sourceCommit = $actualCommit
         architecture = $Architecture
         configuration = $Configuration
-        lockSha256 = Get-Sha256Hex $lockPath
-        crossSha256 = Get-Sha256Hex $crossFile
-        recipeSha256 = Get-Sha256Hex $PSCommandPath
+        lockSha256 = (Get-Sha256Hex $lockPath)
+        crossSha256 = (Get-Sha256Hex $crossFile)
+        recipeSha256 = (Get-Sha256Hex $PSCommandPath)
     }
 }
 
