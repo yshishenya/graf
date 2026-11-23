@@ -15,9 +15,19 @@
 - `GRAF-Windows.msix.sha256` — контрольная сумма;
 - `build-info.txt` — версия, SHA-256, исходный коммит, `public_release_ready=false`;
 - `GRAF-Windows.appinstaller` — только если при запуске указан `feed_base_url`;
-- системные зависимости (`Microsoft.VCLibs`, `Microsoft.WindowsAppRuntime`), если
-  они нашлись в кэше пакетов при сборке. В `build-info.txt` есть строка
-  `framework_dependencies=included|missing`.
+- системные зависимости, которые объявляет сам пакет (`Microsoft.VCLibs` и
+  `Microsoft.WindowsAppRuntime`): проект упаковки кладёт их рядом с пакетом в
+  `Dependencies\x64`, полоса копирует их в комплект. Если объявленной
+  зависимости нет, сборка падает. В `build-info.txt` строка
+  `framework_dependencies` перечисляет каждую зависимость как
+  `имя=included@версия` или `имя=missing`. Имя берётся из манифеста самого
+  пакета зависимости, а не из имени файла.
+
+Перед выкладкой полоса сама проверяет пакет: манифест, точку входа, подпись,
+архитектуру x64 и обязательные файлы запуска (`GrafWindowsApp.exe`, среда C++,
+`WebView2Loader.dll`, библиотеки FFmpeg). Если чего-то нет, сборка падает и
+артефакт не публикуется. Список файлов пакета и объявленные зависимости
+попадают в summary прогона.
 
 ## Как запустить
 
@@ -42,9 +52,21 @@
    в следующее хранилище» → «Доверенные лица».
    Сертификат не ставится в корневые доверенные: он подтверждает только этот
    тестовый издатель.
-4. Если в комплекте есть файлы `Microsoft.VCLibs...appx` или
-   `Microsoft.WindowsAppRuntime...msix`, установить их первыми, затем открыть
-   `GRAF-Windows.msix` → «Установить».
+4. Установить зависимости и приложение одной командой из PowerShell, открытого
+   в папке с файлами:
+
+   ```powershell
+   $deps = @(Get-ChildItem -Path '.\Microsoft.VCLibs.*.appx', '.\Microsoft.WindowsAppRuntime.*.msix' -ErrorAction SilentlyContinue |
+     ForEach-Object FullName)
+   $install = @{ Path = '.\GRAF-Windows.msix' }
+   if ($deps) { $install.DependencyPath = $deps }
+   Add-AppxPackage @install
+   ```
+
+   Двойной щелчок по `GRAF-Windows.msix` тоже работает, но тогда Windows может
+   предложить скачать зависимости из Store. Команда выше ставит локальные
+   файлы и не требует сети. Если в `build-info.txt` для зависимости стоит
+   `missing`, сообщите об этом: пакет может не установиться на чистой машине.
 5. Запустить GRAF, войти в аккаунт, разрешить микрофон и проверить запись.
 
 Если при установке Windows пишет, что издатель не доверенный, — сертификат не
