@@ -602,3 +602,58 @@ def test_direct_upload_keeps_existing_public_gates(tmp_path, monkeypatch, failur
         artifacts.upload_prepared(args)
         assert uploads == [files]
         assert [c[-1] for c in calls if str(c[0]).endswith('validate-packaged-app-launch.sh')] == ['arm64', 'x86_64']
+
+
+def test_two_phase_notarize_submits_only_the_requested_kind(tmp_path, monkeypatch, capsys):
+    """The app is stapled before packaging, so each phase submits one artifact."""
+    app = tmp_path / 'GRAF.app'
+    app.mkdir()
+    (app / 'signed-code').write_text('original')
+    pkg = tmp_path / 'GRAF.pkg'
+    pkg.write_text('original-package')
+    version, source = '2026.11.22.1', 'b' * 40
+    receipt = {'schema': 1, 'source': source, 'tag': 'v' + version, 'version': version,
+               'app': artifacts.fingerprint(app), 'pkg': artifacts.regular(pkg)}
+    artifacts.atomic_json(str(pkg) + '.build.json', receipt)
+    monkeypatch.setattr(artifacts, 'STATE', tmp_path / 'state')
+    monkeypatch.setattr(artifacts, 'clean_source', lambda expected=None: source)
+    monkeypatch.setattr(artifacts, 'validate_signed_build', lambda *args: None)
+    submitted = []
+
+    def platform(*args):
+        if args[0] == 'ditto':
+            if '-c' in args:
+                Path(args[-1]).write_text('archive')
+            else:
+                shutil.copytree(args[1], args[2])
+        elif args[:3] == ('xcrun', 'notarytool', 'submit'):
+            submitted.append(Path(args[3]).suffix)
+            return json.dumps({'id': '00000000-0000-0000-0000-000000000011'})
+        elif args[:3] == ('xcrun', 'notarytool', 'info'):
+            return json.dumps({'id': args[3], 'status': 'Accepted'})
+        return ''
+
+    monkeypatch.setattr(artifacts, 'command', platform)
+
+    artifacts.notarize(SimpleNamespace(app=app, pkg=pkg, profile='p', recover=[], kinds='zip'))
+    app_dir = artifacts.STATE / 'notary' / f'{version}-{source}-app'
+    assert submitted == ['.zip']
+    assert (app_dir / 'final/GRAF.app').is_dir()
+    assert (app_dir / 'final' / f'GRAF-{version}-candidate.zip').is_file()
+    assert not (app_dir / 'final' / f'GRAF-{version}.pkg').exists()
+
+    submitted.clear()
+    artifacts.notarize(SimpleNamespace(app=app, pkg=pkg, profile='p', recover=[], kinds='pkg'))
+    pkg_dir = artifacts.STATE / 'notary' / f'{version}-{source}-pkg'
+    assert submitted == ['.pkg']
+    assert (pkg_dir / 'final' / f'GRAF-{version}.pkg').is_file()
+    assert not (pkg_dir / 'final/GRAF.app').exists()
+
+    # The publication phase reads one directory, so the verified package is
+    # adopted next to the app without touching the recorded stage identity.
+    artifacts.adopt_pkg(SimpleNamespace(final=app_dir / 'final',
+                                       pkg=pkg_dir / 'final' / f'GRAF-{version}.pkg'))
+    assert (app_dir / 'final' / f'GRAF-{version}.pkg').is_file()
+    prepared = json.loads((app_dir / 'final/.prepared.json').read_text())
+    assert f'GRAF-{version}.pkg' in prepared['outputs']
+    assert 'notary=Accepted' in capsys.readouterr().out

@@ -174,3 +174,18 @@ def test_script_is_posix_shell_clean():
         assert bashism not in source, f'POSIX sh must not use {bashism}'
     result = subprocess.run(['sh', '-n', str(SCRIPT)], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
+
+
+def test_installer_is_built_from_the_stapled_app():
+    """The ticket lives in the app, so the app is notarized before the package."""
+    source = SCRIPT.read_text()
+    assert '--kinds zip' in source
+    assert '--kinds pkg' in source
+    assert 'GRAF_REPACKAGE_APP="$FINAL_APP"' in source
+    assert 'adopt-pkg' in source
+    assert source.index('--kinds zip') < source.index('GRAF_REPACKAGE_APP')
+    assert source.index('GRAF_REPACKAGE_APP') < source.index('--kinds pkg')
+    builder = SCRIPT.with_name('build-local-installer.sh').read_text()
+    assert 'package_installer()' in builder
+    assert 'GRAF_REPACKAGE_APP' in builder
+    assert 'GRAF_REPACKAGE_APP must point at an existing signed app bundle.' in builder

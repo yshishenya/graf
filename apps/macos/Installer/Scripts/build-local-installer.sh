@@ -189,6 +189,98 @@ mkdir -p "$STAGE_DIR/app/Applications"
 mkdir -p "$COMPONENT_DIR"
 mkdir -p "$SCRIPTS_DIR/desktop-app"
 
+# Package the signed (and, for public releases, already stapled) app bundle.
+# The app must be stapled before this step: the notarization ticket is stored in
+# Contents/CodeResources, so a package built from an unstapled app cannot pass
+# validate-pkg-payload.sh.
+package_installer() {
+ditto --norsrc --noextattr --noqtn "$APP_BUNDLE" "$STAGE_DIR/app/Applications/GRAF.app"
+xattr -cr "$STAGE_DIR/app" 2>/dev/null || true
+cat > "$SCRIPTS_DIR/desktop-app/preinstall" <<'EOF'
+#!/usr/bin/env sh
+set -eu
+
+LEGACY_APP="/Applications/2brain Rec.app"
+if [ -d "$LEGACY_APP" ]; then
+  rm -rf "$LEGACY_APP" || true
+fi
+exit 0
+EOF
+chmod 755 "$SCRIPTS_DIR/desktop-app/preinstall"
+
+pkgbuild \
+  --root "$STAGE_DIR/app" \
+  --identifier "pro.2brain.graf.desktop-app" \
+  --version "$VERSION" \
+  --install-location "/" \
+  --scripts "$SCRIPTS_DIR/desktop-app" \
+  --ownership recommended \
+  "$COMPONENT_DIR/graf-desktop-app.pkg"
+
+cat > "$BUILD_DIR/distribution.xml" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<installer-gui-script minSpecVersion="2">
+  <title>GRAF</title>
+  <options customize="never" require-scripts="true" rootVolumeOnly="true"/>
+  <domains enable_anywhere="false" enable_currentUserHome="false" enable_localSystem="true"/>
+  <installation-check script="InstallationCheck()"/>
+  <script>
+function InstallationCheck() {
+  if(system.compareVersions(system.version.ProductVersion, "14.5") &lt; 0) {
+    my.result.type = "Fatal";
+    my.result.title = "Unsupported macOS";
+    my.result.message = "GRAF requires macOS 14.5 or later.";
+    return false;
+  }
+  return true;
+}
+  </script>
+  <choices-outline>
+    <line choice="default">
+      <line choice="desktop-app"/>
+    </line>
+  </choices-outline>
+  <choice id="default" title="GRAF" start_selected="true" start_enabled="false" start_visible="false">
+    <pkg-ref id="pro.2brain.graf.desktop-app"/>
+  </choice>
+  <choice id="desktop-app" title="GRAF Desktop App" start_selected="true" start_enabled="false">
+    <pkg-ref id="pro.2brain.graf.desktop-app"/>
+  </choice>
+  <pkg-ref id="pro.2brain.graf.desktop-app" version="$VERSION" auth="Root">graf-desktop-app.pkg</pkg-ref>
+</installer-gui-script>
+EOF
+
+if [ -n "${DEVELOPER_ID_INSTALLER_IDENTITY:-}" ]; then
+  productbuild \
+    --distribution "$BUILD_DIR/distribution.xml" \
+    --package-path "$COMPONENT_DIR" \
+    --sign "$DEVELOPER_ID_INSTALLER_IDENTITY" \
+    "$OUTPUT_PKG"
+else
+  productbuild \
+    --distribution "$BUILD_DIR/distribution.xml" \
+    --package-path "$COMPONENT_DIR" \
+    "$OUTPUT_PKG"
+fi
+
+if [ "$REQUIRE_PUBLIC_TRUST" = 1 ]; then
+  python3 "$ARTIFACTS" build-receipt --source "$BUILD_SOURCE" --version "$VERSION" \
+    --key "$BUILD_KEY" --app "$APP_BUNDLE" --pkg "$OUTPUT_PKG"
+fi
+echo "$OUTPUT_PKG"
+}
+
+REPACKAGE_APP="${GRAF_REPACKAGE_APP:-}"
+if [ -n "$REPACKAGE_APP" ]; then
+  [ -d "$REPACKAGE_APP" ] || {
+    echo "GRAF_REPACKAGE_APP must point at an existing signed app bundle." >&2
+    exit 1
+  }
+  APP_BUNDLE="$REPACKAGE_APP"
+  package_installer
+  exit 0
+fi
+
 build_architecture() {
   architecture=$1
   triple=$2
@@ -510,77 +602,4 @@ EOF
   fi
 fi
 
-ditto --norsrc --noextattr --noqtn "$APP_BUNDLE" "$STAGE_DIR/app/Applications/GRAF.app"
-xattr -cr "$STAGE_DIR/app" 2>/dev/null || true
-cat > "$SCRIPTS_DIR/desktop-app/preinstall" <<'EOF'
-#!/usr/bin/env sh
-set -eu
-
-LEGACY_APP="/Applications/2brain Rec.app"
-if [ -d "$LEGACY_APP" ]; then
-  rm -rf "$LEGACY_APP" || true
-fi
-exit 0
-EOF
-chmod 755 "$SCRIPTS_DIR/desktop-app/preinstall"
-
-pkgbuild \
-  --root "$STAGE_DIR/app" \
-  --identifier "pro.2brain.graf.desktop-app" \
-  --version "$VERSION" \
-  --install-location "/" \
-  --scripts "$SCRIPTS_DIR/desktop-app" \
-  --ownership recommended \
-  "$COMPONENT_DIR/graf-desktop-app.pkg"
-
-cat > "$BUILD_DIR/distribution.xml" <<EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<installer-gui-script minSpecVersion="2">
-  <title>GRAF</title>
-  <options customize="never" require-scripts="true" rootVolumeOnly="true"/>
-  <domains enable_anywhere="false" enable_currentUserHome="false" enable_localSystem="true"/>
-  <installation-check script="InstallationCheck()"/>
-  <script>
-function InstallationCheck() {
-  if(system.compareVersions(system.version.ProductVersion, "14.5") &lt; 0) {
-    my.result.type = "Fatal";
-    my.result.title = "Unsupported macOS";
-    my.result.message = "GRAF requires macOS 14.5 or later.";
-    return false;
-  }
-  return true;
-}
-  </script>
-  <choices-outline>
-    <line choice="default">
-      <line choice="desktop-app"/>
-    </line>
-  </choices-outline>
-  <choice id="default" title="GRAF" start_selected="true" start_enabled="false" start_visible="false">
-    <pkg-ref id="pro.2brain.graf.desktop-app"/>
-  </choice>
-  <choice id="desktop-app" title="GRAF Desktop App" start_selected="true" start_enabled="false">
-    <pkg-ref id="pro.2brain.graf.desktop-app"/>
-  </choice>
-  <pkg-ref id="pro.2brain.graf.desktop-app" version="$VERSION" auth="Root">graf-desktop-app.pkg</pkg-ref>
-</installer-gui-script>
-EOF
-
-if [ -n "${DEVELOPER_ID_INSTALLER_IDENTITY:-}" ]; then
-  productbuild \
-    --distribution "$BUILD_DIR/distribution.xml" \
-    --package-path "$COMPONENT_DIR" \
-    --sign "$DEVELOPER_ID_INSTALLER_IDENTITY" \
-    "$OUTPUT_PKG"
-else
-  productbuild \
-    --distribution "$BUILD_DIR/distribution.xml" \
-    --package-path "$COMPONENT_DIR" \
-    "$OUTPUT_PKG"
-fi
-
-if [ "$REQUIRE_PUBLIC_TRUST" = 1 ]; then
-  python3 "$ARTIFACTS" build-receipt --source "$BUILD_SOURCE" --version "$VERSION" \
-    --key "$BUILD_KEY" --app "$APP_BUNDLE" --pkg "$OUTPUT_PKG"
-fi
-echo "$OUTPUT_PKG"
+package_installer

@@ -418,32 +418,61 @@ run_prepare() {
   # next notary or Sparkle step.
   [ -n "$PKG_PATH" ] || PKG_PATH="$DEFAULT_PKG_PATH"
   mkdir -p "$(dirname -- "$PKG_PATH")"
+  build_signed_package() {
+    GRAF_VERSION="$VERSION" \
+    GRAF_REQUIRE_PUBLIC_UPDATE_TRUST=1 \
+    GRAF_UPDATE_FEED_URL="$FEED_URL" \
+    GRAF_APP_SIGN_IDENTITY="$APP_SIGN_IDENTITY" \
+    DEVELOPER_ID_INSTALLER_IDENTITY="$INSTALLER_IDENTITY" \
+      sh "$BUILDER" "$PKG_PATH" >/dev/null
+  }
+
   timing_begin "build_and_sign"
-  GRAF_VERSION="$VERSION" \
-  GRAF_REQUIRE_PUBLIC_UPDATE_TRUST=1 \
-  GRAF_UPDATE_FEED_URL="$FEED_URL" \
-  GRAF_APP_SIGN_IDENTITY="$APP_SIGN_IDENTITY" \
-  DEVELOPER_ID_INSTALLER_IDENTITY="$INSTALLER_IDENTITY" \
-    sh "$BUILDER" "$PKG_PATH" >/dev/null
+  build_signed_package
   timing_end
 
-  timing_begin "notarize_wait_apple"
-  # External Apple waiting. This is the row that must overlap the server train,
-  # never extend it. The helper submits ZIP and PKG before waiting, keeps both
-  # request IDs, and is resumable.
-  python3 "$ARTIFACTS" notarize \
+  timing_begin "notarize_app_wait_apple"
+  # The notarization ticket lives inside the app bundle, and the installer must
+  # be built from the already stapled app. Submit the app first, then package the
+  # stapled result and notarize that package separately.
+  python3 "$ARTIFACTS" notarize --kinds zip \
     --app "$MACOS_DIR/RecApp/.build/GRAF.app" \
     --pkg "$PKG_PATH" \
     --profile "$NOTARY_PROFILE"
   timing_end
 
   NOTARY_DIR="$MACOS_DIR/.build/notary/$VERSION-$SOURCE_SHA"
+  PKG_NOTARY_DIR="$MACOS_DIR/.build/notary/$VERSION-$SOURCE_SHA-pkg"
   FINAL_DIR="$NOTARY_DIR/final"
   FINAL_APP="$FINAL_DIR/GRAF.app"
-  FINAL_PKG="$FINAL_DIR/GRAF-$VERSION.pkg"
   FINAL_CANDIDATE_ZIP="$FINAL_DIR/GRAF-$VERSION-candidate.zip"
+  [ -e "$FINAL_APP" ] || fail "notarization did not produce the stapled app $FINAL_APP"
+  [ -e "$FINAL_CANDIDATE_ZIP" ] || fail "notarization did not produce $FINAL_CANDIDATE_ZIP"
+  # Reuse an interrupted package attempt instead of rebuilding different bytes:
+  # a rebuilt package would no longer match the receipt bound to its submission.
+  if [ ! -e "$PKG_NOTARY_DIR/final/GRAF-$VERSION.pkg" ]; then
+    if [ ! -d "$PKG_NOTARY_DIR" ]; then
+      timing_begin "repackage_and_notarize_pkg"
+      GRAF_VERSION="$VERSION" \
+      GRAF_REQUIRE_PUBLIC_UPDATE_TRUST=1 \
+      GRAF_UPDATE_FEED_URL="$FEED_URL" \
+      GRAF_APP_SIGN_IDENTITY="$APP_SIGN_IDENTITY" \
+      DEVELOPER_ID_INSTALLER_IDENTITY="$INSTALLER_IDENTITY" \
+      GRAF_REPACKAGE_APP="$FINAL_APP" \
+        sh "$BUILDER" "$PKG_PATH" >/dev/null
+    fi
+    python3 "$ARTIFACTS" notarize --kinds pkg \
+      --app "$FINAL_APP" \
+      --pkg "$PKG_PATH" \
+      --profile "$NOTARY_PROFILE"
+    timing_end
+  fi
+  python3 "$ARTIFACTS" adopt-pkg \
+    --final "$FINAL_DIR" \
+    --pkg "$PKG_NOTARY_DIR/final/GRAF-$VERSION.pkg" >/dev/null
+  FINAL_PKG="$FINAL_DIR/GRAF-$VERSION.pkg"
   for artifact in "$FINAL_APP" "$FINAL_PKG" "$FINAL_CANDIDATE_ZIP"; do
-    [ -e "$artifact" ] || fail "notarization did not produce $artifact"
+    [ -e "$artifact" ] || fail "preparation did not produce $artifact"
   done
 
   timing_begin "trust_gates"
