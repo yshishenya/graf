@@ -1248,6 +1248,7 @@ if ! storage_recovery_start_mode="$(storage_recovery_release_state 2>/dev/null)"
   || [[ "$storage_recovery_start_mode" != "legacy" && "$storage_recovery_start_mode" != "reconciled" ]]; then
   echo "deploy_result=blocked"
   echo "reason=storage_recovery_binding_unverified"
+  echo "reason_hint=create the external volume twobrain-rec-storage-recovery and set TWOBRAIN_STRICT_STORAGE_RECOVERY_ALLOW_LEGACY=true or the scope/recovery-id pair; see docs/runbooks/storage-recovery-binding.md"
   exit 1
 fi
 expected_schema_head="$(docker run --rm --pull never --network none --read-only "$media_image" \
