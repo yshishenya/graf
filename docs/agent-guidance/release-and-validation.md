@@ -362,7 +362,9 @@ infra/scripts/cd-remote.sh --execute --branch master \
 
 The execute step synchronizes and pins the exact SHA, then re-checks the
 unchanged worktree/local/remote SHA immediately before remote production
-actions. Release candidates and decisions are operator evidence and should
+actions. Production must already have the storage recovery binding described in
+`docs/runbooks/storage-recovery-binding.md`; without it `--execute` stops with
+`reason=storage_recovery_binding_unverified` before any migration runs. Release candidates and decisions are operator evidence and should
 remain under the ignored `.dev/release/` path (or an explicit external evidence
 directory). A direct full run prints `next_gate=full_diagnostic_only` when no
 candidate is supplied; it remains available for diagnosis, but it is not the
