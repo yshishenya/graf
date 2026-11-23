@@ -887,3 +887,16 @@ Main 17.11.2026: **T129 structural codec ready; partial consumers pending**.
 [промежуточный отчёт](validation-2026-11-17-t129-codec.md).
 Это не BOTH partial state machine, native/installed/rollback приёмка или
 разрешение writer v3/T130. Задача и #8108 остаются открытыми.
+
+## Phase 30: Тестовый канал Windows для пользователей (2026-11-23)
+
+Канал нужен, чтобы передать сборку пользователям, когда Windows-машины у
+команды нет. Выпуском он не является: подпись самоподписанная, установку,
+запуск и запись проверяют пользователи на своих компьютерах, а публикация
+остаётся за сертификатом удостоверяющего центра (T124). Порядок: T134 → T135 →
+T136; T137 — отдельное улучшение состава пакета.
+
+- [X] T134 [US1] Добавить ручную полосу `.github/workflows/windows-tester-build.yml`: на hosted Windows x64 собрать AEC3 и FFmpeg, поставить версию, собрать MSIX проектом упаковки, подписать самоподписанным `CN=GRAF`, выложить комплект (`msix`, `.cer`, SHA-256, `build-info.txt`, при `feed_base_url` — `.appinstaller`) и русскую инструкцию `tester-install-ru.md`. Evidence: PR #8152, артефакт `graf-windows-tester-2026.11.23.4`. (Refs #8149)
+- [X] T135 [US1] Убрать зависимость проверки AEC3 в `apps/windows/scripts/build-graf-aec3.ps1` от автозагрузки модуля PowerShell: SHA-256 считать через .NET, вызовы в выражениях заключить в скобки, чтобы `ValidateGrafAEC3` не падал при вызове из MSBuild. Evidence: PR #8154. (Refs #8149)
+- [X] T136 [US1] Собирать MSIX только проектом упаковки: `GenerateAppxPackageOnBuild` в `apps/windows/Installer/GrafWindows.Package.wapproj` задавать локально, проект приложения получать `false`; полосе искать ровно один пакет в выводе `wapproj`, проверять манифест, подпись и обязательные файлы запуска, копировать зависимости из `Dependencies\x64`. Evidence: `validation-2026-11-23-tester-msix.md`. (Issue #8155)
+- [ ] T137 [US2] Убрать лишний `System.Core.dll` из пакета: проект упаковки наследует неявные ссылки .NET и кладёт справочную сборку .NET 3.5 в native-пакет. Проверить состав MSIX и сохранить полный набор `ThirdPartyNotices`. (Issue #8157)

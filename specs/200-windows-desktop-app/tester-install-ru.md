@@ -51,11 +51,21 @@
    в следующее хранилище» → «Доверенные лица».
    Сертификат не ставится в корневые доверенные: он подтверждает только этот
    тестовый издатель.
-4. Если в комплекте есть файлы `Microsoft.VCLibs...appx` или
-   `Microsoft.WindowsAppRuntime...msix`, установить их первыми, затем открыть
-   `GRAF-Windows.msix` → «Установить». Если в `build-info.txt` для зависимости
-   стоит `missing`, сообщите об этом: пакет может не установиться на чистой
-   машине.
+4. Установить зависимости и приложение одной командой из PowerShell, открытого
+   в папке с файлами:
+
+   ```powershell
+   $deps = @(Get-ChildItem -Path '.\Microsoft.VCLibs.*.appx', '.\Microsoft.WindowsAppRuntime.*.msix' -ErrorAction SilentlyContinue |
+     ForEach-Object FullName)
+   $install = @{ Path = '.\GRAF-Windows.msix' }
+   if ($deps) { $install.DependencyPath = $deps }
+   Add-AppxPackage @install
+   ```
+
+   Двойной щелчок по `GRAF-Windows.msix` тоже работает, но тогда Windows может
+   предложить скачать зависимости из Store. Команда выше ставит локальные
+   файлы и не требует сети. Если в `build-info.txt` для зависимости стоит
+   `missing`, сообщите об этом: пакет может не установиться на чистой машине.
 5. Запустить GRAF, войти в аккаунт, разрешить микрофон и проверить запись.
 
 Если при установке Windows пишет, что издатель не доверенный, — сертификат не
