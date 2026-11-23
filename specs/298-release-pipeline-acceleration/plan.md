@@ -88,6 +88,7 @@
 - `.github/workflows/release-full.yml`
 - `docs/agent-guidance/release-and-validation.md`
 - `tests/governance/test_test_resources.py`
+- `tests/governance/test_ci_guard.py`
 - `changes/unreleased/F298.yaml`
 
 ## Validation Strategy
