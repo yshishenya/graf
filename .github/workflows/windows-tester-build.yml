@@ -112,7 +112,10 @@ jobs:
             /p:GrafFFmpegRoot="$env:RUNNER_TEMP/graf-ffmpeg-x64" `
             /p:GrafAEC3Root="$env:AEC3_SOURCE" /p:GrafAEC3BuildRoot="$env:RUNNER_TEMP/graf-aec3"
           if ($LASTEXITCODE -ne 0) { throw 'MSBuild failed' }
-          $packages = @(Get-ChildItem 'apps/windows/Installer/out' -Recurse -Filter *.msix -ErrorAction SilentlyContinue)
+          # The same test layout also stages dependency packages under
+          # Dependencies\<arch>; only the package itself is the build output.
+          $packages = @(Get-ChildItem 'apps/windows/Installer/out' -Recurse -File -Filter *.msix -ErrorAction SilentlyContinue |
+            Where-Object { $_.Directory.Name -ne 'Dependencies' })
           if ($packages.Count -ne 1) {
             $found = if ($packages.Count -eq 0) { 'none' } else { ($packages.FullName -join '; ') }
             throw "Expected exactly one MSIX from the packaging project, found $($packages.Count): $found"
@@ -172,27 +175,23 @@ jobs:
           Copy-Item (Join-Path $env:RUNNER_TEMP 'graf-signing/graf-dev.cer') (Join-Path $out 'GRAF-Windows.cer')
           $deps = @()
           if ($env:PACKAGE_DEPENDENCIES) { $deps = @($env:PACKAGE_DEPENDENCIES.Split(',') | Where-Object { $_ }) }
+          # The packaging targets stage exactly the framework packages the manifest
+          # declares, with the matching versions, next to the package itself.
+          $depDir = Join-Path (Split-Path $env:MSIX_PATH) 'Dependencies\x64'
           $frameworks = @()
-          if ($deps -match '^Microsoft\.VCLibs') {
-            $sdkRetail = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\AppX\Retail\x64'
-            if (Test-Path $sdkRetail) {
-              $frameworks += @(Get-ChildItem $sdkRetail -Filter 'Microsoft.VCLibs*x64*.appx' -ErrorAction SilentlyContinue)
-            }
+          if (Test-Path $depDir) {
+            $frameworks = @(Get-ChildItem $depDir -File -ErrorAction SilentlyContinue |
+              Where-Object { $_.Extension -in @('.msix', '.appx') })
           }
-          if ($deps -match '^Microsoft\.WindowsAppRuntime') {
-            $wasdkDirs = @(Get-ChildItem "$env:USERPROFILE\.nuget\packages\microsoft.windowsappsdk" -Directory -ErrorAction SilentlyContinue |
-              ForEach-Object { Join-Path $_.FullName 'tools\MSIX\win10-x64' } | Where-Object { Test-Path $_ })
-            foreach ($dir in $wasdkDirs) {
-              $frameworks += @(Get-ChildItem $dir -Filter *.msix -ErrorAction SilentlyContinue)
-            }
-          }
-          $frameworks = @($frameworks | Sort-Object Name -Unique)
           foreach ($framework in $frameworks) { Copy-Item $framework.FullName (Join-Path $out $framework.Name) }
           $depState = @()
           foreach ($dep in $deps) {
             $family = ($dep -split '\.')[0..1] -join '\.'
             $found = @($frameworks | Where-Object { $_.Name -match ('^' + $family + '\.') }).Count -gt 0
             $depState += ($dep + '=' + $(if ($found) { 'included' } else { 'missing' }))
+          }
+          if ($depState -match '=missing$') {
+            throw "Required framework package is missing from the test layout: $($depState -join '; ')"
           }
           $frameworkState = if ($depState.Count -gt 0) { $depState -join '; ' } else { 'none_declared' }
           $msix = Join-Path $out 'GRAF-Windows.msix'

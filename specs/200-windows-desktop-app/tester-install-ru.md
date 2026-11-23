@@ -15,10 +15,12 @@
 - `GRAF-Windows.msix.sha256` — контрольная сумма;
 - `build-info.txt` — версия, SHA-256, исходный коммит, `public_release_ready=false`;
 - `GRAF-Windows.appinstaller` — только если при запуске указан `feed_base_url`;
-- системные зависимости, которые объявляет сам пакет: `Microsoft.VCLibs` из
-  Windows SDK и `Microsoft.WindowsAppRuntime` из NuGet, если они нашлись при
-  сборке. В `build-info.txt` строка `framework_dependencies` перечисляет каждую
-  зависимость как `имя=included|missing`.
+- системные зависимости, которые объявляет сам пакет (`Microsoft.VCLibs` и
+  `Microsoft.WindowsAppRuntime`): проект упаковки кладёт их рядом с пакетом в
+  `Dependencies\x64`, полоса копирует их в комплект. Если объявленной
+  зависимости нет, сборка падает. В `build-info.txt` строка
+  `framework_dependencies` перечисляет каждую зависимость как
+  `имя=included|missing`.
 
 Перед выкладкой полоса сама проверяет пакет: манифест, точку входа, подпись,
 архитектуру x64 и обязательные файлы запуска (`GrafWindowsApp.exe`, среда C++,
