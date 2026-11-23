@@ -71,14 +71,23 @@ TWOBRAIN_STRICT_STORAGE_RECOVERY_ALLOW_LEGACY=false
 
 ## Проверка перед выкаткой
 
+`cd-remote.sh --dry-run` до удалённых шагов не доходит, поэтому сам по себе
+привязку не проверяет: он только печатает список шагов. Проверяйте привязку
+напрямую на хосте:
+
 ```sh
-infra/scripts/cd-remote.sh --dry-run --branch master \
-  --candidate .dev/release/decisions/<candidate>.decision.json \
-  --evidence .dev/ci-evidence/authoritative-<candidate>.json
+ssh 2brain.dev 'docker volume inspect twobrain-rec-storage-recovery >/dev/null \
+  && grep -Eq "^TWOBRAIN_STRICT_STORAGE_RECOVERY_ALLOW_LEGACY=true$" /opt/projects/2brain-rec/.env'
 ```
 
-Dry-run не меняет production. Если привязка настроена неправильно, он
-покажет `storage_recovery_binding_unverified` до любых изменений.
+Для режима `reconciled` вместо этого проверьте, что в `.env` заданы
+`TWOBRAIN_STRICT_STORAGE_SCOPE` и `TWOBRAIN_STRICT_STORAGE_RECOVERY_ID`, а в
+томе лежит согласованный `state.json`.
+
+Авторитетная проверка выполняется внутри `--execute` на хосте, до миграций и
+до старта новых контейнеров. Если привязки нет, деплой печатает
+`reason=storage_recovery_binding_unverified` и `reason_hint` со ссылкой на
+этот runbook, а staged rollout откатывается на прежний рантайм.
 
 ## Откат
 
