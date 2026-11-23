@@ -657,3 +657,20 @@ def test_two_phase_notarize_submits_only_the_requested_kind(tmp_path, monkeypatc
     prepared = json.loads((app_dir / 'final/.prepared.json').read_text())
     assert f'GRAF-{version}.pkg' in prepared['outputs']
     assert 'notary=Accepted' in capsys.readouterr().out
+
+
+def test_adopt_pkg_refuses_a_changed_retained_artifact(tmp_path, monkeypatch):
+    """Adoption may add the package but never accept a changed app or archive."""
+    final = tmp_path / 'final'
+    final.mkdir()
+    (final / 'GRAF.app').mkdir()
+    (final / 'GRAF.app/marker').write_text('app')
+    (final / 'GRAF-2026.11.22.1-candidate.zip').write_text('archive')
+    identity = {'build': {'version': '2026.11.22.1', 'app': {'x': 1}, 'pkg': {'x': 2}}, 'requests': {}}
+    artifacts.save_stage(final, identity)
+    package = tmp_path / 'GRAF-2026.11.22.1.pkg'
+    package.write_text('package')
+    monkeypatch.setattr(artifacts, 'command', lambda *args: '')
+    (final / 'GRAF-2026.11.22.1-candidate.zip').write_text('tampered')
+    with pytest.raises(ValueError, match='prepared release output'):
+        artifacts.adopt_pkg(SimpleNamespace(final=final, pkg=package))

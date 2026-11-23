@@ -836,6 +836,9 @@ def adopt_pkg(args):
         raise ValueError(f'the adopted package must be named GRAF-{version}.pkg, not {package.name}')
     if not package.is_file():
         raise ValueError(f'the notarized package {package} does not exist')
+    # Adoption extends a recorded stage, so the retained app and candidate
+    # archive must still match the hashes recorded by that notarization attempt.
+    check_stage(final, prepared.get('identity') or {})
     command('xcrun', 'stapler', 'validate', package)
     target = final / package.name
     with tempfile.TemporaryDirectory(dir=final) as temporary:
