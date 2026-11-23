@@ -119,6 +119,49 @@ def test_explicit_strict(): pass
     assert set(phases) == set(value["baseline"])
 
 
+def test_self_isolating_strict_proofs_run_in_parallel_while_shared_proofs_stay_serial(tmp_path):
+    (tmp_path / "test_cases.py").write_text('''
+import pytest
+@pytest.fixture
+def postgres_isolated_cluster_database_url():
+    raise AssertionError("collection must not start a cluster")
+@pytest.fixture
+def postgres_advisory_lock():
+    raise AssertionError("collection must not request a database")
+@pytest.fixture
+def migrated_postgres_urls(postgres_advisory_lock): pass
+@pytest.mark.strict_rls
+def test_isolated_only(postgres_isolated_cluster_database_url): pass
+@pytest.mark.strict_rls
+def test_isolated_and_shared(postgres_isolated_cluster_database_url, postgres_advisory_lock): pass
+@pytest.mark.strict_rls
+def test_shared_only(migrated_postgres_urls): pass
+@pytest.mark.strict_rls
+def test_marker_only(): pass
+@pytest.mark.strict_rls
+@pytest.mark.serial_performance
+def test_isolated_performance(postgres_isolated_cluster_database_url): pass
+def test_ordinary_isolated(postgres_isolated_cluster_database_url): pass
+''')
+    inventory = tmp_path / "inventory.json"
+    result = pytest_run(tmp_path, "--collect-only", "-q", "--graf-collection-file", str(inventory))
+    assert result.returncode == 0, result.stdout + result.stderr
+    value = json.loads(inventory.read_text())
+    strict = {f"test_cases.py::test_{name}" for name in (
+        "isolated_and_shared", "shared_only", "marker_only", "isolated_performance",
+    )}
+    assert set(value["strict"]) == strict
+    assert set(value["performance"]) == set()
+    assert set(value["parallel"]) == {
+        "test_cases.py::test_isolated_only", "test_cases.py::test_ordinary_isolated",
+    }
+    assert strict <= set(value["resource"])
+    assert "test_cases.py::test_isolated_only" in value["resource"]
+    phases = value["parallel"] + value["performance"] + value["strict"]
+    assert len(phases) == len(set(phases)) == 6
+    assert set(phases) == set(value["baseline"])
+
+
 @pytest.mark.parametrize("partitioned", [False, True])
 @pytest.mark.parametrize("selection", [
     ["-k", "test_request_context_is_isolated_and_reset_on_errors"],

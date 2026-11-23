@@ -50,7 +50,7 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 markers = [
     "serial_performance: timing-sensitive PostgreSQL proof that must run without parallel worker load",
-    "strict_rls: PostgreSQL RLS proof that must run in the serialized advisory-lock lane",
+    "strict_rls: PostgreSQL RLS proof; proofs that share the strict database run in the serialized advisory-lock lane",
 ]
 
 [tool.ruff]

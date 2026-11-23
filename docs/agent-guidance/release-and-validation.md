@@ -56,6 +56,24 @@ and changed specifications. Archive validation remains in `prepare-release.sh`.
 Fast is for iteration and PR feedback, never a release gate. Focused tests
 remain the first check during implementation.
 
+Strict PostgreSQL proofs that build their own disposable cluster run in the
+parallel phase beside the shard workers. Only proofs that share the strict
+database (`migrated_postgres_urls` or `postgres_advisory_lock`) stay in the
+serialized strict phase; unknown or conflicting fixture closures remain strict,
+and wall-clock-sensitive proofs keep the serial lane through
+`serial_performance`.
+The phase inventory still proves that the union of the phases equals the full
+collected set, and the shard union proof is unchanged. The governance suite and
+the runner contract suite run with four xdist workers (`pytest-xdist==3.8.0` in
+the CI toolchain); a local environment without xdist runs the same suite
+serially and prints `governance_tests_parallel=serial`.
+
+Server API, schema, main application and committed-contract changes also select
+the OpenAPI drift proof; template and copy changes select the copy-convention
+and account-route proofs. These release blockers therefore fail on the pull
+request with the same exact-SHA check instead of surfacing only in the release
+run. The release gate still runs the complete suites.
+
 GitHub requires `governance-fast`, `macos-pr` and `pr-metadata` for every PR.
 Code and native results bind the exact head and checked base; metadata binds the
 current description to the same identity. Local focused tests remain the normal

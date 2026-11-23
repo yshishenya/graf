@@ -743,7 +743,16 @@ PY
   fi
 
   if [[ "$effective_mode" == "full" || "$has_governance_tests" -eq 1 || "$has_infra" -eq 1 ]]; then
-    run_step "governance tests" pytest -q tests/governance || return $?
+    # The suite spawns subprocesses per case; xdist keeps the required gate
+    # bounded.  A local environment without xdist still runs the same suite
+    # serially instead of failing the lane.
+    governance_pytest=(pytest -q)
+    if pytest --help 2>/dev/null | grep -q -- '--numprocesses'; then
+      governance_pytest+=(-n 4)
+    else
+      printf 'governance_tests_parallel=serial reason=pytest-xdist_unavailable\n'
+    fi
+    run_step "governance tests" "${governance_pytest[@]}" tests/governance || return $?
     run_step "portable harness self-test" env PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=harness/src \
       python3 -c 'from dev_harness.validators import self_test; raise SystemExit(self_test())' || return $?
   fi
@@ -800,7 +809,7 @@ PY
       run_step "shell syntax" check_shell_syntax "$changed_list" || return $?
     fi
     if [[ "$has_infra" -eq 1 ]]; then
-      run_step "CI contracts" bash -c "cd apps/server && PYTHONPATH=src uv run --extra dev pytest -v --durations=15 \
+      run_step "CI contracts" bash -c "cd apps/server && PYTHONPATH=src uv run --extra dev pytest -v --durations=15 -n 4 \
         tests/contract/test_ci_cd_contract.py \
         tests/contract/test_local_postgres_test_runner.py" || return $?
       run_step "production compose config" bash -c \

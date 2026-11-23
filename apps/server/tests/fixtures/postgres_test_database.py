@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 import os
 import re
 import subprocess
@@ -371,6 +372,12 @@ def postgres_clean_database_url(postgres_test_worker_id: str) -> Iterator[str]:
         asyncio.run(_drop_database(database_name))
 
 
+ISOLATED_CLUSTER_START_TIMEOUT_SECONDS = 30
+ISOLATED_CLUSTER_CALL_TIMEOUT_SECONDS = 15
+ISOLATED_CLUSTER_READY_DEADLINE_SECONDS = 60
+ISOLATED_CLUSTER_CLEANUP_TIMEOUT_SECONDS = 30
+
+
 @pytest.fixture
 def postgres_isolated_cluster_database_url() -> Iterator[str]:
     """Own a cluster for proofs that create the fixed production role names."""
@@ -379,8 +386,9 @@ def postgres_isolated_cluster_database_url() -> Iterator[str]:
     database = f"{TEST_DATABASE_PREFIX}{suffix}"
     password = uuid4().hex
     cleanup_needed = False
+    stage = "start"
 
-    def docker(*args: str, timeout: int = 5) -> subprocess.CompletedProcess[str]:
+    def docker(*args: str, timeout: int) -> subprocess.CompletedProcess[str]:
         try:
             return subprocess.run(
                 ["docker", *args], capture_output=True, text=True, check=False,
@@ -388,14 +396,22 @@ def postgres_isolated_cluster_database_url() -> Iterator[str]:
             )
         except (OSError, subprocess.TimeoutExpired):
             pass
-        pytest.fail("isolated bootstrap PostgreSQL command failed or timed out", pytrace=False)
+        # A loaded runner can exceed a short per-command timeout, so every call
+        # is bounded by the readiness budget instead of a fixed five seconds,
+        # while a real hang still fails closed with the stage that hung.
+        pytest.fail(
+            f"isolated bootstrap PostgreSQL command failed or timed out (stage={stage})",
+            pytrace=False,
+        )
 
     def remove_container() -> None:
-        nonlocal cleanup_needed
-        removed = docker("rm", "--force", "--volumes", container, timeout=30)
+        nonlocal cleanup_needed, stage
+        stage = "cleanup"
+        removed = docker("rm", "--force", "--volumes", container, timeout=ISOLATED_CLUSTER_CLEANUP_TIMEOUT_SECONDS)
         if removed.returncode:
             remaining = docker(
                 "container", "ls", "--all", "--filter", f"name=^/{container}$", "--format", "{{.Names}}",
+                timeout=ISOLATED_CLUSTER_CLEANUP_TIMEOUT_SECONDS,
             )
             if remaining.returncode or remaining.stdout.strip():
                 pytest.fail("cannot confirm isolated bootstrap PostgreSQL cleanup", pytrace=False)
@@ -412,7 +428,8 @@ def postgres_isolated_cluster_database_url() -> Iterator[str]:
                      "--env", "POSTGRES_DB=postgres", "--env", "POSTGRES_USER=twobrain_rec",
                      "--env", "POSTGRES_PASSWORD", "--tmpfs", "/var/lib/postgresql/data:rw",
                      "--publish", "127.0.0.1::5432", "postgres:17-alpine"],
-                    capture_output=True, text=True, check=False, timeout=30,
+                    capture_output=True, text=True, check=False,
+                    timeout=ISOLATED_CLUSTER_START_TIMEOUT_SECONDS,
                     env={**os.environ, "POSTGRES_PASSWORD": password},
                 )
             except subprocess.TimeoutExpired:
@@ -430,23 +447,32 @@ def postgres_isolated_cluster_database_url() -> Iterator[str]:
             if result.returncode:
                 pytest.fail("cannot start isolated bootstrap PostgreSQL", pytrace=False)
             break
-        deadline = time.monotonic() + 30
-        while time.monotonic() < deadline:
-            logs = docker("logs", container)
+        deadline = time.monotonic() + ISOLATED_CLUSTER_READY_DEADLINE_SECONDS
+        while True:
+            remaining_seconds = deadline - time.monotonic()
+            if remaining_seconds <= 0:
+                pytest.fail("isolated bootstrap PostgreSQL did not become ready", pytrace=False)
+            call_timeout = max(1, min(ISOLATED_CLUSTER_CALL_TIMEOUT_SECONDS, math.ceil(remaining_seconds)))
+            stage = "ready"
+            logs = docker("logs", container, timeout=call_timeout)
             if "PostgreSQL init process complete; ready for start up." in logs.stdout + logs.stderr:
-                ready = docker("exec", container, "pg_isready", "--username=twobrain_rec", "--dbname=postgres")
+                ready = docker(
+                    "exec", container, "pg_isready", "--username=twobrain_rec", "--dbname=postgres",
+                    timeout=call_timeout,
+                )
                 if not ready.returncode:
+                    stage = "create"
                     created = docker(
                         "exec", container, "psql", "--set=ON_ERROR_STOP=1",
                         "--username=twobrain_rec", "--dbname=postgres",
                         "--command", f'create database "{database}"',
+                        timeout=call_timeout,
                     )
                     if not created.returncode:
                         break
             time.sleep(0.25)
-        else:
-            pytest.fail("isolated bootstrap PostgreSQL did not become ready", pytrace=False)
-        port_result = docker("port", container, "5432/tcp")
+        stage = "port"
+        port_result = docker("port", container, "5432/tcp", timeout=ISOLATED_CLUSTER_CALL_TIMEOUT_SECONDS)
         match = re.fullmatch(r"127\.0\.0\.1:([0-9]+)\s*", port_result.stdout)
         if port_result.returncode or not match or not 0 < int(match[1]) < 65536:
             pytest.fail("isolated bootstrap PostgreSQL must expose a loopback port", pytrace=False)
