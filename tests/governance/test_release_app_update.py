@@ -193,7 +193,7 @@ def test_installer_is_built_from_the_stapled_app():
 
 def test_release_driver_reads_the_app_phase_directory():
     """The release driver must find the candidate archive the two-phase build writes."""
-    driver = SCRIPT.parents[3] / 'scripts/release.sh'
+    driver = SCRIPT.parents[4] / 'scripts/release.sh'
     text = driver.read_text()
     assert 'app_notary_dir()' in text
     assert text.count('$(app_notary_dir)') >= 2
