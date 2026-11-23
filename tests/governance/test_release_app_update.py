@@ -64,7 +64,7 @@ def test_dry_run_plans_without_touching_anything(tmp_path):
     assert 'dry run' in plan
     assert '2026.09.18.1' in plan
     # The plan must state the trust steps and the publication boundary.
-    for step in ('build_and_sign', 'notarize_wait_apple', 'staple_and_trust_gates',
+    for step in ('build_and_sign', 'notarize_app', 'notarize_pkg', 'trust_gates',
                  'sparkle_sign_and_upload', 'feed_check'):
         assert step in plan, f'the plan must name {step}'
     assert 'never' in plan
