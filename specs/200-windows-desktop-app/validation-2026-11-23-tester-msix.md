@@ -34,10 +34,11 @@ doesn't exist in the package. 0x80080204
 
 ## Результат прогона
 
-- Run: `45123131370`, job `137521276050`, head `cb018dfa6862b5a3a9bcefc4be32ca5204038859`.
-- Артефакт: `graf-windows-tester-2026.11.23.4`.
-- `GRAF-Windows.msix`, SHA-256 `ff5352cef86b6d58d9532db951fc043ed67b444672ebe1e3c34fc4b73dbfa486`,
-  15 616 878 байт, 51 запись.
+- Run: `45130873163`, job `137545850346`, head
+  `ce6842e6b4598525c40eff00e2fc4b6e4a1e7482`.
+- Артефакт: `graf-windows-tester-2026.11.23.5`.
+- `GRAF-Windows.msix`, SHA-256 `a4241fb0bd1bd5f5cab943aa97df870242156e2004dfb0b5e54aed92c57c2ece`,
+  51 запись.
 - Подпись: `Valid`, subject `CN=GRAF`, thumbprint
   `869FCC7A08C024233F084C25E6939C968DD6B14A` (самоподписанный тестовый канал).
 - `validate-package-smoke.ps1`: `identity=com.graf.desktop,
@@ -52,8 +53,14 @@ doesn't exist in the package. 0x80080204
   `Microsoft.VCLibs.140.00.UWPDesktop` и `Microsoft.WindowsAppRuntime.2`
   (`MinVersion=2.4.0.0`).
 - В комплекте: `Microsoft.VCLibs.x64.14.00.Desktop.appx` и
-  `Microsoft.WindowsAppRuntime.2.msix`; `build-info.txt` пишет
-  `framework_dependencies=...=included` для обеих.
+  `Microsoft.WindowsAppRuntime.2.msix`. Имя и версия каждой зависимости
+  читаются из `AppxManifest.xml` самого пакета зависимости, а не из имени
+  файла: `framework_dependencies=Microsoft.VCLibs.140.00.UWPDesktop=included@14.0.33728.0;
+  Microsoft.WindowsAppRuntime.2=included@2.4.0.0`. Если объявленной зависимости
+  нет, полоса падает.
+- Первый успешный прогон с этой раскладкой — `45123131370` (версия
+  `2026.11.23.4`, SHA-256 `ff5352ce…`): сборка и подпись работали, а проверка
+  зависимостей тогда сравнивала только имена файлов.
 
 ## Что это не доказывает
 
