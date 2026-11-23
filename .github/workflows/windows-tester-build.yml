@@ -183,13 +183,39 @@ jobs:
             $frameworks = @(Get-ChildItem $depDir -File -ErrorAction SilentlyContinue |
               Where-Object { $_.Extension -in @('.msix', '.appx') })
           }
-          foreach ($framework in $frameworks) { Copy-Item $framework.FullName (Join-Path $out $framework.Name) }
+          # A file name is not an identity: the SDK can ship look-alike framework
+          # packages. Read the declared name from each candidate package before
+          # reporting that a dependency is included.
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          function Get-FrameworkIdentity([string]$Path) {
+            $zip = [IO.Compression.ZipFile]::OpenRead($Path)
+            try {
+              $entry = $zip.GetEntry('AppxManifest.xml')
+              if (-not $entry) { throw "Framework package has no AppxManifest.xml: $Path" }
+              $reader = New-Object IO.StreamReader($entry.Open())
+              try { $text = $reader.ReadToEnd() } finally { $reader.Dispose() }
+              $doc = [xml]$text
+              $ns = New-Object System.Xml.XmlNamespaceManager($doc.NameTable)
+              $ns.AddNamespace('a', 'http://schemas.microsoft.com/appx/manifest/foundation/windows10')
+              $identity = $doc.SelectSingleNode('/a:Package/a:Identity', $ns)
+              if (-not $identity) { throw "Framework package has no Identity: $Path" }
+              return [pscustomobject]@{ Name = $identity.GetAttribute('Name'); Version = $identity.GetAttribute('Version') }
+            } finally { $zip.Dispose() }
+          }
+          $identities = @{}
+          foreach ($framework in $frameworks) {
+            $identity = Get-FrameworkIdentity $framework.FullName
+            $identities[$identity.Name] = $identity
+          }
           $depState = @()
           foreach ($dep in $deps) {
-            $family = ($dep -split '\.')[0..1] -join '\.'
-            $found = @($frameworks | Where-Object { $_.Name -match ('^' + $family + '\.') }).Count -gt 0
-            $depState += ($dep + '=' + $(if ($found) { 'included' } else { 'missing' }))
+            if ($identities.ContainsKey($dep)) {
+              $depState += ($dep + '=included@' + $identities[$dep].Version)
+            } else {
+              $depState += ($dep + '=missing')
+            }
           }
+          foreach ($framework in $frameworks) { Copy-Item $framework.FullName (Join-Path $out $framework.Name) }
           if ($depState -match '=missing$') {
             throw "Required framework package is missing from the test layout: $($depState -join '; ')"
           }
