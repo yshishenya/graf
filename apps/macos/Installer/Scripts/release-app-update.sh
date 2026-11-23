@@ -441,7 +441,7 @@ run_prepare() {
     --profile "$NOTARY_PROFILE"
   timing_end
 
-  NOTARY_DIR="$MACOS_DIR/.build/notary/$VERSION-$SOURCE_SHA"
+  NOTARY_DIR="$MACOS_DIR/.build/notary/$VERSION-$SOURCE_SHA-app"
   PKG_NOTARY_DIR="$MACOS_DIR/.build/notary/$VERSION-$SOURCE_SHA-pkg"
   FINAL_DIR="$NOTARY_DIR/final"
   FINAL_APP="$FINAL_DIR/GRAF.app"
@@ -580,7 +580,7 @@ run_publish() {
     fail "build receipt is missing at $PKG_PATH.build.json; run --phase prepare first"
   [ "$RECEIPT_SOURCE" = "$SOURCE_SHA" ] ||
     fail "the build receipt and the prepare handoff name different source commits"
-  NOTARY_DIR="$MACOS_DIR/.build/notary/$VERSION-$SOURCE_SHA"
+  NOTARY_DIR="$MACOS_DIR/.build/notary/$VERSION-$SOURCE_SHA-app"
   FINAL_DIR="$NOTARY_DIR/final"
   FINAL_APP="$FINAL_DIR/GRAF.app"
   FINAL_PKG="$FINAL_DIR/GRAF-$VERSION.pkg"
