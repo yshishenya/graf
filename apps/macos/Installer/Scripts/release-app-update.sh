@@ -692,8 +692,9 @@ release-app-update plan (dry run, nothing executed)
 
 steps
   1. build_and_sign          Developer ID Application + Developer ID Installer, universal, exact source
-  2. notarize_wait_apple     submit ZIP and PKG, then one bounded wait for both Apple requests
-  3. staple_and_trust_gates  stapler + spctl for app and package, Developer ID assertions
+  2. notarize_app            submit the app, staple it, then build the PKG from the stapled app
+  3. notarize_pkg            submit the package built from the stapled app and staple it
+  4. trust_gates             stapler + spctl for app and package, Developer ID assertions
   4. predecessor_lookup      last release that published GRAF-<version>.zip
   5. draft_release           create the draft release and cache the signing inputs
   6. sparkle_sign_and_upload Sparkle Keychain signature, public trust, both architecture startup checks
