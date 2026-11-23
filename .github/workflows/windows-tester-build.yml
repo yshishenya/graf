@@ -115,7 +115,7 @@ jobs:
           # The same test layout also stages dependency packages under
           # Dependencies\<arch>; only the package itself is the build output.
           $packages = @(Get-ChildItem 'apps/windows/Installer/out' -Recurse -File -Filter *.msix -ErrorAction SilentlyContinue |
-            Where-Object { $_.Directory.Name -ne 'Dependencies' })
+            Where-Object { $_.FullName -notmatch '\\Dependencies\\' })
           if ($packages.Count -ne 1) {
             $found = if ($packages.Count -eq 0) { 'none' } else { ($packages.FullName -join '; ') }
             throw "Expected exactly one MSIX from the packaging project, found $($packages.Count): $found"
