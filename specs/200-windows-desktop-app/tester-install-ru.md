@@ -15,9 +15,16 @@
 - `GRAF-Windows.msix.sha256` — контрольная сумма;
 - `build-info.txt` — версия, SHA-256, исходный коммит, `public_release_ready=false`;
 - `GRAF-Windows.appinstaller` — только если при запуске указан `feed_base_url`;
-- системные зависимости (`Microsoft.VCLibs`, `Microsoft.WindowsAppRuntime`), если
-  они нашлись в кэше пакетов при сборке. В `build-info.txt` есть строка
-  `framework_dependencies=included|missing`.
+- системные зависимости, которые объявляет сам пакет: `Microsoft.VCLibs` из
+  Windows SDK и `Microsoft.WindowsAppRuntime` из NuGet, если они нашлись при
+  сборке. В `build-info.txt` строка `framework_dependencies` перечисляет каждую
+  зависимость как `имя=included|missing`.
+
+Перед выкладкой полоса сама проверяет пакет: манифест, точку входа, подпись,
+архитектуру x64 и обязательные файлы запуска (`GrafWindowsApp.exe`, среда C++,
+`WebView2Loader.dll`, библиотеки FFmpeg). Если чего-то нет, сборка падает и
+артефакт не публикуется. Список файлов пакета и объявленные зависимости
+попадают в summary прогона.
 
 ## Как запустить
 
@@ -44,7 +51,9 @@
    тестовый издатель.
 4. Если в комплекте есть файлы `Microsoft.VCLibs...appx` или
    `Microsoft.WindowsAppRuntime...msix`, установить их первыми, затем открыть
-   `GRAF-Windows.msix` → «Установить».
+   `GRAF-Windows.msix` → «Установить». Если в `build-info.txt` для зависимости
+   стоит `missing`, сообщите об этом: пакет может не установиться на чистой
+   машине.
 5. Запустить GRAF, войти в аккаунт, разрешить микрофон и проверить запись.
 
 Если при установке Windows пишет, что издатель не доверенный, — сертификат не

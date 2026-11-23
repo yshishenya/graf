@@ -46,6 +46,12 @@
     <AppxPackageSigningEnabled>false</AppxPackageSigningEnabled>
     <AppxBundle>Never</AppxBundle>
     <SkipCopyBuildProduct>true</SkipCopyBuildProduct>
+    <!-- The Desktop Bridge targets only stage the layout; the package itself is
+         produced only when this is set. Keeping it in the project (instead of on
+         the command line) matters because a command-line global property would
+         also reach the referenced application project, which then tries to build
+         its own MSIX and fails before this project can stage the payload. -->
+    <GenerateAppxPackageOnBuild Condition="'$(GenerateAppxPackageOnBuild)' == ''">true</GenerateAppxPackageOnBuild>
     <EntryPointProjectUniqueName>..\RecApp\GrafWindowsApp.vcxproj</EntryPointProjectUniqueName>
     <EntryPointExe>GrafWindowsApp.exe</EntryPointExe>
     <AppxPackageDir>$(MSBuildThisFileDirectory)out\</AppxPackageDir>
@@ -76,7 +82,9 @@
          with WindowsPackageType=MSIX. The standalone validation build keeps the
          default None. -->
     <ProjectReference Include="..\RecApp\GrafWindowsApp.vcxproj">
-      <AdditionalProperties>GrafWindowsPackageType=MSIX</AdditionalProperties>
+      <!-- Only this project may create an MSIX. The application project is built
+           as a packaged payload (no self-bootstrap), never as its own package. -->
+      <AdditionalProperties>GrafWindowsPackageType=MSIX;GenerateAppxPackageOnBuild=false</AdditionalProperties>
     </ProjectReference>
     <AppxManifest Include="Package.appxmanifest" />
     <Content Include="Assets\Graf.ico" />

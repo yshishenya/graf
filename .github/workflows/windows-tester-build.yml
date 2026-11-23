@@ -104,21 +104,64 @@ jobs:
         run: |
           Import-Module "$env:VSINSTALL\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
           Enter-VsDevShell -VsInstallPath $env:VSINSTALL -SkipAutomaticLocation -DevCmdArguments '-arch=x64 -host_arch=x64 -vcvars_ver=14.44.35207 -winsdk=10.0.26100.0' | Out-Null
+          # The packaging project owns MSIX generation: it sets
+          # GenerateAppxPackageOnBuild for itself and disables it for the
+          # referenced application project. Passing it on this command line
+          # would make the application project build its own, incomplete package.
           msbuild apps/windows/Installer/GrafWindows.Package.wapproj /restore /m /p:Configuration=Release /p:Platform=x64 `
-            /p:AppxBundle=Never /p:GenerateAppxPackageOnBuild=true /p:AppxPackageSigningEnabled=false `
             /p:GrafFFmpegRoot="$env:RUNNER_TEMP/graf-ffmpeg-x64" `
             /p:GrafAEC3Root="$env:AEC3_SOURCE" /p:GrafAEC3BuildRoot="$env:RUNNER_TEMP/graf-aec3"
           if ($LASTEXITCODE -ne 0) { throw 'MSBuild failed' }
+          $packages = @(Get-ChildItem 'apps/windows/Installer/out' -Recurse -Filter *.msix -ErrorAction SilentlyContinue)
+          if ($packages.Count -ne 1) {
+            $found = if ($packages.Count -eq 0) { 'none' } else { ($packages.FullName -join '; ') }
+            throw "Expected exactly one MSIX from the packaging project, found $($packages.Count): $found"
+          }
+          "MSIX_PATH=$($packages[0].FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Sign tester package
         shell: pwsh
         run: |
-          $msix = Get-ChildItem apps/windows -Recurse -Filter *.msix | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-          if (-not $msix) { throw 'MSIX output was not produced' }
           & powershell.exe -NoProfile -ExecutionPolicy Bypass -File apps/windows/scripts/build-dev-signed-package.ps1 `
-            -Package $msix.FullName -SecretsDirectory "$env:RUNNER_TEMP/graf-signing"
+            -Package $env:MSIX_PATH -SecretsDirectory "$env:RUNNER_TEMP/graf-signing"
           if ($LASTEXITCODE -ne 0) { throw 'Tester signing failed' }
-          "MSIX_PATH=$($msix.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Verify package contents
+        shell: pwsh
+        run: |
+          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File apps/windows/scripts/validate-package-smoke.ps1 -Package $env:MSIX_PATH
+          if ($LASTEXITCODE -ne 0) { throw 'Static package smoke failed' }
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $archive = [IO.Compression.ZipFile]::OpenRead($env:MSIX_PATH)
+          try {
+            $names = @($archive.Entries | ForEach-Object { $_.FullName })
+            "MSIX entries: $($names.Count)" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            ($names | Sort-Object | ForEach-Object { "- $_" }) | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            # Launch and recording payload. A package without these installs but
+            # cannot run or cannot play a recording back.
+            $required = @(
+              'AppxManifest.xml', 'GrafWindowsApp.exe',
+              'vcruntime140.dll', 'msvcp140.dll', 'WebView2Loader.dll',
+              'avcodec-61.dll', 'avformat-61.dll', 'avutil-59.dll'
+            )
+            $missing = @($required | Where-Object { $names -notcontains $_ })
+            if ($missing.Count -gt 0) { throw "MSIX is missing required payload files: $($missing -join ', ')" }
+            $manifestEntry = $archive.GetEntry('AppxManifest.xml')
+            $reader = New-Object IO.StreamReader($manifestEntry.Open())
+            try { $manifestText = $reader.ReadToEnd() } finally { $reader.Dispose() }
+            $manifest = [xml]$manifestText
+            $ns = New-Object System.Xml.XmlNamespaceManager($manifest.NameTable)
+            $ns.AddNamespace('a', 'http://schemas.microsoft.com/appx/manifest/foundation/windows10')
+            $identity = $manifest.SelectSingleNode('/a:Package/a:Identity', $ns)
+            $architecture = $identity.GetAttribute('ProcessorArchitecture')
+            if ($architecture -and $architecture -ne 'x64') { throw "Unexpected package architecture: $architecture" }
+            $dependencies = @($manifest.SelectNodes('/a:Package/a:Dependencies/a:PackageDependency', $ns) |
+              ForEach-Object { $_.GetAttribute('Name') })
+            "Framework dependencies declared by the package:" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            ($dependencies | ForEach-Object { "- $_" }) | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            "PACKAGE_DEPENDENCIES=$($dependencies -join ',')" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            "PACKAGE_ENTRY_COUNT=$($names.Count)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          } finally { $archive.Dispose() }
 
       - name: Assemble tester artifacts
         shell: pwsh
@@ -127,17 +170,38 @@ jobs:
           New-Item -ItemType Directory -Path $out -Force | Out-Null
           Copy-Item $env:MSIX_PATH (Join-Path $out 'GRAF-Windows.msix')
           Copy-Item (Join-Path $env:RUNNER_TEMP 'graf-signing/graf-dev.cer') (Join-Path $out 'GRAF-Windows.cer')
-          $frameworks = @(Get-ChildItem -Path apps/windows, "$env:USERPROFILE/.nuget/packages" -Recurse -Include `
-            'Microsoft.VCLibs*x64*.appx', 'Microsoft.WindowsAppRuntime*x64*.msix', 'Microsoft.WindowsAppRuntime*x64*.appx' `
-            -ErrorAction SilentlyContinue | Sort-Object Name -Unique)
+          $deps = @()
+          if ($env:PACKAGE_DEPENDENCIES) { $deps = @($env:PACKAGE_DEPENDENCIES.Split(',') | Where-Object { $_ }) }
+          $frameworks = @()
+          if ($deps -match '^Microsoft\.VCLibs') {
+            $sdkRetail = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\AppX\Retail\x64'
+            if (Test-Path $sdkRetail) {
+              $frameworks += @(Get-ChildItem $sdkRetail -Filter 'Microsoft.VCLibs*x64*.appx' -ErrorAction SilentlyContinue)
+            }
+          }
+          if ($deps -match '^Microsoft\.WindowsAppRuntime') {
+            $wasdkDirs = @(Get-ChildItem "$env:USERPROFILE\.nuget\packages\microsoft.windowsappsdk" -Directory -ErrorAction SilentlyContinue |
+              ForEach-Object { Join-Path $_.FullName 'tools\MSIX\win10-x64' } | Where-Object { Test-Path $_ })
+            foreach ($dir in $wasdkDirs) {
+              $frameworks += @(Get-ChildItem $dir -Filter *.msix -ErrorAction SilentlyContinue)
+            }
+          }
+          $frameworks = @($frameworks | Sort-Object Name -Unique)
           foreach ($framework in $frameworks) { Copy-Item $framework.FullName (Join-Path $out $framework.Name) }
-          $frameworkState = if ($frameworks.Count -gt 0) { 'included' } else { 'missing' }
+          $depState = @()
+          foreach ($dep in $deps) {
+            $family = ($dep -split '\.')[0..1] -join '\.'
+            $found = @($frameworks | Where-Object { $_.Name -match ('^' + $family + '\.') }).Count -gt 0
+            $depState += ($dep + '=' + $(if ($found) { 'included' } else { 'missing' }))
+          }
+          $frameworkState = if ($depState.Count -gt 0) { $depState -join '; ' } else { 'none_declared' }
           $msix = Join-Path $out 'GRAF-Windows.msix'
           $hash = (Get-FileHash $msix -Algorithm SHA256).Hash.ToLowerInvariant()
           "msix_sha256=$hash" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           $info = @(
             ('version=' + $env:PACKAGE_VERSION)
             ('msix_sha256=' + $hash)
+            ('msix_entries=' + $env:PACKAGE_ENTRY_COUNT)
             'publisher=CN=GRAF (self-signed, tester channel)'
             ('source_sha=' + $env:GITHUB_SHA)
             'public_release_ready=false'
