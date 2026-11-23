@@ -34,15 +34,24 @@ SignPath Foundation, и какие ответы даём на их провер�
 ## Команды сборки для CI
 
 ```powershell
-# зависимости
-apps/windows/scripts/build-graf-aec3.ps1 -Configuration Release -Architecture x64
-apps/windows/scripts/build-graf-ffmpeg.ps1 -InstallDirectory <dir>
+# AEC3: исходников в репозитории нет, они клонируются по закреплённому
+# коммиту из apps/windows/Native/GrafAEC3/upstream.lock
+git clone <mirror из upstream.lock> <aec3-src>
+git -C <aec3-src> checkout 846fe90a289f58b7c9303a635142aa2c7caa93e5
+apps/windows/scripts/build-graf-aec3.ps1 -Configuration Release -Architecture x64 `
+  -SourceDirectory <aec3-src> -BuildDirectory <aec3-build>
+
+# FFmpeg: закреплённый архив 7.1.5 скачивается сборочным скриптом
+apps/windows/scripts/build-graf-ffmpeg.ps1 -InstallDirectory <ffmpeg> -BuildDirectory <work>
 
 # пакет
 msbuild apps/windows/Installer/GrafWindows.Package.wapproj /restore /m `
   /p:Configuration=Release /p:Platform=x64 `
   /p:GrafFFmpegRoot=<ffmpeg> /p:GrafAEC3Root=<aec3-src> /p:GrafAEC3BuildRoot=<aec3-build>
 ```
+
+Без `-SourceDirectory` скрипт AEC3 намеренно падает: каталог `vendor` в
+репозитории не хранится, и подменять его тестовыми данными нельзя.
 
 Артефакт подписи: `GrafWindows.Package_<версия>_x64.msix` из
 `apps/windows/Installer/out/`. Зависимости для установки лежат рядом в
