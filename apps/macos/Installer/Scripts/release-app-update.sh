@@ -581,6 +581,9 @@ run_publish() {
   [ "$RECEIPT_SOURCE" = "$SOURCE_SHA" ] ||
     fail "the build receipt and the prepare handoff name different source commits"
   NOTARY_DIR="$MACOS_DIR/.build/notary/$VERSION-$SOURCE_SHA-app"
+  # Releases prepared before the two-phase build kept both artifacts in one
+  # directory; a resumed publication of such a release must still work.
+  [ -d "$NOTARY_DIR" ] || NOTARY_DIR="$MACOS_DIR/.build/notary/$VERSION-$SOURCE_SHA"
   FINAL_DIR="$NOTARY_DIR/final"
   FINAL_APP="$FINAL_DIR/GRAF.app"
   FINAL_PKG="$FINAL_DIR/GRAF-$VERSION.pkg"
