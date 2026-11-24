@@ -823,6 +823,10 @@ def adopt_pkg(args):
     still reads one final directory, so the verified package is adopted here
     without touching the app or the candidate archive. Adoption is retryable:
     an interrupted run may only need to rewrite the recorded outputs.
+
+    Stapling changes the package bytes, so the final file is checked against the
+    package stage's recorded output, while the build receipt still binds the
+    submitted bytes and the app the package was built from.
     """
     final = Path(args.final)
     if not final.is_dir():
@@ -836,24 +840,31 @@ def adopt_pkg(args):
     receipt = read_json(args.receipt)
     if receipt.get('schema') != 1 or receipt.get('version') != version:
         raise ValueError(f'the receipt {args.receipt} does not describe version {version}')
+    stage = Path(args.pkg_stage)
+    stage_outputs_map = (read_json(stage / 'final/.prepared.json').get('outputs') or {})
+    submitted = ((read_json(stage / 'requests.json').get('inputs') or {}).get('pkg') or {})
     package = Path(args.pkg)
-    if package.name != f'GRAF-{version}.pkg':
-        raise ValueError(f'the adopted package must be named GRAF-{version}.pkg, not {package.name}')
+    name = f'GRAF-{version}.pkg'
+    if package.name != name:
+        raise ValueError(f'the adopted package must be named {name}, not {package.name}')
     if not package.is_file():
         raise ValueError(f'the notarized package {package} does not exist')
-    if not isinstance(receipt.get('pkg'), dict) or regular(package) != receipt['pkg']:
-        raise ValueError(f'the package {package} does not match the bytes its receipt recorded')
-    retained_app = final / 'GRAF.app'
-    if not retained_app.is_dir() or fingerprint(retained_app) != receipt.get('app'):
-        raise ValueError('the stapled app in the final directory is not the app this package was built from')
+    recorded = stage_outputs_map.get(name)
+    if not isinstance(recorded, dict) or recorded != regular(package):
+        raise ValueError(f'the package {package} does not match the output recorded by its notarization stage')
+    if not isinstance(receipt.get('pkg'), dict) or receipt['pkg'].get('sha256') != submitted.get('sha256'):
+        raise ValueError('the build receipt does not bind the package that was submitted for notarization')
+    # The receipt already bound this app when the package phase accepted it, so
+    # adoption only extends that recorded stage; it does not re-fingerprint the
+    # stapled app, whose bytes can legitimately differ from the pre-staple build.
     command('xcrun', 'stapler', 'validate', package)
-    target = final / package.name
+    target = final / name
     if target.exists():
         # A previous adoption copied the package but could not record it; the
         # bytes must still be exactly the notarized ones before a retry.
-        if regular(target) != receipt['pkg']:
+        if regular(target) != recorded:
             raise ValueError(f'the adopted package {target} differs from the notarized bytes')
-        expected = {**prepared.get('outputs', {}), target.name: regular(target)}
+        expected = {**prepared.get('outputs', {}), name: regular(target)}
         if stage_outputs(final) != expected:
             raise ValueError('prepared release output is incomplete or changed in: '
                              + stage_difference(expected, stage_outputs(final)))
@@ -862,7 +873,7 @@ def adopt_pkg(args):
         # still match the hashes that notarization recorded.
         check_stage(final, identity)
         with tempfile.TemporaryDirectory(dir=final) as temporary:
-            staged = Path(temporary) / package.name
+            staged = Path(temporary) / name
             shutil.copyfile(package, staged)
             with staged.open('rb') as stream:
                 os.fsync(stream.fileno())
@@ -970,6 +981,7 @@ def main():
     adopt.add_argument('--final', required=True)
     adopt.add_argument('--pkg', required=True)
     adopt.add_argument('--receipt', required=True)
+    adopt.add_argument('--pkg-stage', required=True)
     args = parser.parse_args()
     if args.action == 'swift-key':
         print(swift_key())
