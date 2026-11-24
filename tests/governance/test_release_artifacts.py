@@ -652,7 +652,8 @@ def test_two_phase_notarize_submits_only_the_requested_kind(tmp_path, monkeypatc
     # The publication phase reads one directory, so the verified package is
     # adopted next to the app without touching the recorded stage identity.
     artifacts.adopt_pkg(SimpleNamespace(final=app_dir / 'final',
-                                       pkg=pkg_dir / 'final' / f'GRAF-{version}.pkg'))
+                                       pkg=pkg_dir / 'final' / f'GRAF-{version}.pkg',
+                                       receipt=pkg_dir / 'build.json'))
     assert (app_dir / 'final' / f'GRAF-{version}.pkg').is_file()
     prepared = json.loads((app_dir / 'final/.prepared.json').read_text())
     assert f'GRAF-{version}.pkg' in prepared['outputs']
@@ -670,7 +671,55 @@ def test_adopt_pkg_refuses_a_changed_retained_artifact(tmp_path, monkeypatch):
     artifacts.save_stage(final, identity)
     package = tmp_path / 'GRAF-2026.11.22.1.pkg'
     package.write_text('package')
+    receipt = {'schema': 1, 'version': '2026.11.22.1',
+               'app': artifacts.fingerprint(final / 'GRAF.app'), 'pkg': artifacts.regular(package)}
+    artifacts.atomic_json(tmp_path / 'receipt.json', receipt)
     monkeypatch.setattr(artifacts, 'command', lambda *args: '')
     (final / 'GRAF-2026.11.22.1-candidate.zip').write_text('tampered')
     with pytest.raises(ValueError, match='prepared release output'):
-        artifacts.adopt_pkg(SimpleNamespace(final=final, pkg=package))
+        artifacts.adopt_pkg(SimpleNamespace(final=final, pkg=package, receipt=tmp_path / 'receipt.json'))
+
+
+def test_adopt_pkg_refuses_bytes_that_differ_from_the_receipt(tmp_path, monkeypatch):
+    """Adoption may only accept the exact package its notarization recorded."""
+    final = tmp_path / 'final'
+    final.mkdir()
+    (final / 'GRAF.app').mkdir()
+    (final / 'GRAF.app/marker').write_text('app')
+    (final / 'GRAF-2026.11.22.1-candidate.zip').write_text('archive')
+    identity = {'build': {'version': '2026.11.22.1'}, 'requests': {}}
+    artifacts.save_stage(final, identity)
+    package = tmp_path / 'GRAF-2026.11.22.1.pkg'
+    package.write_text('notarized')
+    receipt = {'schema': 1, 'version': '2026.11.22.1',
+               'app': artifacts.fingerprint(final / 'GRAF.app'), 'pkg': artifacts.regular(package)}
+    artifacts.atomic_json(tmp_path / 'receipt.json', receipt)
+    package.write_text('swapped')
+    monkeypatch.setattr(artifacts, 'command', lambda *args: '')
+    with pytest.raises(ValueError, match='does not match the bytes its receipt recorded'):
+        artifacts.adopt_pkg(SimpleNamespace(final=final, pkg=package, receipt=tmp_path / 'receipt.json'))
+
+
+def test_adopt_pkg_retries_after_an_unrecorded_copy(tmp_path, monkeypatch):
+    """A repeated adoption must finish an interrupted one instead of failing."""
+    final = tmp_path / 'final'
+    final.mkdir()
+    (final / 'GRAF.app').mkdir()
+    (final / 'GRAF.app/marker').write_text('app')
+    (final / 'GRAF-2026.11.22.1-candidate.zip').write_text('archive')
+    identity = {'build': {'version': '2026.11.22.1'}, 'requests': {}}
+    artifacts.save_stage(final, identity)
+    package = tmp_path / 'GRAF-2026.11.22.1.pkg'
+    package.write_text('notarized')
+    receipt = {'schema': 1, 'version': '2026.11.22.1',
+               'app': artifacts.fingerprint(final / 'GRAF.app'), 'pkg': artifacts.regular(package)}
+    artifacts.atomic_json(tmp_path / 'receipt.json', receipt)
+    monkeypatch.setattr(artifacts, 'command', lambda *args: '')
+    args = SimpleNamespace(final=final, pkg=package, receipt=tmp_path / 'receipt.json')
+    artifacts.adopt_pkg(args)
+    # Simulate a crash between copying the package and recording the outputs.
+    prepared = json.loads((final / '.prepared.json').read_text())
+    prepared['outputs'].pop('GRAF-2026.11.22.1.pkg')
+    (final / '.prepared.json').write_text(json.dumps(prepared))
+    artifacts.adopt_pkg(args)
+    assert json.loads((final / '.prepared.json').read_text())['outputs']['GRAF-2026.11.22.1.pkg'] == receipt['pkg']

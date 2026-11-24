@@ -469,7 +469,8 @@ run_prepare() {
   fi
   python3 "$ARTIFACTS" adopt-pkg \
     --final "$FINAL_DIR" \
-    --pkg "$PKG_NOTARY_DIR/final/GRAF-$VERSION.pkg" >/dev/null
+    --pkg "$PKG_NOTARY_DIR/final/GRAF-$VERSION.pkg" \
+    --receipt "$PKG_PATH.build.json" >/dev/null
   FINAL_PKG="$FINAL_DIR/GRAF-$VERSION.pkg"
   for artifact in "$FINAL_APP" "$FINAL_PKG" "$FINAL_CANDIDATE_ZIP"; do
     [ -e "$artifact" ] || fail "preparation did not produce $artifact"
