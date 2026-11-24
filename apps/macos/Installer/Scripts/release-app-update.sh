@@ -438,15 +438,18 @@ run_prepare() {
     timing_end
   fi
 
-  timing_begin "notarize_app_wait_apple"
-  # The notarization ticket lives inside the app bundle, and the installer must
-  # be built from the already stapled app. Submit the app first, then package the
-  # stapled result and notarize that package separately.
-  python3 "$ARTIFACTS" notarize --kinds zip \
-    --app "$MACOS_DIR/RecApp/.build/GRAF.app" \
-    --pkg "$PKG_PATH" \
-    --profile "$NOTARY_PROFILE"
-  timing_end
+  if [ ! -d "$APP_NOTARY_DIR/final" ]; then
+    timing_begin "notarize_app_wait_apple"
+    # The notarization ticket lives inside the app bundle, and the installer must
+    # be built from the already stapled app. Submit the app first, then package
+    # the stapled result and notarize that package separately. A resumed run
+    # skips this phase: the receipt then already describes the repackaged bytes.
+    python3 "$ARTIFACTS" notarize --kinds zip \
+      --app "$MACOS_DIR/RecApp/.build/GRAF.app" \
+      --pkg "$PKG_PATH" \
+      --profile "$NOTARY_PROFILE"
+    timing_end
+  fi
 
   NOTARY_DIR="$APP_NOTARY_DIR"
   FINAL_DIR="$NOTARY_DIR/final"
