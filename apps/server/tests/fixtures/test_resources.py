@@ -9,8 +9,14 @@ from pathlib import Path
 
 import pytest
 
+ISOLATED_CLUSTER_FIXTURE = "postgres_isolated_cluster_database_url"
+# The shared strict database is serialized by this advisory lock; every proof
+# that depends on it (directly or through migrated_postgres_urls) must keep
+# running in the single strict lane.
+SHARED_STRICT_FIXTURES = frozenset({"migrated_postgres_urls", "postgres_advisory_lock"})
 POSTGRES_FIXTURES = frozenset({
     "postgres_worker_database_url", "postgres_clean_database_url", "postgres_advisory_lock",
+    ISOLATED_CLUSTER_FIXTURE,
 })
 _report_path: Path | None = None
 
@@ -67,6 +73,16 @@ def pytest_collection_modifyitems(items):
 
 def phase_for(item):
     if item.get_closest_marker("strict_rls"):
+        names = set(item.fixturenames)
+        # A proof that builds its own disposable cluster owns every resource it
+        # needs and is safe beside other workers; only proofs that share the
+        # strict database stay in the serialized lane. Unknown or conflicting
+        # closures stay strict, and the timing-sensitive marker is never
+        # re-routed.
+        if (ISOLATED_CLUSTER_FIXTURE in names
+                and not SHARED_STRICT_FIXTURES.intersection(names)
+                and item.get_closest_marker("serial_performance") is None):
+            return "parallel"
         return "strict"
     return "performance" if item.get_closest_marker("serial_performance") else "parallel"
 

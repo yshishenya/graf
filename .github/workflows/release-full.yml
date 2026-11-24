@@ -36,7 +36,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ inputs.requested_sha }}
-          fetch-depth: 0
+          fetch-depth: 1
           persist-credentials: false
 
       - name: Validate candidate identity and reserve once
@@ -105,7 +105,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ inputs.requested_sha }}
-          fetch-depth: 0
+          fetch-depth: 2
           persist-credentials: false
 
       - name: Configure fixture git identity
@@ -139,6 +139,7 @@ jobs:
           "$venv_dir/bin/python" -m pip install --disable-pip-version-check \
             "specify-cli @ git+https://github.com/github/spec-kit.git@${SPEC_KIT_REF}" \
             "pytest==9.1.1" \
+            "pytest-xdist==3.8.0" \
             "uv==0.11.28"
           bin_dir="$RUNNER_TEMP/graf-bin"
           mkdir -p "$bin_dir"
@@ -173,7 +174,7 @@ jobs:
             (cd apps/server && PYTHONPATH=src uv run --extra dev ruff check .)
             python3 -m compileall -q apps/server/src apps/server/tests apps/server/scripts
             python3 scripts/check_spec_kit_governance.py
-            pytest -q tests/governance
+            pytest -q -n 4 tests/governance
             PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=harness/src \
               python3 -c 'from dev_harness.validators import self_test; raise SystemExit(self_test())'
             while IFS= read -r shell_path; do
@@ -236,7 +237,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ inputs.requested_sha }}
-          fetch-depth: 0
+          fetch-depth: 1
           persist-credentials: false
 
       - name: Configure fixture git identity
@@ -270,6 +271,7 @@ jobs:
           "$venv_dir/bin/python" -m pip install --disable-pip-version-check \
             "specify-cli @ git+https://github.com/github/spec-kit.git@${SPEC_KIT_REF}" \
             "pytest==9.1.1" \
+            "pytest-xdist==3.8.0" \
             "uv==0.11.28"
           bin_dir="$RUNNER_TEMP/graf-bin"
           mkdir -p "$bin_dir"
@@ -386,7 +388,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ inputs.requested_sha }}
-          fetch-depth: 0
+          fetch-depth: 1
           persist-credentials: false
 
       - name: Configure fixture git identity
@@ -420,6 +422,7 @@ jobs:
           "$venv_dir/bin/python" -m pip install --disable-pip-version-check \
             "specify-cli @ git+https://github.com/github/spec-kit.git@${SPEC_KIT_REF}" \
             "pytest==9.1.1" \
+            "pytest-xdist==3.8.0" \
             "uv==0.11.28"
           bin_dir="$RUNNER_TEMP/graf-bin"
           mkdir -p "$bin_dir"
@@ -540,7 +543,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ inputs.requested_sha }}
-          fetch-depth: 0
+          fetch-depth: 1
           persist-credentials: false
 
       - name: Select installed Swift 6.0.3

@@ -245,6 +245,9 @@ def test_observation_source_rr_detects_old_late_commit_and_read_only_before_hook
     asyncio.run(probe())
 
 
+# Wall-clock cancellation bounds below require the serial lane even though the
+# test owns its cluster.
+@pytest.mark.serial_performance
 def test_observation_source_early_sql_timeout_cancel_and_no_backend_tail(database, monkeypatch):
     import time
 
@@ -355,6 +358,7 @@ def test_observation_source_negative_boundary_is_whole_safe_unavailable(database
             asyncio.run(alter(revert))
 
 
+@pytest.mark.serial_performance
 @pytest.mark.parametrize("stage", ["before", "during"])
 def test_observation_source_database_outage_does_not_leave_a_backend(database, monkeypatch, stage):
     import socket
@@ -404,6 +408,7 @@ def test_observation_source_database_outage_does_not_leave_a_backend(database, m
     asyncio.run(scenario())
 
 
+@pytest.mark.serial_performance
 @pytest.mark.parametrize("stage", ["connect", "close"])
 def test_observation_source_total_budget_includes_connect_and_close(database, monkeypatch, stage):
     import time
@@ -665,6 +670,7 @@ def test_reconciliation_journal_faults_deadline_and_whole_cli_schema_failure(dat
         asyncio.run(rename("synthetic_missing_observations", "billing_reconciliation_observations"))
 
 
+@pytest.mark.serial_performance
 @pytest.mark.parametrize("stage", ["dialect", "tenant"])
 @pytest.mark.parametrize("cancellation", ["deadline", "external", "repeated"])
 def test_early_sql_cancellation_has_no_graceful_close_tail(database, monkeypatch, stage, cancellation):

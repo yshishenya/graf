@@ -41,7 +41,7 @@ def test_isolated_cluster_cleans_up_every_attempt(monkeypatch, failure):
     monkeypatch.setattr(resources.subprocess, "run", run)
     monkeypatch.setattr(resources, "prepare_schema", migrate)
     if failure == "deadline":
-        clock = iter([0, 0, 31])
+        clock = iter([0, resources.ISOLATED_CLUSTER_READY_DEADLINE_SECONDS])
         monkeypatch.setattr(resources.time, "monotonic", lambda: next(clock))
         monkeypatch.setattr(resources.time, "sleep", lambda _: None)
     fixture = resources.postgres_isolated_cluster_database_url.__wrapped__()
@@ -88,7 +88,12 @@ def test_start_timeout_retries_only_after_verified_cleanup(monkeypatch, case, ca
         nonlocal run_count, remove_count, owned_name
         calls.append(args)
         operation = args[1]
-        assert kwargs["timeout"] == (30 if operation in {"run", "rm"} else 5)
+        expected_timeout = (
+            resources.ISOLATED_CLUSTER_CLEANUP_TIMEOUT_SECONDS
+            if operation in {"run", "rm", "container"}
+            else resources.ISOLATED_CLUSTER_CALL_TIMEOUT_SECONDS
+        )
+        assert kwargs["timeout"] == expected_timeout
         code, stdout = 0, ""
         if operation == "run":
             run_count += 1

@@ -213,13 +213,20 @@ def behavior_repo(tmp_path: Path) -> Path:
         "unit/test_settings_view_models.py",
         "contract/test_calendar_auto_context_contract.py",
         "integration/test_calendar_auto_context_match.py",
+        "contract/test_openapi_contract_drift.py",
+        "contract/test_copy_convention_contract.py",
+        "contract/test_account_routes.py",
     ):
         target = tmp_path / "apps/server/tests" / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         name = ("test_cabinet_rail_node_harness_keeps_responsive_defaults_and_manual_state"
                 if "static_assets" in relative else
                 "test_sc017_one_hundred_warmed_atomic_consumptions_are_within_50ms_p95"
-                if "integration/test_calendar" in relative else "test_fixture")
+                if "integration/test_calendar" in relative else
+                "test_runtime_openapi_matches_committed_contract"
+                if "openapi_contract_drift" in relative else
+                "test_account_close_routes_have_browser_and_desktop_variants_with_csrf_dependency"
+                if "account_routes" in relative else "test_fixture")
         target.write_text(f"def {name}():\n    assert True\n")
     (tmp_path / ".gitignore").write_text(".venv/\n.pytest_cache/\n__pycache__/\n")
     for args in (("init", "-q"), ("config", "user.email", "ci-contract@example.test"),
@@ -246,10 +253,62 @@ def test_calendar_changes_select_existing_contract_and_integration(path: str) ->
     result = run_stubbed_ci("apps/server/" + path, "--plan")
     assert result.returncode == 0, result.stdout
     plan = json.loads(result.stdout)
-    assert plan["tests"] == CALENDAR_PROOFS
-    assert [group["name"] for group in plan["groups"]] == ["calendar-auto-context"]
+    api_contract = path == "src/twobrain_rec_server/api/calendar.py"
+    assert plan["tests"] == sorted(CALENDAR_PROOFS + (
+        ["tests/contract/test_openapi_contract_drift.py"] if api_contract else []
+    ))
+    assert [group["name"] for group in plan["groups"]] == (
+        ["calendar-auto-context", "openapi-contract"] if api_contract
+        else ["calendar-auto-context"]
+    )
     assert "PostgreSQL" in plan["environment"] and "Docker" in plan["environment"]
     assert plan["coverage"] == "partial"
+
+
+@pytest.mark.parametrize("path", [
+    "apps/server/src/twobrain_rec_server/api/schemas.py",
+    "apps/server/src/twobrain_rec_server/main.py",
+    "specs/012-server-ingest-foundation/contracts/openapi.yaml",
+])
+def test_api_changes_select_the_openapi_contract_proof(path: str) -> None:
+    result = run_stubbed_ci(path, "--plan")
+    assert result.returncode == 0, result.stdout
+    plan = json.loads(result.stdout)
+    assert plan["tests"] == ["tests/contract/test_openapi_contract_drift.py"]
+    assert [group["name"] for group in plan["groups"]] == ["openapi-contract"]
+    assert "PostgreSQL" in plan["environment"] and "Docker" in plan["environment"]
+    assert plan["coverage"] == "partial"
+
+
+def test_calendar_api_change_keeps_both_proof_owners() -> None:
+    result = run_stubbed_ci("apps/server/src/twobrain_rec_server/api/calendar.py", "--plan")
+    assert result.returncode == 0, result.stdout
+    plan = json.loads(result.stdout)
+    assert set(plan["tests"]) == set(CALENDAR_PROOFS) | {
+        "tests/contract/test_openapi_contract_drift.py",
+    }
+    assert [group["name"] for group in plan["groups"]] == [
+        "calendar-auto-context", "openapi-contract",
+    ]
+
+
+@pytest.mark.parametrize("path,group,target", [
+    ("apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/settings.html",
+     "copy-conventions", "tests/contract/test_copy_convention_contract.py"),
+    ("apps/server/src/twobrain_rec_server/cabinet/rendering.py",
+     "copy-conventions", "tests/contract/test_copy_convention_contract.py"),
+    ("apps/server/src/twobrain_rec_server/auth/account_merge.py",
+     "account-routes", "tests/contract/test_account_routes.py"),
+])
+def test_copy_and_account_changes_select_their_contract_proofs(
+    path: str, group: str, target: str,
+) -> None:
+    result = run_stubbed_ci(path, "--plan")
+    assert result.returncode == 0, result.stdout
+    plan = json.loads(result.stdout)
+    assert target in plan["tests"]
+    assert group in {item["name"] for item in plan["groups"]}
+    assert "no database or Docker" in plan["environment"]
 
 
 def test_mixed_calendar_behavior_files_have_one_owner_and_keep_unit_checks() -> None:
@@ -442,9 +501,11 @@ def test_plan_is_read_only_and_preserves_real_git_rename_and_special_paths(tmp_p
     assert result.returncode == 0, result.stdout
     plan = json.loads(result.stdout)
     assert plan["changed_paths"] == sorted([str(original.relative_to(tmp_path)), str(renamed.relative_to(tmp_path))])
-    assert [group["name"] for group in plan["groups"]] == ["cabinet-shell", "settings"]
+    assert [group["name"] for group in plan["groups"]] == [
+        "account-routes", "cabinet-shell", "copy-conventions", "settings",
+    ]
     assert plan["dirty_worktree"] is True
-    assert len(plan["tests"]) == 3
+    assert len(plan["tests"]) == 5
     assert set(tmp_path.rglob("*")) == before
     assert "ci_local_result" not in result.stdout and "ci_evidence_path" not in result.stdout
     invalid = renamed.with_name("line\nbreak.html")
@@ -803,8 +864,22 @@ def test_infra_contract_command_fails_if_required_file_disappears(tmp_path: Path
     command = command.replace("uv run --extra dev pytest", shlex.quote(sys.executable) + " -m pytest")
     result = run("bash", "-c", command, cwd=tmp_path)
     assert result.returncode != 0
-    assert "test_local_postgres_test_runner.py" in result.stdout
-    assert "file or directory not found" in result.stdout
+    # xdist collects inside workers, so a removed required file ends as "no
+    # tests ran" with a non-zero exit instead of the serial-mode error text.
+    assert "no tests ran" in result.stdout or "file or directory not found" in result.stdout
+
+
+def test_parallel_governance_and_contract_suites_use_pinned_xdist() -> None:
+    fast_workflow = (ROOT / ".github/workflows/governance-fast.yml").read_text(encoding="utf-8")
+    assert '"pytest-xdist==3.8.0"' in fast_workflow
+    static = FULL_CI_WORKFLOW.read_text(encoding="utf-8")
+    assert "pytest -q -n 4 tests/governance" in static
+    local_ci = LOCAL_CI.read_text(encoding="utf-8")
+    assert "governance_pytest+=(-n 4)" in local_ci
+    command = re.search(
+        r'run_step "CI contracts" bash -c "(.*?)" \|\|', local_ci, re.S,
+    ).group(1)
+    assert "pytest -v --durations=15 -n 4" in command
 
 
 @pytest.mark.parametrize("failure", ["", "lint", "compile"])
@@ -905,7 +980,7 @@ def test_release_full_splits_postgres_work_across_parallel_jobs() -> None:
         "PYTHONPATH=src uv run --extra dev ruff check .",
         "python3 -m compileall -q apps/server/src apps/server/tests apps/server/scripts",
         "python3 scripts/check_spec_kit_governance.py",
-        "pytest -q tests/governance",
+        "pytest -q -n 4 tests/governance",
         "from dev_harness.validators import self_test",
         "sh apps/macos/Scripts/validate-no-legacy-audio-driver.sh",
         "docker compose -f infra/docker-compose.yml config",
@@ -917,6 +992,11 @@ def test_release_full_splits_postgres_work_across_parallel_jobs() -> None:
         assert static.count(command) == 1, command
     assert "run_local_postgres_tests.sh" not in static
     assert "verify_rls_hardening.py" not in static
+    toolchain = next(
+        item for item in jobs["server-static"]["steps"]
+        if item.get("name") == "Install frozen test toolchain"
+    )
+    assert '"pytest-xdist==3.8.0"' in toolchain["run"]
 
     phases = release_full_step_run(jobs, "server-phases", "Run Ubuntu postgres strict and performance component")
     assert (

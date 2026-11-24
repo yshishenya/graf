@@ -17,8 +17,28 @@ import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
 CABINET = "apps/server/src/twobrain_rec_server/cabinet/"
+PUBLIC = "apps/server/src/twobrain_rec_server/public/"
 ASSETS = "tests/contract/test_cabinet_static_assets_contract.py"
+OPENAPI_DRIFT = "tests/contract/test_openapi_contract_drift.py"
+COPY_CONVENTION = "tests/contract/test_copy_convention_contract.py"
+ACCOUNT_ROUTES = "tests/contract/test_account_routes.py"
+OPENAPI_CONTRACT = "specs/012-server-ingest-foundation/contracts/openapi.yaml"
 RAIL_TEST = "test_cabinet_rail_node_harness_keeps_responsive_defaults_and_manual_state"
+COPY_MODULES = tuple(CABINET + name for name in (
+    "rendering.py",
+    "view_models.py",
+    "deletion_rendering.py",
+    "meeting_protocol.py",
+    "rendering_shared.py",
+))
+ACCOUNT_MODULES = (
+    "apps/server/src/twobrain_rec_server/auth/account_closure.py",
+    "apps/server/src/twobrain_rec_server/auth/account_merge.py",
+    "apps/server/src/twobrain_rec_server/auth/workspace_onboarding.py",
+    CABINET + "auth_rendering.py",
+    CABINET + "web_routes/account_merge.py",
+    CABINET + "web_routes/provider_links.py",
+)
 GROUPS = {
     "cabinet-shell": (ASSETS,),
     "settings": (
@@ -29,11 +49,19 @@ GROUPS = {
         "tests/contract/test_calendar_auto_context_contract.py",
         "tests/integration/test_calendar_auto_context_match.py",
     ),
+    "openapi-contract": (OPENAPI_DRIFT,),
+    "copy-conventions": (COPY_CONVENTION,),
+    "account-routes": (ACCOUNT_ROUTES,),
 }
+# Proofs that build the real application and therefore need the disposable
+# PostgreSQL runner; the remaining groups run without a database.
+DATABASE_TARGETS = frozenset({OPENAPI_DRIFT})
 REQUIRED_TESTS = {
     ASSETS: RAIL_TEST,
     GROUPS["calendar-auto-context"][1]:
         "test_sc017_one_hundred_warmed_atomic_consumptions_are_within_50ms_p95",
+    OPENAPI_DRIFT: "test_runtime_openapi_matches_committed_contract",
+    ACCOUNT_ROUTES: "test_account_close_routes_have_browser_and_desktop_variants_with_csrf_dependency",
 }
 
 
@@ -49,10 +77,18 @@ def select_tests(paths: list[str], covered: list[str], root: Path = ROOT) -> dic
             "apps/server/src/twobrain_rec_server/db/models/calendar.py",
             "apps/server/src/twobrain_rec_server/db/migrations/versions/0021_calendar_auto_context_match.py",
         }
+        openapi = path.startswith("apps/server/src/twobrain_rec_server/api/") or path in {
+            "apps/server/src/twobrain_rec_server/main.py", OPENAPI_CONTRACT,
+        }
+        copy = path.startswith((CABINET + "templates/", PUBLIC + "templates/")) or path in COPY_MODULES
+        account = path in ACCOUNT_MODULES or path.startswith((CABINET + "templates/", PUBLIC + "templates/"))
         for group, targets in GROUPS.items():
             if ((shared and group in {"cabinet-shell", "settings"})
                     or (settings and group == "settings")
                     or (calendar and group == "calendar-auto-context")
+                    or (openapi and group == "openapi-contract")
+                    or (copy and group == "copy-conventions")
+                    or (account and group == "account-routes")
                     or path in {"apps/server/" + t for t in targets}):
                 matches.setdefault(group, []).append(path)
     selected = sorted({target for group in matches for target in GROUPS[group]})
@@ -67,6 +103,9 @@ def select_tests(paths: list[str], covered: list[str], root: Path = ROOT) -> dic
     covered_tests = [target for target in selected if any(
         target == item or target.startswith(item.rstrip("/") + "/") for item in covered
     )]
+    database_required = "calendar-auto-context" in matches or any(
+        target in DATABASE_TARGETS for target in selected
+    )
     return {
         "changed_paths": sorted(set(filter(None, paths))),
         "groups": [{"name": group, "matched_paths": matches[group], "tests": list(GROUPS[group])}
@@ -74,7 +113,7 @@ def select_tests(paths: list[str], covered: list[str], root: Path = ROOT) -> dic
         "tests": [target for target in selected if target not in covered_tests],
         "covered_tests": covered_tests,
         "environment": (["prepared server .venv", "Node.js", "PostgreSQL", "MinIO", "Docker"]
-                        if "calendar-auto-context" in matches else
+                        if database_required else
                         ["prepared server .venv", "Node.js", "no database or Docker"]),
         "scope": "working_tree_diagnostic",
         "coverage": "partial",
@@ -106,8 +145,9 @@ def execute(targets: list[str]) -> int:
     with tempfile.TemporaryDirectory(prefix="graf-behavior-tests-") as directory:
         report = Path(directory) / "junit.xml"
         calendar = any(target in GROUPS["calendar-auto-context"] for target in targets)
+        database = calendar or any(target in DATABASE_TARGETS for target in targets)
         command = (["bash", str(ROOT / "apps/server/scripts/run_local_postgres_tests.sh"), "--focused"]
-                   if calendar else [str(interpreter), "-m", "pytest"])
+                   if database else [str(interpreter), "-m", "pytest"])
         result = subprocess.run(
             [*command, "-q", "-o", "addopts=", "--junitxml", str(report), *targets],
             cwd=ROOT / "apps/server",
