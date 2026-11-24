@@ -559,10 +559,18 @@ upload_release_input() {
   printf 'release_input_uploaded=%s sha256=%s\n' "$asset_name" "$local_sha"
 }
 
+app_notary_dir() {
+  # Two-phase preparation keeps the stapled app and the candidate archive in the
+  # app attempt directory; releases prepared before it used one shared directory.
+  local base="$root/apps/macos/.build/notary/$version-$source_sha-app"
+  [[ -d "$base" ]] || base="$root/apps/macos/.build/notary/$version-$source_sha"
+  printf '%s\n' "$base"
+}
+
 app_build() {
   # The build and the notarization wait need no tag, so they start right after
   # the preparation and overlap the whole train and full check.
-  if [[ -f "$root/apps/macos/.build/notary/$version-$source_sha/final/GRAF-$version-candidate.zip" \
+  if [[ -f "$(app_notary_dir)/final/GRAF-$version-candidate.zip" \
      && -f "$root/apps/macos/.build/release-state/$version.handoff" ]]; then
     printf 'release_app_prepare=reused source=%s\n' "$source_sha"
   else
@@ -575,7 +583,7 @@ app_build() {
 app_sign() {
   # Signing and uploading need the release tag, and the tag may only exist after
   # the train is attested, so this half runs next to the production deploy.
-  app_candidate_zip="$root/apps/macos/.build/notary/$version-$source_sha/final/GRAF-$version-candidate.zip"
+  app_candidate_zip="$(app_notary_dir)/final/GRAF-$version-candidate.zip"
   [[ -f "$app_candidate_zip" ]] \
     || { printf 'release: the app build produced no candidate archive\n'; return 1; }
   upload_release_input "$app_candidate_zip" "GRAF-$version-candidate.zip" || return 1

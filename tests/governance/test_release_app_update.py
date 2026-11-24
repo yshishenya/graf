@@ -64,7 +64,7 @@ def test_dry_run_plans_without_touching_anything(tmp_path):
     assert 'dry run' in plan
     assert '2026.09.18.1' in plan
     # The plan must state the trust steps and the publication boundary.
-    for step in ('build_and_sign', 'notarize_wait_apple', 'staple_and_trust_gates',
+    for step in ('build_and_sign', 'notarize_app', 'notarize_pkg', 'trust_gates',
                  'sparkle_sign_and_upload', 'feed_check'):
         assert step in plan, f'the plan must name {step}'
     assert 'never' in plan
@@ -174,3 +174,28 @@ def test_script_is_posix_shell_clean():
         assert bashism not in source, f'POSIX sh must not use {bashism}'
     result = subprocess.run(['sh', '-n', str(SCRIPT)], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
+
+
+def test_installer_is_built_from_the_stapled_app():
+    """The ticket lives in the app, so the app is notarized before the package."""
+    source = SCRIPT.read_text()
+    assert '--kinds zip' in source
+    assert '--kinds pkg' in source
+    assert 'GRAF_REPACKAGE_APP="$FINAL_APP"' in source
+    assert 'adopt-pkg' in source
+    assert source.index('--kinds zip') < source.index('GRAF_REPACKAGE_APP')
+    assert source.index('GRAF_REPACKAGE_APP') < source.index('--kinds pkg')
+    builder = SCRIPT.with_name('build-local-installer.sh').read_text()
+    assert 'package_installer()' in builder
+    assert 'GRAF_REPACKAGE_APP' in builder
+    assert 'GRAF_REPACKAGE_APP must point at an existing signed app bundle.' in builder
+
+
+def test_release_driver_reads_the_app_phase_directory():
+    """The release driver must find the candidate archive the two-phase build writes."""
+    driver = SCRIPT.parents[4] / 'scripts/release.sh'
+    text = driver.read_text()
+    assert 'app_notary_dir()' in text
+    assert text.count('$(app_notary_dir)') >= 2
+    assert '-app"' in text
+    assert 'notary/$version-$source_sha/final' not in text

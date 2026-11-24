@@ -418,32 +418,72 @@ run_prepare() {
   # next notary or Sparkle step.
   [ -n "$PKG_PATH" ] || PKG_PATH="$DEFAULT_PKG_PATH"
   mkdir -p "$(dirname -- "$PKG_PATH")"
-  timing_begin "build_and_sign"
-  GRAF_VERSION="$VERSION" \
-  GRAF_REQUIRE_PUBLIC_UPDATE_TRUST=1 \
-  GRAF_UPDATE_FEED_URL="$FEED_URL" \
-  GRAF_APP_SIGN_IDENTITY="$APP_SIGN_IDENTITY" \
-  DEVELOPER_ID_INSTALLER_IDENTITY="$INSTALLER_IDENTITY" \
-    sh "$BUILDER" "$PKG_PATH" >/dev/null
-  timing_end
+  build_signed_package() {
+    GRAF_VERSION="$VERSION" \
+    GRAF_REQUIRE_PUBLIC_UPDATE_TRUST=1 \
+    GRAF_UPDATE_FEED_URL="$FEED_URL" \
+    GRAF_APP_SIGN_IDENTITY="$APP_SIGN_IDENTITY" \
+    DEVELOPER_ID_INSTALLER_IDENTITY="$INSTALLER_IDENTITY" \
+      sh "$BUILDER" "$PKG_PATH" >/dev/null
+  }
 
-  timing_begin "notarize_wait_apple"
-  # External Apple waiting. This is the row that must overlap the server train,
-  # never extend it. The helper submits ZIP and PKG before waiting, keeps both
-  # request IDs, and is resumable.
-  python3 "$ARTIFACTS" notarize \
-    --app "$MACOS_DIR/RecApp/.build/GRAF.app" \
-    --pkg "$PKG_PATH" \
-    --profile "$NOTARY_PROFILE"
-  timing_end
+  APP_NOTARY_DIR="$MACOS_DIR/.build/notary/$VERSION-$SOURCE_SHA-app"
+  PKG_NOTARY_DIR="$MACOS_DIR/.build/notary/$VERSION-$SOURCE_SHA-pkg"
+  # A resumed preparation must not rebuild: the first build overwrites the
+  # package path, and a package-phase attempt is bound to the repackaged bytes
+  # built from the stapled app.
+  if [ ! -d "$APP_NOTARY_DIR" ] && [ ! -d "$PKG_NOTARY_DIR" ]; then
+    timing_begin "build_and_sign"
+    build_signed_package
+    timing_end
+  fi
 
-  NOTARY_DIR="$MACOS_DIR/.build/notary/$VERSION-$SOURCE_SHA"
+  if [ ! -d "$APP_NOTARY_DIR/final" ]; then
+    timing_begin "notarize_app_wait_apple"
+    # The notarization ticket lives inside the app bundle, and the installer must
+    # be built from the already stapled app. Submit the app first, then package
+    # the stapled result and notarize that package separately. A resumed run
+    # skips this phase: the receipt then already describes the repackaged bytes.
+    python3 "$ARTIFACTS" notarize --kinds zip \
+      --app "$MACOS_DIR/RecApp/.build/GRAF.app" \
+      --pkg "$PKG_PATH" \
+      --profile "$NOTARY_PROFILE"
+    timing_end
+  fi
+
+  NOTARY_DIR="$APP_NOTARY_DIR"
   FINAL_DIR="$NOTARY_DIR/final"
   FINAL_APP="$FINAL_DIR/GRAF.app"
-  FINAL_PKG="$FINAL_DIR/GRAF-$VERSION.pkg"
   FINAL_CANDIDATE_ZIP="$FINAL_DIR/GRAF-$VERSION-candidate.zip"
+  [ -e "$FINAL_APP" ] || fail "notarization did not produce the stapled app $FINAL_APP"
+  [ -e "$FINAL_CANDIDATE_ZIP" ] || fail "notarization did not produce $FINAL_CANDIDATE_ZIP"
+  # Reuse an interrupted package attempt instead of rebuilding different bytes:
+  # a rebuilt package would no longer match the receipt bound to its submission.
+  if [ ! -e "$PKG_NOTARY_DIR/final/GRAF-$VERSION.pkg" ]; then
+    if [ ! -d "$PKG_NOTARY_DIR" ]; then
+      timing_begin "repackage_and_notarize_pkg"
+      GRAF_VERSION="$VERSION" \
+      GRAF_REQUIRE_PUBLIC_UPDATE_TRUST=1 \
+      GRAF_UPDATE_FEED_URL="$FEED_URL" \
+      GRAF_APP_SIGN_IDENTITY="$APP_SIGN_IDENTITY" \
+      DEVELOPER_ID_INSTALLER_IDENTITY="$INSTALLER_IDENTITY" \
+      GRAF_REPACKAGE_APP="$FINAL_APP" \
+        sh "$BUILDER" "$PKG_PATH" >/dev/null
+    fi
+    python3 "$ARTIFACTS" notarize --kinds pkg \
+      --app "$FINAL_APP" \
+      --pkg "$PKG_PATH" \
+      --profile "$NOTARY_PROFILE"
+    timing_end
+  fi
+  python3 "$ARTIFACTS" adopt-pkg \
+    --final "$FINAL_DIR" \
+    --pkg "$PKG_NOTARY_DIR/final/GRAF-$VERSION.pkg" \
+    --receipt "$PKG_PATH.build.json" \
+    --pkg-stage "$PKG_NOTARY_DIR" >/dev/null
+  FINAL_PKG="$FINAL_DIR/GRAF-$VERSION.pkg"
   for artifact in "$FINAL_APP" "$FINAL_PKG" "$FINAL_CANDIDATE_ZIP"; do
-    [ -e "$artifact" ] || fail "notarization did not produce $artifact"
+    [ -e "$artifact" ] || fail "preparation did not produce $artifact"
   done
 
   timing_begin "trust_gates"
@@ -551,7 +591,10 @@ run_publish() {
     fail "build receipt is missing at $PKG_PATH.build.json; run --phase prepare first"
   [ "$RECEIPT_SOURCE" = "$SOURCE_SHA" ] ||
     fail "the build receipt and the prepare handoff name different source commits"
-  NOTARY_DIR="$MACOS_DIR/.build/notary/$VERSION-$SOURCE_SHA"
+  NOTARY_DIR="$MACOS_DIR/.build/notary/$VERSION-$SOURCE_SHA-app"
+  # Releases prepared before the two-phase build kept both artifacts in one
+  # directory; a resumed publication of such a release must still work.
+  [ -d "$NOTARY_DIR" ] || NOTARY_DIR="$MACOS_DIR/.build/notary/$VERSION-$SOURCE_SHA"
   FINAL_DIR="$NOTARY_DIR/final"
   FINAL_APP="$FINAL_DIR/GRAF.app"
   FINAL_PKG="$FINAL_DIR/GRAF-$VERSION.pkg"
@@ -663,8 +706,9 @@ release-app-update plan (dry run, nothing executed)
 
 steps
   1. build_and_sign          Developer ID Application + Developer ID Installer, universal, exact source
-  2. notarize_wait_apple     submit ZIP and PKG, then one bounded wait for both Apple requests
-  3. staple_and_trust_gates  stapler + spctl for app and package, Developer ID assertions
+  2. notarize_app            submit the app, staple it, then build the PKG from the stapled app
+  3. notarize_pkg            submit the package built from the stapled app and staple it
+  4. trust_gates             stapler + spctl for app and package, Developer ID assertions
   4. predecessor_lookup      last release that published GRAF-<version>.zip
   5. draft_release           create the draft release and cache the signing inputs
   6. sparkle_sign_and_upload Sparkle Keychain signature, public trust, both architecture startup checks

@@ -596,11 +596,12 @@ def build_receipt(args):
         'build_key': args.key, 'app': fingerprint(args.app), 'pkg': regular(args.pkg)})
 
 
-def notarize_jobs(directory, profile, recover):
+def notarize_jobs(directory, profile, recover, kinds=('zip', 'pkg')):
     directory = Path(directory)
     state_path = directory / 'requests.json'
     state = read_json(state_path)
-    if set(state['inputs']) != {'zip', 'pkg'} or not set(state['jobs']) <= {'zip', 'pkg'}:
+    expected = set(kinds)
+    if set(state['inputs']) != expected or not set(state['jobs']) <= expected:
         raise ValueError(f'the saved notary attempt {state_path} describes inputs {sorted(state["inputs"])} '
                          f'and jobs {sorted(state["jobs"])} instead of exactly one zip and one pkg '
                          'submission; recover the Apple requests for this build before retrying')
@@ -613,7 +614,7 @@ def notarize_jobs(directory, profile, recover):
         elif job['status'] != 'submitting':
             raise ValueError(f'the saved {kind} notary job is {job["status"]!r} without an Apple request ID; '
                              f'pass the ID that submitted these exact bytes as --recover {kind}=<ID>')
-    for kind in ('zip', 'pkg'):
+    for kind in kinds:
         original = directory / f'submitted.{kind}'
         if regular(original) != state['inputs'][kind]:
             raise ValueError(f'the saved {original.name} no longer matches the bytes that were submitted '
@@ -691,13 +692,19 @@ def notarize_jobs(directory, profile, recover):
     return state
 
 
-def validate_notarized(app, pkg):
+def validate_notarized(app, pkg, kinds=('zip', 'pkg')):
     """The notarized app and package must pass signature, staple and Gatekeeper checks."""
-    try:
-        command('codesign', '--verify', '--deep', '--strict', app)
-    except ValueError as error:
-        raise ValueError(f'the notarized app {app} did not verify as signed: {error}') from None
-    for path, kind in ((app, 'execute'), (pkg, 'install')):
+    if 'zip' in kinds:
+        try:
+            command('codesign', '--verify', '--deep', '--strict', app)
+        except ValueError as error:
+            raise ValueError(f'the notarized app {app} did not verify as signed: {error}') from None
+    checks = []
+    if 'zip' in kinds:
+        checks.append((app, 'execute'))
+    if 'pkg' in kinds:
+        checks.append((pkg, 'install'))
+    for path, kind in checks:
         for check in (('xcrun', 'stapler', 'validate', path), ('spctl', '--assess', '--type', kind, '--verbose=4', path)):
             try:
                 command(*check)
@@ -728,7 +735,10 @@ def notarize(args):
             raise ValueError(f'the build receipt does not bind {changed}: the bytes differ from the build '
                              'that was recorded, so notarize the exact artifacts of that build')
         validate_signed_build(args.app, args.pkg, receipt['version'])
-        directory = STATE / 'notary' / f'{receipt["version"]}-{receipt["source"]}'
+        kinds = {'both': ('zip', 'pkg'), 'zip': ('zip',), 'pkg': ('pkg',)}[getattr(args, 'kinds', 'both')]
+        phase = getattr(args, 'kinds', 'both')
+        suffix = {'both': '', 'zip': '-app', 'pkg': '-pkg'}[phase]
+        directory = STATE / 'notary' / f'{receipt["version"]}-{receipt["source"]}{suffix}'
         if directory.exists():
             if read_json(directory / 'build.json') != receipt:
                 raise ValueError(f'the saved notary attempt {directory} belongs to another build of '
@@ -745,14 +755,16 @@ def notarize(args):
                 # link: a later rebuild of the same path must not be able to
                 # change what was notarized.
                 command('ditto', args.app, work / 'GRAF.app')
-                shutil.copyfile(args.pkg, work / 'submitted.pkg')
+                if 'pkg' in kinds:
+                    shutil.copyfile(args.pkg, work / 'submitted.pkg')
                 if fingerprint(work / 'GRAF.app') != receipt['app']:
                     raise ValueError(f'the copy of {args.app} that was staged for notarization no longer '
                                      'matches the recorded build; the app changed while the attempt was '
                                      'prepared, so rebuild and notarize again')
-                command('ditto', '-c', '-k', '--sequesterRsrc', '--keepParent', work / 'GRAF.app', work / 'submitted.zip')
-                inputs = {kind: regular(work / f'submitted.{kind}') for kind in ('zip', 'pkg')}
-                if inputs['pkg']['sha256'] != receipt['pkg']['sha256']:
+                if 'zip' in kinds:
+                    command('ditto', '-c', '-k', '--sequesterRsrc', '--keepParent', work / 'GRAF.app', work / 'submitted.zip')
+                inputs = {kind: regular(work / f'submitted.{kind}') for kind in kinds}
+                if 'pkg' in kinds and inputs['pkg']['sha256'] != receipt['pkg']['sha256']:
                     raise ValueError(f'the copy of {args.pkg} that was staged for notarization has sha256 '
                                      f'{inputs["pkg"]["sha256"]} instead of the recorded '
                                      f'{receipt["pkg"]["sha256"]}; the package changed while the attempt was '
@@ -774,30 +786,102 @@ def notarize(args):
                 raise ValueError(f'recovery {value!r} is not usable; pass the Apple request ID exactly once '
                                  'per input, as --recover zip=<ID> or --recover pkg=<ID>')
             recover[kind] = identifier
-        state = notarize_jobs(directory, args.profile, recover)
+        state = notarize_jobs(directory, args.profile, recover, kinds)
         identity = {'build': receipt, 'requests': state}
         final = directory / 'final'
         app, pkg = final / 'GRAF.app', final / f'GRAF-{receipt["version"]}.pkg'
         if final.exists():
             check_stage(final, identity)
-            validate_notarized(app, pkg)
+            validate_notarized(app, pkg, kinds)
         else:
             with tempfile.TemporaryDirectory(dir=directory) as temporary:
                 work = Path(temporary) / 'final'
                 work.mkdir()
-                command('ditto', directory / 'GRAF.app', work / 'GRAF.app')
-                shutil.copyfile(directory / 'submitted.pkg', work / pkg.name)
-                for path in (work / 'GRAF.app', work / pkg.name):
-                    command('xcrun', 'stapler', 'staple', path)
-                validate_notarized(work / 'GRAF.app', work / pkg.name)
-                command('ditto', '-c', '-k', '--sequesterRsrc', '--keepParent', work / 'GRAF.app',
-                        work / f'GRAF-{receipt["version"]}-candidate.zip')
+                if 'zip' in kinds:
+                    command('ditto', directory / 'GRAF.app', work / 'GRAF.app')
+                    command('xcrun', 'stapler', 'staple', work / 'GRAF.app')
+                if 'pkg' in kinds:
+                    shutil.copyfile(directory / 'submitted.pkg', work / pkg.name)
+                    command('xcrun', 'stapler', 'staple', work / pkg.name)
+                validate_notarized(work / 'GRAF.app', work / pkg.name, kinds)
+                if 'zip' in kinds:
+                    command('ditto', '-c', '-k', '--sequesterRsrc', '--keepParent', work / 'GRAF.app',
+                            work / f'GRAF-{receipt["version"]}-candidate.zip')
                 clean_source(receipt['source'])
                 save_stage(work, identity)
                 os.replace(work, final)
         sync_dir(directory)
         clean_source(receipt['source'])
         print(f'notary=Accepted final={final} published=no')
+
+
+def adopt_pkg(args):
+    """Put a separately notarized package into the app's final directory.
+
+    Two-phase releases notarize the app first, build the installer from the
+    stapled app, and notarize that package separately. The publication phase
+    still reads one final directory, so the verified package is adopted here
+    without touching the app or the candidate archive. Adoption is retryable:
+    an interrupted run may only need to rewrite the recorded outputs.
+
+    Stapling changes the package bytes, so the final file is checked against the
+    package stage's recorded output, while the build receipt still binds the
+    submitted bytes and the app the package was built from.
+    """
+    final = Path(args.final)
+    if not final.is_dir():
+        raise ValueError(f'the final release directory {final} does not exist')
+    prepared = read_json(final / '.prepared.json')
+    identity = prepared.get('identity') or {}
+    build = identity.get('build') or {}
+    version = build.get('version')
+    if not isinstance(version, str):
+        raise ValueError(f'{final} does not describe a recorded build')
+    receipt = read_json(args.receipt)
+    if receipt.get('schema') != 1 or receipt.get('version') != version:
+        raise ValueError(f'the receipt {args.receipt} does not describe version {version}')
+    stage = Path(args.pkg_stage)
+    stage_outputs_map = (read_json(stage / 'final/.prepared.json').get('outputs') or {})
+    submitted = ((read_json(stage / 'requests.json').get('inputs') or {}).get('pkg') or {})
+    package = Path(args.pkg)
+    name = f'GRAF-{version}.pkg'
+    if package.name != name:
+        raise ValueError(f'the adopted package must be named {name}, not {package.name}')
+    if not package.is_file():
+        raise ValueError(f'the notarized package {package} does not exist')
+    recorded = stage_outputs_map.get(name)
+    if not isinstance(recorded, dict) or recorded != regular(package):
+        raise ValueError(f'the package {package} does not match the output recorded by its notarization stage')
+    if not isinstance(receipt.get('pkg'), dict) or receipt['pkg'].get('sha256') != submitted.get('sha256'):
+        raise ValueError('the build receipt does not bind the package that was submitted for notarization')
+    # The receipt already bound this app when the package phase accepted it, so
+    # adoption only extends that recorded stage; it does not re-fingerprint the
+    # stapled app, whose bytes can legitimately differ from the pre-staple build.
+    command('xcrun', 'stapler', 'validate', package)
+    target = final / name
+    if target.exists():
+        # A previous adoption copied the package but could not record it; the
+        # bytes must still be exactly the notarized ones before a retry.
+        if regular(target) != recorded:
+            raise ValueError(f'the adopted package {target} differs from the notarized bytes')
+        expected = {**prepared.get('outputs', {}), name: regular(target)}
+        if stage_outputs(final) != expected:
+            raise ValueError('prepared release output is incomplete or changed in: '
+                             + stage_difference(expected, stage_outputs(final)))
+    else:
+        # Extending a recorded stage is allowed only while its retained outputs
+        # still match the hashes that notarization recorded.
+        check_stage(final, identity)
+        with tempfile.TemporaryDirectory(dir=final) as temporary:
+            staged = Path(temporary) / name
+            shutil.copyfile(package, staged)
+            with staged.open('rb') as stream:
+                os.fsync(stream.fileno())
+            os.replace(staged, target)
+    sync_dir(final)
+    prepared['outputs'] = stage_outputs(final)
+    atomic_json(final / '.prepared.json', prepared)
+    print(f'adopted_pkg={target}')
 
 
 def upload_prepared(args):
@@ -891,6 +975,13 @@ def main():
     notary.add_argument('--pkg', required=True)
     notary.add_argument('--profile', default='graf-notary')
     notary.add_argument('--recover', action='append', default=[])
+    notary.add_argument('--kinds', choices=('both', 'zip', 'pkg'), default='both',
+                        help='submit the app, the package, or both; two-phase releases submit the app first')
+    adopt = sub.add_parser('adopt-pkg')
+    adopt.add_argument('--final', required=True)
+    adopt.add_argument('--pkg', required=True)
+    adopt.add_argument('--receipt', required=True)
+    adopt.add_argument('--pkg-stage', required=True)
     args = parser.parse_args()
     if args.action == 'swift-key':
         print(swift_key())
@@ -915,6 +1006,8 @@ def main():
         cache_inputs(args)
     elif args.action == 'cache-sparkle':
         cache_sparkle(args.output)
+    elif args.action == 'adopt-pkg':
+        adopt_pkg(args)
     elif args.action == 'upload':
         upload_prepared(args)
     elif args.action == 'notarize':
