@@ -427,9 +427,16 @@ run_prepare() {
       sh "$BUILDER" "$PKG_PATH" >/dev/null
   }
 
-  timing_begin "build_and_sign"
-  build_signed_package
-  timing_end
+  APP_NOTARY_DIR="$MACOS_DIR/.build/notary/$VERSION-$SOURCE_SHA-app"
+  PKG_NOTARY_DIR="$MACOS_DIR/.build/notary/$VERSION-$SOURCE_SHA-pkg"
+  # A resumed preparation must not rebuild: the first build overwrites the
+  # package path, and a package-phase attempt is bound to the repackaged bytes
+  # built from the stapled app.
+  if [ ! -d "$APP_NOTARY_DIR" ] && [ ! -d "$PKG_NOTARY_DIR" ]; then
+    timing_begin "build_and_sign"
+    build_signed_package
+    timing_end
+  fi
 
   timing_begin "notarize_app_wait_apple"
   # The notarization ticket lives inside the app bundle, and the installer must
@@ -441,8 +448,7 @@ run_prepare() {
     --profile "$NOTARY_PROFILE"
   timing_end
 
-  NOTARY_DIR="$MACOS_DIR/.build/notary/$VERSION-$SOURCE_SHA-app"
-  PKG_NOTARY_DIR="$MACOS_DIR/.build/notary/$VERSION-$SOURCE_SHA-pkg"
+  NOTARY_DIR="$APP_NOTARY_DIR"
   FINAL_DIR="$NOTARY_DIR/final"
   FINAL_APP="$FINAL_DIR/GRAF.app"
   FINAL_CANDIDATE_ZIP="$FINAL_DIR/GRAF-$VERSION-candidate.zip"
