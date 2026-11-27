@@ -989,3 +989,102 @@ cases можно подготовить после RED отдельно от pro
 и claim, а не ручная постановка готового delivery. Полный T068/T070, другие
 состояния чеков/уведомления, эксплуатационный FR107 и исходные launch gates
 этой детализацией не принимаются и не отменяются.
+
+## Детализация существующих T068/T070: правдивый результат продления MRC — 12.11.2026
+
+Продолжение US9/P2 с потребителями US4/US5/P1, FR-110/MRC1–MRC6.
+Это подготовка достоверного состояния перед отдельным источником письма
+method_required, не новое уведомление. Lane **high-risk-product**; Legacy
+Impact: untouched. Исходные87 task rows/marks, включая открытые T068/#4922
+и T070/#4926, сохраняются. Независимый requirements checklist
+`checklists/method-required-notices.md`:14/0, основания каждого пункта в
+`review-method-required-notices-requirements.md`; этот PASS не принимает код.
+Штатный setup-tasks использует прежнюю структуру фаз и исторические task IDs.
+
+### Подготовка и причинный RED — T068, US9; US4/US5
+
+1. После `$speckit-analyze` без CRITICAL/HIGH и sync существующих #4922/#4926
+   добавить в `apps/server/tests/integration/test_billing_renewal_planner_postgres.py`
+   причинные случаи настоящего planner→commit→новая AsyncSession→charge:
+   ValueError до POST из недоступного синтетического ключа при существующем
+   verified method; ValueError после одного MockTransport POST из неверного
+   строкового provider ID. Следующая session должна прочитать operation/invoice
+   manual_resolution и subscription pending. Старый handler должен падать
+   именно на ожидании pending, не collection/fixture ошибке. Повтор charge
+   не меняет число POST:0 до отправки/1 после неё. Сохранять исходные деньги,
+   сроки, grants, method, authority/version/key/snapshot/audit; допускаются
+   только прежние state/status/audit перехода и renewal_resolution.
+   Только disposable PostgreSQL17, настоящие LOGIN/NOBYPASSRLS роли и прежний
+   maintenance context; без .env/рабочей DSN/реальной сети, платежей или почты.
+
+### Общий источник и обработчик — T070, US9; US5
+
+2. В `apps/server/src/twobrain_rec_server/billing/renewal_charge.py` добавить
+   один query builder периода и один предикат. Ограничения модели:
+   «exact workspace, kind=renewal, JSON `paid_through_at`, равный
+   UTC ISO8601 текущего subscription.paid_through по существующему формату»;
+   «Без paid_through нет такой выборки». `canceled|succeeded` завершены;
+   `scheduled` без provider_id ещё не отправлена; `scheduled` с ID и остальные
+   неразрешённые состояния, включая manual_resolution, требуют проверки.
+   Отсутствие ID само по себе не доказывает отсутствие POST. Planner под
+   прежним workspace lock после Owner/initial-checkout читает FOR UPDATE до
+   catalog/method/receipt и при незавершённости сохраняет pending без новой
+   операции. Ошибку SQL не заменять пустой историей. Сохранить три окна F278,
+   immutable successors, дедупликацию и guards. Общий ValueError/TypeError
+   оставляет operation/invoice manual_resolution, subscription pending и
+   прежний audit reason; saved_method_missing→attempt_failed не дублировать.
+
+### Обе страницы и потребители — T070, US9; US4/US5
+
+3. В `apps/server/src/twobrain_rec_server/cabinet/web_routes/billing.py`
+   читать историю периода один раз на страницу, переиспользовать её для
+   projection/notice/resume. Сохранить tuple(label, nominal_first) и строковый
+   wrapper. Общие query/predicate использовать также в storage preview/resume;
+   POST resume заново проверяет историю под workspace lock. В шаблонах
+   `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_overview_content.html`
+   и `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_subscription_content.html`
+   явный unresolved renewal имеет приоритет над blockers/recurring-off и
+   верхним result=method_required. Текст/ссылка/действие строго по MRC договору
+   `contracts/notifications-support.md`: проверка прежнего результата,
+   `/billing/history#billing-help`, «Проверить результат»; при recurring-off
+   отдельно запрет будущих автоматических попыток. Скрыть competing primary
+   actions новой/досрочной оплаты/resume до разрешения; сохранить cancel,
+   историю и помощь. Новых сущностей/миграций/зависимостей/egress/писем нет.
+
+### Причинный GREEN и приёмка — T068, US9; US4/US5
+
+4. В `apps/server/tests/unit/test_renewal_charge.py` отдельно TypeError и
+   изменённые ожидания pending; в `apps/server/tests/unit/test_billing_purchases.py`
+   общий classifier/query, tuple2/string, storage/resume, SQL failure, без
+   paid_through и точные границы workspace/period/kind, finished/unsent/
+   scheduled+ID. В PostgreSQL файле шага1 настоящие сохранённые
+   manual_resolution/unknown/sent+старый method_required комбинировать с
+   missing method, price/catalog/receipt blockers; новое окно не создаёт
+   invoice/operation/POST, rollback не сохраняет pending. Контроли другой
+   период/canceled/succeeded/unsent и прежние три окна не теряют поведения.
+5. В том же PostgreSQL файле вызвать оба настоящих page handlers с сохранённым
+   post-POST manual_resolution без ID, старым method_required, каждым blocker,
+   recurring_allowed true/false и result=method_required. Не подменять
+   projection/query/notice. Проверить статус/баннер, отсутствие ложного совета
+   и nominal-first/новой quote/оплаты, наличие истории/помощи/cancel. В
+   `apps/server/tests/contract/test_billing_ui.py` и
+   `apps/server/tests/contract/test_billing_accessibility.py` закрепить только
+   необходимые template/status semantics. Прогоны штатным
+   `apps/server/scripts/run_local_postgres_tests.sh --focused`; сохранить
+   exact pre/post hashes, команды/exit/logs и штатную очистку temporary DB.
+6. Профильная регрессия MRC quickstart→независимое code review→
+   `$speckit-converge` MRC1–MRC6→Ruff/diff→собственный
+   `changes/unreleased/F140.yaml`→проверенный commit/push/PR с Refs#4922/#4926.
+   До merge точные head/current base, governance-fast/macos-pr/pr-metadata,
+   `scripts/validate-pr-checks.py`, открытые замечания и проверка результата.
+   Единственный свободный GRAF Dev, обе темы, клавиатура/VoiceOver,
+   200%/360px — отдельная ручная приёмка; Jinja/handler assertions её не заменяют.
+   Выпуск/развёртывание и настоящее получение #7524 отдельно. Исходные
+   T068/T070 остаются `[ ]`; SSN retention и прочие семьи не приняты.
+
+Зависимости: requirements14/0→tasks→Analyze→existing issue sync→RED1→
+общий источник2→потребители3→GREEN4/5→review/converge/gates6.
+Минимальный результат включает обе страницы и все общие потребители, а не
+одну заменённую строку. Независимые unit/contract случаи в разных файлах
+возможны после RED; общий renewal/routes и PG файл выполняются последовательно.
+Это возможность разделения работ, не запуск дополнительных агентов.
